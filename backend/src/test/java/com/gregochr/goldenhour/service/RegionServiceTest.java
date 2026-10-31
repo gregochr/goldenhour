@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.model.AddRegionRequest;
 import com.gregochr.goldenhour.model.SetRegionBaseRequest;
 import com.gregochr.goldenhour.model.UpdateRegionRequest;
 import com.gregochr.goldenhour.repository.BriefingRegionSnapshotRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +24,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,13 +44,16 @@ class RegionServiceTest {
     @Mock
     private BriefingRegionSnapshotRepository snapshotRepository;
 
+    @Mock
+    private LocationRepository locationRepository;
+
     private RegionService regionService;
     private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
         regionService = new RegionService(
-                regionRepository, regionDriveTimeWriter, snapshotRepository, epoch);
+                regionRepository, regionDriveTimeWriter, snapshotRepository, epoch, locationRepository);
     }
 
     // --- findAll ---
@@ -250,26 +256,102 @@ class RegionServiceTest {
     @Test
     @DisplayName("setEnabled(true) enables region")
     void setEnabled_enable_setsEnabledTrue() {
-        RegionEntity entity = buildRegion(1L, "Northumberland");
-        entity.setEnabled(false);
-        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        RegionEntity before = buildRegion(1L, "Northumberland");
+        before.setEnabled(false);
+        RegionEntity after = buildRegion(1L, "Northumberland");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(before), Optional.of(after));
 
         RegionEntity result = regionService.setEnabled(1L, true);
 
         assertThat(result.isEnabled()).isTrue();
+        // enabled is updatable = false on the entity: it must go through the scoped update, never save().
+        verify(regionRepository).updateEnabled(1L, true);
+        verify(regionRepository, never()).save(any());
     }
 
     @Test
     @DisplayName("setEnabled(false) disables region")
     void setEnabled_disable_setsEnabledFalse() {
-        RegionEntity entity = buildRegion(1L, "Northumberland");
-        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        RegionEntity before = buildRegion(1L, "Northumberland");
+        RegionEntity after = buildRegion(1L, "Northumberland");
+        after.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(before), Optional.of(after));
 
         RegionEntity result = regionService.setEnabled(1L, false);
 
         assertThat(result.isEnabled()).isFalse();
+        verify(regionRepository).updateEnabled(1L, false);
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) on a region that is already off is a no-op: no count, no write, no 409")
+    void setEnabled_alreadyOff_isNoOp() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        entity.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        RegionEntity result = regionService.setEnabled(1L, false);
+
+        assertThat(result).isSameAs(entity);
+        verifyNoInteractions(locationRepository);
+        verify(regionRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a rename saves the entity and never writes enabled through the scoped update")
+    void update_rename_doesNotTouchEnabledColumn() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.existsByName("Lakes")).thenReturn(false);
+        when(regionRepository.save(entity)).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.update(1L, new UpdateRegionRequest("Lakes"));
+
+        ArgumentCaptor<RegionEntity> captor = ArgumentCaptor.forClass(RegionEntity.class);
+        verify(regionRepository).save(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(1L);
+        assertThat(captor.getValue().getName()).isEqualTo("Lakes");
+        verify(regionRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) is refused with the plural sentence while locations are switched on")
+    void setEnabled_disableWithSwitchedOnLocations_isRefusedAndSavesNothing() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(locationRepository.countEnabledInRegion(1L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> regionService.setEnabled(1L, false))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn off its 3 locations first.");
+
+        assertThat(entity.isEnabled()).isTrue();
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) uses the singular 'its 1 location' for exactly one")
+    void setEnabled_disableWithOneSwitchedOnLocation_usesSingular() {
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(buildRegion(1L, "Northumberland")));
+        when(locationRepository.countEnabledInRegion(1L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> regionService.setEnabled(1L, false))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn off its 1 location first.");
+    }
+
+    @Test
+    @DisplayName("setEnabled(true) never consults the location count: turning a region on is always allowed")
+    void setEnabled_enable_neverCountsLocations() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        entity.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        regionService.setEnabled(1L, true);
+
+        verifyNoInteractions(locationRepository);
     }
 
     @Test

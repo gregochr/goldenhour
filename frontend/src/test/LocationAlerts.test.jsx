@@ -146,6 +146,19 @@ describe('LocationAlerts', () => {
     await waitFor(() => expect(button).toBeEnabled());
   });
 
+  it('shows the server\'s 409 sentence when Re-enable is refused because its region is off', async () => {
+    resetLocationFailures.mockRejectedValue({
+      response: { status: 409, data: { error: 'Turn Northumberland on first.' } },
+    });
+    const onReenabled = vi.fn();
+    render(<LocationAlerts locations={[AUTO_DISABLED]} onReenabledLocation={onReenabled} />);
+
+    fireEvent.click(reenableButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Turn Northumberland on first.');
+    expect(onReenabled).not.toHaveBeenCalled();
+  });
+
   it('shows the server\'s sentence on the row when Re-enable is refused, and lets the admin retry', async () => {
     resetLocationFailures.mockRejectedValue({
       response: { data: { error: 'Location not found: Bamburgh Castle' } },

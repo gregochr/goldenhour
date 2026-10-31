@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
@@ -179,6 +180,8 @@ public class LocationService {
         }
 
         RegionEntity region = resolveRegion(request.regionId());
+        // A new location starts switched on, so it may not join a switched-off region.
+        requireRegionOn(region);
         if (request.subRegionId() != null) {
             // Refuse a sub-region of another region BEFORE the location exists, so nothing is left half-made.
             subRegionMembership.requireAssignable(request.subRegionId(), region);
@@ -310,6 +313,10 @@ public class LocationService {
             RegionEntity newRegion = resolveRegion(request.regionId());
             regionChanged = location.getRegion() == null
                     || !location.getRegion().getId().equals(newRegion.getId());
+            if (regionChanged && location.isEnabled()) {
+                // Moving a switched-off location into a switched-off region is fine; a switched-on one is not.
+                requireRegionOn(newRegion);
+            }
             location.setRegion(newRegion);
         }
         if (request.subRegionId() != null) {
@@ -574,16 +581,23 @@ public class LocationService {
     /**
      * Toggles the enabled state of a location.
      *
-     * <p>When re-enabling, also clears failure tracking fields.
+     * <p>When re-enabling, also clears failure tracking fields. Switching a location on in a switched-off
+     * region is refused with a {@link RegionStateConflictException} (HTTP 409), so a switched-on location never
+     * sits in a switched-off region (data-tabs-redesign-plan D3). The region check and the write are not one
+     * atomic step against a concurrent region toggle; accepted.
      *
      * @param id      the location primary key
      * @param enabled the new enabled state
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that ID exists
+     * @throws RegionStateConflictException      if enabling while the location's region is switched off
      */
     @Transactional
     public LocationEntity setEnabled(Long id, boolean enabled) {
         LocationEntity saved = findById(id);
+        if (enabled) {
+            requireRegionOn(saved.getRegion());
+        }
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
         locationRepository.updateEnabled(saved.getId(), enabled);
@@ -622,13 +636,24 @@ public class LocationService {
      * on the roster ({@code enabled = true}); a place with no reason that is disabled was switched
      * off by an admin on purpose and stays disabled, with only its counters cleared.
      *
+     * <p>D3: a place that would be re-enabled (it carries a {@code disabledReason}) in a switched-off region is
+     * refused with a {@link RegionStateConflictException} (HTTP 409, "Turn {region} on first.") <b>before any
+     * write</b>, so the auto-disabled record, its reason and its failure counters all survive and it stays in the
+     * Needs-attention list. Clearing the reason alone would silently turn it into a manually-disabled place. A
+     * place with no reason is not re-enabled by this call, so it only has its counters cleared as before (in a
+     * switched-off region that is legacy data the invariant no longer lets arise).
+     *
      * @param name the location name to reset
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that name exists
+     * @throws RegionStateConflictException      if it would be re-enabled while its region is switched off
      */
     @Transactional
     public LocationEntity resetFailures(String name) {
         LocationEntity saved = findByName(name);
+        if (saved.getDisabledReason() != null) {
+            requireRegionOn(saved.getRegion());
+        }
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
         if (saved.getDisabledReason() != null) {
@@ -641,6 +666,28 @@ public class LocationService {
         saved.setDisabledReason(null);
         saved.setLastFailureAt(null);
         return saved;
+    }
+
+    /**
+     * Whether a region is switched on; a location with no region is never held back.
+     *
+     * @param region the region, or null
+     * @return {@code false} only for a present, switched-off region
+     */
+    private static boolean isRegionOn(RegionEntity region) {
+        return region == null || region.isEnabled();
+    }
+
+    /**
+     * Refuses a switched-on location in a switched-off region.
+     *
+     * @param region the region the location is in or is joining, or null
+     * @throws RegionStateConflictException if the region is switched off
+     */
+    private static void requireRegionOn(RegionEntity region) {
+        if (!isRegionOn(region)) {
+            throw new RegionStateConflictException("Turn " + region.getName() + " on first.");
+        }
     }
 
     /**

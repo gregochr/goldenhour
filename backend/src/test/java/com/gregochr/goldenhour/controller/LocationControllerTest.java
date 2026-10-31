@@ -29,6 +29,7 @@ import java.util.NoSuchElementException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -228,6 +229,55 @@ class LocationControllerTest extends AbstractControllerTest {
                         .content("{\"enabled\":false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id}/enabled returns 409 with the server's sentence in a switched-off region")
+    void setLocationEnabled_regionOff_returns409() throws Exception {
+        when(locationService.setEnabled(1L, true))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(put("/api/locations/1/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/locations returns 409 when the region is switched off")
+    void addLocation_regionOff_returns409() throws Exception {
+        // Stubbed on the exact request, so the test fails if the controller drops or changes regionId.
+        when(locationService.add(argThat((AddLocationRequest r) -> r != null
+                && "Rogue Bay".equals(r.name()) && Long.valueOf(1L).equals(r.regionId())
+                && r.lat() == 55.6 && r.lon() == -1.7)))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Rogue Bay\",\"lat\":55.6,\"lon\":-1.7,\"regionId\":1}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} returns 409 when moving a switched-on location into a switched-off region")
+    void updateLocation_moveIntoRegionOff_returns409() throws Exception {
+        when(locationService.update(eq(1L), argThat((UpdateLocationRequest r) -> r != null
+                && Long.valueOf(2L).equals(r.regionId()) && r.name() == null && r.lat() == null)))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"regionId\":2}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
     }
 
     @Test

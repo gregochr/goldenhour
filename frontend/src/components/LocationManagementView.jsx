@@ -9,6 +9,7 @@ import AreasSection from './AreasSection.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import { formatTimestampUk } from '../utils/conversions';
+import { apiErrorMessage } from '../utils/apiError.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 import SortableHeader from './shared/SortableHeader.jsx';
@@ -415,6 +416,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
     current.map((loc) => loc.id === toggledId ? { ...loc, enabled: !loc.enabled } : loc),
   );
   const [, startToggleTransition] = useTransition();
+  // The server's sentence for a refused on/off toggle (e.g. "Turn Northumberland on first.").
+  const [toggleError, setToggleError] = useState('');
 
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
@@ -961,6 +964,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   }
 
   function handleToggleEnabled(loc) {
+    setToggleError('');
     startToggleTransition(async () => {
       addOptimisticLocation(loc.id);
       try {
@@ -970,6 +974,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         await refreshAreas();
       } catch (err) {
         console.error('Failed to toggle location enabled:', err);
+        setToggleError(apiErrorMessage(err, 'Could not change this location.'));
       }
     });
   }
@@ -1012,6 +1017,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
             locations={locations}
             onReenabledLocation={() => { refreshLocations(); onLocationsChanged(); }}
           />
+
+          {toggleError && (
+            <p role="alert" className="text-xs text-red-400" data-testid="location-toggle-error">{toggleError}</p>
+          )}
 
           {loading && (
             <p className="text-sm text-plex-text-muted animate-pulse">Loading locations...</p>

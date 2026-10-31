@@ -53,3 +53,19 @@ agrees with the Java civil-date comparison across a BST midnight. The pick limit
 false) and the Settings picker are S4; response shaping by the picks is S3.
 
 **Health status (frontend)**: `HealthStatusProvider` (`context/HealthStatusContext.jsx`, inside `RewindGate`) owns `useHealthStatus` and the deferred (after-first-paint) `/api/status/stream`, and publishes two contexts: the full value (`checkedAt` included) read only by `HealthStatusPill` (the admin pill), and a bare `isDown` boolean (`useHealthIsDown`) that `AppInner` reads for the down banner and `contentDisabled`. A context consumer re-renders only when its value changes by identity, so the 30 s tick that changes only `checkedAt` re-renders the pill and never `App`. The hook keeps `checkedAt` in its own state and replaces the compared health object only when a field other than `checkedAt` differs (`sameHealth`). Recovery on tab wake, the expired-token session probe (#1312) and the 12 s DOWN grace are unchanged. Pinned by `AppHealthRender.test.jsx` (performance-review-2026-10-plan.md P3c).
+
+## A switched-off region never holds a switched-on location (data-tabs-redesign-plan D3, P4)
+
+The services enforce **no switched-on location in a switched-off region** at every door, each refusing with
+`RegionStateConflictException` (HTTP 409, `{error}` carrying a plain sentence the UI shows as is):
+`RegionService.setEnabled(id, false)` counts `LocationRepository.countEnabledInRegion` and refuses with
+"Turn off its {n} locations first."; `LocationService.setEnabled(id, true)`, `add` and `update` (only when it moves a
+switched-on location into a different, switched-off region) refuse with "Turn {region} on first.". Turning a region
+**on** is always allowed. `LocationService.resetFailures` of an auto-disabled place (one with a `disabledReason`) in a switched-off region is
+refused with the same 409 **before any write**, so the reason, counters and Needs-attention signal survive (clearing the
+reason alone would silently make it a manually-disabled place). A place with no reason only has its counters cleared.
+No other path re-enables a location (`LocationFailureService` only switches places off). `regions.enabled` is
+`updatable = false` and written only by `RegionRepository.updateEnabled` (the *Column-scoped writes* invariant), so a
+rename or base save cannot write a stale value back over a concurrent turn-on; `setEnabled` to the state a region is already in
+is a no-op, never a 409. No migration (`updatable = false` is a JPA mapping only):
+existing half-off data is left as is. The checks are check-then-write, not atomic against a concurrent toggle.

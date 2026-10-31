@@ -6,6 +6,7 @@ import { fetchLocations } from '../api/forecastApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 import SortableHeader from './shared/SortableHeader.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Region management view with list/add/edit modes and client-side pagination.
@@ -37,6 +38,8 @@ export default function RegionManagementView() {
   const [formBaseLon, setFormBaseLon] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // The server's sentence for a refused on/off toggle (e.g. a region that still has switched-on locations).
+  const [toggleError, setToggleError] = useState('');
 
   // Sort state
   const [sortKey, setSortKey] = useState('name');
@@ -195,6 +198,7 @@ export default function RegionManagementView() {
   }
 
   function handleToggleEnabled(region) {
+    setToggleError('');
     startToggleTransition(async () => {
       addOptimisticRegion(region.id);
       try {
@@ -202,6 +206,7 @@ export default function RegionManagementView() {
         await refreshRegions();
       } catch (err) {
         console.error('Failed to toggle region enabled:', err);
+        setToggleError(apiErrorMessage(err, 'Could not change this region.'));
       }
     });
   }
@@ -225,6 +230,10 @@ export default function RegionManagementView() {
               + Add Region
             </button>
           </div>
+
+          {toggleError && (
+            <p role="alert" className="text-xs text-red-400" data-testid="region-toggle-error">{toggleError}</p>
+          )}
 
           {loading && (
             <p className="text-sm text-plex-text-muted animate-pulse">Loading regions...</p>

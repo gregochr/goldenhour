@@ -196,6 +196,24 @@ describe('RegionManagementView', () => {
     });
   });
 
+  it('shows the server\'s sentence when turning a region off is refused (D3 409)', async () => {
+    setRegionEnabled.mockRejectedValue({
+      response: { status: 409, data: { error: 'Turn off its 2 locations first.' } },
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    render(<RegionManagementView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('toggle-region-enabled-1')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+
+    expect(await screen.findByTestId('region-toggle-error'))
+      .toHaveTextContent('Turn off its 2 locations first.');
+    consoleError.mockRestore();
+  });
+
   // --- Pagination tests ---
 
   it('paginates regions when more than page size', async () => {

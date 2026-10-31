@@ -171,6 +171,21 @@ class RegionControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/regions/{id}/enabled returns 409 with the server's sentence when locations are on")
+    void setRegionEnabled_switchedOnLocations_returns409() throws Exception {
+        when(regionService.setEnabled(1L, false))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn off its 2 locations first."));
+
+        mockMvc.perform(put("/api/regions/1/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn off its 2 locations first."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/regions/{id}/enabled returns 404 when region does not exist")
     void setRegionEnabled_notFound_returns404() throws Exception {
         when(regionService.setEnabled(999L, false))
