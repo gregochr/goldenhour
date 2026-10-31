@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceArea, CartesianGrid, Legend,
 } from 'recharts';
+import { getAvailableModels } from '../api/modelsApi.js';
 import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalRun, getSkyRatingEvalTrend,
 } from '../api/skyRatingEvalApi';
@@ -13,13 +14,90 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
-const MODELS = ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'];
 const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
 const DEFAULT_RUNS_PER_FIXTURE = 8;
 const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
 const FIXTURE_COLOURS = ['#a78bfa', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#fb923c', '#22d3ee'];
 const MODEL_COLOURS = { HAIKU: '#60a5fa', HAIKU_55: '#38bdf8', SONNET: '#a78bfa', SONNET_55: '#c084fc', OPUS: '#fbbf24' };
+const FALLBACK_MODEL_COLOURS = ['#2dd4bf', '#f472b6', '#a3e635', '#fb7185', '#818cf8', '#e879f9'];
+const Y_AXIS_FLOOR_STEP = 10;
+const Y_AXIS_FLOOR_MARGIN = 5;
+
+/**
+ * Tailwind classes for a model's family, decided by name prefix so a newly added model is styled
+ * without an edit here: Haiku is blue, Sonnet purple, anything else (Opus, a future family) amber.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @returns {{text: string, badge: string}} the radio-label text class and the table-badge classes
+ */
+export function modelClasses(model) {
+  const name = model || '';
+  if (name.startsWith('HAIKU')) return { text: 'text-blue-300', badge: 'bg-blue-900/30 text-blue-300' };
+  if (name.startsWith('SONNET')) return { text: 'text-purple-300', badge: 'bg-purple-900/30 text-purple-300' };
+  return { text: 'text-amber-300', badge: 'bg-amber-900/30 text-amber-300' };
+}
+
+/**
+ * The line colour for a model: its known colour, or a fallback cycled by position so an unknown
+ * (new) model still draws a visible line.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @param {number} index - the model's position among the plotted models
+ * @returns {string} a hex colour
+ */
+export function modelColour(model, index) {
+  if (Object.prototype.hasOwnProperty.call(MODEL_COLOURS, model)) return MODEL_COLOURS[model];
+  return FALLBACK_MODEL_COLOURS[index % FALLBACK_MODEL_COLOURS.length];
+}
+
+/**
+ * Estimated cost of one scoring call. A model with no entry is priced at the highest known rate,
+ * a conservative estimate, so the confirm dialog never shows NaN.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @returns {number} dollars per call
+ */
+export function costPerCall(model) {
+  if (Object.prototype.hasOwnProperty.call(COST_PER_CALL, model)) return COST_PER_CALL[model];
+  return Math.max(...Object.values(COST_PER_CALL));
+}
+
+/**
+ * The models to draw on the accuracy chart: every distinct model among the completed runs (so a
+ * retired model's history stays drawn), ordered by the fetched model list, then any others
+ * alphabetically.
+ *
+ * @param {Array<{status: string, model: string}>} runs - eval runs
+ * @param {string[]} fetchedModels - model names from the models endpoint, in display order
+ * @returns {string[]} model names in plotting order
+ */
+export function orderModelsPresent(runs, fetchedModels) {
+  const present = [...new Set(runs.filter((r) => r.status === 'COMPLETED').map((r) => r.model))];
+  const rank = (m) => {
+    const i = fetchedModels.indexOf(m);
+    return i === -1 ? Infinity : i;
+  };
+  return present.sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra === Infinity ? 1 : rb === Infinity ? -1 : ra - rb;
+    return a.localeCompare(b);
+  });
+}
+
+/**
+ * The lower bound of the accuracy chart's Y axis: the lowest plotted value less a margin, floored
+ * to a multiple of ten and clamped at zero, so lines clustered near 100% are not squashed.
+ *
+ * @param {number[]} values - the plotted percentages
+ * @returns {number} the axis minimum
+ */
+export function accuracyDomainFloor(values) {
+  if (!values.length) return 0;
+  const floored = Math.floor((Math.min(...values) - Y_AXIS_FLOOR_MARGIN) / Y_AXIS_FLOOR_STEP) * Y_AXIS_FLOOR_STEP;
+  return Math.max(0, floored);
+}
 
 /**
  * The x-axis tick for a trend point — the run's date on the UK calendar.
@@ -52,6 +130,7 @@ const SkyRatingEvalView = () => {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
+  const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('SONNET');
   const [runsPerFixture, setRunsPerFixture] = useState(DEFAULT_RUNS_PER_FIXTURE);
   const [metric, setMetric] = useState('rating');
@@ -74,6 +153,19 @@ const SkyRatingEvalView = () => {
   useEffect(() => {
     (async () => { await loadAll(); })();
   }, [loadAll]);
+
+  // The platform model list comes from the backend (EvaluationModel.selectable()), so a new model
+  // appears without a frontend edit. A failure is shown but never hides the runs table or charts.
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getAvailableModels();
+        setModels((data?.available || []).map((m) => m.name));
+      } catch (err) {
+        setError(apiErrorMessage(err, err?.message || 'Failed to load the model list'));
+      }
+    })();
+  }, []);
 
   useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
 
@@ -111,7 +203,7 @@ const SkyRatingEvalView = () => {
 
   const handleRun = () => {
     const calls = fixtureCount * runsPerFixture;
-    const usd = COST_PER_CALL[selectedModel] * calls;
+    const usd = costPerCall(selectedModel) * calls;
     openDialog({
       title: 'Run Sky-Rating Eval',
       message: `Scores ${fixtureCount} fixtures × ${runsPerFixture} runs (${calls} calls) with ${modelLabel(selectedModel)}.`,
@@ -167,9 +259,13 @@ const SkyRatingEvalView = () => {
     return Object.values(byTs).reverse();
   }, [runs]);
 
-  const modelsPresent = useMemo(
-    () => MODELS.filter((m) => runs.some((r) => r.status === 'COMPLETED' && r.model === m)),
-    [runs],
+  const modelsPresent = useMemo(() => orderModelsPresent(runs, models), [runs, models]);
+
+  const accuracyFloor = useMemo(
+    () => accuracyDomainFloor(modelAccuracySeries.flatMap(
+      (point) => Object.entries(point).filter(([k, v]) => k !== 'tsLabel' && Number.isFinite(v)).map(([, v]) => v),
+    )),
+    [modelAccuracySeries],
   );
 
   const fixtureNames = Object.keys(byFixture);
@@ -196,7 +292,7 @@ const SkyRatingEvalView = () => {
       {/* Controls */}
       <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          {MODELS.map((m) => (
+          {models.map((m) => (
             <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
               <input
                 type="radio"
@@ -207,7 +303,7 @@ const SkyRatingEvalView = () => {
                 className="accent-plex-gold"
                 data-testid={`sky-eval-model-${m}`}
               />
-              <span className={m === 'HAIKU' || m === 'HAIKU_55' ? 'text-blue-300' : m === 'SONNET' || m === 'SONNET_55' ? 'text-purple-300' : 'text-amber-300'}>
+              <span className={modelClasses(m).text}>
                 {modelLabel(m)}
               </span>
             </label>
@@ -251,21 +347,22 @@ const SkyRatingEvalView = () => {
                 Model accuracy over time — % of fixture runs in band
               </p>
               <ResponsiveContainer width="100%" height={160}>
-                <LineChart data={modelAccuracySeries} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
+                <LineChart data={modelAccuracySeries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
                   <XAxis dataKey="tsLabel" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#9ca3af' }} width={32} unit="%" />
+                  <YAxis domain={[accuracyFloor, 100]} allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} width={44} unit="%" />
                   <Tooltip
                     contentStyle={{ background: '#1f2430', border: '1px solid #374151', fontSize: 12 }}
                     formatter={(v, name) => [`${v}%`, name]}
                   />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {modelsPresent.map((m) => (
+                  {modelsPresent.map((m, i) => (
                     <Line
                       key={m}
                       type="monotone"
                       dataKey={m}
-                      stroke={MODEL_COLOURS[m]}
+                      name={modelLabel(m)}
+                      stroke={modelColour(m, i)}
                       strokeWidth={2}
                       dot={{ r: 3 }}
                       connectNulls
@@ -372,11 +469,7 @@ const SkyRatingEvalView = () => {
                         <td className="py-2 pr-4 text-plex-text">{run.id}</td>
                         <td className="py-2 pr-4 text-plex-text-secondary text-xs">{formatRelative(run.runTimestamp)}</td>
                         <td className="py-2 pr-4">
-                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                            run.model === 'HAIKU' || run.model === 'HAIKU_55' ? 'bg-blue-900/30 text-blue-300'
-                              : run.model === 'SONNET' || run.model === 'SONNET_55' ? 'bg-purple-900/30 text-purple-300'
-                                : 'bg-amber-900/30 text-amber-300'}`}
-                          >
+                          <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${modelClasses(run.model).badge}`}>
                             {modelLabel(run.model)}
                           </span>
                         </td>

@@ -53,12 +53,17 @@ public class SkyRatingEvalController {
      * @param runsPerFixture how many times to score each fixture (default
      *                       {@link SkyRatingEvalService#DEFAULT_RUNS_PER_FIXTURE})
      * @return the in-progress run (202 Accepted)
+     * @throws IllegalArgumentException if the model is not selectable (mapped to 400)
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SkyRatingEvalRunEntity> run(
             @RequestParam(defaultValue = "SONNET") EvaluationModel model,
             @RequestParam(required = false) Integer runsPerFixture) {
+        if (!model.isSelectable()) {
+            throw new IllegalArgumentException("Model " + model + " cannot be evaluated; choose one of "
+                    + EvaluationModel.selectable());
+        }
         int runs = runsPerFixture != null ? runsPerFixture : SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE;
         SkyRatingEvalRunEntity started = service.startRun(model, SkyRatingEvalTrigger.MANUAL, runs);
         CompletableFuture.runAsync(() -> service.executeRun(started.getId()), asyncExecutor);

@@ -65,9 +65,12 @@ public class SkyRatingEvalService {
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
-    /** Models the scheduled eval scores each week, for cross-model accuracy/drift comparison. */
-    public static final List<EvaluationModel> SCHEDULED_MODELS =
-            List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+    /**
+     * Models the scheduled eval scores each week, for cross-model accuracy/drift comparison: every
+     * {@link EvaluationModel#selectable() selectable} model, so a newly added platform model joins
+     * the weekly eval without an edit here. Each model adds one weekly run (cost).
+     */
+    public static final List<EvaluationModel> SCHEDULED_MODELS = EvaluationModel.selectable();
 
     /** Scheduler job key — matches the seed row in V118 and the registered runnable. */
     public static final String JOB_KEY = "sky_rating_eval";
@@ -194,8 +197,8 @@ public class SkyRatingEvalService {
     /**
      * Entry point for the scheduler: scores every fixture with EACH model in
      * {@link #SCHEDULED_MODELS}, one persisted run per model, so the weekly cadence both
-     * regression-tests the prompt AND measures cross-model accuracy/drift (is Haiku as accurate as
-     * Sonnet as Opus on the ground-truth fixtures?). Each model's run is independent — one model's
+     * regression-tests the prompt AND measures cross-model accuracy/drift (is each selectable model as
+     * accurate as the others on the ground-truth fixtures?). Each model's run is independent — one model's
      * failure is logged and does not abort the others. Synchronous today; the per-model runs are the
      * unit a future batched execution layer would submit.
      *
