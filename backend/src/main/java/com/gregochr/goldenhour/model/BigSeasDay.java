@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDate;
@@ -32,6 +33,7 @@ import java.util.List;
  * @param daylightEnd      the anchor structure's own sunset (UTC, no zone); set only when
  *                         {@code daylightHighWater} is true
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BigSeasDay(
         LocalDate date,
         LocalDateTime windowStart,

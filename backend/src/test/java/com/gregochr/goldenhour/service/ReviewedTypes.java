@@ -26,8 +26,8 @@ final class ReviewedTypes {
         return Map.ofEntries(
         entry("DailyBriefingResponse", Set.of(
                 "allowedLocationIds", "auroraTomorrow", "auroraTonight", "bestBetModel", "bestBetStatus",
-                "bestBets", "bestBetsWithdrawn", "bigSeas", "days", "failedLocationCount", "generatedAt",
-                "headline", "hotTopics", "partialFailure", "previousGeneratedAt", "renderedEvents",
+                "bestBets", "bestBetsWithdrawn", "bigSeas", "days", "generatedAt",
+                "headline", "hotTopics", "previousGeneratedAt", "renderedEvents",
                 "seasonalFeatures", "stale")),
         entry("BriefingDay", Set.of(
                 "date", "eventSummaries", "peak")),
@@ -35,14 +35,14 @@ final class ReviewedTypes {
                 "regions", "shapedLeadRegion", "solarEventTime", "targetType", "unregioned", "window")),
         entry("BriefingRegion", Set.of(
                 "bestRating", "confidence", "coverageReason", "displayVerdict", "forcedSample", "glossDetail",
-                "glossHeadline", "lightlyEvaluated", "meanRating", "meanRatingDelta", "picksBestRating",
+                "glossHeadline", "meanRating", "meanRatingDelta", "picksBestRating",
                 "regionApparentTemperatureCelsius", "regionName", "regionTemperatureCelsius",
                 "regionWeatherCode", "regionWindSpeedMs", "sampleSufficient", "scoredLocationCount", "slots",
                 "summary", "tideHighlights", "verdict", "verdictLabel")),
         entry("BriefingSlot", Set.of(
                 "canopy", "claudeHeadline", "claudeRating", "claudeSummary", "displayVerdict", "eclipse",
                 "fierySkyPotential", "flags", "gated", "goldenHourPotential", "locationId", "locationName",
-                "neighbourOutlier", "skyRating", "solarEventTime", "standdownReason", "tide", "verdict",
+                "neighbourOutlier", "skyRating", "solarEventTime", "tide", "verdict",
                 "weather")),
         entry("BriefingSlot$WeatherConditions", Set.of(
                 "apparentTemperatureCelsius", "highCloudPercent", "humidityPercent", "lowCloudPercent",
@@ -61,7 +61,7 @@ final class ReviewedTypes {
                 "key", "time")),
         entry("BriefingWindow", Set.of(
                 "badges", "bestRating", "confidence", "eventTime", "pick", "tide", "tideFacts",
-                "topRarityRank", "verdict")),
+                "verdict")),
         entry("BriefingWindow$Pick", Set.of(
                 "averageRating", "detail", "headline", "kind", "locationId", "locationName", "regionName")),
         entry("BriefingWindow$Badge", Set.of(
@@ -125,8 +125,8 @@ final class ReviewedTypes {
         entry("NlcWindow", Set.of(
                 "azimuth", "end", "start")),
         entry("TideRunDay", Set.of(
-                "aligned", "alignedEvent", "alignmentPhrase", "bestAligned", "dayCount", "dayLabel",
-                "dayNumber", "highWater", "highWaterAnomaly", "highWaterRank", "locationName", "peak",
+                "aligned", "alignedEvent", "dayCount", "dayLabel",
+                "dayNumber", "highWater", "locationName", "peak",
                 "phrase", "range", "rangeAnomaly", "roster", "runLabel", "seas", "sunrise", "sunset", "tides",
                 "verdict")),
         entry("TideRunDay$Extreme", Set.of(

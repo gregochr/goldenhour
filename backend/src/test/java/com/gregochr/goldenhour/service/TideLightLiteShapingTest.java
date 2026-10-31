@@ -45,10 +45,9 @@ class TideLightLiteShapingTest {
 
     private static TideRunDay runDay() {
         return new TideRunDay("KING RUN", 2, 4, "WED 28", "St Mary's", "4.2 m", "+0.4", "5.8 m",
-                "+0.4 m over spring", "highest recorded here", "06:41", "16:55", "0.3 m · smooth",
+                "06:41", "16:55", "0.3 m · smooth",
                 List.of(new TideRunDay.Extreme("H", "07:12")), "HW 07:12 · 31m after sunrise",
-                true, true, "sunrise", "HW 07:12 · 31m after sunrise",
-                new TideRunDay.RosterAlignment(47, 3, 61), true, "high water floods the foreshore");
+                true, "sunrise", new TideRunDay.RosterAlignment(47, 3, 61), true, "high water floods the foreshore");
     }
 
     private static ExpandedHotTopicDetail expanded() {
@@ -82,12 +81,11 @@ class TideLightLiteShapingTest {
 
     private static DailyBriefingResponse briefing(List<HotTopic> topics, List<BriefingWindow.Badge> badges,
             List<BigSeasDay> bigSeas) {
-        BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null, badges, null,
-                null, null);
+        BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null, badges, null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(),
                 AT, window);
         return new DailyBriefingResponse(AT, "h", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, false, 0, null, topics, List.of()).withBigSeas(bigSeas);
+                List.of(), null, null, false, null, topics, List.of()).withBigSeas(bigSeas);
     }
 
     private static BriefingWindow windowOf(DailyBriefingResponse r) {
@@ -196,8 +194,8 @@ class TideLightLiteShapingTest {
     @DisplayName("Every TideRunDay component goes with the tideRun: the run row is stripped whole")
     void everyTideRunDayComponentIsClassifiedAsStrippedWhole() {
         Set<String> strippedWhole = Set.of("runLabel", "dayNumber", "dayCount", "dayLabel", "locationName",
-                "range", "rangeAnomaly", "highWater", "highWaterAnomaly", "highWaterRank", "sunrise", "sunset",
-                "seas", "tides", "verdict", "aligned", "bestAligned", "alignedEvent", "alignmentPhrase",
+                "range", "rangeAnomaly", "highWater", "sunrise", "sunset",
+                "seas", "tides", "verdict", "aligned", "alignedEvent",
                 "roster", "peak", "phrase");
 
         assertThat(names(TideRunDay.class))

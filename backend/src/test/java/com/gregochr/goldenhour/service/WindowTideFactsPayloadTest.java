@@ -69,8 +69,7 @@ class WindowTideFactsPayloadTest {
                 (int) (id % 100), new BigDecimal("0.1"), 24000, 71, 9.4, 7.1, 3,
                 new BigDecimal("4.2"), (int) (id % 90), (int) (id % 70));
         return new BriefingSlot(id, name, LocalDateTime.of(2026, 10, 8 + day, sunrise ? 6 : 17, 40),
-                Verdict.GO, weather, tide, List.of("Clear horizon", "Low wind"), null,
-                3 + (int) (id % 3), 3, 60, 55,
+                Verdict.GO, weather, tide, List.of("Clear horizon", "Low wind"), 3 + (int) (id % 3), 3, 60, 55,
                 "Broken mid cloud should catch the first colour; low cloud is thin at the horizon.",
                 DisplayVerdict.MAYBE, "Colour likely", false, null);
     }
@@ -95,7 +94,7 @@ class WindowTideFactsPayloadTest {
                     regions.add(new BriefingRegion("Region " + r, Verdict.GO, "Clear at 12 of 40",
                             List.of(), perRegion.get(r), 9.4, 7.1, 4.2, 3,
                             "Gloss headline for the region", "Gloss detail sentence.",
-                            DisplayVerdict.MAYBE, 20, null, false, null));
+                            DisplayVerdict.MAYBE, 20, null, null));
                 }
                 summaries.add(new BriefingEventSummary(
                         sunrise ? TargetType.SUNRISE : TargetType.SUNSET, regions, List.of()));
@@ -103,7 +102,7 @@ class WindowTideFactsPayloadTest {
             days.add(new BriefingDay(START.plusDays(d), summaries));
         }
         DailyBriefingResponse raw = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0),
-                "headline", days, List.of(), null, null, false, false, 0, null, List.of(),
+                "headline", days, List.of(), null, null, false, null, List.of(),
                 List.of());
         Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts = withFacts
                 ? WindowTideFactProjector.project(days) : Map.of();

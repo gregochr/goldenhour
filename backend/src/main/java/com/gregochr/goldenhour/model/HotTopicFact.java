@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -31,6 +32,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *                 than in the muted secondary colour
  * @param optional whether this chip is dropped on narrow viewports (the topic's least-critical fact)
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record HotTopicFact(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String key,

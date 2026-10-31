@@ -102,8 +102,8 @@ class ServedBriefingAssembler {
      * the slot-tide strip. Nothing serves it on its own.
      *
      * @param snapshot         the cached briefing, or {@code null} if none has been built yet
-     * @param minCoverageRatio the honesty filter's lightly-evaluated threshold; see {@link
-     *                         BriefingHonestyFilter#apply(DailyBriefingResponse, double)}
+     * @param minCoverageRatio the coverage threshold threaded to the honesty filter, where it no longer
+     *                         has any effect; see {@link BriefingHonestyFilter#apply(DailyBriefingResponse, double)}
      * @return the enriched, fallback-applied, honesty-filtered response, or {@code null} if
      *         {@code snapshot} was {@code null}
      */
@@ -123,7 +123,7 @@ class ServedBriefingAssembler {
      * {@link PlanWindowProjector}. Backs {@link BriefingService#getCachedBriefingForApi()}.
      *
      * @param snapshot         the cached briefing, or {@code null} if none has been built yet
-     * @param minCoverageRatio the honesty filter's lightly-evaluated threshold
+     * @param minCoverageRatio the coverage threshold threaded to the honesty filter (no longer has any effect there)
      * @return the fully assembled API payload, or {@code null} if {@code snapshot} was {@code null}
      */
     DailyBriefingResponse assembleForPlan(DailyBriefingResponse snapshot, double minCoverageRatio) {

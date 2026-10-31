@@ -1272,7 +1272,6 @@ class UserSettingsServiceTest {
             UserSettingsResponse response = service.getSettings(auth);
 
             assertThat(response.postcodePromptDue()).isTrue();
-            assertThat(response.postcodePromptDismissedAt()).isNull();
         }
 
         @Test
@@ -1287,7 +1286,7 @@ class UserSettingsServiceTest {
         }
 
         @Test
-        @DisplayName("due is false with a dismissal and no postcode, and the instant is served")
+        @DisplayName("due is false with a dismissal and no postcode")
         void notDue_withADismissal() {
             stubAuth();
             AppUserEntity user = buildUser();
@@ -1297,7 +1296,6 @@ class UserSettingsServiceTest {
             UserSettingsResponse response = service.getSettings(auth);
 
             assertThat(response.postcodePromptDue()).isFalse();
-            assertThat(response.postcodePromptDismissedAt()).isEqualTo(NOW);
         }
 
         @Test
@@ -1339,7 +1337,6 @@ class UserSettingsServiceTest {
 
             assertThat(response.homePostcode()).isEqualTo(DURHAM);
             assertThat(response.postcodePromptDue()).isFalse();
-            assertThat(response.postcodePromptDismissedAt()).isNull();
         }
 
         @Test
@@ -1357,7 +1354,6 @@ class UserSettingsServiceTest {
 
             verify(userRepository).updatePostcodePromptDismissedAtByUsername(USERNAME, NOW);
             verify(userRepository, never()).save(any());
-            assertThat(response.postcodePromptDismissedAt()).isEqualTo(NOW);
             assertThat(response.postcodePromptDue()).isFalse();
             // The write is not a geocode: no postcodes.io call on this path.
             verifyNoInteractions(postcodesIoClient);

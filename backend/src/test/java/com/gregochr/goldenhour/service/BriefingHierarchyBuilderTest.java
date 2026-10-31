@@ -101,7 +101,7 @@ class BriefingHierarchyBuilderTest {
             return new BriefingSlot(name, LocalDateTime.of(2026, 3, 26, 18, 0), verdict,
                     new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                             temp, apparentTemp, weatherCode, BigDecimal.valueOf(wind), 0, 0),
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
         }
 
         @Test
@@ -150,7 +150,7 @@ class BriefingHierarchyBuilderTest {
                     new BriefingSlot("A", LocalDateTime.of(2026, 3, 26, 18, 0), Verdict.GO,
                             new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                                     null, null, null, BigDecimal.ONE, 0, 0),
-                            BriefingSlot.TideInfo.NONE, List.of(), null));
+                            BriefingSlot.TideInfo.NONE, List.of()));
             BriefingRegion region = builder.buildRegion("Test", slots);
 
             assertThat(region.regionTemperatureCelsius()).isNull();
@@ -225,14 +225,14 @@ class BriefingHierarchyBuilderTest {
                 LocalDateTime.of(2026, 3, 25, 18, 0), verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static BriefingSlot slotAt(String name, Verdict verdict, LocalDateTime time) {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static LocationEntity location(String name, String regionName) {
@@ -258,14 +258,14 @@ class BriefingHierarchyBuilderTest {
             return BriefingSlot.canopySlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.GO,
                     new BriefingSlot.WeatherConditions(95, java.math.BigDecimal.ZERO, 3000, 95,
                             9.0, 8.0, 3, java.math.BigDecimal.ONE, 85, 20),
-                    List.of("Mist", "Soft even light"), null);
+                    List.of("Mist", "Soft even light"));
         }
 
         private BriefingSlot skyStanddown(String name) {
             return new BriefingSlot(name, LocalDateTime.of(2026, 10, 12, 7, 30), Verdict.STANDDOWN,
                     new BriefingSlot.WeatherConditions(95, java.math.BigDecimal.ZERO, 3000, 95,
                             9.0, 8.0, 3, java.math.BigDecimal.ONE, 85, 20),
-                    BriefingSlot.TideInfo.NONE, List.of(), "Heavy cloud");
+                    BriefingSlot.TideInfo.NONE, List.of());
         }
 
         // rollUpVerdict fires GO at 20% of viable slots, so one overcast wood could carry a whole
@@ -284,7 +284,7 @@ class BriefingHierarchyBuilderTest {
             List<BriefingSlot> unmarked = slots.stream()
                     .map(sl -> sl.canopy()
                             ? new BriefingSlot(sl.locationName(), sl.solarEventTime(), sl.verdict(),
-                                    sl.weather(), sl.tide(), sl.flags(), sl.standdownReason())
+                                    sl.weather(), sl.tide(), sl.flags())
                             : sl)
                     .toList();
             BriefingRegion contaminated = builder.buildRegion("Tyne and Wear", unmarked);

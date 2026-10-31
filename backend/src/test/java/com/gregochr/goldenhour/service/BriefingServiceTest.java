@@ -43,7 +43,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -537,23 +536,23 @@ class BriefingServiceTest {
             LocalDateTime sunsetTime = LocalDateTime.of(BST_DAY, LocalTime.of(19, 30));
             List<BriefingSlot> fiveRatedSlots = new ArrayList<>();
             fiveRatedSlots.add(new BriefingSlot("Bamburgh", sunsetTime,
-                            Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                            Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of())
                     .withClaudeScores(4, 60, 55, "summary"));
             for (int i = 1; i <= 4; i++) {
                 fiveRatedSlots.add(new BriefingSlot("Coastal " + i, sunsetTime,
-                                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of())
                         .withClaudeScores(4, 60, 55, "summary"));
             }
             BriefingRegion region = new BriefingRegion(
                     "North East", Verdict.GO, "summary", List.of(),
                     fiveRatedSlots,
                     14.0, 13.0, 4.5, 3, "Breaking clear at dusk", "Low cloud clears from the west.",
-                    DisplayVerdict.WORTH_IT, 5, null, false, Confidence.HIGH);
+                    DisplayVerdict.WORTH_IT, 5, null, Confidence.HIGH);
             DailyBriefingResponse persisted = new DailyBriefingResponse(
                     LocalDateTime.of(BST_DAY, LocalTime.NOON), "headline",
                     List.of(new BriefingDay(BST_DAY, List.of(
                             new BriefingEventSummary(TargetType.SUNSET, List.of(region), List.of())))),
-                    List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                    List.of(), null, null, false, null, List.of(), List.of());
             ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
@@ -858,7 +857,6 @@ class BriefingServiceTest {
         // All locations failed → below 50% threshold, no LKG → partial result served
         DailyBriefingResponse cached = briefingService.getCachedBriefing();
         assertThat(cached).isNotNull();
-        assertThat(cached.failedLocationCount()).isEqualTo(1);
     }
 
     @Test
@@ -890,7 +888,6 @@ class BriefingServiceTest {
         DailyBriefingResponse staleCached = briefingService.getCachedBriefing();
         assertThat(staleCached).isNotNull();
         assertThat(staleCached.stale()).isTrue();
-        assertThat(staleCached.partialFailure()).isTrue();
     }
 
     @Test
@@ -922,7 +919,6 @@ class BriefingServiceTest {
         assertThat(cached).isNotNull();
         assertThat(cached.stale()).isFalse();
         // With batch API, all locations succeed or fail together
-        assertThat(cached.failedLocationCount()).isZero();
     }
 
     @Test
@@ -931,7 +927,7 @@ class BriefingServiceTest {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         DailyBriefingResponse persisted = new DailyBriefingResponse(
                 LocalDateTime.now(ZoneOffset.UTC), "Test headline", List.of(), List.of(),
-                null, null, false, false, 0, "Opus", List.of(), List.of());
+                null, null, false, "Opus", List.of(), List.of());
         DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
         entity.setId(1);
         entity.setGeneratedAt(persisted.generatedAt());
@@ -1100,7 +1096,6 @@ class BriefingServiceTest {
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
-            assertThat(cached.failedLocationCount()).isZero();
         }
 
         @Test
@@ -1199,7 +1194,6 @@ class BriefingServiceTest {
             // Second: ungrouped location
             assertThat(batchCoords.get(1)[0]).isEqualTo(ungrouped.getLat());
 
-            assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
 
         @Test
@@ -1273,7 +1267,6 @@ class BriefingServiceTest {
                     org.mockito.ArgumentCaptor.forClass(List.class);
             verify(openMeteoClient).fetchForecastBriefingBatch(captor.capture());
             assertThat(captor.getValue()).hasSize(1);
-            assertThat(briefingService.getCachedBriefing().failedLocationCount()).isZero();
         }
 
         @Test
@@ -1332,7 +1325,6 @@ class BriefingServiceTest {
             // Briefing still completes despite save failure
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
-            assertThat(cached.failedLocationCount()).isZero();
         }
 
         @Test
@@ -1363,7 +1355,6 @@ class BriefingServiceTest {
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
             // Both locations in the group failed (batch failure)
-            assertThat(cached.failedLocationCount()).isEqualTo(2);
         }
 
         private void stubSolarTimes(LocationEntity loc) {
@@ -1408,7 +1399,6 @@ class BriefingServiceTest {
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
-            assertThat(cached.failedLocationCount()).isEqualTo(1);
         }
 
         @Test
@@ -1473,7 +1463,6 @@ class BriefingServiceTest {
 
             DailyBriefingResponse cached = briefingService.getCachedBriefing();
             assertThat(cached).isNotNull();
-            assertThat(cached.failedLocationCount()).isEqualTo(2); // loc1 + loc2
         }
 
         private void stubSolarTimes(LocationEntity loc) {
@@ -1540,7 +1529,7 @@ class BriefingServiceTest {
             ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
             DailyBriefingResponse persisted = new DailyBriefingResponse(
                     LocalDateTime.now(ZoneOffset.UTC), "Loaded headline", List.of(), List.of(),
-                    null, null, false, false, 0, "Haiku", List.of(), List.of());
+                    null, null, false, "Haiku", List.of(), List.of());
             DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
             entity.setId(1);
             entity.setGeneratedAt(persisted.generatedAt());
@@ -1830,8 +1819,6 @@ class BriefingServiceTest {
             assertThat(overlaid.days()).isEqualTo(original.days());
             assertThat(overlaid.bestBets()).isEqualTo(original.bestBets());
             assertThat(overlaid.stale()).isEqualTo(original.stale());
-            assertThat(overlaid.partialFailure()).isEqualTo(original.partialFailure());
-            assertThat(overlaid.failedLocationCount()).isEqualTo(original.failedLocationCount());
             assertThat(overlaid.bestBetModel()).isEqualTo(original.bestBetModel());
             assertThat(overlaid.seasonalFeatures()).isEqualTo(original.seasonalFeatures());
         }
@@ -2037,33 +2024,6 @@ class BriefingServiceTest {
         }
 
         /**
-         * Kills BooleanReturnValsMutator at L256 (partialFailure = false constant).
-         * 2 locations with one null batch entry → succeeded=1, failed=1 → above 50% threshold.
-         * The cached response must report partialFailure=true.
-         */
-        @Test
-        @DisplayName("partial failure above threshold — cached response has partialFailure=true")
-        void partialFailureAboveThreshold_partialFailureFlagTrue() {
-            LocationEntity loc1 = locationWithId(1L, "Durham", 55.0, -1.5);
-            LocationEntity loc2 = locationWithId(2L, "Whitby", 54.4, -0.6);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            stubSolarTimes(loc1);
-            stubSolarTimes(loc2);
-            // loc1 succeeds, loc2's entry is null → succeeded=1, failed=1 → 50% threshold
-            when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
-                    .thenReturn(Arrays.asList(buildForecastResponse(), null));
-
-            briefingService.refreshBriefing();
-
-            DailyBriefingResponse cached = briefingService.getCachedBriefing();
-            assertThat(cached).isNotNull();
-            assertThat(cached.partialFailure()).isTrue();
-            assertThat(cached.stale()).isFalse();
-        }
-
-        /**
          * Kills MathMutator at L258 (division replaced by multiplication).
          * 1 succeed + 2 fail (total=3): real=(1*100/3)=33 &lt; 50 → below threshold.
          * Mutant=(1*100*3)=300 &ge; 50 → above threshold. With LKG present, real serves stale.
@@ -2177,24 +2137,6 @@ class BriefingServiceTest {
             briefingService.refreshBriefing();
 
             verify(bestBetAdvisor).advise(anyList(), any(), any());
-        }
-
-        /**
-         * Kills ConditionalsBoundaryMutator at L256 that changes "failed > 0" to "failed >= 0".
-         * When all locations succeed (failed=0), partialFailure must be false.
-         */
-        @Test
-        @DisplayName("all locations succeed — partialFailure is false")
-        void allLocationsSucceed_partialFailureFalse() {
-            LocationEntity loc = location("Durham", null);
-            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-            when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
-                    .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-            stubSolarTimes(loc);
-
-            briefingService.refreshBriefing();
-
-            assertThat(briefingService.getCachedBriefing().partialFailure()).isFalse();
         }
 
         /**
@@ -3652,51 +3594,6 @@ class BriefingServiceTest {
                     .allSatisfy(es -> assertThat(es.window()).isNull());
         }
 
-        @Test
-        @DisplayName("Positive-but-below-threshold coverage is flagged lightlyEvaluated, not silently disabled")
-        void lightlyEvaluatedTierFiresWithConfiguredRatio() {
-            // The wiring tripwire for BriefingHonestyFilter's second coverage tier.
-            // minCoverageRatio is a field-injected @Value (BriefingService ~line 145) that plain
-            // `new BriefingService(...)` never populates — every OTHER test in this class runs
-            // with it defaulted to 0.0, which disables this tier entirely (0.0 can never be
-            // exceeded by a positive ratio). That is exactly the failure mode this test exists to
-            // catch: constructing ServedBriefingAssembler inside BriefingService's constructor
-            // before Spring populates this field would capture a permanent 0.0, and this tier
-            // would silently never fire in production either — with every existing test still
-            // green, because none of them set the ratio. See
-            // docs/engineering/served-briefing-assembler-plan.md, "Two wiring routes that fail
-            // SILENTLY", route 2.
-            ReflectionTestUtils.setField(briefingService, "minCoverageRatio", 0.5);
-            LocationEntity alnmouth = LocationEntity.builder()
-                    .id(3L).name("Alnmouth").lat(55.4).lon(-1.6)
-                    .locationType(Set.of(LocationType.LANDSCAPE))
-                    .tideType(Set.of())
-                    .solarEventType(Set.of(SolarEventType.SUNSET))
-                    .region(RegionEntity.builder().name("North East").build())
-                    .enabled(true).createdAt(LocalDateTime.now()).build();
-            stubFullRefresh(List.of(bamburgh(), seahouses(), alnmouth));
-            // Only Bamburgh is rated, at both build and serve — 1 of 3 scoreable slots, a ratio
-            // of 0.33: positive, but below the 0.5 threshold just configured.
-            stubBuildIndex(Map.of("Bamburgh", scored("Bamburgh", 4)));
-            stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 4)));
-
-            briefingService.refreshBriefing();
-            BriefingRegion served =
-                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
-
-            assertThat(served.lightlyEvaluated())
-                    .as("1 of 3 scoreable is below the configured 0.5 ratio, but still positive")
-                    .isTrue();
-            // Not the full rewrite: real slots and a real summary survive — only flagged, nothing
-            // suppressed. Distinguishes this tier from the zero-coverage rewrite covered
-            // elsewhere in this class. (Not a slot COUNT assertion: this fixture's date-invariant
-            // sunsetUtc stub buckets every requested date's slots onto the one day whose
-            // solarEventTime it always returns, so a multi-location, multi-date build's first day
-            // carries every date's slots, not one day's worth — a pre-existing fixture quirk
-            // orthogonal to what this test checks.)
-            assertThat(served.slots()).isNotEmpty();
-            assertThat(served.summary()).isNotEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
-        }
     }
 
     // ── Run-to-run movement (heat-field plan §4.7) ────────────────────────────────

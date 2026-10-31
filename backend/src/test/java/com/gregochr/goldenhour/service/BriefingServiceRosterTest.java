@@ -36,7 +36,7 @@ class BriefingServiceRosterTest {
     /** An open-sky slot carrying no Claude rating. */
     private static BriefingSlot sky(String name) {
         return new BriefingSlot(name, DAWN, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
     }
 
     /** An open-sky slot the batch has scored. */
@@ -46,7 +46,7 @@ class BriefingServiceRosterTest {
 
     /** A canopy slot with no rating — out of the sky batch, so out of both denominators. */
     private static BriefingSlot wood(String name) {
-        return BriefingSlot.canopySlot(name, DAWN, Verdict.GO, null, List.of(), null);
+        return BriefingSlot.canopySlot(name, DAWN, Verdict.GO, null, List.of());
     }
 
     /** A canopy slot the bluebell prompt HAS scored — in coverage, still not voting. */

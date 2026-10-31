@@ -30,8 +30,6 @@ import java.time.LocalDate;
  *                                 {@code "always"} or {@code "off"}, or null when never chosen.
  *                                 Raw pass-through, deliberately not defaulted here, matching
  *                                 {@code mapColourScale}'s reasoning (map-mobile-sheet-plan.md M4).
- * @param postcodePromptDismissedAt when the caller dismissed the one-time sign-in postcode prompt
- *                                 ("Not now"), or null when they never have (V181)
  * @param postcodePromptDue        whether the app should ask this caller for a home postcode now:
  *                                 {@code true} exactly when they have no home postcode AND have
  *                                 never dismissed the prompt. Computed on the server for every
@@ -52,6 +50,5 @@ public record UserSettingsResponse(
         String mapColourScale,
         LocalDate comingUpLastSeenDate,
         String mapTideMode,
-        Instant postcodePromptDismissedAt,
         boolean postcodePromptDue) {
 }

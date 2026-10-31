@@ -28,17 +28,17 @@ class WindowTideFactsCacheJsonTest {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(10,
                 java.math.BigDecimal.ZERO, 20000, 60, 12.0, 10.0, 1, java.math.BigDecimal.ONE, 0, 0);
         return new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0), Verdict.GO,
-                weather, tide, List.of(), null);
+                weather, tide, List.of());
     }
 
     private static DailyBriefingResponse cacheShape() {
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
                 List.of(coastalSlot()), null, null, null, null, null, null,
-                DisplayVerdict.WORTH_IT, 1, null, false, null);
+                DisplayVerdict.WORTH_IT, 1, null, null);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(
                         new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     @Test
@@ -60,7 +60,7 @@ class WindowTideFactsCacheJsonTest {
     @DisplayName("a window with null tideFacts omits the key; a legacy window JSON reads back null")
     void nullTideFactsOmittedAndLegacyReadsNull() throws Exception {
         BriefingWindow none = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
-                List.of(), null, null);
+                List.of(), null);
 
         JsonNode node = mapper.valueToTree(none);
 
@@ -75,7 +75,7 @@ class WindowTideFactsCacheJsonTest {
     void tideFactsRoundTrip() throws Exception {
         LocationTideFact fact = LocationTideFact.from(coastalSlot());
         BriefingWindow w = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
-                List.of(), null, null, List.of(fact));
+                List.of(), null, List.of(fact));
 
         BriefingWindow back = mapper.readValue(mapper.writeValueAsString(w), BriefingWindow.class);
 

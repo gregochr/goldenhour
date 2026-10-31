@@ -26,7 +26,7 @@ class VerdictSampleGateTest {
     /** A rated, non-canopy voting slot. */
     private static BriefingSlot rated(String name, int rating) {
         return new BriefingSlot(name, TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null).withClaudeScores(rating, 60, 55, "s");
+                List.of()).withClaudeScores(rating, 60, 55, "s");
     }
 
     /**
@@ -38,7 +38,7 @@ class VerdictSampleGateTest {
      */
     private static BriefingSlot triaged(String name) {
         return new BriefingSlot(name, TIME, Verdict.STANDDOWN, null, BriefingSlot.TideInfo.NONE,
-                List.of(), "Grey ceiling");
+                List.of());
     }
 
     /**
@@ -48,13 +48,13 @@ class VerdictSampleGateTest {
      */
     private static BriefingSlot goVerdictSlot(String name) {
         return new BriefingSlot(name, TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
     }
 
     /** A voting slot nobody has looked at yet — beyond Gate 4's horizon, no force-eval rescue. */
     private static BriefingSlot untouched(String name) {
         return new BriefingSlot(name, TIME, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
     }
 
     @Nested

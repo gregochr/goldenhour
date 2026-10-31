@@ -21,17 +21,17 @@ class DailyBriefingResponseBigSeasTest {
 
     private static DailyBriefingResponse withBigSeas() {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h", List.of(), List.of(),
-                null, null, false, false, 0, null, List.of(), List.of(), null, null, null, null, List.of(DAY));
+                null, null, false, null, List.of(), List.of(), null, null, null, null, List.of(DAY));
     }
 
     @Test
     @DisplayName("every shorter constructor, including the 16-argument one, leaves bigSeas null")
     void constructorsDefaultToNull() {
         DailyBriefingResponse sixteen = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
-                List.of(), List.of(), null, null, false, false, 0, null, List.of(), List.of(), null, null, null,
+                List.of(), List.of(), null, null, false, null, List.of(), List.of(), null, null, null,
                 null);
         DailyBriefingResponse twelve = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "h",
-                List.of(), List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), List.of(), null, null, false, null, List.of(), List.of());
 
         assertThat(sixteen.bigSeas()).isNull();
         assertThat(twelve.bigSeas()).isNull();
@@ -55,7 +55,7 @@ class DailyBriefingResponseBigSeasTest {
     @DisplayName("withBigSeas replaces only bigSeas and can clear it")
     void withBigSeasReplacesOnlyThatField() {
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 12, 10, 6, 0), "headline",
-                List.of(), List.of(), null, null, true, false, 3, "Opus", List.of(), List.of("X"), null, true,
+                List.of(), List.of(), null, null, true, "Opus", List.of(), List.of("X"), null, true,
                 List.of(), LocalDateTime.of(2026, 12, 9, 6, 0));
 
         DailyBriefingResponse attached = base.withBigSeas(List.of(DAY));

@@ -962,7 +962,11 @@ Backend / product, out of this series' scope by the owner's instruction:
    stays as the package-private first stage of `assembleForPlan`.
 4. **`DailyBriefingResponse.stale` / `partialFailure` / `failedLocationCount`** — lose their only client
    reader in D2; v2 shows the forecast's age only. A v2 surface for "this briefing is partial" is a
-   product call.
+   product call. **Update (dead-code sweep phase D, `dead-code-sweep-plan.md` §4): `partialFailure` and
+   `failedLocationCount` were removed outright** (nothing, backend or frontend, ever read them again);
+   `stale` stays, the backend's own last-known-good flag. Every record in the briefing tree now carries
+   `@JsonIgnoreProperties(ignoreUnknown = true)` so a `daily_briefing_cache` row written before the
+   removal still loads.
 5. **Backend Javadocs that cite the v1 arm as live** (comment-only; a docs-only backend commit or
    Phase 4 cargo): `PlanRenderLimits.java:21-25` — which says of itself "Keep the two equal by hand
    until the v1 arm is removed, at which point this note goes with it"; `BriefingDayPeak.java:37-38`;

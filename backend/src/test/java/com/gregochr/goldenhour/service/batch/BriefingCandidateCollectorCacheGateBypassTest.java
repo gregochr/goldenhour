@@ -69,7 +69,7 @@ class BriefingCandidateCollectorCacheGateBypassTest {
 
     private DailyBriefingResponse tomorrowsSunrise() {
         BriefingSlot slot = new BriefingSlot(
-                "Bamburgh", TOMORROW.atTime(8, 0), Verdict.GO, null, null, List.of(), null);
+                "Bamburgh", TOMORROW.atTime(8, 0), Verdict.GO, null, null, List.of());
         BriefingRegion region = new BriefingRegion(
                 "North East", Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -77,7 +77,7 @@ class BriefingCandidateCollectorCacheGateBypassTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         return new DailyBriefingResponse(LocalDateTime.now(), null,
                 List.of(new BriefingDay(TOMORROW, List.of(summary))), List.of(),
-                null, null, false, false, 0, null, List.of(), List.of());
+                null, null, false, null, List.of(), List.of());
     }
 
     private static CandidateCollectionStrategy acceptAll(boolean bypass) {

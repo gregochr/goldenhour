@@ -161,7 +161,7 @@ class CollectForecastTasksCachedGateTest {
             LocalDate date) {
         BriefingSlot slot = new BriefingSlot(
                 locationName, date.atTime(8, 0), Verdict.GO,
-                null, null, List.of(), null);
+                null, null, List.of());
         BriefingRegion region = new BriefingRegion(
                 regionName, Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -170,7 +170,7 @@ class CollectForecastTasksCachedGateTest {
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(
                 LocalDateTime.now(), null, List.of(day), List.of(),
-                null, null, false, false, 0, null, List.of(), List.of());
+                null, null, false, null, List.of(), List.of());
     }
 
     /**

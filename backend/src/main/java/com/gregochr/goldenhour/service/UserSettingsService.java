@@ -713,7 +713,6 @@ public class UserSettingsService {
                 // and no timezone rule reaches the browser (plan D3). The instant stays stored.
                 ForecastHorizon.civilDate(user.getComingUpLastSeenAt()),
                 user.getMapTideMode(),
-                user.getPostcodePromptDismissedAt(),
                 // The one place the flag is decided, on every response this service builds: no
                 // postcode and never dismissed (plan §2 #3). A postcode saved anywhere ends it.
                 user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null);

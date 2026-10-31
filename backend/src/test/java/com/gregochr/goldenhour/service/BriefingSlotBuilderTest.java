@@ -854,7 +854,6 @@ class BriefingSlotBuilderTest {
             assertThat(slot).isNotNull();
             assertThat(slot.verdict()).isEqualTo(Verdict.MARGINAL);
             assertThat(slot.flags()).contains("Clear all layers");
-            assertThat(slot.standdownReason()).isNull();
         }
 
         @Test
@@ -913,7 +912,6 @@ class BriefingSlotBuilderTest {
 
             assertThat(slot).isNotNull();
             assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
-            assertThat(slot.standdownReason()).isNotNull();
         }
 
         @Test

@@ -47,7 +47,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, null, false));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -85,7 +85,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, null, false));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -100,7 +100,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, "temp", null, null, null, false));
+                        null, null, null, null, null, null, "temp", null, null, false));
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -137,7 +137,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapTideMode_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapTideMode(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, "always", null, false));
+                        null, null, null, null, null, null, null, null, "always", false));
 
         mockMvc.perform(put("/api/user/settings/map-tide-mode")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -175,7 +175,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markComingUpSeen(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null,
-                        java.time.LocalDate.of(2026, 8, 29), null, null, false));
+                        java.time.LocalDate.of(2026, 8, 29), null, false));
 
         mockMvc.perform(put("/api/user/settings/coming-up-seen"))
                 .andExpect(status().isOk())
@@ -310,7 +310,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_liteAllowed() throws Exception {
         when(settingsService.getSettings(any(Authentication.class))).thenReturn(
                 new UserSettingsResponse("lite", "lite@example.com", "LITE_USER", null, null, null, null,
-                        null, null, null, null, null, null, false));
+                        null, null, null, null, null, false));
 
         mockMvc.perform(get("/api/user/settings")).andExpect(status().isOk());
     }
@@ -489,17 +489,16 @@ class UserSettingsControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
-    @DisplayName("PUT /postcode-prompt-dismissed takes no body and answers the settings with the "
-            + "instant set and postcodePromptDue false")
+    @DisplayName("PUT /postcode-prompt-dismissed takes no body and answers the settings with "
+            + "postcodePromptDue false")
     void markPostcodePromptDismissed_returnsUpdatedSettings() throws Exception {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null, null, null,
-                        Instant.parse("2026-10-17T09:30:00Z"), false));
+                        false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.postcodePromptDismissedAt").value("2026-10-17T09:30:00Z"))
                 .andExpect(jsonPath("$.postcodePromptDue").value(false));
     }
 
@@ -510,7 +509,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "LITE_USER",
                         null, null, null, null, null, null, null, null, null,
-                        Instant.parse("2026-10-17T09:30:00Z"), false));
+                        false));
 
         mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
                 .andExpect(status().isOk());
@@ -530,11 +529,10 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getSettings_carriesThePromptFlag() throws Exception {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, null, null, true));
+                        null, null, null, null, null, null, null, null, null, true));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.postcodePromptDue").value(true))
-                .andExpect(jsonPath("$.postcodePromptDismissedAt").doesNotExist());
+                .andExpect(jsonPath("$.postcodePromptDue").value(true));
     }
 }

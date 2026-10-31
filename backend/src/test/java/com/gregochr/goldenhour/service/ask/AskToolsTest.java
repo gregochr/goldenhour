@@ -1002,7 +1002,7 @@ class AskToolsTest {
     void rankSpots_ratingWinsOverAStandDownReason() {
         BriefingSlot base = AskFixtures.slot(1L, "Rated", 4);
         BriefingSlot withReason = new BriefingSlot(1L, "Rated", base.solarEventTime(), base.verdict(),
-                null, base.tide(), List.of(), "Heavy low cloud", 4, 4, null, null, null,
+                null, base.tide(), List.of(), 4, 4, null, null, null,
                 base.displayVerdict(), null, false);
         BriefingRegion region = AskFixtures.region("Coast", true, withReason);
 

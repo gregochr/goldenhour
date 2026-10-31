@@ -99,19 +99,18 @@ class LitePickShaperTest {
 
     private static BriefingSlot ratedSlot(Long id, String name) {
         return new BriefingSlot(id, name, AT, Verdict.GO, weather(), BriefingSlot.TideInfo.NONE,
-                List.of("Clear all layers"), "reason", 4, 3, 70, 60, "summary", DisplayVerdict.WORTH_IT,
+                List.of("Clear all layers"), 4, 3, 70, 60, "summary", DisplayVerdict.WORTH_IT,
                 "headline", false, null, Boolean.TRUE);
     }
 
     private static BriefingRegion region(String name, List<BriefingSlot> slots) {
         return new BriefingRegion(name, Verdict.GO, "region prose", List.of("tide note"), slots, 11.0, 10.0,
                 4.0, 3, "gloss headline", "gloss detail", DisplayVerdict.WORTH_IT, slots.size(),
-                "Worth it", false, Confidence.HIGH, 3.5, 5, 0.4, true, null);
+                "Worth it", Confidence.HIGH, 3.5, 5, 0.4, true, null);
     }
 
     private static BriefingWindow window() {
-        return new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 5, Confidence.HIGH, null, List.of(), null,
-                null, null);
+        return new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 5, Confidence.HIGH, null, List.of(), null, null);
     }
 
     private static HotTopic bluebellTopic() {
@@ -140,7 +139,7 @@ class LitePickShaperTest {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, regions, unregioned, AT,
                 window);
         return new DailyBriefingResponse(AT, "headline", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, false, 0, null, topics, List.of());
+                List.of(), null, null, false, null, topics, List.of());
     }
 
     private static BriefingEventSummary eventOf(DailyBriefingResponse response) {
@@ -289,7 +288,6 @@ class LitePickShaperTest {
         assertThat(slot.claudeRating()).isNull();
         assertThat(slot.skyRating()).isNull();
         assertThat(slot.displayVerdict()).isNull();
-        assertThat(slot.standdownReason()).isNull();
         assertThat(slot.flags()).isEmpty();
         assertThat(slot.neighbourOutlier()).isNull();
         assertThat(slot.claudeSummary()).isNull();
@@ -327,7 +325,7 @@ class LitePickShaperTest {
 
     private static BriefingSlot ratedSlot(Long id, String name, int rating, boolean canopy) {
         return new BriefingSlot(id, name, AT, Verdict.GO, weather(), BriefingSlot.TideInfo.NONE,
-                List.of("Clear all layers"), "reason", rating, 3, 70, 60, "summary", DisplayVerdict.WORTH_IT,
+                List.of("Clear all layers"), rating, 3, 70, 60, "summary", DisplayVerdict.WORTH_IT,
                 "headline", canopy, null, null);
     }
 
@@ -376,7 +374,7 @@ class LitePickShaperTest {
     @DisplayName("picksBestRating: null with no allowed slot, with an unrated allowed slot, and for a blanked region")
     void picksBestRating_nullWhenNothingQualifies() {
         BriefingSlot unrated = new BriefingSlot(PICKED_ID, PICKED, AT, Verdict.GO, weather(),
-                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null, null,
+                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null,
                 DisplayVerdict.UNRATED, null, false, null, null);
         DailyBriefingResponse noAllowed = briefing(List.of(region("North East", List.of(
                 ratedSlot(UNPICKED_ID, UNPICKED, 5, false)))), List.of(), null, List.of());
@@ -408,7 +406,7 @@ class LitePickShaperTest {
     private static BriefingRegion tiered(String name, DisplayVerdict verdict, Double mean, boolean sufficient,
             List<BriefingSlot> slots) {
         return new BriefingRegion(name, Verdict.GO, "prose", List.of(), slots, 11.0, 10.0, 4.0, 3, null, null,
-                verdict, slots.size(), null, false, Confidence.HIGH, mean, 5, null, sufficient, null);
+                verdict, slots.size(), null, Confidence.HIGH, mean, 5, null, sufficient, null);
     }
 
     @Test
@@ -581,7 +579,7 @@ class LitePickShaperTest {
         BriefingWindow.Badge aurora = new BriefingWindow.Badge("AURORA", "Aurora", "Kp 6",
                 List.of(HotTopicFact.metric("kp", "6")), null, 1, null, null, null);
         BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 5, Confidence.HIGH, null,
-                List.of(bluebell, aurora), null, null, null);
+                List.of(bluebell, aurora), null, null);
 
         List<BriefingWindow.Badge> badges = eventOf(shaper.shapeBriefing(
                 briefing(List.of(), List.of(), window, List.of()), scopeOfPicked())).window().badges();
@@ -747,7 +745,7 @@ class LitePickShaperTest {
         BriefingSlot full = populated(BriefingSlot.class, PICKED_ID);
 
         assertGatedCopy(BriefingSlot.class, full, full.forGated(),
-                Set.of("verdict", "flags", "standdownReason", "claudeRating", "skyRating", "fierySkyPotential",
+                Set.of("verdict", "flags", "claudeRating", "skyRating", "fierySkyPotential",
                         "goldenHourPotential", "claudeSummary", "displayVerdict", "claudeHeadline",
                         "neighbourOutlier"),
                 Set.of("locationId", "locationName", "solarEventTime", "weather", "tide", "canopy",
@@ -850,7 +848,7 @@ class LitePickShaperTest {
         BriefingWindow shaped = window.withBestRating(null);
         assertThat(names(BriefingWindow.class)).containsExactlyInAnyOrderElementsOf(
                 union(Set.of("bestRating"), Set.of("eventTime", "verdict", "confidence", "pick", "badges",
-                        "topRarityRank", "tide", "tideFacts")));
+                        "tide", "tideFacts")));
         for (RecordComponent c : BriefingWindow.class.getRecordComponents()) {
             if (c.getName().equals("bestRating")) {
                 assertThat(get(c, window)).isNotNull();
@@ -876,7 +874,7 @@ class LitePickShaperTest {
         Set<String> kept = Set.of("regionName", "verdict", "summary", "tideHighlights",
                 "regionTemperatureCelsius", "regionApparentTemperatureCelsius", "regionWindSpeedMs",
                 "regionWeatherCode", "glossHeadline", "glossDetail", "displayVerdict", "scoredLocationCount",
-                "verdictLabel", "lightlyEvaluated", "confidence", "sampleSufficient", "forcedSample",
+                "verdictLabel", "confidence", "sampleSufficient", "forcedSample",
                 "coverageReason");
         assertThat(names(BriefingRegion.class)).as("classify every BriefingRegion component")
                 .containsExactlyInAnyOrderElementsOf(union(stripped, computed, shapedPerSlot, kept));
@@ -896,7 +894,7 @@ class LitePickShaperTest {
         assertThat(names(DailyBriefingResponse.class)).containsExactlyInAnyOrderElementsOf(union(
                 Set.of("days", "hotTopics", "allowedLocationIds"),
                 Set.of("generatedAt", "headline", "bestBets", "auroraTonight", "auroraTomorrow", "stale",
-                        "partialFailure", "failedLocationCount", "bestBetModel", "seasonalFeatures",
+                        "bestBetModel", "seasonalFeatures",
                         "bestBetStatus", "bestBetsWithdrawn", "renderedEvents", "previousGeneratedAt",
                         "bigSeas")));
         assertThat(names(BriefingDay.class)).containsExactlyInAnyOrderElementsOf(

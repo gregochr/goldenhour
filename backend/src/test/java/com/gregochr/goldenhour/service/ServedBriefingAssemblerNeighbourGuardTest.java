@@ -89,7 +89,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
 
     private static DailyBriefingResponse snapshot(BriefingDay... days) {
         return new DailyBriefingResponse(BUILT, "headline", List.of(days), List.of(), null, null,
-                false, false, 0, null, List.of(), List.of());
+                false, null, List.of(), List.of());
     }
 
     /** Sunrise on the fixture day: a 4-star slot (id 1), two 2-star neighbours, a 3-star place 8 km away. */

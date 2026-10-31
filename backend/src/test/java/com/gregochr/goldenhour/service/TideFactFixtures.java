@@ -65,7 +65,7 @@ public final class TideFactFixtures {
     private static BriefingSlot slot(Long id, String name, BriefingSlot.TideInfo tide,
             boolean canopy) {
         return new BriefingSlot(id, name, LocalDateTime.of(2026, 10, 11, 6, 0), Verdict.GO, null,
-                tide, List.of(), null, null, null, null, null, null,
+                tide, List.of(), null, null, null, null, null,
                 DisplayVerdict.resolve(null, Verdict.GO), null, canopy, null);
     }
 
@@ -80,7 +80,7 @@ public final class TideFactFixtures {
      */
     public static BriefingRegion region(String name, int scored, BriefingSlot... slots) {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(slots), null,
-                null, null, null, null, null, DisplayVerdict.WORTH_IT, scored, null, false, null);
+                null, null, null, null, null, DisplayVerdict.WORTH_IT, scored, null, null);
     }
 
     /**

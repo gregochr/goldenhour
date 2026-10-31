@@ -269,11 +269,6 @@ public class BriefingSlotBuilder {
                 tideResult.lunarTideType(), tidesNotAligned);
         List<String> flags = verdictEvaluator.buildFlags(weatherMetrics, tideContext, loc.isMistProne());
 
-        String standdownReason = verdict == Verdict.STANDDOWN
-                ? verdictEvaluator.deriveStanddownReason(weatherMetrics, tidesNotAligned,
-                        horizonLowCloud)
-                : null;
-
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 midCloud, highCloud);
@@ -290,7 +285,7 @@ public class BriefingSlotBuilder {
                 tideResult.tideAlignmentQuality());
 
         BriefingSlot slot = new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict,
-                weather, tideInfo, flags, standdownReason);
+                weather, tideInfo, flags);
 
         // The same seam TideInfo rides above: a per-location, per-window fact attached to the
         // finished slot. Null on every night but a catalogued (or simulated) eclipse's own window
@@ -321,16 +316,13 @@ public class BriefingSlotBuilder {
 
         Verdict verdict = woodlandVerdictEvaluator.determineVerdict(metrics);
         List<String> flags = woodlandVerdictEvaluator.buildFlags(metrics);
-        String standdownReason = verdict == Verdict.STANDDOWN
-                ? woodlandVerdictEvaluator.deriveStanddownReason(metrics)
-                : null;
 
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 midCloud, highCloud);
 
         return BriefingSlot.canopySlot(loc.getId(), loc.getName(), solarTime, verdict, weather,
-                flags, standdownReason);
+                flags);
     }
 
     /**

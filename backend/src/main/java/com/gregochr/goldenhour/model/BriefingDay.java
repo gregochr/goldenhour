@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDate;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.List;
  *                       payload is unchanged. Also null for a day outside the render horizon, which
  *                       is a statement that the day is not drawn rather than that it is poor
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingDay(
         LocalDate date,
         List<BriefingEventSummary> eventSummaries,

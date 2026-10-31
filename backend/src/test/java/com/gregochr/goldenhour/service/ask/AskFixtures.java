@@ -70,7 +70,7 @@ final class AskFixtures {
     /** A slot the briefing's own weather screen stood down, with no rating. */
     static BriefingSlot standDownSlot(Long id, String name) {
         return new BriefingSlot(id, name, NOW.plusHours(6), Verdict.STANDDOWN, null,
-                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null, null,
+                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null,
                 DisplayVerdict.STAND_DOWN, null, false, null);
     }
 
@@ -97,8 +97,8 @@ final class AskFixtures {
     /** The slot as served after the tide strip: the same slot with no tide of its own. */
     static BriefingSlot withoutTide(BriefingSlot base) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
-                base.verdict(), base.weather(), null, base.flags(), base.standdownReason(),
-                base.claudeRating(), base.skyRating(), null, null, null, base.displayVerdict(),
+                base.verdict(), base.weather(), null, base.flags(), base.claudeRating(), base.skyRating(), null, null,
+                null, base.displayVerdict(),
                 base.claudeHeadline(), base.canopy(), null);
     }
 
@@ -112,21 +112,20 @@ final class AskFixtures {
     /** The window with exactly these tide facts, replacing any it carried. */
     static BriefingWindow withFacts(BriefingWindow window, LocationTideFact... facts) {
         return new BriefingWindow(window.eventTime(), window.verdict(), window.bestRating(),
-                window.confidence(), window.pick(), window.badges(), window.topRarityRank(),
-                window.tide(), List.of(facts));
+                window.confidence(), window.pick(), window.badges(), window.tide(), List.of(facts));
     }
 
     static BriefingSlot withHeadline(BriefingSlot base, String headline) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
-                base.verdict(), base.weather(), base.tide(), base.flags(), base.standdownReason(),
-                base.claudeRating(), base.skyRating(), null, null, null, base.displayVerdict(),
+                base.verdict(), base.weather(), base.tide(), base.flags(), base.claudeRating(), base.skyRating(),
+                null, null, null, base.displayVerdict(),
                 headline, base.canopy(), null);
     }
 
     private static BriefingSlot slotWith(Long id, String name, Integer rating, boolean canopy,
             BriefingSlot.TideInfo tide, String headline) {
-        return new BriefingSlot(id, name, NOW.plusHours(6), Verdict.GO, null, tide, List.of(), null,
-                rating, rating, null, null, null,
+        return new BriefingSlot(id, name, NOW.plusHours(6), Verdict.GO, null, tide, List.of(), rating, rating, null,
+        null, null,
                 DisplayVerdict.resolve(rating, Verdict.GO), headline, canopy, null);
     }
 
@@ -134,7 +133,7 @@ final class AskFixtures {
     static BriefingRegion region(String name, boolean eligible, BriefingSlot... slots) {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(slots), null,
                 null, null, null, "Gloss headline", "Gloss detail", DisplayVerdict.WORTH_IT,
-                slots.length, null, false, null, 4.0, 4, null, eligible, null);
+                slots.length, null, null, 4.0, 4, null, eligible, null);
     }
 
     /**
@@ -145,7 +144,7 @@ final class AskFixtures {
         boolean weather = reason == CoverageReason.STOOD_DOWN;
         return new BriefingRegion(name, Verdict.STANDDOWN, "summary", List.of(), List.of(), null, null,
                 null, null, null, "detail", weather ? DisplayVerdict.STAND_DOWN : DisplayVerdict.AWAITING, 0,
-                "label", false, null, null, null, null, null, null, reason);
+                "label", null, null, null, null, null, null, reason);
     }
 
     /**
@@ -170,7 +169,7 @@ final class AskFixtures {
 
     static BriefingWindow window(LocalDateTime eventTime, DisplayVerdict verdict, Integer best,
             BriefingWindow.Pick pick) {
-        return new BriefingWindow(eventTime, verdict, best, null, pick, List.of(), null, null);
+        return new BriefingWindow(eventTime, verdict, best, null, pick, List.of(), null);
     }
 
     static BriefingWindow.Pick pick(BriefingWindow.PickKind kind, String region, String location,
@@ -204,8 +203,7 @@ final class AskFixtures {
             return window;
         }
         return new BriefingWindow(window.eventTime(), window.verdict(), window.bestRating(),
-                window.confidence(), window.pick(), window.badges(), window.topRarityRank(),
-                window.tide(), facts);
+                window.confidence(), window.pick(), window.badges(), window.tide(), facts);
     }
 
     /** An event summary with no window: events past the Plan tab's six carry none. */
@@ -234,7 +232,7 @@ final class AskFixtures {
     static DailyBriefingResponse briefing(List<BriefingDay> days, List<HotTopic> topics,
             List<PlanRenderedEvent> rendered) {
         return new DailyBriefingResponse(GENERATED_AT, "headline", days, List.of(), null, null,
-                false, false, 0, "Haiku", topics, List.of(), null, null, rendered);
+                false, "Haiku", topics, List.of(), null, null, rendered);
     }
 
     static HotTopic topic(String type, String label, String detail, LocalDate date,

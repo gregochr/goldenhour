@@ -133,7 +133,7 @@ class BestBetFallbackServiceTest {
         BriefingSlot slot = new BriefingSlot("Loc", null, Verdict.GO,
                 new BriefingSlot.WeatherConditions(20, java.math.BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, java.math.BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
         return new BriefingRegion(name, Verdict.GO, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null)
                 .withSampleSufficient(verdictEligible);

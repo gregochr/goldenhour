@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 /**
  * A single aurora-eligible location within the briefing's aurora section,
  * derived from the cached aurora forecast scores after cloud triage.
@@ -14,6 +16,7 @@ package com.gregochr.goldenhour.model;
  * @param windSpeedMs          wind speed at the location in m/s, or {@code null} if unavailable
  * @param weatherCode          WMO weather code at the location, or {@code null} if unavailable
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record AuroraLocationSlot(
         String locationName,
         Integer bortleClass,

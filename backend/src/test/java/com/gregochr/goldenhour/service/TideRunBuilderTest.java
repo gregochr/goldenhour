@@ -291,7 +291,6 @@ class TideRunBuilderTest {
         // A king tide's defining number is how HIGH the water gets and how far that clears the
         // spring threshold — the range-against-mean framing belongs to a spring run.
         assertThat(day.highWater()).isEqualTo("5.0 m");
-        assertThat(day.highWaterAnomaly()).isEqualTo("+0.4 m over spring");
         // Named rather than left to be parsed out of the verdict: the hot-topic headline states
         // this event, and that sentence and this chart must not be able to disagree.
         assertThat(day.alignedEvent()).isEqualTo("sunrise");
@@ -332,7 +331,6 @@ class TideRunBuilderTest {
         assertThat(day.verdict()).isEqualTo("HW 09:00 · 50m after sunrise");
         assertThat(day.aligned()).isTrue();
         assertThat(day.alignedEvent()).isEqualTo("sunrise");
-        assertThat(day.alignmentPhrase()).isEqualTo("HW 09:00 · 50m after sunrise");
         assertThat(day.phrase()).isEqualTo(TideRunBuilder.HIGH_WATER_PHRASE);
     }
 
@@ -476,12 +474,10 @@ class TideRunBuilderTest {
         assertThat(day.alignedEvent()).isEqualTo("sunset");
     }
 
-    // ── highWaterRank — how extraordinary, measured against the record ────────
-
     // ── the size axis, which is independent of the run's lunar label ─────────
 
     @Test
-    @DisplayName("a SPRING run whose water is genuinely big carries the high-water chips")
+    @DisplayName("a SPRING run whose water is genuinely big carries the high-water chip")
     void build_springRun_bigWater_carriesTheSizeChips() {
         // These were king-only, which was the spring/king conflation one level down: "king" is a
         // statement about the moon being at perigee, and the moon does not decide whether this
@@ -498,15 +494,14 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
         assertThat(day.highWater()).isEqualTo("5.0 m");
-        assertThat(day.highWaterRank()).isEqualTo("0.4 m off the record");
     }
 
     @Test
-    @DisplayName("a KING run at a port having an ordinary day carries no size chips")
+    @DisplayName("a KING run at a port having an ordinary day carries no size chip")
     void build_kingRun_ordinaryWater_claimsNoSize() {
         // The mirror image, and the reason this is not simply "show it everywhere". A perigean
         // spring is a king tide wherever you are, but the water at one particular port can still be
-        // unremarkable — and three chips insisting otherwise would be the old defect with the
+        // unremarkable — and a chip insisting otherwise would be the old defect with the
         // arguments swapped.
         stubSolar();
         stubExtremes(day(ID_SEAHAM, DAY_1,
@@ -518,95 +513,6 @@ class TideRunBuilderTest {
 
         // 3.9 m is below the 4.4 m spring threshold, so nothing about size is claimed.
         assertThat(day.highWater()).isNull();
-        assertThat(day.highWaterAnomaly()).isNull();
-        assertThat(day.highWaterRank()).isNull();
-    }
-
-    @Test
-    @DisplayName("high water short of the record states the shortfall")
-    void build_kingRun_belowRecord_statesDistanceToIt() {
-        // The spring excess cannot answer "how extraordinary is this?": the spring threshold is
-        // 125% of mean high water, so metres-over-the-mean is the spring figure plus a constant.
-        // The distance to the ceiling is the one baseline that moves independently of it.
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
-        when(tideService.getTideStats(ID_SEAHAM))
-                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isEqualTo("0.4 m off the record");
-    }
-
-    @Test
-    @DisplayName("high water above everything on record says so")
-    void build_kingRun_aboveRecord_claimsIt() {
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.6), low("14:20", 0.4)));
-        when(tideService.getTideStats(ID_SEAHAM))
-                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isEqualTo("highest recorded here");
-    }
-
-    @Test
-    @DisplayName("a shortfall below display noise reads as the record, not as 0.0 m off it")
-    void build_kingRun_shortfallWithinNoise_readsAsRecord() {
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.38), low("14:20", 0.4)));
-        when(tideService.getTideStats(ID_SEAHAM))
-                .thenReturn(Optional.of(ranked("5.4", "4.9", 1400L)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isEqualTo("highest recorded here");
-    }
-
-    @Test
-    @DisplayName("a fortnight of history is not a record to measure against")
-    void build_kingRun_thinHistory_claimsNoRank() {
-        // A location added last week has a maximum, not a record. Without this gate its first
-        // spring tide would be announced as the highest water ever seen there.
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
-        when(tideService.getTideStats(ID_SEAHAM))
-                .thenReturn(Optional.of(ranked("5.4", "4.9", 120L)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isNull();
-    }
-
-    @Test
-    @DisplayName("no observed spring-neap cycle withholds the rank, as it withholds the excess")
-    void build_kingRun_noPercentiles_claimsNoRank() {
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
-        when(tideService.getTideStats(ID_SEAHAM))
-                .thenReturn(Optional.of(ranked("5.4", null, 1400L)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isNull();
-    }
-
-    @Test
-    @DisplayName("a spring run states no rank — the height is not its story")
-    void build_springRun_carriesNoRank() {
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
-
-        assertThat(day.highWaterRank()).isNull();
     }
 
     @Test
@@ -619,7 +525,6 @@ class TideRunBuilderTest {
         TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
 
         assertThat(day.highWater()).isNull();
-        assertThat(day.highWaterAnomaly()).isNull();
     }
 
     @Test
@@ -735,74 +640,16 @@ class TideRunBuilderTest {
         assertThat(day.aligned()).isFalse();
     }
 
-    // ── the alignment clause, which the almanac feed states on its own ────────
-
     @Test
-    @DisplayName("the alignment clause keeps the clock time and drops the peak-range prefix")
-    void alignmentPhrase_onAPeakDay_carriesNeitherThePrefixNorLosesTheTime() {
-        // Same fixture as verdict_otherExtremumAlignedButNotCoincident, whose verdict compresses to
-        // "peak range · HW 58m after sunrise" to fit a 224px column. The "Coming up" row states the
-        // range in its own chip and names the biggest day in its own line, so that prefix would be
-        // a third copy — under a label that says "alignment".
-        stubSolar();
-        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
-                low("03:07", 0.4), high("09:08", 5.0)));
-        extremes.addAll(day(ID_SEAHAM, DAY_2,
-                low("03:50", 1.0), high("09:50", 4.0)));
-        stubExtremes(extremes);
-
-        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_1);
-
-        assertThat(day.verdict()).isEqualTo("peak range · HW 58m after sunrise");
-        assertThat(day.alignmentPhrase()).isEqualTo("HW 09:08 · 58m after sunrise");
-    }
-
-    @Test
-    @DisplayName("the clause names the same water the verdict does — it is built from that point, "
-            + "not recovered from that sentence")
-    void alignmentPhrase_namesTheVerdictsWater() {
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1, low("08:44", 0.4), high("14:50", 4.0)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
-
-        assertThat(day.verdict()).isEqualTo("LW 08:44 · 34m after sunrise");
-        assertThat(day.alignmentPhrase()).isEqualTo("LW 08:44 · 34m after sunrise");
-    }
-
-    @Test
-    @DisplayName("no water in the light means no clause at all — the invariant the almanac reads")
-    void alignmentPhrase_unalignedDay_isNull() {
-        stubSolar();
-        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
-                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
-        extremes.addAll(day(ID_SEAHAM, DAY_2,
-                low("12:00", 0.4), high("18:10", 5.0), low("23:59", 0.4)));
-        stubExtremes(extremes);
-
-        TideRunDay day = builder.build(List.of(DAY_1, DAY_2), List.of(seaham()), false).get(DAY_2);
-
-        // The verdict still has a sentence — that is its job, and it is why reading it as an
-        // alignment printed a water well out of the light as this run's finding.
-        assertThat(day.verdict()).isEqualTo("peak range · HW 1h40 after sunset");
-        assertThat(day.alignmentPhrase()).isNull();
-        // Non-null together, always. TideAlmanacSource keys the whole distinction on this.
-        assertThat(day.alignedEvent()).isNull();
-    }
-
-    // ── bestAligned — which single day of the run takes the accent ────────────
-
-    @Test
-    @DisplayName("only the closest-aligned day of the run is marked best, not every aligned day")
-    void build_bestAligned_marksOneDayEvenWhenSeveralAlign() {
-        // The reason this field exists. Once either water can align, a run can have every day
-        // aligned — measured at ~28% of runs — and an accent on all of them marks nothing. DAY_1's
-        // low is 34m after sunrise, DAY_2's is 5m. Both are aligned; only the nearer takes the
-        // accent, and the other keeps everything else it had.
+    @DisplayName("every aligned day of a run keeps its verdict and its editorial line")
+    void build_severalAlignedDays_eachKeepsItsVerdictAndPhrase() {
+        // Once either water can align, a run can have every day aligned (measured at ~28% of
+        // runs). DAY_1's low is 34m after sunrise, DAY_2's is 5m. Both are aligned, and neither
+        // loses its verdict or its editorial line to the other.
         //
         // DAY_2 also carries the bigger range, so DAY_1 is not the peak day — that keeps the
         // verdict assertion below on the plain aligned form rather than the peak one, which
-        // compresses the clock time away. Peak and best-aligned are pulled apart in their own test.
+        // compresses the clock time away.
         stubSolar();
         List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
                 low("08:44", 0.4), high("14:56", 5.0)));
@@ -815,89 +662,8 @@ class TideRunBuilderTest {
 
         assertThat(run.get(DAY_1).aligned()).isTrue();
         assertThat(run.get(DAY_2).aligned()).isTrue();
-        assertThat(run.get(DAY_1).bestAligned()).isFalse();
-        assertThat(run.get(DAY_2).bestAligned()).isTrue();
-        // The un-accented day is not demoted in any other way: it keeps its verdict and the
-        // editorial line for the water that did reach the light. Only emphasis is reserved.
         assertThat(run.get(DAY_1).verdict()).isEqualTo("LW 08:44 · 34m after sunrise");
         assertThat(run.get(DAY_1).phrase()).isEqualTo(TideRunBuilder.LOW_WATER_PHRASE);
-    }
-
-    @Test
-    @DisplayName("a run where nothing reaches the light accents no day at all")
-    void build_bestAligned_absentWhenNoDayAligns() {
-        stubSolar();
-        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
-                low("11:30", 0.8), high("17:40", 4.0), low("23:50", 0.8)));
-        extremes.addAll(day(ID_SEAHAM, DAY_2,
-                low("12:00", 0.4), high("18:10", 5.0), low("23:59", 0.4)));
-        stubExtremes(extremes);
-
-        Map<LocalDate, TideRunDay> run = builder.build(
-                List.of(DAY_1, DAY_2), List.of(seaham()), false);
-
-        assertThat(run.values()).allSatisfy(d -> {
-            assertThat(d.aligned()).isFalse();
-            assertThat(d.bestAligned()).isFalse();
-        });
-    }
-
-    @Test
-    @DisplayName("an aligned single-day run still takes the accent — unlike peak, this is no claim")
-    void build_bestAligned_isClaimedOnASingleDayRun() {
-        // `peak` is suppressed on a one-day run because "biggest of the run" asserts a comparison
-        // never made. This is an emphasis marker, not a comparative badge: withholding it would
-        // leave a genuinely aligned day with no accent anywhere, which is a regression.
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("08:30", 0.4), high("14:40", 5.0), low("20:50", 0.4)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
-
-        assertThat(day.peak()).isFalse();
-        assertThat(day.aligned()).isTrue();
-        assertThat(day.bestAligned()).isTrue();
-    }
-
-    @Test
-    @DisplayName("equally aligned days give the accent to the earlier date")
-    void build_bestAligned_tieGoesToTheEarlierDay() {
-        // Both lows sit 34m after their own sunrise. The sooner morning is the one a reader can
-        // still act on, and the rule has to be decidable rather than left to map ordering.
-        stubSolar();
-        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
-                low("08:44", 0.4), high("14:56", 5.0)));
-        extremes.addAll(day(ID_SEAHAM, DAY_2,
-                low("08:44", 0.5), high("14:56", 4.5)));
-        stubExtremes(extremes);
-
-        Map<LocalDate, TideRunDay> run = builder.build(
-                List.of(DAY_1, DAY_2), List.of(seaham()), false);
-
-        assertThat(run.get(DAY_1).bestAligned()).isTrue();
-        assertThat(run.get(DAY_2).bestAligned()).isFalse();
-    }
-
-    @Test
-    @DisplayName("the accent is independent of peak range — the best light need not be the biggest")
-    void build_bestAligned_isNotThePeakDay() {
-        // Two separate questions about a run, and conflating them would put the accent on the
-        // biggest swing rather than the best light. DAY_1 has the bigger range; DAY_2 has the
-        // closer water.
-        stubSolar();
-        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
-                low("08:44", 0.4), high("14:56", 5.6)));
-        extremes.addAll(day(ID_SEAHAM, DAY_2,
-                low("08:12", 1.0), high("14:20", 4.0)));
-        stubExtremes(extremes);
-
-        Map<LocalDate, TideRunDay> run = builder.build(
-                List.of(DAY_1, DAY_2), List.of(seaham()), false);
-
-        assertThat(run.get(DAY_1).peak()).isTrue();
-        assertThat(run.get(DAY_1).bestAligned()).isFalse();
-        assertThat(run.get(DAY_2).peak()).isFalse();
-        assertThat(run.get(DAY_2).bestAligned()).isTrue();
     }
 
     @Test

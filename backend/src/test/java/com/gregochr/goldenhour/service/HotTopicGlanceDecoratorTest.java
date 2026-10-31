@@ -36,8 +36,8 @@ class HotTopicGlanceDecoratorTest {
     }
 
     private static TideRunDay tide(int dayNumber, int dayCount, String range, boolean peak) {
-        return new TideRunDay("run", dayNumber, dayCount, "day", "Seaham", range, null, null, null,
-                null, "07:00", "17:00", null, List.of(), "v", false, false, null, null, null, peak,
+        return new TideRunDay("run", dayNumber, dayCount, "day", "Seaham", range, null, null, "07:00", "17:00", null,
+        List.of(), "v", false, null, null, peak,
                 null);
     }
 

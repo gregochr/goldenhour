@@ -50,8 +50,8 @@ import java.util.Objects;
  * event, and calls itself aligned when that water is inside {@link #ALIGNED_WINDOW_MINUTES}. <b>One
  * point drives everything the row says</b> — {@link TideRunDay#verdict()},
  * {@link TideRunDay#aligned()}, {@link TideRunDay#alignedEvent()},
- * {@link TideRunDay#alignmentPhrase()}, the sea-state sample and the editorial
- * {@link TideRunDay#phrase()} — so the row can no longer contradict itself. It used to, repeatedly:
+ * the sea-state sample and the editorial {@link TideRunDay#phrase()} — so the row can no longer
+ * contradict itself. It used to, repeatedly:
  * two candidate waters and two thresholds produced a headline denying an alignment the line beneath
  * it had just stated, and each fix bolted on another rule keyed to a different point. That
  * contradiction is now structurally impossible rather than defended by rules.
@@ -126,14 +126,6 @@ public class TideRunBuilder {
      */
     static final long ALIGNED_WINDOW_MINUTES = 60;
 
-    /**
-     * Stored extremes (highs and lows together) a location needs before its highest recorded water
-     * may be called "the record". At roughly four extremes a day this is about six months, so the
-     * claim survives a 12-month backfill and is withheld from a location added last fortnight —
-     * where the spring–neap gate alone would let a two-week maximum pass as an all-time high.
-     */
-    private static final long MIN_POINTS_FOR_RECORD = 700;
-
     private final TideExtremeRepository tideExtremeRepository;
     private final MarineWaveRepository marineWaveRepository;
     private final TideService tideService;
@@ -186,10 +178,9 @@ public class TideRunBuilder {
     /**
      * A day's solar times and the water its row is about, computed once.
      *
-     * <p>Exists so the run-wide "which day is best aligned?" question and the row's own fields are
-     * answered from the <em>same</em> arithmetic. Deriving the best day separately would mean two
-     * places deciding which water a day is about — the class of split this builder has already been
-     * bitten by twice.
+     * <p>Exists so every field of the row is answered from the <em>same</em> arithmetic, rather than
+     * several places each deciding which water a day is about — the class of split this builder has
+     * already been bitten by twice.
      *
      * @param sunriseMinutes the day's sunrise, minutes past local midnight
      * @param sunsetMinutes  the day's sunset, minutes past local midnight
@@ -197,17 +188,6 @@ public class TideRunBuilder {
      * @param inLight        that extremum when it falls inside the alignment window, else null
      */
     private record DayGeometry(int sunriseMinutes, int sunsetMinutes, Point nearest, Point inLight) {
-
-        /**
-         * How far this day's water in the light sits from its event.
-         *
-         * @return the gap in minutes, or {@link Long#MAX_VALUE} when no water reaches the light —
-         *         a value that loses every comparison, so an unaligned day can never be "best"
-         */
-        long alignedGap() {
-            return inLight == null ? Long.MAX_VALUE
-                    : Math.abs(signedGap(inLight.minutes(), sunriseMinutes, sunsetMinutes));
-        }
     }
 
     /**
@@ -315,21 +295,19 @@ public class TideRunBuilder {
         Map<LocalDate, TideRunDay.RosterAlignment> roster =
                 rosterAlignment(coastalLocations, byLocation, perDay.keySet());
 
-        // Computed for the whole run before any row is built, because the accent is a statement
-        // about this day RELATIVE TO the others and no single day can make it.
+        // Each day's solar times and the water its row is about, computed once for the run.
         Map<LocalDate, DayGeometry> geometry = new LinkedHashMap<>();
         for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
             geometry.put(entry.getKey(),
                     geometryOf(representative, entry.getKey(), entry.getValue()));
         }
-        LocalDate bestAligned = bestAlignedDate(geometry);
 
         Map<LocalDate, TideRunDay> result = new LinkedHashMap<>();
         int dayNumber = 1;
         for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
             result.put(entry.getKey(), buildDay(entry.getKey(), entry.getValue(), representative,
                     geometry.get(entry.getKey()), dayNumber++, perDay.size(), peakRange, stats,
-                    king, roster.get(entry.getKey()), entry.getKey().equals(bestAligned)));
+                    king, roster.get(entry.getKey())));
         }
 
         Map<LocalDate, EventWaters> eventWaters = new LinkedHashMap<>();
@@ -500,39 +478,6 @@ public class TideRunBuilder {
     }
 
     /**
-     * The run's closest-aligned day — the one that takes the accent — or null when no day's water
-     * reaches the light.
-     *
-     * <p><b>Why the run needs one at all.</b> While alignment meant "the low water, on a spring
-     * run", it was scarce enough that accenting every aligned day read as emphasis. Measured over a
-     * simulated year at the anchor, alignment on either water fires on ~58% of run-days and
-     * <b>28% of runs have all four days aligned</b> — and an accent on every card marks nothing.
-     * Nothing is hidden by narrowing it: every aligned day keeps its verdict, its editorial line and
-     * its chart, and only the emphasis is reserved.
-     *
-     * <p>Ties break toward the <b>earlier</b> date. The comparison is strict and {@code geometry} is
-     * in ascending date order, so of two equally good mornings the sooner one wins — it is the one
-     * a reader can still act on.
-     *
-     * @param geometry each day's geometry, in ascending date order
-     * @return the winning date, or null when no day is aligned
-     */
-    private static LocalDate bestAlignedDate(Map<LocalDate, DayGeometry> geometry) {
-        LocalDate best = null;
-        long bestGap = Long.MAX_VALUE;
-        for (Map.Entry<LocalDate, DayGeometry> entry : geometry.entrySet()) {
-            long gap = entry.getValue().alignedGap();
-            if (gap < bestGap) {
-                bestGap = gap;
-                best = entry.getKey();
-            }
-        }
-        // An all-unaligned run leaves every gap at MAX_VALUE, which never beats the initial bound,
-        // so `best` stays null and no card is accented.
-        return best;
-    }
-
-    /**
      * Counts, per date, how much of the coastal roster shares the day's alignment.
      *
      * <p><b>Why this exists.</b> The chart is drawn for one representative coastline, and the pill's
@@ -677,7 +622,7 @@ public class TideRunBuilder {
 
     private TideRunDay buildDay(LocalDate date, DayTides day, LocationEntity location,
             DayGeometry geo, int dayNumber, int dayCount, double peakRange, TideStats stats,
-            boolean king, TideRunDay.RosterAlignment roster, boolean bestAligned) {
+            boolean king, TideRunDay.RosterAlignment roster) {
         int sunriseMinutes = geo.sunriseMinutes();
         int sunsetMinutes = geo.sunsetMinutes();
 
@@ -687,8 +632,8 @@ public class TideRunBuilder {
         // of them it followed. They disagreed, which is how a headline came to deny an alignment
         // the line directly beneath it stated. See the class Javadoc.
         //
-        // It arrives as DayGeometry rather than being derived here so that the run-wide accent
-        // decision and this row are answered from the same arithmetic.
+        // It arrives as DayGeometry rather than being derived here so that every field of the row
+        // is answered from the same arithmetic.
         Point nearest = geo.nearest();
         Point inLight = geo.inLight();
 
@@ -711,8 +656,7 @@ public class TideRunBuilder {
                 location.getName(),
                 TideWording.metres(day.range()),
                 rangeAnomaly(day.range(), stats == null ? null : stats.avgRangeMetres()),
-                // The absolute high water, its excess over the spring mark, and its rank against the
-                // port's record — the "how big is this one, really" chips.
+                // The absolute high water — the "how big is this one, really" chip.
                 //
                 // GATED ON SIZE, NOT ON THE LUNAR LABEL. These used to be king-only, which was the
                 // spring/king conflation one level down: king is now a statement about the moon
@@ -724,8 +668,6 @@ public class TideRunBuilder {
                 // comparison TideSizeIndex uses to decide which dates a run covers, so the chips and
                 // the run's own dates cannot disagree about what counts as big.
                 notablyHigh ? TideWording.metres(day.high()) : null,
-                notablyHigh ? springExcess(day.high(), stats.springTideThreshold()) : null,
-                notablyHigh ? highWaterRank(day.high(), stats) : null,
                 TideWording.clock(sunriseMinutes),
                 TideWording.clock(sunsetMinutes),
                 seas(location.getId(), date, nearest, sunriseMinutes, sunsetMinutes),
@@ -735,14 +677,9 @@ public class TideRunBuilder {
                         .toList(),
                 verdict(nearest, sunriseMinutes, sunsetMinutes, aligned, peak),
                 aligned,
-                // Decided across the run, not here — see bestAlignedDate. An unaligned day can
-                // never carry it, because its gap loses every comparison by construction.
-                bestAligned,
-                // These four all read `inLight`, so they cannot disagree about which water the day
-                // is about — the property that used to need a comment per field explaining which of
-                // two points it followed, and that still went wrong.
+                // Reads `inLight`, like `aligned` above, so the two cannot disagree about which
+                // water the day is about.
                 inLight == null ? null : solarWord(inLight.minutes(), sunriseMinutes, sunsetMinutes),
-                alignmentPhrase(inLight, sunriseMinutes, sunsetMinutes),
                 roster,
                 peak,
                 // The editorial line is claimed ONLY when a water reaches the light, and names the
@@ -751,28 +688,6 @@ public class TideRunBuilder {
                 // says so, so printing it anyway had the two lines arguing with the more
                 // confident-sounding one wrong. Silence is the honest form of "not tonight".
                 phraseFor(inLight));
-    }
-
-    /**
-     * The alignment clause for the water the verdict names — {@code "HW 09:08 · 58m after sunrise"}
-     * — or null when no water lands in the light.
-     *
-     * <p>Always the same shape as {@link #verdict}'s aligned branch: label, clock time, offset. It
-     * never carries the {@code "peak range · "} prefix and never drops the clock time, because it is
-     * consumed where the range is already stated in its own chip and where a fact labelled
-     * <em>alignment</em> should open by talking about alignment. Deriving it by trimming the
-     * verdict's text was the alternative, and it would make that sentence's punctuation
-     * load-bearing — a rewording there would silently corrupt this.
-     */
-    private static String alignmentPhrase(Point point, int sunriseMinutes, int sunsetMinutes) {
-        if (point == null) {
-            return null;
-        }
-        long gap = signedGap(point.minutes(), sunriseMinutes, sunsetMinutes);
-        String word = solarWord(point.minutes(), sunriseMinutes, sunsetMinutes);
-        return (point.type() == TideExtremeType.HIGH ? "HW" : "LW")
-                + " " + TideWording.clock(point.minutes())
-                + " · " + TideWording.offsetPhrase(gap, word);
     }
 
     /**
@@ -843,8 +758,7 @@ public class TideRunBuilder {
      * aligned day states its clock time and the exact gap, and an unaligned day places the water in
      * the day in words and measures it to the nearer event anyway. Nothing is lost by dropping a
      * clock time on the peak day: every extreme is labelled with its own on the chart directly
-     * below, and {@link TideRunDay#alignmentPhrase()} carries the full clause for surfaces that
-     * state the range separately.
+     * below, and the chart's own labels carry the full clause.
      *
      * <p><b>There is no longer a branch for "the other extremum".</b> There were three, added one at
      * a time as each previous rule was caught naming a water nobody could use, and they disagreed
@@ -922,55 +836,6 @@ public class TideRunBuilder {
         return marineWaveRepository
                 .findByLocation_IdAndEvaluationDateAndEventType(locationId, date, event)
                 .map(MarineWaveEntity::getSignificantWaveHeightMetres);
-    }
-
-    /**
-     * How far a king run's high water clears the location's spring-tide threshold — the excess that
-     * makes it king rather than merely spring. Only ever positive: a "king" tide below the spring
-     * threshold has nothing to claim, so it is left unstated rather than shown as a negative.
-     */
-    private static String springExcess(double highWater, BigDecimal springThreshold) {
-        // No null guard: the sole call site is behind `notablyHigh`, which is itself defined as
-        // "stats and its spring threshold both exist and the water clears the threshold". A check
-        // here was unreachable — CodeQL said so on #495 — and worse than redundant: it told a reader
-        // this could be called without a threshold, which is the state the gate exists to exclude.
-        double excess = highWater - springThreshold.doubleValue();
-        return excess > TideWording.MIN_ANOMALY_METRES ? "+" + TideWording.metres(excess) + " over spring" : null;
-    }
-
-    /**
-     * Where a king run's high water sits against the highest ever recorded at this location — the
-     * one reading on the card that says how <em>extraordinary</em> the tide is.
-     *
-     * <p><b>Why the record and not the mean.</b> The obvious second number is metres over mean high
-     * water, and it carries no information: the spring threshold is defined as 1.25 × mean high, so
-     * {@code overMean = overSpring + 0.25 × meanHigh} — the two chips would differ by a per-location
-     * constant on every king tide the location ever sees. A percentile is no better at this end of
-     * the distribution, because the king classification is itself an above-P95 test, so "top 5%"
-     * would be true by construction of every card that can display it. The distance to the ceiling
-     * is the only baseline left that moves independently of the spring excess.
-     *
-     * <p>The sample is past extremes only ({@code TideService.getTideStats} stops at the start of
-     * today), so today's water is genuinely not in the record it is measured against. Two gates keep
-     * the claim honest: {@code p95HighMetres} being present means at least one spring–neap cycle was
-     * observed — the same gate the spring chip rides, so the two appear and vanish together — and
-     * {@value #MIN_POINTS_FOR_RECORD} extremes means "the record" spans months rather than a
-     * fortnight of a newly added location.
-     *
-     * @param highWater the day's highest water in metres
-     * @param stats     the location's historical tide statistics, or null when it has none
-     * @return the rank wording, or null when it cannot be claimed
-     */
-    private static String highWaterRank(double highWater, TideStats stats) {
-        if (stats == null || stats.maxHighMetres() == null
-                || stats.p95HighMetres() == null
-                || stats.dataPoints() < MIN_POINTS_FOR_RECORD) {
-            return null;
-        }
-        double shortfall = stats.maxHighMetres().doubleValue() - highWater;
-        return shortfall <= TideWording.MIN_ANOMALY_METRES
-                ? "highest recorded here"
-                : TideWording.metres(shortfall) + " off the record";
     }
 
     private static String rangeAnomaly(double range, BigDecimal avgRangeMetres) {

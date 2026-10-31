@@ -318,7 +318,7 @@ class TideSurfaceAgreementTest {
                 aboveThreshold(highWater, SPRING_THRESHOLD),
                 lunarType, "New Moon", false);
         BriefingSlot slot = new BriefingSlot(
-                "Coastal 1", null, Verdict.GO, null, tide, List.of(), null);
+                "Coastal 1", null, Verdict.GO, null, tide, List.of());
         BriefingRegion region = new BriefingRegion(
                 "Northumberland", Verdict.GO, null, List.of(), List.of(slot),
                 null, null, null, null, null, null);

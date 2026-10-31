@@ -84,7 +84,6 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingRegion.class, "withMeanRatingDelta", "meanRatingDelta"),
             Wither.of(BriefingRegion.class, "withSampleSufficient", "sampleSufficient"),
             Wither.of(BriefingRegion.class, "withForcedSample", "forcedSample"),
-            Wither.sets(BriefingRegion.class, "withLightlyEvaluated", "lightlyEvaluated", true),
             Wither.of(BriefingRegion.class, "withConfidence", "confidence"),
             Wither.of(BriefingRegion.class, "withGloss", "glossHeadline", "glossDetail"),
             Wither.of(BriefingRegion.class, "withSlots", "slots"),
@@ -255,10 +254,10 @@ class RecordWitherPreservationTest {
     @DisplayName("tripwire: a BriefingWindow convenience constructor must register what it defaults")
     void briefingWindow_convenienceConstructorsDefaultOnlyRegisteredComponents() throws Exception {
         // Component names a convenience constructor of the given arity is documented to default.
-        // The 8-arg form (every component but tideFacts) is the one P1 added so the existing
+        // The 7-arg form (every component but tideFacts) is the one P1 added so the existing
         // `new BriefingWindow(` sites compile unchanged; it defaults tideFacts to null. A
         // constructor added later must be registered, which is the moment to state what it defaults.
-        Map<Integer, Set<String>> documentedDefaults = Map.of(8, Set.of("tideFacts"));
+        Map<Integer, Set<String>> documentedDefaults = Map.of(7, Set.of("tideFacts"));
 
         RecordComponent[] components = BriefingWindow.class.getRecordComponents();
         Object full = Sentinels.record(BriefingWindow.class, 1, Map.of());

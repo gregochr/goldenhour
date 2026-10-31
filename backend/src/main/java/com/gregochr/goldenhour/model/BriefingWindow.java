@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -52,8 +53,6 @@ import java.util.List;
  *   <li>{@code pick} — this window is neither of the forecast's two picks, which is the normal
  *       case: exactly two windows in the whole forecast carry one. It is <em>not</em> a statement
  *       that the window has no good region.</li>
- *   <li>{@code topRarityRank} — no badges. Advice for the client's promoted strip; nothing here
- *       enforces the one-strip rule.</li>
  *   <li>{@code tide} — no coastal location could be resolved, or the one that was has no day with
  *       both a high and a low water on this date. The row falls back to {@link #tideFacts}'s
  *       per-location fact line. It is <em>not</em> a statement that the tide is unremarkable, and
@@ -71,13 +70,13 @@ import java.util.List;
  * @param confidence    the top region's confidence, or null
  * @param pick          this window's forecast-wide pick, or null on the windows that are neither
  * @param badges        hot topics landing on this window; never null, often empty
- * @param topRarityRank the rarest badge's rarity rank, or null
  * @param tide          the window's tide rollup at one named coastal location, or null
  * @param tideFacts     per-location tide for every coastal location with a slot in this window, or
  *                      null when the window has none (never an empty list); sits outside the slots
  *                      because the honesty filter empties those on any window Claude did not score,
  *                      see {@link LocationTideFact}
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime eventTime,
         DisplayVerdict verdict,
@@ -85,7 +84,6 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Confidence confidence,
         @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide,
         @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts) {
 
@@ -109,13 +107,12 @@ public record BriefingWindow(
      * @param confidence    the top region's confidence, or null
      * @param pick          this window's forecast-wide pick, or null
      * @param badges        hot topics landing on this window
-     * @param topRarityRank the rarest badge's rarity rank, or null
      * @param tide          the window's tide rollup, or null
      */
     public BriefingWindow(LocalDateTime eventTime, DisplayVerdict verdict, Integer bestRating,
-            Confidence confidence, Pick pick, List<Badge> badges, Integer topRarityRank,
+            Confidence confidence, Pick pick, List<Badge> badges,
             BriefingWindowTide tide) {
-        this(eventTime, verdict, bestRating, confidence, pick, badges, topRarityRank, tide, null);
+        this(eventTime, verdict, bestRating, confidence, pick, badges, tide, null);
     }
 
     /**
@@ -126,7 +123,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTide(BriefingWindowTide newTide) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                topRarityRank, newTide, tideFacts);
+                newTide, tideFacts);
     }
 
     /**
@@ -137,7 +134,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTideFacts(List<LocationTideFact> newTideFacts) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                topRarityRank, tide, newTideFacts);
+                tide, newTideFacts);
     }
 
     /**
@@ -148,7 +145,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBadges(List<Badge> newBadges) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, newBadges,
-                topRarityRank, tide, tideFacts);
+                tide, tideFacts);
     }
 
     /**
@@ -160,7 +157,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBestRating(Integer newBestRating) {
         return new BriefingWindow(eventTime, verdict, newBestRating, confidence, pick, badges,
-                topRarityRank, tide, tideFacts);
+                tide, tideFacts);
     }
 
     /**
@@ -171,7 +168,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withPick(Pick newPick) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, newPick, badges,
-                topRarityRank, tide, tideFacts);
+                tide, tideFacts);
     }
 
     /** Which of the forecast's two picks this is. */
@@ -232,6 +229,7 @@ public record BriefingWindow(
      *                      null when none is rated or the guard left none rated at least 3
      * @param locationId    that location's id, or null on a slot cached before slots carried one
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Pick(
             PickKind kind,
             String regionName,
@@ -298,6 +296,7 @@ public record BriefingWindow(
      *                   and the promoted strip render from badges alone and never join back to
      *                   {@code hotTopics} — without it here they structurally cannot raise it
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Badge(
             String type,
             String label,

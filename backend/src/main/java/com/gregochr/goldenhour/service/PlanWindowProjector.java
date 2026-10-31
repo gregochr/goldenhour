@@ -325,8 +325,7 @@ public final class PlanWindowProjector {
                 top == null ? null : top.region().confidence(),
                 candidate(top, canopyCounts),
                 top == null ? 0.0 : top.stats().averageRating(),
-                badges,
-                rarestRank(badges));
+                badges);
     }
 
     /**
@@ -805,13 +804,6 @@ public final class PlanWindowProjector {
                 : EVENT_SUNSET.equals(topic.eventType());
     }
 
-    private static Integer rarestRank(List<BriefingWindow.Badge> badges) {
-        return badges.stream()
-                .mapToInt(BriefingWindow.Badge::rarityRank)
-                .min()
-                .stream().boxed().findFirst().orElse(null);
-    }
-
     private static List<BriefingSlot> regionSlots(BriefingEventSummary summary) {
         return summary.regions().stream().flatMap(r -> r.slots().stream()).toList();
     }
@@ -837,13 +829,12 @@ public final class PlanWindowProjector {
             Confidence confidence,
             BriefingWindow.Pick candidate,
             double averageRating,
-            List<BriefingWindow.Badge> badges,
-            Integer topRarityRank) {
+            List<BriefingWindow.Badge> badges) {
 
         BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide,
                 List<LocationTideFact> tideFacts) {
             return new BriefingWindow(eventTime, verdict, bestRating, confidence,
-                    awarded, badges, topRarityRank, tide, tideFacts);
+                    awarded, badges, tide, tideFacts);
         }
     }
 

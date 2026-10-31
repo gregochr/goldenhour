@@ -93,27 +93,11 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
                 "testuser", "test@example.com", "PRO_USER",
                 "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null, null, false));
+                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.driveTimesCalculatedAt").value("2026-04-16T10:15:30Z"));
-    }
-
-    @Test
-    @WithMockUser
-    @DisplayName("GET /api/user/settings renders postcodePromptDismissedAt in the pinned Instant "
-            + "format and carries postcodePromptDue as a JSON boolean (R4a)")
-    void getSettings_pinsPostcodePromptDismissedAtFormat() throws Exception {
-        when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
-                "testuser", "test@example.com", "PRO_USER",
-                null, null, null, null,
-                null, null, null, null, null, Instant.parse("2026-10-17T08:05:09Z"), false));
-
-        mockMvc.perform(get("/api/user/settings"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.postcodePromptDismissedAt").value("2026-10-17T08:05:09Z"))
-                .andExpect(jsonPath("$.postcodePromptDue").value(false));
     }
 
     @Test
@@ -133,7 +117,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 LocalDateTime.of(2026, 8, 28, 5, 50), Verdict.GO,
                 new BriefingSlot.WeatherConditions(10, java.math.BigDecimal.ZERO, 20000, 60,
                         12.0, 10.0, 1, java.math.BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null)
+                BriefingSlot.TideInfo.NONE, List.of())
                 .withEclipse(eclipse);
         BriefingRegion region = new BriefingRegion("Northumberland",
                 Verdict.GO, "Clear at 1 of 1 location",
@@ -144,7 +128,7 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 8, 28), List.of(eventSummary));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 LocalDateTime.of(2026, 8, 28, 0, 0), "Lunar eclipse before dawn",
-                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         String slotPath = "$.days[0].eventSummaries[0].regions[0].slots[0]";
@@ -174,8 +158,8 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 hw.plusDays(1).plusHours(1), null, null, null, 3.5, 90, 8.5, List.of(), 0, true,
                 LocalDateTime.of(2026, 12, 12, 8, 5), LocalDateTime.of(2026, 12, 12, 15, 40));
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), List.of(), null, null, false, false, 0,
-                "Opus", List.of(), List.of()).withBigSeas(List.of(aligned, unaligned));
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Big seas", List.of(), List.of(), null, null, false, "Opus",
+                List.of(), List.of()).withBigSeas(List.of(aligned, unaligned));
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         mockMvc.perform(get("/api/briefing"))
@@ -208,8 +192,8 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
     @DisplayName("GET /api/briefing omits bigSeas entirely when there is none")
     void getBriefing_omitsBigSeasWhenNull() throws Exception {
         DailyBriefingResponse briefing = new DailyBriefingResponse(
-                LocalDateTime.of(2026, 12, 10, 6, 0), "Calm", List.of(), List.of(), null, null, false, false, 0,
-                "Opus", List.of(), List.of());
+                LocalDateTime.of(2026, 12, 10, 6, 0), "Calm", List.of(), List.of(), null, null, false, "Opus",
+                List.of(), List.of());
         when(briefingService.getCachedBriefingForApi()).thenReturn(briefing);
 
         mockMvc.perform(get("/api/briefing"))

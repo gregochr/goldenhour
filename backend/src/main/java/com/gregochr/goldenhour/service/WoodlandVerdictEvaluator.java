@@ -176,24 +176,4 @@ public class WoodlandVerdictEvaluator {
         }
         return flags;
     }
-
-    /**
-     * The reason a woodland slot stood down, for the briefing's stand-down line.
-     *
-     * @param m the slot's measurements
-     * @return a short reason, or {@code null} when the slot did not stand down
-     */
-    public String deriveStanddownReason(WoodlandMetrics m) {
-        if (m.windMs() > UNSAFE_GUST_MS) {
-            return "Unsafe — falling branches";
-        }
-        if (m.precipitationMm != null && m.precipitationMm.compareTo(HEAVY_RAIN_MM) > 0) {
-            return "Heavy rain";
-        }
-        if (m.visibilityMetres >= MIST_TOO_THICK_M
-                && m.diffuseCover() < DIFFUSE_COVER_BROKEN && !m.hasWorkingMist()) {
-            return "Harsh dapple — no cloud to soften it";
-        }
-        return null;
-    }
 }

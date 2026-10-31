@@ -29,7 +29,7 @@ class CoverageReasonsTest {
     private static BriefingSlot slot(String name) {
         return new BriefingSlot(name, LocalDateTime.of(DATE, java.time.LocalTime.of(18, 0)),
                 com.gregochr.goldenhour.model.Verdict.GO, null,
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     private static List<BriefingSlot> slots(int n) {
@@ -304,7 +304,7 @@ class CoverageReasonsTest {
         assertThat(CoverageReasons.of(scoreable, DATE, TYPE, 1, map))
                 .isEqualTo(CoverageReason.STOOD_DOWN);
         assertThat(BriefingSlot.canopySlot("Wood", LocalDateTime.of(DATE, java.time.LocalTime.NOON),
-                com.gregochr.goldenhour.model.Verdict.GO, null, List.of(), null)
+                com.gregochr.goldenhour.model.Verdict.GO, null, List.of())
                 .couldCarryRating()).isFalse();
     }
 

@@ -256,7 +256,7 @@ class BriefingServiceServedMemoTest {
         when(assembler.assembleForPlan(currentSnapshot(), eq(COVERAGE))).thenAnswer(inv -> {
             assemblies.incrementAndGet();
             return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), "h", List.of(),
-                    List.of(bet), null, null, false, false, 0, "Opus", List.of(), List.of(),
+                    List.of(bet), null, null, false, "Opus", List.of(), List.of(),
                     com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
         });
         assemblies.set(0); // re-stubbing above ran the previous stub's answer once
@@ -399,7 +399,7 @@ class BriefingServiceServedMemoTest {
 
     private static DailyBriefingResponse briefing(String headline) {
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 28, 9, 0), headline, List.of(),
-                List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+                List.of(), null, null, false, "Opus", List.of(), List.of());
     }
 
     private BriefingService newService() {

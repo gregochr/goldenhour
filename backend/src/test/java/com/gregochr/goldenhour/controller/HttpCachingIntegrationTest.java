@@ -556,8 +556,6 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 null,
                 null,
                 false,
-                false,
-                0,
                 "SONNET",
                 List.of(),
                 List.of(),
@@ -637,14 +635,14 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
         BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
                 "North East", "A clear run to the east", null, 4.25, "Bamburgh", 7L);
         BriefingWindow window = new BriefingWindow(LocalDateTime.of(2999, 3, 26, 6, 0),
-                DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null, null);
+                DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(), null, window);
         BestBet bet = new BestBet(1, "Go east", "Clear", "Fri sunrise", "North East",
                 Confidence.HIGH, null, "Friday", "SUNRISE", "06:00", null, null);
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2999, 3, 26), List.of(summary))),
-                List.of(bet), null, null, false, false, 0, "SONNET", List.of(), List.of(),
+                List.of(bet), null, null, false, "SONNET", List.of(), List.of(),
                 BestBetStatus.SUCCESS_WITH_PICKS);
     }
 
@@ -657,12 +655,12 @@ class HttpCachingIntegrationTest extends AbstractControllerTest {
                 "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
                 "Tide suits this spot");
         BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
-                List.of(), null, tide, List.of(fact));
+                List.of(), tide, List.of(fact));
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(), null, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 7, 25, 4, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 7, 26), List.of(summary))),
-                List.of(), null, null, false, false, 0, "SONNET", List.of(), List.of());
+                List.of(), null, null, false, "SONNET", List.of(), List.of());
     }
 
     private static LocationEntity loc(Long id, String name) {
