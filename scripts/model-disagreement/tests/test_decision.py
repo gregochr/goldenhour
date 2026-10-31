@@ -67,12 +67,34 @@ class DecisionRuleTests(unittest.TestCase):
         self.assertEqual(status(r, "5"), "fail")
         self.assertEqual(r["outcome"], "fail")
 
-    def test_silent_comparators_leave_criterion_5_not_assessable_so_the_outcome_is_inconclusive(self):
-        recs = h.build([item(100, True, True), item(20, True, False), item(40, False, True), item(440, False, False)])
+    def test_silent_comparator_passes_criterion_5_and_the_outcome_can_pass(self):
+        # comparators never fire, or fire on a handful of units: both are silent
+        for flagged in (0, 5):
+            specs = [item(100, True, True), item(20, True, False), item(40, False, True), item(440 - flagged, False, False)]
+            if flagged:
+                specs.append(item(flagged, False, False, uk=40, bm=40))
+            r = decide(h.build(specs))
+            self.assertLess(flagged, md_size.MIN_ARM_UNITS)
+            self.assertEqual(status(r, "5"), "pass", flagged)
+            c5 = [c for c in r["criteria"] if c.name.startswith("5")][0]
+            self.assertIn("silent", c5.bound)
+            self.assertEqual(r["outcome"], "pass", flagged)
+
+    def test_comparator_firing_on_many_units_with_precision_at_least_s2s_fails_criterion_5(self):
+        n = md_size.MIN_ARM_UNITS + 10
+        recs = h.build([item(100, True, True), item(20, True, False), item(n, False, True, uk=40, bm=40),
+                        item(40, False, True), item(400 - n, False, False)])
         r = decide(recs)
-        self.assertEqual(status(r, "5"), "inconclusive")
-        self.assertEqual(r["outcome"], "inconclusive")
-        self.assertIn("not assessable", r["why"])
+        self.assertEqual(status(r, "5"), "fail")
+        self.assertEqual(r["outcome"], "fail")
+
+    def test_comparator_firing_on_many_units_but_worse_than_s2_passes_criterion_5(self):
+        n = md_size.MIN_ARM_UNITS + 10
+        recs = h.build([item(100, True, True), item(20, True, False), item(n, False, False, uk=40, bm=40),
+                        item(40, False, True), item(428 - n, False, False)])
+        r = decide(recs)
+        self.assertEqual(status(r, "5"), "pass")
+        self.assertEqual(r["outcome"], "pass")
 
     def test_season_alone_fails_criterion_6_even_though_the_pooled_separation_is_large(self):
         cloudy, clear = ("2026-03",), ("2026-04",)

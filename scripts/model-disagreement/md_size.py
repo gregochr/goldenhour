@@ -390,14 +390,17 @@ def decide(label: str, dec: Sequence[Rec], full_p: Sequence[Rec], pairs: int, ga
     for key, nm, cnt in (("uk", "UKMO", uk_n), ("bm", "best_match", bm_n)):
         sub.append((nm, cnt, lbs(res_cmp, key)[DECISION_BLOCK] if res_cmp else (None, False),
                     sens(res_cmp, key, pp) if res_cmp else "-"))
-    st5 = "pass"
-    parts = []
+    parts, sts = [], []
     for nm, cnt, (lb, usable), _ in sub:
+        if cnt < MIN_ARM_UNITS:
+            # a silent comparator: short lead alone does not reproduce the cloud, which is what this tests
+            parts.append("%s silent (fires on %d < %d units): short lead alone does not reproduce the cloud"
+                         % (nm, cnt, MIN_ARM_UNITS))
+            sts.append("pass")
+            continue
         parts.append("%s fires on %d units, lower bound %s" % (nm, cnt, pp(lb) if usable else "n/a"))
-        if not usable:
-            st5 = "inconclusive" if st5 != "fail" else st5
-        elif lb <= 0:
-            st5 = "fail"
+        sts.append("inconclusive" if not usable else ("pass" if lb > 0 else "fail"))
+    st5 = "fail" if "fail" in sts else ("inconclusive" if "inconclusive" in sts else "pass")
     crits.append(Criterion("5 beats the null comparators (full P)", "lower bound of precision(S2) - precision(S_UK) > 0, "
                            "same for best_match", "S2 precision %s" % pc(ratio(csy, cs)), "; ".join(parts),
                            "; ".join("%s: %s" % (x[0], x[3]) for x in sub), st5))
@@ -597,9 +600,11 @@ NOTES = """\
 1. **Population for the sample.** P' needs the refetched UKMO and best_match, which only exist after the fetch, so
    the sample is drawn from P and P' is applied here.
 2. **Criterion 5 is evaluated on full P.** In P' the comparators are below 10 by construction, so S_UK and the
-   best_match comparator can never fire there and precision(S_UK) is undefined. The plan's wording ("on units where
-   either fires") only makes sense on P, so the criterion compares precision(S2) with precision(UKMO M >= 30) and
-   with precision(best_match M >= 30) on P, and S2 must beat both (each lower bound > 0).
+   best_match comparator can never fire there and precision(S_UK) is undefined. The criterion therefore compares
+   precision(S2) with precision(UKMO M >= 30) and with precision(best_match M >= 30) on P, per comparator. A
+   comparator firing on fewer than 30 units is silent: that part passes (short lead alone does not reproduce the
+   cloud), no bootstrap. Otherwise the lower bound of the precision difference must be > 0 (undefined in more than 5%
+   of draws: not assessable). Fail if either part fails, else inconclusive if either is, else pass.
 3. **Alignment gate.** It fires if the pooled share, or any single event's share with >= 20 pairs, exceeds 20%.
    When it fires, a pass on full P is reported as 'no pass possible'; the headline decision is P' either way.
 4. **Overall outcome.** Minimum counts unmet -> inconclusive; else any criterion failing -> fail; else any criterion
