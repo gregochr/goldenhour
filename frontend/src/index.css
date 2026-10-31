@@ -3307,10 +3307,11 @@ button.wf-hc.also.on:hover {
      its own windows, and the cells in DOM order — which is why the component emits header, sunrise,
      sunset per day rather than row by row.
 
-     A day holding one window takes the full row, and the hole beside it is removed outright: a
-     390px screen has no width to spend on a dashed box saying "past the end of the forecast", and
-     the day heading above already makes the shape legible. The explanatory copy is a desktop
-     affordance, and dropping it here loses no claim the reader needs to act on. */
+     A day holding one window KEEPS its half-width cell, and the hole beside it is shown with the
+     same copy desktop uses ("this morning has gone" / "past the end of the forecast"). Spanning the
+     row would promote a single, often weak, window to a hero card; the dashed cell keeps it the
+     size of any other and says why its partner is missing. The DOM order (header, topics, sunrise,
+     sunset) puts today's empty sunrise on the left and the last day's empty sunset on the right. */
   /* ⚠️ `minmax(0, 1fr)` here TOO, and forgetting it here was a real 390px horizontal scroller: a
      track's default minimum is min-content, the paired cards floored their columns at 186px each,
      and the grid ran 380px wide inside a 330px body. Measured in a browser, because jsdom has no
@@ -3318,8 +3319,6 @@ button.wf-hc.also.on:hover {
   .wf-hstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 8px; }
   .wf-hstrip > * { grid-column: auto; grid-row: auto; }
   .wf-hstrip > .wf-hday { grid-column: 1 / -1; margin-top: 4px; }
-  .wf-hstrip > .wf-hgap { display: none; }
-  .wf-hstrip > .wf-hc.solo { grid-column: 1 / -1; }
   /* Chip compaction (matrix-axis plan D13) — keeps the sunrise/sunset chip's min-content width
      inside its 2-column track; without it the chip's desktop padding/letter-spacing can push a
      narrow card wider than its column. ⚠️ (0,2,0), the same specificity as `.wf-hc-sun.am`/`.pm`
