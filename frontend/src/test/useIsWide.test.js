@@ -26,7 +26,7 @@ describe('useIsWide', () => {
 
   // The Operations sidebar switch rides this query; the rest of this file stubs `matchMedia`
   // and cannot see it.
-  it('asks for exactly "(min-width: 1280px)": bar at 1279px, sidebar from 1280px', () => {
+  it('asks for exactly "(min-width: 1280px)"', () => {
     renderHook(() => useIsWide());
     expect(globalThis.matchMedia).toHaveBeenCalledWith('(min-width: 1280px)');
   });

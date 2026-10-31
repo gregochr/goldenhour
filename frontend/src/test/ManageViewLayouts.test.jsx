@@ -90,6 +90,12 @@ describe('ManageView — wide sidebar', () => {
     });
   });
 
+  it('announces each group by name and nests its tabs', () => {
+    render(<ManageView onComplete={vi.fn()} />);
+    const group = screen.getByRole('group', { name: 'Testing' });
+    expect(within(group).getByTestId('manage-tab-rewind')).toBeInTheDocument();
+  });
+
   it('renders exactly one navigation and no group buttons', () => {
     render(<ManageView onComplete={vi.fn()} />);
     expect(navigationCount()).toBe(1);
@@ -247,5 +253,16 @@ describe('ManageView — layout precedence and tablet', () => {
     rerender(<ManageView onComplete={vi.fn()} />);
     expect(screen.getByTestId('manage-sidebar')).toBeInTheDocument();
     expect(mounts.jobRuns).toBe(1);
+  });
+
+  it('keeps the group in sync when a sidebar selection crosses to the tablet bar', () => {
+    setLayout('wide');
+    const { rerender } = render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('manage-tab-rewind'));
+    setLayout('tablet');
+    rerender(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('manage-group-testing').className).toContain('text-plex-gold');
+    expect(screen.getByTestId('manage-group-runs').className).not.toContain('text-plex-gold');
+    expect(screen.getByTestId('manage-tab-rewind').className).toContain('text-plex-text ');
   });
 });

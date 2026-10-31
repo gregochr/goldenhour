@@ -162,8 +162,17 @@ export default function ManageView({ onComplete }) {
       data-testid="manage-sidebar"
     >
       {GROUPS.map((group) => (
-        <div key={group.value} className="flex flex-col gap-1" data-testid={`manage-sidebar-group-${group.value}`}>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-plex-text-muted px-2">
+        <div
+          key={group.value}
+          role="group"
+          aria-labelledby={`manage-sidebar-heading-${group.value}`}
+          className="flex flex-col gap-1"
+          data-testid={`manage-sidebar-group-${group.value}`}
+        >
+          <p
+            id={`manage-sidebar-heading-${group.value}`}
+            className="text-[10px] font-semibold uppercase tracking-wider text-plex-text-muted px-2"
+          >
             {group.label}
           </p>
           {group.tabs.map((tab) => (
