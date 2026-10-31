@@ -169,4 +169,37 @@ describe('DataGrid', () => {
       expect(screen.queryByTestId('grid-sort-name')).not.toBeInTheDocument();
     });
   });
+
+  describe('rows that open nothing', () => {
+    const selectable = (r) => r.id !== 2;
+
+    it('draws a non-selectable row plain: no button role, not focusable, no label, no pointer cursor', () => {
+      renderGrid({ isSelectable: selectable });
+      const plain = screen.getByTestId('grid-row-2');
+      expect(plain).not.toHaveAttribute('role');
+      expect(plain).not.toHaveAttribute('tabindex');
+      expect(plain).not.toHaveAttribute('aria-label');
+      expect(plain.className).not.toContain('cursor-pointer');
+      const open = screen.getByTestId('grid-row-1');
+      expect(open).toHaveAttribute('role', 'button');
+      expect(open).toHaveAttribute('tabindex', '0');
+      expect(screen.getAllByRole('button', { name: /Alnmouth|Bamburgh/ })).toHaveLength(1);
+    });
+
+    it('never calls onSelect from a non-selectable row, by click or key', () => {
+      const { onSelect } = renderGrid({ isSelectable: selectable });
+      const plain = screen.getByTestId('grid-row-2');
+      fireEvent.click(plain);
+      fireEvent.keyDown(plain, { key: 'Enter' });
+      fireEvent.keyDown(plain, { key: ' ' });
+      expect(onSelect).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId('grid-row-1'));
+      expect(onSelect).toHaveBeenCalledWith(ROWS[0]);
+    });
+
+    it('does not tint a non-selectable row as selected', () => {
+      renderGrid({ isSelectable: selectable, selectedId: 2 });
+      expect(screen.getByTestId('grid-row-2').className).not.toContain('inset_2px_0_0');
+    });
+  });
 });

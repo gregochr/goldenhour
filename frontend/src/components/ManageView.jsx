@@ -304,7 +304,8 @@ export default function ManageView({ onComplete }) {
         )}
 
         {activeTab === 'tides' && (
-          <div className="card">
+          // Phone (639px and under): the card is edge to edge, with no border, background or padding of its own.
+          <div className="card max-[639px]:rounded-none max-[639px]:border-0 max-[639px]:bg-transparent max-[639px]:p-0">
             <TideManagementView />
           </div>
         )}
