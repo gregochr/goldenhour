@@ -2,8 +2,15 @@ package com.gregochr.goldenhour.entity;
 
 import com.anthropic.models.messages.Model;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Identifies which evaluation path produced a {@code ForecastEvaluationEntity} row.
+ *
+ * <p>Constant order matters: {@code BatchResultProcessor.resolveEvaluationModel} returns the first
+ * constant whose model id is contained in a response's model id, so a base model must precede its
+ * extended-thinking variant.
  *
  * <p>{@code HAIKU} rows carry a 1–5 {@code rating}; {@code SONNET} rows carry
  * {@code fierySkyPotential} and {@code goldenHourPotential} (0–100 each);
@@ -12,26 +19,7 @@ import com.anthropic.models.messages.Model;
 public enum EvaluationModel {
 
     /** Claude Haiku — lower cost, 1–5 rating output. */
-    HAIKU("4.5", Model.CLAUDE_HAIKU_4_5_20251001),
-
-    /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
-    SONNET("4.6", Model.CLAUDE_SONNET_4_6),
-
-    /** Claude Sonnet with extended thinking — same model, thinking enabled. */
-    SONNET_ET("4.6", Model.CLAUDE_SONNET_4_6),
-
-    /**
-     * Claude Sonnet 5.5 — selectable only, never a default. Thinking is left at the model's
-     * adaptive default (it rejects {@code thinking: disabled}) and effort is sent as low. The enum
-     * name is capped at 10 characters because every column storing a model name is VARCHAR(10) in
-     * production (as of 2026-10-04): api_call_log.evaluation_model, forecast_evaluation.evaluation_model,
-     * job_run.evaluation_model, model_selection.active_model and sky_rating_eval_run.model. (The
-     * Prompt Test and model-test result tables that also carried one were dropped by V198 and V200.)
-     *
-     * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
-     * exactly like any other failed result (it can contribute to a place's auto-disable count).
-     */
-    SONNET_55("5.5", Model.CLAUDE_SONNET_5_5),
+    HAIKU("4.5", Model.CLAUDE_HAIKU_4_5_20251001, true),
 
     /**
      * Claude Haiku 5.5 — selectable only, never a default. Unlike Sonnet 5.5 it accepts
@@ -44,30 +32,72 @@ public enum EvaluationModel {
      * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
      * exactly like any other failed result.
      */
-    HAIKU_55("5.5", Model.CLAUDE_HAIKU_5_5),
+    HAIKU_55("5.5", Model.CLAUDE_HAIKU_5_5, true),
+
+    /** Claude Sonnet — higher accuracy, dual 0–100 score output. */
+    SONNET("4.6", Model.CLAUDE_SONNET_4_6, true),
+
+    /** Claude Sonnet with extended thinking — same model, thinking enabled. */
+    SONNET_ET("4.6", Model.CLAUDE_SONNET_4_6, false),
+
+    /**
+     * Claude Sonnet 5.5 — selectable only, never a default. Thinking is left at the model's
+     * adaptive default (it rejects {@code thinking: disabled}) and effort is sent as low. The enum
+     * name is capped at 10 characters because every column storing a model name is VARCHAR(10) in
+     * production (as of 2026-10-04): api_call_log.evaluation_model, forecast_evaluation.evaluation_model,
+     * job_run.evaluation_model, model_selection.active_model and sky_rating_eval_run.model. (The
+     * Prompt Test and model-test result tables that also carried one were dropped by V198 and V200.)
+     *
+     * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
+     * exactly like any other failed result (it can contribute to a place's auto-disable count).
+     */
+    SONNET_55("5.5", Model.CLAUDE_SONNET_5_5, true),
 
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
-    OPUS("4.6", Model.CLAUDE_OPUS_4_6),
+    OPUS("4.6", Model.CLAUDE_OPUS_4_6, true),
 
     /** Claude Opus with extended thinking — same model, thinking enabled. */
-    OPUS_ET("4.6", Model.CLAUDE_OPUS_4_6),
+    OPUS_ET("4.6", Model.CLAUDE_OPUS_4_6, false),
 
     /** No Claude call — raw comfort weather data only (temperature, wind, rain). */
-    WILDLIFE(null, null);
+    WILDLIFE(null, null, false);
 
     private static final int SONNET_55_MAX_TOKENS = 4096;
 
     private final String version;
     private final String modelId;
+    private final boolean selectable;
 
     /**
      * Each model id comes from the SDK's typed {@link Model} constants, so a typo is a compile error
      * and the SDK's own deprecation markers are visible at the point of use. {@code WILDLIFE} makes
      * no Claude call and so has no model.
      */
-    EvaluationModel(String version, Model model) {
+    EvaluationModel(String version, Model model, boolean selectable) {
         this.version = version;
+        this.selectable = selectable;
         this.modelId = model == null ? null : model.asString();
+    }
+
+    /**
+     * Whether this is a platform model: one an admin can pick on the Models screen and the weekly
+     * sky-rating eval scores. The extended-thinking variants and WILDLIFE are not.
+     *
+     * @return true if selectable
+     */
+    public boolean isSelectable() {
+        return selectable;
+    }
+
+    /**
+     * The one list of platform models, in declaration order (family then version). Setting the
+     * {@code selectable} flag on a new constant is all it takes to add it to the Models screen, the
+     * weekly sky-rating eval and the eval screen.
+     *
+     * @return the selectable models as an unmodifiable list
+     */
+    public static List<EvaluationModel> selectable() {
+        return Arrays.stream(values()).filter(EvaluationModel::isSelectable).toList();
     }
 
     /**

@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
+import com.gregochr.goldenhour.service.SkyRatingEvalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -72,6 +73,36 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
                 .andExpect(status().isAccepted());
 
         verify(skyRatingEvalService).startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 4);
+    }
+
+    @Test
+    @DisplayName("POST /run accepts a Haiku 5.5 run")
+    @WithMockUser(roles = "ADMIN")
+    void runAcceptsHaiku55() throws Exception {
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(9L).runTimestamp(LocalDateTime.now()).startedAt(LocalDateTime.now())
+                .model(EvaluationModel.HAIKU_55).runsPerFixture(8)
+                .triggerSource(SkyRatingEvalTrigger.MANUAL).status(SkyRatingEvalStatus.RUNNING)
+                .build();
+        when(skyRatingEvalService.startRun(EvaluationModel.HAIKU_55, SkyRatingEvalTrigger.MANUAL, 8))
+                .thenReturn(run);
+
+        mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=HAIKU_55"))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    @DisplayName("POST /run refuses a non-selectable model with 400")
+    @WithMockUser(roles = "ADMIN")
+    void runRefusesNonSelectableModels() throws Exception {
+        for (EvaluationModel model : List.of(
+                EvaluationModel.WILDLIFE, EvaluationModel.SONNET_ET, EvaluationModel.OPUS_ET)) {
+            mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=" + model.name()))
+                    .andExpect(status().isBadRequest());
+            verify(skyRatingEvalService, org.mockito.Mockito.never()).startRun(
+                    model, SkyRatingEvalTrigger.MANUAL, SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
+        }
+        org.mockito.Mockito.verifyNoMoreInteractions(skyRatingEvalService);
     }
 
     @Test
