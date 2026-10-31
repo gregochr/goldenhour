@@ -47,6 +47,42 @@ export function TideUpsellPreview() {
 }
 
 /**
+ * The Coming up locked row's sketch (coming-up-tide-light-locked-row-plan.md §2): a fixed tide curve between
+ * two dashed light lines, drawn at its own small size so the stroke stays visible. Like
+ * {@code TideUpsellPreview}, constants ONLY and no props, so it can never carry the reader's served tide.
+ * Hidden from assistive tech: it is decoration.
+ */
+export function TideLightLockedSketch() {
+  return (
+    <svg
+      className="wf-cu-locked-sketch"
+      data-testid="wf-cu-locked-sketch"
+      width="104"
+      height="24"
+      viewBox="0 0 104 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <line
+        x1="31" y1="0" x2="31" y2="24"
+        stroke="var(--color-verdict-marginal)" strokeOpacity="0.6" strokeWidth="1" strokeDasharray="2 2"
+      />
+      <line
+        x1="73" y1="0" x2="73" y2="24"
+        stroke="var(--color-verdict-marginal)" strokeOpacity="0.6" strokeWidth="1" strokeDasharray="2 2"
+      />
+      <path
+        d="M0 13 C 13 -2, 27 -2, 39 13 S 65 28, 78 13 S 94 1, 104 8"
+        fill="none"
+        stroke="var(--color-tide)"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
  * The upsell's content, shared by the desktop popover and the phone peek's Tide section: the house
  * pill, the heading, the body and the preview. {@code headingRef} lets the popover move focus to the
  * heading; the phone section passes none.

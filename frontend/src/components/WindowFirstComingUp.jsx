@@ -93,7 +93,7 @@ export default function WindowFirstComingUp({
   focusRequest = null, onFocusHandled = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
-  const { tideLocked, allowedLocationIds } = useWindowFirstBriefing();
+  const { allowedLocationIds } = useWindowFirstBriefing();
 
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
@@ -105,19 +105,10 @@ export default function WindowFirstComingUp({
     ),
     [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
   );
-  // The one card that carries the Lite tide-light Pro door (tide-light-pro-plan.md F2, Q9): the FIRST
-  // rendered entry (under the active chip, in month order) the server marked `lightRowsWithheld`. Decided
-  // here, where the whole rendered order is known, and handed down as a boolean. Pro/Admin never get one.
-  const tideLightDoorId = useMemo(
-    () => (tideLocked && status === 'ready'
-      ? monthGroups.flatMap((group) => group.entries).find((entry) => entry.lightRowsWithheld)?.id ?? null
-      : null),
-    [tideLocked, status, monthGroups],
-  );
   // S5b-2: a Lite reader whose body the server shaped by their sub-region picks. `outsideFacts` is null on every
   // other body (Pro, Admin, enforcement off), so nothing below draws and the pane is unchanged. The line sits on
   // every entry whose door row finds no matching allowed place; the ONE door goes on the first such entry,
-  // skipping the one that already carries the tide-light door, else the line stands alone.
+  // skipping entries that carry the Lite locked tide row (falling back to the first when every one does).
   const outsideFacts = useMemo(
     () => comingUpOutsideFacts(locations, allowedLocationIds),
     [locations, allowedLocationIds],
@@ -126,15 +117,17 @@ export default function WindowFirstComingUp({
     const byId = new Map();
     if (!outsideFacts || status !== 'ready') return { byId, doorId: null };
     let doorId = null;
+    let firstId = null;
     monthGroups.flatMap((group) => group.entries).forEach((entry) => {
       const subject = entrySubject(entry);
       const text = subject ? outsideLineText(subject, outsideFacts, entry.dayChips?.length === 1) : null;
       if (!text) return;
       byId.set(entry.id, { subject, text });
-      if (doorId === null && entry.id !== tideLightDoorId) doorId = entry.id;
+      if (firstId === null) firstId = entry.id;
+      if (doorId === null && !entry.lightRowsWithheld) doorId = entry.id;
     });
-    return { byId, doorId };
-  }, [outsideFacts, status, monthGroups, tideLightDoorId]);
+    return { byId, doorId: doorId ?? firstId };
+  }, [outsideFacts, status, monthGroups]);
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
   // "what is new anywhere in the feed", not "what is new in the currently selected family".
@@ -379,7 +372,6 @@ export default function WindowFirstComingUp({
                     entry={entry}
                     onGoToPlan={onGoToPlan}
                     onShowOnMap={onShowOnMap}
-                    showTideLightDoor={tideLightDoorId !== null && entry.id === tideLightDoorId}
                     outsideLine={outside?.text ?? null}
                     outsideDoor={outside && entry.id === outsideByEntry.doorId ? {
                       subject: outside.subject,

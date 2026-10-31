@@ -1,8 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import ProUpsellDoor, {
-  TIDE_LIGHT_UPSELL_LABEL, TIDE_LIGHT_UPSELL_HEADING, TIDE_LIGHT_UPSELL_BODY,
-} from './shared/ProUpsell.jsx';
+import { TIDE_LIGHT_LOCKED_LABEL, TIDE_LIGHT_LOCKED_BODY } from './shared/ProUpsell.jsx';
+import { TideLightLockedSketch } from './map/TideUpsell.jsx';
 import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
@@ -266,7 +265,6 @@ DayChips.propTypes = {
     rangeAverage: PropTypes.number,
   }).isRequired,
   onShowOnMap: PropTypes.func.isRequired,
-  showTideLightDoor: PropTypes.bool,
 };
 
 /**
@@ -419,7 +417,7 @@ DayChips.propTypes = {
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
 export default function WindowComingUpEntry({
-  entry, onGoToPlan, onShowOnMap, showTideLightDoor = false, outsideLine = null, outsideDoor = null,
+  entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null,
 }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
@@ -563,7 +561,7 @@ export default function WindowComingUpEntry({
         </>
       )}
 
-      {(entry.tide || entry.facts.length > 0) && (
+      {(entry.tide || entry.facts.length > 0 || entry.lightRowsWithheld === true) && (
         <>
           <div
             className={isTideRun ? 'wf-facts wf-facts-rows' : 'wf-facts'}
@@ -586,6 +584,27 @@ export default function WindowComingUpEntry({
                 ])}
               </span>,
             ])}
+            {/* The Lite locked row (coming-up-tide-light-locked-row-plan.md): where Pro's sunrise and
+                sunset high-water rows sit. Gated on the wire flag alone, never on the client role, so a
+                stale session still draws the gap honestly. Static: the sentence IS the worded upsell. */}
+            {entry.lightRowsWithheld === true && (
+              <>
+                {' '}
+                <span className="wf-cu-locked" data-testid="coming-up-tide-light-locked">
+                  <span className="wf-cu-locked-label" data-testid="coming-up-tide-light-locked-label">
+                    {TIDE_LIGHT_LOCKED_LABEL}
+                  </span>
+                  {' '}
+                  <span className="wf-lens-pro" data-testid="coming-up-tide-light-locked-pill">Pro</span>
+                  {' '}
+                  <TideLightLockedSketch />
+                  {' '}
+                  <span className="wf-cu-locked-body" data-testid="coming-up-tide-light-locked-body">
+                    {TIDE_LIGHT_LOCKED_BODY}
+                  </span>
+                </span>
+              </>
+            )}
           </div>
           {' '}
         </>
@@ -677,18 +696,6 @@ export default function WindowComingUpEntry({
           {cardBody}
         </div>
       )}
-      {/* The Lite Pro door (tide-light-pro-plan.md F2). A SIBLING of the card, never inside it: an
-          interactive card with no day chips is itself a <button>, which has presentational children.
-          Like the outside door below, it sits in the card's grid column (`.wf-cu-tide-door`), not the date rail. */}
-      {showTideLightDoor && (
-        <ProUpsellDoor
-          label={TIDE_LIGHT_UPSELL_LABEL}
-          heading={TIDE_LIGHT_UPSELL_HEADING}
-          body={TIDE_LIGHT_UPSELL_BODY}
-          testIdPrefix="coming-up-tide-light-upsell"
-          className="wf-pro-upsell-door--inline wf-cu-tide-door"
-        />
-      )}
       {/* The sub-regions door (S5b-2): also a sibling of the card, on one entry per tab. */}
       {outsideDoor && (
         <ComingUpOutsideDoor
@@ -769,7 +776,6 @@ WindowComingUpEntry.propTypes = {
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
-  showTideLightDoor: PropTypes.bool,
   /** The S5b-2 line under the door row, or null (always null for Pro, Admin and an unshaped body). */
   outsideLine: PropTypes.string,
   /** The S5b-2 sub-regions door this entry carries, or null. */
