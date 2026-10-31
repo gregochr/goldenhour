@@ -110,6 +110,28 @@ LocationSummary.propTypes = {
 };
 
 /**
+ * The Start a run panel's in-flight flags and its status line. {@code RunsView} holds them (not the panel) so that
+ * closing and reopening the panel mid-request keeps the "something is running" guard and the message; the panel
+ * makes its own when it is rendered on its own.
+ *
+ * @returns {object} the six running flags and their setters, and {@code runStatus} and {@code setRunStatus}
+ */
+export function useStartRunState() {
+  const [runningTide, setRunningTide] = useState(false);
+  const [runningBackfill, setRunningBackfill] = useState(false);
+  const [runningLightPollution, setRunningLightPollution] = useState(false);
+  const [runningBriefing, setRunningBriefing] = useState(false);
+  const [runningScheduledBatch, setRunningScheduledBatch] = useState(false);
+  const [runningJfdiBatch, setRunningJfdiBatch] = useState(false);
+  const [runStatus, setRunStatus] = useState(null);
+  return {
+    runningTide, setRunningTide, runningBackfill, setRunningBackfill, runningLightPollution, setRunningLightPollution,
+    runningBriefing, setRunningBriefing, runningScheduledBatch, setRunningScheduledBatch, runningJfdiBatch,
+    setRunningJfdiBatch, runStatus, setRunStatus,
+  };
+}
+
+/**
  * The Start a run panel ({@code #manage/runs/start}), R2a's legacy body (runs-redesign-plan.md R-D4): today's admin
  * trigger card lifted as it stands, every button, the batch region dialog, the tide confirm dialogs, both aurora
  * modals, {@code anyRunning} and the busy and error lines. R3 rebuilds the body into radio options; until then
@@ -123,22 +145,24 @@ LocationSummary.propTypes = {
  * @param {(jobRunId: number) => void} props.onActiveRunChange sets the run whose progress is followed
  * @param {() => void} props.onStarted called after a start that adds or changes a run, to reload the list head
  * @param {() => void} props.onClose closes the panel
+ * @param {object} [props.runState] the lifted flags and status line ({@link useStartRunState}), when the caller holds them
  */
-export default function StartRunPanel({ onActiveRunChange, onStarted, onClose }) {
+export default function StartRunPanel({
+  onActiveRunChange, onStarted, onClose, runState = undefined,
+}) {
   const { isAdmin } = useAuth();
-  const [runningTide, setRunningTide] = useState(false);
-  const [runningBackfill, setRunningBackfill] = useState(false);
-  const [runningLightPollution, setRunningLightPollution] = useState(false);
-  const [runningBriefing, setRunningBriefing] = useState(false);
+  const ownState = useStartRunState();
+  const {
+    runningTide, setRunningTide, runningBackfill, setRunningBackfill, runningLightPollution, setRunningLightPollution,
+    runningBriefing, setRunningBriefing, runningScheduledBatch, setRunningScheduledBatch, runningJfdiBatch,
+    setRunningJfdiBatch, runStatus, setRunStatus,
+  } = runState ?? ownState;
   const [showAuroraModal, setShowAuroraModal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
-  const [runStatus, setRunStatus] = useState(null);
   const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
   const [batchRegions, setBatchRegions] = useState([]);
-  const [runningScheduledBatch, setRunningScheduledBatch] = useState(false);
-  const [runningJfdiBatch, setRunningJfdiBatch] = useState(false);
   const [batchDialog, setBatchDialog] = useState(null);
 
   // Load locations and batch regions once
@@ -161,6 +185,7 @@ export default function StartRunPanel({ onActiveRunChange, onStarted, onClose })
       if (result.jobRunId) {
         onActiveRunChange(result.jobRunId);
       }
+      onStarted();
     } catch (err) {
       const msg = err?.response?.status === 400
         ? 'Light pollution API key not configured.'
@@ -207,6 +232,7 @@ export default function StartRunPanel({ onActiveRunChange, onStarted, onClose })
           if (result.jobRunId) {
             onActiveRunChange(result.jobRunId);
           }
+          onStarted();
         } catch (err) {
           // 409: the refresh is refused because one is already going (from any route: schedule,
           // Run Now, or an earlier press here).
@@ -243,6 +269,7 @@ export default function StartRunPanel({ onActiveRunChange, onStarted, onClose })
         try {
           const result = await backfillTideData();
           setRunStatus({ type: 'success', message: result.status || 'Backfill started.' });
+          onStarted();
         } catch {
           setRunStatus({ type: 'error', message: 'Tide backfill failed. Check the logs.' });
         } finally {
@@ -542,4 +569,5 @@ StartRunPanel.propTypes = {
   onActiveRunChange: PropTypes.func.isRequired,
   onStarted: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
+  runState: PropTypes.object,
 };

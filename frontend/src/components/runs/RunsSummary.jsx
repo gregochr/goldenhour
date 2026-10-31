@@ -7,7 +7,7 @@ function Cell({ label, value, sub = '', valueClass = 'text-plex-text', testId })
     <div className="min-w-0 bg-plex-surface px-4 py-3 max-[639px]:px-3" data-testid={testId}>
       <p className="text-[11.5px] text-plex-text-muted">{label}</p>
       <p className={`mt-0.5 font-mono text-[20px] leading-tight ${valueClass}`} data-testid={`${testId}-value`}>{value}</p>
-      <p className="mt-0.5 min-h-4 truncate text-[11.5px] text-plex-text-muted" data-testid={`${testId}-sub`}>{sub}</p>
+      <p className="mt-0.5 min-h-4 text-[11.5px] text-plex-text-muted" data-testid={`${testId}-sub`}>{sub}</p>
     </div>
   );
 }
@@ -41,8 +41,9 @@ export default function RunsSummary({ summary }) {
   const usd = formatSpendUsd(summary.spendMicroDollars);
   const hasMedian = summary.medianOvernightSeconds != null;
   return (
+    <div className="@container">
     <div
-      className="grid grid-cols-4 gap-px overflow-hidden rounded-[10px] border border-plex-border bg-plex-border max-[640px]:grid-cols-2"
+      className="grid grid-cols-4 gap-px overflow-hidden rounded-[10px] border border-plex-border bg-plex-border @max-[640px]:grid-cols-2"
       data-testid="runs-summary"
     >
       <Cell
@@ -70,6 +71,7 @@ export default function RunsSummary({ summary }) {
         sub={hasMedian ? `last ${summary.medianOvernightSample}` : ''}
         testId="runs-summary-median"
       />
+    </div>
     </div>
   );
 }

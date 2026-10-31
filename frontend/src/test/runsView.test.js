@@ -155,7 +155,7 @@ describe('runScopeText', () => {
         extendedThinking: false,
       },
     });
-    expect(runScopeText(item)).toBe('Manual · T to T+3 · SUNRISE / SUNSET · 212 locations · Haiku 4.5 · 7 regions');
+    expect(runScopeText(item)).toBe('Manual · T to T+3 · sunrise, sunset · 212 locations · Haiku 4.5 · 7 regions');
   });
 
   it('says "No detail available" for a finished batch with no scope', () => {
@@ -203,7 +203,12 @@ describe('runRowLabel and runRowId', () => {
   it('reads the whole row for assistive tech', () => {
     const item = cycleItem({ name: 'Afternoon refresh', startedAt: '2026-10-31T15:00:00Z', note: 'Waiting on 2 of 4 batches' });
     expect(runRowLabel(item, 'Running', new Date('2026-10-31T16:00:00Z')))
-      .toBe('Afternoon refresh, Today 15:00, Running, 2 of 4 batches, Waiting on 2 of 4 batches');
+      .toBe('Afternoon refresh cycle, Today 15:00, Running, 2 of 4 batches, 1h 0m so far, £0.6083, Waiting on 2 of 4 batches');
+  });
+
+  it('names a job run without "cycle", and leaves out a duration or cost it does not have', () => {
+    const item = jobItem({ name: 'Tide refresh', startedAt: '2026-10-31T06:00:00Z', durationSeconds: null, costMicroDollars: 0 });
+    expect(runRowLabel(item, 'Done', new Date('2026-10-31T16:00:00Z'))).toBe('Tide refresh, Today 06:00, Done, 61 / 61');
   });
 
   it('keeps a cycle and a job run of the same number apart', () => {
@@ -233,6 +238,10 @@ describe('spend and group words', () => {
   it('formats spend to the penny in pounds and the cent in dollars', () => {
     expect(formatSpendGbp(23_310_000, 0.79)).toBe('£18.41');
     expect(formatSpendUsd(23_310_000)).toBe('$23.31');
+  });
+
+  it('says spend under a penny in pence, as the old card and the Cost column do', () => {
+    expect(formatSpendGbp(10_000, 0.79)).toBe('0.79p');
   });
 
   it('has no spend to show for zero, or for no rate', () => {

@@ -34,7 +34,7 @@ const KIND_CHIPS = [
 function StatusCell({ item }) {
   const status = runStatusView(item.status);
   return (
-    <StatusDot tone={status.tone} halo={status.halo} testId={`runs-status-${runRowId(item)}`}>
+    <StatusDot tone={status.tone} halo={status.halo} tintText testId={`runs-status-${runRowId(item)}`}>
       {status.label}
     </StatusDot>
   );
@@ -80,14 +80,15 @@ const COLUMNS = [
           </span>
         </span>
         <span
-          className="block truncate text-xs text-plex-text-secondary @max-[540px]:hidden"
+          className="block truncate text-xs text-plex-text-secondary"
           data-testid={`runs-scope-${runRowId(item)}`}
         >
           {runScopeText(item)}
         </span>
         {item.note && (
           <span
-            className={`block text-xs ${noteToneClass(item.noteTone)}`}
+            className={`block min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere] text-xs ${noteToneClass(item.noteTone)}`}
+            title={item.note}
             data-testid={`runs-note-${runRowId(item)}`}
           >
             {item.note}
@@ -142,7 +143,8 @@ const COLUMNS = [
     cardOnly: true,
     cell: (item) => (
       <span className="block truncate text-xs text-plex-text-secondary">
-        {[formatRunStarted(item.startedAt), runDurationText(item), runCostText(item)].join(' · ')}
+        {[formatRunStarted(item.startedAt), runDurationText(item), runCostText(item)]
+          .filter((part) => part !== '' && part !== '—').join(' · ')}
       </span>
     ),
   },
@@ -161,6 +163,7 @@ function emptyText(nextOvernightAt) {
  *
  * @param {object} props
  * @param {{current: HTMLElement|null}} props.headingRef the "Runs" heading, which takes focus after a progress Dismiss
+ * @param {{current: HTMLElement|null}} [props.startButtonRef] the Start a run button, which takes focus when its panel closes
  * @param {Array<object>} props.items the loaded rows
  * @param {object|null} props.meta the response's aggregates ({@code summary}, {@code kindCounts}, …)
  * @param {boolean} props.loading true until the first page for the current filters arrives
@@ -178,13 +181,17 @@ function emptyText(nextOvernightAt) {
  * @param {import('react').ReactNode} [props.progress] the live run-progress panel, drawn above the summary
  */
 export default function RunsListPane({
-  headingRef, items, meta = null, loading, loadingMore, error = null, updatedAt = null, hasMore, filters, filterActions,
+  headingRef, startButtonRef = undefined, items, meta = null, loading, loadingMore, error = null, updatedAt = null, hasMore, filters, filterActions,
   selectedKey = null, onSelect, onLoadMore, onRefresh, onStart, progress = null,
 }) {
   const kindCounts = meta?.kindCounts ?? {};
   let body;
   if (loading) {
-    body = <p className="text-sm text-plex-text-muted animate-pulse" data-testid="runs-loading">Loading runs...</p>;
+    body = (
+      <p className="text-sm text-plex-text-muted animate-pulse motion-reduce:animate-none" data-testid="runs-loading">
+        Loading runs{'…'}
+      </p>
+    );
   } else if (items.length === 0) {
     body = (
       <p className="py-6 text-center text-sm text-plex-text-secondary" data-testid="runs-empty">
@@ -239,7 +246,7 @@ export default function RunsListPane({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             className={textButtonClass}
@@ -249,6 +256,7 @@ export default function RunsListPane({
             Refresh
           </button>
           <button
+            ref={startButtonRef}
             type="button"
             className="btn-primary shrink-0 text-xs max-[639px]:min-h-11"
             onClick={onStart}
@@ -306,6 +314,7 @@ export default function RunsListPane({
 
 RunsListPane.propTypes = {
   headingRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  startButtonRef: PropTypes.shape({ current: PropTypes.any }),
   items: PropTypes.arrayOf(PropTypes.object).isRequired,
   meta: PropTypes.object,
   loading: PropTypes.bool.isRequired,

@@ -15,7 +15,7 @@ import PropTypes from 'prop-types';
 export default function Segmented({ label, options, value, onChange, testId }) {
   return (
     <div
-      className="inline-flex shrink-0 overflow-hidden rounded-lg border border-plex-border"
+      className="inline-flex shrink-0 self-start overflow-hidden rounded-lg border border-plex-border"
       role="group"
       aria-label={label}
       data-testid={testId}

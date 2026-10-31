@@ -294,9 +294,11 @@ describe('DispositionBreakdown — drill-down expansion', () => {
     fireEvent.click(screen.getByTestId('disposition-row-EVALUATED').querySelector('button'));
     const panel = screen.getByTestId('disposition-entries-EVALUATED');
     expect(panel).toHaveTextContent('Durham UK');
-    expect(panel).toHaveTextContent('2026-05-26');
+    expect(panel).toHaveTextContent('Tue 26 May');
     // No detail rendered because EVALUATED entries have detail=null
     expect(within(panel).queryByTestId('disposition-detail')).not.toBeInTheDocument();
+    // The entry reads "{location} · {day} · {event}", the event in lower case.
+    expect(panel).toHaveTextContent('Durham UK · Tue 26 May · sunrise');
   });
 });
 
@@ -422,6 +424,33 @@ describe('DispositionBreakdown: the handoff layout', () => {
     render(<DispositionBreakdown jobRunId={1} onLoaded={onLoaded} />);
     await screen.findByTestId('disposition-breakdown');
     expect(onLoaded).toHaveBeenCalledWith(5);
+  });
+
+  it('moves focus to the first newly shown entry when "+{n} more" is pressed (the button is gone)', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    fireEvent.click(screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button'));
+    fireEvent.click(screen.getByTestId('disposition-more-SKIPPED_TRIAGED'));
+
+    const revealed = within(screen.getByTestId('disposition-entries-SKIPPED_TRIAGED')).getAllByTestId('disposition-entry')[3];
+    expect(revealed).toHaveTextContent('Loc3');
+    await waitFor(() => expect(revealed).toHaveFocus());
+  });
+
+  it('sizes each bar segment through a CSS variable only, not a width or flex style', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    const segment = (await screen.findByTestId('disposition-bar')).children[0];
+    expect(segment.getAttribute('style')).toBe('--n: 5;');
+    expect(segment.className).toContain('grow-(--n)');
+    expect(segment.className).toContain('basis-0');
+  });
+
+  it('lets a long location or detail wrap rather than overflow a 390px panel', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    fireEvent.click(screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button'));
+    expect(screen.getAllByTestId('disposition-entry')[0].className).toContain('break-words');
+    expect(screen.getAllByTestId('disposition-entry')[0].className).toContain('min-w-0');
   });
 
   it('marks an open row expanded for assistive tech', async () => {

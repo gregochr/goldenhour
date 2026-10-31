@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import DataSplitLayout from '../data/DataSplitLayout.jsx';
 import RunProgressPanel from '../RunProgressPanel';
 import RunsListPane from './RunsListPane.jsx';
 import JobRunPanel from './JobRunPanel.jsx';
-import StartRunPanel from './StartRunPanel.jsx';
+import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
+import { useIsSplitLayout } from '../../hooks/useIsSplitLayout.js';
 import useCloseWhenFilteredOut from '../../hooks/useCloseWhenFilteredOut.js';
 import useHashSelection from '../../hooks/useHashSelection.js';
 import useJobRunDetail from '../../hooks/useJobRunDetail.js';
@@ -54,6 +55,13 @@ function filtersFromHash() {
   };
 }
 
+/** Drops the hash's {@code ?query} in place (no history entry), once the reader has taken the filters over. */
+function dropInboundQuery() {
+  const { hash } = window.location;
+  if (!hash.includes('?')) return;
+  window.history.replaceState(window.history.state, '', hash.split('?')[0]);
+}
+
 /** A job run's id for the close-when-filtered check; module-level so the hook's dependencies stay stable. */
 const itemId = (item) => item.id;
 
@@ -77,7 +85,13 @@ const itemId = (item) => item.id;
  */
 export default function RunsView({ activeRunId = null, onActiveRunChange, onActiveRunClear }) {
   const [filters, setFilters] = useState(filtersFromHash);
-  const list = useRunsList(filters);
+  const rootRef = useRef(null);
+  // The Operations pane stays mounted, hidden, while the reader is on the Map or Plan tab: no polling then.
+  const isPaused = useCallback(() => rootRef.current?.closest('[hidden]') != null, []);
+  const list = useRunsList(filters, { isPaused });
+  const isSplit = useIsSplitLayout();
+  // The Start a run panel's in-flight flags and message live here, so closing it mid-request keeps both.
+  const startState = useStartRunState();
   const hashOptions = useMemo(() => ({ parse: parseRunsHash, format: formatRunsHash, keepQuery: true }), []);
   const { selectedId: selection, select, clear } = useHashSelection(TAB, hashOptions);
   const panelRef = useRef(null);
@@ -128,11 +142,38 @@ export default function RunsView({ activeRunId = null, onActiveRunChange, onActi
 
   usePanelEscape({ active: panelOpen, panelRef, onEscape: closePanel });
 
-  const filterActions = useMemo(() => ({
-    setRange: (range) => setFilters((f) => ({ ...f, range })),
-    setKind: (kind) => setFilters((f) => ({ ...f, kind })),
-    toggleAttention: () => setFilters((f) => ({ ...f, attention: !f.attention })),
-  }), []);
+  // The first press of any filter control retires the inbound ?range=&kind=&attention=: from then on the address
+  // must not name filters the screen no longer shows (a reload or a shared link would bring them back).
+  const filterActions = useMemo(() => {
+    const touched = (update) => (value) => {
+      dropInboundQuery();
+      setFilters(update(value));
+    };
+    return {
+      setRange: touched((range) => (f) => ({ ...f, range })),
+      setKind: touched((kind) => (f) => ({ ...f, kind })),
+      toggleAttention: touched(() => (f) => ({ ...f, attention: !f.attention })),
+    };
+  }, []);
+
+  // A run started from the Start panel is followed by the progress panel on the list. Below 1000px the panel covers
+  // the list (overlay or a full page), so it closes and the progress is in view. One RunProgressPanel mount only.
+  const handleActiveRunChange = (jobRunId) => {
+    onActiveRunChange(jobRunId);
+    if (!isSplit) closePanel();
+  };
+
+  // Closing Start a run puts focus back on the button that opened it, unless focus is already somewhere the reader
+  // put it. A layout effect, so it runs before the shell's own fallback (the list heading) sees a focus-less page.
+  const startButtonRef = useRef(null);
+  const wasStarting = useRef(false);
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (wasStarting.current && !starting && (!active || active === document.body)) {
+      startButtonRef.current?.focus({ preventScroll: true });
+    }
+    wasStarting.current = starting;
+  }, [starting]);
 
   function openRow(item) {
     if (item.kind === 'CYCLE') {
@@ -147,9 +188,10 @@ export default function RunsView({ activeRunId = null, onActiveRunChange, onActi
   if (starting) {
     panel = (
       <StartRunPanel
-        onActiveRunChange={onActiveRunChange}
+        onActiveRunChange={handleActiveRunChange}
         onStarted={list.refresh}
         onClose={closePanel}
+        runState={startState}
       />
     );
   } else if (jobId != null) {
@@ -187,11 +229,16 @@ export default function RunsView({ activeRunId = null, onActiveRunChange, onActi
   ) : null;
 
   return (
-    <div className="-m-4 overflow-clip rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible" data-testid="runs-view">
+    <div
+      ref={rootRef}
+      className="-m-4 overflow-clip rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible"
+      data-testid="runs-view"
+    >
       <DataSplitLayout
         list={(
           <RunsListPane
             headingRef={headingRef}
+            startButtonRef={startButtonRef}
             items={list.items}
             meta={list.meta}
             loading={list.loading}

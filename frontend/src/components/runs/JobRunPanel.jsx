@@ -112,7 +112,7 @@ export default function JobRunPanel({
     >
       {isActiveRun && (
         <PanelSection label="Progress" testId="job-run-progress-note">
-          <p className="text-[13px] text-plex-text-secondary">Following this run live in the progress panel above the list.</p>
+          <p className="text-[13px] text-plex-text-secondary">Following this run live in the progress panel on the Runs list.</p>
         </PanelSection>
       )}
 
@@ -120,7 +120,7 @@ export default function JobRunPanel({
         <div className="border-b border-plex-border px-[18px] py-3 max-[639px]:px-4" data-testid="job-run-note">
           <p className={`flex items-center gap-2 text-[13px] ${noteToneClass(detail.noteTone)}`}>
             <StatusDot tone={status.tone} halo={status.halo}>{status.label}</StatusDot>
-            <span>{detail.note}</span>
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">{detail.note}</span>
           </p>
         </div>
       )}

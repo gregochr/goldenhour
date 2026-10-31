@@ -27,6 +27,20 @@ TokenLine.propTypes = {
   cacheRead: PropTypes.number,
 };
 
+/** How each service reads in the Calls section; an unknown service reads as its raw name. */
+const SERVICE_LABELS = {
+  ANTHROPIC: 'Anthropic',
+  OPEN_METEO_FORECAST: 'Open-Meteo',
+  OPEN_METEO_AIR_QUALITY: 'Open-Meteo air quality',
+  WORLD_TIDES: 'WorldTides',
+  LIGHT_POLLUTION: 'Light pollution',
+};
+
+/** A service's label for the panel. */
+function serviceLabel(service) {
+  return SERVICE_LABELS[service] ?? service;
+}
+
 /** The cost as GBP with the USD small beside it. */
 function Cost({ microDollars, rate }) {
   return (
@@ -48,9 +62,9 @@ function ServiceRow({ stats, rate }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-plex-border/60 py-2.5 text-[13px] last:border-b-0" data-testid={`job-run-service-${stats.service}`}>
       <div className="min-w-0">
-        <p className="font-medium text-plex-text">{stats.service}</p>
+        <p className="font-medium text-plex-text">{serviceLabel(stats.service)}</p>
         <p className="mt-0.5 text-xs text-plex-text-muted">
-          {stats.count} calls, avg {stats.avgMs} ms
+          {stats.count} calls {'·'} avg {stats.avgMs} ms
         </p>
         {stats.service === 'ANTHROPIC' && stats.inputTokens > 0 && (
           <TokenLine
@@ -60,16 +74,11 @@ function ServiceRow({ stats, rate }) {
             cacheRead={stats.cacheReadTokens}
           />
         )}
-        {stats.errorCount > 0 && (
-          <p className={`mt-0.5 text-xs ${failTone}`}>
-            {stats.errorCount} failures ({(failRate * 100).toFixed(2)}%)
-          </p>
-        )}
       </div>
       <div className="shrink-0 text-right">
         <Cost microDollars={stats.costMicroDollars} rate={rate} />
         {stats.errorCount > 0
-          ? <p className={`mt-0.5 text-xs ${failTone}`}>{stats.errorCount} errors</p>
+          ? <p className={`mt-0.5 text-xs ${failTone}`}>{stats.errorCount} errors ({(failRate * 100).toFixed(2)}%)</p>
           : <p className="mt-0.5 text-xs text-plex-text-muted">all ok</p>}
       </div>
     </div>
@@ -85,7 +94,7 @@ function BatchRow({ summary, rate }) {
   return (
     <div className="flex items-start justify-between gap-3 border-b border-plex-border/60 py-2.5 text-[13px]" data-testid="job-run-batch-row">
       <div className="min-w-0">
-        <p className="font-medium text-plex-text">ANTHROPIC (Batch)</p>
+        <p className="font-medium text-plex-text">Anthropic {'·'} batch</p>
         <p className="mt-0.5 text-xs text-plex-text-muted">
           {summary.requestCount} requests: {summary.succeededCount ?? 0} succeeded, {summary.erroredCount ?? 0} errored
         </p>
@@ -103,7 +112,7 @@ function BatchRow({ summary, rate }) {
       <div className="shrink-0 text-right">
         <Cost microDollars={summary.estimatedCostMicroDollars} rate={rate} />
         <p className="mt-0.5">
-          <StatusDot tone={status.tone} halo={status.halo} testId="job-run-batch-row-status">{summary.status}</StatusDot>
+          <StatusDot tone={status.tone} halo={status.halo} testId="job-run-batch-row-status">{status.label}</StatusDot>
         </p>
       </div>
     </div>
@@ -248,9 +257,9 @@ function FailedCalls({ calls }) {
   return (
     <div className="space-y-1">
       {calls.map((call) => (
-        <div key={call.id} className="rounded-sm bg-plex-coral/10 p-2 text-xs text-plex-coral">
+        <div key={call.id} className="min-w-0 rounded-sm bg-plex-coral/10 p-2 text-xs text-plex-coral">
           <div className="font-medium" data-testid="failed-call-heading">{failedCallHeading(call)}</div>
-          <div>{call.errorMessage}</div>
+          <div className="[overflow-wrap:anywhere]">{call.errorMessage}</div>
         </div>
       ))}
     </div>
@@ -284,7 +293,7 @@ function CacheDiagnostics({ calls }) {
             data-testid="cache-diagnostics-row"
             className="flex items-center justify-between gap-2 rounded-sm border border-plex-border bg-plex-surface px-2 py-1"
           >
-            <span className="font-mono text-xs text-plex-text">
+            <span className="min-w-0 break-all font-mono text-xs text-plex-text">
               {call.customId ?? `${call.targetDate ?? ''} ${call.targetType ?? ''}`.trim()}
             </span>
             <span className="text-xs text-plex-text-muted" data-testid="cache-badge">{cacheBadge(call)}</span>
@@ -329,7 +338,7 @@ function FallbackParses({ calls }) {
                 data-testid="fallback-parse-toggle"
                 className="flex w-full items-center justify-between px-2 py-1 text-left max-[639px]:min-h-11"
               >
-                <span className="font-mono text-xs text-plex-text">{call.customId}</span>
+                <span className="min-w-0 break-all font-mono text-xs text-plex-text">{call.customId}</span>
                 <span className="text-xs text-plex-text-muted">{isOpen ? '▲' : '▼'}</span>
               </button>
               {isOpen && (

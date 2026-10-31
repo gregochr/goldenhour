@@ -159,7 +159,7 @@ export function scopeItems(detail) {
   }
 
   const days = inclusiveDays(run.minTargetDate, run.maxTargetDate);
-  const events = summary?.eventTypes && summary.eventTypes.length > 0 ? ` · ${summary.eventTypes.join(' / ')}` : '';
+  const events = summary?.eventTypes && summary.eventTypes.length > 0 ? ` · ${summary.eventTypes.map((e) => e.toLowerCase()).join(', ')}` : '';
   if (days > 0) {
     push('Dates', `${formatIsoDay(run.minTargetDate)} – ${formatIsoDay(run.maxTargetDate)} · `
       + `${days} ${days === 1 ? 'day' : 'days'}${events}`, { testId: 'job-run-dates' });

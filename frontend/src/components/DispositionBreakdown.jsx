@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { getDispositionBreakdown } from '../api/metricsApi';
 import PanelSection from './data/PanelSection.jsx';
+import { formatIsoDay } from '../utils/jobRunPanel.js';
 
 /**
  * Per-category swatch colour + display label.
@@ -59,6 +60,11 @@ const DispositionBreakdown = ({ jobRunId, onLoaded = undefined }) => {
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null); // disposition key currently expanded
   const [showAll, setShowAll] = useState(false); // the opened category lists every entry
+  // The first entry "+{n} more" reveals: focus moves to it, since the button that was pressed is gone.
+  const firstRevealed = useRef(null);
+  useEffect(() => {
+    if (showAll) firstRevealed.current?.focus({ preventScroll: true });
+  }, [showAll]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,8 +134,8 @@ const DispositionBreakdown = ({ jobRunId, onLoaded = undefined }) => {
         {orderedCategories.map(({ key, swatch }) => (
           <span
             key={key}
-            className={`h-full min-w-1 ${swatch}`}
-            style={{ flexGrow: data.countsByDisposition[key] || 0, flexBasis: 0 }}
+            className={`h-full min-w-1 grow-(--n) basis-0 ${swatch}`}
+            style={{ '--n': data.countsByDisposition[key] || 0 }}
           />
         ))}
       </div>
@@ -164,10 +170,16 @@ const DispositionBreakdown = ({ jobRunId, onLoaded = undefined }) => {
                 <div className="space-y-2 pb-2.5 pl-[18px]" data-testid={`disposition-entries-${key}`}>
                   {shown.map((entry, index) => (
                     // Two entries can share a location, date and event (a retried slot), so the index is part of the key.
-                    <div key={`${entry.locationName}-${entry.evaluationDate}-${entry.eventType}-${index}`}>
+                    <div
+                      key={`${entry.locationName}-${entry.evaluationDate}-${entry.eventType}-${index}`}
+                      ref={showAll && index === PREVIEW_ENTRIES ? firstRevealed : undefined}
+                      tabIndex={showAll && index === PREVIEW_ENTRIES ? -1 : undefined}
+                      className="min-w-0 break-words focus:outline-hidden"
+                      data-testid="disposition-entry"
+                    >
                       <span className="text-plex-text">{entry.locationName}</span>
                       <span className="text-plex-text-secondary">
-                        {' · '}{entry.evaluationDate}{' · '}{entry.eventType}
+                        {' · '}{formatIsoDay(entry.evaluationDate)}{' · '}{String(entry.eventType).toLowerCase()}
                       </span>
                       {entry.detail && (
                         <div className="mt-0.5 text-xs text-plex-text-muted" data-testid="disposition-detail">

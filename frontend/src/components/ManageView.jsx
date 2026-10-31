@@ -81,8 +81,9 @@ const ATTENTION_BADGE_CLASSES =
 function redirectOldRunsHash() {
   const hash = window.location.hash;
   const match = /^#manage\/metrics(?=$|[/?])(.*)$/.exec(hash);
-  if (!match) return;
+  if (!match) return false;
   window.history.replaceState(window.history.state, '', `#manage/runs${match[1]}`);
+  return true;
 }
 
 /**
@@ -131,6 +132,14 @@ export default function ManageView({ onComplete }) {
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
   const [activePipelineRunId, setActivePipelineRunId] = useState(pipelineRunIdFromHash);
+  // Picking a cycle inside Pipeline Runs rewrites the address (in place, no history entry), so a reload does not
+  // reopen whichever cycle the hash named before.
+  const selectPipelineRun = useCallback((id) => {
+    setActivePipelineRunId(id);
+    if (pipelineRunIdFromHash() != null) {
+      window.history.replaceState(window.history.state, '', `#manage/pipelineruns/${id}`);
+    }
+  }, []);
   const clearActivePipelineRun = useCallback(() => {
     setActivePipelineRunId(null);
     // The hash named this cycle; leave the bare tab address, replacing the entry so Back does not land on it again.
@@ -167,11 +176,17 @@ export default function ManageView({ onComplete }) {
   // `manage/<known tab>` is ignored (it never falls back to Pipeline Runs).
   useEffect(() => {
     const onHashChange = () => {
+      const redirected = redirectOldRunsHash();
       const target = manageTabFromHash();
       if (!target) return;
       setActiveGroup(target.group);
       setActiveTabState(target.tab);
-      if (target.tab === 'pipelineruns') setActivePipelineRunId(pipelineRunIdFromHash());
+      // Only a hash that names a cycle sets one: arriving on Pipeline Runs without an id keeps what was open.
+      const cycleId = pipelineRunIdFromHash();
+      if (cycleId != null) setActivePipelineRunId(cycleId);
+      // `replaceState` fires no hashchange, and the Runs view (listening before this handler) has just read the old
+      // `#manage/metrics/…` address as no selection. Tell it the address it now has.
+      if (redirected) window.dispatchEvent(new HashChangeEvent('hashchange'));
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -389,7 +404,7 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <PipelineRunsView
               activeRunId={activePipelineRunId}
-              onSelectRun={setActivePipelineRunId}
+              onSelectRun={selectPipelineRun}
               onCloseDetail={clearActivePipelineRun}
             />
           </div>

@@ -256,7 +256,7 @@ describe('JobRunPanel: Scope, Locations, Dates and Model', () => {
         regionCount: 5, extendedThinking: false,
       },
     }, { group: 'BATCHES' });
-    expect(screen.getByTestId('job-run-dates')).toHaveTextContent('Sat 31 Oct – Sun 1 Nov · 2 days · SUNRISE / SUNSET');
+    expect(screen.getByTestId('job-run-dates')).toHaveTextContent('Sat 31 Oct – Sun 1 Nov · 2 days · sunrise, sunset');
   });
 
   it('falls back to the horizon range when a batch has no target dates', () => {
@@ -267,7 +267,7 @@ describe('JobRunPanel: Scope, Locations, Dates and Model', () => {
         extendedThinking: false,
       },
     }, { group: 'BATCHES' });
-    expect(screen.getByTestId('job-run-dates')).toHaveTextContent('T+1 · SUNRISE');
+    expect(screen.getByTestId('job-run-dates')).toHaveTextContent('T+1 · sunrise');
   });
 
   it('words a SONNET_55 batch as "Sonnet 5.5", never the enum name', () => {
@@ -363,7 +363,7 @@ describe('JobRunPanel: Scope, strategies, completion and notes', () => {
 
   it('points at the progress panel instead of opening a second subscription when it is the followed run', () => {
     renderPanel({}, {}, { isActiveRun: true });
-    expect(screen.getByTestId('job-run-progress-note')).toHaveTextContent('progress panel above the list');
+    expect(screen.getByTestId('job-run-progress-note')).toHaveTextContent('progress panel on the Runs list');
     expect(screen.queryByTestId('run-progress-panel')).toBeNull();
   });
 
@@ -405,7 +405,7 @@ describe('JobRunPanel: Calls', () => {
     ] });
     renderPanel();
     expect(await screen.findByText('OPEN_METEO')).toBeInTheDocument();
-    expect(screen.getByText('2 calls, avg 500 ms')).toBeInTheDocument();
+    expect(screen.getByText('2 calls \u00b7 avg 500 ms')).toBeInTheDocument();
   });
 
   it('says "all ok" when every call of a service succeeded', async () => {
@@ -420,7 +420,7 @@ describe('JobRunPanel: Calls', () => {
     calls.push({ ...ANTHROPIC_CALL, id: 21, succeeded: false, errorMessage: 'timeout' });
     getApiCalls.mockResolvedValue({ data: calls });
     renderPanel();
-    const badge = await screen.findByText('1 errors');
+    const badge = await screen.findByText(/^1 errors \(/);
     expect(badge.className).toContain('text-verdict-marginal');
     expect(badge.className).not.toContain('text-plex-coral');
   });
@@ -431,7 +431,7 @@ describe('JobRunPanel: Calls', () => {
     calls.push({ ...ANTHROPIC_CALL, id: 10, succeeded: false, errorMessage: 'rate limit' });
     getApiCalls.mockResolvedValue({ data: calls });
     renderPanel();
-    const badge = await screen.findByText('1 errors');
+    const badge = await screen.findByText(/^1 errors \(/);
     expect(badge.className).toContain('text-plex-coral');
     expect(badge.className).not.toContain('text-verdict-marginal');
   });
@@ -442,7 +442,7 @@ describe('JobRunPanel: Calls', () => {
       { ...ANTHROPIC_CALL, id: 2, succeeded: false, errorMessage: 'err' },
     ] });
     renderPanel();
-    expect(await screen.findByText('1 failures (50.00%)')).toBeInTheDocument();
+    expect(await screen.findByText('1 errors (50.00%)')).toBeInTheDocument();
   });
 
   it('shows the cost in GBP with the USD small, per service', async () => {
@@ -473,7 +473,7 @@ describe('JobRunPanel: Anthropic token breakdown', () => {
   it('hides the token line for ANTHROPIC when inputTokens is 0', async () => {
     getApiCalls.mockResolvedValue({ data: [{ ...ANTHROPIC_CALL, inputTokens: 0, outputTokens: 0 }] });
     renderPanel();
-    await screen.findByText('ANTHROPIC');
+    await screen.findByText('Anthropic');
     expect(screen.queryByText(/Tokens:/)).not.toBeInTheDocument();
   });
 
@@ -553,7 +553,7 @@ describe('JobRunPanel: Evaluations', () => {
       { ...ANTHROPIC_CALL, id: 3, targetDate: '2026-01-01', targetType: 'SUNSET', evaluationModel: null },
     ] });
     renderPanel();
-    await screen.findByText('ANTHROPIC');
+    await screen.findByText('Anthropic');
     // All three are incomplete, so there is nothing to count and no section.
     expect(screen.queryByTestId('job-run-evaluations')).not.toBeInTheDocument();
   });
@@ -576,7 +576,7 @@ describe('JobRunPanel: Diagnostics, failed calls', () => {
   it('hides Diagnostics entirely when every call succeeded', async () => {
     getApiCalls.mockResolvedValue({ data: [{ ...ANTHROPIC_CALL, succeeded: true }] });
     renderPanel();
-    await screen.findByText('ANTHROPIC');
+    await screen.findByText('Anthropic');
     expect(screen.queryByTestId('job-run-diagnostics')).not.toBeInTheDocument();
   });
 
@@ -689,9 +689,9 @@ describe('JobRunPanel: the batch summary row', () => {
       status: 'COMPLETED',
     } });
     renderPanel(BATCH, { group: 'BATCHES' });
-    expect(await screen.findByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+    expect(await screen.findByText('Anthropic \u00b7 batch')).toBeInTheDocument();
     expect(screen.getByText(/20 requests: 18 succeeded, 2 errored/)).toBeInTheDocument();
-    expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('COMPLETED');
+    expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('Completed');
     expect(screen.getByText(/120,000/)).toBeInTheDocument();
     expect(screen.getByText(/8,000/)).toBeInTheDocument();
   });
@@ -709,9 +709,9 @@ describe('JobRunPanel: the batch summary row', () => {
       status: 'FAILED',
     } });
     renderPanel(BATCH, { group: 'BATCHES' });
-    expect(await screen.findByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+    expect(await screen.findByText('Anthropic \u00b7 batch')).toBeInTheDocument();
     expect(screen.getByText(/No token data/)).toBeInTheDocument();
-    expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('FAILED');
+    expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('Failed');
   });
 
   it('uses the batch cost for the total instead of the empty per-call total', async () => {
@@ -776,7 +776,7 @@ describe('JobRunPanel: fallback-parsed responses', () => {
   it('hides the row entirely when there are no fallback parses', async () => {
     getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL] });
     renderPanel();
-    await screen.findByText('ANTHROPIC');
+    await screen.findByText('Anthropic');
     expect(screen.queryByTestId('diagnostics-fallback-toggle')).not.toBeInTheDocument();
     expect(screen.queryByText(/Fallback-parsed responses/)).not.toBeInTheDocument();
   });
@@ -853,9 +853,72 @@ describe('JobRunPanel: prompt-cache diagnostics', () => {
       { ...ANTHROPIC_CALL, id: 4, cacheDiagnostics: 'not json' },
     ] });
     renderPanel();
-    await screen.findByText('ANTHROPIC');
+    await screen.findByText('Anthropic');
     expect(screen.queryByTestId('diagnostics-cache-toggle')).not.toBeInTheDocument();
     expect(screen.queryByText(/Prompt-cache diagnostics/)).not.toBeInTheDocument();
+  });
+});
+
+describe('JobRunPanel: frame 03 wording and narrow-screen overflow', () => {
+  it.each([
+    ['ANTHROPIC', 'Anthropic'],
+    ['OPEN_METEO_FORECAST', 'Open-Meteo'],
+    ['OPEN_METEO_AIR_QUALITY', 'Open-Meteo air quality'],
+    ['WORLD_TIDES', 'WorldTides'],
+    ['LIGHT_POLLUTION', 'Light pollution'],
+  ])('words the %s service as "%s"', async (service, label) => {
+    getApiCalls.mockResolvedValue({ data: [{ ...OPEN_METEO_CALL, service }] });
+    renderPanel();
+    expect(await screen.findByTestId(`job-run-service-${service}`)).toHaveTextContent(label);
+  });
+
+  it('falls back to the raw name for a service it has no wording for', async () => {
+    getApiCalls.mockResolvedValue({ data: [{ ...OPEN_METEO_CALL, service: 'SOMETHING_NEW' }] });
+    renderPanel();
+    expect(await screen.findByText('SOMETHING_NEW')).toBeInTheDocument();
+  });
+
+  it('reads "{n} calls · avg {ms} ms" with a middle dot', async () => {
+    getApiCalls.mockResolvedValue({ data: [{ ...OPEN_METEO_CALL, durationMs: 210 }] });
+    renderPanel();
+    expect(await screen.findByText('1 calls · avg 210 ms')).toBeInTheDocument();
+  });
+
+  it('gives one failure wording per row, never both "failures" and "errors"', async () => {
+    getApiCalls.mockResolvedValue({ data: [
+      { ...ANTHROPIC_CALL, id: 1, succeeded: true },
+      { ...ANTHROPIC_CALL, id: 2, succeeded: false, errorMessage: 'err' },
+    ] });
+    renderPanel();
+    const row = await screen.findByTestId('job-run-service-ANTHROPIC');
+    expect(row).toHaveTextContent('1 errors (50.00%)');
+    expect(row).not.toHaveTextContent('failures');
+    expect(row).not.toHaveTextContent('all ok');
+  });
+
+  it('words the batch row "Anthropic · batch" with the batch status label, not the enum', async () => {
+    getBatchSummary.mockResolvedValue({ data: {
+      totalInputTokens: 1, totalOutputTokens: 1, totalCacheReadTokens: 0, totalCacheCreationTokens: 0,
+      estimatedCostMicroDollars: 1000, requestCount: 2, succeededCount: 2, erroredCount: 0, status: 'EXPIRED',
+    } });
+    renderPanel({ runType: 'SCHEDULED_BATCH', notes: 'Anthropic batch: msgbatch_x' }, { group: 'BATCHES' });
+    expect(await screen.findByText('Anthropic · batch')).toBeInTheDocument();
+    expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('Expired');
+    expect(screen.getByTestId('job-run-batch-row-status')).not.toHaveTextContent('EXPIRED');
+  });
+
+  it('lets a long failed-call message, a custom id and the panel note break rather than overflow', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...ANTHROPIC_CALL, id: 5, succeeded: false, errorMessage: 'e'.repeat(300), customId: 'fc-'.repeat(40),
+      errorType: 'regex_fallback',
+    }] });
+    renderPanel({}, { status: 'FAILED', note: 'n'.repeat(300), noteTone: 'ERROR' });
+    await screen.findByTestId('diagnostics-failed-toggle');
+    openDisclosure('failed');
+    expect(screen.getByText('e'.repeat(300)).className).toContain('[overflow-wrap:anywhere]');
+    expect(screen.getByText('n'.repeat(300)).className).toContain('[overflow-wrap:anywhere]');
+    openDisclosure('fallback');
+    expect(screen.getByText('fc-'.repeat(40)).className).toContain('break-all');
   });
 });
 

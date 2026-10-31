@@ -48,6 +48,8 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
 vi.mock('../api/runProgressApi', () => ({
   subscribeToRunProgress: vi.fn(),
 }));
+// jsdom has no layout: the 1000px split is decided here, wide unless a test says otherwise.
+vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { getWaitlist } from '../api/waitlistApi.js';
 import { fetchRuns } from '../api/runsApi.js';
@@ -56,6 +58,7 @@ import { fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions } from '../api/batchApi';
 import { subscribeToRunProgress } from '../api/runProgressApi';
+import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
 let feed;
 /** Plays a finished run into whichever panel is subscribed to it, as the server does (live or replay). */
@@ -119,6 +122,7 @@ describe('Runs: a finished run with failures keeps its panel', () => {
     window.location.hash = '';
     getWaitlist.mockResolvedValue([]);
     fetchRuns.mockResolvedValue(runsPage([]));
+    useIsSplitLayout.mockReturnValue(true);
     fetchLocations.mockResolvedValue([]);
     getRegions.mockResolvedValue([]);
     subscribeToRunProgress.mockImplementation(feed.subscribe);
@@ -287,6 +291,17 @@ describe('Runs: a finished run with failures keeps its panel', () => {
       // Above the summary and the list, in document order.
       const heading = screen.getByTestId('runs-heading');
       expect(heading.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('below 1000px the Start panel closes after a start, leaving the list and exactly one progress panel', async () => {
+      useIsSplitLayout.mockReturnValue(false);
+      await renderJobRuns();
+
+      await startRun(41);
+
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
+      expect(feed.subscriptions).toEqual([41]);
     });
 
     it('survives closing the Start a run panel', async () => {

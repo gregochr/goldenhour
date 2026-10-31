@@ -128,7 +128,10 @@ export function runResultText(item) {
  */
 export function formatSpendGbp(microDollars, rate) {
   if (!microDollars || microDollars <= 0 || !rate) return '\u2014';
-  return `\u00a3${((microDollars / 1_000_000) * rate).toFixed(2)}`;
+  const gbp = (microDollars / 1_000_000) * rate;
+  // Under a penny the pounds form would read "\u00a30.00"; the old card (and formatCostGbp) said it in pence.
+  if (gbp < 0.01) return `${(gbp * 100).toFixed(2)}p`;
+  return `\u00a3${gbp.toFixed(2)}`;
 }
 
 /** The summary's Spend in dollars to the cent ("$23.31"), or an empty string when there is none. */
@@ -152,7 +155,7 @@ export function runCostText(item) {
 export function batchSummaryLine(summary) {
   if (!summary) return '';
   const label = modelLabel(summary.evaluationModel);
-  const events = summary.eventTypes && summary.eventTypes.length > 0 ? ` · ${summary.eventTypes.join(' / ')}` : '';
+  const events = summary.eventTypes && summary.eventTypes.length > 0 ? ` · ${summary.eventTypes.map((e) => e.toLowerCase()).join(', ')}` : '';
   const thinking = summary.extendedThinking && !label.endsWith('(ET)') ? ' (ET)' : '';
   return `${summary.horizonRange}${events} · ${summary.locationCount} locations · ${label}${thinking}`
     + ` · ${summary.regionCount} regions`;
@@ -190,9 +193,13 @@ export function runScopeText(item) {
  * @returns {string}
  */
 export function runRowLabel(item, statusLabel, now = new Date()) {
-  const parts = [item.name, formatRunStarted(item.startedAt, now), statusLabel, runResultText(item)];
+  const name = item.kind === 'CYCLE' ? `${item.name} cycle` : item.name;
+  const parts = [
+    name, formatRunStarted(item.startedAt, now), statusLabel, runResultText(item), runDurationText(item, now),
+    runCostText(item),
+  ];
   if (item.note) parts.push(item.note);
-  return parts.filter((part) => part !== '').join(', ');
+  return parts.filter((part) => part !== '' && part !== '—').join(', ');
 }
 
 /** A row's id: a cycle and a job run can share a number, so the kind leads ({@code cycle-412}, {@code job-9876}). */

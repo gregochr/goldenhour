@@ -861,6 +861,20 @@ Where the plan's text was ambiguous, or the code made a different call safer, R2
 - **`PanelShell` gained `titleClassName`**, so a batch id can set in mono 18px; every other panel keeps the serif title.
 - **The Start a run panel keeps today's `isAdmin` guard** around the card. Its status line is `start-run-status`.
 - **Summary two-column breakpoint is 640px** (the plan's "≤640px"); the phone-only classes elsewhere are 639px.
+- **`MetricsSummary`'s per-run-type counts** ("WEATHER 3, TIDE 2 …") now exist only as the group chip counts
+  (`kindCounts`); the summary strip no longer lists runs by type.
+- **Polling is `useVisiblePoll`** (60 s, 15 s while `runningCount` is above 0), so it also stops while the browser tab
+  is hidden. It stands down while the Operations pane is hidden, read from the DOM (`closest('[hidden]')`, as
+  `usePanelEscape` does): no existing hook announces that the pane is hidden, because the pane is mounted, not removed.
+  A later head response never lands over an earlier one. A head that shares no row with what is loaded (more than a
+  page of new runs between polls) replaces the list, and older loaded rows are never refreshed by a poll.
+- **A start below 1000px closes the Start panel** (the list, and the one progress panel on it, is then what shows);
+  the panel's in-flight flags and message live in `RunsView`, so closing and reopening it mid-request keeps both.
+- **The first press of any filter control drops an inbound `?range=&kind=&attention=` in place**, so the address never
+  names filters the screen no longer shows. Closing Start a run returns focus to the Start a run button.
+- **A pasted old `#manage/metrics/…` address while already on Runs** is re-announced after the redirect, so the Runs
+  view sees it. Arriving on Pipeline Runs by a bare address keeps the cycle that was open; picking another cycle
+  rewrites a cycle address in place.
 - **Tests deleted** (their features are dropped by §9): the run-type select and the two checkboxes, the Date / Duration /
   Succeeded sort buttons, and `MetricsSummary`'s slowest service, success rate, evaluations count, batch-versus-real-time
   cost split and client-side Today / 7-day filter (the server now does that, on UK days). Every other assertion moved.

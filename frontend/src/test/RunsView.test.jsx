@@ -20,10 +20,16 @@ vi.mock('../api/briefingApi.js', () => ({ runBriefing: vi.fn() }));
 vi.mock('../api/runProgressApi', () => ({ subscribeToRunProgress: vi.fn(() => () => {}) }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ isAdmin: true, role: 'ADMIN' }) }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null, loading: false }) }));
+// jsdom has no layout: the split breakpoint (1000px) is decided here, wide unless a test says otherwise.
+vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { fetchRuns, fetchJobRun } from '../api/runsApi.js';
 import { getApiCalls, getBatchSummary, getDispositionBreakdown } from '../api/metricsApi';
 import { getRegions } from '../api/batchApi';
+import { enrichBortle } from '../api/auroraApi';
+import { runBriefing } from '../api/briefingApi.js';
+import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
+import { mergeHead } from '../hooks/useRunsList.js';
 import { fetchLocations } from '../api/forecastApi';
 
 const noop = () => {};
@@ -78,6 +84,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/runs';
   setRewind(null);
+  useIsSplitLayout.mockReturnValue(true);
   captureIntervals();
   fetchRuns.mockResolvedValue(runsPage(FIRST_PAGE));
   fetchJobRun.mockResolvedValue(jobDetail({ id: 9001 }));
@@ -246,9 +253,22 @@ describe('Runs: the summary', () => {
     expect(screen.getByTestId('runs-summary-median-sub').textContent).toBe('');
   });
 
-  it('has two columns at 640px and under', async () => {
+  it('lets a sub-line wrap rather than truncate it', async () => {
     renderView();
-    expect((await screen.findByTestId('runs-summary')).className).toContain('max-[640px]:grid-cols-2');
+    expect((await screen.findByTestId('runs-summary-attention-sub')).className).not.toContain('truncate');
+  });
+
+  it('shows spend under a penny in pence', async () => {
+    fetchRuns.mockResolvedValue(runsPage(FIRST_PAGE, { summary: summary({ spendMicroDollars: 10_000 }) }));
+    renderView();
+    expect(await screen.findByTestId('runs-summary-spend-value')).toHaveTextContent('0.79p');
+  });
+
+  it('has two columns when the list is 640px wide or less (a container query, not the viewport)', async () => {
+    renderView();
+    const grid = await screen.findByTestId('runs-summary');
+    expect(grid.className).toContain('@max-[640px]:grid-cols-2');
+    expect(grid.parentElement.className).toContain('@container');
   });
 });
 
@@ -371,16 +391,49 @@ describe('Runs: the inbound query', () => {
     expect(fetchRuns.mock.calls[0][0]).toEqual(expect.objectContaining({ range: 'MONTH', kind: 'ALL' }));
   });
 
-  it('never writes the filters back to the hash: a chip press adds no history entry', async () => {
+  it('never writes the filters into the hash, and drops the inbound query in place on the first press', async () => {
     window.location.hash = '#manage/runs?kind=tide';
     renderView();
     await screen.findByTestId('runs-row-cycle-412');
     const before = window.history.length;
     fireEvent.click(screen.getByTestId('runs-chip-cycles'));
-    fireEvent.click(screen.getByTestId('runs-range-month'));
     await waitFor(() => expect(lastRequest().kind).toBe('CYCLES'));
-    expect(window.location.hash).toBe('#manage/runs?kind=tide');
+    // A reload or a shared link must not name a filter the screen no longer shows.
+    expect(window.location.hash).toBe('#manage/runs');
     expect(window.history.length).toBe(before);
+    fireEvent.click(screen.getByTestId('runs-range-month'));
+    await waitFor(() => expect(lastRequest().range).toBe('MONTH'));
+    expect(window.location.hash).toBe('#manage/runs');
+    expect(window.history.length).toBe(before);
+  });
+
+  it.each([
+    ['the range', 'runs-range-today'],
+    ['a kind chip', 'runs-chip-batches'],
+    ['Need attention', 'runs-chip-attention'],
+  ])('drops the inbound query when %s is pressed', async (_name, testId) => {
+    window.location.hash = '#manage/runs?range=month&kind=tide&attention=true';
+    renderView();
+    await screen.findByTestId('runs-row-cycle-412');
+    fireEvent.click(screen.getByTestId(testId));
+    expect(window.location.hash).toBe('#manage/runs');
+  });
+
+  it('leaves a hash with no query alone when a filter is pressed', async () => {
+    window.location.hash = '#manage/runs/start';
+    renderView();
+    await screen.findByTestId('runs-row-cycle-412');
+    fireEvent.click(screen.getByTestId('runs-chip-cycles'));
+    expect(window.location.hash).toBe('#manage/runs/start');
+  });
+
+  it('opens a row without the query once a filter was pressed', async () => {
+    window.location.hash = '#manage/runs?kind=tide';
+    renderView();
+    await screen.findByTestId('runs-row-cycle-412');
+    fireEvent.click(screen.getByTestId('runs-chip-all'));
+    fireEvent.click(await screen.findByTestId('runs-row-job-9001'));
+    expect(window.location.hash).toBe('#manage/runs/job/9001');
   });
 
   it('keeps the query when a row is opened', async () => {
@@ -700,7 +753,6 @@ describe('Runs: Start a run', () => {
 
   it('reloads the list head when a start adds a run', async () => {
     window.location.hash = '#manage/runs/start';
-    const { runBriefing } = await import('../api/briefingApi.js');
     runBriefing.mockResolvedValue({ status: 'Briefing refreshed.' });
     renderView();
     await screen.findByTestId('runs-row-cycle-412');
@@ -851,12 +903,29 @@ describe('Runs: the breakpoint classes', () => {
     const cell = await screen.findByTestId('runs-cell-card-summary-job-5');
     expect(cell.className).toContain('hidden');
     expect(cell.className).toContain('@max-[540px]:block');
-    expect(cell).toHaveTextContent(/Thu 29 Oct 11:02 \u00b7 1m 12s \u00b7 \u2014/);
+    // The cost is an em dash for a free run: the part is dropped, not joined as a dash.
+    expect(cell.textContent).toBe('Thu 29 Oct 11:02 \u00b7 1m 12s');
   });
 
-  it('hides the scope line in card mode so the card is name, status and note over one detail line', async () => {
+  it('shows the scope line in card mode too, as frame 11 does', async () => {
     renderView();
-    expect((await screen.findByTestId('runs-scope-cycle-412')).className).toContain('@max-[540px]:hidden');
+    expect((await screen.findByTestId('runs-scope-cycle-412')).className).not.toContain('hidden');
+  });
+
+  it('joins all three card parts when the run has a duration and a cost', async () => {
+    fetchRuns.mockResolvedValue(runsPage([jobItem({ id: 6, startedAt: '2026-10-29T11:02:00Z', costMicroDollars: 1_000_000 })]));
+    renderView();
+    expect((await screen.findByTestId('runs-cell-card-summary-job-6')).textContent)
+      .toBe('Thu 29 Oct 11:02 \u00b7 1m 12s \u00b7 \u00a30.7900');
+  });
+
+  it('clips a long note to two lines and lets it break anywhere on a narrow list', async () => {
+    fetchRuns.mockResolvedValue(runsPage([jobItem({ id: 8, status: 'FAILED', note: 'x'.repeat(200), noteTone: 'ERROR' })]));
+    renderView();
+    const note = await screen.findByTestId('runs-note-job-8');
+    expect(note.className).toContain('line-clamp-2');
+    expect(note.className).toContain('[overflow-wrap:anywhere]');
+    expect(note.className).toContain('min-w-0');
   });
 
   it('has 44px phone targets on Start a run, Load more and the chips', async () => {
@@ -892,5 +961,250 @@ describe('Runs: row accessibility', () => {
     renderView();
     const row = await screen.findByTestId('runs-row-job-9001');
     expect(row.querySelector('button, a, input, select')).toBeNull();
+  });
+});
+
+describe('mergeHead: a head that cannot be joined to what is loaded', () => {
+  const row = (id, hour) => jobItem({ id, startedAt: `2026-10-31T${String(hour).padStart(2, '0')}:00:00Z` });
+
+  it('replaces the list with the head, and its cursor, when no head row is among the loaded ones', () => {
+    // More than a page of new rows arrived between polls: the loaded rows sit below a gap the head cannot span.
+    const loaded = [row(1, 3), row(2, 2)];
+    const head = { items: [row(30, 23), row(29, 22), row(28, 21)], nextCursor: 'head-cursor' };
+    expect(mergeHead(loaded, 'old-cursor', head)).toEqual({ items: head.items, nextCursor: 'head-cursor' });
+  });
+
+  it('still joins when the head overlaps what is loaded', () => {
+    const loaded = [row(3, 12), row(2, 11), row(1, 10)];
+    const head = { items: [row(4, 13), row(3, 12)], nextCursor: 'head-cursor' };
+    expect(mergeHead(loaded, 'old-cursor', head).items.map((r) => r.id)).toEqual([4, 3, 2, 1]);
+    expect(mergeHead(loaded, 'old-cursor', head).nextCursor).toBe('old-cursor');
+  });
+
+  it('takes a head into an empty list', () => {
+    const head = { items: [row(1, 1)], nextCursor: 'c' };
+    expect(mergeHead([], null, head)).toEqual({ items: head.items, nextCursor: 'c' });
+  });
+});
+
+describe('Runs: a poll after more than a page of new runs', () => {
+  it('shows the new head, not the old rows under a gap', async () => {
+    fetchRuns.mockResolvedValueOnce(runsPage(
+      [jobItem({ id: 2, startedAt: '2026-10-31T02:00:00Z' }), jobItem({ id: 1, startedAt: '2026-10-31T01:00:00Z' })],
+      { nextCursor: 'old' },
+    ));
+    renderView();
+    await screen.findByTestId('runs-row-job-1');
+
+    fetchRuns.mockResolvedValueOnce(runsPage(
+      Array.from({ length: 20 }, (_, i) => jobItem({ id: 100 - i, startedAt: `2026-10-31T${String(23 - i).padStart(2, '0')}:30:00Z` })),
+      { nextCursor: 'fresh', total: 22 },
+    ));
+    await tick();
+
+    expect(screen.queryByTestId('runs-row-job-1')).toBeNull();
+    expect(screen.getByTestId('runs-row-job-100')).toBeInTheDocument();
+    expect(screen.getAllByTestId(/^runs-row-/)).toHaveLength(20);
+    fetchRuns.mockResolvedValueOnce(runsPage([jobItem({ id: 7 })], { nextCursor: null }));
+    fireEvent.click(screen.getByTestId('runs-load-more'));
+    await waitFor(() => expect(lastRequest().before).toBe('fresh'));
+  });
+});
+
+describe('Runs: polling stands down while the Operations pane is hidden', () => {
+  /** Renders the view inside a host that can be hidden, as the Operations pane is while Map or Plan is showing. */
+  function renderInHost(hidden) {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    host.hidden = hidden;
+    render(<RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} />, { container: host });
+    return host;
+  }
+
+  it('skips a tick while a hidden ancestor holds the pane, and resumes when it is shown', async () => {
+    const host = renderInHost(true);
+    await waitFor(() => expect(screen.getByTestId('runs-row-cycle-412')).toBeInTheDocument());
+    const loaded = fetchRuns.mock.calls.length;
+
+    await tick();
+    expect(fetchRuns.mock.calls.length).toBe(loaded);
+
+    host.hidden = false;
+    await tick();
+    expect(fetchRuns.mock.calls.length).toBe(loaded + 1);
+    host.remove();
+  });
+
+  it('still loads the first page when the view mounts hidden', async () => {
+    const host = renderInHost(true);
+    await waitFor(() => expect(fetchRuns).toHaveBeenCalledTimes(1));
+    host.remove();
+  });
+
+  it('is driven by the shared visible-page poll: it stops while the browser tab is hidden', async () => {
+    renderView();
+    await screen.findByTestId('runs-row-cycle-412');
+    const before = livePoll();
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(before.cleared).toBe(true);
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+  });
+});
+
+describe('Runs: an older head answer never lands after a newer one', () => {
+  it('drops the slow first response when a newer poll has already been shown', async () => {
+    renderView();
+    await screen.findByTestId('runs-row-cycle-412');
+    let releaseOld;
+    fetchRuns.mockReturnValueOnce(new Promise((resolve) => { releaseOld = resolve; }));
+    await tick();
+    fetchRuns.mockResolvedValueOnce(runsPage([jobItem({ id: 61, name: 'Newer answer' })], { nextCursor: null }));
+    await tick();
+    await screen.findByTestId('runs-row-job-61');
+
+    await act(async () => { releaseOld(runsPage([jobItem({ id: 62, name: 'Older answer' })], { nextCursor: null })); });
+
+    expect(screen.queryByTestId('runs-row-job-62')).toBeNull();
+    expect(screen.getByTestId('runs-row-job-61')).toBeInTheDocument();
+  });
+});
+
+describe('Runs: a start below 1000px', () => {
+  beforeEach(() => {
+    window.location.hash = '#manage/runs/start';
+    enrichBortle.mockResolvedValue({ jobRunId: 77 });
+  });
+
+  it('closes the Start panel so the list and its progress are visible, and hands over the run id', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    const onActiveRunChange = vi.fn();
+    renderView({ onActiveRunChange });
+
+    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
+
+    expect(onActiveRunChange).toHaveBeenCalledWith(77);
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs');
+  });
+
+  it('keeps the Start panel open at 1000px and up, where the list is beside it', async () => {
+    useIsSplitLayout.mockReturnValue(true);
+    renderView({ onActiveRunChange: vi.fn() });
+
+    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
+
+    expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
+  });
+
+  it('keeps one progress panel mounted across the close', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    const { rerender } = render(<RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} />);
+    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
+    rerender(<RunsView activeRunId={77} onActiveRunChange={noop} onActiveRunClear={noop} />);
+    expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
+  });
+
+  it('reloads the list after handing the run over, for a tide refresh that returns a run id', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    const { refreshTideData } = await import('../api/forecastApi');
+    refreshTideData.mockResolvedValue({ jobRunId: 88, status: 'Started' });
+    const calls = [];
+    const onActiveRunChange = vi.fn(() => calls.push('active'));
+    renderView({ onActiveRunChange });
+    await screen.findByTestId('refresh-tide-btn');
+    fetchRuns.mockImplementation(() => { calls.push('reload'); return Promise.resolve(runsPage(FIRST_PAGE)); });
+
+    fireEvent.click(screen.getByTestId('refresh-tide-btn'));
+    await act(async () => { fireEvent.click(await screen.findByTestId('confirm-dialog-confirm')); });
+
+    await waitFor(() => expect(calls).toContain('reload'));
+    expect(calls.indexOf('active')).toBeLessThan(calls.indexOf('reload'));
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+  });
+});
+
+describe('Runs: Start a run keeps its guard and message when closed mid-request', () => {
+  it('keeps every start disabled, then shows the message, after closing and reopening', async () => {
+    window.location.hash = '#manage/runs/start';
+    let finish;
+    runBriefing.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderView();
+    fireEvent.click(await screen.findByTestId('run-briefing-btn'));
+
+    fireEvent.click(screen.getByTestId('start-run-panel-close'));
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    fireEvent.click(screen.getByTestId('start-run-btn'));
+
+    expect(await screen.findByTestId('start-run-panel-title')).toBeInTheDocument();
+    expect(screen.getByTestId('run-briefing-btn')).toBeDisabled();
+    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeDisabled();
+
+    await act(async () => { finish({ status: 'Briefing refreshed.' }); });
+    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeEnabled();
+    expect(screen.getByTestId('start-run-status')).toHaveTextContent('Briefing refreshed.');
+  });
+
+  it('keeps a failure message through a close and reopen', async () => {
+    window.location.hash = '#manage/runs/start';
+    runBriefing.mockRejectedValue({ response: { status: 409 } });
+    renderView();
+    await act(async () => { fireEvent.click(await screen.findByTestId('run-briefing-btn')); });
+    fireEvent.click(screen.getByTestId('start-run-panel-close'));
+    fireEvent.click(screen.getByTestId('start-run-btn'));
+    expect(await screen.findByTestId('start-run-status')).toHaveTextContent('already in progress');
+  });
+});
+
+describe('Runs: focus when Start a run closes', () => {
+  it('returns to the Start a run button', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('start-run-btn'));
+    await screen.findByTestId('start-run-panel-title');
+
+    fireEvent.click(screen.getByTestId('start-run-panel-close'));
+
+    await waitFor(() => expect(screen.getByTestId('start-run-btn')).toHaveFocus());
+  });
+});
+
+describe('Runs: status words, header and loading line', () => {
+  it('tints Degraded and Partial amber and Failed coral, Running tide and Done plain; the words always show', async () => {
+    fetchRuns.mockResolvedValue(runsPage([
+      jobItem({ id: 1, status: 'DEGRADED' }), jobItem({ id: 2, status: 'PARTIAL' }), jobItem({ id: 3, status: 'FAILED' }),
+      jobItem({ id: 4, status: 'RUNNING', durationSeconds: null }), jobItem({ id: 5, status: 'DONE' }),
+    ]));
+    renderView();
+    expect((await screen.findByTestId('runs-status-job-1')).className).toContain('text-verdict-marginal');
+    expect(screen.getByTestId('runs-status-job-1')).toHaveTextContent('Degraded');
+    expect(screen.getByTestId('runs-status-job-2').className).toContain('text-verdict-marginal');
+    expect(screen.getByTestId('runs-status-job-3').className).toContain('text-plex-coral');
+    expect(screen.getByTestId('runs-status-job-3')).toHaveTextContent('Failed');
+    expect(screen.getByTestId('runs-status-job-4').className).toContain('text-tide');
+    expect(screen.getByTestId('runs-status-job-5').className).toContain('text-plex-text');
+  });
+
+  it('says "Loading runs…" and stops the pulse for reduced motion', async () => {
+    fetchRuns.mockReturnValue(new Promise(() => {}));
+    renderView();
+    const line = await screen.findByTestId('runs-loading');
+    expect(line).toHaveTextContent('Loading runs…');
+    expect(line.className).toContain('motion-reduce:animate-none');
+  });
+
+  it('pushes Refresh and Start a run to the right of a wrapped header', async () => {
+    renderView();
+    const group = (await screen.findByTestId('runs-refresh-btn')).parentElement;
+    expect(group.className).toContain('ml-auto');
+    expect(group).toContainElement(screen.getByTestId('start-run-btn'));
+  });
+
+  it('reads a row to assistive tech with "cycle", its duration and its cost', async () => {
+    fetchRuns.mockResolvedValue(runsPage([cycleItem({ status: 'DONE', durationSeconds: 7200, costMicroDollars: 1_000_000 })]));
+    renderView();
+    const label = (await screen.findByTestId('runs-row-cycle-412')).getAttribute('aria-label');
+    expect(label).toContain('Afternoon refresh cycle');
+    expect(label).toContain('2h 0m');
+    expect(label).toContain('£0.7900');
   });
 });

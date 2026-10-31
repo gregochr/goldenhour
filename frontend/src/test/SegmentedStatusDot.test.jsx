@@ -66,6 +66,33 @@ describe('StatusDot tone and halo', () => {
   });
 });
 
+describe('StatusDot tintText', () => {
+  it('tints amber and coral words with the dot when asked', () => {
+    const { rerender } = render(<StatusDot tone="amber" tintText testId="dot">Partial</StatusDot>);
+    expect(screen.getByTestId('dot').className).toContain('text-verdict-marginal');
+    rerender(<StatusDot tone="coral" tintText testId="dot">Failed</StatusDot>);
+    expect(screen.getByTestId('dot').className).toContain('text-plex-coral');
+  });
+
+  it('leaves the words plain without it, so the Data tabs are unchanged', () => {
+    render(<StatusDot tone="amber" testId="dot">Partial</StatusDot>);
+    expect(screen.getByTestId('dot').className).toContain('text-plex-text');
+    expect(screen.getByTestId('dot').className).not.toContain('text-verdict-marginal');
+  });
+
+  it('keeps go plain even when tinting is on', () => {
+    render(<StatusDot tone="go" tintText testId="dot">Done</StatusDot>);
+    expect(screen.getByTestId('dot').className).toContain('text-plex-text');
+  });
+});
+
+describe('Segmented on a phone', () => {
+  it('does not stretch the bordered group across a column', () => {
+    render(<Segmented label="Range" options={OPTIONS} value="WEEK" onChange={vi.fn()} testId="range" />);
+    expect(screen.getByTestId('range').className).toContain('self-start');
+  });
+});
+
 describe('PanelShell title look', () => {
   it('defaults to the serif title', () => {
     render(<PanelShell title="Start a run" onClose={vi.fn()} testIdPrefix="p" />);
