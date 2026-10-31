@@ -168,6 +168,10 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected PipelineRunService pipelineRunService;
 
+    /** Builds the merged Runs list for {@code AdminRunsController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.runs.AdminRunsService adminRunsService;
+
     @MockitoBean
     protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
             pipelineRunComparisonService;

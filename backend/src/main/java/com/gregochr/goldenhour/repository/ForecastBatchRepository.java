@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -134,4 +135,42 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
     @Transactional
     @Query("update ForecastBatchEntity b set b.jobRunId = :jobRunId where b.id = :id")
     int linkJobRun(@Param("id") Long id, @Param("jobRunId") Long jobRunId);
+
+    /**
+     * The job run ids of every batch a cycle submitted, from a minimum id upwards, whatever the cycle's
+     * age. The Runs list hides these from its top level.
+     *
+     * @param minId the smallest job run id of interest
+     * @return the job run ids
+     */
+    @Query("SELECT b.jobRunId FROM ForecastBatchEntity b WHERE b.pipelineRunId IS NOT NULL "
+            + "AND b.jobRunId IS NOT NULL AND b.jobRunId >= :minId")
+    List<Long> findCycleBatchJobRunIdsFrom(@Param("minId") long minId);
+
+    /**
+     * Of the given Anthropic batch ids, those that belong to a cycle. Backs the Runs list's fallback for a
+     * batch whose job run link was never written (matched on the run's {@code notes}).
+     *
+     * @param anthropicBatchIds the candidate Anthropic batch ids
+     * @return the ids that a cycle submitted
+     */
+    @Query("SELECT b.anthropicBatchId FROM ForecastBatchEntity b WHERE b.pipelineRunId IS NOT NULL "
+            + "AND b.anthropicBatchId IN :anthropicBatchIds")
+    List<String> findCycleAnthropicBatchIds(@Param("anthropicBatchIds") Collection<String> anthropicBatchIds);
+
+    /**
+     * The batches linked to any of the given job runs (one set query for a whole page).
+     *
+     * @param jobRunIds the job run ids
+     * @return the batches
+     */
+    List<ForecastBatchEntity> findByJobRunIdIn(Collection<Long> jobRunIds);
+
+    /**
+     * The batches of any of the given cycles, retries included.
+     *
+     * @param pipelineRunIds the pipeline run ids
+     * @return the batches
+     */
+    List<ForecastBatchEntity> findByPipelineRunIdIn(Collection<Long> pipelineRunIds);
 }

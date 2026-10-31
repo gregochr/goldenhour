@@ -1,7 +1,7 @@
 # Runs redesign: Runs, Scheduler and Travel days
 
-**Status:** planned on 2026-10-31 and revised after a backend and a frontend adversarial review. R1, R2a, R2b, R3, R4 and
-R5 are not yet built.
+**Status:** planned on 2026-10-31 and revised after a backend and a frontend adversarial review. **R1 is built**
+(2026-10-31, the two endpoints; see "Built departures (R1)" under §9). R2a, R2b, R3, R4 and R5 are not yet built.
 
 **Source:** the owner's Claude Design export "PhotoCast Runs" (`design_handoff_runs`: `README.md`, `Runs Redesign.html`,
 `runs-redesign.js`, 14 frames). It lives with the owner, not in the repo. For the life of the planning session it is
@@ -789,6 +789,35 @@ These are in §5.5 and §5.6.
 - **Cycle cost is "Batch cost"**, because the briefing's cost has no cycle link.
 - **Stale job runs show Failed with "Did not finish"**, a server rule that is new in R1.
 - Builders add to this list as they go.
+
+### Built departures (R1)
+
+Where the code or the wording of §5.1 made the plan's text ambiguous, R1 follows these:
+
+- **`total`** follows range, kind and attention (every filter), independent of the cursor. `summary` follows range
+  and kind; `kindCounts` and `attentionCount` follow range only.
+- **Spend** is the sum of the served rows' costs after the kind filter (a cycle's is its distinct batch runs'). With
+  kind ALL this equals "every job run in range, each once" except for a cycle batch run left over from a cycle
+  outside the range, which is not counted.
+- **The median** covers NIGHTLY cycles *triggered* in range that finished DONE or DEGRADED, not cycles that merely
+  ended in range. It ignores the kind and attention chips.
+- **`size`** above 100 is clamped to 100; below 1 is a 400 (as `/api/metrics/job-runs` does). Only `range`, `kind`
+  and `before` are 400 on an unknown value.
+- **The exclusion queries are bounded by the smallest candidate job run id** (`>= minId`), which is exact because a
+  hidden run in the window can never have a smaller id than the window's smallest id. The notes fallback looks up only
+  the Anthropic batch ids named by candidate runs' notes, not every batch ever submitted.
+- **"Running" job runs outside the range** (open, within the longest stale ceiling) are loaded separately so that
+  `runningCount` ignores the range as well as the filters.
+- **Group `AURORA`** holds `AURORA_EVALUATION` and aurora batches only; `AURORA_GLOSS` (never written) maps to OTHER,
+  as the plan's OTHER rule says.
+- **`noteTone`** is `INFO` | `WARN` | `ERROR` (null with no note): a running cycle's waiting-on is INFO, a degraded
+  cycle's reason and a PARTIAL run's "{n} requests errored" are WARN, everything FAILED is ERROR.
+- **`JFDI batch`** is named only when the run's `active_strategies` contains `EVALUATE_ALL` (today's frontend rule);
+  `startBatchRun` records no strategies, so a JFDI batch currently reads "Scheduled batch" unless a writer records it.
+- **The job-run detail also serves `noteTone` and `triggeredManually`** (the latter is deliberately absent from
+  `JobRunDto`), and the cycle row carries `batchCount` as well as `batchesDone` / `batchesTotal`.
+- **`nextOvernightAt`** comes from `DynamicSchedulerService.getAll()` filtered to `ForecastCycleJobs.NIGHTLY_JOB`, then
+  `calculateNextFireTime`: null when the job is paused, disabled, unknown, or the call throws.
 
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 

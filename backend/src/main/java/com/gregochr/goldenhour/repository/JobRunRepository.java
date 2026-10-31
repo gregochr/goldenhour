@@ -99,4 +99,22 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
             + "j.failed = COALESCE(j.failed, 0) + :failed WHERE j.id = :id")
     int addQuestionOutcome(@Param("id") Long id, @Param("succeeded") int succeeded,
             @Param("failed") int failed);
+
+    /**
+     * Job runs started at or after a UTC time, newest first, ties by id descending.
+     *
+     * @param since    the inclusive lower bound (naive UTC, like {@code started_at})
+     * @param pageable the page (used as a row cap)
+     * @return the runs
+     */
+    List<JobRunEntity> findByStartedAtGreaterThanEqualOrderByStartedAtDescIdDesc(LocalDateTime since,
+            Pageable pageable);
+
+    /**
+     * Job runs with no completion time that started at or after a UTC time: the candidates for "running".
+     *
+     * @param since the inclusive lower bound (naive UTC)
+     * @return the open runs
+     */
+    List<JobRunEntity> findByCompletedAtIsNullAndStartedAtGreaterThanEqual(LocalDateTime since);
 }
