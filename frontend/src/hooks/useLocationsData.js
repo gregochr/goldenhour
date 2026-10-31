@@ -13,9 +13,9 @@ import { fetchAreas, fetchLocationAliases } from '../api/areaApi.js';
  * locations and regions are the required read ({@code loadError}).
  *
  * @returns {{locations: Array<object>, setLocations: Function, regions: Array<object>, loading: boolean,
- *   loadError: boolean, areas: Array<object>|null, areasVersion: number, subRegions: Array<object>,
+ *   loadError: boolean, areas: Array<object>|null, subRegions: Array<object>,
  *   aliasesByLocation: Object|null, setAliasesByLocation: Function, aliasesFailed: boolean,
- *   refreshLocations: () => Promise<void>, refreshAreas: (bump?: boolean) => Promise<void>}}
+ *   refreshLocations: () => Promise<void>, refreshAreas: () => Promise<void>}}
  */
 export default function useLocationsData() {
   const [locations, setLocations] = useState([]);
@@ -24,7 +24,6 @@ export default function useLocationsData() {
   const [loadError, setLoadError] = useState(false);
   // Every area and sub-region (null until read), written back through the location's own save (subRegionId).
   const [areas, setAreas] = useState(null);
-  const [areasVersion, setAreasVersion] = useState(0);
   // Other names per location id; null until loaded, and stays null if the load fails.
   const [aliasesByLocation, setAliasesByLocation] = useState(null);
   const [aliasesFailed, setAliasesFailed] = useState(false);
@@ -39,9 +38,8 @@ export default function useLocationsData() {
     }
   }, []);
 
-  /** Reads the areas again after a location was saved, and tells the Areas section to do the same. */
-  const refreshAreas = useCallback(async (bump = true) => {
-    if (bump) setAreasVersion((v) => v + 1);
+  /** Reads the areas again after a location was saved, so the sub-region select is current. */
+  const refreshAreas = useCallback(async () => {
     try {
       setAreas(await fetchAreas());
     } catch {
@@ -52,7 +50,7 @@ export default function useLocationsData() {
   useEffect(() => {
     fetchAreas()
       .then((data) => setAreas(data))
-      .catch(() => { /* no sub-region select; the Areas section reports its own load failure */ });
+      .catch(() => { /* no sub-region select; the Areas sub-tab reports its own load failure */ });
     Promise.all([fetchLocations(), fetchRegions()])
       .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
       .catch(() => setLoadError(true))
@@ -63,7 +61,7 @@ export default function useLocationsData() {
   }, []);
 
   return {
-    locations, setLocations, regions, loading, loadError, areas, areasVersion, subRegions,
+    locations, setLocations, regions, loading, loadError, areas, subRegions,
     aliasesByLocation, setAliasesByLocation, aliasesFailed, refreshLocations, refreshAreas,
   };
 }

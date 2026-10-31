@@ -178,7 +178,7 @@ describe('LocationManagementView — the list', () => {
     fireEvent.click(screen.getByTestId('pagination-next'));
     expect(await screen.findByText('Location 5')).toBeInTheDocument();
     expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–15 of 15');
-    expect(await screen.findByTestId('areas-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('areas-section')).not.toBeInTheDocument();
   });
 
   it('hides pagination when everything fits on one page', async () => {

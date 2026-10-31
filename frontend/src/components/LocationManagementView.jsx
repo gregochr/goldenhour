@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import AreasSection from './AreasSection.jsx';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import LocationListPane from './locations/LocationListPane.jsx';
@@ -30,7 +29,7 @@ const locationId = (loc) => loc.id;
  * <p>The list shows every location with its type, light, tides, Bortle and status; a row opens its panel
  * ({@code #manage/locations/{id}}), where the view, the edit form and the failure reset live. Add location takes over
  * the panel as a form, with no confirm step. Rows hold no buttons, and turning a location on or off happens in the
- * panel only. The Areas section stays below the list, as it was.
+ * panel only. Areas has its own sub-tab (Operations → Places → Areas).
  *
  * <p>All the state and rules are in the hooks ({@code useLocationsData}, {@code useLocationEditor},
  * {@code useLocationAdd}, {@code useLocationToggle}, {@code useLocationFailureReset}, {@code useLocationFilters}); this
@@ -46,7 +45,7 @@ const locationId = (loc) => loc.id;
 export default function LocationManagementView({ onLocationsChanged, onAttentionCountChange = undefined }) {
   const data = useLocationsData();
   const {
-    locations, regions, loading, loadError, areas, areasVersion, subRegions, aliasesFailed, refreshLocations, refreshAreas,
+    locations, regions, loading, loadError, areas, subRegions, aliasesFailed, refreshLocations, refreshAreas,
   } = data;
   const { selectedId, select, clear } = useHashSelection(TAB);
   const [adding, setAdding] = useState(false);
@@ -220,19 +219,14 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
       {!loading && !loadError && (
         <DataSplitLayout
           list={(
-            <>
-              <LocationListPane
-                locations={shown}
-                regions={regions}
-                filters={filters}
-                selectedId={selected ? selected.id : null}
-                onSelect={selectLocation}
-                onAdd={startAdd}
-              />
-              <div className="px-4 pb-4 max-[639px]:px-[14px]">
-                <AreasSection locations={locations} reloadKey={areasVersion} onAreasChanged={() => refreshAreas(false)} />
-              </div>
-            </>
+            <LocationListPane
+              locations={shown}
+              regions={regions}
+              filters={filters}
+              selectedId={selected ? selected.id : null}
+              onSelect={selectLocation}
+              onAdd={startAdd}
+            />
           )}
           panel={panel}
           onClose={closePanel}

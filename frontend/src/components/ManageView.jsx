@@ -5,6 +5,7 @@ import { fetchLocations } from '../api/forecastApi.js';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
+import AreaManagementView from './AreaManagementView.jsx';
 import JobRunsMetricsView from './JobRunsMetricsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import SchedulerView from './SchedulerView.jsx';
@@ -44,6 +45,7 @@ const GROUPS = [
     tabs: [
       { value: 'locations', label: 'Locations' },
       { value: 'regions', label: 'Regions' },
+      { value: 'areas', label: 'Areas' },
       { value: 'tides', label: 'Tides' },
     ],
   },
@@ -337,6 +339,12 @@ export default function ManageView({ onComplete }) {
         {activeTab === 'regions' && (
           <div className="card">
             <RegionManagementView />
+          </div>
+        )}
+
+        {activeTab === 'areas' && (
+          <div className="card">
+            <AreaManagementView />
           </div>
         )}
 

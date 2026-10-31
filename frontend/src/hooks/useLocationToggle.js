@@ -14,7 +14,7 @@ import { apiErrorMessage } from '../utils/apiError.js';
  * @param {Array<object>} options.locations the stored locations
  * @param {Function} options.setLocations sets the stored locations
  * @param {() => Promise<void>} options.refreshLocations re-reads the locations
- * @param {(bump?: boolean) => Promise<void>} options.refreshAreas re-reads the areas (the "no sub-region" count
+ * @param {() => Promise<void>} options.refreshAreas re-reads the areas (the "no sub-region" count
  *   only covers enabled locations)
  * @param {() => void} [options.onChanged] told after a successful change (it changes what readers see)
  * @returns {{locations: Array<object>, toggle: (loc: object) => void, error: {id: number, message: string}|null,
