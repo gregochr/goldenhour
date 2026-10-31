@@ -38,9 +38,15 @@ const HEADLAND = {
   solarEventType: ['SUNRISE', 'SUNSET'], locationType: ['LANDSCAPE'], tideType: [],
 };
 
+/** Opens a location's panel from its row, then its edit form. */
+async function openEdit(id) {
+  fireEvent.click(await screen.findByTestId(`locations-row-${id}`));
+  fireEvent.click(await screen.findByTestId(`edit-location-${id}`));
+}
+
 async function openEditor() {
-  fireEvent.click(await screen.findByTestId('edit-location-1'));
-  return screen.getByTestId('inline-edit-aliases');
+  await openEdit(1);
+  return screen.getByTestId('location-edit-aliases');
 }
 
 describe('LocationManagementView — "Also known as"', () => {
@@ -75,9 +81,9 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
     fireEvent.change(field, { target: { value: ' Heugh Lighthouse ,, ' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    await waitFor(() => expect(screen.queryByTestId('inline-edit-save')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('location-edit-save')).not.toBeInTheDocument());
     expect(order).toEqual(['location', 'aliases']);
     expect(setLocationAliases).toHaveBeenCalledWith(1, ['Heugh Lighthouse']);
     expect(onChanged).toHaveBeenCalled();
@@ -89,9 +95,9 @@ describe('LocationManagementView — "Also known as"', () => {
     await waitFor(() => expect(fetchLocationAliases).toHaveBeenCalled());
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    await waitFor(() => expect(screen.queryByTestId('inline-edit-save')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('location-edit-save')).not.toBeInTheDocument());
     expect(updateLocation).toHaveBeenCalledTimes(1);
     expect(setLocationAliases).not.toHaveBeenCalled();
   });
@@ -104,7 +110,7 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
     fireEvent.change(field, { target: { value: '' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(setLocationAliases).toHaveBeenCalledWith(1, []));
   });
@@ -119,11 +125,11 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
     fireEvent.change(field, { target: { value: 'Heugh Lighthouse' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    expect(await screen.findByTestId('inline-edit-error')).toHaveTextContent('contains the named area');
+    expect(await screen.findByTestId('location-edit-error')).toHaveTextContent('contains the named area');
     expect(setLocationAliases).not.toHaveBeenCalled();
-    expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('Heugh Lighthouse');
+    expect(screen.getByTestId('location-edit-aliases')).toHaveValue('Heugh Lighthouse');
   });
 
   it('says "Location saved; its other names were not" and keeps the typed aliases when only the aliases fail', async () => {
@@ -137,13 +143,13 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
     fireEvent.change(field, { target: { value: 'The Heugh, Brand New Name' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    const message = await screen.findByTestId('inline-edit-error');
+    const message = await screen.findByTestId('location-edit-error');
     expect(message).toHaveTextContent('Location saved; its other names were not');
-    expect(screen.getByTestId('inline-edit-alias-detail')).toHaveTextContent('already the location');
-    expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh, Brand New Name');
-    expect(screen.getByTestId('inline-edit-save')).toBeInTheDocument();
+    expect(screen.getByTestId('location-edit-alias-detail')).toHaveTextContent('already the location');
+    expect(screen.getByTestId('location-edit-aliases')).toHaveValue('The Heugh, Brand New Name');
+    expect(screen.getByTestId('location-edit-save')).toBeInTheDocument();
     expect(updateLocation).toHaveBeenCalledTimes(1);
     expect(onChanged).toHaveBeenCalled();
   });
@@ -157,7 +163,7 @@ describe('LocationManagementView — "Also known as"', () => {
 
     expect(field).toBeDisabled();
     expect(field).toHaveAttribute('placeholder', 'Other names could not be loaded');
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
     await waitFor(() => expect(updateLocation).toHaveBeenCalled());
     expect(setLocationAliases).not.toHaveBeenCalled();
   });
@@ -170,16 +176,16 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     expect(field).toBeDisabled();
     expect(field).toHaveAttribute('placeholder', 'Loading other names...');
-    fireEvent.change(screen.getByTestId('inline-edit-lat'), { target: { value: '54.7' } });
+    fireEvent.change(screen.getByTestId('location-edit-lat'), { target: { value: '54.7' } });
 
     land({ 1: ['The Heugh', 'Heugh Battery'] });
-    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh, Heugh Battery'));
-    expect(screen.getByTestId('inline-edit-aliases')).not.toBeDisabled();
+    await waitFor(() => expect(screen.getByTestId('location-edit-aliases')).toHaveValue('The Heugh, Heugh Battery'));
+    expect(screen.getByTestId('location-edit-aliases')).not.toBeDisabled();
 
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(updateLocation).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByTestId('inline-edit-save')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('location-edit-save')).not.toBeInTheDocument());
     expect(setLocationAliases).not.toHaveBeenCalled();
   });
 
@@ -190,9 +196,9 @@ describe('LocationManagementView — "Also known as"', () => {
 
     await openEditor();
     land({ 1: ['The Heugh'] });
-    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh'));
-    fireEvent.change(screen.getByTestId('inline-edit-aliases'), { target: { value: 'The Heugh, Heugh Battery' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    await waitFor(() => expect(screen.getByTestId('location-edit-aliases')).toHaveValue('The Heugh'));
+    fireEvent.change(screen.getByTestId('location-edit-aliases'), { target: { value: 'The Heugh, Heugh Battery' } });
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(setLocationAliases).toHaveBeenCalledWith(1, ['The Heugh', 'Heugh Battery']));
   });
@@ -205,11 +211,11 @@ describe('LocationManagementView — "Also known as"', () => {
     const field = await openEditor();
     await waitFor(() => expect(field).toHaveValue('The Heugh, Heugh Battery'));
     fireEvent.change(field, { target: { value: 'Heugh Lighthouse' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    const message = await screen.findByTestId('inline-edit-error');
+    const message = await screen.findByTestId('location-edit-error');
     expect(message).toHaveTextContent('Location saved; its other names were not');
     expect(message).not.toHaveTextContent('status code');
-    expect(screen.queryByTestId('inline-edit-alias-detail')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('location-edit-alias-detail')).not.toBeInTheDocument();
   });
 });

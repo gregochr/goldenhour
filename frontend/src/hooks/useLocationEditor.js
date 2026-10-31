@@ -60,14 +60,23 @@ export default function useLocationEditor({
     setAliasDetail('');
   }, [subRegions, areas, aliasesByLocation]);
 
-  const cancel = useCallback(() => {
-    floorToken.current += 1;
+  /**
+   * Drops the draft without touching the race token: safe while rendering (the view calls it when the selection
+   * moves, which is state adjusted during render). A reply still in flight finds no draft and is dropped, and the
+   * next {@link start} bumps the token anyway.
+   */
+  const discard = useCallback(() => {
     setEditingId(null);
     setValues(null);
     setError('');
     setErrorField(null);
     setAliasDetail('');
   }, []);
+
+  const cancel = useCallback(() => {
+    floorToken.current += 1;
+    discard();
+  }, [discard]);
 
   const change = useCallback((field, value) => {
     setValues((prev) => applyEditChange(prev, field, value, subRegions));
@@ -205,6 +214,6 @@ export default function useLocationEditor({
 
   return {
     editingId, values, error, errorField, aliasDetail, saving,
-    start, cancel, change, patch, suggestFloor, pickFloor, changeFloorHeight, clearFloor, clearTidePoint, save,
+    start, cancel, discard, change, patch, suggestFloor, pickFloor, changeFloorHeight, clearFloor, clearTidePoint, save,
   };
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { addLocation, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import {
-  ALL_TIDE_TYPES, EMPTY_ENRICHMENT, addPayload, emptyAddForm, planAdd,
+  ALL_TIDE_TYPES, EMPTY_ENRICHMENT, emptyAddForm, planAdd,
 } from '../utils/locationEdit.js';
 
 /**
@@ -16,7 +16,6 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   const [form, setForm] = useState(emptyAddForm);
   const [geocoding, setGeocoding] = useState(false);
   const [enriching, setEnriching] = useState(false);
-  const [confirm, setConfirm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -30,7 +29,6 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
     setForm(emptyAddForm());
     setGeocoding(false);
     setEnriching(false);
-    setConfirm(null);
     setError('');
   }
 
@@ -93,37 +91,34 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
     ? Boolean(form.manualName.trim() && form.manualLat && form.manualLon)
     : Boolean(form.geocodeResult);
 
-  /** Validates, and holds what is to be confirmed. */
-  function review() {
+  /**
+   * Validates and adds the location, then re-reads the locations and the areas. Resolves with the server's reply
+   * (which carries the new id), or null when nothing was added (a message is in {@code error}).
+   */
+  async function submit() {
     const plan = planAdd(form);
     if (plan.error) {
       setError(plan.error);
-      return;
+      return null;
     }
-    if (!plan.confirm) return;
-    setError('');
-    setConfirm(plan.confirm);
-  }
-
-  /** Saves what {@link review} held. Resolves true when it was added. */
-  async function confirmSave() {
+    if (!plan.payload) return null;
     setSaving(true);
     setError('');
     try {
-      await addLocation(addPayload(confirm));
+      const created = await addLocation(plan.payload);
       await refreshLocations();
       await refreshAreas();
-      return true;
+      return created ?? {};
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
   }
 
   return {
-    form, set, reset, geocoding, enriching, confirm, setConfirm, saving, error, setError,
-    changeTypes, changeRegion, geocode, enterManually, backToLookup, canSubmit, review, confirmSave,
+    form, set, reset, geocoding, enriching, saving, error, setError,
+    changeTypes, changeRegion, geocode, enterManually, backToLookup, canSubmit, submit,
   };
 }

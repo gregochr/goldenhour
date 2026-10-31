@@ -3,15 +3,8 @@
  * values, the field-change rules, the validation and the save payloads. Lifted out of {@code LocationManagementView}
  * (data-tabs-redesign-plan.md §2, P6) so the view and its hooks share one copy; behaviour is unchanged.
  */
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from './locationTypes.js';
+import { LOCATION_TYPE_META, DISPLAY_TYPES } from './locationTypes.js';
 import { formatAliases } from './aliasText.js';
-
-/** The solar events a location can be shot at. */
-export const SOLAR_EVENT_TYPES = [
-  { value: 'SUNRISE', label: 'Sunrise', emoji: '🌅' },
-  { value: 'SUNSET', label: 'Sunset', emoji: '🌇' },
-  { value: 'ALLDAY', label: 'All Day', emoji: '☀️' },
-];
 
 /** Assignable types, derived so a new backend constant needs no edit here. */
 export const LOCATION_TYPES = DISPLAY_TYPES.map((value) => ({ value, ...LOCATION_TYPE_META[value] }));
@@ -33,45 +26,6 @@ export const MIN_HEIGHT_M = -50;
 export const MAX_HEIGHT_M = 1500;
 /** Inversion scoring reads a site's own height from here up (InversionScoreCalculator.MIN_ELEVATION_METRES). */
 export const INVERSION_MIN_ELEVATION_M = 200;
-
-/**
- * Formats a location type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['SEASCAPE']
- * @returns {string} Readable label.
- */
-export function formatLocationType(types) {
-  if (!types || types.length === 0) return 'Landscape';
-  return types.map(locationTypeLabel).join(', ');
-}
-
-/**
- * Formats a tide type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['HIGH', 'LOW']
- * @returns {string} Readable label.
- */
-export function formatTideType(types) {
-  if (!types || types.length === 0) return '—';
-  return types.map((t) => {
-    const found = TIDE_TYPES.find((tt) => tt.value === t);
-    return found ? found.fullLabel : t;
-  }).join(', ');
-}
-
-/**
- * Formats a solar event type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['SUNRISE', 'SUNSET']
- * @returns {string} Readable label.
- */
-export function formatSolarEventType(types) {
-  if (!types || types.length === 0) return 'Sunrise, Sunset';
-  return types.map((t) => {
-    const found = SOLAR_EVENT_TYPES.find((s) => s.value === t);
-    return found ? found.label : t;
-  }).join(', ');
-}
 
 /**
  * Normalises a location's type set for editing, falling back to LANDSCAPE.
@@ -395,11 +349,15 @@ export const EMPTY_ENRICHMENT = {
 };
 
 /**
- * Validates the add form and builds what is to be saved (the request body of {@code POST /api/locations}).
+ * Validates the add form and builds the request body of {@code POST /api/locations}.
+ *
+ * <p>A looked-up place carries what enrichment found (Bortle, sky brightness, elevation, grid cell); manual
+ * coordinates carry none of it (the fields are sent null). The three checkboxes (overlooks water, coastal tidal,
+ * mist-prone) apply either way.
  *
  * @param {object} form the add form (see {@link emptyAddForm})
- * @returns {{error: string}|{pending: null}|{payload: object, display: object}} an error, nothing to do yet (no
- *   geocode result), or the body to send with the facts the confirm step shows
+ * @returns {{error: string}|{pending: true}|{payload: object}} an error, nothing to add yet (no lookup result), or
+ *   the body to send
  */
 export function planAdd(form) {
   const coastal = form.locationTypes.includes('SEASCAPE');
@@ -411,7 +369,10 @@ export function planAdd(form) {
     locationTypes: form.locationTypes,
     tideTypes: coastal ? form.tideTypes : [],
     regionId: form.regionId ? Number(form.regionId) : null,
-    subRegionId: form.subRegionId ? Number(form.subRegionId) : null,
+    overlooksWater: form.overlooksWater,
+    coastalTidal: form.coastalTidal,
+    mistProne: form.mistProne === true,
+    ...(form.subRegionId ? { subRegionId: Number(form.subRegionId) } : {}),
   };
   if (form.manualEntry) {
     const name = form.manualName.trim();
@@ -421,55 +382,26 @@ export function planAdd(form) {
     if (isNaN(lat) || lat < -90 || lat > 90) return { error: EDIT_ERROR_FIELDS.lat };
     if (isNaN(lon) || lon < -180 || lon > 180) return { error: EDIT_ERROR_FIELDS.lon };
     return {
-      confirm: { mode: 'add', name, lat, lon, displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`, ...common },
+      payload: {
+        name, lat, lon, ...common,
+        bortleClass: null, skyBrightnessSqm: null, elevationMetres: null, gridLat: null, gridLng: null,
+      },
     };
   }
-  if (!form.geocodeResult) return { pending: null };
+  if (!form.geocodeResult) return { pending: true };
   const enrichment = form.enrichmentData;
   return {
-    confirm: {
-      mode: 'add',
+    payload: {
       name: form.placeName.trim(),
       lat: form.geocodeResult.lat,
       lon: form.geocodeResult.lon,
-      displayName: form.geocodeResult.displayName,
       ...common,
       bortleClass: enrichment?.bortleClass ?? null,
       skyBrightnessSqm: enrichment?.skyBrightnessSqm ?? null,
       elevationMetres: enrichment?.elevationMetres ?? null,
       gridLat: enrichment?.gridLat ?? null,
       gridLng: enrichment?.gridLng ?? null,
-      overlooksWater: form.overlooksWater,
-      coastalTidal: form.coastalTidal,
-      mistProne: form.mistProne,
     },
-  };
-}
-
-/**
- * The request body for a planned add (what {@code addLocation} is called with).
- *
- * @param {object} confirm the planned add ({@link planAdd}'s {@code confirm})
- * @returns {object}
- */
-export function addPayload(confirm) {
-  return {
-    name: confirm.name,
-    lat: confirm.lat,
-    lon: confirm.lon,
-    solarEventTypes: confirm.solarEventTypes,
-    locationTypes: confirm.locationTypes,
-    tideTypes: confirm.tideTypes,
-    regionId: confirm.regionId,
-    bortleClass: confirm.bortleClass,
-    skyBrightnessSqm: confirm.skyBrightnessSqm,
-    elevationMetres: confirm.elevationMetres,
-    gridLat: confirm.gridLat,
-    gridLng: confirm.gridLng,
-    overlooksWater: confirm.overlooksWater,
-    coastalTidal: confirm.coastalTidal,
-    mistProne: confirm.mistProne === true,
-    ...(confirm.subRegionId ? { subRegionId: confirm.subRegionId } : {}),
   };
 }
 

@@ -74,6 +74,13 @@ export function medianReadings(rows, exclude = undefined) {
   return Math.round(counts.length % 2 === 1 ? counts[mid] : (counts[mid - 1] + counts[mid]) / 2);
 }
 
+/** A signed metres figure for a bar's end labels ("−2.89 m", "+2.87 m"), or an em dash. */
+export function signedMetres(val) {
+  const n = numOrNull(val);
+  if (n == null) return NO_VALUE;
+  return `${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(2)} m`;
+}
+
 /** The tide types a location is worth shooting at, as words ("High, Mid, Low"); an em dash when none. */
 export function tideTypesText(types) {
   if (!Array.isArray(types) || types.length === 0) return NO_VALUE;

@@ -1,6 +1,6 @@
 # Data tabs redesign: Locations, Regions, Tides and Waitlist
 
-**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below); P5 built (Regions, `DataGrid` group headers). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
+**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below); P5 built (Regions, `DataGrid` group headers); **P6 built (Locations): series complete.** **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
 (`design_handoff_data_tabs`: `README.md`, `Data Tabs Redesign.html`, 18 frames). It lives with the owner, not in the repo.
 Where it and the codebase disagree, **the codebase wins** (the handoff says so itself).
 
@@ -208,7 +208,27 @@ Tests per door (service and controller); every `RegionServiceTest` construction 
   message (*A base town needs a name, a latitude and a longitude — or leave all three blank.*), the clear-base save, the
   existing copy that moving the base clears drive times, and the refresh after a failed save.
 
-## 6. Locations (P6)
+## 6. Locations (P6, built)
+
+*Built departures:* the logic went into hooks first (`useLocationsData`, `useLocationEditor`, `useLocationAdd`,
+`useLocationToggle`, `useLocationFailureReset`, `useLocationFilters`, plus `utils/locationEdit.js` and
+`utils/locationAdmin.js`), in a behaviour-neutral commit with the old tests unchanged, then the view swapped. Chip counts
+follow the search, the region and the other chip group (each counts what pressing it would show), and *Show them*
+applies the Needs attention chip over every other filter (the alert counts all places). A turned-off place's alert
+sentence reads *was turned off after {n} failed runs* (or *after failed runs* when its counter was reset), and a single
+failed run reads *1 failed run*. The failure box also shows for a place an admin switched off by hand that still carries
+a failure count (without the third-failure sentence, which only fits an enabled place), and the auto-disabled box shows
+the stored reason but not a last-failed time (the reason carries the date). The D3 sentence (*Turn {region} on first.*)
+appears when the button is pressed and the server refuses, not before. The **More** section is always open (a labelled
+section, not collapsed), and **Edit** sits in the Shooting section on every width, as on Regions, so the phone back bar
+carries no action. Validation messages sit under their field (a server refusal under the form), and the form brings the
+message into view above the pinned footer. Add shows *Enter coordinates instead* from the start (not only after a failed
+lookup), offers Overlooks water, Coastal tidal and Mist-prone in both modes and sends them for manual coordinates too (the
+old manual path sent none of them), and a detected elevation reads `368 m`. A failed locations fetch now says *Couldn't
+load locations.* instead of reading as empty. The list sorts by Location, Type, Bortle and Status; `AreasSection` sits in
+the list slot under the grid (it leaves with the list on the phone page). The inline editor, the confirm modal, the tide
+stats modal and `LocationAlerts.jsx` are deleted. Not yet seen in a browser (jsdom only): the layout at 1280, 1024, 1000,
+820 and 390 px, and the phone page.
 
 ### 6.1 List
 - **Alert** (replaces `LocationAlerts.jsx`; delete it and port every behaviour its tests pin that still applies): one
@@ -361,12 +381,9 @@ British English, sentence case. "Turn off" / "turn on" in actions, "Disabled" in
 
 ## 12. Carried forward from the P1 review
 
-- **`DataGrid` grows when a tab needs it:** (grouped rows landed in P5 as a `{groupHeader: true, ...}` row; per-row "opens
-  nothing" rows in P3 as `isSelectable`; a normal column is usable in card mode with `card: 'status' | 'summary'`
-  and no `cardOnly`, as Users and Tides use it.)
-- **Pagination** (label `1–13 of 266`, phone 9×14 padding, keep the panel open while the selection is on the filtered
-  page) lands with P2, where Users' tests move.
+(The `DataGrid` growth items and Pagination landed in P2 to P5 and are removed.)
+
 - **Accepted:** ManageView now follows Back and Forward to a `manage/<tab>` hash even while the Operations pane is
   hidden; `DataGrid` sets its column template through a CSS custom property in `style` (per-table geometry).
 - **Browser checks still owed:** the sticky panel under the app header, the overlay at 640–999px, the phone page, focus
-  return and `inert`. P1 shipped with these proven in jsdom only.
+  return and `inert`. P1 shipped with these proven in jsdom only; P6 was likewise not seen in a browser.

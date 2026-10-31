@@ -401,9 +401,10 @@ describe('form-field focus outlines — their call sites', () => {
     // retired overlay drawer's drive-time select.
     // ⚠️ `UserSettingsModal` left the list for the same reason at R4c: its postcode input is the
     // modal's only text input, and it now takes `.field`.
+    // ⚠️ `LocationManagementView.jsx` left the list at Data tabs P6: its inline editor's own class lists went with the
+    // inline editor, and the panel's forms take `inputClass` / `selectClass` from `userFormClasses.js` (listed below).
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
-      'components/LocationManagementView.jsx',
       'components/users/userFormClasses.js',
       'components/shared/SortableHeader.jsx',
     ];
