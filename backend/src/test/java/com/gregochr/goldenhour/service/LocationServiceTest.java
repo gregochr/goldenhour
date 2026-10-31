@@ -1515,9 +1515,14 @@ class LocationServiceTest {
         existing.setTideLat(55.00);
         existing.setTideLng(-1.40);
         when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
-        // Lenient: the tests that expect a 400 never reach the save or the stored-extremes check.
-        org.mockito.Mockito.lenient().when(locationRepository.save(existing)).thenReturn(existing);
-        org.mockito.Mockito.lenient().when(tideService.hasStoredExtremes(1L)).thenReturn(true);
+        return existing;
+    }
+
+    /** As {@link #coastalWithTidePoint()}, for accepted updates: saves that entity, finds stored tides. */
+    private LocationEntity persistedCoastalWithTidePoint() {
+        LocationEntity existing = coastalWithTidePoint();
+        when(locationRepository.save(existing)).thenReturn(existing);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(true);
         return existing;
     }
 
@@ -1529,7 +1534,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() sets a tide point and re-reads tides once, in a new transaction")
     void update_tidePoint_setsAndRefetches() {
-        LocationEntity existing = coastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
 
         locationService.update(1L, tidePoint(55.01, -1.41, null));
 
@@ -1541,7 +1546,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() with the tide point unchanged, or absent, does not re-read tides")
     void update_tidePoint_unchangedOrAbsent_noRefetch() {
-        coastalWithTidePoint();
+        persistedCoastalWithTidePoint();
 
         locationService.update(1L, tidePoint(55.00, -1.40, null));
         locationService.update(1L, tidePoint(null, null, null));
@@ -1553,7 +1558,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() clearTidePoint alone nulls both and re-reads tides; with a value it is a 400")
     void update_tidePoint_clear() {
-        LocationEntity existing = coastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
 
         assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, null, true)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not both");
@@ -1595,7 +1600,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() keeps the edit when the tide re-read fails")
     void update_tidePoint_fetchFailureDoesNotFailUpdate() {
-        LocationEntity existing = coastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
         org.mockito.Mockito.doThrow(new IllegalStateException("WorldTides down"))
                 .when(tideService).fetchAndStoreTideExtremesInNewTransaction(existing);
 
@@ -1621,7 +1626,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() inside a transaction defers the tide re-read until after commit")
     void update_tidePoint_runsAfterCommit() {
-        LocationEntity existing = coastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
             locationService.update(1L, tidePoint(55.01, -1.41, null));
@@ -1649,7 +1654,7 @@ class LocationServiceTest {
     @Test
     @DisplayName("update() accepts a small pin move with a stored tide point still within 25 km")
     void update_pinMove_tidePointStillNear_saves() {
-        LocationEntity existing = coastalWithTidePoint();
+        LocationEntity existing = persistedCoastalWithTidePoint();
 
         locationService.update(1L, new UpdateLocationRequest(null, 55.04, null, null, null, null, null));
 
@@ -1689,6 +1694,7 @@ class LocationServiceTest {
     @DisplayName("update() on a coastal location with no stored extremes fetches synchronously, not after commit")
     void update_tidePoint_noStoredExtremes_syncFetchWins() {
         LocationEntity existing = coastalWithTidePoint();
+        when(locationRepository.save(existing)).thenReturn(existing);
         when(tideService.hasStoredExtremes(1L)).thenReturn(false);
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {

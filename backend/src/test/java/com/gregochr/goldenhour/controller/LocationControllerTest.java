@@ -452,7 +452,9 @@ class LocationControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/locations/{id} with a tide point the service rejects returns 400")
     void updateLocation_tidePointRejected_returns400() throws Exception {
-        when(locationService.update(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any()))
+        UpdateLocationRequest expected = new UpdateLocationRequest(null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, 56.0, -1.4, null);
+        when(locationService.update(7L, expected))
                 .thenThrow(new IllegalArgumentException("The tide point must be within 25 km of the location"));
 
         mockMvc.perform(put("/api/locations/7")
