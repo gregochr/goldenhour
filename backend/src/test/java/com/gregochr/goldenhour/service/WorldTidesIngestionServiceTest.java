@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideFetchRepository;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,9 @@ class WorldTidesIngestionServiceTest {
     private TideExtremeRepository tideExtremeRepository;
 
     @Mock
+    private TideFetchRepository tideFetchRepository;
+
+    @Mock
     private WorldTidesProperties worldTidesProperties;
 
     @Mock
@@ -70,7 +74,7 @@ class WorldTidesIngestionServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse(400));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -89,7 +93,7 @@ class WorldTidesIngestionServiceTest {
                 new RestClientResponseException("Service Unavailable", 503,
                         "Service Unavailable", null, null, null));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -112,7 +116,7 @@ class WorldTidesIngestionServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse(400));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         int fetched = service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -133,7 +137,7 @@ class WorldTidesIngestionServiceTest {
         RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class,
                 new RuntimeException("connection reset"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -152,7 +156,7 @@ class WorldTidesIngestionServiceTest {
                         "I/O error on GET request for \"https://www.worldtides.info/api/v3"
                                 + "?extremes&lat=1&lon=2&key=SECRETKEY\": timeout"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -174,7 +178,7 @@ class WorldTidesIngestionServiceTest {
                         "I/O error on GET request for \"https://www.worldtides.info/api/v3"
                                 + "?extremes&key=SECRETKEY\": timeout"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
 
         service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 

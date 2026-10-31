@@ -241,6 +241,18 @@ public class LocationEntity {
     @Column(name = "valley_floor_lng")
     private Double valleyFloorLng;
 
+    /**
+     * Latitude of the point WorldTides is asked about in place of the pin, or null to use the pin
+     * (tide-source-integrity-plan P1a). Set together with {@link #tideLng}. A plain column, written
+     * by the migration and the admin's whole-entity update; only WorldTides reads it.
+     */
+    @Column(name = "tide_lat")
+    private Double tideLat;
+
+    /** Longitude of the tide point, or null when the pin is used. Set or cleared with {@link #tideLat}. */
+    @Column(name = "tide_lng")
+    private Double tideLng;
+
     /** Snapped Open-Meteo grid latitude (~2 km resolution). Null until first fetch. */
     @Column(name = "grid_lat")
     private Double gridLat;
@@ -408,6 +420,27 @@ public class LocationEntity {
      */
     public String gridCellKey() {
         return String.format("%.4f,%.4f", gridLat, gridLng);
+    }
+
+    /**
+     * A latitude and longitude pair in decimal degrees.
+     *
+     * @param lat latitude
+     * @param lng longitude
+     */
+    public record TidePoint(double lat, double lng) {
+    }
+
+    /**
+     * The point WorldTides is asked about: the tide point when one is set, otherwise the pin.
+     *
+     * @return the coordinates sent to WorldTides for this location
+     */
+    public TidePoint getEffectiveTidePoint() {
+        if (tideLat != null && tideLng != null) {
+            return new TidePoint(tideLat, tideLng);
+        }
+        return new TidePoint(lat, lon);
     }
 
     /**

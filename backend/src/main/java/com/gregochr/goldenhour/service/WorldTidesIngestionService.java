@@ -6,8 +6,10 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
+import com.gregochr.goldenhour.entity.TideFetchEntity;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideFetchRepository;
 import com.gregochr.goldenhour.util.SecretRedactor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -118,13 +121,27 @@ public class WorldTidesIngestionService {
     private static final long TAIL_OVERLAP_MINUTES = 1;
 
     /**
+     * Largest difference, in degrees, at which two coordinates still count as the same point.
+     * About 0.1 m on the ground: wide enough to absorb a double that went through a database
+     * column, far narrower than any deliberate move of a pin or tide point.
+     */
+    private static final double POINT_TOLERANCE_DEGREES = 1e-6;
+
+    /** The reason codes of forward fetches; a history backfill is deliberately absent. */
+    private static final List<String> FORWARD_REASONS = List.of(
+            TideFetchEntity.SEED, TideFetchEntity.RESEED, TideFetchEntity.TAIL,
+            TideFetchEntity.POINT_CHANGE);
+
+    /**
      * The span to ask WorldTides for, and why.
      *
      * @param from   first instant to fetch, inclusive — also the lower bound of the delete
      * @param to     last instant to fetch
+     * @param code   the {@link TideFetchEntity} reason code ({@code SEED}, {@code RESEED},
+     *               {@code TAIL} or {@code POINT_CHANGE}), recorded on the provenance row
      * @param reason what decided this window, for the log line
      */
-    record FetchWindow(LocalDateTime from, LocalDateTime to, String reason) {
+    record FetchWindow(LocalDateTime from, LocalDateTime to, String code, String reason) {
 
         long lengthSeconds() {
             return ChronoUnit.SECONDS.between(from, to);
@@ -139,6 +156,7 @@ public class WorldTidesIngestionService {
 
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
+    private final TideFetchRepository tideFetchRepository;
     private final WorldTidesProperties worldTidesProperties;
     private final JobRunService jobRunService;
     private final Consumer<Long> onExtremesWritten;
@@ -151,13 +169,16 @@ public class WorldTidesIngestionService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param tideFetchRepository    repository for the per-call fetch provenance log
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
     @Autowired
     public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
-            WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
-        this(restClient, tideExtremeRepository, worldTidesProperties, jobRunService, locationId -> { });
+            TideFetchRepository tideFetchRepository, WorldTidesProperties worldTidesProperties,
+            JobRunService jobRunService) {
+        this(restClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService,
+                locationId -> { });
     }
 
     /**
@@ -166,6 +187,7 @@ public class WorldTidesIngestionService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param tideFetchRepository    repository for the per-call fetch provenance log
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      * @param onExtremesWritten      called with the location id after rows for it have been deleted
@@ -173,10 +195,11 @@ public class WorldTidesIngestionService {
      *                               ({@code TideService.evictTideStats})
      */
     public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
-            WorldTidesProperties worldTidesProperties, JobRunService jobRunService,
-            Consumer<Long> onExtremesWritten) {
+            TideFetchRepository tideFetchRepository, WorldTidesProperties worldTidesProperties,
+            JobRunService jobRunService, Consumer<Long> onExtremesWritten) {
         this.restClient = restClient;
         this.tideExtremeRepository = tideExtremeRepository;
+        this.tideFetchRepository = tideFetchRepository;
         this.worldTidesProperties = worldTidesProperties;
         this.jobRunService = jobRunService;
         this.onExtremesWritten = onExtremesWritten;
@@ -222,7 +245,9 @@ public class WorldTidesIngestionService {
         LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
         LocalDateTime horizon = startOfDay.plusSeconds(FETCH_LENGTH_SECONDS);
 
-        FetchWindow window = resolveFetchWindow(location.getId(), startOfDay, horizon);
+        LocationEntity.TidePoint pin = new LocationEntity.TidePoint(location.getLat(), location.getLon());
+        LocationEntity.TidePoint point = location.getEffectiveTidePoint();
+        FetchWindow window = resolveFetchWindow(location.getId(), pin, point, startOfDay, horizon);
         if (window == null) {
             LOG.debug("Tide coverage for {} already reaches {} — no fetch needed",
                     location.getName(), horizon.toLocalDate());
@@ -235,10 +260,10 @@ public class WorldTidesIngestionService {
 
         try {
             LOG.info("WorldTides ← {} ({}, {}) — {} to {} ({})",
-                    location.getName(), location.getLat(), location.getLon(),
+                    location.getName(), point.lat(), point.lng(),
                     window.from().toLocalDate(), window.to().toLocalDate(), window.reason());
-            String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&lat=" + location.getLat()
-                    + "&lon=" + location.getLon() + "&start=" + startEpoch
+            String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&lat=" + point.lat()
+                    + "&lon=" + point.lng() + "&start=" + startEpoch
                     + "&length=" + fetchLengthSeconds + "&key=" + (apiKey.length() > 4
                     ? apiKey.substring(0, 4) + "***" : "***");
 
@@ -246,8 +271,8 @@ public class WorldTidesIngestionService {
                     .uri(uriBuilder -> uriBuilder
                             .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
                             .queryParam("extremes")
-                            .queryParam("lat", location.getLat())
-                            .queryParam("lon", location.getLon())
+                            .queryParam("lat", point.lat())
+                            .queryParam("lon", point.lng())
                             .queryParam("start", startEpoch)
                             .queryParam("length", fetchLengthSeconds)
                             .queryParam("key", apiKey)
@@ -268,6 +293,8 @@ public class WorldTidesIngestionService {
                 }
                 LOG.warn("WorldTides returned no usable data for {} (status={})",
                         location.getName(), response != null ? response.getStatus() : "null");
+                recordFetch(location, window.code(), window.from(), window.to(), point, response,
+                        false, 0);
                 return;
             }
 
@@ -300,6 +327,10 @@ public class WorldTidesIngestionService {
 
             checkTideIntegrity(location, window);
 
+            // After the merge has returned, so a merge that throws leaves no success row behind.
+            recordFetch(location, window.code(), window.from(), window.to(), point, response, true,
+                    entities.size());
+
             if (jobRun != null) {
                 // Priced from the credits WorldTides itself reports, not a flat per-call figure:
                 // this endpoint bills one credit per seven days of data, so the cost moves with
@@ -308,10 +339,13 @@ public class WorldTidesIngestionService {
                         "GET", tideUrl, durationMs, 200, true, null, response.getCallCount());
             }
 
-            LOG.info("Stored {} tide extremes for {} ({} to {}, {} credit(s))",
+            LOG.info("Stored {} tide extremes for {} ({} to {}, {} credit(s)) — atlas={} station={} "
+                            + "answered for ({}, {})",
                     entities.size(), location.getName(), window.from().toLocalDate(),
                     window.to().toLocalDate(),
-                    response.getCallCount() != null ? response.getCallCount() : "?");
+                    response.getCallCount() != null ? response.getCallCount() : "?",
+                    response.getAtlas(), response.getStation(),
+                    response.getResponseLat(), response.getResponseLon());
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
@@ -324,6 +358,50 @@ public class WorldTidesIngestionService {
                         statusCode, null, false, errorMsg);
             }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), errorMsg);
+            recordFetch(location, window.code(), window.from(), window.to(), point, null, false, 0);
+        }
+    }
+
+    /**
+     * Records one WorldTides call in {@code tide_fetch}, best effort.
+     *
+     * <p>⚠️ Never throws. Provenance is a diagnostic: a failing write is logged and the fetch it
+     * describes carries on. The worst case is one extra {@code POINT_CHANGE} re-seed next week,
+     * because the next refresh will not find the row it expected.
+     *
+     * @param location   the location fetched
+     * @param reason     the {@link TideFetchEntity} reason code
+     * @param from       start of the requested window
+     * @param to         end of the requested window
+     * @param point      the coordinates sent to WorldTides
+     * @param response   the response, or {@code null} when none was received
+     * @param success    whether the call returned usable data and it was merged
+     * @param stored     how many extremes were stored
+     */
+    private void recordFetch(LocationEntity location, String reason, LocalDateTime from,
+            LocalDateTime to, LocationEntity.TidePoint point, WorldTidesResponse response,
+            boolean success, int stored) {
+        try {
+            tideFetchRepository.save(TideFetchEntity.builder()
+                    .locationId(location.getId())
+                    .fetchedAt(LocalDateTime.now(ZoneOffset.UTC))
+                    .windowFrom(from)
+                    .windowTo(to)
+                    .reason(reason)
+                    .success(success)
+                    .requestLat(point.lat())
+                    .requestLng(point.lng())
+                    .responseLat(response != null ? response.getResponseLat() : null)
+                    .responseLng(response != null ? response.getResponseLon() : null)
+                    .atlas(response != null ? response.getAtlas() : null)
+                    .station(response != null ? response.getStation() : null)
+                    .responseDatum(response != null ? response.getResponseDatum() : null)
+                    .callCount(response != null ? response.getCallCount() : null)
+                    .extremesStored(stored)
+                    .build());
+        } catch (RuntimeException e) {
+            LOG.warn("Could not record the {} WorldTides fetch of {} — the fetch itself is unaffected",
+                    reason, location.getName(), e);
         }
     }
 
@@ -351,19 +429,43 @@ public class WorldTidesIngestionService {
      * merge can only ever extend forwards. Widening this backwards would destroy the 12-month
      * backfill.
      *
+     * <p><strong>A moved tide point comes first.</strong> If {@code point} differs (beyond
+     * {@value #POINT_TOLERANCE_DEGREES} degrees) from the request point of the location's latest
+     * successful <em>forward</em> fetch, the stored window answers a different question and the
+     * whole forward window is re-seeded with reason {@code POINT_CHANGE}, whatever else is true
+     * (including no frontier at all, or coverage already at the horizon). A location with no
+     * forward fetch on record is taken to have been fetched at its {@code pin}, so a location that
+     * has never had a tide point does not re-seed on first deploy. A {@code BACKFILL} row never
+     * counts: it describes history, not the forward window.
+     *
      * @param locationId the location primary key
+     * @param pin        the location's own coordinates
+     * @param point      the coordinates WorldTides would be asked about now (the effective point)
      * @param startOfDay start of today, UTC
      * @param windowEnd  the target horizon
      * @return the span to fetch, or {@code null} when coverage already reaches the horizon
      */
-    FetchWindow resolveFetchWindow(Long locationId, LocalDateTime startOfDay,
-            LocalDateTime windowEnd) {
+    FetchWindow resolveFetchWindow(Long locationId, LocationEntity.TidePoint pin,
+            LocationEntity.TidePoint point, LocalDateTime startOfDay, LocalDateTime windowEnd) {
+        Optional<TideFetchEntity> lastForward = tideFetchRepository
+                .findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
+                        locationId, FORWARD_REASONS);
+        LocationEntity.TidePoint lastRequested = lastForward
+                .filter(row -> row.getRequestLat() != null && row.getRequestLng() != null)
+                .map(row -> new LocationEntity.TidePoint(row.getRequestLat(), row.getRequestLng()))
+                .orElse(pin);
+        if (!samePoint(lastRequested, point)) {
+            return new FetchWindow(startOfDay, windowEnd, TideFetchEntity.POINT_CHANGE,
+                    "re-seed — tide point changed");
+        }
+
         LocalDateTime frontier = tideExtremeRepository
                 .findLatestEventTimeFrom(locationId, startOfDay);
         if (frontier == null) {
             // No forward data: a new coastal location, or one whose data has aged out. Same path
             // for both rather than two that can drift apart.
-            return new FetchWindow(startOfDay, windowEnd, "seed — no forward data");
+            return new FetchWindow(startOfDay, windowEnd, TideFetchEntity.SEED,
+                    "seed — no forward data");
         }
 
         LocalDateTime oldestFetch = tideExtremeRepository
@@ -373,7 +475,8 @@ public class WorldTidesIngestionService {
         // that column ever becomes nullable: unknown age means re-seed, not skip.
         if (oldestFetch == null
                 || oldestFetch.isBefore(startOfDay.minusDays(RESEED_INTERVAL_DAYS))) {
-            return new FetchWindow(startOfDay, windowEnd, "re-seed — forward window is stale");
+            return new FetchWindow(startOfDay, windowEnd, TideFetchEntity.RESEED,
+                    "re-seed — forward window is stale");
         }
 
         if (!frontier.isBefore(windowEnd)) {
@@ -386,7 +489,13 @@ public class WorldTidesIngestionService {
         if (from.isBefore(startOfDay)) {
             from = startOfDay;          // preserves the "never reaches backwards" invariant
         }
-        return new FetchWindow(from, windowEnd, "tail — extending stored coverage");
+        return new FetchWindow(from, windowEnd, TideFetchEntity.TAIL,
+                "tail — extending stored coverage");
+    }
+
+    private static boolean samePoint(LocationEntity.TidePoint a, LocationEntity.TidePoint b) {
+        return Math.abs(a.lat() - b.lat()) <= POINT_TOLERANCE_DEGREES
+                && Math.abs(a.lng() - b.lng()) <= POINT_TOLERANCE_DEGREES;
     }
 
     /**
@@ -456,6 +565,7 @@ public class WorldTidesIngestionService {
             return 0;
         }
 
+        LocationEntity.TidePoint point = location.getEffectiveTidePoint();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         LocalDate startDate = today.minusMonths(12);
         int chunksFetched = 0;
@@ -476,7 +586,7 @@ public class WorldTidesIngestionService {
             String maskedKey = apiKey.length() > 4
                     ? apiKey.substring(0, 4) + "***" : "***";
             String tideUrl = "https://" + WORLDTIDES_HOST + "/api/v3?extremes&date="
-                    + chunkStart + "&lat=" + location.getLat() + "&lon=" + location.getLon()
+                    + chunkStart + "&lat=" + point.lat() + "&lon=" + point.lng()
                     + "&days=" + BACKFILL_CHUNK_DAYS + "&key=" + maskedKey;
             final String dateParam = chunkStart.toString();
 
@@ -486,8 +596,8 @@ public class WorldTidesIngestionService {
                                 .scheme("https").host(WORLDTIDES_HOST).path("/api/v3")
                                 .queryParam("extremes")
                                 .queryParam("date", dateParam)
-                                .queryParam("lat", location.getLat())
-                                .queryParam("lon", location.getLon())
+                                .queryParam("lat", point.lat())
+                                .queryParam("lon", point.lng())
                                 .queryParam("days", BACKFILL_CHUNK_DAYS)
                                 .queryParam("key", apiKey)
                                 .build())
@@ -507,6 +617,8 @@ public class WorldTidesIngestionService {
                     LOG.warn("Backfill failed for {} at {} — status={}",
                             location.getName(), chunkStart,
                             response != null ? response.getStatus() : "null");
+                    recordFetch(location, TideFetchEntity.BACKFILL, windowFrom, windowTo, point, response,
+                            false, 0);
                     continue;
                 }
 
@@ -530,6 +642,8 @@ public class WorldTidesIngestionService {
                 tideExtremeRepository.saveAll(entities);
                 onExtremesWritten.accept(location.getId());
                 chunksFetched++;
+                recordFetch(location, TideFetchEntity.BACKFILL, windowFrom, windowTo, point, response, true,
+                        entities.size());
 
                 if (jobRun != null) {
                     jobRunService.logApiCall(jobRun.getId(), ServiceName.WORLD_TIDES,
@@ -549,6 +663,7 @@ public class WorldTidesIngestionService {
                 }
                 LOG.warn("Backfill failed for {} at {}: {}",
                         location.getName(), chunkStart, SecretRedactor.redactKeys(e.getMessage()));
+                recordFetch(location, TideFetchEntity.BACKFILL, windowFrom, windowTo, point, null, false, 0);
             }
         }
 

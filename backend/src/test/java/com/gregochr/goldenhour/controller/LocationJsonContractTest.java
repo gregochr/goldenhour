@@ -84,6 +84,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .valleyFloorMetres(120)
                 .valleyFloorLat(55.6)
                 .valleyFloorLng(-1.72)
+                .tideLat(55.39)
+                .tideLng(-1.6)
                 .build();
         LocationEntity minimal = LocationEntity.builder()
                 .id(2L).name("Minimal Spot").lat(1.0).lon(2.0)
@@ -111,7 +113,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"gridLat\":55.61,\"gridLng\":-1.71,\"bluebellExposure\":\"WOODLAND\","
                 + "\"coastalStructure\":\"PIER\",\"structureFacesDeg\":45,\"structureLabel\":\"Bamburgh Pier\","
                 + "\"woodlandOnly\":false,\"subRegionId\":71,\"subRegionName\":\"Northumberland Coast\","
-                + "\"valleyFloorMetres\":120,\"valleyFloorLat\":55.6,\"valleyFloorLng\":-1.72},"
+                + "\"valleyFloorMetres\":120,\"valleyFloorLat\":55.6,\"valleyFloorLng\":-1.72,"
+                + "\"tideLat\":55.39,\"tideLng\":-1.6},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
                 + "\"enabled\":true,\"createdAt\":\"2026-01-01T00:00:00\","
@@ -123,7 +126,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"bluebellExposure\":null,\"coastalStructure\":null,\"structureFacesDeg\":null,"
                 + "\"structureLabel\":null,\"woodlandOnly\":false,\"subRegionId\":null,"
                 + "\"subRegionName\":null,\"valleyFloorMetres\":null,\"valleyFloorLat\":null,"
-                + "\"valleyFloorLng\":null}"
+                + "\"valleyFloorLng\":null,\"tideLat\":null,\"tideLng\":null}"
                 + "]";
 
         mockMvc.perform(get("/api/locations"))
