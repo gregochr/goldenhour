@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { getWaitlist } from '../api/waitlistApi.js';
+import { fetchLocations } from '../api/forecastApi.js';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
@@ -16,6 +17,7 @@ import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useIsWide } from '../hooks/useIsWide.js';
+import { needsAttention } from '../utils/locationAdmin.js';
 
 const GROUPS = [
   {
@@ -66,6 +68,10 @@ const GROUPS = [
 const WAITLIST_BADGE_CLASSES =
   'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold';
 
+/** The Locations sub-tab's count of places that need attention: plain amber text after the label, not a pill. */
+const ATTENTION_BADGE_CLASSES =
+  'ml-1.5 text-[11px] font-semibold text-verdict-marginal';
+
 /**
  * Resolve group and tab from the current hash ("manage/skyeval", "manage/waitlist/12"), or null when it is not
  * {@code manage/<known tab>}. A hash that is not a Manage tab (a one-time token the app strips, another area's
@@ -106,11 +112,23 @@ export default function ManageView({ onComplete }) {
   const isWide = useIsWide();
   const [waitlistCount, setWaitlistCount] = useState(null);
   const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
+  // How many locations need attention (failing, or turned off by the failure tracking), for the Locations sub-tab.
+  // Read once here so the count shows before the tab is opened; the Locations view keeps it current while it is open.
+  const [attentionCount, setAttentionCount] = useState(null);
+  const handleAttentionCount = useCallback((count) => setAttentionCount(count), []);
 
   useEffect(() => {
     getWaitlist()
       .then((list) => setWaitlistCount(list.length))
       .catch(() => { /* badge stays hidden on failure */ });
+    // On the Locations tab the view reports the count itself once it has read the list, so a second read would only
+    // race it.
+    if (initial.tab !== 'locations') {
+      fetchLocations()
+        .then((list) => setAttentionCount(list.filter(needsAttention).length))
+        .catch(() => { /* badge stays hidden on failure */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A cross-tab link (Full tide stats, Open in Locations, Show them) sets `#manage/{tab}[/{id}]` while Manage is
@@ -153,6 +171,14 @@ export default function ManageView({ onComplete }) {
   }
 
   const waitlistShown = waitlistCount != null && waitlistCount > 0;
+  const attentionShown = attentionCount != null && attentionCount > 0;
+
+  /** A tab's name with its count in brackets, for the phone menu's options. */
+  function tabLabelWithCount(tab) {
+    if (tab.value === 'waitlist' && waitlistShown) return `${tab.label} (${waitlistCount})`;
+    if (tab.value === 'locations' && attentionShown) return `${tab.label} (${attentionCount})`;
+    return tab.label;
+  }
 
   const phoneMenu = (
     <div>
@@ -168,7 +194,7 @@ export default function ManageView({ onComplete }) {
           <optgroup key={group.value} label={group.label}>
             {group.tabs.map((tab) => (
               <option key={tab.value} value={tab.value}>
-                {tab.value === 'waitlist' && waitlistShown ? `${tab.label} (${waitlistCount})` : tab.label}
+                {tabLabelWithCount(tab)}
               </option>
             ))}
           </optgroup>
@@ -213,6 +239,11 @@ export default function ManageView({ onComplete }) {
               {tab.value === 'waitlist' && waitlistShown && (
                 <span className={WAITLIST_BADGE_CLASSES} data-testid="waitlist-count-badge">
                   {waitlistCount}
+                </span>
+              )}
+              {tab.value === 'locations' && attentionShown && (
+                <span className={ATTENTION_BADGE_CLASSES} data-testid="locations-attention-badge">
+                  {attentionCount}
                 </span>
               )}
             </button>
@@ -270,6 +301,11 @@ export default function ManageView({ onComplete }) {
                 {waitlistCount}
               </span>
             )}
+            {tab.value === 'locations' && attentionShown && (
+              <span className={ATTENTION_BADGE_CLASSES} data-testid="locations-attention-badge">
+                {attentionCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -294,7 +330,7 @@ export default function ManageView({ onComplete }) {
 
         {activeTab === 'locations' && (
           <div className="card">
-            <LocationManagementView onLocationsChanged={onComplete} />
+            <LocationManagementView onLocationsChanged={onComplete} onAttentionCountChange={handleAttentionCount} />
           </div>
         )}
 

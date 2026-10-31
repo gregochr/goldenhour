@@ -59,9 +59,15 @@ const WALL = {
   id: 7, name: "Hadrian's Wall", aliases: [], locationIds: [1], kind: 'NAMED', regionId: null, regionName: null,
 };
 
-async function openEditor(id = 1) {
+/** Opens a location's panel from its row, then its edit form. */
+async function openEdit(id) {
+  fireEvent.click(await screen.findByTestId(`locations-row-${id}`));
   fireEvent.click(await screen.findByTestId(`edit-location-${id}`));
-  return screen.findByTestId('inline-edit-region');
+}
+
+async function openEditor(id = 1) {
+  await openEdit(id);
+  return screen.findByTestId('location-edit-region');
 }
 
 describe('LocationManagementView: the sub-region select', () => {
@@ -123,7 +129,7 @@ describe('LocationManagementView: the sub-region select', () => {
 
     await openEditor(1);
     await screen.findByRole('combobox', { name: 'Sub-region' });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(1));
     expect(updateLocation.mock.calls[0][1]).not.toHaveProperty('subRegionId');
@@ -136,7 +142,7 @@ describe('LocationManagementView: the sub-region select', () => {
     fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '22' } });
     fetchAreas.mockClear();
     fetchAreas.mockResolvedValue([WALL, subRegion(21, 'Swaledale', DALES, []), subRegion(22, 'Wensleydale', DALES, [1])]);
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(1));
     expect(updateLocation).toHaveBeenCalledWith(1, expect.objectContaining({ regionId: 4, subRegionId: 22 }));
@@ -148,7 +154,7 @@ describe('LocationManagementView: the sub-region select', () => {
 
     await openEditor(2);
     fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '21' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(updateLocation).toHaveBeenCalledWith(2, expect.objectContaining({ subRegionId: 21 })));
   });
@@ -172,7 +178,7 @@ describe('LocationManagementView: the sub-region select', () => {
       .toEqual(['— No sub-region —', 'Keswick & Borrowdale']);
     expect(select).toHaveValue('');
 
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
     await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(1));
     expect(updateLocation.mock.calls[0][1]).toMatchObject({ regionId: 3 });
     expect(updateLocation.mock.calls[0][1]).not.toHaveProperty('subRegionId');
@@ -193,7 +199,7 @@ describe('LocationManagementView: the sub-region select', () => {
 
     fireEvent.change(await openEditor(1), { target: { value: '3' } });
     fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '31' } });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(updateLocation).toHaveBeenCalledWith(
       1, expect.objectContaining({ regionId: 3, subRegionId: 31 }),
@@ -207,7 +213,7 @@ describe('LocationManagementView: the sub-region select', () => {
     await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1));
     await openEditor(1);
     await screen.findByRole('combobox', { name: 'Sub-region' });
-    fireEvent.click(screen.getByTestId('inline-edit-save'));
+    fireEvent.click(screen.getByTestId('location-edit-save'));
 
     await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(2));
   });
@@ -217,6 +223,7 @@ describe('LocationManagementView: the sub-region select', () => {
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
     await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId('locations-row-1'));
     fireEvent.click(await screen.findByTestId('toggle-enabled-1'));
 
     await waitFor(() => expect(setLocationEnabled).toHaveBeenCalledWith(1, false));
@@ -251,16 +258,16 @@ describe('LocationManagementView: the sub-region select', () => {
 
       fireEvent.change(await openEditor(1), { target: { value: '3' } });
       fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '31' } });
-      await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).toHaveValue('The Heugh'));
-      fireEvent.change(screen.getByTestId('inline-edit-aliases'), { target: { value: 'Brand New' } });
-      fireEvent.click(screen.getByTestId('inline-edit-save'));
+      await waitFor(() => expect(screen.getByTestId('location-edit-aliases')).toHaveValue('The Heugh'));
+      fireEvent.change(screen.getByTestId('location-edit-aliases'), { target: { value: 'Brand New' } });
+      fireEvent.click(screen.getByTestId('location-edit-save'));
 
-      expect(await screen.findByTestId('inline-edit-error'))
+      expect(await screen.findByTestId('location-edit-error'))
         .toHaveTextContent('Location saved; its other names were not');
       // The form still holds region 3 and sub-region 31, now the stored truth: saving again sends no sub-region
       // change, and the empty option is offered only because the baseline equals the region.
       updateLocation.mockClear();
-      fireEvent.click(screen.getByTestId('inline-edit-save'));
+      fireEvent.click(screen.getByTestId('location-edit-save'));
       await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(1));
       expect(updateLocation.mock.calls[0][1]).toMatchObject({ regionId: 3 });
       expect(updateLocation.mock.calls[0][1]).not.toHaveProperty('subRegionId');
@@ -303,8 +310,7 @@ describe('LocationManagementView: the sub-region select', () => {
 
       await fillManual('4');
       fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '21' } });
-      fireEvent.click(screen.getByTestId('review-confirm-btn'));
-      fireEvent.click(await screen.findByTestId('confirm-save-btn'));
+      fireEvent.click(screen.getByTestId('location-add-submit'));
       fetchUncoveredLocations.mockClear();
 
       await waitFor(() => expect(addLocation).toHaveBeenCalledTimes(1));
@@ -321,8 +327,7 @@ describe('LocationManagementView: the sub-region select', () => {
       expect(await screen.findByRole('combobox', { name: 'Sub-region' })).toHaveValue('');
       fireEvent.change(screen.getByTestId('add-region'), { target: { value: '4' } });
       expect(await screen.findByRole('combobox', { name: 'Sub-region' })).toHaveValue('');
-      fireEvent.click(screen.getByTestId('review-confirm-btn'));
-      fireEvent.click(await screen.findByTestId('confirm-save-btn'));
+      fireEvent.click(screen.getByTestId('location-add-submit'));
 
       await waitFor(() => expect(addLocation).toHaveBeenCalledTimes(1));
       expect(addLocation.mock.calls[0][0]).not.toHaveProperty('subRegionId');

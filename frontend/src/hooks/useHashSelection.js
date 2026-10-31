@@ -8,7 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
  * @returns {number|null}
  */
 export function selectionFromHash(tab) {
-  const [area, hashTab, id] = window.location.hash.replace('#', '').split('/');
+  // A query (a cross-tab link's `?region=3`) is not part of the tab or the id.
+  const [area, hashTab, id] = window.location.hash.replace('#', '').split('?')[0].split('/');
   if (area !== 'manage' || hashTab !== tab || !/^\d+$/.test(id ?? '')) return null;
   return Number(id);
 }

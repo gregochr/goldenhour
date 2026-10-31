@@ -1,6 +1,6 @@
 # Data tabs redesign: Locations, Regions, Tides and Waitlist
 
-**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below); P5 built (Regions, `DataGrid` group headers). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
+**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below); P5 built (Regions, `DataGrid` group headers); **P6 built (Locations): series complete.** **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
 (`design_handoff_data_tabs`: `README.md`, `Data Tabs Redesign.html`, 18 frames). It lives with the owner, not in the repo.
 Where it and the codebase disagree, **the codebase wins** (the handoff says so itself).
 
@@ -74,7 +74,7 @@ column on Regions, the avg range repeated under the name on desktop Tides, and t
 | Bortle, SQM, grid, overlooksWater, coastalTidal | On add only; not on update | Shown read-only in the panel; set only in Add. |
 | Show on map | No route from Manage to a focused Map | **Dropped** in this series. |
 | Region location count, sub-region counts | Not in `GET /api/regions`; derive from `GET /api/locations` and `GET /api/areas` (`locationIds`) | Client-side counts: location counts as `RegionManagementView` already derives them; sub-region counts are new (fetch `GET /api/areas`, `kind === 'SUB_REGION'`, by `regionId`). |
-| Needs attention | `LocationAlerts` lists `consecutiveFailures > 0` **or** `disabledReason` (a reset counter cannot hide an auto-disabled place) | The alert, the chip and the sub-tab count all use `consecutiveFailures > 0 \|\| disabledReason`. |
+| Needs attention | `LocationAlerts` lists `consecutiveFailures > 0` **or** `disabledReason` (a reset counter cannot hide an auto-disabled place) | The alert, the chip and the sub-tab count all use `consecutiveFailures > 0 \|\| (!enabled && disabledReason)`: a stale reason on a place that is on has no box and no action, so it is not counted. |
 | Region "Base" | `baseName`, `baseLat`, `baseLon`; drives drive times | Shown in the panel's Details; edited there. |
 | Tide stats, bulk | `GET /api/tides/stats/all` → `{locationName: TideStats}` for enabled locations with data | List from the bulk call joined to `GET /api/locations` (sub-region, tide types, status). |
 | King frequency | Not served | Show king `above {kingTideThreshold} m` + `{kingTideCount}` only. |
@@ -208,14 +208,46 @@ Tests per door (service and controller); every `RegionServiceTest` construction 
   message (*A base town needs a name, a latitude and a longitude — or leave all three blank.*), the clear-base save, the
   existing copy that moving the base clears drive times, and the refresh after a failed save.
 
-## 6. Locations (P6)
+## 6. Locations (P6, built)
+
+*Built departures:* the logic went into hooks first (`useLocationsData`, `useLocationEditor`, `useLocationAdd`,
+`useLocationToggle`, `useLocationFailureReset`, `useLocationFilters`, plus `utils/locationEdit.js` and
+`utils/locationAdmin.js`), in a behaviour-neutral commit with the old tests unchanged, then the view swapped. Chip counts
+follow the search, the region and the other chip group (each counts what pressing it would show), and *Show them*
+applies the Needs attention chip over every other filter (the alert counts all places). A turned-off place's alert
+sentence reads *was turned off after {n} failed runs* (or *after failed runs* when its counter was reset), and a single
+failed run reads *1 failed run*. The failure box also shows for a place an admin switched off by hand that still carries
+a failure count (without the third-failure sentence, which only fits an enabled place), and the auto-disabled box shows
+the stored reason and, when the server holds one, *Last failed {when}* (the reason carries only a UTC date). The box reads
+the stored location, so a Turn on in flight never makes it describe an enabled place. A place that is on but carries a
+stale reason is not "needing attention" (no box, no action). The D3 sentence (*Turn {region} on first.*)
+appears when the button is pressed and the server refuses, not before. The **More** section is always open (a labelled
+section, not collapsed), and **Edit** sits in the Shooting section on every width, as on Regions, so the phone back bar
+carries no action. Validation messages sit under their field in Edit and in Add (a server refusal under the form), and the
+form brings the message into view above the pinned footer. Turn on carries no sentence of its own (§11 has none). A
+save in flight for a draft that has since been closed or replaced writes nothing to the draft now on screen (a save
+token, like the valley-floor one), an add that resolves selects the new location only if the selection has not moved,
+and a lookup's late enrichment reply is dropped; Add is disabled while enrichment runs. The turn on / off pending state
+is per location, a successful change whose re-read fails keeps the server's state, and the selection moving on clears
+refusal sentences. The Status sort runs by severity (ascending: Active, Disabled, failed runs by count, Disabled after
+failures). The `?region=` query is read at mount and on `hashchange` and the hash is left alone, so Back and Forward
+restore the filter and `#manage/locations/12?region=3` selects 12 with it. The sub-tab count is plain amber text, and
+ManageView skips its own read when it opens on Locations (the view reports the count). Add (frame 4) has the subtitle
+*Look up a place, then check the details.*, a Bortle line with its meaning, a *Mist-prone* box with the old explanation as
+its help text, and a result box that says the name it will save. Add shows *Enter coordinates instead* from the start (not only after a failed
+lookup), offers Overlooks water, Coastal tidal and Mist-prone in both modes and sends them for manual coordinates too (the
+old manual path sent none of them), and a detected elevation reads `368 m`. A failed locations fetch now says *Couldn't
+load locations.* instead of reading as empty. The list sorts by Location, Type, Bortle and Status; `AreasSection` sits in
+the list slot under the grid (it leaves with the list on the phone page). The inline editor, the confirm modal, the tide
+stats modal and `LocationAlerts.jsx` are deleted. Not yet seen in a browser (jsdom only): the layout at 1280, 1024, 1000,
+820 and 390 px, and the phone page.
 
 ### 6.1 List
 - **Alert** (replaces `LocationAlerts.jsx`; delete it and port every behaviour its tests pin that still applies): one
   line, amber tint (`rgba(224,165,66,.1)`, border `.32`), 6px amber dot: *"**{n} locations need attention.** {name} has
   failed {n} runs in a row. {name} was turned off after {n}."* Name at most one failing and one turned-off place;
   plurals right. **Show them** applies the Needs attention chip. Shown when any location needs attention
-  (`consecutiveFailures > 0 || disabledReason`, §3).
+  (`consecutiveFailures > 0 || (!enabled && disabledReason)`, §3).
 - **Search** *Search name or sub-region*. **Chips** All + one per `DISPLAY_TYPES` (a location counts under each type it
   holds) | Needs attention · Disabled (`!enabled`) | All regions ▾ (also set from the Regions *Show them* link).
 - **Columns** Location 1.7fr (name 500 + *Mist* tag when `mistProne`; sub-region 12px ink-2) · Type .8fr · Light .95fr
@@ -361,12 +393,9 @@ British English, sentence case. "Turn off" / "turn on" in actions, "Disabled" in
 
 ## 12. Carried forward from the P1 review
 
-- **`DataGrid` grows when a tab needs it:** (grouped rows landed in P5 as a `{groupHeader: true, ...}` row; per-row "opens
-  nothing" rows in P3 as `isSelectable`; a normal column is usable in card mode with `card: 'status' | 'summary'`
-  and no `cardOnly`, as Users and Tides use it.)
-- **Pagination** (label `1–13 of 266`, phone 9×14 padding, keep the panel open while the selection is on the filtered
-  page) lands with P2, where Users' tests move.
+(The `DataGrid` growth items and Pagination landed in P2 to P5 and are removed.)
+
 - **Accepted:** ManageView now follows Back and Forward to a `manage/<tab>` hash even while the Operations pane is
   hidden; `DataGrid` sets its column template through a CSS custom property in `style` (per-table geometry).
 - **Browser checks still owed:** the sticky panel under the app header, the overlay at 640–999px, the phone page, focus
-  return and `inert`. P1 shipped with these proven in jsdom only.
+  return and `inert`. P1 shipped with these proven in jsdom only; P6 was likewise not seen in a browser.

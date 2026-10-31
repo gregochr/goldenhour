@@ -6,15 +6,8 @@ import StatusDot from '../data/StatusDot.jsx';
 import TideRangeBar from '../data/TideRangeBar.jsx';
 import usePanelEscape from '../../hooks/usePanelEscape.js';
 import {
-  NO_VALUE, fmtCount, fmtMetres, fmtPercent, isThin, numOrNull, tideTypesText,
+  NO_VALUE, fmtCount, fmtMetres, fmtPercent, isThin, numOrNull, signedMetres, tideTypesText,
 } from '../../utils/tideAdmin.js';
-
-/** A signed metres figure for the bar's end labels ("−2.89 m", "+2.87 m"), or an em dash. */
-function signedMetres(val) {
-  const n = numOrNull(val);
-  if (n == null) return NO_VALUE;
-  return `${n < 0 ? '\u2212' : '+'}${Math.abs(n).toFixed(2)} m`;
-}
 
 /** A metres figure with its unit, or an em dash. */
 function metres(val) {
