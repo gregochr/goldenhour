@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import DispositionBreakdown from '../components/DispositionBreakdown.jsx';
 
 vi.mock('../api/metricsApi', () => ({
@@ -109,7 +109,7 @@ describe('DispositionBreakdown — summary reconciliation', () => {
     render(<DispositionBreakdown jobRunId={348} />);
     await waitFor(() => {
       expect(screen.getByTestId('disposition-summary')).toHaveTextContent(
-        '255 candidates considered'
+        '255 candidates'
       );
     });
   });
@@ -127,7 +127,7 @@ describe('DispositionBreakdown — summary reconciliation', () => {
     render(<DispositionBreakdown jobRunId={1} />);
     await waitFor(() => {
       expect(screen.getByTestId('disposition-summary')).toHaveTextContent(
-        '1 candidate considered'
+        '1 candidate'
       );
     });
   });
@@ -296,8 +296,7 @@ describe('DispositionBreakdown — drill-down expansion', () => {
     expect(panel).toHaveTextContent('Durham UK');
     expect(panel).toHaveTextContent('2026-05-26');
     // No detail rendered because EVALUATED entries have detail=null
-    const innerDivs = panel.querySelectorAll('div.pl-2');
-    expect(innerDivs.length).toBe(0);
+    expect(within(panel).queryByTestId('disposition-detail')).not.toBeInTheDocument();
   });
 });
 
@@ -325,5 +324,112 @@ describe('DispositionBreakdown — forward compatibility', () => {
     });
     // Unknown key falls back to displaying the raw key as the label
     expect(screen.getByText('SKIPPED_FUTURE_CATEGORY_X')).toBeInTheDocument();
+  });
+});
+
+
+describe('DispositionBreakdown: categories the server added', () => {
+  const entry = (n, disposition, over = {}) => ({
+    locationId: n, locationName: `Loc${n}`, evaluationDate: '2026-05-26', eventType: 'SUNRISE',
+    daysAhead: 1, disposition, detail: null, ...over,
+  });
+
+  it('words SKIPPED_TRAVEL_DAY as "Travel day" and FORCE_EVALUATED as "Force evaluated"', async () => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 1, totalCount: 3,
+      countsByDisposition: { EVALUATED: 1, FORCE_EVALUATED: 1, SKIPPED_TRAVEL_DAY: 1 },
+      entries: [entry(1, 'EVALUATED'), entry(2, 'FORCE_EVALUATED'), entry(3, 'SKIPPED_TRAVEL_DAY')],
+    } });
+    render(<DispositionBreakdown jobRunId={1} />);
+    expect(await screen.findByText('Travel day')).toBeInTheDocument();
+    expect(screen.getByText('Force evaluated')).toBeInTheDocument();
+    expect(screen.queryByText('SKIPPED_TRAVEL_DAY')).not.toBeInTheDocument();
+    expect(screen.queryByText('FORCE_EVALUATED')).not.toBeInTheDocument();
+  });
+
+  it('puts FORCE_EVALUATED right after EVALUATED and Travel day after Past date', async () => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 1, totalCount: 5,
+      countsByDisposition: {
+        SKIPPED_TRAVEL_DAY: 1, SKIPPED_PAST_DATE: 1, FORCE_EVALUATED: 1, EVALUATED: 1, SKIPPED_STABILITY: 1,
+      },
+      entries: [],
+    } });
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-breakdown');
+    expect(screen.getAllByTestId(/^disposition-row-/).map((r) => r.getAttribute('data-testid'))).toEqual([
+      'disposition-row-EVALUATED',
+      'disposition-row-FORCE_EVALUATED',
+      'disposition-row-SKIPPED_PAST_DATE',
+      'disposition-row-SKIPPED_TRAVEL_DAY',
+      'disposition-row-SKIPPED_STABILITY',
+    ]);
+  });
+});
+
+describe('DispositionBreakdown: the handoff layout', () => {
+  const many = (n) => Array.from({ length: n }, (_, i) => ({
+    locationId: i, locationName: `Loc${i}`, evaluationDate: '2026-05-26', eventType: 'SUNRISE',
+    daysAhead: 1, disposition: 'SKIPPED_TRIAGED', detail: `Reason ${i}`,
+  }));
+
+  beforeEach(() => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 1, totalCount: 5, countsByDisposition: { SKIPPED_TRIAGED: 5 }, entries: many(5),
+    } });
+  });
+
+  it('draws a stacked bar with a segment per category, decorative to assistive tech', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    const bar = await screen.findByTestId('disposition-bar');
+    expect(bar).toHaveAttribute('aria-hidden', 'true');
+    expect(bar.children).toHaveLength(1);
+  });
+
+  it('lists only the first three entries of an opened category, then "+{n} more"', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    fireEvent.click(screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button'));
+    const panel = screen.getByTestId('disposition-entries-SKIPPED_TRIAGED');
+    expect(within(panel).getByText('Loc0')).toBeInTheDocument();
+    expect(within(panel).getByText('Loc2')).toBeInTheDocument();
+    expect(within(panel).queryByText('Loc3')).not.toBeInTheDocument();
+    expect(screen.getByTestId('disposition-more-SKIPPED_TRIAGED')).toHaveTextContent('+2 more');
+  });
+
+  it('expands the full list in place when "+{n} more" is pressed', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    fireEvent.click(screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button'));
+    fireEvent.click(screen.getByTestId('disposition-more-SKIPPED_TRIAGED'));
+    const panel = screen.getByTestId('disposition-entries-SKIPPED_TRIAGED');
+    expect(within(panel).getByText('Loc4')).toBeInTheDocument();
+    expect(screen.queryByTestId('disposition-more-SKIPPED_TRIAGED')).not.toBeInTheDocument();
+  });
+
+  it('shows no "+{n} more" for a category of three or fewer', async () => {
+    getDispositionBreakdown.mockResolvedValue({ data: {
+      jobRunId: 1, totalCount: 3, countsByDisposition: { SKIPPED_TRIAGED: 3 }, entries: many(3),
+    } });
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    fireEvent.click(screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button'));
+    expect(screen.queryByTestId('disposition-more-SKIPPED_TRIAGED')).not.toBeInTheDocument();
+  });
+
+  it('reports the total to its parent once loaded, so the panel can tell whether it has anything to show', async () => {
+    const onLoaded = vi.fn();
+    render(<DispositionBreakdown jobRunId={1} onLoaded={onLoaded} />);
+    await screen.findByTestId('disposition-breakdown');
+    expect(onLoaded).toHaveBeenCalledWith(5);
+  });
+
+  it('marks an open row expanded for assistive tech', async () => {
+    render(<DispositionBreakdown jobRunId={1} />);
+    await screen.findByTestId('disposition-row-SKIPPED_TRIAGED');
+    const button = screen.getByTestId('disposition-row-SKIPPED_TRIAGED').querySelector('button');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-expanded', 'true');
   });
 });

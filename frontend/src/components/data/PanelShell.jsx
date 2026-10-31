@@ -1,6 +1,9 @@
 import PropTypes from 'prop-types';
 import { PANEL_TITLE_ATTR } from './DataSplitLayout.jsx';
 
+/** The panel title's default look: the serif face at 22px. */
+const TITLE_CLASS = 'break-words font-serif text-[22px] font-semibold leading-tight text-plex-text';
+
 /**
  * The Data tabs' panel frame (handoff, shared rules): the title in the serif face, a one-line meta, the ×, then the
  * body and an optional pinned footer. Every panel mode (view, edit, add) draws it, so the header stays where it is
@@ -15,6 +18,7 @@ import { PANEL_TITLE_ATTR } from './DataSplitLayout.jsx';
  *
  * @param {object} props
  * @param {string} props.title the panel title (an email, a name)
+ * @param {string} [props.titleClassName] replaces the serif 22px title look (the Runs panel sets a batch id in mono)
  * @param {import('react').ReactNode} [props.subtitle] one line under the title
  * @param {() => void} props.onClose closes the panel
  * @param {string} props.testIdPrefix prefix for the test ids; also the root's test id unless {@code testId} is given
@@ -24,14 +28,15 @@ import { PANEL_TITLE_ATTR } from './DataSplitLayout.jsx';
  * @param {import('react').ReactNode} [props.footer] pinned under the body
  */
 export default function PanelShell({
-  title, subtitle = null, onClose, testIdPrefix, testId = undefined, children = null, footer = null,
+  title, titleClassName = TITLE_CLASS, subtitle = null, onClose, testIdPrefix, testId = undefined, children = null,
+  footer = null,
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid={testId ?? testIdPrefix}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-plex-border px-[18px] pb-4 pt-[18px] max-[639px]:px-4">
         <div className="min-w-0">
           <h2
-            className="break-words font-serif text-[22px] font-semibold leading-tight text-plex-text focus:outline-hidden"
+            className={`${titleClassName} focus:outline-hidden`}
             tabIndex={-1}
             {...{ [PANEL_TITLE_ATTR]: '' }}
             data-testid={`${testIdPrefix}-title`}
@@ -69,6 +74,7 @@ export default function PanelShell({
 
 PanelShell.propTypes = {
   title: PropTypes.string.isRequired,
+  titleClassName: PropTypes.string,
   subtitle: PropTypes.node,
   onClose: PropTypes.func.isRequired,
   testIdPrefix: PropTypes.string.isRequired,

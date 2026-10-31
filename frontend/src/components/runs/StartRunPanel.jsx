@@ -1,24 +1,17 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
-import { enrichBortle } from '../api/auroraApi';
-import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
-import { runBriefing } from '../api/briefingApi.js';
-import { useAuth } from '../context/AuthContext';
-import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
-import MetricsSummary from './MetricsSummary';
-import useConfirmDialog from '../hooks/useConfirmDialog.js';
-import ConfirmDialog from './shared/ConfirmDialog.jsx';
-import ErrorBanner from './shared/ErrorBanner.jsx';
-import JobRunsGrid from './JobRunsGrid';
-import RunProgressPanel from './RunProgressPanel';
-import AuroraForecastModal from './AuroraForecastModal';
-import AuroraSimulateModal from './AuroraSimulateModal';
-import { isSkyPromptCandidate } from '../utils/locationTypes.js';
-import { ukDateStr } from '../utils/mapDates.js';
-import { parseUtcInstant } from '../utils/conversions.js';
-import { apiErrorMessage } from '../utils/apiError.js';
+import { refreshTideData, backfillTideData, fetchLocations } from '../../api/forecastApi';
+import { enrichBortle } from '../../api/auroraApi';
+import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../../api/batchApi';
+import { runBriefing } from '../../api/briefingApi.js';
+import { useAuth } from '../../context/AuthContext';
+import { useAuroraStatus } from '../../hooks/useAuroraStatus.js';
+import useConfirmDialog from '../../hooks/useConfirmDialog.js';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
+import PanelShell from '../data/PanelShell.jsx';
+import AuroraForecastModal from '../AuroraForecastModal';
+import AuroraSimulateModal from '../AuroraSimulateModal';
+import { isSkyPromptCandidate } from '../../utils/locationTypes.js';
 
 /**
  * Returns true if the location may go to the SKY prompt.
@@ -117,22 +110,22 @@ LocationSummary.propTypes = {
 };
 
 /**
- * Main container for job run metrics.
+ * The Start a run panel ({@code #manage/runs/start}), R2a's legacy body (runs-redesign-plan.md R-D4): today's admin
+ * trigger card lifted as it stands, every button, the batch region dialog, the tide confirm dialogs, both aurora
+ * modals, {@code anyRunning} and the busy and error lines. R3 rebuilds the body into radio options; until then
+ * nothing about what each button does has changed.
  *
- * Displays:
- * - 7-day summary statistics
- * - Pageable job runs grid with filtering
- * - Per-run API call details
+ * <p>A start that returns a {@code jobRunId} hands it to {@code onActiveRunChange}, which sets the run
+ * {@code RunProgressPanel} follows (above the list, so it outlives this panel). A start that adds a run to the list
+ * calls {@code onStarted}, so the list's head is re-fetched.
+ *
+ * @param {object} props
+ * @param {(jobRunId: number) => void} props.onActiveRunChange sets the run whose progress is followed
+ * @param {() => void} props.onStarted called after a start that adds or changes a run, to reload the list head
+ * @param {() => void} props.onClose closes the panel
  */
-const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }) => {
+export default function StartRunPanel({ onActiveRunChange, onStarted, onClose }) {
   const { isAdmin } = useAuth();
-  const [runs, setRuns] = useState([]);
-  const [allApiCalls, setAllApiCalls] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [page, setPage] = useState(0);
-  const [runTypeFilter, setRunTypeFilter] = useState(undefined);
-  const [hasMore, setHasMore] = useState(true);
   const [runningTide, setRunningTide] = useState(false);
   const [runningBackfill, setRunningBackfill] = useState(false);
   const [runningLightPollution, setRunningLightPollution] = useState(false);
@@ -143,86 +136,16 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const [runStatus, setRunStatus] = useState(null);
   const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const [allLocations, setAllLocations] = useState([]);
-  const [dateRange, setDateRange] = useState('7d');
-  const [showBriefingRuns, setShowBriefingRuns] = useState(false);
-  const [showBatchRuns, setShowBatchRuns] = useState(true);
   const [batchRegions, setBatchRegions] = useState([]);
   const [runningScheduledBatch, setRunningScheduledBatch] = useState(false);
   const [runningJfdiBatch, setRunningJfdiBatch] = useState(false);
   const [batchDialog, setBatchDialog] = useState(null);
-  const PAGE_SIZE = 20;
 
   // Load locations and batch regions once
   useEffect(() => {
     fetchLocations().then(setAllLocations).catch(() => {});
     getRegions().then(setBatchRegions).catch(() => {});
   }, []);
-
-  const loadJobRuns = useCallback(async (pageNum) => {
-    try {
-      setLoading(true);
-      const response = await getJobRuns(runTypeFilter, pageNum, PAGE_SIZE);
-      const newRuns = response.data?.content || [];
-
-      if (pageNum === 0) {
-        setRuns(newRuns);
-        if (newRuns.length > 0) {
-          const apiCallPromises = newRuns.map((run) => getApiCalls(run.id));
-          try {
-            const apiCallResponses = await Promise.all(apiCallPromises);
-            const allCalls = apiCallResponses.flatMap((res) => res.data || []);
-            setAllApiCalls(allCalls);
-          } catch {
-            // Silently ignore API call loading failures
-          }
-        } else {
-          setAllApiCalls([]);
-        }
-      } else {
-        // Guard against a repeated row (e.g. the list shifting between pages): keep what is shown,
-        // add only runs not already present. hasMore below still follows the server page.
-        setRuns((prev) => {
-          const seen = new Set(prev.map((run) => run.id));
-          return [...prev, ...newRuns.filter((run) => !seen.has(run.id))];
-        });
-      }
-
-      setPage(pageNum + 1);
-      setHasMore(newRuns.length === PAGE_SIZE);
-    } catch (err) {
-      setError(apiErrorMessage(err, err?.message || 'Failed to load job runs'));
-    } finally {
-      setLoading(false);
-    }
-  }, [runTypeFilter]);
-
-  useEffect(() => {
-    (async () => {
-      setPage(0);
-      setRuns([]);
-      await loadJobRuns(0);
-    })();
-  }, [runTypeFilter, loadJobRuns]);
-
-  const handleLoadMore = () => {
-    loadJobRuns(page);
-  };
-
-  // Dismissing a kept panel removes the thing that held focus, so focus goes to the heading of the
-  // section that started the run; the run buttons it came from are many, and any one would be a
-  // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
-  const runsHeadingRef = useRef(null);
-  const focusRunsHeading = useRef(false);
-  const handleDismissRun = () => {
-    focusRunsHeading.current = true;
-    onActiveRunClear();
-  };
-  useEffect(() => {
-    if (!activeRunId && focusRunsHeading.current) {
-      focusRunsHeading.current = false;
-      runsHeadingRef.current?.focus();
-    }
-  }, [activeRunId]);
 
   const anyRunning = runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
 
@@ -254,7 +177,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     try {
       const result = await runBriefing();
       setRunStatus({ type: 'success', message: result.status || 'Briefing refreshed.' });
-      loadJobRuns(0);
+      onStarted();
     } catch (err) {
       // 409: the backend refuses a second build while one is running (typically the pipeline's
       // own) — that is not a failure, and there is nothing in the logs to check.
@@ -334,7 +257,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
    *
    * <p>`selectedIds: null` MEANS "all regions", and is not the same as an empty set. Snapshotting
    * `batchRegions` here instead was a race: the button renders immediately while `getRegions()` is
-   * still in flight, so an admin who clicks quickly got a dialog built from an empty roster. The
+   * still in flight, so an admin who clicked quickly got a dialog built from an empty roster. The
    * regions then arrived, rendered three unchecked boxes reading "0 of 3 regions selected", and
    * unchecking one actually CHECKED it — the selection was empty, so the toggle added rather than
    * removed. Submitting from that state sent an empty region list. Deferring the resolution to
@@ -358,8 +281,10 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         } else {
           for (const r of batchRegions) next.add(r.id);
         }
+      } else if (next.has(regionId)) {
+        next.delete(regionId);
       } else {
-        next.has(regionId) ? next.delete(regionId) : next.add(regionId);
+        next.add(regionId);
       }
       return { ...prev, selectedIds: next };
     });
@@ -394,7 +319,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         type: 'success',
         message: `${label} submitted: ${result.requestCount} request(s), batch ${result.batchId}.`,
       });
-      loadJobRuns(0);
+      onStarted();
     } catch (err) {
       const msg = err?.response?.status === 409
         ? 'A batch is already in progress. Wait for it to complete.'
@@ -405,78 +330,29 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
     }
   };
 
-  /**
-   * Runs narrowed to the selected date range.
-   *
-   * <p>Both branches read {@code startedAt} through {@link parseUtcInstant}, because it is a
-   * {@code LocalDateTime} and so arrives <b>bare</b> — {@code new Date("2026-08-13T06:00:00")}
-   * parses that as the reader's local time, silently shifting a UTC value by their own offset.
-   * "Today" then compares the run's <b>UK</b> day against the UK today rather than slicing UTC
-   * digits and comparing them with the device's calendar: those were two different calendars, so
-   * during a BST evening the toggle could show nothing while runs were plainly listed beneath it.
-   * Not a frozen memo either — the old {@code []} dependency list pinned "today" to whenever the
-   * tab first mounted, so it never rolled over at midnight.
-   */
-  const dateFilteredRuns = useMemo(() => {
-    if (!runs || runs.length === 0) return [];
-    let filtered = runs;
-    if (!showBriefingRuns) {
-      filtered = filtered.filter((r) => r.runType !== 'BRIEFING');
-    }
-    if (!showBatchRuns) {
-      const batchTypes = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
-      filtered = filtered.filter((r) => !batchTypes.has(r.runType));
-    }
-    if (dateRange === 'today') {
-      // The real clock, like the 7-day cutoff below — Operations never follows an admin's rewind.
-      const today = ukDateStr(new Date());
-      return filtered.filter((r) => {
-        const startedAt = parseUtcInstant(r.startedAt);
-        return startedAt && ukDateStr(startedAt) === today;
-      });
-    }
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-    return filtered.filter((r) => {
-      const startedAt = parseUtcInstant(r.startedAt);
-      return startedAt && startedAt >= cutoff;
-    });
-  }, [runs, dateRange, showBriefingRuns, showBatchRuns]);
-
-  // Auto-refresh every 60 s while any batch run is still in progress
-  const hasInProgressBatch = useMemo(
-    () => {
-      const batchTypes = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
-      return runs.some((r) => batchTypes.has(r.runType) && !r.completedAt);
-    },
-    [runs],
-  );
-  useEffect(() => {
-    if (!hasInProgressBatch) return undefined;
-    const timer = setInterval(() => loadJobRuns(0), 60000);
-    return () => clearInterval(timer);
-  }, [hasInProgressBatch, loadJobRuns]);
-
   // Resolved once per render: the dialog's null sentinel must never reach the JSX, and four
   // separate call sites are four chances to miss one — which is exactly what happened.
   const batchSelection = batchDialog ? resolveBatchSelection(batchDialog.selectedIds) : null;
 
   return (
-    <div className="space-y-6">
+    <PanelShell
+      title="Start a run"
+      subtitle="Runs start straight away and appear at the top of the list."
+      onClose={onClose}
+      testIdPrefix="start-run-panel"
+    >
       {isAdmin && (
-        <div className="card space-y-4">
+        <div className="space-y-4 px-[18px] py-4 max-[639px]:px-4" data-testid="start-run-card">
           <div>
             <h3
-              ref={runsHeadingRef}
-              tabIndex={-1}
-              className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2 focus-visible:outline-2 focus-visible:outline-plex-gold"
+              className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2"
               data-testid="forecast-runs-heading"
             >
               Forecast Runs
             </h3>
             <div className="flex flex-wrap gap-2">
               <button
-                className="text-sm px-3 py-1.5 font-medium rounded border border-indigo-500/50 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-800/40 transition-colors disabled:opacity-50"
+                className="text-sm px-3 py-1.5 font-medium rounded border border-indigo-500/50 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-800/40 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
                 onClick={() => setShowAuroraModal(true)}
                 disabled={anyRunning}
                 title="Choose which nights to generate Claude aurora forecasts for"
@@ -485,7 +361,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 🌌 Aurora Forecast
               </button>
               <button
-                className={`text-sm px-3 py-1.5 font-medium rounded border transition-colors disabled:opacity-50 ${
+                className={`text-sm px-3 py-1.5 font-medium rounded border transition-colors disabled:opacity-50 max-[639px]:min-h-11 ${
                   auroraStatus?.simulated
                     ? 'border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40'
                     : 'border-plex-border bg-plex-bg text-plex-text-muted hover:bg-plex-border/30'
@@ -497,13 +373,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                 {auroraStatus?.simulated ? '🧪 Simulated' : '🧪 Simulate'}
               </button>
               <button
-                className="btn-primary text-sm"
+                className="btn-primary text-sm max-[639px]:min-h-11"
                 onClick={handleRunBriefing}
                 disabled={anyRunning}
                 title="Trigger an immediate briefing refresh"
                 data-testid="run-briefing-btn"
               >
-                {runningBriefing ? '\u27F3 Running\u2026' : '\u27F3 Briefing'}
+                {runningBriefing ? '⟳ Running…' : '⟳ Briefing'}
               </button>
             </div>
           </div>
@@ -511,29 +387,29 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Data Refresh</p>
             <div className="flex flex-wrap gap-2">
               <button
-                className="btn-primary text-sm"
+                className="btn-primary text-sm max-[639px]:min-h-11"
                 onClick={handleRefreshTide}
                 disabled={anyRunning}
                 data-testid="refresh-tide-btn"
               >
-                {runningTide ? '\u27F3 Running\u2026' : '\u27F3 Refresh Tide Data'}
+                {runningTide ? '⟳ Running…' : '⟳ Refresh Tide Data'}
               </button>
               <button
-                className="btn-primary text-sm"
+                className="btn-primary text-sm max-[639px]:min-h-11"
                 onClick={handleBackfillTide}
                 disabled={anyRunning}
                 data-testid="backfill-tide-btn"
               >
-                {runningBackfill ? '\u27F3 Running\u2026' : '\u27F3 Backfill Tide History (12 mo)'}
+                {runningBackfill ? '⟳ Running…' : '⟳ Backfill Tide History (12 mo)'}
               </button>
               <button
-                className="btn-primary text-sm"
+                className="btn-primary text-sm max-[639px]:min-h-11"
                 onClick={handleEnrichLightPollution}
                 disabled={anyRunning}
                 title="Enrich all unenriched locations with light pollution rating"
                 data-testid="refresh-light-pollution-btn"
               >
-                {runningLightPollution ? '\u27F3 Running\u2026' : '🌌 Refresh Light Pollution'}
+                {runningLightPollution ? '⟳ Running…' : '🌌 Refresh Light Pollution'}
               </button>
             </div>
           </div>
@@ -541,20 +417,20 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Batch Evaluation</p>
             <div className="flex flex-wrap gap-2">
               <button
-                className="btn-primary text-sm"
+                className="btn-primary text-sm max-[639px]:min-h-11"
                 onClick={() => openBatchDialog('scheduled')}
                 disabled={anyRunning}
                 data-testid="run-scheduled-batch-btn"
               >
-                {runningScheduledBatch ? '\u27F3 Running\u2026' : '\u27F3 Run Scheduled Batch'}
+                {runningScheduledBatch ? '⟳ Running…' : '⟳ Run Scheduled Batch'}
               </button>
               <button
-                className="text-sm px-3 py-1.5 font-medium rounded border border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 transition-colors disabled:opacity-50"
+                className="text-sm px-3 py-1.5 font-medium rounded border border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
                 onClick={() => openBatchDialog('jfdi')}
                 disabled={anyRunning}
                 data-testid="run-jfdi-batch-btn"
               >
-                {runningJfdiBatch ? '\u27F3 Running\u2026' : '\u27F3 Run JFDI Batch'}
+                {runningJfdiBatch ? '⟳ Running…' : '⟳ Run JFDI Batch'}
               </button>
             </div>
             <p className="text-xs text-plex-text-muted mt-1.5">
@@ -562,83 +438,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
             </p>
           </div>
           {runStatus && (
-            <p className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+            <p
+              className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}
+              data-testid="start-run-status"
+            >
               {runStatus.message}
             </p>
           )}
-        </div>
-      )}
-
-      {/* Live run progress */}
-      {activeRunId && (
-        <RunProgressPanel
-          // key: starting another run while a finished one is kept must
-          // replace the panel, not hand a new run id to a panel still holding the old run's tasks,
-          // summary and failure line.
-          key={activeRunId}
-          jobRunId={activeRunId}
-          onComplete={() => loadJobRuns(0)}
-          onAutoClear={onActiveRunClear}
-          onDismiss={handleDismissRun}
-        />
-      )}
-
-      <ErrorBanner message={error} />
-
-      {/* Summary cards */}
-      <MetricsSummary runs={runs} apiCalls={allApiCalls} range={dateRange} onRangeChange={setDateRange} />
-
-      {/* Run type filter */}
-      <div className="card">
-        <label htmlFor="run-type-filter-select" className="block text-sm font-medium text-plex-text-secondary mb-2">Filter by Run Type</label>
-        <select
-          id="run-type-filter-select"
-          value={runTypeFilter || ''}
-          onChange={(e) => setRunTypeFilter(e.target.value || undefined)}
-          className="w-full px-3 py-2 bg-plex-surface-light border border-plex-border rounded-lg text-plex-text focus:ring-2 focus:ring-plex-gold focus:border-transparent"
-          data-testid="run-type-filter-select"
-        >
-          <option value="">All Run Types</option>
-          <option value="WEATHER">Weather</option>
-          <option value="TIDE">Tide</option>
-          <option value="BRIEFING">Briefing</option>
-          <option value="SCHEDULED_BATCH">Batch</option>
-        </select>
-        <div className="flex flex-wrap gap-4 mt-2">
-          <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showBriefingRuns}
-              onChange={(e) => setShowBriefingRuns(e.target.checked)}
-              data-testid="show-briefing-checkbox"
-              className="rounded border-plex-border"
-            />
-            Show briefing runs
-          </label>
-          <label className="flex items-center gap-2 text-sm text-plex-text-secondary cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showBatchRuns}
-              onChange={(e) => setShowBatchRuns(e.target.checked)}
-              data-testid="show-batch-checkbox"
-              className="rounded border-plex-border"
-            />
-            Show batch runs
-          </label>
-        </div>
-      </div>
-
-      {/* Job runs grid — filtered by the same date range as the summary */}
-      <JobRunsGrid
-        runs={dateFilteredRuns}
-        onLoadMore={handleLoadMore}
-        hasMore={hasMore}
-        loading={loading}
-      />
-
-      {runs.length === 0 && !loading && (
-        <div className="bg-plex-surface rounded-lg p-8 text-center border border-plex-border">
-          <p className="text-plex-text-muted">No job runs available</p>
         </div>
       )}
 
@@ -713,7 +519,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
               type: 'success',
               message: `Aurora forecast complete: ${nightCount} night${nightCount !== 1 ? 's' : ''}, ${scored} location${scored !== 1 ? 's' : ''} scored. Cost: ${result.estimatedCost ?? '—'}.`,
             });
-            loadJobRuns(0);
+            onStarted();
           }}
         />
       )}
@@ -728,14 +534,12 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           }}
         />
       )}
-    </div>
+    </PanelShell>
   );
-};
+}
 
-JobRunsMetricsView.propTypes = {
-  activeRunId: PropTypes.number,
+StartRunPanel.propTypes = {
   onActiveRunChange: PropTypes.func.isRequired,
-  onActiveRunClear: PropTypes.func.isRequired,
+  onStarted: PropTypes.func.isRequired,
+  onClose: PropTypes.func.isRequired,
 };
-
-export default JobRunsMetricsView;

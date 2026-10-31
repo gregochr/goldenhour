@@ -5,7 +5,7 @@ import { fetchLocations } from '../api/forecastApi.js';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
-import JobRunsMetricsView from './JobRunsMetricsView.jsx';
+import RunsView from './runs/RunsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
@@ -24,8 +24,8 @@ const GROUPS = [
     value: 'runs',
     label: 'Runs',
     tabs: [
+      { value: 'runs', label: 'Runs' },
       { value: 'pipelineruns', label: 'Pipeline Runs' },
-      { value: 'metrics', label: 'Job Runs' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
     ],
@@ -73,11 +73,25 @@ const ATTENTION_BADGE_CLASSES =
   'ml-1.5 text-[11px] font-semibold text-verdict-marginal';
 
 /**
+ * Rewrites an old Runs hash to its new home, in place and without a history entry (runs-redesign-plan.md §4):
+ * {@code #manage/metrics[/…][?…]} is now {@code #manage/runs[/…][?…]} (the Job Runs tab became Runs). It lives in
+ * {@link manageTabFromHash} so mount and {@code hashchange} both see it, and runs before any child reads the hash.
+ * {@code replaceState} fires no {@code hashchange}, so callers set their state directly.
+ */
+function redirectOldRunsHash() {
+  const hash = window.location.hash;
+  const match = /^#manage\/metrics(?=$|[/?])(.*)$/.exec(hash);
+  if (!match) return;
+  window.history.replaceState(window.history.state, '', `#manage/runs${match[1]}`);
+}
+
+/**
  * Resolve group and tab from the current hash ("manage/skyeval", "manage/waitlist/12"), or null when it is not
  * {@code manage/<known tab>}. A hash that is not a Manage tab (a one-time token the app strips, another area's
  * fragment) must never move the tabs.
  */
 function manageTabFromHash() {
+  redirectOldRunsHash();
   const parts = window.location.hash.replace('#', '').split('/');
   if (parts[0] !== 'manage' || !parts[1]) return null;
   // A cross-tab link may carry a query (`manage/locations?region=3`); the tab is what precedes it.
@@ -86,9 +100,19 @@ function manageTabFromHash() {
   return group ? { group: group.value, tab } : null;
 }
 
-/** The landing group and tab: the hash's, or Pipeline Runs. */
+/** The landing group and tab: the hash's, or Runs. */
 function parseHash() {
-  return manageTabFromHash() ?? { group: 'runs', tab: 'pipelineruns' };
+  return manageTabFromHash() ?? { group: 'runs', tab: 'runs' };
+}
+
+/**
+ * The Pipeline Runs cycle a {@code #manage/pipelineruns/{id}} hash names (the Runs list's cycle rows open it until the
+ * cycle panel is built), or null. Pipeline Runs keeps no hash of its own, so ManageView reads it.
+ */
+function pipelineRunIdFromHash() {
+  const [path] = window.location.hash.replace('#', '').split('?');
+  const [area, tab, id] = path.split('/');
+  return area === 'manage' && tab === 'pipelineruns' && /^\d+$/.test(id ?? '') ? Number(id) : null;
 }
 
 /**
@@ -106,8 +130,14 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
-  const [activePipelineRunId, setActivePipelineRunId] = useState(null);
-  const clearActivePipelineRun = useCallback(() => setActivePipelineRunId(null), []);
+  const [activePipelineRunId, setActivePipelineRunId] = useState(pipelineRunIdFromHash);
+  const clearActivePipelineRun = useCallback(() => {
+    setActivePipelineRunId(null);
+    // The hash named this cycle; leave the bare tab address, replacing the entry so Back does not land on it again.
+    if (pipelineRunIdFromHash() != null) {
+      window.history.replaceState(window.history.state, '', '#manage/pipelineruns');
+    }
+  }, []);
   const isMobile = useIsMobile();
   const isWide = useIsWide();
   const [waitlistCount, setWaitlistCount] = useState(null);
@@ -141,6 +171,7 @@ export default function ManageView({ onComplete }) {
       if (!target) return;
       setActiveGroup(target.group);
       setActiveTabState(target.tab);
+      if (target.tab === 'pipelineruns') setActivePipelineRunId(pipelineRunIdFromHash());
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -364,10 +395,9 @@ export default function ManageView({ onComplete }) {
           </div>
         )}
 
-        {activeTab === 'metrics' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Job Run Metrics</p>
-            <JobRunsMetricsView
+        {activeTab === 'runs' && (
+          <div className="card">
+            <RunsView
               activeRunId={activeRunId}
               onActiveRunChange={setActiveRunId}
               onActiveRunClear={clearActiveRun}

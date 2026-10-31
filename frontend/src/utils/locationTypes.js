@@ -143,7 +143,7 @@ export function subjectWordsOf(types) {
  *
  * <p>⚠️ **Change it in lockstep with `LocationEntity.isWildlifeOnly()` and
  * `WildlifeComfortRefreshJob`** (the backend rule that decides whose rows exist at all). It is NOT
- * `JobRunsMetricsView`'s `isPureWildlife`, which is the broader backend `isPureWildlife` rule
+ * `StartRunPanel`'s `isPureWildlife`, which is the broader backend `isPureWildlife` rule
  * (WILDLIFE+WOODLAND/BLUEBELL count) — two names, two sets.
  *
  * <p>Known DIVERGENT sites, deliberately left as they were (an untyped location counts as a hide at

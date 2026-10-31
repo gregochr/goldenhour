@@ -23,7 +23,7 @@ vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
-vi.mock('../components/JobRunsMetricsView.jsx', () => stub('Job Runs'));
+vi.mock('../components/runs/RunsView.jsx', () => stub('Runs'));
 // The Tides stub is a REAL consumer of the shared hash hook: it shows what it would have selected, so a listener
 // that stripped `/{id}` would be seen as an empty selection.
 vi.mock('../components/TideManagementView.jsx', () => ({
@@ -50,7 +50,7 @@ describe('ManageView — following the hash while mounted', () => {
 
   it('moves to the tab a cross-tab link names, in its own group, keeping /{id}', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
 
     goTo('#manage/tides/12');
 
@@ -85,7 +85,7 @@ describe('ManageView — following the hash while mounted', () => {
     expect(screen.getByTestId('stub-view')).toHaveTextContent('Locations');
   });
 
-  it('ignores a hash that is not a Manage tab, and never falls back to Pipeline Runs', () => {
+  it('ignores a hash that is not a Manage tab, and never falls back to the landing Runs tab', () => {
     window.location.hash = '#manage/regions';
     render(<ManageView onComplete={vi.fn()} />);
     expect(screen.getByTestId('stub-view')).toHaveTextContent('Regions');
