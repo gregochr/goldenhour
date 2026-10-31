@@ -257,4 +257,23 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
         return findEndedDispositionJobRunIds(ids, PipelineRunStatus.RUNNING,
                 ForecastBatchEntity.BatchType.FORECAST, ForecastBatchEntity.BatchStatus.TERMINAL);
     }
+
+    /**
+     * Pipeline runs triggered at or after an instant, newest first, ties by id descending.
+     *
+     * @param since the inclusive lower bound
+     * @return the cycles
+     */
+    List<PipelineRunEntity> findByTriggerTimeGreaterThanEqualOrderByTriggerTimeDescIdDesc(Instant since);
+
+    /**
+     * The job run ids that anchor a cycle's dispositions, from a minimum id upwards. The Runs list hides
+     * these from its top level.
+     *
+     * @param minId the smallest job run id of interest
+     * @return the anchor job run ids
+     */
+    @Query("SELECT p.dispositionJobRunId FROM PipelineRunEntity p "
+            + "WHERE p.dispositionJobRunId IS NOT NULL AND p.dispositionJobRunId >= :minId")
+    List<Long> findDispositionJobRunIdsFrom(@Param("minId") long minId);
 }
