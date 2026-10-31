@@ -786,6 +786,15 @@ describe('stood-down place labels (stood-down-place-labels-plan.md)', () => {
     expect(result.map((p) => p.name)).toEqual(['C', 'A']);
   });
 
+  it('keeps the selected place at any zoom and outside the bounds, but still de-duplicated', () => {
+    const stoodPlaces = [place('#1', 'A'), place('#2', 'B')];
+    const none = { contains: () => false };
+    const args = { stoodPlaces, bounds: none, budgetLeft: 0, selectedName: 'B' };
+    expect(stoodPlaceCandidates({ ...args, zoom: 10 }).map((p) => p.name)).toEqual(['B']);
+    expect(stoodPlaceCandidates({ ...args, zoom: 12 }).map((p) => p.name)).toEqual(['B']);
+    expect(stoodPlaceCandidates({ ...args, zoom: 10, takenKeys: new Set(['#2']) })).toEqual([]);
+  });
+
   it('takes at most budgetLeft, none at 0, in the order given (drive time, then name, set by the caller)', () => {
     const stoodPlaces = [place('#1', 'A'), place('#2', 'B'), place('#3', 'C')];
     const base = { stoodPlaces, zoom: 12, bounds: ALL_IN_VIEW };

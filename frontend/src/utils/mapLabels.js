@@ -391,8 +391,8 @@ export const STOOD_PLACE_LABEL_MIN_ZOOM = REGION_LABEL_MAX_ZOOM;
  * left over. A pure filter over {@code stoodPlaces}, which arrive pre-sorted (drive time, then name);
  * it rates and thresholds nothing.
  *
- * <p>The selected place is exempt from the budget and leads the list, so pressing a stood label never
- * unmounts it; it is still subject to the view and de-dup tests.
+ * <p>The selected place is exempt from the zoom gate, the view test and the budget, and leads the list, so
+ * a stood label never unmounts under the reader; only the de-dup still applies.
  *
  * @param {object} args
  * @param {Array<{key: string, name: string, lat: number, lng: number}>} args.stoodPlaces the places the
@@ -407,11 +407,14 @@ export const STOOD_PLACE_LABEL_MIN_ZOOM = REGION_LABEL_MAX_ZOOM;
 export function stoodPlaceCandidates({
   stoodPlaces, zoom, bounds = null, takenKeys = null, budgetLeft, selectedName = null,
 }) {
-  if (zoom < STOOD_PLACE_LABEL_MIN_ZOOM || !Array.isArray(stoodPlaces) || stoodPlaces.length === 0) return [];
-  const eligible = stoodPlaces.filter((p) => (!takenKeys || !takenKeys.has(p.key))
+  if (!Array.isArray(stoodPlaces) || stoodPlaces.length === 0) return [];
+  const free = stoodPlaces.filter((p) => !takenKeys || !takenKeys.has(p.key));
+  // The selection is picked out first and exempt from the zoom gate, the view test and the budget, as
+  // `chipCandidates` guarantees it a chip at any zoom; only the de-dup still applies.
+  const selected = selectedName == null ? [] : free.filter((p) => p.name === selectedName);
+  if (zoom < STOOD_PLACE_LABEL_MIN_ZOOM) return selected;
+  const rest = free.filter((p) => (selectedName == null || p.name !== selectedName)
     && (!bounds || bounds.contains([p.lat, p.lng])));
-  const selected = selectedName == null ? [] : eligible.filter((p) => p.name === selectedName);
-  const rest = eligible.filter((p) => selectedName == null || p.name !== selectedName);
   return [...selected, ...rest.slice(0, Math.max(0, budgetLeft))];
 }
 

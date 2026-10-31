@@ -450,8 +450,9 @@ export default function MapLabels({
       return { spot, x, y };
     });
 
-    // The stood-down places (stood-down-place-labels-plan.md §3): only the chips that SPEND the density
-    // budget count against it (not Ask picks, best-per-region, topic-ring places or the selection).
+    // The stood-down places (stood-down-place-labels-plan.md §3): the in-view pool (minus topic-ring
+    // places) sliced to the budget is what counts, as `chipCandidates` slices it: in-view Ask picks and the
+    // selection fall inside that slice; best-per-region and topic-ring places outside it do not spend it.
     const inViewPool = inViewNames ? pool.filter((s) => inViewNames.has(s.name)) : pool;
     const budgetedChipCount = Math.min(inViewPool.filter((s) => !s.topicRing).length, chipBudget(zoom));
     const takenKeys = new Set([

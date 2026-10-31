@@ -703,6 +703,60 @@ describe('MapView stand-down — the stood place labels MapLabels names', () => 
     expect(labelProps.last.stoodPlaces).toEqual([]);
   });
 
+  it('⚠️ the agreement guard also drops a place rated 2 stars in the forecast row', async () => {
+    const triagedLocations = makeLocations();
+    triagedLocations[2].forecastsByDate.get(TODAY).sunset = { rating: 2, solarEventTime: `${TODAY}T16:12:00` };
+    await act(async () => {
+      render(<MapView
+        locations={triagedLocations}
+        date={TODAY}
+        autoEventType={null}
+        heat={heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 })}
+      />);
+    });
+    expect(heatLayerProps.last.stood.map((p) => p.key)).toEqual(['#3']);
+    expect(labelProps.last.stoodPlaces).toEqual([]);
+  });
+
+  it('a PAST window reads the forecast row alone: a triaged row still yields the stood place', async () => {
+    const pastKey = `${YESTERDAY}:SUNSET`;
+    const locations = SPOTS.map((s) => ({
+      id: s.id,
+      name: `${s.name}-${nonce}`,
+      lat: s.lat,
+      lon: s.lng,
+      regionName: s.rid,
+      bortleClass: s.bortleClass,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[YESTERDAY, {
+        sunset: s.id === 3
+          ? { rating: null, triageReason: 'HIGH_CLOUD', solarEventTime: `${YESTERDAY}T16:10:00` }
+          : { rating: 4, solarEventTime: `${YESTERDAY}T16:10:00` },
+      }]]),
+    }));
+    const { entry } = entryFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' } });
+    const heat = heatFor({ rated: [1], bestRating: 4 }, {
+      windows: [...windows(4), {
+        key: pastKey, date: YESTERDAY, targetType: 'SUNSET', past: true, bestRating: 4, conf: 0.82,
+      }],
+      pointsByKey: new Map([[KEY, []], [pastKey, [pointOf(SPOTS[0], 4)]]]),
+      windowStates: new Map([[pastKey, entry]]),
+    });
+    await act(async () => {
+      render(
+        <MapView
+          locations={locations}
+          date={YESTERDAY}
+          autoEventType="SUNSET"
+          forecastDates={[YESTERDAY, TODAY]}
+          pastSolarWindows={buildPastSolarWindows(locations, TODAY)}
+          heat={heat}
+        />,
+      );
+    });
+    expect(labelProps.last.stoodPlaces.map((p) => p.key)).toEqual(['#3']);
+  });
+
   it('keeps the same list across a re-render with the same inputs (the label pass is not repainted)', async () => {
     const locations = makeLocations({ 3: 'HIGH_CLOUD' });
     const heat = heatFor({ rated: [1], stood: { 3: 'HIGH_CLOUD' }, bestRating: 4 });

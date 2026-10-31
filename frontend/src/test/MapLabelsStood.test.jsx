@@ -210,6 +210,14 @@ describe('a stood-down place label', () => {
     expect(chips()).toHaveLength(1);
   });
 
+  it('keeps the selected stood place labelled at zoom 10', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap({ zoom: 10 });
+    await mount({ stoodPlaces: [stoodPlace('Tynemouth'), stoodPlace('Seaham')], selectedName: 'Tynemouth' });
+    expect(stoods()).toHaveLength(1);
+    expect(stoods()[0]).toHaveAttribute('data-selected', 'true');
+  });
+
   it('keeps the selected stood place as its stood label, marked selected, with no chip', async () => {
     restoreMeasure = withMeasuredLabels(60, 14);
     currentMap = makeMap();
@@ -243,6 +251,7 @@ describe('a stood-down place label never displaces anything', () => {
 
     expect(hidden(chips()[0])).toBe(false);
     expect(hidden(stoods()[0])).toBe(true);
+    expect(stoods()[0]).toHaveAttribute('data-ask', 'fade');
   });
 
   it('loses to the bare dot a pick falls back to', async () => {
@@ -299,5 +308,15 @@ describe('the density budget a stood-down place label shares with the chips', ()
     await mount({ spots: manyChips(34), stoodPlaces: [stoodPlace('Tynemouth'), stoodPlace('Seaham')] });
     expect(stoods()).toHaveLength(1);
     expect(stoods()[0]).toHaveTextContent('Tynemouth');
+  });
+
+  it('is not spent by a topic-ring place outside the slice (34 plain chips plus one ringed leaves one)', async () => {
+    restoreMeasure = withMeasuredLabels(20, 8);
+    currentMap = makeMap({ zoom: 11.2 });
+    await mount({
+      spots: [...manyChips(34), spot('Ringed', 55.5, -1.5, { id: 900, topicRing: true })],
+      stoodPlaces: [stoodPlace('Tynemouth')],
+    });
+    expect(stoods()).toHaveLength(1);
   });
 });
