@@ -83,6 +83,9 @@ class BriefingTideSnapshotEquivalenceTest {
 
     @Mock
     private TideFetchRepository tideFetchRepository;
+
+    @Mock
+    private TideFetchRecorder tideFetchRecorder;
     @Mock
     private SolarService solarService;
     @Mock
@@ -97,7 +100,8 @@ class BriefingTideSnapshotEquivalenceTest {
 
     @BeforeEach
     void setUp() {
-        tideService = new TideService(restClient, repo, tideFetchRepository, worldTidesProperties, jobRunService);
+        tideService = new TideService(restClient, repo, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
         // One observation each: present, but too few for thresholds, so no percentile reads follow.
         lenient().when(repo.findHeightStatsByLocationIdAndTypeBefore(anyLong(), any(), any()))
                 .thenAnswer(inv -> new Object[] {BigDecimal.valueOf(3), BigDecimal.valueOf(5),

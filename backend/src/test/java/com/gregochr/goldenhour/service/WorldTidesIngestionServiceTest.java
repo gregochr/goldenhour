@@ -46,6 +46,9 @@ class WorldTidesIngestionServiceTest {
     private TideFetchRepository tideFetchRepository;
 
     @Mock
+    private TideFetchRecorder tideFetchRecorder;
+
+    @Mock
     private WorldTidesProperties worldTidesProperties;
 
     @Mock
@@ -74,7 +77,8 @@ class WorldTidesIngestionServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse(400));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -93,7 +97,8 @@ class WorldTidesIngestionServiceTest {
                 new RestClientResponseException("Service Unavailable", 503,
                         "Service Unavailable", null, null, null));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -116,7 +121,8 @@ class WorldTidesIngestionServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse(400));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         int fetched = service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -137,7 +143,8 @@ class WorldTidesIngestionServiceTest {
         RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class,
                 new RuntimeException("connection reset"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -156,7 +163,8 @@ class WorldTidesIngestionServiceTest {
                         "I/O error on GET request for \"https://www.worldtides.info/api/v3"
                                 + "?extremes&lat=1&lon=2&key=SECRETKEY\": timeout"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 
@@ -178,7 +186,8 @@ class WorldTidesIngestionServiceTest {
                         "I/O error on GET request for \"https://www.worldtides.info/api/v3"
                                 + "?extremes&key=SECRETKEY\": timeout"));
         WorldTidesIngestionService service = new WorldTidesIngestionService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.backfillTideExtremes(location(), JobRunEntity.builder().id(9L).build());
 

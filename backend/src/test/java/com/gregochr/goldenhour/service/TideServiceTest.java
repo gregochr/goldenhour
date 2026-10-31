@@ -79,6 +79,9 @@ class TideServiceTest {
     private TideFetchRepository tideFetchRepository;
 
     @Mock
+    private TideFetchRecorder tideFetchRecorder;
+
+    @Mock
     private WorldTidesProperties worldTidesProperties;
 
     @Mock
@@ -91,7 +94,7 @@ class TideServiceTest {
 
     @BeforeEach
     void setUp() {
-        tideService = new TideService(restClient, tideExtremeRepository, tideFetchRepository,
+        tideService = new TideService(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
                 worldTidesProperties, jobRunService);
 
         tideServiceLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(TideService.class);
@@ -469,7 +472,8 @@ class TideServiceTest {
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         LocationEntity location = locationEntity();
         service.fetchAndStoreTideExtremes(location);
@@ -492,7 +496,8 @@ class TideServiceTest {
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
@@ -541,7 +546,8 @@ class TideServiceTest {
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse);
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
@@ -560,7 +566,8 @@ class TideServiceTest {
                 new RuntimeException("network error"));
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         // Should not throw
         service.fetchAndStoreTideExtremes(locationEntity());
@@ -685,7 +692,8 @@ class TideServiceTest {
                 .thenReturn(mergedWithHole);
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
@@ -713,7 +721,8 @@ class TideServiceTest {
                 .thenReturn(cleanMerge);
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
@@ -730,7 +739,8 @@ class TideServiceTest {
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity());
 
@@ -762,7 +772,8 @@ class TideServiceTest {
                 .thenThrow(new IllegalStateException("connection reset"));
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(locationEntity(), JobRunEntity.builder().id(7L).build());
 
@@ -840,7 +851,8 @@ class TideServiceTest {
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
 
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
 
         int fetched = service.backfillTideExtremes(locationEntity(), null);
 
@@ -1048,7 +1060,8 @@ class TideServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
         java.util.concurrent.atomic.AtomicInteger notified = new java.util.concurrent.atomic.AtomicInteger();
         service.onTideExtremesChanged(notified::incrementAndGet);
         stubSmallSample(1L);
@@ -1071,7 +1084,8 @@ class TideServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
         stubSmallSample(1L);
         service.getTideStats(1L);
 
@@ -1090,7 +1104,8 @@ class TideServiceTest {
         RestClient mockClient = mock(RestClient.class);
         RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse);
         TideService service = new TideService(
-                mockClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService);
+                mockClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
         java.util.concurrent.atomic.AtomicInteger notified = new java.util.concurrent.atomic.AtomicInteger();
         service.onTideExtremesChanged(notified::incrementAndGet);
         stubSmallSample(1L);

@@ -125,16 +125,20 @@ public class TideService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
-     * @param tideFetchRepository    repository for the per-call WorldTides fetch provenance log
+     * @param tideFetchRepository    repository for the per-call WorldTides fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of that log; a Spring bean, so its
+     *                               transaction boundary applies even though this class builds the
+     *                               ingestion service with {@code new}
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
     public TideService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
-            TideFetchRepository tideFetchRepository, WorldTidesProperties worldTidesProperties,
-            JobRunService jobRunService) {
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.ingestionService = new WorldTidesIngestionService(
-                restClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService,
+                restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
+                jobRunService,
                 this::evictTideStats);
     }
 

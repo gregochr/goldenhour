@@ -157,6 +157,7 @@ public class WorldTidesIngestionService {
     private final RestClient restClient;
     private final TideExtremeRepository tideExtremeRepository;
     private final TideFetchRepository tideFetchRepository;
+    private final TideFetchRecorder tideFetchRecorder;
     private final WorldTidesProperties worldTidesProperties;
     private final JobRunService jobRunService;
     private final Consumer<Long> onExtremesWritten;
@@ -169,16 +170,17 @@ public class WorldTidesIngestionService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
-     * @param tideFetchRepository    repository for the per-call fetch provenance log
+     * @param tideFetchRepository    repository for the per-call fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of the provenance log
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
     @Autowired
     public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
-            TideFetchRepository tideFetchRepository, WorldTidesProperties worldTidesProperties,
-            JobRunService jobRunService) {
-        this(restClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties, jobRunService,
-                locationId -> { });
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
+        this(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
+                jobRunService, locationId -> { });
     }
 
     /**
@@ -187,7 +189,8 @@ public class WorldTidesIngestionService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
-     * @param tideFetchRepository    repository for the per-call fetch provenance log
+     * @param tideFetchRepository    repository for the per-call fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of the provenance log
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      * @param onExtremesWritten      called with the location id after rows for it have been deleted
@@ -195,11 +198,13 @@ public class WorldTidesIngestionService {
      *                               ({@code TideService.evictTideStats})
      */
     public WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
-            TideFetchRepository tideFetchRepository, WorldTidesProperties worldTidesProperties,
-            JobRunService jobRunService, Consumer<Long> onExtremesWritten) {
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService,
+            Consumer<Long> onExtremesWritten) {
         this.restClient = restClient;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideFetchRepository = tideFetchRepository;
+        this.tideFetchRecorder = tideFetchRecorder;
         this.worldTidesProperties = worldTidesProperties;
         this.jobRunService = jobRunService;
         this.onExtremesWritten = onExtremesWritten;
@@ -363,11 +368,13 @@ public class WorldTidesIngestionService {
     }
 
     /**
-     * Records one WorldTides call in {@code tide_fetch}, best effort.
+     * Hands one WorldTides call's provenance to {@link TideFetchRecorder}, which writes it in its
+     * own transaction, after the fetch's transaction has committed (success rows) or completed
+     * (failure rows).
      *
-     * <p>⚠️ Never throws. Provenance is a diagnostic: a failing write is logged and the fetch it
-     * describes carries on. The worst case is one extra {@code POINT_CHANGE} re-seed next week,
-     * because the next refresh will not find the row it expected.
+     * <p>⚠️ Never throws. Provenance is a diagnostic: it can neither fail nor roll back the fetch it
+     * describes. The worst case is one extra {@code POINT_CHANGE} re-seed next week, because the
+     * next refresh will not find the row it expected.
      *
      * @param location   the location fetched
      * @param reason     the {@link TideFetchEntity} reason code
@@ -382,7 +389,7 @@ public class WorldTidesIngestionService {
             LocalDateTime to, LocationEntity.TidePoint point, WorldTidesResponse response,
             boolean success, int stored) {
         try {
-            tideFetchRepository.save(TideFetchEntity.builder()
+            tideFetchRecorder.record(TideFetchEntity.builder()
                     .locationId(location.getId())
                     .fetchedAt(LocalDateTime.now(ZoneOffset.UTC))
                     .windowFrom(from)

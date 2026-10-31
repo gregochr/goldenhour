@@ -57,13 +57,17 @@ class TideFetchWindowTest {
     private TideFetchRepository tideFetchRepository;
 
     @Mock
+    private TideFetchRecorder tideFetchRecorder;
+
+    @Mock
     private WorldTidesProperties worldTidesProperties;
 
     @Mock
     private JobRunService jobRunService;
 
     private TideService service() {
-        return new TideService(restClient, tideExtremeRepository, tideFetchRepository, worldTidesProperties,
+        return new TideService(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties,
                 jobRunService);
     }
 
@@ -237,7 +241,8 @@ class TideFetchWindowTest {
             org.mockito.Mockito.lenient()
                     .when(repo.findOldestFetchedAtFrom(eq(LOCATION), any()))
                     .thenReturn(c.oldestFetch());
-            var svc = new TideService(restClient, repo, tideFetchRepository, worldTidesProperties, jobRunService);
+            var svc = new TideService(restClient, repo, tideFetchRepository, tideFetchRecorder,
+                    worldTidesProperties, jobRunService);
 
             var window = svc.resolveFetchWindow(LOCATION, PIN, PIN, START_OF_DAY, HORIZON);
             if (window != null) {
@@ -261,7 +266,8 @@ class TideFetchWindowTest {
 
     private void stubLatestForwardRow(TideFetchEntity row) {
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(LOCATION), any())).thenReturn(Optional.ofNullable(row));
+                eq(LOCATION), eq(List.of("SEED", "RESEED", "TAIL", "POINT_CHANGE"))))
+                .thenReturn(Optional.ofNullable(row));
     }
 
     private void stubCoveredToHorizonMinusAWeek() {
@@ -383,7 +389,7 @@ class TideFetchWindowTest {
 
         RestClient client = mock(RestClient.class);
         RestClientMocks.stubGet(client, WorldTidesResponse.class, oneExtremeResponse());
-        TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository,
+        TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
                 worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location());
@@ -414,7 +420,7 @@ class TideFetchWindowTest {
                 .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
 
         RestClient client = mock(RestClient.class);
-        TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository,
+        TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
                 worldTidesProperties, jobRunService);
 
         service.fetchAndStoreTideExtremes(location());

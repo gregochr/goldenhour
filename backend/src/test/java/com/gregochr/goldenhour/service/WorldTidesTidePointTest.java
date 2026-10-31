@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.WorldTidesProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.TideExtremeEntity;
+import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideFetchEntity;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TideFetchRepository;
@@ -17,12 +19,16 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -60,6 +66,9 @@ class WorldTidesTidePointTest {
     private TideFetchRepository tideFetchRepository;
 
     @Mock
+    private TideFetchRecorder tideFetchRecorder;
+
+    @Mock
     private WorldTidesProperties worldTidesProperties;
 
     @Mock
@@ -74,7 +83,7 @@ class WorldTidesTidePointTest {
         server = MockRestServiceServer.bindTo(builder).build();
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         service = new WorldTidesIngestionService(builder.build(), tideExtremeRepository, tideFetchRepository,
-                worldTidesProperties, jobRunService);
+                tideFetchRecorder, worldTidesProperties, jobRunService);
     }
 
     private static LocationEntity pinOnly() {
@@ -88,7 +97,7 @@ class WorldTidesTidePointTest {
 
     private List<TideFetchEntity> savedRows() {
         ArgumentCaptor<TideFetchEntity> captor = ArgumentCaptor.forClass(TideFetchEntity.class);
-        verify(tideFetchRepository, atLeastOnce()).save(captor.capture());
+        verify(tideFetchRecorder, atLeastOnce()).record(captor.capture());
         return captor.getAllValues();
     }
 
@@ -121,8 +130,8 @@ class WorldTidesTidePointTest {
     @Test
     @DisplayName("backfill sends the tide point, not the pin, and records BACKFILL rows")
     void backfillSendsTheTidePoint() {
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(eq(2L), any(LocalDateTime.class),
+                any(LocalDateTime.class))).thenReturn(false);
         server.expect(ExpectedCount.manyTimes(), queryParam("lat", String.valueOf(TIDE_LAT)))
                 .andExpect(queryParam("lon", String.valueOf(TIDE_LON)))
                 .andRespond(withSuccess(FULL_RESPONSE, MediaType.APPLICATION_JSON));
@@ -170,13 +179,14 @@ class WorldTidesTidePointTest {
     @DisplayName("a latest forward row at the current tide point makes the next fetch a TAIL, not a re-seed")
     void unchangedPointRecordsATail() {
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                anyLong(), any())).thenReturn(Optional.of(TideFetchEntity.builder().locationId(2L)
+                eq(2L), eq(List.of("SEED", "RESEED", "TAIL", "POINT_CHANGE"))))
+                .thenReturn(Optional.of(TideFetchEntity.builder().locationId(2L)
                 .reason(TideFetchEntity.POINT_CHANGE).success(true)
                 .requestLat(TIDE_LAT).requestLng(TIDE_LON).build()));
-        when(tideExtremeRepository.findLatestEventTimeFrom(anyLong(), any()))
-                .thenReturn(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).plusDays(90));
-        when(tideExtremeRepository.findOldestFetchedAtFrom(anyLong(), any()))
-                .thenReturn(java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(7));
+        when(tideExtremeRepository.findLatestEventTimeFrom(eq(2L), any(LocalDateTime.class)))
+                .thenReturn(LocalDateTime.now(ZoneOffset.UTC).plusDays(90));
+        when(tideExtremeRepository.findOldestFetchedAtFrom(eq(2L), any(LocalDateTime.class)))
+                .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusDays(7));
         server.expect(queryParam("lat", String.valueOf(TIDE_LAT)))
                 .andRespond(withSuccess(FULL_RESPONSE, MediaType.APPLICATION_JSON));
 
@@ -199,7 +209,7 @@ class WorldTidesTidePointTest {
             assertThat(row.getRequestLat()).isEqualTo(TIDE_LAT);
             assertThat(row.getAtlas()).isNull();
         });
-        verify(tideExtremeRepository, never()).saveAll(any());
+        verify(tideExtremeRepository, never()).saveAll(anyList());
     }
 
     @Test
@@ -217,7 +227,7 @@ class WorldTidesTidePointTest {
     @Test
     @DisplayName("when the merge throws, no success row is written, only a failure row")
     void mergeFailureLeavesNoSuccessRow() {
-        doThrow(new IllegalStateException("db down")).when(tideExtremeRepository).saveAll(any());
+        doThrow(new IllegalStateException("db down")).when(tideExtremeRepository).saveAll(anyList());
         server.expect(queryParam("lat", String.valueOf(TIDE_LAT)))
                 .andRespond(withSuccess(FULL_RESPONSE, MediaType.APPLICATION_JSON));
 
@@ -228,14 +238,25 @@ class WorldTidesTidePointTest {
     }
 
     @Test
-    @DisplayName("a provenance write that throws is swallowed: the extremes are still stored")
+    @DisplayName("a recorder that throws is swallowed: the extremes are still stored, exactly as fetched")
     void provenanceFailureNeverFailsTheFetch() {
-        doThrow(new IllegalStateException("tide_fetch down")).when(tideFetchRepository).save(any());
+        doThrow(new IllegalStateException("tide_fetch down")).when(tideFetchRecorder)
+                .record(any(TideFetchEntity.class));
         server.expect(queryParam("lat", String.valueOf(TIDE_LAT)))
                 .andRespond(withSuccess(FULL_RESPONSE, MediaType.APPLICATION_JSON));
 
         service.fetchAndStoreTideExtremes(withTidePoint());
 
-        verify(tideExtremeRepository).saveAll(any());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<TideExtremeEntity>> stored = ArgumentCaptor.forClass(List.class);
+        verify(tideExtremeRepository).saveAll(stored.capture());
+        assertThat(stored.getValue()).extracting(TideExtremeEntity::getLocationId).containsOnly(2L);
+        assertThat(stored.getValue()).extracting(TideExtremeEntity::getEventTime).containsExactly(
+                LocalDateTime.ofEpochSecond(1790000000L, 0, ZoneOffset.UTC),
+                LocalDateTime.ofEpochSecond(1790022000L, 0, ZoneOffset.UTC));
+        assertThat(stored.getValue()).extracting(TideExtremeEntity::getType)
+                .containsExactly(TideExtremeType.HIGH, TideExtremeType.LOW);
+        assertThat(stored.getValue()).extracting(TideExtremeEntity::getHeightMetres)
+                .containsExactly(new BigDecimal("1.500"), new BigDecimal("0.200"));
     }
 }

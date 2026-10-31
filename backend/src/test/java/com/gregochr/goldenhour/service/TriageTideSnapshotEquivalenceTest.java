@@ -82,6 +82,9 @@ class TriageTideSnapshotEquivalenceTest {
 
     @Mock
     private TideFetchRepository tideFetchRepository;
+
+    @Mock
+    private TideFetchRecorder tideFetchRecorder;
     @Mock
     private SolarService solarService;
     @Mock
@@ -94,7 +97,8 @@ class TriageTideSnapshotEquivalenceTest {
 
     @BeforeEach
     void setUp() {
-        tideService = new TideService(restClient, repo, tideFetchRepository, worldTidesProperties, jobRunService);
+        tideService = new TideService(restClient, repo, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService);
         augmentor = new ForecastDataAugmentor(null, solarService, tideService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService),
                 null, null, null,
