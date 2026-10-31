@@ -64,7 +64,7 @@ class CoastalTideFactsBuilderTest {
 
     private static BriefingDay dayWith(BriefingSlot.TideInfo tide) {
         BriefingSlot slot = new BriefingSlot("Bamburgh", SUNRISE_TIME, Verdict.GO, null, tide,
-                List.of(), null);
+                List.of());
         BriefingEventSummary event = new BriefingEventSummary(TargetType.SUNRISE, List.of(),
                 List.of(slot));
         return new BriefingDay(DATE, List.of(event));

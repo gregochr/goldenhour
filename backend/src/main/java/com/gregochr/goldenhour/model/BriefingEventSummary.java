@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gregochr.goldenhour.entity.TargetType;
 
@@ -27,6 +28,7 @@ import java.util.Objects;
  *                       mean; null, and omitted from JSON, on every unshaped response and on an event with no
  *                       region to lead with
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingEventSummary(
         TargetType targetType,
         List<BriefingRegion> regions,

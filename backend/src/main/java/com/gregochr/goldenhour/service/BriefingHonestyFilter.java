@@ -75,20 +75,14 @@ import java.util.Set;
  * <p>The transform is pure and stateless; it allocates new immutable record
  * instances for any region it rewrites and reuses the originals otherwise.
  *
- * <p><b>Coverage tiers.</b> The filter recognises three tiers of Claude
- * coverage per region, keyed on {@code scoredLocationCount} relative to the
- * region's roster size:
- * <ul>
- *   <li><b>Zero</b> ({@code scoredLocationCount == 0}) — the full rewrite
- *       described above (verdict, summary, gloss, slots all suppressed).</li>
- *   <li><b>Lightly evaluated</b> ({@code 0 < scored/total < minCoverageRatio})
- *       — a NEW, lighter tier. The region keeps its real slots, gloss, scores
- *       and triage summary, but is flagged {@link BriefingRegion#lightlyEvaluated()}
- *       so the read layer frames it as covering only the few evaluated spots
- *       rather than the whole roster. Nothing is suppressed.</li>
- *   <li><b>Well covered</b> ({@code scored/total >= minCoverageRatio}) —
- *       returned unchanged.</li>
- * </ul>
+ * <p><b>Coverage tiers.</b> The filter recognises two tiers of Claude coverage per region, keyed
+ * on {@code scoredLocationCount}: <b>zero</b> (the full rewrite described above: verdict, summary,
+ * gloss and slots all suppressed) and <b>anything else</b>, returned unchanged. A third,
+ * "lightly evaluated" tier (a non-zero but low fraction of the roster scored) once flagged the
+ * region with {@code BriefingRegion.lightlyEvaluated}; nothing read the flag and it was removed.
+ * The {@code minCoverageRatio} parameter is retained on the overloads below for call-site
+ * stability and no longer has any effect here ({@code BriefingGlossService} still reads the same
+ * configuration key for its own hedge).
  */
 final class BriefingHonestyFilter {
 
@@ -174,10 +168,8 @@ final class BriefingHonestyFilter {
     }
 
     /**
-     * Backward-compatible overload that disables the lightly-evaluated tier
-     * (ratio {@code 0.0} can never be exceeded by a positive coverage fraction,
-     * so only the zero-coverage rewrite fires). Retained for callers and tests
-     * that only exercise the zero-coverage guard.
+     * Backward-compatible overload (ratio {@code 0.0}): only the zero-coverage rewrite fires.
+     * Retained for callers and tests that only exercise the zero-coverage guard.
      *
      * @param response the API-bound briefing response (may be {@code null})
      * @return transformed response, or {@code null} if input was {@code null}
@@ -188,16 +180,13 @@ final class BriefingHonestyFilter {
 
     /**
      * Returns a transformed copy of {@code response}. Zero-coverage regions are
-     * fully rewritten; regions whose coverage ratio is positive but below
-     * {@code minCoverageRatio} are flagged {@link BriefingRegion#lightlyEvaluated()}
-     * (no suppression); well-covered regions are reused unchanged. The
+     * fully rewritten; every other region is reused unchanged. The
      * day/event/region hierarchy is otherwise structurally identical to the input.
      *
      * <p>Returns {@code null} when the input is {@code null}.
      *
      * @param response         the API-bound briefing response (may be {@code null})
-     * @param minCoverageRatio coverage fraction below which a region is flagged
-     *                         lightly evaluated; {@code 0.0} disables the tier
+     * @param minCoverageRatio retained for call-site stability; no longer has any effect
      * @return transformed response, or {@code null} if input was {@code null}
      */
     static DailyBriefingResponse apply(DailyBriefingResponse response, double minCoverageRatio) {
@@ -214,7 +203,7 @@ final class BriefingHonestyFilter {
      * worded {@code AWAITING} ("Not scored"), never as a weather stand-down.
      *
      * @param response         the API-bound briefing response (may be {@code null})
-     * @param minCoverageRatio coverage fraction below which a region is flagged lightly evaluated
+     * @param minCoverageRatio retained for call-site stability; no longer has any effect
      * @param latestBySlot     latest non-cached disposition per {@code location|date|type}; null
      *                         bypasses the fold
      * @param clock            the clock {@code daysAhead} is measured on; null bypasses the fold
@@ -347,8 +336,6 @@ final class BriefingHonestyFilter {
      *   <li>zero scored → full rewrite (triage {@code verdict} and weather
      *       fields preserved as they remain factually true; only user-facing
      *       presentation fields are overridden);</li>
-     *   <li>positive but below {@code minCoverageRatio} → flagged
-     *       {@link BriefingRegion#lightlyEvaluated()} with nothing suppressed;</li>
      *   <li>otherwise → returned unchanged.</li>
      * </ul>
      */
@@ -365,8 +352,7 @@ final class BriefingHonestyFilter {
         // Same predicate as the confidence denominator (BriefingRegionEvaluationRollup.rosterOf):
         // a slot counts when it COULD carry a rating, not merely when it is not canopy. An
         // in-season canopy bluebell site is scored by the bluebell prompt, so excluding it would
-        // put it in the numerator (scoredLocationCount) and not the denominator — a ratio above 1,
-        // silently disabling the lightly-evaluated warning in this filter.
+        // put it in the numerator (scoredLocationCount) and not the denominator — a ratio above 1.
         List<BriefingSlot> scoreableSlots = r.slots().stream()
                 .filter(BriefingSlot::couldCarryRating)
                 .toList();
@@ -383,9 +369,6 @@ final class BriefingHonestyFilter {
                     && CoverageReasons.fogMajority(scoreableSlots, date, targetType,
                             reasons.latestBySlot());
             return fullRewrite(r, reason, fog);
-        }
-        if (r.scoredLocationCount() < minCoverageRatio * scoreable) {
-            return r.withLightlyEvaluated();
         }
         return r;
     }
@@ -444,7 +427,6 @@ final class BriefingHonestyFilter {
                 verdict,
                 0,
                 label,
-                false,
                 null,
                 null,
                 null,

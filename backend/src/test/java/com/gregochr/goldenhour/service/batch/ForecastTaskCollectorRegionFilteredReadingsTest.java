@@ -145,7 +145,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot = new BriefingSlot(locationName, date.atTime(5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion region = new BriefingRegion(
                 "North East", Verdict.GO, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -153,7 +153,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null, List.of(), List.of());
+                false, null, List.of(), List.of());
     }
 
     @BeforeEach

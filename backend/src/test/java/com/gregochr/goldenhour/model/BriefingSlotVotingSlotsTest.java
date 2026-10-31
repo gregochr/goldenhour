@@ -22,11 +22,11 @@ class BriefingSlotVotingSlotsTest {
 
     private static BriefingSlot sky(String name) {
         return new BriefingSlot(name, AT, Verdict.GO, null, BriefingSlot.TideInfo.NONE,
-                List.of(), null);
+                List.of());
     }
 
     private static BriefingSlot wood(String name) {
-        return BriefingSlot.canopySlot(name, AT, Verdict.GO, null, List.of(), null);
+        return BriefingSlot.canopySlot(name, AT, Verdict.GO, null, List.of());
     }
 
     @Test

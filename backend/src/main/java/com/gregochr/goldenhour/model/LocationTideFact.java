@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
@@ -33,6 +34,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param tideShortfall            the shortfall direction when the wanted water is missed, or null
  * @param tideFitPhrase            the served fit sentence, or null
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record LocationTideFact(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,

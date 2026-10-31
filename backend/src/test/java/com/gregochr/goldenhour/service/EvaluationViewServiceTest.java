@@ -3664,7 +3664,7 @@ class EvaluationViewServiceTest {
             // build rated it 4★ — the embedded rating the "absent means untouched" trap would
             // otherwise leave alone.
             BriefingSlot persisted = new BriefingSlot("Bamburgh", eventTime, Verdict.GO,
-                    null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                    null, BriefingSlot.TideInfo.NONE, List.of())
                     .withClaudeScores(4, 78, 65, "Fiery dawn expected", "Great colour");
             BriefingRegion region = new BriefingRegion(REGION_NAME, Verdict.GO, "Clear skies",
                     List.of(), List.of(persisted), 12.0, 11.0, 3.0, 0, null, null,
@@ -3684,7 +3684,6 @@ class EvaluationViewServiceTest {
             // Never-rated, not a weather stand-down: the slot's own GO triage verdict and null
             // standdownReason survive untouched.
             assertThat(result.verdict()).isEqualTo(Verdict.GO);
-            assertThat(result.standdownReason()).isNull();
         }
 
         @Test
@@ -3770,7 +3769,7 @@ class EvaluationViewServiceTest {
                             java.time.ZoneId.of("Europe/London")));
             LocalDateTime eventTime = LocalDateTime.of(2026, 4, 22, 5, 30);
             BriefingSlot neverRated = new BriefingSlot("Bamburgh", eventTime, Verdict.GO,
-                    null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                    null, BriefingSlot.TideInfo.NONE, List.of());
             BriefingRegion region = new BriefingRegion(REGION_NAME, Verdict.GO, "Clear skies",
                     List.of(), List.of(neverRated), 12.0, 11.0, 3.0, 0, null, null,
                     DisplayVerdict.AWAITING, 1);
@@ -3877,7 +3876,7 @@ class EvaluationViewServiceTest {
         /** An un-embedded voting slot — every field the rollup reads comes from the resolvers. */
         private static BriefingSlot slot(String name) {
             return new BriefingSlot(name, LocalDateTime.of(2026, 4, 23, 6, 0), Verdict.GO,
-                    null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                    null, BriefingSlot.TideInfo.NONE, List.of());
         }
 
         private static List<BriefingDay> daysWith(List<BriefingSlot> slots, Verdict triageFallback) {

@@ -101,7 +101,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
 
     private static BriefingSlot slot(long id, String name) {
         return new BriefingSlot(id, name, EVENT, Verdict.GO, null, null, List.of("Clear all layers"),
-                "a reason", 4, 3, null, null, null, DisplayVerdict.WORTH_IT, null, false, null, Boolean.TRUE);
+                4, 3, null, null, null, DisplayVerdict.WORTH_IT, null, false, null, Boolean.TRUE);
     }
 
     private static HotTopic bluebellTopic() {
@@ -123,13 +123,13 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
     private static DailyBriefingResponse briefing() {
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "Region prose", List.of(),
                 List.of(slot(PICKED_ID, PICKED), slot(UNPICKED_ID, UNPICKED)), null, null, null, null, null,
-                null, DisplayVerdict.WORTH_IT, 2, "Worth it", false, Confidence.HIGH, 3.5, 5, 0.4, true, null);
+                null, DisplayVerdict.WORTH_IT, 2, "Worth it", Confidence.HIGH, 3.5, 5, 0.4, true, null);
         BriefingWindow window = new BriefingWindow(EVENT, DisplayVerdict.WORTH_IT, 5, Confidence.HIGH, null,
-                List.of(), null, null, null);
+                List.of(), null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(region),
                 List.of(slot(UNPICKED_ID, "Unregioned spot")), EVENT, window);
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(summary))), List.of(), null, null, false, false, 0, "Opus",
+                List.of(new BriefingDay(DAY, List.of(summary))), List.of(), null, null, false, "Opus",
                 List.of(bluebellTopic()), List.of());
     }
 
@@ -226,7 +226,6 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath(UNPICKED_SLOT + ".skyRating").doesNotExist())
                 .andExpect(jsonPath(UNPICKED_SLOT + ".verdict").doesNotExist())
                 .andExpect(jsonPath(UNPICKED_SLOT + ".displayVerdict").doesNotExist())
-                .andExpect(jsonPath(UNPICKED_SLOT + ".standdownReason").doesNotExist())
                 .andExpect(jsonPath(UNPICKED_SLOT + ".flags").isEmpty())
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].unregioned[0].gated").value(true))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].unregioned[0].claudeRating").doesNotExist())
@@ -386,9 +385,9 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
     private static DailyBriefingResponse digestBriefing() {
         BriefingEventSummary sunset = new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of())
                 .withWindow(new BriefingWindow(EVENT, DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, null,
-                        List.of(), null, null));
+                        List.of(), null));
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(sunset))), List.of(), null, null, false, false, 0, "Opus",
+                List.of(new BriefingDay(DAY, List.of(sunset))), List.of(), null, null, false, "Opus",
                 List.of(), List.of());
     }
 

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 
@@ -43,13 +44,6 @@ import java.util.List;
  *                                     frontend's default label for the enum value". Currently
  *                                     populated only by the Gate 2 honesty override on the API
  *                                     read path when {@code scoredLocationCount == 0}.
- * @param lightlyEvaluated             {@code true} when a non-zero but low fraction of the
- *                                     region's locations were Claude-scored (the coverage ratio
- *                                     fell below the configured threshold). Set by the honesty
- *                                     filter on the API read path so the frontend can frame the
- *                                     region as covering only the evaluated spots rather than the
- *                                     whole roster. Always {@code false} on the internal
- *                                     (untransformed) path and on well-covered regions.
  * @param confidence                   how reliable this region's verdict is, as a quiet channel
  *                                     layered alongside (never replacing) the sky-quality signal.
  *                                     Derived server-side from forecast horizon + rating spread by
@@ -130,17 +124,15 @@ import java.util.List;
  *                                     which population they describe and the best can never sit
  *                                     below the mean. Nullable, {@code NON_NULL}, no migration —
  *                                     the {@code confidence} precedent; legacy cached payloads
- *                                     deserialise to null. ⚠️ That precedent is one-directional.
- *                                     Rolling BACK past this field makes the Jackson 2 mapper in
- *                                     {@code AppConfig} (default
- *                                     {@code FAIL_ON_UNKNOWN_PROPERTIES}) throw on every
- *                                     {@code daily_briefing_cache} row written since deploy, and
- *                                     {@code BriefingService.loadPersistedBriefing} swallows the
- *                                     failure — so the Plan tab stays empty until the next
- *                                     scheduled refresh. True of every additive field on this
- *                                     record rather than of this one; the fix is an
- *                                     {@code ignoreUnknown} setting, which is payload-wide and
- *                                     not this phase's to make.
+ *                                     deserialise to null. That precedent is one-directional
+ *                                     in principle: an older image reading a newer payload would
+ *                                     meet an unknown key. This record, and every record in the
+ *                                     briefing tree, carries
+ *                                     {@code @JsonIgnoreProperties(ignoreUnknown = true)}, so the
+ *                                     Jackson 2 mapper in {@code AppConfig} (which reads
+ *                                     {@code daily_briefing_cache} in
+ *                                     {@code BriefingService.loadPersistedBriefing}) tolerates an
+ *                                     additive or a removed field in either direction.
  * @param meanRatingDelta              how far {@code meanRating} has moved since the previous
  *                                     briefing build — the Plan strip's movement chip. Positive is
  *                                     an improvement, 1dp, {@code null} when there is nothing to
@@ -262,6 +254,7 @@ import java.util.List;
  *                                     would drop the canopy rule. Neighbour outliers are included exactly as
  *                                     {@link #bestRating} includes them. Every {@code with...} method carries it.
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingRegion(
         String regionName,
         Verdict verdict,
@@ -277,7 +270,6 @@ public record BriefingRegion(
         DisplayVerdict displayVerdict,
         int scoredLocationCount,
         String verdictLabel,
-        boolean lightlyEvaluated,
         Confidence confidence,
         @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer bestRating,
@@ -299,7 +291,7 @@ public record BriefingRegion(
 
     /**
      * Backwards-compatible convenience constructor matching the pre-{@code picksBestRating} canonical
-     * signature, so every existing 22-arg call site (the honesty filter's full rewrite, the rollup) keeps
+     * signature, so every existing 21-arg call site (the honesty filter's full rewrite, the rollup) keeps
      * compiling. Defaults {@code picksBestRating} to {@code null}: only {@code LitePickShaper} sets it.
      *
      * @param regionName                       display name
@@ -316,7 +308,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      * @param meanRating                       the 1dp voting mean, or null
      * @param bestRating                       the voting max, or null
@@ -331,14 +322,14 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            String verdictLabel, Confidence confidence,
             Double meanRating, Integer bestRating, Double meanRatingDelta,
             Boolean sampleSufficient, Boolean forcedSample, CoverageReason coverageReason) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, bestRating, meanRatingDelta, sampleSufficient,
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, bestRating,
+                meanRatingDelta, sampleSufficient,
                 forcedSample, coverageReason, null);
     }
 
@@ -361,7 +352,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      * @param meanRating                       the 1dp voting mean, or null
      * @param bestRating                       the voting max, or null
@@ -375,14 +365,14 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            String verdictLabel, Confidence confidence,
             Double meanRating, Integer bestRating, Double meanRatingDelta,
             Boolean sampleSufficient, Boolean forcedSample) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, bestRating, meanRatingDelta, sampleSufficient,
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, bestRating,
+                meanRatingDelta, sampleSufficient,
                 forcedSample, null);
     }
 
@@ -407,7 +397,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      * @param meanRating                       the 1dp voting mean, or null
      * @param bestRating                       the voting max, or null
@@ -419,13 +408,13 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            String verdictLabel, Confidence confidence,
             Double meanRating, Integer bestRating, Double meanRatingDelta) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, bestRating, meanRatingDelta, null, null);
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, bestRating,
+                meanRatingDelta, null, null);
     }
 
     /**
@@ -450,7 +439,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      */
     public BriefingRegion(String regionName, Verdict verdict, String summary,
@@ -459,12 +447,11 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence) {
+            String verdictLabel, Confidence confidence) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, null, null, null);
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, null, null, null);
     }
 
     /**
@@ -494,7 +481,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      * @param meanRating                       the 1dp voting mean, or null
      */
@@ -504,13 +490,12 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            String verdictLabel, Confidence confidence,
             Double meanRating) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, null, null);
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, null, null);
     }
 
     /**
@@ -527,7 +512,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, newMeanRating,
+                scoredLocationCount, verdictLabel, confidence, newMeanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -545,7 +530,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 newBestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -563,7 +548,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, newMeanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -583,7 +568,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, newSampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -601,7 +586,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, newForcedSample, coverageReason, picksBestRating);
     }
 
@@ -616,7 +601,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason,
                 newPicksBestRating);
     }
@@ -686,7 +671,6 @@ public record BriefingRegion(
      * @param displayVerdict                   unified colour/label signal
      * @param scoredLocationCount              how many locations contributed a rating
      * @param verdictLabel                     pill-label override
-     * @param lightlyEvaluated                 thin-coverage flag
      * @param confidence                       derived confidence, or null
      * @param meanRating                       the 1dp voting mean, or null
      * @param bestRating                       the voting max, or null
@@ -697,28 +681,12 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated, Confidence confidence,
+            String verdictLabel, Confidence confidence,
             Double meanRating, Integer bestRating) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated,
-                confidence, meanRating, bestRating, null);
-    }
-
-    /**
-     * Returns a copy of this region flagged as lightly evaluated. All other
-     * fields (including slots, gloss, and the real triage summary) are preserved
-     * — the flag is purely a presentation hint for the read path.
-     *
-     * @return a copy with {@code lightlyEvaluated == true}
-     */
-    public BriefingRegion withLightlyEvaluated() {
-        return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
-                regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
-                regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, true, confidence, meanRating, bestRating,
-                meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
+                displayVerdict, scoredLocationCount, verdictLabel, confidence, meanRating, bestRating, null);
     }
 
     /**
@@ -733,7 +701,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, newConfidence, meanRating,
+                scoredLocationCount, verdictLabel, newConfidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -751,7 +719,7 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, newGlossHeadline, newGlossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
@@ -771,15 +739,15 @@ public record BriefingRegion(
         return new BriefingRegion(regionName, verdict, summary, tideHighlights, newSlots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius, regionWindSpeedMs,
                 regionWeatherCode, glossHeadline, glossDetail, displayVerdict,
-                scoredLocationCount, verdictLabel, lightlyEvaluated, confidence, meanRating,
+                scoredLocationCount, verdictLabel, confidence, meanRating,
                 bestRating, meanRatingDelta, sampleSufficient, forcedSample, coverageReason, picksBestRating);
     }
 
     /**
      * Backwards-compatible convenience constructor matching the pre-confidence
      * canonical signature. Defaults {@code confidence} to {@code null} (unknown)
-     * so the many existing 15-arg call sites — including {@code withLightlyEvaluated}
-     * callers and the honesty filter's full rewrite — keep compiling unchanged; the
+     * so the many existing 14-arg call sites — including the honesty filter's full
+     * rewrite — keep compiling unchanged; the
      * enrichment path attaches a derived value via {@link #withConfidence}.
      */
     public BriefingRegion(String regionName, Verdict verdict, String summary,
@@ -788,11 +756,11 @@ public record BriefingRegion(
             Double regionWindSpeedMs, Integer regionWeatherCode,
             String glossHeadline, String glossDetail,
             DisplayVerdict displayVerdict, int scoredLocationCount,
-            String verdictLabel, boolean lightlyEvaluated) {
+            String verdictLabel) {
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, verdictLabel, lightlyEvaluated, null);
+                displayVerdict, scoredLocationCount, verdictLabel, null);
     }
 
     /**
@@ -810,7 +778,7 @@ public record BriefingRegion(
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                displayVerdict, scoredLocationCount, null, false);
+                displayVerdict, scoredLocationCount, null);
     }
 
     /**
@@ -828,6 +796,6 @@ public record BriefingRegion(
         this(regionName, verdict, summary, tideHighlights, slots,
                 regionTemperatureCelsius, regionApparentTemperatureCelsius,
                 regionWindSpeedMs, regionWeatherCode, glossHeadline, glossDetail,
-                DisplayVerdict.resolve(null, verdict), 0, null, false);
+                DisplayVerdict.resolve(null, verdict), 0, null);
     }
 }

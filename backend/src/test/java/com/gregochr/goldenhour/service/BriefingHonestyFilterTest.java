@@ -97,7 +97,7 @@ class BriefingHonestyFilterTest {
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
                         TargetType.SUNRISE, List.of(zeroCov), List.of(), eventTime, null)))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
@@ -154,7 +154,7 @@ class BriefingHonestyFilterTest {
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(TargetType.SUNSET,
                                 List.of(zero, covered), List.of())))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
         List<BriefingRegion> regions = out.days().get(0).eventSummaries().get(0).regions();
@@ -183,7 +183,7 @@ class BriefingHonestyFilterTest {
     private static BriefingSlot canopySlot(String name, Verdict verdict) {
         return BriefingSlot.canopySlot(
                 name, LocalDateTime.of(TODAY, java.time.LocalTime.of(7, 30)),
-                verdict, null, List.of("Mist", "Soft even light"), null);
+                verdict, null, List.of("Mist", "Soft even light"));
     }
 
     @Test
@@ -219,51 +219,6 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("Coverage is measured against scoreable slots only, so a wood cannot dilute it")
-    void canopySlotsDoNotDiluteCoverage() {
-        // 2 sky slots, both scored, plus 2 woods. Against 4 that is 50% and would flag
-        // lightly-evaluated; against the 2 scoreable slots it is full coverage.
-        List<BriefingSlot> mixed = new java.util.ArrayList<>(goSlots(2));
-        mixed.add(canopySlot("Houghall Woods", Verdict.GO));
-        mixed.add(canopySlot("Plessey Woods", Verdict.GO));
-        BriefingRegion region = new BriefingRegion(
-                "Tyne and Wear", Verdict.GO, "Clear at 2 of 4 locations", List.of(), mixed,
-                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 2);
-        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNRISE, region);
-
-        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
-
-        assertThat(out.lightlyEvaluated()).isFalse();
-    }
-
-    // An in-season canopy bluebell site IS scored — by the bluebell prompt, not the sky one — so
-    // it belongs in BOTH numerator and denominator. Keying the denominator on "is it canopy"
-    // rather than "did it get a rating" put it in the numerator only, pushing the ratio above 1
-    // and silently disabling the lightly-evaluated warning. This is the case that was unpinned.
-    @Test
-    @DisplayName("A scored canopy slot counts toward coverage, so the ratio cannot exceed 1")
-    void scoredCanopySlotCountsTowardCoverage() {
-        // 4 sky slots (batch failed, none scored) + 2 canopy slots scored by the bluebell prompt.
-        List<BriefingSlot> mixed = new java.util.ArrayList<>(goSlots(4));
-        mixed.add(canopySlot("Houghall Woods", Verdict.GO)
-                .withClaudeScores(4, 70, 65, "Bluebells under soft light"));
-        mixed.add(canopySlot("Plessey Woods", Verdict.GO)
-                .withClaudeScores(3, 60, 55, "Workable"));
-        BriefingRegion region = new BriefingRegion(
-                "Tyne and Wear", Verdict.GO, "Clear at 6 of 6 locations", List.of(), mixed,
-                14.0, 13.0, 4.5, 3, "gloss", "detail", DisplayVerdict.WORTH_IT, 2);
-
-        BriefingRegion out = firstRegion(
-                BriefingHonestyFilter.apply(wrapAsResponse(TargetType.SUNRISE, region), 0.5));
-
-        // 2 scored of 6 scoreable = 33%, below 0.5 → the warning must still fire. Excluding the
-        // scored canopy slots would give 2 of 4 = 50% and suppress it.
-        assertThat(out.lightlyEvaluated())
-                .as("a scored canopy slot must not inflate the coverage ratio")
-                .isTrue();
-    }
-
-    @Test
     @DisplayName("The canopy flag survives withClaudeScores")
     void canopyFlagSurvivesScoring() {
         BriefingSlot scored = canopySlot("Houghall Woods", Verdict.GO)
@@ -273,11 +228,11 @@ class BriefingHonestyFilterTest {
                 .isTrue();
     }
 
-    // ── Lightly-evaluated tier (0 < coverage < minCoverageRatio) ────────────────
+    // ── Low but non-zero coverage: the region is served as it is ────────────────
 
     @Test
-    @DisplayName("Low coverage (3 of 54): flagged lightlyEvaluated, nothing suppressed")
-    void lowCoverageRegion_isFlaggedNotBlanked() {
+    @DisplayName("Low coverage (3 of 54): nothing suppressed")
+    void lowCoverageRegion_isNotBlanked() {
         // 3 scored of a 54-location roster = ~6% coverage, below 0.5.
         BriefingRegion lowCov = new BriefingRegion(
                 "The Yorkshire Dales", Verdict.GO, "Clear at 54 of 54 locations",
@@ -289,7 +244,6 @@ class BriefingHonestyFilterTest {
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
 
-        assertThat(out.lightlyEvaluated()).isTrue();
         // Lighter than the zero tier: real data is preserved, nothing blanked.
         assertThat(out.slots()).hasSize(54);
         assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
@@ -300,7 +254,7 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("Well-covered region (40 of 54): unchanged, not flagged")
+    @DisplayName("Well-covered region (40 of 54): unchanged")
     void wellCoveredRegion_isUnchanged() {
         BriefingRegion wellCov = new BriefingRegion(
                 "The Yorkshire Dales", Verdict.GO, "Clear at 54 of 54 locations",
@@ -311,43 +265,13 @@ class BriefingHonestyFilterTest {
 
         BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
 
-        assertThat(out.lightlyEvaluated()).isFalse();
         assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
         assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         assertThat(out.slots()).hasSize(54);
     }
 
     @Test
-    @DisplayName("Boundary: exactly at the ratio (27 of 54 @ 0.5) is NOT flagged")
-    void boundary_exactlyAtRatio_isNotFlagged() {
-        // Strict less-than: scored == ratio*total must NOT trigger the light tier.
-        BriefingRegion atRatio = new BriefingRegion(
-                "Region", Verdict.GO, "Clear at 54 of 54 locations",
-                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
-                null, null, DisplayVerdict.WORTH_IT, 27);
-        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, atRatio);
-
-        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
-
-        assertThat(out.lightlyEvaluated()).isFalse();
-    }
-
-    @Test
-    @DisplayName("Boundary: just below the ratio (26 of 54 @ 0.5) IS flagged")
-    void boundary_justBelowRatio_isFlagged() {
-        BriefingRegion belowRatio = new BriefingRegion(
-                "Region", Verdict.GO, "Clear at 54 of 54 locations",
-                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
-                null, null, DisplayVerdict.WORTH_IT, 26);
-        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, belowRatio);
-
-        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response, 0.5));
-
-        assertThat(out.lightlyEvaluated()).isTrue();
-    }
-
-    @Test
-    @DisplayName("Zero coverage still gets the full rewrite even with the ratio tier enabled")
+    @DisplayName("Zero coverage still gets the full rewrite with a non-zero ratio passed")
     void zeroCoverage_stillFullRewrite_withRatioEnabled() {
         BriefingRegion zeroCov = new BriefingRegion(
                 "Region", Verdict.GO, "Clear at 54 of 54 locations",
@@ -361,24 +285,6 @@ class BriefingHonestyFilterTest {
         assertThat(out.verdictLabel()).isEqualTo("Not scored");
         assertThat(out.summary()).isEqualTo(BriefingHonestyFilter.UNKNOWN_SUMMARY);
         assertThat(out.slots()).isEmpty();
-        // The zero tier is its own thing — not the lightly-evaluated tier.
-        assertThat(out.lightlyEvaluated()).isFalse();
-    }
-
-    @Test
-    @DisplayName("Ratio 0.0 (single-arg overload) disables the light tier — only zero rewrite fires")
-    void ratioZero_disablesLightTier() {
-        BriefingRegion lowCov = new BriefingRegion(
-                "Region", Verdict.GO, "Clear at 54 of 54 locations",
-                List.of(), goSlots(54), 14.0, 13.0, 4.5, 3,
-                null, null, DisplayVerdict.WORTH_IT, 3);
-        DailyBriefingResponse response = wrapAsResponse(TargetType.SUNSET, lowCov);
-
-        // Default overload uses ratio 0.0 → 3 < 0 is false → not flagged.
-        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(response));
-
-        assertThat(out.lightlyEvaluated()).isFalse();
-        assertThat(out.summary()).isEqualTo("Clear at 54 of 54 locations");
     }
 
     @Test
@@ -397,7 +303,7 @@ class BriefingHonestyFilterTest {
                                 new BriefingEventSummary(TargetType.SUNSET, List.of(r), List.of())
                         ))
                 ),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
@@ -414,15 +320,13 @@ class BriefingHonestyFilterTest {
         LocalDateTime when = LocalDateTime.of(2026, 5, 23, 6, 0);
         DailyBriefingResponse response = new DailyBriefingResponse(
                 when, "best day this week", List.of(), List.of(), null, null,
-                true, true, 7, "Opus", List.of(), List.of("BLUEBELL"));
+                true, "Opus", List.of(), List.of("BLUEBELL"));
 
         DailyBriefingResponse out = BriefingHonestyFilter.apply(response);
 
         assertThat(out.generatedAt()).isEqualTo(when);
         assertThat(out.headline()).isEqualTo("best day this week");
         assertThat(out.stale()).isTrue();
-        assertThat(out.partialFailure()).isTrue();
-        assertThat(out.failedLocationCount()).isEqualTo(7);
         assertThat(out.bestBetModel()).isEqualTo("Opus");
         assertThat(out.seasonalFeatures()).containsExactly("BLUEBELL");
     }
@@ -551,9 +455,9 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("A lightly-evaluated region does not withdraw its Best Bet")
-    void lightlyEvaluatedRegionKeepsItsBet() {
-        // Only the zero-coverage rewrite contradicts a pick. A lightly-evaluated region keeps its
+    @DisplayName("A thinly covered (non-zero) region does not withdraw its Best Bet")
+    void thinlyCoveredRegionKeepsItsBet() {
+        // Only the zero-coverage rewrite contradicts a pick. A thinly covered region keeps its
         // real slots, scores and gloss — it is scoped, not unevaluable.
         DailyBriefingResponse out = BriefingHonestyFilter.apply(
                 responseWith(TargetType.SUNSET,
@@ -562,7 +466,6 @@ class BriefingHonestyFilterTest {
                         List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
                 0.5);
 
-        assertThat(firstRegion(out).lightlyEvaluated()).isTrue();
         assertThat(out.bestBets()).hasSize(1);
     }
 
@@ -878,7 +781,7 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
-    @DisplayName("A region the filter did not blank (scored, or only lightly evaluated) carries no reason")
+    @DisplayName("A region the filter did not blank (scored, or only thinly covered) carries no reason")
     void aRegionNotBlankedCarriesNoCoverageReason() {
         DailyBriefingResponse scored = responseWith(TargetType.SUNSET,
                 regionWith("Northumberland", Verdict.GO, "Clear at 10 of 10", DisplayVerdict.WORTH_IT, 10,
@@ -888,9 +791,8 @@ class BriefingHonestyFilterTest {
                         goSlots(10)), List.of());
 
         assertThat(firstRegion(BriefingHonestyFilter.apply(scored, 0.5)).coverageReason()).isNull();
-        BriefingRegion lightly = firstRegion(BriefingHonestyFilter.apply(light, 0.5));
-        assertThat(lightly.lightlyEvaluated()).isTrue();
-        assertThat(lightly.coverageReason()).isNull();
+        BriefingRegion thin = firstRegion(BriefingHonestyFilter.apply(light, 0.5));
+        assertThat(thin.coverageReason()).isNull();
     }
 
     @Test
@@ -920,7 +822,6 @@ class BriefingHonestyFilterTest {
             assertThat(r.regionWeatherCode()).isEqualTo(3);
             assertThat(r.glossHeadline()).isNull();
             assertThat(r.scoredLocationCount()).isZero();
-            assertThat(r.lightlyEvaluated()).isFalse();
             assertThat(r.confidence()).isNull();
             assertThat(r.meanRating()).isNull();
             assertThat(r.bestRating()).isNull();
@@ -967,7 +868,7 @@ class BriefingHonestyFilterTest {
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(target, List.of(region), List.of())))),
-                bets, null, null, false, false, 0, null, List.of(), List.of());
+                bets, null, null, false, null, List.of(), List.of());
     }
 
     private static BriefingRegion regionWith(String name, Verdict verdict, String summary,
@@ -986,7 +887,7 @@ class BriefingHonestyFilterTest {
                 LocalDateTime.now(), "headline",
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(target, List.of(region), List.of())))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     private static BriefingRegion firstRegion(DailyBriefingResponse r) {
@@ -1011,6 +912,6 @@ class BriefingHonestyFilterTest {
                 name,
                 LocalDateTime.of(TODAY, java.time.LocalTime.of(18, 0)),
                 verdict,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
     }
 }

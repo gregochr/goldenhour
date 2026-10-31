@@ -997,12 +997,12 @@ export function buildWindowCards(
       // how two surfaces come to disagree about which topics a window has.
       //
       // ⚠️ `topRarityRank` — the payload's own `min(rarityRank)` for the window — was carried here
-      // beside it and went at M5 with the promoted strip, its only consumer. `BriefingWindow` still
-      // sends it, and it is still the right field for a future page-wide "one lede" rule; what it is
-      // not is something the card may read. Every surface that orders topics today
+      // beside it and went at M5 with the promoted strip, its only consumer. The backend field
+      // itself was removed in the dead-code sweep phase D (nothing read it), so there is no
+      // window-level minimum to read. Every surface that orders topics today
       // (`windowFirstTopics.windowTopics`, `windowFirstRows.buildWindowRows`) ranks the BADGES on
-      // their own `rarityRank`, and a window-level minimum kept alive beside them is a second answer
-      // waiting to disagree with the first.
+      // their own `rarityRank`, and a window-level minimum kept alive beside them would be a second
+      // answer waiting to disagree with the first.
       allBadges: win?.badges || [],
       // ⚠️ Withheld when the pick names a region the origin has scoped away. The pick is the
       // forecast's own recommendation over the whole roster, and its badge opens a dialog naming

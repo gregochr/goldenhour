@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.List;
  * @param tideMetrics      pill-level tide metrics (non-null for KING_TIDE/SPRING_TIDE only)
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record ExpandedHotTopicDetail(
         List<RegionGroup> regionGroups,
         BluebellMetrics bluebellMetrics,
@@ -45,6 +47,7 @@ public record ExpandedHotTopicDetail(
      * @param locations     locations within this region
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record RegionGroup(
             String regionName,
             String glossHeadline,
@@ -63,6 +66,7 @@ public record ExpandedHotTopicDetail(
      * @param tideLocationMetrics     tide-specific metrics (nullable)
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record LocationEntry(
             String locationName,
             String locationType,
@@ -103,6 +107,7 @@ public record ExpandedHotTopicDetail(
      * @param scoringLocationCount number of locations included in the expanded detail
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record BluebellMetrics(Integer bestScore, String qualityLabel, int scoringLocationCount) {
 
         /**
@@ -123,6 +128,7 @@ public record ExpandedHotTopicDetail(
      * @param sunriseAlignedCount  coastal locations with tide aligned at sunrise; null on the Lite wire
      * @param sunsetAlignedCount   coastal locations with tide aligned at sunset; null on the Lite wire
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TideMetrics(String tidalClassification, String lunarPhase,
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunriseAlignedCount,
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunsetAlignedCount) {
@@ -148,6 +154,7 @@ public record ExpandedHotTopicDetail(
      * @param summary   bluebell condition summary text (nullable)
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record BluebellLocationMetrics(int score, String exposure, String summary) {
     }
 
@@ -156,6 +163,7 @@ public record ExpandedHotTopicDetail(
      *
      * @param tidePreference primary tide preference label (e.g. "HIGH")
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TideLocationMetrics(String tidePreference) {
     }
 }

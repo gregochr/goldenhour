@@ -59,7 +59,6 @@ class WoodlandVerdictEvaluatorTest {
             var m = metrics(5, 5, 30000, "0.0", "2.0");
 
             assertThat(evaluator.determineVerdict(m)).isEqualTo(Verdict.STANDDOWN);
-            assertThat(evaluator.deriveStanddownReason(m)).contains("Harsh dapple");
         }
 
         @Test
@@ -148,7 +147,6 @@ class WoodlandVerdictEvaluatorTest {
         void unsafeWindOutranksEverything() {
             var m = metrics(100, 90, 3000, "0.0", "20.0");
             assertThat(evaluator.determineVerdict(m)).isEqualTo(Verdict.STANDDOWN);
-            assertThat(evaluator.deriveStanddownReason(m)).isEqualTo("Unsafe — falling branches");
         }
 
         @Test
@@ -163,7 +161,6 @@ class WoodlandVerdictEvaluatorTest {
         void heavyRainStandsDown() {
             var m = metrics(100, 90, 3000, "3.0", "1.0");
             assertThat(evaluator.determineVerdict(m)).isEqualTo(Verdict.STANDDOWN);
-            assertThat(evaluator.deriveStanddownReason(m)).isEqualTo("Heavy rain");
         }
 
         @Test
@@ -192,12 +189,6 @@ class WoodlandVerdictEvaluatorTest {
             var m = new WoodlandVerdictEvaluator.WoodlandMetrics(100, 90, 3000, null, null);
             assertThat(evaluator.determineVerdict(m)).isEqualTo(Verdict.GO);
             assertThat(evaluator.buildFlags(m)).isNotEmpty();
-        }
-
-        @Test
-        @DisplayName("A non-standdown slot has no standdown reason")
-        void noReasonWhenNotStandingDown() {
-            assertThat(evaluator.deriveStanddownReason(goodMorning())).isNull();
         }
     }
 }

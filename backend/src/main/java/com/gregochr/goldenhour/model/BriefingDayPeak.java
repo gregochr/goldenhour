@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.gregochr.goldenhour.entity.TargetType;
 import java.util.List;
 
@@ -48,6 +49,7 @@ import java.util.List;
  *                region's best showing that day, and two chips for one place would double the
  *                rail's densest element
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingDayPeak(
         DisplayVerdict verdict,
         List<TargetType> events,
@@ -69,6 +71,7 @@ public record BriefingDayPeak(
      * @param targetType     the event this region reached {@code displayVerdict} on
      * @param displayVerdict that region's own verdict, equal to the day's peak by construction
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PeakRegion(
             String regionName,
             TargetType targetType,

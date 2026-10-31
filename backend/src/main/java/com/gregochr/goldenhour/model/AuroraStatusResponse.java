@@ -37,7 +37,6 @@ import java.time.ZonedDateTime;
  * @param bzNanoTesla        most recent solar wind Bz component in nanoTesla (negative = favourable
  *                           southward field coupling energy into Earth's magnetosphere), or
  *                           {@code null} if unavailable
- * @param dataSource         source of the space weather data (e.g. {@code "NOAA SWPC"})
  * @param updatedAt          when the most recent NOAA data was fetched
  * @param simulated          {@code true} when the active alert was injected by the admin
  *                           simulation endpoint rather than real NOAA data
@@ -73,7 +72,6 @@ public record AuroraStatusResponse(
         String triggerType,
         Double ovationProbability,
         Double bzNanoTesla,
-        String dataSource,
         ZonedDateTime updatedAt,
         boolean simulated,
         Instant detectedAt,

@@ -85,7 +85,7 @@ class BriefingControllerTest extends AbstractControllerTest {
         BriefingSlot slot = new BriefingSlot("Bamburgh", LocalDateTime.of(2026, 10, 16, 6, 40),
                 Verdict.GO, new BriefingSlot.WeatherConditions(10, BigDecimal.ZERO, 20000, 60,
                         12.0, 10.0, 1, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion region = new BriefingRegion("Northumberland",
                 Verdict.GO, "Clear at 1 of 1 location",
                 List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null, null,
@@ -94,7 +94,7 @@ class BriefingControllerTest extends AbstractControllerTest {
                 new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())));
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 10, 13, 14, 0), "Headline",
-                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of()));
+                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of()));
 
         mockMvc.perform(get("/api/briefing"))
                 .andExpect(status().isOk())
@@ -327,18 +327,18 @@ class BriefingControllerTest extends AbstractControllerTest {
                 "HW 06:12 · 25m after sunrise", 0.83, "RISING", "4.9 m", "wants higher",
                 "Tide suits this spot");
         BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
-                List.of(), null, tide, List.of(fact));
+                List.of(), tide, List.of(fact));
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0),
-                Verdict.GO, null, null, List.of("Tide aligned", "Clear all layers"), null, null,
+                Verdict.GO, null, null, List.of("Tide aligned", "Clear all layers"), null,
                 null, null, null, null, DisplayVerdict.AWAITING, null, false, null);
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
                 List.of(slot), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
-                null, false, null);
+                null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(), null, window);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 10, 11), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     @Test
@@ -431,7 +431,7 @@ class BriefingControllerTest extends AbstractControllerTest {
     private static final String ALIGNED_SENTENCE = "tide aligned with sunrise at 47 of 61 coastal locations";
     private static final String LITE_SENTENCE = "61 coastal locations";
 
-    /** A briefing with a king-tide topic, its window badge, a big-seas day and a tide-mismatch stand-down. */
+    /** A briefing with a king-tide topic, its window badge, a big-seas day and a stand-down slot. */
     private static DailyBriefingResponse tideLightBriefing() {
         LocalDate day = LocalDate.of(2026, 10, 11);
         HotTopic king = new HotTopic(
@@ -440,19 +440,18 @@ class BriefingControllerTest extends AbstractControllerTest {
                         new ExpandedHotTopicDetail.TideMetrics("King tide", "Full Moon", 47, 3)),
                 "SUNRISE", "06:41", null, null, null, null, null,
                 new TideRunDay("KING RUN", 1, 3, "SUN 11", "Whitby", "4.2 m",
-                        null, null, null, null, "06:41", "17:55", null, List.of(),
-                        "HW 07:12 · 31m after sunrise", true, true, "sunrise", "HW 07:12 · 31m after sunrise",
-                        null, false, null),
+                        null, null, "06:41", "17:55", null, List.of(),
+                        "HW 07:12 · 31m after sunrise", true, "sunrise", null, false, null),
                 null, null, null, null).withLiteDetail(LITE_SENTENCE);
         BriefingWindow window = new BriefingWindow(null, DisplayVerdict.WORTH_IT, 4, null, null,
                 List.of(new BriefingWindow.Badge("KING_TIDE", "King tide", ALIGNED_SENTENCE, List.of(),
-                        "06:41", 2, null, null, null)), null, null, null);
+                        "06:41", 2, null, null, null)), null, null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh", LocalDateTime.of(2026, 10, 11, 6, 0),
-                Verdict.STANDDOWN, null, null, List.of(), "Tide mismatch", null, null, null, null, null,
+                Verdict.STANDDOWN, null, null, List.of(), null, null, null, null, null,
                 DisplayVerdict.STAND_DOWN, null, false, null);
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "s", List.of(),
                 List.of(slot), null, null, null, null, null, null, DisplayVerdict.AWAITING, 0,
-                null, false, null);
+                null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE,
                 List.of(region), List.of(), null, window);
         LocalDateTime hw = LocalDateTime.of(2026, 10, 11, 7, 12);
@@ -463,14 +462,14 @@ class BriefingControllerTest extends AbstractControllerTest {
                 0, false, null, null);
         return new DailyBriefingResponse(LocalDateTime.of(2026, 10, 8, 6, 0), "h",
                 List.of(new BriefingDay(day, List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(king), List.of())
+                List.of(), null, null, false, null, List.of(king), List.of())
                 .withBigSeas(List.of(seas));
     }
 
     @Test
     @WithMockUser(roles = {"LITE_USER"})
     @DisplayName("GET /api/briefing as LITE: no alignment sentence, run row, event, aligned counts, badge detail "
-            + "or clock, big-seas gap, aligned flag or tide-mismatch reason; the topic and daylight HW stay")
+            + "or clock, big-seas gap, or aligned flag; the topic and daylight HW stay")
     void getBriefing_liteTideLightIsStripped() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(tideLightBriefing());
 
@@ -490,7 +489,6 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunsetAlignedCount").doesNotExist())
                 .andExpect(jsonPath(WINDOW + ".badges[0].detail").value(LITE_SENTENCE))
                 .andExpect(jsonPath(WINDOW + ".badges[0].eventTime").doesNotExist())
-                .andExpect(jsonPath(SLOT + ".standdownReason").doesNotExist())
                 .andExpect(jsonPath(SLOT + ".verdict").value("STANDDOWN"))
                 .andExpect(jsonPath("$.bigSeas[0].alignedEvent").doesNotExist())
                 .andExpect(jsonPath("$.bigSeas[0].gapMinutes").doesNotExist())
@@ -530,7 +528,6 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.hotTopics[0].expandedDetail.tideMetrics.sunsetAlignedCount").value(3))
                 .andExpect(jsonPath(WINDOW + ".badges[0].detail").value(ALIGNED_SENTENCE))
                 .andExpect(jsonPath(WINDOW + ".badges[0].eventTime").value("06:41"))
-                .andExpect(jsonPath(SLOT + ".standdownReason").value("Tide mismatch"))
                 .andExpect(jsonPath("$.bigSeas[0].alignedEvent").value("SUNRISE"))
                 .andExpect(jsonPath("$.bigSeas[0].gapMinutes").value(31))
                 .andExpect(jsonPath("$.bigSeas[0].gapSide").value("AFTER"))
@@ -735,17 +732,17 @@ class BriefingControllerTest extends AbstractControllerTest {
         BriefingEventSummary sunset = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(), List.of())
                 .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 25, 18, 30),
-                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null));
+                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null));
         BriefingEventSummary sunrise = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of())
                 .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 26, 6, 0),
-                        DisplayVerdict.MAYBE, 2, Confidence.LOW, null, List.of(), null, null));
+                        DisplayVerdict.MAYBE, 2, Confidence.LOW, null, List.of(), null));
 
         return new DailyBriefingResponse(
                 LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
                 List.of(new BriefingDay(LocalDate.of(2999, 3, 25), List.of(sunset)),
                         new BriefingDay(LocalDate.of(2999, 3, 26), List.of(sunrise))),
-                List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+                List.of(), null, null, false, "Opus", List.of(), List.of());
     }
 
     /** A briefing whose one window carries a BEST pick and which lists one best bet. */
@@ -755,14 +752,14 @@ class BriefingControllerTest extends AbstractControllerTest {
         BriefingEventSummary sunset = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(), List.of())
                 .withWindow(new BriefingWindow(LocalDateTime.of(2026, 3, 25, 18, 30),
-                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null));
+                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null));
         com.gregochr.goldenhour.model.BestBet bet = new com.gregochr.goldenhour.model.BestBet(1,
                 "Go west", "Clear", "Wed sunset", "Lake District", Confidence.HIGH, null,
                 "Wednesday", "SUNSET", "18:30", null, null);
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0), "h",
                 List.of(new BriefingDay(LocalDate.of(2026, 3, 25), List.of(sunset))),
-                List.of(bet), null, null, false, false, 0, "Opus", List.of(), List.of(),
+                List.of(bet), null, null, false, "Opus", List.of(), List.of(),
                 com.gregochr.goldenhour.model.BestBetStatus.SUCCESS_WITH_PICKS, true);
     }
 
@@ -780,7 +777,7 @@ class BriefingControllerTest extends AbstractControllerTest {
                         LocalDateTime.of(2026, 3, 25, 19, 0), new BigDecimal("1.5"),
                         false, false, null, null, null,
                         30, "HW", true, "HW 19:00 · 30m after sunset"),
-                List.of("Tide aligned"), null);
+                List.of("Tide aligned"));
 
         // Use the 13-arg convenience constructor with scoredLocationCount=1 so
         // the Gate 2 honesty filter does NOT rewrite this fixture — the existing
@@ -799,7 +796,7 @@ class BriefingControllerTest extends AbstractControllerTest {
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 14, 0),
                 "Today sunset looks promising in Lake District",
-                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
     }
 
     private static DailyBriefingResponse buildHonestyFilteredBriefing() {
@@ -818,14 +815,13 @@ class BriefingControllerTest extends AbstractControllerTest {
                         + "The picture may firm up closer to the date — or it may remain unsettled.",
                 com.gregochr.goldenhour.model.DisplayVerdict.STAND_DOWN,
                 0,
-                "Too unsettled to forecast",
-                false);
+                "Too unsettled to forecast");
         BriefingEventSummary eventSummary = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(region), List.of());
         BriefingDay day = new BriefingDay(LocalDate.of(2026, 5, 23), List.of(eventSummary));
         return new DailyBriefingResponse(
                 LocalDateTime.of(2026, 5, 21, 14, 0),
                 "Sunset window looks promising in the Lake District",
-                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
+                List.of(day), List.of(), null, null, false, "Opus", List.of(), List.of());
     }
 }

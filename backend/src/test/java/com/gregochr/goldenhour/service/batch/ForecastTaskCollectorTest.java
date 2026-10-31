@@ -32,7 +32,6 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
-import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -170,43 +169,13 @@ class ForecastTaskCollectorTest {
     }
 
     @Test
-    @DisplayName("⚠️ collectScheduledBatches: a TIDE_MISMATCH STANDDOWN slot now reaches triage — "
-            + "the tide gate lift")
-    void collectScheduledBatches_tideMismatchStanddown_reachesTriage() {
-        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1),
-        // TIDE_MISMATCH was the one hard-constraint STANDDOWN reason still gating after the
-        // Gate 2 redesign, and this test asserted an empty result. The owner lifted the gate —
-        // the gating policy has since been removed entirely — so a tide-mismatched slot
-        // follows the identical path the weather-STANDDOWN test below already exercises: it
-        // reaches Claude and TideVisitor's R1 penalty is averaged into the star instead of the
-        // slot being withheld.
-        LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
-        DailyBriefingResponse briefing = buildBriefingWithStanddownReason(
-                TODAY, loc.getName(),
-                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
-        when(briefingService.getCachedBriefing()).thenReturn(briefing);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        stubModels();
-        stubPrefetchSuccess(loc);
-        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET))
-                .thenReturn(inlandPreEval(loc, TODAY, 0));
-
-        ScheduledBatchTasks result = collectNightly(collector);
-
-        assertThat(result.nearInland()).hasSize(1);
-        CollectorTriageStubs.triageOf(verify(forecastService), loc, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET);
-    }
-
-    @Test
     @DisplayName("collectScheduledBatches: weather-STANDDOWN slot is now eligible (Gate 2 redesign)")
     void collectScheduledBatches_weatherStanddown_reachesTriage() {
         // Under the Gate 2 redesign, weather-condition STANDDOWN slots (heavy cloud,
         // rain, clear sky, sun blocked at horizon, etc.) now reach Claude evaluation.
         // This is the central behaviour change of PR 1.
         LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
-        DailyBriefingResponse briefing = buildBriefingWithStanddownReason(
-                TODAY, loc.getName(),
-                BriefingVerdictEvaluator.StanddownReason.HEAVY_CLOUD.label());
+        DailyBriefingResponse briefing = buildStanddownBriefing(TODAY, loc.getName());
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
@@ -1381,9 +1350,7 @@ class ForecastTaskCollectorTest {
         // STANDDOWN already does, and gets a real location lookup + an EVALUATED disposition.
         LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
         when(briefingService.getCachedBriefing())
-                .thenReturn(buildBriefingWithStanddownReason(
-                        TODAY, loc.getName(),
-                        BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label()));
+                .thenReturn(buildStanddownBriefing(TODAY, loc.getName()));
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         stubModels();
         stubPrefetchSuccess(loc);
@@ -1503,24 +1470,23 @@ class ForecastTaskCollectorTest {
         //   region B: 1 slot, STANDDOWN tide mismatch
         //   region C: 2 slots — one unknown location, one valid GO
         BriefingSlot cached1 = new BriefingSlot("Cached1", TODAY.atTime(5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingSlot cached2 = new BriefingSlot("Cached2", TODAY.atTime(5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion regionA = new BriefingRegion(
                 "Cached Region", Verdict.GO, "Cached summary", List.of(),
                 List.of(cached1, cached2), null, null, null, null, null, null);
 
         BriefingSlot tideStanddown = new BriefingSlot("Tide Standdown", TODAY.atTime(5, 30),
-                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of(),
-                BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
+                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion regionB = new BriefingRegion(
                 "Tide Region", Verdict.STANDDOWN, "Tide summary", List.of(),
                 List.of(tideStanddown), null, null, null, null, null, null);
 
         BriefingSlot unknownLoc = new BriefingSlot("Unknown Loc", TODAY.atTime(5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingSlot goSlot = new BriefingSlot(goLoc.getName(), TODAY.atTime(5, 30),
-                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of(), null);
+                Verdict.GO, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion regionC = new BriefingRegion(
                 "Mixed Region", Verdict.GO, "Mixed summary", List.of(),
                 List.of(unknownLoc, goSlot), null, null, null, null, null, null);
@@ -1531,7 +1497,7 @@ class ForecastTaskCollectorTest {
 
         DailyBriefingResponse briefing = new DailyBriefingResponse(
                 null, null, List.of(pastDay, today), null, null, null,
-                false, false, 0, null, List.of(), List.of());
+                false, null, List.of(), List.of());
 
         when(briefingService.getCachedBriefing()).thenReturn(briefing);
         when(locationService.findAllEnabled()).thenReturn(List.of(goLoc));
@@ -1566,7 +1532,7 @@ class ForecastTaskCollectorTest {
     private BriefingDay buildSingleSlotDay(LocalDate date, String name, Verdict verdict,
             BriefingSlot.WeatherConditions weather, String standdownReason) {
         BriefingSlot slot = new BriefingSlot(name, date.atTime(5, 30), verdict, weather,
-                BriefingSlot.TideInfo.NONE, List.of(), standdownReason);
+                BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion region = new BriefingRegion(
                 "Region " + name, verdict, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -1646,7 +1612,7 @@ class ForecastTaskCollectorTest {
         for (String name : locationNames) {
             slots.add(new BriefingSlot(name,
                     date.atTime(targetType == TargetType.SUNSET ? 20 : 5, 30),
-                    verdict, weather, BriefingSlot.TideInfo.NONE, List.of(), null));
+                    verdict, weather, BriefingSlot.TideInfo.NONE, List.of()));
         }
         BriefingRegion region = new BriefingRegion(
                 "North East", verdict, "Summary", List.of(), slots,
@@ -1655,22 +1621,19 @@ class ForecastTaskCollectorTest {
                 targetType, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null, List.of(), List.of());
+                false, null, List.of(), List.of());
     }
 
     /**
-     * Builds a briefing with a single STANDDOWN slot carrying the supplied reason label.
-     * Used to verify how the gating policy treats specific {@link
-     * BriefingVerdictEvaluator.StanddownReason} values.
+     * Builds a briefing with a single STANDDOWN slot, used to verify that a stood-down slot
+     * still reaches triage.
      */
-    private DailyBriefingResponse buildBriefingWithStanddownReason(LocalDate date,
-            String locationName, String standdownReason) {
+    private DailyBriefingResponse buildStanddownBriefing(LocalDate date, String locationName) {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 20, BigDecimal.ZERO, 10000, 70, 10.0, 9.0, 1, BigDecimal.valueOf(5), 0, 0);
         BriefingSlot slot = new BriefingSlot(locationName,
                 date.atTime(5, 30),
-                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of(),
-                standdownReason);
+                Verdict.STANDDOWN, weather, BriefingSlot.TideInfo.NONE, List.of());
         BriefingRegion region = new BriefingRegion(
                 "North East", Verdict.STANDDOWN, "Summary", List.of(), List.of(slot),
                 null, null, null, null, null, null);
@@ -1678,7 +1641,7 @@ class ForecastTaskCollectorTest {
                 TargetType.SUNRISE, List.of(region), List.of());
         BriefingDay day = new BriefingDay(date, List.of(eventSummary));
         return new DailyBriefingResponse(null, null, List.of(day), null, null, null,
-                false, false, 0, null, List.of(), List.of());
+                false, null, List.of(), List.of());
     }
 
     private LocationEntity buildInlandLocation(String name, double lat, double lon) {

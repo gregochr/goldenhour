@@ -44,11 +44,11 @@ class TideLightLiteWireTest {
     private static DailyBriefingResponse briefingOf(HotTopic topic) {
         BriefingWindow window = new BriefingWindow(AT, DisplayVerdict.WORTH_IT, 4, null, null,
                 List.of(new BriefingWindow.Badge("KING_TIDE", "King tide", topic.detail(), List.of(),
-                        "06:41", 2, null, null, null)), null, null, null);
+                        "06:41", 2, null, null, null)), null, null);
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNRISE, List.of(), List.of(), AT,
                 window);
         return new DailyBriefingResponse(AT, "h", List.of(new BriefingDay(DAY, List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(topic), List.of());
+                List.of(), null, null, false, null, List.of(topic), List.of());
     }
 
     @Test

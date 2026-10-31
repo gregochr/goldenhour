@@ -1,10 +1,10 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TideStatisticalSize;
-import com.gregochr.goldenhour.service.BriefingVerdictEvaluator.StanddownReason;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -32,7 +32,6 @@ import java.util.List;
  * @param weather             weather conditions at the observer point
  * @param tide                tide data for coastal locations (all nulls/false for inland)
  * @param flags               human-readable flag strings (e.g. "Sun blocked", "King tide")
- * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
  * @param claudeRating        cached Claude 1-5 star rating (the served, combined figure — sky
  *                            averaged with tide and any other applicable component), or null if
  *                            not evaluated
@@ -99,6 +98,7 @@ import java.util.List;
  *                            may not see, and no surface may count it as unrated or as an insufficient
  *                            sample. <b>Serve-time only:</b> set by the shaper, never persisted
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,
@@ -107,7 +107,6 @@ public record BriefingSlot(
         @JsonUnwrapped WeatherConditions weather,
         @JsonUnwrapped TideInfo tide,
         List<String> flags,
-        String standdownReason,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer claudeRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer skyRating,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer fierySkyPotential,
@@ -142,7 +141,6 @@ public record BriefingSlot(
      * @param weather             weather conditions at the observer point
      * @param tide                tide data for coastal locations
      * @param flags               human-readable flag strings
-     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
      * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
@@ -156,12 +154,12 @@ public record BriefingSlot(
      */
     public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
             Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
-            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer claudeRating, Integer skyRating,
             Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
             DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
             EclipseSight eclipse, Boolean neighbourOutlier) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
                 claudeSummary, displayVerdict, claudeHeadline, canopy, eclipse, neighbourOutlier, null);
     }
 
@@ -183,7 +181,6 @@ public record BriefingSlot(
      * @param weather             weather conditions at the observer point
      * @param tide                tide data for coastal locations
      * @param flags               human-readable flag strings
-     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
      * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
@@ -196,12 +193,12 @@ public record BriefingSlot(
      */
     public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
             Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
-            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer claudeRating, Integer skyRating,
             Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
             DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
             EclipseSight eclipse) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
                 claudeSummary, displayVerdict, claudeHeadline, canopy, eclipse, null);
     }
 
@@ -222,7 +219,6 @@ public record BriefingSlot(
      * @param weather             weather conditions at the observer point
      * @param tide                tide data for coastal locations
      * @param flags               human-readable flag strings
-     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
      * @param claudeRating        cached Claude 1-5 star rating, or null
      * @param skyRating           the sky visitor's own component score, or null
      * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
@@ -234,11 +230,11 @@ public record BriefingSlot(
      */
     public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
             Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
-            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer claudeRating, Integer skyRating,
             Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
             DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
                 claudeSummary, displayVerdict, claudeHeadline, canopy, null, null);
     }
 
@@ -271,7 +267,7 @@ public record BriefingSlot(
      */
     public BriefingSlot withTide(TideInfo newTide) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
-                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
                 eclipse, neighbourOutlier, gated);
     }
@@ -290,7 +286,7 @@ public record BriefingSlot(
      */
     public BriefingSlot withEclipse(EclipseSight eclipse) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
                 eclipse, neighbourOutlier, gated);
     }
@@ -307,25 +303,20 @@ public record BriefingSlot(
      *
      * <p>The slot's {@link TideInfo} is also narrowed to {@link TideInfo#forLite()}: the
      * per-location tide match, the heights and the tide against the light are Pro, as they are on the
-     * window's per-location facts. A {@link #standdownReason} that is the tide mismatch states the
-     * water against the light, so it is null too; the verdict itself stays.
+     * window's per-location facts.
      *
      * @return a new slot with the potentials, the written why and the Pro tide fields removed
      */
     public BriefingSlot forLite() {
         TideInfo liteTide = tide == null ? null : tide.forLite();
-        // A tide-mismatch stand-down reason states the water against the light (Pro); the verdict
-        // itself stays. Any other reason is free.
-        String liteStanddown = StanddownReason.TIDE_MISMATCH.label().equals(standdownReason)
-                ? null : standdownReason;
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, liteTide,
-                flags, liteStanddown, claudeRating, skyRating, null, null, null,
+                flags, claudeRating, skyRating, null, null, null,
                 displayVerdict, null, canopy, eclipse, neighbourOutlier, gated);
     }
 
     /**
      * Returns this slot as a reader whose picks do not cover it may see it (sub-regions-plan §4.2): the
-     * verdict, both stars, the display verdict, the stand-down reason, the flags, the neighbour mark and
+     * verdict, both stars, the display verdict, the flags, the neighbour mark and
      * every other score or written why are removed, and {@link #gated} is set. The location, the event
      * time, the weather and the tide facts stay. Rebuilt through the canonical constructor so a component
      * added later is carried, not defaulted away.
@@ -334,7 +325,7 @@ public record BriefingSlot(
      */
     public BriefingSlot forGated() {
         return new BriefingSlot(locationId, locationName, solarEventTime, null, weather, tide,
-                List.of(), null, null, null, null, null, null,
+                List.of(), null, null, null, null, null,
                 null, null, canopy, eclipse, null, Boolean.TRUE);
     }
 
@@ -346,7 +337,7 @@ public record BriefingSlot(
      */
     public BriefingSlot withFlags(List<String> newFlags) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                newFlags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                newFlags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
                 eclipse, neighbourOutlier, gated);
     }
@@ -361,7 +352,7 @@ public record BriefingSlot(
      */
     public BriefingSlot withNeighbourOutlier(Boolean neighbourOutlier) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
                 eclipse, neighbourOutlier, gated);
     }
@@ -376,12 +367,10 @@ public record BriefingSlot(
      * @param weather         weather conditions at the observer point
      * @param tide            tide data for coastal locations
      * @param flags           human-readable flag strings
-     * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
      */
     public BriefingSlot(String locationName, LocalDateTime solarEventTime, Verdict verdict,
-            WeatherConditions weather, TideInfo tide, List<String> flags,
-            String standdownReason) {
-        this(null, locationName, solarEventTime, verdict, weather, tide, flags, standdownReason);
+            WeatherConditions weather, TideInfo tide, List<String> flags) {
+        this(null, locationName, solarEventTime, verdict, weather, tide, flags);
     }
 
     /**
@@ -400,13 +389,11 @@ public record BriefingSlot(
      * @param weather         weather conditions at the observer point
      * @param tide            tide data for coastal locations
      * @param flags           human-readable flag strings
-     * @param standdownReason primary reason for STANDDOWN verdict, null for GO/MARGINAL
      */
     public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
-            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
-            String standdownReason) {
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
-                standdownReason, null, null, null, null, null,
+                null, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, false);
     }
 
@@ -422,14 +409,11 @@ public record BriefingSlot(
      * @param verdict         the woodland verdict (opposite polarity to a sky verdict)
      * @param weather         weather conditions at the observer point
      * @param flags           woodland-worded flag strings
-     * @param standdownReason primary reason for STANDDOWN, null otherwise
      * @return a canopy-marked slot carrying no tide facts
      */
     public static BriefingSlot canopySlot(String locationName, LocalDateTime solarEventTime,
-            Verdict verdict, WeatherConditions weather, List<String> flags,
-            String standdownReason) {
-        return canopySlot(null, locationName, solarEventTime, verdict, weather, flags,
-                standdownReason);
+            Verdict verdict, WeatherConditions weather, List<String> flags) {
+        return canopySlot(null, locationName, solarEventTime, verdict, weather, flags);
     }
 
     /**
@@ -477,14 +461,13 @@ public record BriefingSlot(
      * @param verdict         the woodland verdict (opposite polarity to a sky verdict)
      * @param weather         weather conditions at the observer point
      * @param flags           woodland-worded flag strings
-     * @param standdownReason primary reason for STANDDOWN, null otherwise
      * @return a canopy-marked slot carrying no tide facts
      */
     public static BriefingSlot canopySlot(Long locationId, String locationName,
             LocalDateTime solarEventTime, Verdict verdict, WeatherConditions weather,
-            List<String> flags, String standdownReason) {
+            List<String> flags) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather,
-                TideInfo.NONE, flags, standdownReason, null, null, null, null, null,
+                TideInfo.NONE, flags, null, null, null, null, null,
                 DisplayVerdict.resolve(null, verdict), null, true, null, null);
     }
 
@@ -537,7 +520,7 @@ public record BriefingSlot(
     public BriefingSlot withClaudeScores(Integer rating, Integer skyRating, Integer fierySky,
             Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
+                flags, rating, skyRating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy,
                 eclipse, neighbourOutlier, gated);
     }
@@ -556,6 +539,7 @@ public record BriefingSlot(
      * @param midCloudPercent             mid-level cloud cover (%)
      * @param highCloudPercent            high-level cloud cover (%)
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record WeatherConditions(
             int lowCloudPercent,
             BigDecimal precipitationMm,
@@ -630,6 +614,7 @@ public record BriefingSlot(
      *                                  Never level- or height-derived (CLAUDE.md's two-tide-axes
      *                                  rule); the run ranking's own tiebreak, not shown on the card
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record TideInfo(
             String tideState,
             @JsonInclude(JsonInclude.Include.NON_NULL) Boolean tideAligned,
@@ -797,6 +782,7 @@ public record BriefingSlot(
      *                        {@code NAUTICAL_DUSK}), never both — {@link #race} may still be null
      *                        even when stops are present, on the leisurely-eclipse case above
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record EclipseSight(
             String type,
             int moonAltAtMax,
@@ -830,6 +816,7 @@ public record BriefingSlot(
      *             own light rule already uses, with no client-side re-mapping
      * @param time the instant this light stage begins here, on this date, London local time
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record LightStop(String key, LocalDateTime time) {
     }
 }

@@ -58,7 +58,7 @@ final class NeighbourGuardFixtures {
      */
     static BriefingSlot sky(Long id, String name, int rating, Integer sky) {
         return new BriefingSlot(id, name, LocalDateTime.of(D, java.time.LocalTime.of(6, 0)), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null, rating, sky, 60, 55, "summary",
+                null, BriefingSlot.TideInfo.NONE, List.of(), rating, sky, 60, 55, "summary",
                 DisplayVerdict.resolve(rating, Verdict.GO), null, false);
     }
 
@@ -71,7 +71,7 @@ final class NeighbourGuardFixtures {
      */
     static BriefingSlot unrated(Long id, String name) {
         return new BriefingSlot(id, name, LocalDateTime.of(D, java.time.LocalTime.of(6, 0)), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
     }
 
     /**
@@ -84,7 +84,7 @@ final class NeighbourGuardFixtures {
      */
     static BriefingSlot wood(Long id, String name, int rating) {
         return BriefingSlot.canopySlot(id, name, LocalDateTime.of(D, java.time.LocalTime.of(6, 0)),
-                Verdict.GO, null, List.of(), null).withClaudeScores(rating, rating, 60, 55, "s", null);
+                Verdict.GO, null, List.of()).withClaudeScores(rating, rating, 60, 55, "s", null);
     }
 
     /**
@@ -128,7 +128,7 @@ final class NeighbourGuardFixtures {
     static BriefingRegion region(String name, BriefingSlot... slots) {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(slots), null, null,
                 null, null, "Colour likely tonight", "Detail", DisplayVerdict.WORTH_IT,
-                slots.length, null, false, null).withSampleSufficient(true);
+                slots.length, null, null).withSampleSufficient(true);
     }
 
     /**
@@ -141,7 +141,7 @@ final class NeighbourGuardFixtures {
      */
     static BriefingRegion zeroCoverageRegion(String name, BriefingSlot... slots) {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(slots), null, null,
-                null, null, null, null, DisplayVerdict.WORTH_IT, 0, null, false, null);
+                null, null, null, null, DisplayVerdict.WORTH_IT, 0, null, null);
     }
 
     /**

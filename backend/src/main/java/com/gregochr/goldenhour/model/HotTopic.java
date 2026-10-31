@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -71,6 +72,7 @@ import java.util.List;
  *                       has none, and {@link #forLite()} then serves no detail at all (fail closed,
  *                       tide-light-pro-plan.md section 2) rather than the Pro sentence
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record HotTopic(
         String type,
         String label,

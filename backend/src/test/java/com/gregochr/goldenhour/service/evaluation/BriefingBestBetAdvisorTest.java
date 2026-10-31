@@ -1326,7 +1326,7 @@ class BriefingBestBetAdvisorTest {
                             8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("1.9"), true, false, null, null, null),
-                    List.of("King tide"), null);
+                    List.of("King tide"));
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of("King tide at Bamburgh"),
                     List.of(kingSlot), 7.0, 5.0, 1.5, 1, null, null);
@@ -1354,7 +1354,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("6.2"), true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
-                    List.of("King tide"), null);
+                    List.of("King tide"));
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
                     List.of(lunarKingSlot), 7.0, 5.0, 1.5, 1, null, null);
@@ -1383,7 +1383,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("5.1"), false, true,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
-                    List.of(), null);
+                    List.of());
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
                     List.of(springSlot), 7.0, 5.0, 1.5, 1, null, null);
@@ -1414,7 +1414,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("6.5"), true, false,
                             LunarTideType.KING_TIDE, "New Moon", true),
-                    List.of(), null);
+                    List.of());
             // heightAboveSpringThreshold=true → statisticalSize()=EXTRA_HIGH
             BriefingSlot extraHighSlot = new BriefingSlot(
                     "Dunstanburgh", null, Verdict.GO,
@@ -1423,7 +1423,7 @@ class BriefingBestBetAdvisorTest {
                     new BriefingSlot.TideInfo("HIGH", true, null,
                             new BigDecimal("5.3"), false, true,
                             LunarTideType.SPRING_TIDE, "Full Moon", false),
-                    List.of(), null);
+                    List.of());
             BriefingRegion region = new BriefingRegion(
                     "Northumberland", Verdict.GO, "Clear", List.of(),
                     List.of(extraExtraHighSlot, extraHighSlot), 7.0, 5.0, 1.5, 1, null, null);
@@ -3333,7 +3333,7 @@ class BriefingBestBetAdvisorTest {
                             8.0, null, null, BigDecimal.ONE, 0, 0),
                     new BriefingSlot.TideInfo("HIGH", true, null, new BigDecimal("6.2"),
                             false, false, lunar, "New Moon", true),
-                    List.of(), null);
+                    List.of());
         }
 
         private RollupResult rollupWithSlots(List<BriefingSlot> slots)
@@ -3491,7 +3491,7 @@ class BriefingBestBetAdvisorTest {
         return new BriefingSlot(name, time, verdict,
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
-                BriefingSlot.TideInfo.NONE, List.of(), null);
+                BriefingSlot.TideInfo.NONE, List.of());
     }
 
     // ── Sonnet 5.5 across the advisor's three paths ──

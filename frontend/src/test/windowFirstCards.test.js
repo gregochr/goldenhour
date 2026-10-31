@@ -481,13 +481,14 @@ describe('buildWindowCards', () => {
     it('⚠️ carries no window-level `topRarityRank`, which went with the promoted strip', () => {
       // M5 deleted it and the test that pinned "the card must not read it" went with the strip's own
       // suite, leaving the deletion covered by nothing — the away block got an exact key-set pin for
-      // the identical class and this did not. `BriefingWindow` still SENDS the field; what must not
-      // come back is a copy on the card, because every surface that orders topics ranks the BADGES
+      // the identical class and this did not. The backend no longer sends the field (removed in the
+      // dead-code sweep phase D); what must not come back is a copy on the card, because every surface that orders topics ranks the BADGES
       // on their own `rarityRank` and a window-level minimum kept alive beside them is a second
       // answer waiting to disagree with the first.
       //
-      // The payload carries it here on purpose: a test that omitted it would pass against a
-      // `topRarityRank: win?.topRarityRank` line and prove nothing.
+      // The payload carries it here on purpose (as a cached older payload still might): a test
+      // that omitted it would pass against a `topRarityRank: win?.topRarityRank` line and prove
+      // nothing.
       const [card] = build(oneWindow({ badges: [snowBadge()], topRarityRank: 3 }));
 
       expect(card).not.toHaveProperty('topRarityRank');

@@ -93,9 +93,9 @@ class BriefingRollupBuilderTest {
         List<BriefingSlot> slots = Arrays.stream(spots)
                 .map(spot -> spot.canopy()
                         ? BriefingSlot.canopySlot(spot.name(), SUNRISE, Verdict.GO, null,
-                                List.of(), null)
+                                List.of())
                         : new BriefingSlot(spot.name(), SUNRISE, Verdict.GO, null,
-                                BriefingSlot.TideInfo.NONE, List.of(), null))
+                                BriefingSlot.TideInfo.NONE, List.of()))
                 .toList();
         BriefingRegion region = new BriefingRegion(REGION, Verdict.GO, "summary", List.of(),
                 slots, 12.0, 11.0, 4.0, 3, null, null);

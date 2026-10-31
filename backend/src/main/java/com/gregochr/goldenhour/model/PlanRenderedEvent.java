@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.gregochr.goldenhour.entity.TargetType;
 import java.time.LocalDate;
 
@@ -21,5 +22,6 @@ import java.time.LocalDate;
  * @param date       the event's local date
  * @param targetType the solar event
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record PlanRenderedEvent(LocalDate date, TargetType targetType) {
 }

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -48,17 +49,6 @@ import java.util.List;
  *                     conflation one level down: "king" says the moon was at perigee, and the moon
  *                     does not decide whether this port's water is remarkable today. Null when the
  *                     day is unremarkable there, or when the location has no threshold yet
- * @param highWaterAnomaly how far that high water clears the location's spring-tide threshold,
- *                     {@code "+0.4 m over spring"} — the thing that makes a tide king rather than
- *                     merely spring. Null when there is no threshold or the excess is display noise
- * @param highWaterRank where that high water sits against the highest ever recorded at the location,
- *                     {@code "0.4 m off the record"} or {@code "highest recorded here"} — how
- *                     <em>extraordinary</em> the tide is, which {@link #highWaterAnomaly} cannot say.
- *                     The spring threshold is defined as 125% of mean high water, so a
- *                     metres-over-the-mean figure would be the spring excess plus a per-location
- *                     constant — a restatement, not a second reading. Distance to the ceiling moves
- *                     independently of it. Null when the day does not clear the spring threshold,
- *                     or when the location's history is too short for its maximum to be a record
  * @param sunrise      the day's sunrise, {@code "05:10"}
  * @param sunset       the day's sunset, {@code "21:22"}
  * @param seas         significant wave height with its sea-state band, {@code "0.3 m · smooth"};
@@ -78,39 +68,11 @@ import java.util.List;
  *                     by the moon, and wrong for the majority of a roster configured to shoot high
  *                     water. A spring tide's gift is a big <em>range</em>, which lifts high water as
  *                     far as it drops low water; which end is worth the drive is not the moon's call
- * @param bestAligned  true on the single day of the run whose water lands closest to the light —
- *                     the day the pill accents. Every aligned day keeps its verdict and its
- *                     editorial line; this only decides which one is emphasised.
- *                     <p>It exists because {@link #aligned} stopped being scarce. While alignment
- *                     meant "the low water, on a spring run", it fired on about a third of run-days
- *                     and never on all four of a run — so accenting every aligned day happened to
- *                     read as emphasis. Measured over a simulated year at the anchor, alignment on
- *                     either water fires on ~58%, and <b>28% of runs have all four days aligned</b>,
- *                     where the accent marks everything and therefore nothing.
- *                     <p><b>Unlike {@link #peak}, this is true on a one-day run.</b> {@code peak}
- *                     is a comparative badge and a lone day is trivially its own biggest, so
- *                     claiming it asserts a comparison never made. This is an emphasis marker, not
- *                     a claim: suppressing it on a one-day run would leave a genuinely aligned day
- *                     with no accent at all, which is a regression rather than a scruple
  * @param alignedEvent which solar event it aligned with, {@code "sunrise"} or {@code "sunset"};
  *                     null when {@link #aligned} is false. Carried rather than left to be parsed
  *                     out of {@link #verdict} because the hot-topic headline names the event, and
  *                     that sentence and this chart must not be able to disagree — they used to,
  *                     the headline being a count over a different table with a different window
- * @param alignmentPhrase the alignment clause on its own — {@code "HW 09:08 · 58m after sunrise"} —
- *                     or null when no water of this day lands in the light. <b>Non-null exactly
- *                     when {@link #alignedEvent} is</b>, because both name the same point, and the
- *                     two are built together from it so they cannot drift apart.
- *                     <p>Not a duplicate of {@link #verdict}. The verdict is the chart's whole
- *                     accessible answer and carries whatever else that day needs said — on the
- *                     run's biggest day it opens {@code "peak range · "} and drops the clock time to
- *                     fit a 224px column. A surface that states the range in its own chip and names
- *                     the biggest day in its own line, as the "Coming up" feed does, would print
- *                     that prefix as a third copy; and a clause labelled <em>alignment</em> that
- *                     opens by talking about range is the kind of sentence this project keeps having
- *                     to correct. So the clause exists separately rather than being recovered by
- *                     trimming the verdict's text, which would make the verdict's punctuation
- *                     load-bearing
  * @param peak         true on the run's biggest-range day
  * @param phrase       the editorial line for the water that reached the light, or null when none
  *                     did — the draw is only claimed when a water lands in usable light.
@@ -119,6 +81,7 @@ import java.util.List;
  *                     line when the high is. Both sentences always described a water; they read as
  *                     run-type phrases only while the run type was picking the water
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record TideRunDay(
         String runLabel,
         int dayNumber,
@@ -128,17 +91,13 @@ public record TideRunDay(
         String range,
         @JsonInclude(JsonInclude.Include.NON_NULL) String rangeAnomaly,
         @JsonInclude(JsonInclude.Include.NON_NULL) String highWater,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String highWaterAnomaly,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String highWaterRank,
         String sunrise,
         String sunset,
         @JsonInclude(JsonInclude.Include.NON_NULL) String seas,
         List<Extreme> tides,
         String verdict,
         boolean aligned,
-        boolean bestAligned,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String alignmentPhrase,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
@@ -154,20 +113,13 @@ public record TideRunDay(
      * @param range        the day's tidal range
      * @param rangeAnomaly signed anomaly against the mean range, or null
      * @param highWater    the day's highest water (king runs only), or null
-     * @param highWaterAnomaly its excess over the spring threshold, or null
-     * @param highWaterRank its rank in the location's observed history, or null
      * @param sunrise      the day's sunrise
      * @param sunset       the day's sunset
      * @param seas         wave height and sea-state band, or null
      * @param tides        every tide extreme in the local day
      * @param verdict      the plain-language alignment call
      * @param aligned      whether a water of either kind lands near a solar event
-     * @param bestAligned  whether this is the run's closest-aligned day, the one that takes the
-     *                     accent. Absent from legacy cached payloads, where it deserializes to
-     *                     {@code false} — a run served from one shows no accent until the next
-     *                     refresh, which is a degraded emphasis rather than a wrong claim
      * @param alignedEvent which solar event it aligned with, or null
-     * @param alignmentPhrase the alignment clause alone, or null
      * @param roster       the roster-wide alignment tally, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
@@ -182,17 +134,13 @@ public record TideRunDay(
             @JsonProperty("range") String range,
             @JsonProperty("rangeAnomaly") String rangeAnomaly,
             @JsonProperty("highWater") String highWater,
-            @JsonProperty("highWaterAnomaly") String highWaterAnomaly,
-            @JsonProperty("highWaterRank") String highWaterRank,
             @JsonProperty("sunrise") String sunrise,
             @JsonProperty("sunset") String sunset,
             @JsonProperty("seas") String seas,
             @JsonProperty("tides") List<Extreme> tides,
             @JsonProperty("verdict") String verdict,
             @JsonProperty("aligned") boolean aligned,
-            @JsonProperty("bestAligned") boolean bestAligned,
             @JsonProperty("alignedEvent") String alignedEvent,
-            @JsonProperty("alignmentPhrase") String alignmentPhrase,
             @JsonProperty("roster") RosterAlignment roster,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
@@ -204,17 +152,13 @@ public record TideRunDay(
         this.range = range;
         this.rangeAnomaly = rangeAnomaly;
         this.highWater = highWater;
-        this.highWaterAnomaly = highWaterAnomaly;
-        this.highWaterRank = highWaterRank;
         this.sunrise = sunrise;
         this.sunset = sunset;
         this.seas = seas;
         this.tides = tides;
         this.verdict = verdict;
         this.aligned = aligned;
-        this.bestAligned = bestAligned;
         this.alignedEvent = alignedEvent;
-        this.alignmentPhrase = alignmentPhrase;
         this.roster = roster;
         this.peak = peak;
         this.phrase = phrase;
@@ -239,6 +183,7 @@ public record TideRunDay(
      *                       cannot be called aligned or unaligned, and counting it either way would
      *                       state something never measured
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record RosterAlignment(int sunriseAligned, int sunsetAligned, int measured) {
 
         /**
@@ -276,6 +221,7 @@ public record TideRunDay(
      * @param type {@code "H"} for high water, {@code "L"} for low water
      * @param time local clock time, {@code "HH:mm"} (Europe/London)
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Extreme(String type, String time) {
 
         /**

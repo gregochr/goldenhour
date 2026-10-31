@@ -39,7 +39,6 @@ class BriefingEventSummaryWindowSerializationTest {
                 List.of(new BriefingWindow.Badge("NLC", "Clearest in 11 nights", null,
                         List.of(HotTopicFact.metric("clear at", "6 of 9 dark-sky spots")),
                         "22:04", 14, null, null, null)),
-                14,
                 new BriefingWindowTide("Whitby", TideState.MID,
                         BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
                         "4.9 m", "1.2 m above an average tide", "0.3 m · smooth",
@@ -112,7 +111,7 @@ class BriefingEventSummaryWindowSerializationTest {
         // Absence is the normal case — exactly two windows in a forecast carry a pick — so the
         // field must be omitted rather than written as null, which invites a consumer to render it.
         assertThat(mapper.valueToTree(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, List.of(), null, null)).has("pick")).isFalse();
+                null, List.of(), null)).has("pick")).isFalse();
         var node = mapper.valueToTree(window());
 
         assertThat(node.has("pick")).isTrue();
@@ -128,7 +127,7 @@ class BriefingEventSummaryWindowSerializationTest {
         // NON_NULL is the only thing suppressing the key: delete it and every tide-less window
         // emits "tide": null, which invites a consumer to render an empty row instead.
         assertThat(mapper.valueToTree(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, List.of(), null, null)).has("tide")).isFalse();
+                null, List.of(), null)).has("tide")).isFalse();
         assertThat(mapper.valueToTree(window()).has("tide")).isTrue();
     }
 
@@ -139,7 +138,7 @@ class BriefingEventSummaryWindowSerializationTest {
         // case at the far end of the rail — not a degraded one. Same for a location with no
         // historical baseline, where "no comparison was possible" must not read as "average".
         BriefingWindow bare = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
-                List.of(), null, new BriefingWindowTide("Whitby", TideState.MID,
+                List.of(), new BriefingWindowTide("Whitby", TideState.MID,
                         BriefingWindowTide.Direction.FALLING, "HW", "19:28", "1h43 before sunset",
                         "4.9 m", null, null, List.of(0.0, 1.0), 0.88, 0.42));
 
@@ -163,7 +162,7 @@ class BriefingEventSummaryWindowSerializationTest {
         // Empty is a normal state and must not be confused with "we had no topic data at all",
         // so the list is always serialised rather than dropped.
         BriefingWindow empty = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, List.of(), null, null);
+                null, List.of(), null);
 
         assertThat(mapper.readTree(mapper.writeValueAsString(empty)).get("badges")).isEmpty();
     }
@@ -171,7 +170,7 @@ class BriefingEventSummaryWindowSerializationTest {
     @Test
     void nullBadgesNormaliseToEmptyRatherThanThrowing() {
         assertThat(new BriefingWindow(null, DisplayVerdict.AWAITING, null, null, null,
-                null, null, null).badges()).isEmpty();
+                null, null).badges()).isEmpty();
     }
 
     @Test

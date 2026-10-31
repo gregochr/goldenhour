@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 
 import java.util.List;
@@ -21,6 +22,7 @@ import java.util.List;
  * @param moonRiseTime            moonrise time within the window as ISO UTC datetime, or {@code null}
  * @param moonSetTime             moonset time within the window as ISO UTC datetime, or {@code null}
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record AuroraTonightSummary(
         AlertLevel alertLevel,
         Double kp,

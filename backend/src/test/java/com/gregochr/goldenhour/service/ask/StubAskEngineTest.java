@@ -605,7 +605,7 @@ class StubAskEngineTest {
         BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true, null, null, false, false,
                 null, null, null, null, null, null, null, null, null, null, null, huge, null);
         BriefingSlot slot = new BriefingSlot(1L, "Whitby", AskFixtures.NOW.plusHours(6), Verdict.GO, null, tide,
-                List.of(), null, 5, 5, null, null, null, DisplayVerdict.WORTH_IT, null, false, null);
+                List.of(), 5, 5, null, null, null, DisplayVerdict.WORTH_IT, null, false, null);
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
                 List.of(AskFixtures.sunsetDay(TODAY, null, AskFixtures.region("Coast", true, slot))), List.of()));
 

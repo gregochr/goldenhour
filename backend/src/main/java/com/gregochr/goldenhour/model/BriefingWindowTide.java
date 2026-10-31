@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gregochr.goldenhour.entity.TideState;
 
@@ -107,6 +108,7 @@ import java.util.List;
  *                       window's own {@code eventTime} is the earliest across all regions and a
  *                       different anchor); Pro-only, null on the Lite wire
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingWindowTide(
         String locationName,
         TideState state,
@@ -247,6 +249,7 @@ public record BriefingWindowTide(
      *                 {@link BriefingWindowTide#windowPosition}
      * @param time     its Europe/London clock time, {@code "08:35"}
      */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Extreme(String kind, double position, String time) {
     }
 

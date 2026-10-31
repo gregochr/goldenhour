@@ -50,7 +50,7 @@ class LitePickSentinelTest {
     private static final long PICKED_ID = 7L;
     private static final long UNPICKED_ID = 8L;
 
-    private static final List<String> UNPICKED_MARKERS = List.of("U_STANDDOWN", "U_FLAG", "U_SUMMARY",
+    private static final List<String> UNPICKED_MARKERS = List.of("U_FLAG", "U_SUMMARY",
             "U_HEADLINE", "U_BEST_SUMMARY", "U_FACT", "U_GLANCE", "U_LOC_SUMMARY", "U_QUALITY", "U_UNREG",
             "3.14159", "0.27182");
 
@@ -65,7 +65,7 @@ class LitePickSentinelTest {
     private static BriefingSlot slot(long id, String name, String tag) {
         int star = id == PICKED_ID ? PICKED_STAR : UNPICKED_STAR;
         return new BriefingSlot(id, name, EVENT, Verdict.GO, null, null, List.of(tag + "_FLAG"),
-                tag + "_STANDDOWN", star, 3, 70, 60, tag + "_SUMMARY", DisplayVerdict.WORTH_IT, tag + "_HEADLINE",
+                star, 3, 70, 60, tag + "_SUMMARY", DisplayVerdict.WORTH_IT, tag + "_HEADLINE",
                 false, null, null);
     }
 
@@ -88,12 +88,12 @@ class LitePickSentinelTest {
     private static DailyBriefingResponse briefing() {
         BriefingRegion region = new BriefingRegion("North East", Verdict.GO, "Region prose", List.of(),
                 List.of(slot(PICKED_ID, "Bamburgh Castle", "P"), slot(UNPICKED_ID, "Craster", "U")), null, null,
-                null, null, null, null, DisplayVerdict.WORTH_IT, 2, "Worth it", false, Confidence.HIGH, 3.14159, 5,
+                null, null, null, null, DisplayVerdict.WORTH_IT, 2, "Worth it", Confidence.HIGH, 3.14159, 5,
                 0.27182, true, null);
         BriefingEventSummary sunrise = new BriefingEventSummary(TargetType.SUNRISE, List.of(region),
                 List.of(slot(UNPICKED_ID, "Unregioned spot", "U_UNREG")), EVENT, null);
         return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 24, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(sunrise))), List.of(), null, null, false, false, 0, "Opus",
+                List.of(new BriefingDay(DAY, List.of(sunrise))), List.of(), null, null, false, "Opus",
                 List.of(bluebell()), List.of());
     }
 
@@ -141,7 +141,7 @@ class LitePickSentinelTest {
         for (String marker : UNPICKED_MARKERS) {
             assertThat(json).as("leaked: " + marker).doesNotContain(marker);
         }
-        assertThat(json).contains("P_STANDDOWN").contains("P_FLAG").contains("P_LOC_SUMMARY");
+        assertThat(json).contains("P_FLAG").contains("P_LOC_SUMMARY");
     }
 
     // ------------------------------------------------------------------ picksBestRating and shapedLeadRegion

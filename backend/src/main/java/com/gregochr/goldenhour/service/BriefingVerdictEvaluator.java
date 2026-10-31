@@ -70,56 +70,6 @@ public class BriefingVerdictEvaluator {
     static final int HORIZON_CLOUD_MARGINAL = 40;
 
     /**
-     * Ordered reasons for STANDDOWN verdicts, checked in priority order.
-     * The first matching reason is used as the primary standdown reason.
-     * This ordering can be tweaked independently of the verdict logic.
-     */
-    public enum StanddownReason {
-
-        /** Low cloud exceeds {@link #CLOUD_STANDDOWN}. */
-        HEAVY_CLOUD("Heavy cloud"),
-
-        /** Mid-level cloud exceeds {@link #MID_CLOUD_STANDDOWN}. */
-        OVERCAST("Overcast"),
-
-        /** Precipitation exceeds {@link #PRECIP_STANDDOWN}. */
-        RAIN("Rain"),
-
-        /** Visibility below {@link #VISIBILITY_STANDDOWN}. */
-        POOR_VISIBILITY("Poor visibility"),
-
-        /** Cloud building into the event (trend detected). */
-        BUILDING_CLOUD("Building cloud"),
-
-        /** Coastal tide not aligned with location preference. */
-        TIDE_MISMATCH("Tide mismatch"),
-
-        /** Thick low cloud at the solar horizon blocks the sun. */
-        SUN_BLOCKED_HORIZON("Sun blocked at horizon"),
-
-        /** All cloud layers below threshold — no canvas for colour. */
-        CLEAR_SKY("Clear sky — no canvas"),
-
-        /** Fallback when no specific reason is identified. */
-        POOR_CONDITIONS("Poor conditions");
-
-        private final String label;
-
-        StanddownReason(String label) {
-            this.label = label;
-        }
-
-        /**
-         * Human-readable label for API responses and UI display.
-         *
-         * @return the display label
-         */
-        public String label() {
-            return label;
-        }
-    }
-
-    /**
      * Core weather metrics used for verdict determination and flag generation.
      *
      * @param lowCloud      low cloud cover percentage
@@ -353,50 +303,6 @@ public class BriefingVerdictEvaluator {
             flags.add("Tide aligned");
         }
         return flags;
-    }
-
-    /**
-     * Derives the primary reason for a STANDDOWN verdict from weather metrics and tide state.
-     *
-     * <p>Checks are evaluated in {@link StanddownReason} priority order so the most
-     * visually impactful condition is reported first.
-     *
-     * @param weather         the core weather metrics
-     * @param tidesNotAligned true if the coastal tide demotion was applied
-     * @param horizonLowCloud low cloud percentage at the solar horizon (~113 km offset),
-     *                        or null if unavailable
-     * @return human-readable reason label
-     */
-    public String deriveStanddownReason(WeatherMetrics weather, boolean tidesNotAligned,
-            Integer horizonLowCloud) {
-        if (weather.lowCloud() > CLOUD_STANDDOWN) {
-            return StanddownReason.HEAVY_CLOUD.label();
-        }
-        if (weather.midCloud() != null && weather.midCloud() >= MID_CLOUD_STANDDOWN) {
-            return StanddownReason.OVERCAST.label();
-        }
-        if (weather.precip().compareTo(PRECIP_STANDDOWN) > 0) {
-            return StanddownReason.RAIN.label();
-        }
-        if (weather.visibility() < VISIBILITY_STANDDOWN) {
-            return StanddownReason.POOR_VISIBILITY.label();
-        }
-        if (weather.buildingTrend()) {
-            return StanddownReason.BUILDING_CLOUD.label();
-        }
-        if (tidesNotAligned) {
-            return StanddownReason.TIDE_MISMATCH.label();
-        }
-        if (horizonLowCloud != null && horizonLowCloud >= HORIZON_CLOUD_STANDDOWN) {
-            return StanddownReason.SUN_BLOCKED_HORIZON.label();
-        }
-        int midVal = weather.midCloud() != null ? weather.midCloud() : 0;
-        int highVal = weather.highCloud() != null ? weather.highCloud() : 0;
-        if (weather.lowCloud() < CLEAR_ALL_LAYERS_MAX && midVal < CLEAR_ALL_LAYERS_MAX
-                && highVal < CLEAR_ALL_LAYERS_MAX) {
-            return StanddownReason.CLEAR_SKY.label();
-        }
-        return StanddownReason.POOR_CONDITIONS.label();
     }
 
     /**

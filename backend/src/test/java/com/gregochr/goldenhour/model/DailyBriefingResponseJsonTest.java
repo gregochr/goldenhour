@@ -66,7 +66,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         BriefingSlot original = new BriefingSlot(
                 42L, "Durham", LocalDateTime.of(2026, 4, 22, 6, 0), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                null, BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
         BriefingSlot restored = mapper.readValue(
                 mapper.writeValueAsString(original), BriefingSlot.class);
@@ -80,7 +80,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         BriefingSlot slot = new BriefingSlot(
                 "Durham", LocalDateTime.of(2026, 4, 22, 6, 0), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                null, BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
         JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
 
@@ -151,7 +151,7 @@ class DailyBriefingResponseJsonTest {
         DailyBriefingResponse response = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(),
                 null,  // null bestBets
-                null, null, false, false, 0, null, List.of(), List.of());
+                null, null, false, null, List.of(), List.of());
 
         assertThat(response.bestBets()).isNotNull().isEmpty();
     }
@@ -161,7 +161,7 @@ class DailyBriefingResponseJsonTest {
     void compactConstructor_nullHotTopics_normalisedToEmptyList() {
         DailyBriefingResponse response = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(),
-                List.of(), null, null, false, false, 0, null,
+                List.of(), null, null, false, null,
                 null,  // null hotTopics
                 List.of());
 
@@ -211,7 +211,7 @@ class DailyBriefingResponseJsonTest {
                 List.of("Northumberland"), "Peak bluebell season.", null);
         DailyBriefingResponse original = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, false, 0, null, List.of(topic), List.of());
+                false, null, List.of(topic), List.of());
 
         String json = mapper.writeValueAsString(original);
         DailyBriefingResponse restored = mapper.readValue(json, DailyBriefingResponse.class);
@@ -227,7 +227,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         DailyBriefingResponse original = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, false, 0, null, List.of(),
+                false, null, List.of(),
                 List.of("BLUEBELL", "AURORA"));
 
         String json = mapper.writeValueAsString(original);
@@ -241,7 +241,7 @@ class DailyBriefingResponseJsonTest {
     void compactConstructor_nullSeasonalFeatures_normalisedToEmptyList() {
         DailyBriefingResponse response = new DailyBriefingResponse(
                 GENERATED_AT, "Test", List.of(), List.of(), null, null,
-                false, false, 0, null, List.of(),
+                false, null, List.of(),
                 null);  // null seasonalFeatures
 
         assertThat(response.seasonalFeatures()).isNotNull().isEmpty();
@@ -336,7 +336,7 @@ class DailyBriefingResponseJsonTest {
                 25, "HW", true, "HW 20:20 · 25m after sunset");
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, tide, List.of("Clear"), null);
+                null, tide, List.of("Clear"));
 
         String json = mapper.writeValueAsString(slot);
         JsonNode node = mapper.readTree(json);
@@ -364,7 +364,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         BriefingSlot slot = new BriefingSlot("Derwent Valley",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
 
         JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
 
@@ -422,7 +422,7 @@ class DailyBriefingResponseJsonTest {
                 "high water, falling · HW 20:20 · 25m after sunset · 3.9 m", null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, tide, List.of("Clear"), null);
+                null, tide, List.of("Clear"));
 
         String json = mapper.writeValueAsString(slot);
         JsonNode node = mapper.readTree(json);
@@ -458,7 +458,7 @@ class DailyBriefingResponseJsonTest {
                 "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m", null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 1, 27, 9, 0), Verdict.STANDDOWN,
-                null, tide, List.of(), null);
+                null, tide, List.of());
 
         String json = mapper.writeValueAsString(slot);
         JsonNode node = mapper.readTree(json);
@@ -482,7 +482,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         BriefingSlot slot = new BriefingSlot("Derwent Valley",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
 
         JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
 
@@ -548,7 +548,7 @@ class DailyBriefingResponseJsonTest {
                 "high water, falling · HW 20:20 · 25m after sunset · 3.9 m", 0.75);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, tide, List.of("Clear"), null);
+                null, tide, List.of("Clear"));
 
         String json = mapper.writeValueAsString(slot);
         JsonNode node = mapper.readTree(json);
@@ -574,7 +574,7 @@ class DailyBriefingResponseJsonTest {
                 "wants high water · low water, rising at 09:00 · 1.0 m of 4.0 m", null);
         BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
                 LocalDateTime.of(2026, 1, 27, 9, 0), Verdict.STANDDOWN,
-                null, tide, List.of(), null);
+                null, tide, List.of());
 
         JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
 
@@ -582,7 +582,7 @@ class DailyBriefingResponseJsonTest {
 
         BriefingSlot inland = new BriefingSlot("Derwent Valley",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
         assertThat(mapper.readTree(mapper.writeValueAsString(inland))
                 .has("tideAlignmentQuality")).isFalse();
     }
@@ -738,12 +738,12 @@ class DailyBriefingResponseJsonTest {
 
     private static DailyBriefingResponse withTide(BriefingWindowTide tide) {
         BriefingWindow window = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
-                null, List.of(), null, tide);
+                null, List.of(), tide);
         BriefingEventSummary summary =
                 new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null, window);
         return new DailyBriefingResponse(GENERATED_AT, "Test",
                 List.of(new BriefingDay(LocalDate.of(2026, 4, 22), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
     }
 
     private static JsonNode navigateToTide(JsonNode root) {
@@ -755,7 +755,7 @@ class DailyBriefingResponseJsonTest {
     private static DailyBriefingResponse minimalResponse(List<BestBet> bestBets) {
         return new DailyBriefingResponse(
                 GENERATED_AT, "Test headline", List.of(),
-                bestBets, null, null, false, false, 0, null,
+                bestBets, null, null, false, null,
                 List.of(), List.of());
     }
 
@@ -768,16 +768,17 @@ class DailyBriefingResponseJsonTest {
         // loadPersistedBriefing reads daily_briefing_cache with AppConfig.objectMapper(); rows written
         // before the component was removed carry the key until they age out. BriefingSlot has
         // @JsonUnwrapped components (weather, tide), so Jackson 2 buffers an unknown slot-level key
-        // rather than failing; no @JsonIgnoreProperties.
+        // rather than failing. Every record in the tree now also carries
+        // @JsonIgnoreProperties(ignoreUnknown = true), so the tolerance no longer depends on that.
         ObjectMapper mapper = new AppConfig().objectMapper();
         BriefingSlot slot = new BriefingSlot("Seaham Chemical Beach",
                 LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,
-                null, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch");
+                null, BriefingSlot.TideInfo.NONE, List.of());
         BriefingEventSummary summary = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of(slot), null, null);
         DailyBriefingResponse response = new DailyBriefingResponse(GENERATED_AT, "Test",
                 List.of(new BriefingDay(LocalDate.of(2026, 9, 19), List.of(summary))),
-                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+                List.of(), null, null, false, null, List.of(), List.of());
         JsonNode root = mapper.readTree(mapper.writeValueAsString(response));
         ((com.fasterxml.jackson.databind.node.ObjectNode) root.get("days").get(0).get("eventSummaries")
                 .get(0).get("unregioned").get(0)).put("evaluationGate", "x");
@@ -786,7 +787,6 @@ class DailyBriefingResponseJsonTest {
 
         BriefingSlot restoredSlot = restored.days().get(0).eventSummaries().get(0).unregioned().get(0);
         assertThat(restoredSlot.locationName()).isEqualTo("Seaham Chemical Beach");
-        assertThat(restoredSlot.standdownReason()).isEqualTo("Tide mismatch");
     }
 
     // ── eclipse (L2) ─────────────────────────────────────────────────────────
@@ -805,7 +805,7 @@ class DailyBriefingResponseJsonTest {
                         LocalDateTime.of(2026, 8, 28, 3, 10))));
         BriefingSlot slot = new BriefingSlot("Dunstanburgh",
                 LocalDateTime.of(2026, 8, 28, 5, 50), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null)
+                null, BriefingSlot.TideInfo.NONE, List.of())
                 .withEclipse(eclipse);
 
         String json = mapper.writeValueAsString(slot);
@@ -834,7 +834,7 @@ class DailyBriefingResponseJsonTest {
         ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
         BriefingSlot slot = new BriefingSlot("Derwent Valley",
                 LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
-                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+                null, BriefingSlot.TideInfo.NONE, List.of());
 
         JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
 

@@ -29,7 +29,7 @@ class BriefingSlotTest {
         void sevenArgForm_leavesIdNull() {
             BriefingSlot slot = new BriefingSlot(
                     "Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
             assertThat(slot.locationId()).isNull();
             assertThat(slot.locationName()).isEqualTo("Durham");
@@ -40,7 +40,7 @@ class BriefingSlotTest {
         void eightArgForm_carriesId() {
             BriefingSlot slot = new BriefingSlot(
                     42L, "Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
             assertThat(slot.locationId()).isEqualTo(42L);
         }
@@ -50,7 +50,7 @@ class BriefingSlotTest {
         void canopySlot_carriesId() {
             BriefingSlot slot = BriefingSlot.canopySlot(
                     7L, "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER,
-                    List.of("Mist"), null);
+                    List.of("Mist"));
 
             assertThat(slot.locationId()).isEqualTo(7L);
             assertThat(slot.canopy()).isTrue();
@@ -61,7 +61,7 @@ class BriefingSlotTest {
         void withClaudeScores_preservesId() {
             BriefingSlot slot = new BriefingSlot(
                     42L, "Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null)
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"))
                     .withClaudeScores(4, 70, 65, "Nice", "Headline");
 
             assertThat(slot.locationId()).isEqualTo(42L);
@@ -72,7 +72,7 @@ class BriefingSlotTest {
         @DisplayName("canopy withClaudeScores preserves both the id and the canopy flag")
         void withClaudeScores_preservesIdOnCanopySlot() {
             BriefingSlot slot = BriefingSlot.canopySlot(
-                    7L, "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"), null)
+                    7L, "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"))
                     .withClaudeScores(5, null, null, "Mist through the trunks.");
 
             assertThat(slot.locationId()).isEqualTo(7L);
@@ -89,7 +89,7 @@ class BriefingSlotTest {
         void claudeFieldsAreNull() {
             BriefingSlot slot = new BriefingSlot(
                     "Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
             assertThat(slot.claudeRating()).isNull();
             assertThat(slot.fierySkyPotential()).isNull();
@@ -102,12 +102,11 @@ class BriefingSlotTest {
         void preservesOriginalFields() {
             BriefingSlot slot = new BriefingSlot(
                     "Bamburgh", EVENT_TIME, Verdict.MARGINAL, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Building cloud"), "High cloud");
+                    BriefingSlot.TideInfo.NONE, List.of("Building cloud"));
 
             assertThat(slot.locationName()).isEqualTo("Bamburgh");
             assertThat(slot.solarEventTime()).isEqualTo(EVENT_TIME);
             assertThat(slot.verdict()).isEqualTo(Verdict.MARGINAL);
-            assertThat(slot.standdownReason()).isEqualTo("High cloud");
             assertThat(slot.flags()).containsExactly("Building cloud");
         }
     }
@@ -118,7 +117,7 @@ class BriefingSlotTest {
 
         private final BriefingSlot base = new BriefingSlot(
                 "Whitby", EVENT_TIME, Verdict.GO, WEATHER,
-                BriefingSlot.TideInfo.NONE, List.of("Tide aligned"), null);
+                BriefingSlot.TideInfo.NONE, List.of("Tide aligned"));
 
         @Test
         @DisplayName("Sets all four Claude fields")
@@ -162,7 +161,6 @@ class BriefingSlotTest {
             assertThat(enriched.weather()).isEqualTo(WEATHER);
             assertThat(enriched.tide()).isEqualTo(BriefingSlot.TideInfo.NONE);
             assertThat(enriched.flags()).containsExactly("Tide aligned");
-            assertThat(enriched.standdownReason()).isNull();
         }
 
         @Test
@@ -193,10 +191,10 @@ class BriefingSlotTest {
         void fallsBackToTriageVerdict() {
             BriefingSlot marginal = new BriefingSlot(
                     "Durham", EVENT_TIME, Verdict.MARGINAL, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
             BriefingSlot go = new BriefingSlot(
                     "Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
 
             assertThat(marginal.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
             assertThat(go.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
@@ -206,7 +204,7 @@ class BriefingSlotTest {
         @DisplayName("canopySlot with a GO weather verdict and no rating reads UNRATED (U1, review F9c)")
         void canopySlot_goWithNoRatingIsUnrated() {
             BriefingSlot wood = BriefingSlot.canopySlot(
-                    "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"), null);
+                    "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"));
 
             assertThat(wood.canopy()).isTrue();
             assertThat(wood.claudeRating()).isNull();
@@ -219,7 +217,7 @@ class BriefingSlotTest {
         void withClaudeScores_nullRatingOnGoSlotIsUnrated() {
             BriefingSlot base = new BriefingSlot(
                     "Bamburgh", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
 
             BriefingSlot enriched = base.withClaudeScores(null, 40, 35, "Unrated summary.");
 
@@ -232,7 +230,7 @@ class BriefingSlotTest {
         void recomputesOnEnrichment() {
             BriefingSlot base = new BriefingSlot(
                     "Whitby", EVENT_TIME, Verdict.STANDDOWN, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
             assertThat(base.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
 
             BriefingSlot enriched = base.withClaudeScores(5, 90, 80, "Fire.");
@@ -246,7 +244,7 @@ class BriefingSlotTest {
         void claudeLowerGradesDowngrade() {
             BriefingSlot base = new BriefingSlot(
                     "Bamburgh", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null);
+                    BriefingSlot.TideInfo.NONE, List.of());
 
             BriefingSlot enriched = base.withClaudeScores(2, 30, 25, "Poor.");
 
@@ -270,16 +268,16 @@ class BriefingSlotTest {
         @DisplayName("every constructor starts it null — no lunar eclipse until withEclipse attaches one")
         void constructors_startNull() {
             assertThat(new BriefingSlot("Durham", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of(), null).eclipse()).isNull();
+                    BriefingSlot.TideInfo.NONE, List.of()).eclipse()).isNull();
             assertThat(BriefingSlot.canopySlot("Wood", EVENT_TIME, Verdict.GO, WEATHER,
-                    List.of(), null).eclipse()).isNull();
+                    List.of()).eclipse()).isNull();
         }
 
         @Test
         @DisplayName("withEclipse attaches it, changing nothing else, and null clears it")
         void withEclipse_isolated() {
             BriefingSlot base = new BriefingSlot("Dunstanburgh", EVENT_TIME, Verdict.GO, WEATHER,
-                    BriefingSlot.TideInfo.NONE, List.of("Clear"), null);
+                    BriefingSlot.TideInfo.NONE, List.of("Clear"));
 
             BriefingSlot carrying = base.withEclipse(sight);
 
@@ -293,7 +291,7 @@ class BriefingSlotTest {
         @DisplayName("⚠️ withClaudeScores carries it — the same wither-drops-a-field risk")
         void withClaudeScores_preservesEclipse() {
             BriefingSlot carrying = new BriefingSlot("Dunstanburgh", EVENT_TIME, Verdict.GO,
-                    WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null)
+                    WEATHER, BriefingSlot.TideInfo.NONE, List.of())
                     .withEclipse(sight);
 
             BriefingSlot scored = carrying.withClaudeScores(4, 3, 70, 60, "Fire.", "Headline");
@@ -322,9 +320,9 @@ class BriefingSlotTest {
     class CouldCarryRating {
 
         private final BriefingSlot sky = new BriefingSlot("Bamburgh", EVENT_TIME, Verdict.GO,
-                WEATHER, BriefingSlot.TideInfo.NONE, List.of(), null);
+                WEATHER, BriefingSlot.TideInfo.NONE, List.of());
         private final BriefingSlot wood = BriefingSlot.canopySlot("Wood", EVENT_TIME, Verdict.GO,
-                WEATHER, List.of(), null);
+                WEATHER, List.of());
 
         @Test
         @DisplayName("an unscored open-sky slot could — it is what the batch scores")

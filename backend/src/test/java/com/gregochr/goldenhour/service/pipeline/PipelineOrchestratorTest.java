@@ -817,8 +817,6 @@ class PipelineOrchestratorTest {
                     null,
                     null,
                     stale,
-                    false,
-                    0,
                     "Haiku",
                     List.<HotTopic>of(),
                     List.of(),

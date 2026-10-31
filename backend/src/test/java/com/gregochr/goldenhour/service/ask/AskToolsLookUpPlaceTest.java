@@ -373,7 +373,7 @@ class AskToolsLookUpPlaceTest {
     private static BriefingRegion withCoverage(String regionName, CoverageReason reason) {
         BriefingSlot slot = AskFixtures.slot(1L, "Alnmouth", null);
         return new BriefingRegion(regionName, Verdict.STANDDOWN, "summary", List.of(), List.of(slot), null, null,
-                null, null, null, "detail", DisplayVerdict.STAND_DOWN, 1, "label", false, null, null, null, null,
+                null, null, null, "detail", DisplayVerdict.STAND_DOWN, 1, "label", null, null, null, null,
                 null, null, reason);
     }
 

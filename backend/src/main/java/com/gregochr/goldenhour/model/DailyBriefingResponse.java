@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.LocalDateTime;
@@ -15,8 +16,6 @@ import java.util.List;
  * @param auroraTonight      tonight's aurora summary, or {@code null} when the state machine is idle
  * @param auroraTomorrow     tomorrow night's Kp forecast summary, or {@code null} if unavailable
  * @param stale              true when this is the last-known-good briefing, not freshly generated
- * @param partialFailure     true when some (but not all) location fetches failed this run
- * @param failedLocationCount number of locations that failed to fetch weather data this run
  * @param bestBetModel       display name of the Claude model used for best-bet picks (e.g. "Opus")
  * @param hotTopics          seasonal and special-interest hot topics for the forecast window
  * @param seasonalFeatures   active seasonal feature keys (e.g. "BLUEBELL") — used by frontend
@@ -83,6 +82,7 @@ import java.util.List;
  *                           for surfaces that need to know which places the reader holds. Serve-time only,
  *                           never persisted in {@code daily_briefing_cache}
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record DailyBriefingResponse(
         LocalDateTime generatedAt,
         String headline,
@@ -91,8 +91,6 @@ public record DailyBriefingResponse(
         AuroraTonightSummary auroraTonight,
         AuroraTomorrowSummary auroraTomorrow,
         boolean stale,
-        boolean partialFailure,
-        int failedLocationCount,
         String bestBetModel,
         List<HotTopic> hotTopics,
         List<String> seasonalFeatures,
@@ -123,7 +121,7 @@ public record DailyBriefingResponse(
     }
 
     /**
-     * Seventeen-component form, defaulting {@code allowedLocationIds} to null (an unshaped response).
+     * Fifteen-component form, defaulting {@code allowedLocationIds} to null (an unshaped response).
      * Retained so every call site that predates the field keeps compiling unchanged; the withers do not
      * use it, they thread the field through from {@code this}.
      *
@@ -134,8 +132,6 @@ public record DailyBriefingResponse(
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null
      * @param stale               last-known-good flag
-     * @param partialFailure      partial-failure flag
-     * @param failedLocationCount failed location count
      * @param bestBetModel        best-bet model display name
      * @param hotTopics           hot topics
      * @param seasonalFeatures    active seasonal feature keys
@@ -153,8 +149,6 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
@@ -164,13 +158,13 @@ public record DailyBriefingResponse(
             LocalDateTime previousGeneratedAt,
             List<BigSeasDay> bigSeas) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
                 previousGeneratedAt, bigSeas, null);
     }
 
     /**
-     * Sixteen-component form, defaulting {@code bigSeas} to null.
+     * Fourteen-component form, defaulting {@code bigSeas} to null.
      *
      * <p>The previous canonical signature. No producer of a response knows the big-seas days: only
      * the serve-time step does, and it publishes through {@link #withBigSeas}.
@@ -182,8 +176,6 @@ public record DailyBriefingResponse(
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null
      * @param stale               last-known-good flag
-     * @param partialFailure      partial-failure flag
-     * @param failedLocationCount failed location count
      * @param bestBetModel        best-bet model display name
      * @param hotTopics           hot topics
      * @param seasonalFeatures    active seasonal feature keys
@@ -200,8 +192,6 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
@@ -210,13 +200,13 @@ public record DailyBriefingResponse(
             List<PlanRenderedEvent> renderedEvents,
             LocalDateTime previousGeneratedAt) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents,
                 previousGeneratedAt, null);
     }
 
     /**
-     * Fifteen-component form, defaulting {@code previousGeneratedAt} to null.
+     * Thirteen-component form, defaulting {@code previousGeneratedAt} to null.
      *
      * <p>The previous canonical signature. Retained for the same reason as the shorter forms: no
      * producer of a response knows what the movement was measured against — only the serve-time
@@ -229,8 +219,6 @@ public record DailyBriefingResponse(
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null
      * @param stale               last-known-good flag
-     * @param partialFailure      partial-failure flag
-     * @param failedLocationCount failed location count
      * @param bestBetModel        best-bet model display name
      * @param hotTopics           hot topics
      * @param seasonalFeatures    active seasonal feature keys
@@ -246,8 +234,6 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
@@ -255,12 +241,12 @@ public record DailyBriefingResponse(
             Boolean bestBetsWithdrawn,
             List<PlanRenderedEvent> renderedEvents) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, bestBetStatus, bestBetsWithdrawn, renderedEvents, null);
     }
 
     /**
-     * Fourteen-component form, defaulting {@code renderedEvents} to null.
+     * Twelve-component form, defaulting {@code renderedEvents} to null.
      *
      * <p>Retained because every <em>producer</em> of a response legitimately has nothing to say
      * about which events are rendered — only {@code PlanWindowProjector}, the outermost serve step,
@@ -274,8 +260,6 @@ public record DailyBriefingResponse(
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null
      * @param stale               last-known-good flag
-     * @param partialFailure      partial-failure flag
-     * @param failedLocationCount failed location count
      * @param bestBetModel        best-bet model display name
      * @param hotTopics           hot topics
      * @param seasonalFeatures    active seasonal feature keys
@@ -290,15 +274,13 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
             BestBetStatus bestBetStatus,
             Boolean bestBetsWithdrawn) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, bestBetStatus, bestBetsWithdrawn, null, null);
     }
 
@@ -318,15 +300,13 @@ public record DailyBriefingResponse(
      * earlier forecast" warning on {@code bestBetStatus === 'FAILED'}, so the staleness cue never
      * appears. Nothing throws and no test that ignores the field notices. This constructor is
      * retained for the many call sites that legitimately build a response from scratch with no
-     * status yet; anything copying or overlaying an existing response must pass all 13 components
+     * status yet; anything copying or overlaying an existing response must pass all 11 components
      * (or use {@link #withDays}).
      *
      * @param bestBets            best-bet picks
      * @param auroraTonight       tonight's aurora summary or null
      * @param auroraTomorrow      tomorrow's aurora summary or null
      * @param stale               last-known-good flag
-     * @param partialFailure      partial-failure flag
-     * @param failedLocationCount failed location count
      * @param bestBetModel        best-bet model display name
      * @param hotTopics           hot topics
      * @param seasonalFeatures    active seasonal feature keys
@@ -339,20 +319,18 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, null, null);
     }
 
     /**
-     * Thirteen-component form, defaulting {@code bestBetsWithdrawn} to null.
+     * Eleven-component form, defaulting {@code bestBetsWithdrawn} to null.
      *
-     * <p>Same caveat as the twelve-component form above, for the same reason: a copy that omits
+     * <p>Same caveat as the ten-component form above, for the same reason: a copy that omits
      * the flag silently un-suppresses the "no also good" note. It is retained because every
      * <em>producer</em> of a response legitimately has nothing to say about withdrawal — only
      * {@link com.gregochr.goldenhour.service.BriefingHonestyFilter}, which performs it, does.
@@ -367,14 +345,12 @@ public record DailyBriefingResponse(
             AuroraTonightSummary auroraTonight,
             AuroraTomorrowSummary auroraTomorrow,
             boolean stale,
-            boolean partialFailure,
-            int failedLocationCount,
             String bestBetModel,
             List<HotTopic> hotTopics,
             List<String> seasonalFeatures,
             BestBetStatus bestBetStatus) {
         this(generatedAt, headline, days, bestBets, auroraTonight, auroraTomorrow,
-                stale, partialFailure, failedLocationCount, bestBetModel, hotTopics,
+                stale, bestBetModel, hotTopics,
                 seasonalFeatures, bestBetStatus, null);
     }
 
@@ -393,7 +369,7 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withDays(List<BriefingDay> newDays) {
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -415,7 +391,7 @@ public record DailyBriefingResponse(
     public DailyBriefingResponse withMovement(List<BriefingDay> newDays,
             LocalDateTime newPreviousGeneratedAt) {
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, newPreviousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -435,7 +411,7 @@ public record DailyBriefingResponse(
     public DailyBriefingResponse withPlan(List<BriefingDay> newDays,
             List<PlanRenderedEvent> newRenderedEvents) {
         return new DailyBriefingResponse(generatedAt, headline, newDays, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 newRenderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -457,7 +433,7 @@ public record DailyBriefingResponse(
     public DailyBriefingResponse withBestBets(List<BestBet> newBestBets,
             Boolean newBestBetsWithdrawn) {
         return new DailyBriefingResponse(generatedAt, headline, days, newBestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, newBestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -479,7 +455,7 @@ public record DailyBriefingResponse(
     public DailyBriefingResponse withLiveOverlays(AuroraTonightSummary newAuroraTonight,
             AuroraTomorrowSummary newAuroraTomorrow, List<HotTopic> newHotTopics) {
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                newAuroraTonight, newAuroraTomorrow, stale, partialFailure, failedLocationCount,
+                newAuroraTonight, newAuroraTomorrow, stale,
                 bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -492,7 +468,7 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withBigSeas(List<BigSeasDay> newBigSeas) {
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, newBigSeas, allowedLocationIds);
     }
@@ -506,7 +482,7 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withBestBetModel(String newBestBetModel) {
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 newBestBetModel, hotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -519,7 +495,7 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withBestBetStatus(BestBetStatus newBestBetStatus) {
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, hotTopics, seasonalFeatures, newBestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, allowedLocationIds);
     }
@@ -533,7 +509,7 @@ public record DailyBriefingResponse(
      */
     public DailyBriefingResponse withPickScope(List<HotTopic> newHotTopics, List<Long> newAllowedLocationIds) {
         return new DailyBriefingResponse(generatedAt, headline, days, bestBets,
-                auroraTonight, auroraTomorrow, stale, partialFailure, failedLocationCount,
+                auroraTonight, auroraTomorrow, stale,
                 bestBetModel, newHotTopics, seasonalFeatures, bestBetStatus, bestBetsWithdrawn,
                 renderedEvents, previousGeneratedAt, bigSeas, newAllowedLocationIds);
     }
