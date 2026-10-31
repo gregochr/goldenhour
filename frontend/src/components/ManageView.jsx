@@ -66,16 +66,22 @@ const GROUPS = [
 const WAITLIST_BADGE_CLASSES =
   'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold';
 
-/** Resolve group and tab from a hash fragment like "manage/skyeval". */
+/**
+ * Resolve group and tab from the current hash ("manage/skyeval", "manage/waitlist/12"), or null when it is not
+ * {@code manage/<known tab>}. A hash that is not a Manage tab (a one-time token the app strips, another area's
+ * fragment) must never move the tabs.
+ */
+function manageTabFromHash() {
+  const parts = window.location.hash.replace('#', '').split('/');
+  if (parts[0] !== 'manage' || !parts[1]) return null;
+  const tab = parts[1];
+  const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tab));
+  return group ? { group: group.value, tab } : null;
+}
+
+/** The landing group and tab: the hash's, or Pipeline Runs. */
 function parseHash() {
-  const hash = window.location.hash.replace('#', '');
-  const parts = hash.split('/');
-  if (parts[0] === 'manage' && parts[1]) {
-    const tab = parts[1];
-    const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tab));
-    if (group) return { group: group.value, tab };
-  }
-  return { group: 'runs', tab: 'pipelineruns' };
+  return manageTabFromHash() ?? { group: 'runs', tab: 'pipelineruns' };
 }
 
 /**
@@ -104,6 +110,21 @@ export default function ManageView({ onComplete }) {
     getWaitlist()
       .then((list) => setWaitlistCount(list.length))
       .catch(() => { /* badge stays hidden on failure */ });
+  }, []);
+
+  // A cross-tab link (Full tide stats, Open in Locations, Show them) sets `#manage/{tab}[/{id}]` while Manage is
+  // already mounted, so follow the hash. State is set DIRECTLY, never through `setActiveTab`: that rewrites the
+  // hash to `manage/{tab}` and would strip the `/{id}` the tab's own `useHashSelection` reads. A hash that is not
+  // `manage/<known tab>` is ignored (it never falls back to Pipeline Runs).
+  useEffect(() => {
+    const onHashChange = () => {
+      const target = manageTabFromHash();
+      if (!target) return;
+      setActiveGroup(target.group);
+      setActiveTabState(target.tab);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   /** Update tab and sync to URL hash. */
@@ -289,8 +310,8 @@ export default function ManageView({ onComplete }) {
         )}
 
         {activeTab === 'waitlist' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Waitlist</p>
+          // Phone (639px and under): the card is edge to edge, with no border, background or padding of its own.
+          <div className="card max-[639px]:rounded-none max-[639px]:border-0 max-[639px]:bg-transparent max-[639px]:p-0">
             <WaitlistManagementView onCountChange={handleWaitlistCount} />
           </div>
         )}

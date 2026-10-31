@@ -836,9 +836,10 @@ function AppInner() {
    * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
    * generated is Operations -> Job Runs. ADMIN only, because the pane is withheld from everyone else.
    *
-   * <p>The `#manage/metrics` hash is read by `ManageView` ONCE, at mount, so it lands on Job Runs only
-   * when the Operations pane is opened for the first time this session; with it already mounted the
-   * reader arrives on whichever sub-tab they left (nothing listens for the hash to move it).
+   * <p>`ManageView` reads the `#manage/metrics` hash at mount AND follows it afterwards (a guarded
+   * `hashchange` listener, data-tabs-redesign-plan.md §5.1), so it lands on Job Runs whether the
+   * Operations pane is opened for the first time this session or is already mounted on another
+   * sub-tab. Only a `manage/<known tab>` hash moves it; any other fragment is ignored.
    */
   const openOperations = () => {
     window.location.hash = 'manage/metrics';

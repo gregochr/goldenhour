@@ -75,7 +75,7 @@ describe('ManageView — Waitlist tab', () => {
     openWaitlist();
 
     await waitFor(() => {
-      expect(screen.getByTestId('waitlist-table')).toBeInTheDocument();
+      expect(screen.getByTestId('waitlist')).toBeInTheDocument();
     });
   });
 
@@ -193,10 +193,11 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
     openWaitlist();
-    await user.click(await screen.findByTestId('waitlist-invite-0'));
+    await user.click(await screen.findByTestId('waitlist-row-5'));
+    await user.click(screen.getByTestId('waitlist-invite'));
 
     await waitFor(() => expect(inviteWaitlistEntry).toHaveBeenCalledWith(5));
-    expect(await screen.findByTestId('waitlist-invited-0')).toHaveTextContent('expires 16 Apr 2026');
+    expect(await screen.findByTestId('waitlist-invited')).toHaveTextContent('expires 16 Apr 2026');
   });
 
   it('removing the last entry clears both badges', async () => {
@@ -207,8 +208,9 @@ describe('ManageView — Waitlist tab', () => {
     render(<ManageView onComplete={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('1'));
     openWaitlist();
-    await user.click(await screen.findByTestId('waitlist-remove-0'));
-    await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
+    await user.click(await screen.findByTestId('waitlist-row-5'));
+    await user.click(screen.getByTestId('waitlist-remove'));
+    await user.click(screen.getByTestId('waitlist-remove-confirm'));
 
     await waitFor(() => expect(removeWaitlistEntry).toHaveBeenCalledWith(5));
     await waitFor(() => expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument());

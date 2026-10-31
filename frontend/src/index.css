@@ -17,6 +17,8 @@
   --color-plex-text: #F2E7D3;
   --color-plex-text-secondary: rgba(242, 231, 211, 0.66);
   --color-plex-text-muted: rgba(242, 231, 211, 0.42);
+  /* The Data tabs' ink-4 (data-tabs-redesign-plan.md §4): off-status dots and the quietest marks. 26% bone. */
+  --color-plex-text-faint: rgba(242, 231, 211, 0.26);
   /* The ink a PANEL's recessive text takes (§6). Named rather than repeated at the two override
      sites, so "the map's quiet ink" is one value and not two that can drift. Deliberately equal to
      `--color-plex-text-secondary` today, which is the increment's own prescription ("= --ink-2"):

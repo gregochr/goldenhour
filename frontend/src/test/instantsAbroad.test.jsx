@@ -212,7 +212,7 @@ describe('the waitlist submission time abroad', () => {
     getWaitlist.mockResolvedValue([{ id: 1, email: 'a@b.com', submittedAt: APRIL_EIGHTH_LATE_BARE }]);
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
-    const cell = await screen.findByTestId('waitlist-submitted-0');
+    const cell = await screen.findByTestId('waitlist-cell-joined-1');
     expect(cell).toHaveTextContent('9 Apr 2026, 00:30');
   });
 
@@ -220,7 +220,7 @@ describe('the waitlist submission time abroad', () => {
     getWaitlist.mockResolvedValue([{ id: 1, email: 'a@b.com', submittedAt: null }]);
     render(<WaitlistManagementView onCountChange={vi.fn()} />);
 
-    const cell = await screen.findByTestId('waitlist-submitted-0');
+    const cell = await screen.findByTestId('waitlist-cell-joined-1');
     expect(cell).toHaveTextContent('—');
   });
 });
