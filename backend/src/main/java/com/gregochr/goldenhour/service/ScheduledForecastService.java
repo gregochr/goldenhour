@@ -42,6 +42,7 @@ public class ScheduledForecastService {
     private final JobRunService jobRunService;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final AdminAlertService adminAlertService;
+    private final TideGaugeCheckService tideGaugeCheckService;
 
     /**
      * True from the moment a tide refresh is accepted until it finishes, whichever route started
@@ -70,15 +71,18 @@ public class ScheduledForecastService {
      * @param jobRunService            the service for tracking job run metrics
      * @param dynamicSchedulerService  the dynamic scheduler for job registration
      * @param adminAlertService        sends the one tide source-change alert a refresh may raise
+     * @param tideGaugeCheckService    the weekly gauge check run at the end of each tide refresh
      */
     public ScheduledForecastService(TideService tideService, LocationService locationService,
             JobRunService jobRunService,
-            DynamicSchedulerService dynamicSchedulerService, AdminAlertService adminAlertService) {
+            DynamicSchedulerService dynamicSchedulerService, AdminAlertService adminAlertService,
+            TideGaugeCheckService tideGaugeCheckService) {
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.adminAlertService = adminAlertService;
+        this.tideGaugeCheckService = tideGaugeCheckService;
     }
 
     /**
@@ -177,6 +181,16 @@ public class ScheduledForecastService {
         alertTideSourceChanges(changes);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
+        runGaugeCheck();
+    }
+
+    /** Runs the gauge check; a failure is logged and never fails the refresh that called it. */
+    private void runGaugeCheck() {
+        try {
+            tideGaugeCheckService.runChecks();
+        } catch (Exception e) {
+            LOG.warn("Tide gauge check failed — the refresh is unaffected: {}", e.getMessage());
+        }
     }
 
     /**

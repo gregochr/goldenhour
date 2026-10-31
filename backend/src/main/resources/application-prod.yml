@@ -237,6 +237,23 @@ springdoc:
 photocast:
   sub-regions:
     enforce: true            # switched on in production (sub-regions plan S6): a Lite reader sees ratings only in their picks
+  tide:
+    gauges:                # weekly check of WorldTides high-water times against Environment Agency gauges
+      enabled: true        # tide-source-integrity-plan P4. Contains Environment Agency data licensed under the
+      min-pairs: 8         # Open Government Licence v3.0 (readings are not stored). min-pairs: fewest paired
+      trailing-runs: 4     # high waters for a check to be recorded; trailing-runs: previous runs forming the
+      flag-minutes: 10     # baseline; flag-minutes: movement of the median timing error that flags a gauge.
+      measures:            # Locations are matched by NAME; an unknown name is skipped and logged.
+        - measure-id: E70939-level-tidal_level-Mean-15_min-mAOD
+          location-name: Tynemouth
+        - measure-id: 022999-level-tidal_level-i-15_min-mAOD
+          location-name: Blyth Beach
+        - measure-id: L3901-level-tidal_level-i-15_min-mAOD
+          location-name: "South Gare & Paddy's Hole"
+        - measure-id: E71039-level-tidal_level-Mean-15_min-mAOD
+          location-name: Whitby Piers
+        - measure-id: L3001-level-tidal_level-i-15_min-m
+          location-name: Bridlington North Beach
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.
