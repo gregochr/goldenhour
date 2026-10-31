@@ -89,7 +89,13 @@ const renderJobRuns = async () => {
   return view;
 };
 
+// Tabs live under groups: Job Runs is in Runs, Run Config is in Tuning.
+const GROUP_OF_TAB = { metrics: 'runs', models: 'tuning' };
+
 const goToTab = async (tab) => {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId(`manage-group-${GROUP_OF_TAB[tab]}`));
+  });
   await act(async () => { fireEvent.click(screen.getByTestId(`manage-tab-${tab}`)); });
 };
 

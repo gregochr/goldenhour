@@ -26,9 +26,9 @@ describe('ManageView — Sub-regions tab', () => {
     window.location.hash = '';
   });
 
-  it('is an Operations sub-tab and mounts the Lite pick limit control', async () => {
+  it('is a People sub-tab and mounts the Lite pick limit control', async () => {
     render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-group-operations'));
+    fireEvent.click(screen.getByTestId('manage-group-people'));
 
     const tab = screen.getByTestId('manage-tab-subregions');
     expect(tab).toHaveTextContent('Sub-regions');
@@ -38,12 +38,12 @@ describe('ManageView — Sub-regions tab', () => {
     expect(window.location.hash).toBe('#manage/subregions');
   });
 
-  it('#manage/subregions deep-links straight to it, and the Data group does not carry the tab', async () => {
+  it('#manage/subregions deep-links straight to it, and the Runs group does not carry the tab', async () => {
     window.location.hash = '#manage/subregions';
     render(<ManageView onComplete={vi.fn()} />);
 
     expect(await screen.findByLabelText('Picks per Lite reader')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('manage-group-data'));
+    fireEvent.click(screen.getByTestId('manage-group-runs'));
     expect(screen.queryByTestId('manage-tab-subregions')).toBeNull();
   });
 });

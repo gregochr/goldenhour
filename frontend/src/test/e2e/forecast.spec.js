@@ -131,21 +131,24 @@ test.describe('Operations view — ADMIN', () => {
     await operationsTab.click();
 
     // Group tabs should be visible
-    await expect(page.getByTestId('manage-group-data')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId('manage-group-operations')).toBeVisible();
+    await expect(page.getByTestId('manage-group-runs')).toBeVisible({ timeout: 5000 });
+    for (const group of ['tuning', 'places', 'people', 'testing']) {
+      await expect(page.getByTestId(`manage-group-${group}`)).toBeVisible();
+    }
 
-    // Data sub-tabs should be visible by default
-    await expect(page.getByTestId('manage-tab-users')).toBeVisible();
-    await expect(page.getByTestId('manage-tab-locations')).toBeVisible();
-
-    // Switch to Operations group and verify its sub-tabs
-    await page.getByTestId('manage-group-operations').click();
+    // Runs sub-tabs should be visible by default
+    await expect(page.getByTestId('manage-tab-pipelineruns')).toBeVisible();
     await expect(page.getByTestId('manage-tab-metrics')).toBeVisible();
+
+    // Switch to Tuning group and verify its sub-tabs
+    await page.getByTestId('manage-group-tuning').click();
     await expect(page.getByTestId('manage-tab-models')).toBeVisible();
+    await expect(page.getByTestId('manage-tab-skyeval')).toBeVisible();
   });
 
   test('Locations sub-tab shows location cards with coordinates', async ({ page }) => {
     await page.getByRole('tab', { name: 'Operations' }).click();
+    await page.getByTestId('manage-group-places').click();
     await page.getByTestId('manage-tab-locations').click();
     // Location cards contain lat/lon coordinates text (e.g. "54.7753° N, 1.5849° W")
     await expect(page.locator('text=/\\d+\\.\\d+° [NS]/').first()).toBeVisible({ timeout: 10000 });

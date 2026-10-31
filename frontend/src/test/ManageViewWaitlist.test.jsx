@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import apiClient from '../api/axiosClient.js';
 import { getWaitlist, inviteWaitlistEntry, removeWaitlistEntry } from '../api/waitlistApi.js';
 import ManageView from '../components/ManageView.jsx';
 
@@ -11,8 +10,8 @@ vi.mock('../api/waitlistApi.js', () => ({
   removeWaitlistEntry: vi.fn(),
 }));
 
-// ManageView renders a tree of admin views; the Operations group's default tab
-// (PipelineRunsView) still fetches via apiClient, so keep the transport mocked.
+// ManageView renders a tree of admin views; the transport stays mocked for
+// any view that is not stubbed below.
 vi.mock('../api/axiosClient.js', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
@@ -39,6 +38,15 @@ vi.mock('../components/ModelSelectionView.jsx', () => ({
 vi.mock('../components/SchedulerView.jsx', () => ({
   default: () => <div>Scheduler</div>,
 }));
+vi.mock('../components/PipelineRunsView.jsx', () => ({
+  default: () => <div>Pipeline Runs</div>,
+}));
+
+/** Waitlist lives under People; the landing group is Runs. */
+const openWaitlist = () => {
+  fireEvent.click(screen.getByTestId('manage-group-people'));
+  fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+};
 
 describe('ManageView — Waitlist tab', () => {
   beforeEach(() => {
@@ -46,8 +54,9 @@ describe('ManageView — Waitlist tab', () => {
     window.location.hash = '';
   });
 
-  it('shows Waitlist tab in Data group', () => {
+  it('shows Waitlist tab in the People group', () => {
     getWaitlist.mockResolvedValue([]);
+    window.location.hash = 'manage/waitlist';
 
     render(<ManageView onComplete={vi.fn()} />);
 
@@ -63,7 +72,7 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    openWaitlist();
 
     await waitFor(() => {
       expect(screen.getByTestId('waitlist-table')).toBeInTheDocument();
@@ -80,7 +89,7 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    openWaitlist();
 
     await waitFor(() => {
       expect(screen.getByTestId('waitlist-count-badge')).toBeInTheDocument();
@@ -94,7 +103,7 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    openWaitlist();
 
     await waitFor(() => {
       expect(screen.getByTestId('waitlist-empty')).toBeInTheDocument();
@@ -113,7 +122,7 @@ describe('ManageView — Waitlist tab', () => {
     expect(screen.getByText('Loading waitlist...')).toBeInTheDocument();
   });
 
-  it('shows count badge on initial load without clicking the Waitlist tab', async () => {
+  it('shows the count on the People group button at landing, without opening the Waitlist tab', async () => {
     const entries = [
       { id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' },
       { id: 2, email: 'c@d.com', submittedAt: '2026-04-02T00:00:00' },
@@ -122,51 +131,43 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    // Badge should appear without navigating to the Waitlist tab
     await waitFor(() => {
-      expect(screen.getByTestId('waitlist-count-badge')).toBeInTheDocument();
+      expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('2');
     });
-
-    expect(screen.getByTestId('waitlist-count-badge')).toHaveTextContent('2');
-    // Confirm we're still on the Users tab (default), not Waitlist
-    expect(screen.getByTestId('user-management-view')).toBeInTheDocument();
+    // Still on the landing sub-view (Pipeline Runs); the sub-tab badge is not on screen
+    expect(screen.getByText('Pipeline Runs', { selector: 'div' })).toBeInTheDocument();
+    expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument();
   });
 
-  it('Waitlist tab is in the Data group, not Operations', () => {
+  it('Waitlist tab is in the People group, not Runs', () => {
     getWaitlist.mockReturnValue(new Promise(() => {}));
-    // Clicking Operations mounts PipelineRunsView, which fetches via apiClient;
-    // keep it pending so no async error escapes during this synchronous test.
-    apiClient.get.mockReturnValue(new Promise(() => {}));
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    // Data group is active by default — Waitlist tab should be visible
+    // Runs is active by default - Waitlist tab is not offered
+    expect(screen.queryByTestId('manage-tab-waitlist')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('manage-group-people'));
     expect(screen.getByTestId('manage-tab-waitlist')).toBeInTheDocument();
 
-    // Switch to Operations group — Waitlist tab should disappear
-    fireEvent.click(screen.getByTestId('manage-group-operations'));
+    fireEvent.click(screen.getByTestId('manage-group-runs'));
     expect(screen.queryByTestId('manage-tab-waitlist')).not.toBeInTheDocument();
   });
 
-  it('badge persists when switching between Data tabs', async () => {
-    const entries = [
-      { id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' },
-    ];
-    getWaitlist.mockResolvedValue(entries);
+  it('the group badge persists when switching between groups', async () => {
+    getWaitlist.mockResolvedValue([{ id: 1, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' }]);
 
     render(<ManageView onComplete={vi.fn()} />);
 
-    // Wait for the eager fetch to populate the badge
     await waitFor(() => {
-      expect(screen.getByTestId('waitlist-count-badge')).toBeInTheDocument();
+      expect(screen.getByTestId('waitlist-group-badge')).toBeInTheDocument();
     });
 
-    // Switch to Locations tab — badge should still be on the Waitlist tab
-    fireEvent.click(screen.getByTestId('manage-tab-locations'));
-    expect(screen.getByTestId('waitlist-count-badge')).toHaveTextContent('1');
+    fireEvent.click(screen.getByTestId('manage-group-places'));
+    expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('1');
 
-    // Switch to Regions tab — badge should still be visible
-    fireEvent.click(screen.getByTestId('manage-tab-regions'));
+    fireEvent.click(screen.getByTestId('manage-group-people'));
+    expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('1');
     expect(screen.getByTestId('waitlist-count-badge')).toHaveTextContent('1');
   });
 
@@ -191,25 +192,26 @@ describe('ManageView — Waitlist tab', () => {
     inviteWaitlistEntry.mockResolvedValue({ message: 'Invitation sent' });
 
     render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    openWaitlist();
     await user.click(await screen.findByTestId('waitlist-invite-0'));
 
     await waitFor(() => expect(inviteWaitlistEntry).toHaveBeenCalledWith(5));
     expect(await screen.findByTestId('waitlist-invited-0')).toHaveTextContent('expires 16 Apr 2026');
   });
 
-  it('removing the last entry clears the tab badge', async () => {
+  it('removing the last entry clears both badges', async () => {
     const user = userEvent.setup();
     getWaitlist.mockResolvedValue([{ id: 5, email: 'a@b.com', submittedAt: '2026-04-01T00:00:00' }]);
     removeWaitlistEntry.mockResolvedValue(undefined);
 
     render(<ManageView onComplete={vi.fn()} />);
-    await waitFor(() => expect(screen.getByTestId('waitlist-count-badge')).toHaveTextContent('1'));
-    fireEvent.click(screen.getByTestId('manage-tab-waitlist'));
+    await waitFor(() => expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('1'));
+    openWaitlist();
     await user.click(await screen.findByTestId('waitlist-remove-0'));
     await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
 
     await waitFor(() => expect(removeWaitlistEntry).toHaveBeenCalledWith(5));
     await waitFor(() => expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument());
+    expect(screen.queryByTestId('waitlist-group-badge')).not.toBeInTheDocument();
   });
 });

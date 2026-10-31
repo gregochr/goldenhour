@@ -18,40 +18,54 @@ import SubRegionPolicyCard from './SubRegionPolicyCard.jsx';
 
 const GROUPS = [
   {
-    value: 'data',
-    label: 'Data',
-    tabs: [
-      { value: 'users', label: 'Users' },
-      { value: 'locations', label: 'Locations' },
-      { value: 'regions', label: 'Regions' },
-      { value: 'tides', label: 'Tides' },
-      { value: 'waitlist', label: 'Waitlist' },
-    ],
-  },
-  {
-    value: 'operations',
-    label: 'Operations',
+    value: 'runs',
+    label: 'Runs',
     tabs: [
       { value: 'pipelineruns', label: 'Pipeline Runs' },
       { value: 'metrics', label: 'Job Runs' },
-      { value: 'models', label: 'Run Config' },
-      { value: 'skyeval', label: 'Sky Eval' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
+    ],
+  },
+  {
+    value: 'tuning',
+    label: 'Tuning',
+    tabs: [
+      { value: 'models', label: 'Run Config' },
+      { value: 'skyeval', label: 'Sky Eval' },
+    ],
+  },
+  {
+    value: 'places',
+    label: 'Places',
+    tabs: [
+      { value: 'locations', label: 'Locations' },
+      { value: 'regions', label: 'Regions' },
+      { value: 'tides', label: 'Tides' },
+    ],
+  },
+  {
+    value: 'people',
+    label: 'People',
+    tabs: [
+      { value: 'users', label: 'Users' },
+      { value: 'waitlist', label: 'Waitlist' },
+      { value: 'subregions', label: 'Sub-regions' },
+    ],
+  },
+  {
+    value: 'testing',
+    label: 'Testing',
+    tabs: [
       { value: 'hottopics', label: 'Hot Topics' },
       { value: 'rewind', label: 'Rewind' },
-      { value: 'subregions', label: 'Sub-regions' },
     ],
   },
 ];
 
-/**
- * Management screen shell — renders a two-level tab bar (group + sub-tab)
- * and routes to the active tab component.
- *
- * @param {object}   props
- * @param {function} props.onComplete - Called after any change so other views refresh.
- */
+const WAITLIST_BADGE_CLASSES =
+  'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold';
+
 /** Resolve group and tab from a hash fragment like "manage/skyeval". */
 function parseHash() {
   const hash = window.location.hash.replace('#', '');
@@ -61,9 +75,16 @@ function parseHash() {
     const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tab));
     if (group) return { group: group.value, tab };
   }
-  return { group: 'data', tab: 'users' };
+  return { group: 'runs', tab: 'pipelineruns' };
 }
 
+/**
+ * Management screen shell — renders a two-level tab bar (group + sub-tab)
+ * and routes to the active tab component.
+ *
+ * @param {object}   props
+ * @param {function} props.onComplete - Called after any change so other views refresh.
+ */
 export default function ManageView({ onComplete }) {
   const initial = parseHash();
   const [activeGroup, setActiveGroup] = useState(initial.group);
@@ -115,6 +136,11 @@ export default function ManageView({ onComplete }) {
             data-testid={`manage-group-${group.value}`}
           >
             {group.label}
+            {group.value === 'people' && waitlistCount != null && waitlistCount > 0 && (
+              <span className={WAITLIST_BADGE_CLASSES} data-testid="waitlist-group-badge">
+                {waitlistCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -134,10 +160,7 @@ export default function ManageView({ onComplete }) {
           >
             {tab.label}
             {tab.value === 'waitlist' && waitlistCount != null && waitlistCount > 0 && (
-              <span
-                className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold"
-                data-testid="waitlist-count-badge"
-              >
+              <span className={WAITLIST_BADGE_CLASSES} data-testid="waitlist-count-badge">
                 {waitlistCount}
               </span>
             )}
