@@ -5,6 +5,122 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.4] - 2026-10-31
+
+### Added — near-miss shoulder days beside Coming up tide runs
+
+A spring or king tide run whose edge narrowly misses the spring bar now shows that day beside the
+run as an outlined bar, so 8–10 Nov still reads "8–10 Nov" while 7 and 11 Nov are drawn outlined and
+captioned "outlined · just short of spring". The server decides which days: the roster's best
+`1.25 × highest high water ÷ spring threshold` must be at least 1.20 (`coming-up.scoring.shoulder`,
+one day per side by default). A shoulder carries no "top N%" pill and no PEAK, is named "just short of
+spring size" in its accessible name and tooltip, and is dropped once it is before today. The wire gains
+`dayRanges[].shoulder` (omitted when false); the build-time `shoulderDates` key is never served.
+
+### Fixed — Tide times for ten coastal locations, and a record of where every tide fetch came from
+
+WorldTides' tide model gives high-water times 35 to 55 minutes late at ten coastal locations (Staithes, Saltburn-by-the-Sea, the seven Craster-area locations and Cresswell Beach) for dates from 6 December 2026, which would have skewed their tide-at-the-light judgements, heights and spring/king badges. Each of the ten now reads its tide times from a neighbouring point whose model agrees with the tide gauges (Runswick Bay, Redcar, Alnmouth and Newbiggin-by-the-Sea); the locations themselves, their weather, sun times and history are unchanged. A moved tide point makes the next tide refresh re-fetch that location's whole forward window. Every WorldTides fetch now also records where its data came from (tidal atlas, station, the point answered for) in a new `tide_fetch` table.
+
+### Added — A weekly check of tide predictions against Environment Agency tide gauges
+
+After each tide refresh, PhotoCast now compares the last week of WorldTides' predicted high-water times with the water measured at five Environment Agency gauges (North Shields, Blyth, Tees Dock, Whitby and Bridlington) and records the median timing and height error for each in a new `tide_gauge_check` table. If a gauge's timing error moves more than 10 minutes from its recent average, admins get an email. The gauge readings themselves are not stored. Contains Environment Agency data licensed under the Open Government Licence v3.0.
+
+### Added — Admin alert when WorldTides changes tide times it has already given us
+
+The weekly tide refresh now re-fetches one stored week of every location's tide times and compares it with what is stored before replacing it. If any high or low moved by more than 5 minutes or 0.05 m, or WorldTides' tidal atlas, station or answering point changed, the admins get one email per refresh listing every affected location with before and after examples and saying the fix is a tide point. A difference that persists is not mailed again until a fetch has shown none. The new values are stored as before, and each fetch records its comparison in the `tide_fetch` log. The overlap costs about one extra WorldTides credit per location per week.
+
+### Changed — the Operations tab gets a sidebar on wide screens and a section menu on phones
+
+From 1280px the Operations tab lists every section in a left sidebar, grouped under Runs, Tuning,
+Places, People and Testing, with the current section highlighted and the waitlist count beside
+Waitlist. On a phone (under 640px) the same sections sit in one "Section" menu, grouped the same way,
+instead of nine wrapped tabs. Tablets keep the two-row tab bar. Switching width, for example by
+rotating a device, no longer reloads the section you are looking at. The Pipeline Runs detail tables
+now scroll inside their card rather than widening the page.
+
+### Changed — the Operations tab's sub-tabs are grouped by job
+
+The Operations tab's two groups (Data and Operations) are now five, named for the job each sub-tab does: Runs (Pipeline Runs, Job Runs, Scheduler, Travel Days), Tuning (Run Config, Sky Eval), Places (Locations, Regions, Tides), People (Users, Waitlist) and Testing (Hot Topics, Rewind). The tab opens on Runs / Pipeline Runs, and the waitlist count now also shows on the People button so it stays visible from the landing group. Every existing `#manage/<tab>` link still resolves, because tab values did not change.
+
+### Changed — the Lite sub-region pick limit moves to the Users tab
+
+The admin setting for how many sub-regions a Lite reader may pick is now a "Lite limit: N" button in the
+Manage → Data → Users list header, opening the same editor in a dialog, instead of living alone on the
+Operations → Sub-regions tab, which is removed (an old `#manage/subregions` link lands on Users). Saving a new
+limit refetches the user list, so the "Over limit" chip and filter follow, and refreshes an open reader's
+sub-region standing in place without losing a Change picks draft. Escape in the dialog closes only the dialog.
+Frontend only; the `GET|PUT /api/admin/sub-region-policy` API is unchanged.
+
+### Changed — Landing page: misty-mornings copy describes the new inversion forecast
+
+The "Look out for misty mornings" feature on the landing page now describes what the inversion forecast actually does: finding the warm air that traps mist and cloud, checking whether a viewpoint sits above or inside it, and weighing the night before and the wind on the tops.
+
+### Security — Bump follow-redirects to 1.16.2
+
+The frontend lockfile now pins follow-redirects 1.16.2, which fixes the high-severity advisory GHSA-mrwp-f3q8-3g9p that was failing the `npm audit --audit-level=high` CI gate on 1.16.1.
+
+### Security — bump follow-redirects past GHSA-mrwp-f3q8-3g9p
+
+`follow-redirects` 1.16.1 (transitive, via axios) carried a high-severity advisory (GHSA-mrwp-f3q8-3g9p, affecting 1.16.0 and 1.16.1) that failed the frontend `npm audit` CI step. The lockfile entry is now 1.16.2; no other package moved.
+
+### Added — admins can set or clear a location's tide point
+
+The location editor has a "Tide point" latitude/longitude pair (coastal locations), with a Clear button, for locations whose own sea area WorldTides models badly. `PUT /api/locations/{id}` accepts `tideLat`, `tideLng` and `clearTidePoint` (both coordinates or neither; within 25 km of the location). When the point changes, tide times are re-read as soon as the edit is saved instead of waiting for Monday's refresh; if WorldTides fails the edit is kept and the weekly refresh retries.
+
+Moving a coastal location's pin now also re-reads its tides straight after the save, which costs WorldTides credits.
+
+### Added — Marketing email opt-out in Settings
+
+Settings has a new Emails section, for every role, with one checkbox ("Send me occasional emails about new features and photography tips") so a reader can withdraw marketing consent as easily as they gave it. A failed save reverts the checkbox and is announced to screen readers. `GET /api/user/settings` now returns `marketingEmailOptIn`, and an account created by an admin or the local seeder no longer defaults to consenting (the column default is now false, V205; the column is written only by the scoped consent update). Existing accounts are unchanged.
+
+### Fixed — Flaky Settings Escape test on "Drive times updated"
+
+`UserSettingsModalEscapeAndPhone.test.jsx` pressed Escape the instant the success view committed, before the dialog's passive effect had attached its Escape listener, so it failed intermittently under load. The test now settles effects inside an awaited `act` first. No product change: a person cannot press a key within the same task as the commit.
+
+### Fixed — an Open-Meteo quota no longer marks the production container unhealthy
+
+The Docker healthcheck, the compose healthcheck and the rollback script's health wait curled
+`/actuator/health`, whose aggregate includes the external-service indicators (Open-Meteo, Claude,
+WorldTides) and the circuit breakers. When Open-Meteo hit its daily quota (429) the aggregate went DOWN
+(503), the container reported `unhealthy` and the post-deploy check failed although the app was serving
+normally. They now curl a new anonymous `container` health group (`/actuator/health/container`) that
+contains only `db` and `ping`, and shows status only. `/actuator/health` and the in-app status pill are
+unchanged. Each probe falls back to the aggregate when the group is missing, so a rollback to an older
+image stays healthy.
+
+### Removed — briefing and API response fields that nothing reads (dead-code sweep phase D)
+
+Eleven response properties that were written on every request and read by nothing, backend or
+frontend, are gone from the wire: `DailyBriefingResponse.partialFailure` and `failedLocationCount`,
+`BriefingRegion.lightlyEvaluated` (with the honesty filter's "lightly evaluated" tier that set it),
+`BriefingSlot.standdownReason` (with `BriefingVerdictEvaluator.StanddownReason`, both
+`deriveStanddownReason` methods and the Lite tide-mismatch strip), `BriefingWindow.topRarityRank`,
+`TideRunDay.highWaterAnomaly`, `highWaterRank`, `alignmentPhrase` and `bestAligned`,
+`AuroraStatusResponse.dataSource` and `UserSettingsResponse.postcodePromptDismissedAt` (the column and
+the `postcodePromptDue` flag are unchanged).
+
+Deploy safety: `BriefingService.loadPersistedBriefing` reads `daily_briefing_cache` with the Jackson 2
+mapper, which fails on unknown properties, and the payload written by the previous release still
+carries the removed keys. Every record in the briefing tree now carries
+`@JsonIgnoreProperties(ignoreUnknown = true)`, pinned by `PersistedBriefingRemovedKeysTest`, so the
+first start after deploy restores the Plan tab instead of leaving it empty until the next pipeline
+cycle. This also makes a rollback to the previous image safe.
+
+### Removed — admin and API endpoints with no caller (dead-code sweep, phase C)
+
+Eight endpoints that nothing in the app, the scripts or the docs' runbooks called are gone, and
+now answer 404: `GET /api/admin/stability/summary`, `GET /api/forecast/history`,
+`GET /api/forecast/compare`, `GET /api/locations/grid-cells`, `GET /api/admin/build-info`,
+`POST /api/admin/batches/force-submit` with `GET /api/admin/batches/force-result/{batchId}`,
+`GET /api/user/settings/drive-times` and `GET /api/admin/sky-rating-eval/runs/{id}/results`.
+Everything that only they used went with them: the `ForceSubmitBatchService` force-submit and
+result-polling code (the JFDI route stays), `CustomIdFactory.forForceSubmit`, the grid-cell summary,
+the two history finders on `ForecastEvaluationRepository`, the per-run results finder, and the
+frontend's `getDriveTimes` and `getSkyRatingEvalResults`. The stability snapshot, the force-submit id
+parser, `POST /drive-times/refresh`, `GET /api/user/settings/reach`, calibration and the
+cloud-verification report are untouched. The endpoint reference and the integration-test strategy
+note were updated to match.
+
 ## [v2.35.3] - 2026-10-30
 
 ### Changed — map labels no longer re-place mid-drag
