@@ -202,4 +202,42 @@ describe('DataGrid', () => {
       expect(screen.getByTestId('grid-row-2').className).not.toContain('inset_2px_0_0');
     });
   });
+  describe('group headers', () => {
+    function renderGrouped(expanded = false) {
+      const onToggle = vi.fn();
+      const header = { groupHeader: true, id: 'off', label: 'Off · 1', expanded, onToggle };
+      const { onSelect } = renderGrid({ rows: [ROWS[0], header], getRowLabel: vi.fn((r) => r.name) });
+      return { onToggle, onSelect };
+    }
+
+    it('draws a header as a disclosure button, not a row', () => {
+      renderGrouped(false);
+      const header = screen.getByTestId('grid-group-off');
+      expect(header.tagName).toBe('BUTTON');
+      expect(header).toHaveTextContent('Off · 1');
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+      expect(header).not.toHaveAttribute('aria-current');
+      expect(screen.queryByTestId('grid-row-off')).not.toBeInTheDocument();
+    });
+
+    it('reports expanded and toggles on click and on Enter and Space (a native button)', () => {
+      const { onToggle } = renderGrouped(true);
+      const header = screen.getByRole('button', { name: /Off · 1/ });
+      expect(header).toHaveAttribute('aria-expanded', 'true');
+      fireEvent.click(header);
+      expect(onToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('is never selectable and never sent to getRowLabel or onSelect', () => {
+      const { onSelect } = renderGrouped();
+      fireEvent.click(screen.getByTestId('grid-group-off'));
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('leaves the real rows selectable beside it', () => {
+      const { onSelect } = renderGrouped();
+      fireEvent.click(screen.getByTestId('grid-row-1'));
+      expect(onSelect).toHaveBeenCalledWith(ROWS[0]);
+    });
+  });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import RegionManagementView from '../components/RegionManagementView.jsx';
 
 vi.mock('../api/regionApi', () => ({
@@ -9,15 +10,16 @@ vi.mock('../api/regionApi', () => ({
   setRegionEnabled: vi.fn(),
   setRegionBase: vi.fn(),
 }));
-
-vi.mock('../api/forecastApi', () => ({
-  fetchLocations: vi.fn(),
-}));
+vi.mock('../api/forecastApi', () => ({ fetchLocations: vi.fn() }));
+vi.mock('../api/areaApi', () => ({ fetchAreas: vi.fn() }));
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
 import {
   fetchRegions, addRegion, updateRegion, setRegionEnabled, setRegionBase,
 } from '../api/regionApi';
 import { fetchLocations } from '../api/forecastApi';
+import { fetchAreas } from '../api/areaApi';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 const MOCK_REGIONS = [
   { id: 1, name: 'North East', enabled: true, createdAt: '2026-01-15T10:00:00' },
@@ -25,11 +27,20 @@ const MOCK_REGIONS = [
   { id: 3, name: 'Scotland', enabled: false, createdAt: '2026-03-01T10:00:00' },
 ];
 
+// North East has 2 locations (1 on, 1 off), Lake District 1 (on), Scotland 1 (off, as a switched-off region must hold).
 const MOCK_LOCATIONS = [
-  { id: 1, name: 'Durham', region: { id: 1, name: 'North East' } },
-  { id: 2, name: 'Bamburgh', region: { id: 1, name: 'North East' } },
-  { id: 3, name: 'Keswick', region: { id: 2, name: 'Lake District' } },
-  { id: 4, name: 'No Region', region: null },
+  { id: 1, name: 'Durham', enabled: true, region: { id: 1, name: 'North East' } },
+  { id: 2, name: 'Bamburgh', enabled: false, region: { id: 1, name: 'North East' } },
+  { id: 3, name: 'Keswick', enabled: true, region: { id: 2, name: 'Lake District' } },
+  { id: 5, name: 'Skye', enabled: false, region: { id: 3, name: 'Scotland' } },
+  { id: 4, name: 'No Region', enabled: true, region: null },
+];
+
+const MOCK_AREAS = [
+  { id: 10, name: 'Northumberland coast', kind: 'SUB_REGION', regionId: 1, locationIds: [1, 2] },
+  { id: 11, name: 'Durham dales', kind: 'SUB_REGION', regionId: 1, locationIds: [] },
+  { id: 12, name: 'Western fells', kind: 'SUB_REGION', regionId: 2, locationIds: [3] },
+  { id: 13, name: 'A named area', kind: 'NAMED', regionId: null, locationIds: [1] },
 ];
 
 function makeMockRegions(count) {
@@ -41,297 +52,514 @@ function makeMockRegions(count) {
   }));
 }
 
+/** The region names in the grid, in row order. */
+function listedNames() {
+  return screen.getAllByTestId(/^regions-row-/)
+    .map((row) => row.querySelector('[data-testid^="regions-cell-region-"] span').textContent);
+}
+
+async function renderLoaded() {
+  render(<RegionManagementView />);
+  await screen.findByTestId('regions');
+}
+
+async function openPanel(id) {
+  fireEvent.click(await screen.findByTestId(`regions-row-${id}`));
+  return screen.findByTestId('region-reader-panel');
+}
+
 describe('RegionManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.location.hash = '';
+    useIsMobile.mockReturnValue(false);
     fetchRegions.mockResolvedValue(MOCK_REGIONS);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+    fetchAreas.mockResolvedValue(MOCK_AREAS);
   });
 
-  it('renders region list with names', async () => {
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByText('North East')).toBeInTheDocument();
+  describe('the list', () => {
+    it('renders the header with the on and off split and Add region', async () => {
+      await renderLoaded();
+      expect(screen.getByRole('heading', { name: /^Regions/ })).toBeInTheDocument();
+      expect(screen.getByTestId('region-total')).toHaveTextContent('2 on · 1 off');
+      expect(screen.getByTestId('add-region-btn')).toHaveTextContent('Add region');
     });
-    expect(screen.getByText('Lake District')).toBeInTheDocument();
-    expect(screen.getByText('Scotland')).toBeInTheDocument();
-  });
 
-  it('shows location count per region', async () => {
-    render(<RegionManagementView />);
+    it('lists the regions that are on, alphabetically, and keeps the off ones out of sight', async () => {
+      await renderLoaded();
+      expect(listedNames()).toEqual(['Lake District', 'North East']);
+      expect(screen.queryByText('Scotland')).not.toBeInTheDocument();
+    });
 
-    await waitFor(() => {
+    it('shows a collapsed "Off · n" group header that opens to reveal the off regions', async () => {
+      await renderLoaded();
+      const header = screen.getByTestId('regions-group-off');
+      expect(header).toHaveTextContent('Off · 1');
+      expect(header).toHaveAttribute('aria-expanded', 'false');
+
+      fireEvent.click(header);
+
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'true');
+      expect(listedNames()).toEqual(['Lake District', 'North East', 'Scotland']);
+      // The header sits between the two groups.
+      const order = screen.getAllByTestId(/^regions-(row|group)-/).map((el) => el.dataset.testid);
+      expect(order).toEqual(['regions-row-2', 'regions-row-1', 'regions-group-off', 'regions-row-3']);
+
+      fireEvent.click(screen.getByTestId('regions-group-off'));
+      expect(screen.queryByText('Scotland')).not.toBeInTheDocument();
+    });
+
+    it('opens and closes the group from the keyboard', async () => {
+      const user = userEvent.setup();
+      await renderLoaded();
+      screen.getByTestId('regions-group-off').focus();
+      await user.keyboard('{Enter}');
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'true');
+      await user.keyboard(' ');
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('has no group header when every region is on', async () => {
+      fetchRegions.mockResolvedValue(MOCK_REGIONS.slice(0, 2));
+      await renderLoaded();
+      expect(screen.queryByTestId('regions-group-off')).not.toBeInTheDocument();
+      expect(screen.getByTestId('region-total')).toHaveTextContent('2 on · 0 off');
+    });
+
+    it('opens the Off group when the hash selects an off region', async () => {
+      window.location.hash = '#manage/regions/3';
+      await renderLoaded();
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('regions-row-3')).toHaveAttribute('aria-current', 'true');
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+    });
+
+    it('counts sub-regions (SUB_REGION areas of the region) and every location in it', async () => {
+      await renderLoaded();
+      expect(screen.getByTestId('region-sub-region-count-1')).toHaveTextContent('2');
+      expect(screen.getByTestId('region-sub-region-count-2')).toHaveTextContent('1');
+      // Both of North East's locations count, switched on or not.
       expect(screen.getByTestId('region-location-count-1')).toHaveTextContent('2');
+      expect(screen.getByTestId('region-location-count-2')).toHaveTextContent('1');
     });
-    expect(screen.getByTestId('region-location-count-2')).toHaveTextContent('1');
-    expect(screen.getByTestId('region-location-count-3')).toHaveTextContent('0');
-  });
 
-  it('shows 0 for regions with no locations', async () => {
-    fetchLocations.mockResolvedValue([]);
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
+    it('shows 0 for regions with no locations or sub-regions', async () => {
+      fetchLocations.mockResolvedValue([]);
+      fetchAreas.mockResolvedValue([]);
+      await renderLoaded();
       expect(screen.getByTestId('region-location-count-1')).toHaveTextContent('0');
-    });
-    expect(screen.getByTestId('region-location-count-2')).toHaveTextContent('0');
-  });
-
-  it('shows Add New Region form when button clicked', async () => {
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('add-region-btn')).toBeInTheDocument();
+      expect(screen.getByTestId('region-sub-region-count-1')).toHaveTextContent('0');
     });
 
-    fireEvent.click(screen.getByTestId('add-region-btn'));
-
-    expect(screen.getByText('Add New Region')).toBeInTheDocument();
-    expect(screen.getByTestId('region-name-input')).toBeInTheDocument();
-  });
-
-  it('calls addRegion on save in add mode', async () => {
-    addRegion.mockResolvedValue({});
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('add-region-btn')).toBeInTheDocument();
+    it('formats the created date with the shared date helper', async () => {
+      await renderLoaded();
+      expect(screen.getByTestId('regions-cell-created-1')).toHaveTextContent('15 Jan 2026');
     });
 
-    fireEvent.click(screen.getByTestId('add-region-btn'));
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'Yorkshire' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
-
-    await waitFor(() => {
-      expect(addRegion).toHaveBeenCalledWith({ name: 'Yorkshire' });
-    });
-  });
-
-  it('shows edit form with current name when Edit clicked', async () => {
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('edit-region-1')).toBeInTheDocument();
+    it('puts the counts on the second card line and gives each row a full accessible name', async () => {
+      await renderLoaded();
+      expect(screen.getByTestId('regions-cell-card-summary-1')).toHaveTextContent('2 sub-regions · 2 locations');
+      expect(screen.getByTestId('regions-cell-card-summary-2')).toHaveTextContent('1 sub-region · 1 location');
+      expect(screen.getByTestId('regions-row-1'))
+        .toHaveAccessibleName('North East, enabled, 2 sub-regions · 2 locations, created 15 Jan 2026');
     });
 
-    fireEvent.click(screen.getByTestId('edit-region-1'));
-
-    expect(screen.getByText('Edit Region: North East')).toBeInTheDocument();
-    expect(screen.getByTestId('region-name-input')).toHaveValue('North East');
-  });
-
-  it('calls updateRegion on save in edit mode', async () => {
-    updateRegion.mockResolvedValue({});
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('edit-region-1')).toBeInTheDocument();
+    it('holds no interactive element inside a row', async () => {
+      await renderLoaded();
+      expect(within(screen.getByTestId('regions-row-1')).queryAllByRole('button')).toHaveLength(0);
     });
 
-    fireEvent.click(screen.getByTestId('edit-region-1'));
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'North East England' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+    it('shows the empty state when there are no regions', async () => {
+      fetchRegions.mockResolvedValue([]);
+      render(<RegionManagementView />);
+      expect(await screen.findByText('No regions configured. Add one to get started.')).toBeInTheDocument();
+    });
 
-    await waitFor(() => {
-      expect(updateRegion).toHaveBeenCalledWith(1, { name: 'North East England' });
+    it('shows an error and no list when the regions fail to load', async () => {
+      fetchRegions.mockRejectedValue(new Error('down'));
+      render(<RegionManagementView />);
+      expect(await screen.findByTestId('regions-load-error')).toHaveTextContent("Couldn't load regions.");
+      expect(screen.queryByTestId('regions')).not.toBeInTheDocument();
+    });
+
+    it('still lists the regions, with a notice, when locations or sub-regions fail to load', async () => {
+      fetchLocations.mockRejectedValue(new Error('down'));
+      await renderLoaded();
+      expect(listedNames()).toEqual(['Lake District', 'North East']);
+      expect(screen.getByTestId('region-notice')).toBeInTheDocument();
+    });
+
+    it('sorts by a header and reverses on a second press', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('regions-sort-name'));
+      expect(listedNames()).toEqual(['North East', 'Lake District']);
+      fireEvent.click(screen.getByTestId('regions-sort-locations'));
+      expect(listedNames()).toEqual(['Lake District', 'North East']);
+    });
+
+    it('does not offer to sort by status (the groups already split it)', async () => {
+      await renderLoaded();
+      expect(screen.queryByTestId('regions-sort-status')).not.toBeInTheDocument();
     });
   });
 
-  it('disables save button when name is blank', async () => {
-    render(<RegionManagementView />);
+  describe('pagination', () => {
+    it('paginates regions when more than page size', async () => {
+      fetchRegions.mockResolvedValue(makeMockRegions(15));
+      await renderLoaded();
 
-    await waitFor(() => {
-      expect(screen.getByTestId('add-region-btn')).toBeInTheDocument();
+      expect(screen.getByText('Region 1')).toBeInTheDocument();
+      expect(screen.getByText('Region 4')).toBeInTheDocument();
+      expect(screen.queryByText('Region 5')).not.toBeInTheDocument();
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
+
+      fireEvent.click(screen.getByTestId('pagination-next'));
+      expect(await screen.findByText('Region 5')).toBeInTheDocument();
+      expect(screen.queryByText('Region 1')).not.toBeInTheDocument();
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–15 of 15');
     });
 
-    fireEvent.click(screen.getByTestId('add-region-btn'));
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: '   ' } });
-
-    expect(screen.getByTestId('save-region-btn')).toBeDisabled();
-  });
-
-  it('Cancel returns to list mode', async () => {
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('add-region-btn')).toBeInTheDocument();
+    it('hides pagination when all regions fit on one page', async () => {
+      await renderLoaded();
+      expect(screen.queryByTestId('pagination')).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId('add-region-btn'));
-    expect(screen.getByText('Add New Region')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Cancel'));
-
-    expect(screen.getByText('Region Management')).toBeInTheDocument();
-    expect(screen.getByTestId('regions-table')).toBeInTheDocument();
-  });
-
-  it('shows empty state when no regions', async () => {
-    fetchRegions.mockResolvedValue([]);
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByText('No regions configured. Add one to get started.')).toBeInTheDocument();
-    });
-  });
-
-  it('toggle enabled calls setRegionEnabled', async () => {
-    setRegionEnabled.mockResolvedValue({});
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('toggle-region-enabled-1')).toBeInTheDocument();
+    it('page size change works', async () => {
+      fetchRegions.mockResolvedValue(makeMockRegions(30));
+      await renderLoaded();
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 30');
+      fireEvent.click(screen.getByTestId('pagination-size-25'));
+      await waitFor(() => {
+        expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–25 of 30');
+      });
     });
 
-    fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
-
-    await waitFor(() => {
-      expect(setRegionEnabled).toHaveBeenCalledWith(1, false);
-    });
-  });
-
-  it('shows the server\'s sentence when turning a region off is refused (D3 409)', async () => {
-    setRegionEnabled.mockRejectedValue({
-      response: { status: 409, data: { error: 'Turn off its 2 locations first.' } },
-    });
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    render(<RegionManagementView />);
-    await waitFor(() => {
-      expect(screen.getByTestId('toggle-region-enabled-1')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
-
-    expect(await screen.findByTestId('region-toggle-error'))
-      .toHaveTextContent('Turn off its 2 locations first.');
-    consoleError.mockRestore();
-  });
-
-  // --- Pagination tests ---
-
-  it('paginates regions when more than page size', async () => {
-    const manyRegions = makeMockRegions(15);
-    fetchRegions.mockResolvedValue(manyRegions);
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('pagination')).toBeInTheDocument();
-    });
-
-    // Alphabetical sort: Region 1, 10, 11, 12, 13, 14, 15, 2, 3, 4 on page 1
-    expect(screen.getByText('Region 1')).toBeInTheDocument();
-    expect(screen.getByText('Region 4')).toBeInTheDocument();
-    expect(screen.queryByText('Region 5')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
-
-    // Navigate to page 2
-    fireEvent.click(screen.getByTestId('pagination-next'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Region 5')).toBeInTheDocument();
-    });
-    expect(screen.queryByText('Region 1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–15 of 15');
-  });
-
-  it('hides pagination when all regions fit on one page', async () => {
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByText('North East')).toBeInTheDocument();
-    });
-
-    expect(screen.queryByTestId('pagination')).not.toBeInTheDocument();
-  });
-
-  it('spacer rows fill partial last page', async () => {
-    const manyRegions = makeMockRegions(12);
-    fetchRegions.mockResolvedValue(manyRegions);
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('pagination')).toBeInTheDocument();
-    });
-
-    // Navigate to page 2 (2 data rows + 8 spacers)
-    fireEvent.click(screen.getByTestId('pagination-next'));
-
-    await waitFor(() => {
+    it('puts the collapsed Off group header after the last on row, on the last page', async () => {
+      fetchRegions.mockResolvedValue([...makeMockRegions(12), { id: 99, name: 'Zed', enabled: false, createdAt: '2026-01-01T10:00:00' }]);
+      await renderLoaded();
+      expect(screen.queryByTestId('regions-group-off')).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId('pagination-next'));
+      expect(await screen.findByTestId('regions-group-off')).toBeInTheDocument();
       expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–12 of 12');
     });
-
-    const table = screen.getByTestId('regions-table');
-    const rows = table.querySelectorAll('tbody tr');
-    // 2 data rows + 8 spacer rows = 10
-    expect(rows.length).toBe(10);
   });
 
-  it('page size change works', async () => {
-    const manyRegions = makeMockRegions(30);
-    fetchRegions.mockResolvedValue(manyRegions);
-
-    render(<RegionManagementView />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('pagination')).toBeInTheDocument();
+  describe('the region panel', () => {
+    it('opens on a row, writes the hash and shows the meta line', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      expect(window.location.hash).toBe('#manage/regions/1');
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('North East');
+      expect(screen.getByTestId('region-panel-subtitle')).toHaveTextContent('On · created 15 Jan 2026');
     });
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 30');
+    it('shows the base, or "Not set" for a region without one', async () => {
+      fetchRegions.mockResolvedValue([
+        { ...MOCK_REGIONS[0], baseName: 'Alnwick', baseLat: 55.4137, baseLon: -1.706 },
+        MOCK_REGIONS[1],
+      ]);
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-base-1')).toHaveTextContent('Alnwick');
+      expect(screen.getByTestId('region-base-1')).toHaveTextContent('55.4137, -1.706');
+    });
 
-    // Change to 25 per page
-    fireEvent.click(screen.getByTestId('pagination-size-25'));
+    it('says "Not set" where there is no base', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-base-1')).toHaveTextContent('Not set');
+    });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–25 of 30');
+    it('lists the sub-regions with their location counts and a summary on the right', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-sub-regions-summary')).toHaveTextContent('2 · 2 locations');
+      expect(screen.getByTestId('region-sub-region-11')).toHaveTextContent('Durham dales');
+      expect(screen.getByTestId('region-sub-region-11')).toHaveTextContent('0 locations');
+      expect(screen.getByTestId('region-sub-region-10')).toHaveTextContent('Northumberland coast');
+      expect(screen.getByTestId('region-sub-region-10')).toHaveTextContent('2 locations');
+      // The named area and the other region's sub-region are not listed.
+      expect(screen.queryByText('A named area')).not.toBeInTheDocument();
+      expect(screen.queryByText('Western fells')).not.toBeInTheDocument();
+      // No picks (D2).
+      expect(screen.getByTestId('region-sub-regions')).not.toHaveTextContent(/pick/i);
+    });
+
+    it('says so when the region has no sub-regions', async () => {
+      fetchAreas.mockResolvedValue([]);
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-no-sub-regions')).toBeInTheDocument();
+    });
+
+    it('closes with the × and clears the hash', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('region-panel-close'));
+      expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
+      expect(window.location.hash).toBe('#manage/regions');
+    });
+
+    it('closes on Escape', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
+    });
+
+    it('leaves the bare tab address when the hash names no region', async () => {
+      window.location.hash = '#manage/regions/999';
+      await renderLoaded();
+      await waitFor(() => expect(window.location.hash).toBe('#manage/regions'));
+      expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
+    });
+
+    it('makes the panel an aside, never a dialog', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByRole('complementary', { name: 'Region North East' })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
   });
 
-  // --- Sorting tests ---
+  describe('Region actions', () => {
+    it('turns a region with no switched-on locations off at once, with no dialog', async () => {
+      setRegionEnabled.mockResolvedValue({});
+      // Lake District's one location is switched off here.
+      fetchLocations.mockResolvedValue([{ id: 3, name: 'Keswick', enabled: false, region: { id: 2, name: 'Lake District' } }]);
+      await renderLoaded();
+      await openPanel(2);
+      expect(screen.getByTestId('region-actions'))
+        .toHaveTextContent("It leaves the region pickers, Ask and the Plan's starting points.");
 
-  it('sorting by name toggles direction', async () => {
-    render(<RegionManagementView />);
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-2'));
 
-    await waitFor(() => {
-      expect(screen.getByText('North East')).toBeInTheDocument();
+      await waitFor(() => expect(setRegionEnabled).toHaveBeenCalledWith(2, false));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    // Default: name ascending — Lake District, North East, Scotland
-    const rows = screen.getByTestId('regions-table').querySelectorAll('tbody tr');
-    expect(rows[0]).toHaveTextContent('Lake District');
-    expect(rows[1]).toHaveTextContent('North East');
-    expect(rows[2]).toHaveTextContent('Scotland');
+    it('disables Turn off while locations are switched on, says how many, and links to them', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      // Two locations in North East, ONE switched on: the count is of switched-on ones only.
+      expect(screen.getByTestId('region-actions')).toHaveTextContent('Turn its 1 location off first.');
+      const button = screen.getByTestId('toggle-region-enabled-1');
+      // aria-disabled, not disabled: it stays focusable and its reason is announced with it.
+      expect(button).toHaveAttribute('aria-disabled', 'true');
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveAccessibleDescription('Turn its 1 location off first.');
+      expect(screen.getByTestId('region-show-locations')).toHaveAttribute('href', '#manage/locations?region=1');
 
-    // Click name header to reverse
-    fireEvent.click(screen.getByText('Name ▲'));
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+      expect(setRegionEnabled).not.toHaveBeenCalled();
+    });
 
-    const rowsDesc = screen.getByTestId('regions-table').querySelectorAll('tbody tr');
-    expect(rowsDesc[0]).toHaveTextContent('Scotland');
-    expect(rowsDesc[1]).toHaveTextContent('North East');
-    expect(rowsDesc[2]).toHaveTextContent('Lake District');
+    it('counts only switched-on locations, plural', async () => {
+      fetchLocations.mockResolvedValue([
+        { id: 1, enabled: true, region: { id: 1 } },
+        { id: 2, enabled: true, region: { id: 1 } },
+        { id: 3, enabled: false, region: { id: 1 } },
+      ]);
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-actions')).toHaveTextContent('Turn its 2 locations off first.');
+    });
+
+    it('offers Turn on for an off region and calls the endpoint', async () => {
+      setRegionEnabled.mockResolvedValue({});
+      window.location.hash = '#manage/regions/3';
+      await renderLoaded();
+      expect(screen.getByTestId('region-actions'))
+        .toHaveTextContent("It comes back to the region pickers, Ask and the Plan's starting points.");
+      expect(screen.queryByTestId('region-show-locations')).not.toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-subtitle')).toHaveTextContent('Off · created 1 Mar 2026');
+
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-3'));
+      await waitFor(() => expect(setRegionEnabled).toHaveBeenCalledWith(3, true));
+    });
+
+    it('moves a region from the Off group to the list once it is turned on', async () => {
+      setRegionEnabled.mockResolvedValue({});
+      window.location.hash = '#manage/regions/3';
+      fetchRegions
+        .mockResolvedValueOnce(MOCK_REGIONS)
+        .mockResolvedValue(MOCK_REGIONS.map((r) => (r.id === 3 ? { ...r, enabled: true } : r)));
+      await renderLoaded();
+
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-3'));
+
+      await waitFor(() => expect(screen.getByTestId('region-total')).toHaveTextContent('3 on · 0 off'));
+      expect(screen.queryByTestId('regions-group-off')).not.toBeInTheDocument();
+      expect(listedNames()).toContain('Scotland');
+    });
+
+    it('reverts a refused toggle and shows the server sentence under the action', async () => {
+      // A race: the locations list was stale, so the button was live, and the server refused.
+      setRegionEnabled.mockRejectedValue({
+        response: { status: 409, data: { error: 'Turn off its 2 locations first.' } },
+      });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchLocations.mockResolvedValue([]);
+      await renderLoaded();
+      await openPanel(1);
+
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+
+      expect(await screen.findByTestId('region-toggle-error')).toHaveTextContent('Turn off its 2 locations first.');
+      // Reverted: still on, still offering Turn off, still in the list, not in a re-opened Off group.
+      await waitFor(() => expect(screen.getByTestId('region-total')).toHaveTextContent('2 on · 1 off'));
+      expect(screen.getByTestId('region-panel-subtitle')).toHaveTextContent('On ·');
+      expect(screen.getByTestId('toggle-region-enabled-1')).toHaveTextContent('Turn off');
+      expect(screen.getByTestId('toggle-region-enabled-1')).toBeEnabled();
+      // A refused turn-off must not leave the Off group open.
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'false');
+      consoleError.mockRestore();
+    });
+
+    it('does not show one region\'s refusal under another', async () => {
+      setRegionEnabled.mockRejectedValue({ response: { status: 409, data: { error: 'Nope.' } } });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchLocations.mockResolvedValue([]);
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+      await screen.findByTestId('region-toggle-error');
+
+      fireEvent.click(screen.getByTestId('regions-row-2'));
+
+      await waitFor(() => expect(screen.getByTestId('region-panel-title')).toHaveTextContent('Lake District'));
+      expect(screen.queryByTestId('region-toggle-error')).not.toBeInTheDocument();
+      consoleError.mockRestore();
+    });
   });
-});
 
-/**
- * Region bases — the origin the Plan tab can plan from (heat-field plan §4.8, P7).
- *
- * <p><b>What breaks if these fail.</b> Two things, and the second is destructive. A base that is
- * half-saved cannot be routed from, so the region silently stops being an origin with nothing
- * saying why. And a base save that fires on an unchanged form throws away that region's whole
- * shared drive-time matrix — an ORS sweep — every time an admin re-saves a name.
- */
-describe('RegionManagementView — the base town', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchRegions.mockResolvedValue([
+  describe('Add region', () => {
+    it('opens a one-field form in the panel with Cancel and Save', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      expect(await screen.findByTestId('region-form-add')).toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('Add region');
+      expect(screen.getByTestId('region-name-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('region-base-fields')).not.toBeInTheDocument();
+      expect(within(screen.getByTestId('region-panel-footer')).getByText('Cancel')).toBeInTheDocument();
+    });
+
+    it('calls addRegion and selects the new region', async () => {
+      addRegion.mockResolvedValue({ id: 9, name: 'Yorkshire' });
+      fetchRegions
+        .mockResolvedValueOnce(MOCK_REGIONS)
+        .mockResolvedValue([...MOCK_REGIONS, { id: 9, name: 'Yorkshire', enabled: true, createdAt: '2026-10-31T10:00:00' }]);
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.change(await screen.findByTestId('region-name-input'), { target: { value: '  Yorkshire ' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      await waitFor(() => expect(addRegion).toHaveBeenCalledWith({ name: 'Yorkshire' }));
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('Yorkshire');
+      expect(window.location.hash).toBe('#manage/regions/9');
+      expect(screen.getByTestId('regions-row-9')).toHaveAttribute('aria-current', 'true');
+    });
+
+    it('disables Save while the name is blank', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.change(await screen.findByTestId('region-name-input'), { target: { value: '   ' } });
+      expect(screen.getByTestId('save-region-btn')).toBeDisabled();
+    });
+
+    it('keeps the form open and shows the server\'s sentence when the add fails', async () => {
+      addRegion.mockRejectedValue({ response: { data: { error: 'A region with that name already exists' } } });
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.change(await screen.findByTestId('region-name-input'), { target: { value: 'North East' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByText('A region with that name already exists')).toBeInTheDocument();
+      expect(screen.getByTestId('region-form-add')).toBeInTheDocument();
+    });
+
+    it('Cancel closes the panel and leaves the list', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.click(await screen.findByTestId('region-form-cancel'));
+      expect(screen.queryByTestId('region-form-add')).not.toBeInTheDocument();
+      expect(screen.getByTestId('regions')).toBeInTheDocument();
+    });
+
+    it('Escape closes Add region', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      await screen.findByTestId('region-form-add');
+      fireEvent.keyDown(screen.getByTestId('region-name-input'), { key: 'Escape' });
+      expect(screen.queryByTestId('region-form-add')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Rename', () => {
+    async function openRename(id = 1) {
+      await renderLoaded();
+      await openPanel(id);
+      fireEvent.click(screen.getByTestId(`rename-region-${id}`));
+      return screen.findByTestId('region-form-rename');
+    }
+
+    it('opens the single Name field with the current name', async () => {
+      await openRename();
+      expect(screen.getByTestId('region-name-input')).toHaveValue('North East');
+      expect(screen.queryByTestId('region-base-fields')).not.toBeInTheDocument();
+    });
+
+    it('calls updateRegion with the new name and returns to the panel showing it', async () => {
+      updateRegion.mockResolvedValue({});
+      fetchRegions
+        .mockResolvedValueOnce(MOCK_REGIONS)
+        .mockResolvedValue(MOCK_REGIONS.map((r) => (r.id === 1 ? { ...r, name: 'North East England' } : r)));
+      await openRename();
+      fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'North East England' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      await waitFor(() => expect(updateRegion).toHaveBeenCalledWith(1, { name: 'North East England' }));
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('North East England');
+      // ⚠️ A rename never touches the base: moving it discards the drive-time matrix.
+      expect(setRegionBase).not.toHaveBeenCalled();
+    });
+
+    it('Cancel returns to the panel without calling the API', async () => {
+      await openRename();
+      fireEvent.click(screen.getByTestId('region-form-cancel'));
+      expect(screen.getByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(updateRegion).not.toHaveBeenCalled();
+    });
+
+    it('Escape steps back to the panel first, then closes it', async () => {
+      await openRename();
+      fireEvent.keyDown(screen.getByTestId('region-name-input'), { key: 'Escape' });
+      expect(screen.getByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('region-form-rename')).not.toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
+    });
+
+    it('re-reads the list when the save fails, and keeps the form open with the error', async () => {
+      updateRegion.mockRejectedValue({ response: { data: { error: 'Name taken' } } });
+      await openRename();
+      fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'Lake District' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByText('Name taken')).toBeInTheDocument();
+      // Twice: the mount, and the re-read after the failure.
+      await waitFor(() => expect(fetchRegions).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId('region-name-input')).toHaveValue('Lake District');
+    });
+  });
+
+  describe('Edit base — the base town', () => {
+    // The base is the origin the Plan tab can plan from (heat-field plan §4.8). A half-saved base cannot be routed
+    // from, and a base save on an unchanged form throws away that region's whole shared drive-time matrix.
+    const BASED = [
       {
         id: 1, name: 'Lake District', enabled: true, createdAt: '2026-01-15T10:00:00',
         baseName: 'Keswick', baseLat: 54.6013, baseLon: -3.1347,
@@ -340,142 +568,277 @@ describe('RegionManagementView — the base town', () => {
         id: 2, name: 'North East', enabled: true, createdAt: '2026-02-01T10:00:00',
         baseName: null, baseLat: null, baseLon: null,
       },
-    ]);
-    fetchLocations.mockResolvedValue([]);
-    updateRegion.mockResolvedValue({});
-    setRegionBase.mockResolvedValue({});
+    ];
+
+    beforeEach(() => {
+      fetchRegions.mockResolvedValue(BASED);
+      fetchLocations.mockResolvedValue([]);
+      fetchAreas.mockResolvedValue([]);
+      updateRegion.mockResolvedValue({});
+      setRegionBase.mockResolvedValue({});
+    });
+
+    async function openBase(id) {
+      await renderLoaded();
+      await openPanel(id);
+      fireEvent.click(screen.getByTestId(`edit-region-base-${id}`));
+      return screen.findByTestId('region-form-base');
+    }
+
+    it('shows each region\'s base in its panel', async () => {
+      await renderLoaded();
+      await openPanel(1);
+      expect(screen.getByTestId('region-base-1')).toHaveTextContent('Keswick');
+    });
+
+    it('loads the stored base into the form', async () => {
+      await openBase(1);
+      expect(screen.getByTestId('region-base-name-input')).toHaveValue('Keswick');
+      expect(screen.getByTestId('region-base-lat-input')).toHaveValue('54.6013');
+      expect(screen.getByTestId('region-base-lon-input')).toHaveValue('-3.1347');
+      expect(screen.queryByTestId('region-name-input')).not.toBeInTheDocument();
+    });
+
+    it('opens empty for a region with no base', async () => {
+      await openBase(2);
+      expect(screen.getByTestId('region-base-name-input')).toHaveValue('');
+      expect(screen.getByTestId('region-base-lat-input')).toHaveValue('');
+    });
+
+    it('keeps the copy that moving the base clears the drive times', async () => {
+      await openBase(1);
+      expect(screen.getByTestId('region-base-fields')).toHaveTextContent(/discards this region.s stored drive times/);
+    });
+
+    it('saves a new base through its own endpoint, with the coordinates as numbers', async () => {
+      await openBase(2);
+      fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '55.4137' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7060' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(2, {
+        baseName: 'Alnwick', baseLat: 55.4137, baseLon: -1.706,
+      }));
+      expect(updateRegion).not.toHaveBeenCalled();
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+    });
+
+    it('⚠️ does NOT call the base endpoint when the form is saved unchanged', async () => {
+      await openBase(1);
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(setRegionBase).not.toHaveBeenCalled();
+    });
+
+    it('clears the base when all three fields are emptied', async () => {
+      await openBase(1);
+      fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: '' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(1, {
+        baseName: null, baseLat: null, baseLon: null,
+      }));
+    });
+
+    it('does not send a clear for a region that had no base to start with', async () => {
+      await openBase(2);
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(setRegionBase).not.toHaveBeenCalled();
+    });
+
+    it('⚠️ refuses a partial base beside the fields, rather than as a 400 after a round trip', async () => {
+      await openBase(2);
+      fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByText(
+        'A base town needs a name, a latitude and a longitude — or leave all three blank.',
+      )).toBeInTheDocument();
+      expect(setRegionBase).not.toHaveBeenCalled();
+    });
+
+    it('refuses a coordinate that is not a number', async () => {
+      await openBase(2);
+      fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: 'north' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByText(/needs a name, a latitude and a longitude/i)).toBeInTheDocument();
+      expect(setRegionBase).not.toHaveBeenCalled();
+    });
+
+    it('⚠️ re-reads the list when the save fails, and keeps the form on the field that failed', async () => {
+      setRegionBase.mockRejectedValue({ response: { data: { error: 'Base coordinates are out of range' } } });
+      await openBase(2);
+      fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '545.4' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByText(/out of range/i)).toBeInTheDocument();
+      await waitFor(() => expect(fetchRegions).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId('region-base-lat-input')).toHaveValue('545.4');
+    });
+
+    it('keeps a base at zero longitude — Greenwich is a place, and `||` would blank it', async () => {
+      fetchRegions.mockResolvedValue([{
+        id: 1, name: 'Home Counties', enabled: true, createdAt: '2026-01-15T10:00:00',
+        baseName: 'Greenwich', baseLat: 51.4826, baseLon: 0,
+      }]);
+      await openBase(1);
+      expect(screen.getByTestId('region-base-lon-input')).toHaveValue('0');
+    });
   });
+  describe('review fixes', () => {
+    const TWELVE_ON_ONE_OFF = [
+      ...makeMockRegions(12),
+      { id: 99, name: 'Zed', enabled: false, createdAt: '2026-01-01T10:00:00' },
+    ];
 
-  const openEdit = async (id) => {
-    fireEvent.click(await screen.findByTestId(`edit-region-${id}`));
-  };
+    it('keeps the page, and focus on the header, when the Off group opens and closes', async () => {
+      fetchRegions.mockResolvedValue(TWELVE_ON_ONE_OFF);
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('pagination-next'));
+      fireEvent.click(await screen.findByTestId('regions-group-off'));
 
-  it('lists each region\'s base, and an em dash where there is none', async () => {
-    render(<RegionManagementView />);
-    expect(await screen.findByTestId('region-base-1')).toHaveTextContent('Keswick');
-    expect(screen.getByTestId('region-base-2')).toHaveTextContent('—');
-  });
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–13 of 13');
+      expect(screen.getByTestId('regions-row-99')).toBeInTheDocument();
+      expect(screen.getByTestId('regions-group-off')).toHaveFocus();
 
-  it('loads the stored base into the edit form', async () => {
-    render(<RegionManagementView />);
-    await openEdit(1);
-    expect(screen.getByTestId('region-base-name-input')).toHaveValue('Keswick');
-    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('54.6013');
-    expect(screen.getByTestId('region-base-lon-input')).toHaveValue('-3.1347');
-  });
+      fireEvent.click(screen.getByTestId('regions-group-off'));
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–12 of 12');
+      expect(screen.queryByTestId('regions-row-99')).not.toBeInTheDocument();
+      expect(screen.getByTestId('regions-group-off')).toHaveFocus();
+    });
 
-  it('opens empty for a region with no base', async () => {
-    render(<RegionManagementView />);
-    await openEdit(2);
-    expect(screen.getByTestId('region-base-name-input')).toHaveValue('');
-    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('');
-  });
+    it('keeps the in-flight Turn off focusable (aria-disabled) and ignores a second press', async () => {
+      let resolve;
+      setRegionEnabled.mockReturnValue(new Promise((r) => { resolve = r; }));
+      fetchLocations.mockResolvedValue([]);
+      await renderLoaded();
+      await openPanel(1);
+      const button = screen.getByTestId('toggle-region-enabled-1');
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(setRegionEnabled).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByTestId('toggle-region-enabled-1')).toHaveAttribute('aria-disabled', 'true'));
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+      expect(setRegionEnabled).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('toggle-region-enabled-1')).not.toBeDisabled();
+      resolve({});
+    });
 
-  it('offers no base fields when ADDING — a region is named first and based afterwards', async () => {
-    render(<RegionManagementView />);
-    fireEvent.click(await screen.findByTestId('add-region-btn'));
-    expect(screen.queryByTestId('region-base-fields')).toBeNull();
-  });
+    it('sends one addRegion when Enter is pressed twice during the save', async () => {
+      let resolve;
+      addRegion.mockReturnValue(new Promise((r) => { resolve = r; }));
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      const input = await screen.findByTestId('region-name-input');
+      fireEvent.change(input, { target: { value: 'Yorkshire' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(addRegion).toHaveBeenCalledTimes(1);
+      resolve({ id: 9, name: 'Yorkshire' });
+      await screen.findByTestId('region-reader-panel');
+    });
 
-  it('saves a new base through its own endpoint, with the coordinates as numbers', async () => {
-    render(<RegionManagementView />);
-    await openEdit(2);
-    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
-    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '55.4137' } });
-    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7060' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+    it('sends one setRegionBase when Enter is pressed twice during the save', async () => {
+      let resolve;
+      setRegionBase.mockReturnValue(new Promise((r) => { resolve = r; }));
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('edit-region-base-1'));
+      const name = await screen.findByTestId('region-base-name-input');
+      fireEvent.change(name, { target: { value: 'Alnwick' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '55.4' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+      fireEvent.keyDown(name, { key: 'Enter' });
+      fireEvent.keyDown(name, { key: 'Enter' });
+      expect(setRegionBase).toHaveBeenCalledTimes(1);
+      resolve({});
+      await screen.findByTestId('region-reader-panel');
+    });
 
-    await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(2, {
-      baseName: 'Alnwick', baseLat: 55.4137, baseLon: -1.706,
-    }));
-  });
+    it('selects a new region even when the re-read after the add fails', async () => {
+      addRegion.mockResolvedValue({ id: 9, name: 'Yorkshire', enabled: true, createdAt: '2026-10-31T10:00:00' });
+      fetchRegions.mockResolvedValueOnce(MOCK_REGIONS).mockRejectedValue(new Error('down'));
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.change(await screen.findByTestId('region-name-input'), { target: { value: 'Yorkshire' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
 
-  it('⚠️ does NOT touch the base when only the name was edited', async () => {
-    // Every base save discards that region's whole drive-time matrix. Re-saving a region name must
-    // not cost an ORS sweep.
-    render(<RegionManagementView />);
-    await openEdit(1);
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The Lakes' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('Yorkshire');
+      expect(window.location.hash).toBe('#manage/regions/9');
+    });
 
-    await waitFor(() => expect(updateRegion).toHaveBeenCalledWith(1, { name: 'The Lakes' }));
-    expect(setRegionBase).not.toHaveBeenCalled();
-  });
+    it('says the name is required when Enter submits a blank name', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      const input = await screen.findByTestId('region-name-input');
+      fireEvent.change(input, { target: { value: '  ' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(await screen.findByText('Region name is required.')).toBeInTheDocument();
+      expect(addRegion).not.toHaveBeenCalled();
+    });
 
-  it('clears the base when all three fields are emptied', async () => {
-    render(<RegionManagementView />);
-    await openEdit(1);
-    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: '' } });
-    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '' } });
-    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+    it('moves focus to the panel title on opening a form, after Cancel and after Save', async () => {
+      updateRegion.mockResolvedValue({});
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('rename-region-1'));
+      await screen.findByTestId('region-form-rename');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
 
-    await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(1, {
-      baseName: null, baseLat: null, baseLon: null,
-    }));
-  });
+      fireEvent.click(screen.getByTestId('region-form-cancel'));
+      await screen.findByTestId('region-reader-panel');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
 
-  it('does not send a clear for a region that had no base to start with', async () => {
-    render(<RegionManagementView />);
-    await openEdit(2);
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The North East' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+      fireEvent.click(screen.getByTestId('rename-region-1'));
+      await screen.findByTestId('region-form-rename');
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+      await screen.findByTestId('region-reader-panel');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+    });
 
-    await waitFor(() => expect(updateRegion).toHaveBeenCalled());
-    expect(setRegionBase).not.toHaveBeenCalled();
-  });
+    describe('on a phone', () => {
+      beforeEach(() => useIsMobile.mockReturnValue(true));
 
-  it('⚠️ refuses a partial base beside the fields, rather than as a 400 after a round trip', async () => {
-    render(<RegionManagementView />);
-    await openEdit(2);
-    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+      it('steps back from Rename and Edit base to the region with a back bar named for it', async () => {
+        await renderLoaded();
+        await openPanel(1);
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to Regions');
 
-    expect(await screen.findByText(/needs a name, a latitude and a longitude/i)).toBeInTheDocument();
-    expect(setRegionBase).not.toHaveBeenCalled();
-    expect(updateRegion).not.toHaveBeenCalled();
-  });
+        fireEvent.click(screen.getByTestId('rename-region-1'));
+        await screen.findByTestId('region-form-rename');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to North East');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
 
-  it('refuses a coordinate that is not a number', async () => {
-    render(<RegionManagementView />);
-    await openEdit(2);
-    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
-    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: 'north' } });
-    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
+        fireEvent.click(screen.getByTestId('edit-region-base-1'));
+        await screen.findByTestId('region-form-base');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to North East');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      });
 
-    expect(await screen.findByText(/needs a name, a latitude and a longitude/i)).toBeInTheDocument();
-    expect(setRegionBase).not.toHaveBeenCalled();
-  });
+      it('returns to the list from the region, and from Add region', async () => {
+        await renderLoaded();
+        await openPanel(1);
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
 
-  it('⚠️ re-reads the list when the base call fails after the rename committed', async () => {
-    // The save is two calls. The backend bounds-checks coordinates and this form does not, so the
-    // rename can land and the base can 400 — leaving the table showing the old name for a rename
-    // that has already persisted, under an error about something else.
-    setRegionBase.mockRejectedValue({ response: { data: { error: 'Base coordinates are out of range' } } });
-    render(<RegionManagementView />);
-    await openEdit(2);
-    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The North East' } });
-    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
-    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '545.4' } });
-    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
-    fireEvent.click(screen.getByTestId('save-region-btn'));
-
-    expect(await screen.findByText(/out of range/i)).toBeInTheDocument();
-    // Twice: the mount, and the re-read after the failure.
-    await waitFor(() => expect(fetchRegions).toHaveBeenCalledTimes(2));
-    // And the form stays open on the field that failed, rather than dropping the reader back to a
-    // list whose state they cannot explain.
-    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('545.4');
-  });
-
-  it('keeps a base at zero longitude — Greenwich is a place, and `||` would blank it', async () => {
-    fetchRegions.mockResolvedValue([{
-      id: 1, name: 'Home Counties', enabled: true, createdAt: '2026-01-15T10:00:00',
-      baseName: 'Greenwich', baseLat: 51.4826, baseLon: 0,
-    }]);
-    render(<RegionManagementView />);
-    await openEdit(1);
-    expect(screen.getByTestId('region-base-lon-input')).toHaveValue('0');
+        fireEvent.click(screen.getByTestId('add-region-btn'));
+        await screen.findByTestId('region-form-add');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to Regions');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(screen.queryByTestId('region-form-add')).not.toBeInTheDocument();
+      });
+    });
   });
 });

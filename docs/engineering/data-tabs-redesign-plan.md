@@ -1,6 +1,6 @@
 # Data tabs redesign: Locations, Regions, Tides and Waitlist
 
-**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
+**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below); P5 built (Regions, `DataGrid` group headers). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
 (`design_handoff_data_tabs`: `README.md`, `Data Tabs Redesign.html`, 18 frames). It lives with the owner, not in the repo.
 Where it and the codebase disagree, **the codebase wins** (the handoff says so itself).
 
@@ -185,7 +185,9 @@ Locations list toggles previously only `console.error`ed; they now show the serv
 Tests per door (service and controller); every `RegionServiceTest` construction updated. Docs: `reference/api-endpoints.md`
 (each endpoint's new 409) and `reference/platform.md`.
 
-### 5.4 Regions (P5)
+### 5.4 Regions (P5, built)
+
+*Built departures:* no search or chips (a handful of regions); Created and Status are the secondary columns, Status is not sortable (the groups split it); the status words are *Enabled* / *Disabled* in the column (§11) and *On* / *Off* in the panel meta and cards; Rename and Edit base are separate forms (one call each), so the old rename-then-base two-call order is gone with its reason; `ManageView` strips a `?query` from the hash tab so *Show them* (`#manage/locations?region={id}`) opens Locations; the toggle's re-read joins the action's transition so the optimistic flip hands over without a flicker. The phone back bar carries no right-hand action (Rename and Edit sit in the Details section on every width); `usePagination` takes an optional `resetKey` so opening the Off group keeps the page. If locations or areas fail to load the list still shows, with a notice, and Turn off falls back to the server's 409.
 
 - **Header** *Regions* + `{n} on · {n} off` + **Add region**.
 - **Columns** Region 2fr · Sub-regions .7fr · Locations .7fr · Created .9fr (secondary) · Status .8fr (secondary).
@@ -359,8 +361,8 @@ British English, sentence case. "Turn off" / "turn on" in actions, "Disabled" in
 
 ## 12. Carried forward from the P1 review
 
-- **`DataGrid` grows when a tab needs it:** grouped rows with a collapsible header (Regions, P5). (Per-row "opens
-  nothing" rows landed in P3 as `isSelectable`; a normal column is usable in card mode with `card: 'status' | 'summary'`
+- **`DataGrid` grows when a tab needs it:** (grouped rows landed in P5 as a `{groupHeader: true, ...}` row; per-row "opens
+  nothing" rows in P3 as `isSelectable`; a normal column is usable in card mode with `card: 'status' | 'summary'`
   and no `cardOnly`, as Users and Tides use it.)
 - **Pagination** (label `1–13 of 266`, phone 9×14 padding, keep the panel open while the selection is on the filtered
   page) lands with P2, where Users' tests move.

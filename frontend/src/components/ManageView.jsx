@@ -74,7 +74,8 @@ const WAITLIST_BADGE_CLASSES =
 function manageTabFromHash() {
   const parts = window.location.hash.replace('#', '').split('/');
   if (parts[0] !== 'manage' || !parts[1]) return null;
-  const tab = parts[1];
+  // A cross-tab link may carry a query (`manage/locations?region=3`); the tab is what precedes it.
+  const tab = parts[1].split('?')[0];
   const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tab));
   return group ? { group: group.value, tab } : null;
 }

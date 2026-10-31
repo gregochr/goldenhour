@@ -60,6 +60,12 @@ function template(columns, lean) {
  * @param {(row: object) => boolean} [props.isOff] true for a row drawn in the quiet ink (a switched-off item)
  * @param {{key: string, dir: 'asc'|'desc'}} [props.sort] the current sort, for the header's arrow and the sort button's accessible name
  * @param {(sortKey: string) => void} [props.onSort] called when a sortable header is pressed
+ * <p>A row may instead be a <b>group header</b>, {@code {groupHeader: true, id, label, expanded, onToggle}}: one
+ * full-width disclosure {@code <button aria-expanded>} (mono caption and a chevron) between the rows, test id
+ * {@code {prefix}-group-{id}}. It is not a row: not selectable, not passed to {@code getRowId}, {@code getRowLabel}
+ * or {@code onSelect}. The caller decides where it sits and whether the rows under it are in {@code rows} (Regions:
+ * the "Off" group, collapsed by default, so its rows are simply left out).
+ *
  * @param {string} props.testIdPrefix the grid's test id; rows are {@code {prefix}-row-{id}}
  */
 export default function DataGrid({
@@ -112,6 +118,21 @@ export default function DataGrid({
         })}
       </div>
       {rows.map((row) => {
+        if (row.groupHeader === true) {
+          return (
+            <button
+              key={`group-${row.id}`}
+              type="button"
+              aria-expanded={row.expanded}
+              onClick={row.onToggle}
+              className="flex min-h-9 w-full cursor-pointer items-center gap-2 border-b border-plex-border/60 px-3 py-2 text-left font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted transition-colors hover:text-plex-text focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold @max-[540px]:min-h-11 @max-[540px]:px-1"
+              data-testid={`${testIdPrefix}-group-${row.id}`}
+            >
+              <span aria-hidden="true">{row.expanded ? '▾' : '▸'}</span>
+              {row.label}
+            </button>
+          );
+        }
         const id = getRowId(row);
         const selected = id === selectedId;
         const off = isOff ? isOff(row) : false;

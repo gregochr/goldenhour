@@ -68,6 +68,23 @@ describe('ManageView — following the hash while mounted', () => {
     expect(screen.getByTestId('manage-group-people').className).toContain('text-plex-gold');
   });
 
+  it('follows a cross-tab link that carries a query (Regions → Show them), and keeps the query in the hash', () => {
+    window.location.hash = '#manage/regions/2';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Regions');
+
+    goTo('#manage/locations?region=2');
+
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Locations');
+    expect(window.location.hash).toBe('#manage/locations?region=2');
+  });
+
+  it('opens a tab named with a query when Manage mounts on it', () => {
+    window.location.hash = '#manage/locations?region=2';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Locations');
+  });
+
   it('ignores a hash that is not a Manage tab, and never falls back to Pipeline Runs', () => {
     window.location.hash = '#manage/regions';
     render(<ManageView onComplete={vi.fn()} />);
