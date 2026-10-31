@@ -1,30 +1,29 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Keeps an open list-and-panel selection honest about the list's filters: when the set of items the list shows
- * changes (a search, a chip) and the selected item is no longer in it, the panel closes; while the item is still
- * in the set (a page change, a sort, an unrelated filter) the panel stays open (data-tabs-redesign-plan.md §12).
+ * Closes an open list-and-panel selection when the reader changes the list's FILTERS (a search, a chip) so that the
+ * selected item is no longer in the filtered set (data-tabs-redesign-plan.md §12). A page change, a sort, and above
+ * all a data refresh never close it.
  *
- * <p>It reacts to the filtered set changing, not to the selection changing, so opening or creating an item the
- * filters hide (Add user while a search is on) is the admin's own act and stays open. A selection that is not on
- * the page being shown is still "in the set": paging never closes the panel.
+ * <p>It is keyed on {@code filterKey} (a stable signature of the filter inputs), never on the derived items, because
+ * the admin's own actions refetch the list: Enable under the Disabled chip, Clear lock under Locked, a role edit
+ * under Lite, an email edit under a search all move the item out of the set they were opened from, and the panel
+ * must stay so the admin sees the result. For the same reason a selection that changes (Back, Forward, a new
+ * reader) is not checked: only a filter change closes.
  *
  * @param {object} options
  * @param {string|number|null} options.selectedId the open item's id, or null when no panel (or an add form) is open
  * @param {Array<object>} options.items the filtered set (before paging)
- * @param {(item: object) => (string|number)} options.getId an item's id (keep it a stable function)
+ * @param {(item: object) => (string|number)} options.getId an item's id
+ * @param {string} options.filterKey a string that changes exactly when a filter input does
  * @param {() => void} options.onClose closes the panel
  */
-export default function useCloseWhenFilteredOut({ selectedId, items, getId, onClose }) {
-  const selected = useRef(selectedId);
-  const close = useRef(onClose);
+export default function useCloseWhenFilteredOut({ selectedId, items, getId, filterKey, onClose }) {
+  const seenKey = useRef(filterKey);
   useEffect(() => {
-    selected.current = selectedId;
-    close.current = onClose;
-  }, [selectedId, onClose]);
-
-  useEffect(() => {
-    if (selected.current == null) return;
-    if (!items.some((item) => getId(item) === selected.current)) close.current();
-  }, [items, getId]);
+    if (seenKey.current === filterKey) return;
+    seenKey.current = filterKey;
+    if (selectedId == null) return;
+    if (!items.some((item) => getId(item) === selectedId)) onClose();
+  }, [selectedId, items, getId, filterKey, onClose]);
 }

@@ -73,14 +73,14 @@ function SubRegionsCell({ user }) {
 
 SubRegionsCell.propTypes = { user: PropTypes.object.isRequired };
 
-/** The Role cell. In a card the Status column is gone, so a status other than Active rides under the role. */
+/** The Role cell. While the Status column is dropped (820px and under, and in cards) a status other than Active rides under the role. */
 function RoleCell({ user }) {
   const status = statusOf(user);
   return (
     <span className="text-xs">
       <span className={ROLE_TEXT[user.role] ?? 'text-plex-text'}>{roleLabel(user.role)}</span>
       {status !== STATUS.ACTIVE && (
-        <span className="mt-0.5 hidden @max-[540px]:flex">
+        <span className="mt-0.5 hidden @max-[820px]:flex">
           <StatusDot tone={STATUS_DOT_TONE[status]} className="text-[11px]">{STATUS_LABELS[status]}</StatusDot>
         </span>
       )}
@@ -90,12 +90,14 @@ function RoleCell({ user }) {
 
 RoleCell.propTypes = { user: PropTypes.object.isRequired };
 
-/** The accessible name of a row, reading all of it: who, their address, role, status and sub-regions. */
+/** The accessible name of a row: who, role, status, how many sub-regions and their standing, last active, joined. */
 function rowLabel(user) {
   const cell = subRegionsCell(user);
-  const subRegions = cell.kind === 'picks' ? `${cell.count} ${cell.detail}: ${cell.names}` : cell.text;
-  return `${user.username}, ${user.email || 'no email'}, ${roleLabel(user.role)}, ${STATUS_LABELS[statusOf(user)]}, `
-    + `sub-regions ${subRegions}, last active ${formatLastActive(user.lastActiveAt)}, joined ${formatJoined(user.createdAt)}`;
+  const subRegions = cell.kind === 'picks'
+    ? `${cell.count} ${cell.count === 1 ? 'sub-region' : 'sub-regions'}, ${cell.detail}`
+    : cell.text;
+  return `${user.username}, ${roleLabel(user.role)}, ${STATUS_LABELS[statusOf(user)]}, ${subRegions}, `
+    + `last active ${formatLastActive(user.lastActiveAt)}, joined ${formatJoined(user.createdAt)}`;
 }
 
 /** The grid's columns, in the wide order; the three the old compact list dropped are secondary. */
@@ -196,7 +198,9 @@ export default function UserListPane({
   const sorted = useMemo(() => sort.apply(filtered), [sort, filtered]);
   const { pageItems, ...pagination } = usePagination(sorted);
 
-  useCloseWhenFilteredOut({ selectedId, items: filtered, getId: userId, onClose: onSelectionFiltered });
+  useCloseWhenFilteredOut({
+    selectedId, items: filtered, getId: userId, filterKey: JSON.stringify(filters), onClose: onSelectionFiltered,
+  });
 
   const anyFilter = filters.search !== '' || filters.role !== 'ALL' || STATUS_CHIPS.some((c) => filters[c.key])
     || SUB_REGION_CHIPS.some((c) => filters[c.key]);

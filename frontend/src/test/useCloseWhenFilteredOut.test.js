@@ -6,42 +6,52 @@ const getId = (item) => item.id;
 const A = { id: 1 };
 const B = { id: 2 };
 
-describe('useCloseWhenFilteredOut', () => {
-  it('closes when the filtered set no longer holds the selection', () => {
-    const onClose = vi.fn();
-    const { rerender } = renderHook((props) => useCloseWhenFilteredOut(props), {
-      initialProps: { selectedId: 1, items: [A, B], getId, onClose },
-    });
-    expect(onClose).not.toHaveBeenCalled();
+function setup(initial) {
+  const onClose = vi.fn();
+  const view = renderHook((props) => useCloseWhenFilteredOut(props), {
+    initialProps: { selectedId: 1, items: [A, B], getId, filterKey: 'all', onClose, ...initial },
+  });
+  return { onClose, ...view };
+}
 
-    rerender({ selectedId: 1, items: [B], getId, onClose });
+describe('useCloseWhenFilteredOut', () => {
+  it('closes when a filter change leaves the selection out of the set', () => {
+    const { onClose, rerender } = setup();
+
+    rerender({ selectedId: 1, items: [B], getId, filterKey: 'search:b', onClose });
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('stays open while the selection is still in the set', () => {
-    const onClose = vi.fn();
-    const { rerender } = renderHook((props) => useCloseWhenFilteredOut(props), {
-      initialProps: { selectedId: 1, items: [A, B], getId, onClose },
-    });
+  it('stays open when the filter changes but the selection is still in the set', () => {
+    const { onClose, rerender } = setup();
 
-    rerender({ selectedId: 1, items: [A], getId, onClose });
+    rerender({ selectedId: 1, items: [A], getId, filterKey: 'search:a', onClose });
 
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('does nothing with no selection, and does not react to the selection itself changing', () => {
-    const onClose = vi.fn();
-    const items = [A];
-    const { rerender } = renderHook((props) => useCloseWhenFilteredOut(props), {
-      initialProps: { selectedId: null, items, getId, onClose },
-    });
-    rerender({ selectedId: null, items: [], getId, onClose });
-    expect(onClose).not.toHaveBeenCalled();
+  it('never closes on a data refresh: same filters, a new items array without the selection', () => {
+    const { onClose, rerender } = setup();
 
-    // Opening an item the filters hide (a freshly created one) is the admin's act: same set, new selection.
-    rerender({ selectedId: null, items, getId, onClose });
-    rerender({ selectedId: 9, items, getId, onClose });
+    rerender({ selectedId: 1, items: [B], getId, filterKey: 'all', onClose });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('does not check a selection that changes (Back, Forward, a new reader) under unchanged filters', () => {
+    const { onClose, rerender } = setup();
+
+    rerender({ selectedId: 9, items: [A, B], getId, filterKey: 'all', onClose });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('does nothing with no selection', () => {
+    const { onClose, rerender } = setup({ selectedId: null });
+
+    rerender({ selectedId: null, items: [], getId, filterKey: 'search:zzz', onClose });
+
     expect(onClose).not.toHaveBeenCalled();
   });
 });

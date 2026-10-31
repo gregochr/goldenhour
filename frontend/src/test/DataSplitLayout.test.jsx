@@ -270,4 +270,50 @@ describe('DataSplitLayout', () => {
       expect(window.scrollTo).not.toHaveBeenCalled();
     });
   });
+  describe('mode changes and the phone back button', () => {
+    function Harness({ focusKey }) {
+      return (
+        <DataSplitLayout
+          list={<p>the list</p>}
+          panel={<h2 tabIndex={-1} data-panel-title="">Title<button type="button">inner</button></h2>}
+          onClose={vi.fn()}
+          panelLabel="Entry panel"
+          backLabel="Waitlist"
+          selectionKey={1}
+          focusKey={focusKey}
+        />
+      );
+    }
+    Harness.propTypes = { focusKey: PropTypes.string.isRequired };
+
+    it('moves focus to the title again when only the focusKey (the panel mode) changes', () => {
+      const { rerender } = render(<Harness focusKey="1:view" />);
+      const title = screen.getByRole('heading', { name: /Title/ });
+      expect(title).toHaveFocus();
+
+      screen.getByRole('button', { name: 'inner' }).focus();
+      rerender(<Harness focusKey="1:edit" />);
+
+      expect(title).toHaveFocus();
+    });
+
+    it('does not move focus when nothing about the mode changed', () => {
+      const { rerender } = render(<Harness focusKey="1:view" />);
+      const inner = screen.getByRole('button', { name: 'inner' });
+      inner.focus();
+
+      rerender(<Harness focusKey="1:view" />);
+
+      expect(inner).toHaveFocus();
+    });
+
+    it('the phone back button calls onBack when given, and onClose otherwise', () => {
+      useIsMobile.mockReturnValue(true);
+      const onBack = vi.fn();
+      const { onClose } = renderLayout({ onBack });
+      fireEvent.click(screen.getByTestId('data-split-back'));
+      expect(onBack).toHaveBeenCalledTimes(1);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
 });

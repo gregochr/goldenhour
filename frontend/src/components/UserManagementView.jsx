@@ -158,6 +158,10 @@ export default function UserManagementView() {
   if (adding) panelLabel = 'Add user';
   else if (selectedUser) panelLabel = `Reader ${selectedUser.username}`;
 
+  // On the phone page the back button steps back from Change picks or Edit to the reader, as Esc does; from the
+  // reader (or Add user) it returns to the list.
+  const inSubMode = !adding && selectedUser != null && mode !== 'view';
+
   let selectionKey = null;
   if (adding) selectionKey = 'add';
   else if (selectedUser) selectionKey = selectedUser.id;
@@ -183,10 +187,12 @@ export default function UserManagementView() {
           panel={panel}
           onClose={closePanel}
           panelLabel={panelLabel}
-          backLabel="Users"
+          backLabel={inSubMode ? selectedUser.username : 'Users'}
+          onBack={inSubMode ? () => setMode('view') : closePanel}
           backAction={backAction}
           panelRef={panelRef}
           selectionKey={selectionKey}
+          focusKey={`${selectionKey}:${adding ? 'add' : mode}`}
           rowTestIdPrefix="users"
           testId="user"
         />
