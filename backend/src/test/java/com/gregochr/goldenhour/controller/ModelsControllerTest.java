@@ -302,14 +302,15 @@ class ModelsControllerTest extends AbstractControllerTest {
     void setActiveModel_nonSelectableModel_badRequest() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
-        for (String model : List.of("WILDLIFE", "SONNET_ET", "OPUS_ET")) {
+        for (EvaluationModel model : List.of(
+                EvaluationModel.WILDLIFE, EvaluationModel.SONNET_ET, EvaluationModel.OPUS_ET)) {
             mockMvc.perform(put("/api/models/active")
                     .header("Authorization", "Bearer " + adminToken)
                     .contentType("application/json")
-                    .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"" + model + "\"}"))
+                    .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"" + model.name() + "\"}"))
                     .andExpect(status().isBadRequest());
+            verify(modelSelectionService, never()).setActiveModel(RunType.BATCH_NEAR_TERM, model);
         }
-        verify(modelSelectionService, never()).setActiveModel(any(RunType.class), any(EvaluationModel.class));
     }
 
     @Test

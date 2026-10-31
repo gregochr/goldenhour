@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
+import com.gregochr.goldenhour.service.SkyRatingEvalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -94,13 +95,14 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
     @DisplayName("POST /run refuses a non-selectable model with 400")
     @WithMockUser(roles = "ADMIN")
     void runRefusesNonSelectableModels() throws Exception {
-        for (String model : List.of("WILDLIFE", "SONNET_ET", "OPUS_ET")) {
-            mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=" + model))
+        for (EvaluationModel model : List.of(
+                EvaluationModel.WILDLIFE, EvaluationModel.SONNET_ET, EvaluationModel.OPUS_ET)) {
+            mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=" + model.name()))
                     .andExpect(status().isBadRequest());
+            verify(skyRatingEvalService, org.mockito.Mockito.never()).startRun(
+                    model, SkyRatingEvalTrigger.MANUAL, SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
         }
-        verify(skyRatingEvalService, org.mockito.Mockito.never())
-                .startRun(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                        org.mockito.Mockito.anyInt());
+        org.mockito.Mockito.verifyNoMoreInteractions(skyRatingEvalService);
     }
 
     @Test
