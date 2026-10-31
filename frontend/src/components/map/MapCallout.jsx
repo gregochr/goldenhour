@@ -129,13 +129,13 @@ function pastUnratedWord(word, past) {
   return past && word === 'Not scored yet' ? 'Not scored' : word;
 }
 
-/** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
+/** am / pm / night / aurora — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
 function kindClass(event) {
   if (event.kind === 'solar') return event.eventType === 'SUNRISE' ? 'am' : 'pm';
   // The daylight High-water row (hot-topics-by-day M3) is its own kind, in the tide light.
   if (event.kind === 'hw') return 'hw';
-  return 'night';
+  return event.eventType === 'AURORA' ? 'aurora' : 'night';
 }
 
 /** The event's own display word — 'Sunrise'/'Sunset'/'Astro'/'Aurora' — the SAME word the design

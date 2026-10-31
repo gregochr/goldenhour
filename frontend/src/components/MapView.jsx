@@ -1809,6 +1809,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // state below moves onto tonight's night, with whatever that held status says, as it does when a
   // fresh status lands at dawn.
   const auroraNight = resolveAuroraNight(auroraStatus);
+  // The aurora kind chip follows the alert level, for the alert's own night only. A LITE reader has no
+  // `status`, only `liteAlert` (same `currentNightDate`/`currentNightEndsAt` fields).
+  const auroraAlertSource = auroraStatus ?? liteAlert;
+  const auroraAlertNight = resolveAuroraNight(auroraAlertSource);
+  const auroraAlertLevel = auroraAlertSource?.level ?? null;
   /**
    * Whether the LIVE aurora state answers for the night on screen — the night in progress, and no
    * other.
@@ -6348,6 +6353,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const windowControl = (
     <WindowControl
       shaped={shaped}
+      auroraAlertNight={auroraAlertNight}
+      auroraAlertLevel={auroraAlertLevel}
       events={mapEvents}
       activeIndex={activeEvIndex}
       onSelect={selectEvRow}
@@ -7255,6 +7262,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               windowsBody={(
                 <MapPeekWindowsSection
                   shaped={shaped}
+                  auroraAlertNight={auroraAlertNight}
+                  auroraAlertLevel={auroraAlertLevel}
                   // A night-only list (the aurora-only tab) has no solar rows for the landing header to
                   // name, which left an empty heading: fall back to the first row's own label ("Tonight").
                   heading={landingHeader(nextTwo) || (noSolarEvent ? (mapEvents[0]?.label ?? '') : '')}
