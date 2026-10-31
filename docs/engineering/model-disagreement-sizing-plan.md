@@ -1,6 +1,7 @@
 # Model disagreement: does "other models see cloud" predict the cloud `best_match` misses?
 
-**Status:** draft, 2026-10-31. Nothing built. Read-side only: no production code, no migration, no
+**Status:** draft, revised after adversarial review, 2026-10-31 (two read-only reviewers: study design,
+and the P1 tooling it reuses; §7). Nothing built. Read-side only: no production code, no migration, no
 Claude spend. One PR (scripts + this plan); the owner runs it.
 **Trigger:** Angel of the North, 31 Oct 2026 sunset. Every stored mid and high reading (observer,
 113 km cone, 226 km far point, all six pressure levels) was 0 in all five runs; the 12:38 summary said
@@ -9,6 +10,8 @@ high veil. Forecast 3★, which landed for the wrong reason.
 **Reuses:** `scripts/far-cloud-p1/` (`openmeteo.py` cache/budget client, `geometry.py` cone points,
 `slots.py` slot choice, `stats.py` intervals and block bootstrap, `export_forecasts.sql`).
 **Feeds:** a later, separate decision on capturing a disagreement signal (data only), then on using it.
+**A pass here is an upper bound** (§3): the capture plan must re-size the signal prospectively, at
+production's real lead, before anything reaches a prompt.
 
 ---
 
@@ -24,16 +27,16 @@ high veil. Forecast 3★, which landed for the wrong reason.
 | `gfs_seamless` | 0 / 100 | 0 / 22 | 0 / 79 |
 | `meteofrance_seamless` | 100 / 0 | 68 / 0 | 100 / 0 |
 
-Production's stored values equal UKMO's, consistent with `best_match` leaning on UKMO over the UK at
-short range. Every other model had mid or high cloud somewhere on the line; they also disagree with
-each other (Météo-France 99% low at 226 km).
+Production's stored values equal UKMO's. Every other model had mid or high cloud somewhere on the line,
+and they disagree with each other (Météo-France 99% low at 226 km). These are single spot values from a
+short-lead rebuild, not the cone means production stores.
 
-**The base rate.** Production, 2026-10-31: among forecasts with ERA5 verification whose stored coned
-horizon read mid 0 and high 0, ERA5's coned horizon had mid or high ≥ 30 in **28.4%** of sunrises
-(3,349 / 11,788) and **28.2%** of sunsets (3,245 / 11,521). Overhead, ERA5 had ≥ 30 in 35% / 26%.
-
-So "no mid or high cloud" is wrong more than one time in four. The question this plan answers is
-whether the other models *tell us which time*.
+**The base rate, counted in runs.** Production, 2026-10-31: among forecasts with ERA5 verification
+whose stored coned horizon read mid 0 and high 0, ERA5's coned horizon had mid or high ≥ 30 in **28.4%**
+of sunrise runs (3,349 / 11,788) and **28.2%** of sunset runs (3,245 / 11,521). This counts every run, so
+a slot forecast five times counts five times; §2's unit fixes that and `md_size.py` recomputes the base
+rate per unit. Stored 0/0 means each layer's three-point cone sum was ≤ 2 (integer floor mean), not that
+every point read 0.
 
 ---
 
@@ -41,124 +44,207 @@ whether the other models *tell us which time*.
 
 Written before any data is pulled. Thresholds are proxies, as in the far-cloud plans.
 
-**Population (P).** `forecast_evaluation` rows with a `cloud_verification` row and non-null
-`cv_horizon_mid_cloud`, `target_type` SUNRISE or SUNSET, stored `solar_mid_cloud = 0` and
-`solar_high_cloud = 0` (coalesced). Sunrise and sunset reported separately.
+**Unit.** One row per **(location_id, target_date, target_type, days_ahead)**: the run with the greatest
+`forecast_run_at` before `solar_event_time` (ties by `evaluation_id`), `batch_state` NULL or SCORED as in
+P1, triaged rows kept (their stored cloud is still the forecast). The decision uses **days_ahead = 0
+only**, so each slot counts once there. `md_size.py` prints row counts before and after deduplication.
 
-**Outcome (Y).** ERA5 coned horizon `max(cv_horizon_mid_cloud, cv_horizon_high_cloud) ≥ 30`.
+**Population (P).** Units with a `cloud_verification` row and non-null `cv_horizon_mid_cloud`; SUNRISE or
+SUNSET; stored `solar_mid_cloud` and `solar_high_cloud` **non-null and equal to 0**; stored
+`solar_low_cloud < 60` (a blocked horizon cannot benefit from a canvas). Excluded from the decision and
+shown only as worked examples: 31 Oct 2026 Angel of the North sunset (the trigger) and the training cases
+named in `far-cloud-lid-plan.md` §1. A guard drops units whose recomputed centre cone point differs from
+`cv_horizon_sample_lat/lon` by more than 0.01° (a location moved after the run); the count is reported.
 
-**Signal.** For each comparison model m, `M_m` = max(mid, high) at the solar horizon, as a **3-point
-cone mean** (bearings az−15, az, az+15 at 113 km, `geometry.cone_points`) at the production slot
-(`slots.find_best_index` on the stored `solar_event_time` and `target_type`). Mean each layer across
-the cone first, then take the max, exactly as the stored and ERA5 values are built.
+**Outcome (Y).** ERA5 coned horizon `max(cv_horizon_mid_cloud, cv_horizon_high_cloud) ≥ 30` **and**
+`cv_horizon_low_cloud < 60`. Descriptive variants, no decision: `Y_mid` (mid ≥ 30, the altocumulus
+case), `Y50` (≥ 50), and Y split by stored rating (≤ 2 vs ≥ 3). Owner outcome ratings, where any exist,
+are shown against S2 with their (tiny) n.
 
-`S2` = at least two of **ICON, GFS, Météo-France** have `M_m ≥ 30`.
+**Model value.** For model m, at the production slot (`slots.find_best_index`, §4 conversions), over the
+three cone points (`geometry.cone_points`, az−15, az, az+15 at 113 km):
+`M_m = max(sum(mid) // 3, sum(high) // 3)` on integer values, matching the stored and ERA5 arithmetic.
+**m votes only if all three cone points have non-null mid and high**; otherwise it is "not voting",
+never 0. Test: mids (30, 30, 29) give 29, no vote.
 
-⚠️ **ECMWF is excluded from the decision signal.** ERA5 is ECMWF's reanalysis and shares its physics,
-so IFS will agree with ERA5 for reasons that are not skill. ECMWF is still fetched and reported
-(alone, and as a fourth voter in `S2+E`), labelled as the optimistic variant.
+**Signal.** `S2` = at least two of **ICON, GFS, Météo-France** have `M_m ≥ 30`, **with all three
+voting**. Units with fewer than three voters are reported separately and never decide.
 
-**Metrics** (Wilson intervals; day-block bootstrap via `stats.py` because rows on one date share
-weather):
-- **Precision** P(Y | S2), against the base rate P(Y) in the same stratum.
-- **Recall** P(S2 | Y): the share of misses the signal would flag.
-- **Flag rate** P(S2): how often the signal would fire inside P.
-- Per model: P(Y | M_m ≥ 30), and the same for `S1` (any one) and `S3` (all three).
+⚠️ **ECMWF is excluded from the decision signal.** ERA5 is ECMWF's reanalysis (IFS cycle 41r2) and
+shares its physics, so IFS agrees with ERA5 for reasons that are not skill. It is fetched and reported
+alone and as a fourth voter (`S2+E`), labelled optimistic. ICON and GFS are not expected to share ERA5's
+structure.
 
-**Decision (both events, T+0 stratum, all must hold):**
-1. Precision's lower 95% bound ≥ **50%** (a flagged slot has cloud more often than not).
-2. Precision − base rate, Newcombe lower bound ≥ **+15 pp**.
-3. Recall ≥ **35%** (point estimate).
-4. Flag rate ≤ **40%** (otherwise it is a blanket hedge, not a signal).
+**Null comparator.** `S_UK` = the **refetched** short-lead `ukmo_seamless` has `M ≥ 30`, and the same for
+refetched `best_match`. These carry the same stitched lead as the other models, so any skill S2 shows
+*over* them is model diversity, not lead (§3).
 
-Pass → write the capture plan (step 2: record the disagreement as data only). Fail → record the result
-here and in `architecture-decisions.md`, and the next lever is the summary's wording alone
-("model data shows no mid or high cloud" rather than "there is none"), a prompt change sized on its own.
-`S1`, `S3` and the per-model numbers are **descriptive only**; no threshold is retuned after seeing them.
+**Metrics.** The sample is self-weighting within event (§4 T2), so raw counts apply to the decision.
+- **Precision** P(Y | S2); **separation** P(Y | S2) − P(Y | ¬S2); **recall** P(S2 | Y); **flag rate** P(S2).
+- **Decision bounds**: 5-day moving-block bootstrap by calendar day (`stats.DEFAULT_BLOCK_DAYS`), 2,000
+  draws, blocks resampled within month; 3- and 7-day blocks as sensitivity. Wilson intervals with Kish
+  effective n are shown beside them, descriptively. No weighted float is ever passed to `stats.wilson`
+  (test).
+- Per model: P(Y | M_m ≥ 30) and each model's flag rate; `S1`, `S3`, `S2` without GFS (GFS over-produces
+  high cloud), and **`S2-PL`**, the same vote from each model's `cloud_cover_700hPa/500hPa/300hPa`
+  (pressure-defined, so consistent across models' differing layer boundaries). All descriptive.
 
-**Secondary (descriptive, no decision):** the same at the observer point (ERA5 `cv_observer_*`,
-the location itself, no cone), because the owner's photo showed a veil overhead too.
+**Decision (pooled sunrise + sunset, T+0, lead-fair population P′, §3).** Pass needs all of:
+1. Precision's lower bound ≥ **50%**.
+2. Separation P(Y|S2) − P(Y|¬S2), lower bound ≥ **+15 pp**.
+3. Recall's lower bound ≥ **25%**.
+4. Flag rate ≤ **40%**.
+5. S2 beats the null comparator: precision(S2) − precision(S_UK), lower bound **> 0**, on units where
+   either fires.
+6. Separation holds within month (Mantel–Haenszel pooled within-month difference, lower bound > 0), so S2
+   is not merely tracking season.
+7. Each event alone has a point precision ≥ 50% (consistency, not a second test).
+
+**Minimum counts**, else **inconclusive**: ≥ 30 units in each of S2 and ¬S2, ≥ 10 distinct dates in S2,
+≥ 20 alignment pairs (§3). Inconclusive is its own outcome: it does **not** trigger the fail branch.
+
+**Outcomes.**
+- **Pass** → write the capture plan (step 2: record the disagreement as data only, re-sized at real lead).
+- **Fail** → record it here and in `architecture-decisions.md`; the next lever is the summary's wording
+  alone ("model data shows no mid or high cloud" rather than "there is none"), sized on its own.
+- **Inconclusive** → record it with the power table; the owner decides whether to extend the sample.
+
+No threshold is retuned after seeing the data. Everything not in the decision list is descriptive.
+
+**Baselines (descriptive).** Month × location climatology of Y; a stored-only predictor (any non-zero
+stored observer, far or pressure-level mid/high); and P split into "zero at every stored point" (the
+31 Oct shape) and the rest. If S2 adds nothing over the stored-only predictor, say so.
+
+**Secondary (descriptive).** The same at the observer point (ERA5 `cv_observer_*`, no cone).
 
 ---
 
-## 3. Leads: the asymmetry that could fake a result
+## 3. Lead: the asymmetry that could fake a pass
 
-The historical-forecast API stitches each model's first hours, so it rebuilds about **T+0**. Production
-rows run at T+0, T+1 and T+2. Comparing a T+0 rebuild of ICON against a T+1 production UKMO value
-would credit ICON with a shorter lead, not better skill.
+The historical-forecast API stitches each model's first hours, so it rebuilds roughly 0–6 h lead with no
+data latency: close to analysis, which assimilates the same observations as ERA5. Production's "T+0"
+is up to ~17 h (a 02:58 run for a 16:32 sunset, plus UKMO's own run age and latency). Comparing the two
+would credit the comparators with lead, not skill.
 
-- **Primary stratum: `days_ahead = 0`.** The decision is made here only.
-- **Alignment control, required before any result is read.** For the same sampled rows, also fetch
-  `ukmo_seamless` and `best_match` from the historical API and compare with the stored coned mid and
-  high. Report, per event: the share where stored = 0 and refetched `best_match` max(mid, high) ≥ 30,
-  and the median absolute difference. **If more than 20% of T+0 rows disagree that way, the population
-  is not "UKMO said 0" at the lead we think, and the result is labelled unreliable** (P1's alignment
-  rule, `far-cloud-p1-plan.md` ~l.191, adapted).
-- **T+1 and T+2** are reported, descriptive only, labelled "fetched lead shorter than production's".
-- **Optional, if the probe (§4 T0) shows it is served:** Previous Runs API
-  (`cloud_cover_mid_previous_day1` etc.) per model, giving a fair T+1. If it is not served per model,
-  say so and skip.
+- **Lead bands.** `lead_h = solar_event_time − forecast_run_at` (both in the export). Every metric is
+  reported in bands < 6 h, 6–12 h, > 12 h.
+- **Lead-fair population P′ (the decision population).** P′ = P ∩ {refetched `ukmo_seamless` M < 10 and
+  refetched `best_match` M < 10}. In P′ the stored zeros are reproduced at the comparators' own lead, so
+  every model is compared at the same stitched lead. Full P is reported beside it.
+- **Alignment control, read first.** Per event and lead band: the share of P where refetched
+  `best_match` M ≥ 30 (the meaningful gate on a population stored at 0; P1's median-|Δ| rule is near 0 by
+  construction here and is reported beside it), with ≥ 20 pairs. **If that share exceeds 20% at T+0, no
+  pass is possible on full P**; the decision stands on P′ alone, labelled so.
+- **No fair T+1.** Open-Meteo's Previous Runs API does not serve `cloud_cover_low/mid/high` per layer
+  (all null across five models, P1 probe 2026-10-14, `openmeteo.py` ~l.31). T+1 and T+2 are not
+  analysed. The Single Runs API is probed (T0); if it serves the layers per model, a lead-fair T+1 is a
+  follow-up, not this plan.
+- A pass is an **upper bound** on what a capture at production run time would see.
 
 ---
 
 ## 4. Build (Sonnet writes; the owner runs the network steps)
 
-New directory `scripts/model-disagreement/`, Python 3 standard library only, importing
-`openmeteo`, `geometry`, `slots` and `stats` from `scripts/far-cloud-p1/` by path (no copies).
-Outputs to `out/` and `cache/`, both git-ignored, as in P1.
+New directory `scripts/model-disagreement/`, Python 3 standard library only. Scripts are named
+**`md_probe.py`, `md_sample.py`, `md_fetch.py`, `md_size.py`** (P1 already has `probe.py` and
+`size.py`, and P1's `tests/om_fake.py` puts P1 first on `sys.path`). P1's directory is added with
+`sys.path.append` (never `insert(0)`), and P1 modules are imported only by unique names (`openmeteo`,
+`geometry`, `slots`, `stats`). **P1's files are not edited.** Own `.gitignore`: `*.csv`, `out*/`,
+`cache/`, `__pycache__/`, `!tests/fixtures/*.csv` (the export holds production data). No shell wrappers.
 
-- **T0 `probe.py`** (owner runs, ~10 weighted calls). For one location and one past date:
-  - confirm the historical API serves `cloud_cover_low/mid/high` for each of `ukmo_seamless`,
-    `icon_seamless`, `gfs_seamless`, `meteofrance_seamless`, `ecmwf_ifs025`, `best_match` in **one**
-    request, and record the response key names (the multi-model response suffixes them; `best_match`
-    came back as missing keys on 2026-10-31, so find its real key);
-  - measure the weighted cost of a multi-model request (does each model count as a call?) by reading
-    the budget counter before and after, and print it;
-  - check whether the Previous Runs API serves the layer bands per model.
-- **T1 Export.** Reuse `scripts/far-cloud-p1/export_forecasts.sql` unchanged (it already carries
-  `days_ahead`, `azimuth_deg`, `solar_event_time`, location lat/lon, the stored cone values and every
-  `cv_*` column). No new SQL.
-- **T2 `sample.py`.** Filter to P (§2). Draw a stratified random sample by month × event × lead, fixed
-  seed, sized from T0's measured cost so the fetch fits **3 days** of the default 8,000 daily budget;
-  target ≥ 600 T+0 rows per event. Write the sample with its inverse-probability weights.
-- **T3 `fetch.py`.** For each sampled row: the three cone points (and the observer point for the
-  secondary), the target date, all models from T0, the three layer variables. Group by date so one
-  request carries many coordinates (`openmeteo` already chunks, caches per coordinate and resumes).
-  Deduplicate by grid cell as P1 does.
-- **T4 `size.py`.** Builds `M_m`, `S1/S2/S3/S2+E`, runs the alignment control first, then §2's
-  metrics with weights, bootstrap by calendar day (block 1 day), and writes `out/report.md`: the
-  alignment table, the decision table (pass/fail per criterion, per event), the descriptive tables,
-  and the 31 Oct Angel of the North row shown on its own as a worked example.
-- **Tests** (`scripts/model-disagreement/tests/`, the P1 `om_fake.py` pattern, no network):
-  cone-mean-then-max order; `S2` excludes ECMWF; the alignment rule's 20% gate; the decision rule on a
-  hand-built table that passes and one that fails each criterion; sample weights sum to stratum sizes;
-  a missing model value counts as "not voting", never as 0.
-- **Runbook** `scripts/model-disagreement/README.md`, in P1's style: export, probe, sample, fetch
-  (resumable), size; what to paste back.
+**Conversions.** `azimuth_deg` → `int(row['azimuth_deg'])` for `cone_points`. `solar_event_time` →
+`datetime.strptime(v[:19], '%Y-%m-%dT%H:%M:%S')` as `find_best_index`'s `event`, with the API's
+`YYYY-MM-DDTHH:MM` strings as `times`. Fetch date = `solar_event_time.date()` (UTC), as production's
+verifier groups it.
 
-Gate: `cd scripts/model-disagreement && python3 -m unittest discover -s tests` and the same for
-`scripts/far-cloud-p1` (imports must not break P1). CI's ShellCheck covers any shell wrapper.
-Changelog: `changelog.d/YYYYMMDD-model-disagreement-sizing.md`, `### Added — …`.
+- **T0 `md_probe.py`** (owner runs; a few calls). For one location and one past date:
+  - one **single-model** historical-forecast request per model (`ukmo_seamless`, `best_match`,
+    `icon_seamless`, `gfs_seamless`, `meteofrance_seamless`, `ecmwf_ifs025`) for low/mid/high and
+    `cloud_cover_700hPa/500hPa/300hPa`; print which are served;
+  - **real cost**: the owner reads Open-Meteo's usage before and after (dashboard or response headers);
+    the local `budget.json` is a formula (`openmeteo.weight`, which ignores models), not a measurement;
+  - whether the Single Runs API serves the layer bands per model (record only).
+- **T1 Export.** Reuse `scripts/far-cloud-p1/export_forecasts.sql` unchanged. It carries every needed
+  column; its only filters are SUNRISE/SUNSET and `target_date ≥ 2026-02-01`.
+- **T2 `md_sample.py`.** Deduplicate to units (§2), filter to P, keep T+0. Draw a stratified random
+  sample, **proportional to month within event** (self-weighting), fixed seed. Size it from T0's
+  measured cost against the **observed ~600 weighted calls per day** (P1 §15), and print the expected
+  number of fetch days. Rough guide before T0: 6 models × 3 cone points ≈ 18 calls per unit before
+  grid-cell deduplication, so 600 units ≈ 18 days and 300 ≈ 9. **Print the power table** (simulated
+  bound on precision at true precision 0.55, 0.65, 0.75 for the chosen n and a 20% flag rate) and stop
+  for the owner's go before T3. The owner may instead supply a commercial Open-Meteo key; never paste it
+  into a file or command line.
+- **T3 `md_fetch.py`.** **One request per model** (`models=<m>`, single model), so response keys stay
+  unsuffixed and `openmeteo`'s cache, served/not-served logic and resume work unchanged; a comma-separated
+  `models` list is never sent through `Client.get` (it would never cache, `openmeteo.py` ~l.227). Group by
+  date so one request carries many coordinates; deduplicate by (date, `geometry.grid_key`). Keep model
+  and variable order fixed between T0 and T3 (the cache key is the full URL). Use P1's `cache/` as the
+  cache directory so one budget counter covers both studies, run with `--budget` set to the observed
+  daily limit, and never run both studies on the same UTC day. Observer points are fetched only if
+  budget allows; they are secondary.
+- **T4 `md_size.py`.** Alignment control first (§3), then §2 on P′ and P, writing `out/report.md`: the
+  dedup counts, alignment table, decision table (pass / fail / inconclusive per criterion), lead bands,
+  baselines, per-model and `S2-PL` tables, and the 31 Oct row on its own as a worked example.
+- **Tests** (`scripts/model-disagreement/tests/`; a fake provider that switches on `models=` in the URL,
+  since P1's `FakeOM` ignores it; no network): unit deduplication picks the latest pre-event run per
+  (location, date, type, lead); floor-mean-then-max and the (30, 30, 29) case; a missing cone point means
+  not voting; S2 needs three voters and excludes ECMWF; P′ and the 20% alignment gate; the decision rule
+  on hand-built tables that pass, fail each criterion, and fall to inconclusive on each minimum count;
+  sample proportions match month shares; `wilson` never receives a float; the moved-location guard.
+
+**Gates (local only; no CI job runs Python or lints `scripts/` subdirectories).**
+`cd scripts/model-disagreement && python3 -m unittest discover -s tests`, and the same in
+`scripts/far-cloud-p1` (imports must not break P1). Changelog:
+`changelog.d/YYYYMMDD-model-disagreement-sizing.md`, `### Added — …`.
+
+**Runbook** `scripts/model-disagreement/README.md`, in P1's style: export, probe, sample (stop for go),
+fetch (resumable, days), size; what to paste back.
 
 ---
 
 ## 5. Limits, stated up front
 
-- **ERA5 is not observation.** It is a reanalysis at ~31 km, and it is ECMWF's (§2). A 28% "miss" rate
-  is partly ERA5 seeing cloud UKMO doesn't for resolution reasons. The result sizes agreement with
-  ERA5, not truth; a photographer's outcome rating is the only ground truth on colour.
-- **Historical-forecast is a T+0 rebuild**, not what production saw (§3).
-- **One threshold (30) on a 0–100 proxy.** Not retuned after the fact.
-- **Layer bands differ by model** (cloud-height boundaries are model-defined), so "mid" is not the
-  same layer in every model. Max(mid, high) is used to blunt that.
-- **No effect on users** until a later plan captures and then uses a signal, each with its own review.
+- **ERA5 is not observation.** A ~31 km reanalysis from IFS cycle 41r2. Part of the 28% is resolution:
+  ERA5 sees cloud a 2 km UKMO point does not. The study sizes agreement with ERA5, not truth; outcome
+  ratings are the only ground truth on colour.
+- **The comparators run at a short, stitched lead** (§3). P′ and S_UK control it; they do not make the
+  result prospective.
+- **Layer bands differ by model**: GFS's "low" reaches ~640 hPa and can hold altocumulus that ERA5 calls
+  mid; kilometre-scale point values (ICON-D2, AROME) are bimodal against ERA5's smooth cells. `S2-PL`
+  and the per-model tables expose this; they do not remove it.
+- **One threshold (30) on a 0–100 proxy**, not retuned after the fact.
+- **Budget**: the free tier caps the sample; a fail on a small n may really be inconclusive, which is why
+  the minimum counts and power table exist.
+- **No effect on users** until later plans capture and then use a signal, each with its own review.
 
 ---
 
 ## 6. Out of scope
 
 - Any production code, migration, prompt or rating change.
-- Switching `best_match` to another model: the case shows models disagreeing widely; disagreement,
-  not a replacement, is the hypothesis.
-- The far 226 km point and the antisolar point (descriptive extension later if §2 passes).
-- Low cloud (`best_match` low vs ERA5 low is the far-cloud plans' territory).
+- Switching `best_match` to another model: the models disagree widely; disagreement, not a replacement,
+  is the hypothesis.
+- T+1 and T+2 (no lead-fair source), the far 226 km and antisolar points, and low cloud.
+- Editing `scripts/far-cloud-p1/`.
+
+---
+
+## 7. Review record (2026-10-31)
+
+Two read-only reviewers before any build: study design, and the P1 tooling. What changed:
+- **Unit**: from runs to one row per (location, date, type, lead), latest pre-event run; T+0 only for
+  the decision. The §1 base rate is labelled as counted in runs.
+- **Lead**: lead bands, the lead-fair population P′, the null comparator S_UK and criterion 5; the
+  alignment gate now has a consequence; the stale Previous Runs option replaced (P1 already found the
+  layers unserved); a pass is stated as an upper bound.
+- **Budget**: sized against the observed ~600 calls/day, not 8,000; real cost read from Open-Meteo, not
+  the local formula; expected days printed and a stop for the owner's go.
+- **Statistics**: separation against ¬S2 replaces "minus base rate" (overlapping groups); 5-day blocks;
+  self-weighting sample so intervals take raw counts; minimum counts and an inconclusive outcome; a
+  power table; the within-month criterion; climatology and stored-only baselines.
+- **Outcome**: tied to sunsets that could use a canvas (stored and ERA5 low < 60); `Y_mid`, `Y50` and
+  rating splits descriptive.
+- **Arithmetic**: integer floor-mean then max, three-point voting, non-null zeros only.
+- **Tooling**: one request per model (multi-model responses never cache in P1's client); distinct
+  script names and `sys.path.append`; own `.gitignore`; shared cache directory and budget; no CI covers
+  this directory; stated conversions; moved-location guard.
