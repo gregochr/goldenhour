@@ -11,6 +11,8 @@ Owner goal (2026-10-30): close to going live, remove redundant code and tech deb
 |---|---|---|---|---|
 | survey | `claude/dead-code-sweep` | — | 2026-10-30 | Three read-only sweeps (backend, frontend, schema and wire). The planner re-checked every "high" item by grep. Review: two lenses (refute A/B; C–E risks), about 35 charges, all folded in. Notable: five Phase B items turned out to be live test seams or test entry points, `last_polled_at` is on a kept endpoint, and dropping `voting_count` needs a same-release `DROP NOT NULL`. |
 | A | `chore/dead-code-sweep-phase-a` | see PR | 2026-10-30 | Built as planned. `LocationSheetFactsParity.test.jsx` deleted (it only compared the sheet with the deleted popup; `LocationFourDaySheetFacts` and `locationSheetShell` already cover the sheet's facts). `getBriefingScore` moved into its test as the reference scan; `LOCATION_TYPES` deleted rather than imported; `prop-types` declared with its lock `dev` flags cleared. |
+| C11 | `feature/marketing-email-toggle` | see PR | 2026-10-30 | Built as option (a): an "Emails" checkbox in Settings (all roles) calling `PUT /api/auth/marketing-emails`; `UserSettingsResponse.marketingEmailOptIn` added last; `AppUserEntity` default flipped to `false` (no migration, existing rows untouched). |
+
 
 ### Method and limits
 
