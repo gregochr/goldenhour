@@ -231,6 +231,51 @@ class LocationControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id}/enabled returns 409 with the server's sentence in a switched-off region")
+    void setLocationEnabled_regionOff_returns409() throws Exception {
+        when(locationService.setEnabled(1L, true))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(put("/api/locations/1/enabled")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":true}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/locations returns 409 when the region is switched off")
+    void addLocation_regionOff_returns409() throws Exception {
+        when(locationService.add(any(AddLocationRequest.class)))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Rogue Bay\",\"lat\":55.6,\"lon\":-1.7,\"regionId\":1}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} returns 409 when moving a switched-on location into a switched-off region")
+    void updateLocation_moveIntoRegionOff_returns409() throws Exception {
+        when(locationService.update(eq(1L), any(UpdateLocationRequest.class)))
+                .thenThrow(new com.gregochr.goldenhour.exception.RegionStateConflictException(
+                        "Turn Northumberland on first."));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"regionId\":2}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Turn Northumberland on first."));
+    }
+
+    @Test
     @WithMockUser
     @DisplayName("PUT /api/locations/{id} returns 403 for non-ADMIN")
     void updateLocation_nonAdmin_returns403() throws Exception {

@@ -210,6 +210,16 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
             @Param("lastFailureAt") LocalDateTime lastFailureAt, @Param("reason") String reason);
 
     /**
+     * Counts the switched-on locations in one region. Backs the region-off guard: a region may only be turned
+     * off when this is zero.
+     *
+     * @param regionId the region primary key
+     * @return how many locations in that region have {@code enabled = true}
+     */
+    @Query("SELECT COUNT(l) FROM LocationEntity l WHERE l.region.id = :regionId AND l.enabled = true")
+    long countEnabledInRegion(@Param("regionId") Long regionId);
+
+    /**
      * Sets {@code enabled} on one location and touches no other column. {@code enabled} is
      * {@code updatable = false} on the entity, so this (and {@link #autoDisable}) are its only
      * writers after the insert: no whole-entity save or detached merge can flip it.

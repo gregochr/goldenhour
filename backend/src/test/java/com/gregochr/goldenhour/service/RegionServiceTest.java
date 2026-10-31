@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.model.AddRegionRequest;
 import com.gregochr.goldenhour.model.SetRegionBaseRequest;
 import com.gregochr.goldenhour.model.UpdateRegionRequest;
 import com.gregochr.goldenhour.repository.BriefingRegionSnapshotRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +24,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,13 +44,16 @@ class RegionServiceTest {
     @Mock
     private BriefingRegionSnapshotRepository snapshotRepository;
 
+    @Mock
+    private LocationRepository locationRepository;
+
     private RegionService regionService;
     private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
         regionService = new RegionService(
-                regionRepository, regionDriveTimeWriter, snapshotRepository, epoch);
+                regionRepository, regionDriveTimeWriter, snapshotRepository, epoch, locationRepository);
     }
 
     // --- findAll ---
@@ -270,6 +276,45 @@ class RegionServiceTest {
         RegionEntity result = regionService.setEnabled(1L, false);
 
         assertThat(result.isEnabled()).isFalse();
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) is refused with the plural sentence while locations are switched on")
+    void setEnabled_disableWithSwitchedOnLocations_isRefusedAndSavesNothing() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(locationRepository.countEnabledInRegion(1L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> regionService.setEnabled(1L, false))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn off its 3 locations first.");
+
+        assertThat(entity.isEnabled()).isTrue();
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) uses the singular 'its 1 location' for exactly one")
+    void setEnabled_disableWithOneSwitchedOnLocation_usesSingular() {
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(buildRegion(1L, "Northumberland")));
+        when(locationRepository.countEnabledInRegion(1L)).thenReturn(1L);
+
+        assertThatThrownBy(() -> regionService.setEnabled(1L, false))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn off its 1 location first.");
+    }
+
+    @Test
+    @DisplayName("setEnabled(true) never consults the location count: turning a region on is always allowed")
+    void setEnabled_enable_neverCountsLocations() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        entity.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.setEnabled(1L, true);
+
+        verifyNoInteractions(locationRepository);
     }
 
     @Test

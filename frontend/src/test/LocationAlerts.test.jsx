@@ -146,6 +146,17 @@ describe('LocationAlerts', () => {
     await waitFor(() => expect(button).toBeEnabled());
   });
 
+  it('says so, and keeps the row, when the server cleared the counters but the place stays off (region off)', async () => {
+    resetLocationFailures.mockResolvedValue({ name: 'Bamburgh Castle', enabled: false });
+    const onReenabled = vi.fn();
+    render(<LocationAlerts locations={[AUTO_DISABLED]} onReenabledLocation={onReenabled} />);
+
+    fireEvent.click(reenableButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('stays off because its region is off');
+    expect(onReenabled).not.toHaveBeenCalled();
+  });
+
   it('shows the server\'s sentence on the row when Re-enable is refused, and lets the admin retry', async () => {
     resetLocationFailures.mockRejectedValue({
       response: { data: { error: 'Location not found: Bamburgh Castle' } },

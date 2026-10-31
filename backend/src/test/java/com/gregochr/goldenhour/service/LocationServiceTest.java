@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
@@ -745,6 +746,167 @@ class LocationServiceTest {
         verify(locationRepository).updateEnabled(entity.getId(), false);
         verify(locationRepository, org.mockito.Mockito.never()).clearFailureState(entity.getId());
         verify(locationRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    // --- D3: no switched-on location in a switched-off region ---
+
+    @Test
+    @DisplayName("setEnabled(true) in a switched-off region is refused, naming the region, and writes nothing")
+    void setEnabled_enableInRegionOff_isRefused() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setRegion(buildRegion(7L, "Northumberland", false));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> locationService.setEnabled(1L, true))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn Northumberland on first.");
+
+        verify(locationRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(locationRepository, never()).clearFailureState(any());
+    }
+
+    @Test
+    @DisplayName("setEnabled(true) in a switched-on region is allowed")
+    void setEnabled_enableInRegionOn_isAllowed() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setRegion(buildRegion(7L, "Northumberland", true));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.setEnabled(1L, true);
+
+        assertThat(result.isEnabled()).isTrue();
+        verify(locationRepository).updateEnabled(1L, true);
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) is allowed in a switched-off region (turning off is how the half-off state ends)")
+    void setEnabled_disableInRegionOff_isAllowed() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setRegion(buildRegion(7L, "Northumberland", false));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.setEnabled(1L, false);
+
+        assertThat(result.isEnabled()).isFalse();
+        verify(locationRepository).updateEnabled(1L, false);
+    }
+
+    @Test
+    @DisplayName("resetFailures() in a switched-off region clears the counters but does not re-enable")
+    void resetFailures_autoDisabledInRegionOff_clearsCountersButStaysDisabled() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setRegion(buildRegion(7L, "Northumberland", false));
+        entity.setConsecutiveFailures(3);
+        entity.setDisabledReason("Auto-disabled after 3 consecutive failed scheduled runs.");
+        entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.resetFailures("Durham UK");
+
+        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.getConsecutiveFailures()).isZero();
+        assertThat(result.getDisabledReason()).isNull();
+        assertThat(result.getLastFailureAt()).isNull();
+        verify(locationRepository).clearFailureState(1L);
+        verify(locationRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    @DisplayName("resetFailures() still re-enables an auto-disabled place in a switched-on region")
+    void resetFailures_autoDisabledInRegionOn_isReEnabled() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setRegion(buildRegion(7L, "Northumberland", true));
+        entity.setDisabledReason("Auto-disabled after 3 consecutive failed scheduled runs.");
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.resetFailures("Durham UK");
+
+        assertThat(result.isEnabled()).isTrue();
+        verify(locationRepository).updateEnabled(1L, true);
+    }
+
+    @Test
+    @DisplayName("add() into a switched-off region is refused, naming the region, and saves nothing")
+    void add_intoRegionOff_isRefused() {
+        when(locationRepository.existsByName("Bamburgh Castle")).thenReturn(false);
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(buildRegion(7L, "Northumberland", false)));
+        AddLocationRequest request = new AddLocationRequest(
+                "Bamburgh Castle", 55.6090, -1.7099, null, null, null, 7L, null, null, null, null, null, null, null);
+
+        assertThatThrownBy(() -> locationService.add(request))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn Northumberland on first.");
+
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() moving a switched-on location into a switched-off region is refused")
+    void update_enabledLocationIntoRegionOff_isRefused() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setRegion(buildRegion(3L, "Durham", true));
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(buildRegion(7L, "Northumberland", false)));
+
+        assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, 7L)))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn Northumberland on first.");
+
+        verify(locationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update() moving a switched-off location into a switched-off region is allowed")
+    void update_disabledLocationIntoRegionOff_isAllowed() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setEnabled(false);
+        existing.setRegion(buildRegion(3L, "Durham", true));
+        RegionEntity target = buildRegion(7L, "Northumberland", false);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(target));
+        when(locationRepository.save(existing)).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, 7L));
+
+        assertThat(result.getRegion()).isSameAs(target);
+    }
+
+    @Test
+    @DisplayName("update() moving a switched-on location into a switched-on region is allowed")
+    void update_enabledLocationIntoRegionOn_isAllowed() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setRegion(buildRegion(3L, "Durham", true));
+        RegionEntity target = buildRegion(7L, "Northumberland", true);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(target));
+        when(locationRepository.save(existing)).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, 7L));
+
+        assertThat(result.getRegion()).isSameAs(target);
+    }
+
+    @Test
+    @DisplayName("update() of a switched-on location that stays in its switched-off region is not refused")
+    void update_enabledLocationStaysInRegionOff_isAllowed() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        RegionEntity off = buildRegion(7L, "Northumberland", false);
+        existing.setRegion(off);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(regionRepository.findById(7L)).thenReturn(Optional.of(off));
+        when(locationRepository.save(existing)).thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity result = locationService.update(1L, new UpdateLocationRequest(
+                null, null, null, null, null, null, 7L));
+
+        assertThat(result.getRegion()).isSameAs(off);
     }
 
     // --- isCoastal ---
@@ -1707,6 +1869,10 @@ class LocationServiceTest {
         } finally {
             org.springframework.transaction.support.TransactionSynchronizationManager.clear();
         }
+    }
+
+    private RegionEntity buildRegion(Long id, String name, boolean enabled) {
+        return RegionEntity.builder().id(id).name(name).enabled(enabled).build();
     }
 
     private LocationEntity buildEntity(String name, double lat, double lon) {

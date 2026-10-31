@@ -35,7 +35,8 @@ vi.mock('../api/tideApi', () => ({
 }));
 
 import {
-  fetchLocations, addLocation, updateLocation, geocodePlace, enrichLocation, resetLocationFailures,
+  fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation,
+  resetLocationFailures,
   fetchValleyFloorCandidates, fetchValleyFloorCell,
 } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
@@ -1260,6 +1261,23 @@ describe('LocationManagementView — a place the pipeline auto-disabled', () => 
     expect(resetLocationFailures).toHaveBeenCalledWith('Bamburgh Castle');
     expect(screen.getByTestId('toggle-enabled-7')).toHaveTextContent('Enabled');
     expect(screen.queryByTestId('auto-disabled-7')).toBeNull();
+  });
+
+  it('shows the server\'s sentence when switching a location on in a switched-off region is refused', async () => {
+    fetchLocations.mockResolvedValue([
+      { ...AUTO_DISABLED_PLACE, consecutiveFailures: 0, lastFailureAt: null, disabledReason: null },
+    ]);
+    setLocationEnabled.mockRejectedValue({
+      response: { status: 409, data: { error: 'Turn Northumberland on first.' } },
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    fireEvent.click(await screen.findByTestId('toggle-enabled-7'));
+
+    expect(await screen.findByTestId('location-toggle-error'))
+      .toHaveTextContent('Turn Northumberland on first.');
+    consoleError.mockRestore();
   });
 
   it('the auto badge\'s info popover carries the stored reason', async () => {

@@ -1,6 +1,6 @@
 # Data tabs redesign: Locations, Regions, Tides and Waitlist
 
-**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
+**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`); P4 built (the server guard, below). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
 (`design_handoff_data_tabs`: `README.md`, `Data Tabs Redesign.html`, 18 frames). It lives with the owner, not in the repo.
 Where it and the codebase disagree, **the codebase wins** (the handoff says so itself).
 
@@ -173,6 +173,14 @@ plain sentence the UI shows as is:
 - `add` into a switched-off region, and `update` moving a switched-on location into one: 409.
 - Turning a region **on** is always allowed. Existing data in the half-off state is left alone (no migration); the
   rule stops new cases. The check-then-save is not transactional against a concurrent toggle; accepted and noted.
+**P4 built.** `RegionStateConflictException` (409) in `GlobalExceptionHandler`; `LocationRepository.countEnabledInRegion`.
+Decisions: `resetFailures` in a switched-off region clears the counters, does **not** re-enable, and returns 200 with
+`enabled: false` (a 409 after clearing would misreport a write that landed); `LocationAlerts` shows "stays off because its
+region is off" and skips the refresh so the row and sentence stay. `update` is refused only when it *moves a switched-on
+location* to a different switched-off region (a disabled location moves freely; staying put in an off region is not
+re-checked). No other path re-enables a location (`LocationFailureService` only switches places off). The Regions and
+Locations list toggles previously only `console.error`ed; they now show the server's sentence (`region-toggle-error`,
+`location-toggle-error`), minimal and P5/P6 will replace them.
 Tests per door (service and controller); every `RegionServiceTest` construction updated. Docs: `reference/api-endpoints.md`
 (each endpoint's new 409) and `reference/platform.md`.
 

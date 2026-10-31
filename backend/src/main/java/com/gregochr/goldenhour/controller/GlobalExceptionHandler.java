@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.NameClashException;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.UpstreamLookupException;
@@ -93,6 +94,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AreaConflictException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleAreaConflict(AreaConflictException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link RegionStateConflictException} to HTTP 409: the change would leave a switched-on location in a
+     * switched-off region.
+     *
+     * @param ex the exception, whose message says what to turn on or off first
+     * @return an error response body
+     */
+    @ExceptionHandler(RegionStateConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleRegionStateConflict(RegionStateConflictException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 

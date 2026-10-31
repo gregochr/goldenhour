@@ -27,11 +27,19 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
   const [pending, setPending] = useState(() => new Set());
   const [errors, setErrors] = useState({});
 
-  async function handleReenableLocation(locationName) {
+  async function handleReenableLocation(locationName, hadReason) {
     setPending((prev) => new Set(prev).add(locationName));
     setErrors((prev) => ({ ...prev, [locationName]: null }));
     try {
-      await resetLocationFailures(locationName);
+      const stored = await resetLocationFailures(locationName);
+      if (hadReason && stored && stored.enabled === false) {
+        // The server cleared the counters but kept the place off: its region is switched off (D3). Not refreshing keeps this row, and the sentence, on screen.
+        setErrors((prev) => ({
+          ...prev,
+          [locationName]: 'Failure counters cleared, but this location stays off because its region is off. Turn the region on first.',
+        }));
+        return;
+      }
       onReenabledLocation(locationName);
     } catch (err) {
       setErrors((prev) => ({
@@ -100,7 +108,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
                 type="button"
                 aria-label={`Re-enable ${loc.name}`}
                 disabled={pending.has(loc.name)}
-                onClick={() => handleReenableLocation(loc.name)}
+                onClick={() => handleReenableLocation(loc.name, Boolean(loc.disabledReason))}
                 className="flex-shrink-0 px-3 py-1 text-xs font-medium bg-amber-700 text-amber-100 hover:bg-amber-600 rounded transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
                 Re-enable

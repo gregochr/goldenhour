@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.model.AddRegionRequest;
 import com.gregochr.goldenhour.model.SetRegionBaseRequest;
 import com.gregochr.goldenhour.model.UpdateRegionRequest;
 import com.gregochr.goldenhour.repository.BriefingRegionSnapshotRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,7 @@ public class RegionService {
     private final RegionDriveTimeWriter regionDriveTimeWriter;
     private final BriefingRegionSnapshotRepository snapshotRepository;
     private final ServedBriefingEpoch servedEpoch;
+    private final LocationRepository locationRepository;
 
     /**
      * Constructs a {@code RegionService}.
@@ -49,15 +52,18 @@ public class RegionService {
      * @param regionDriveTimeWriter clears a region's shared drive-time matrix when its base moves
      * @param snapshotRepository    the name-keyed movement store a rename orphans
      * @param servedEpoch           bumped after commit on every region save (names feed hot topics)
+     * @param locationRepository    counts a region's switched-on locations for the turn-off guard
      */
     public RegionService(RegionRepository regionRepository,
             RegionDriveTimeWriter regionDriveTimeWriter,
             BriefingRegionSnapshotRepository snapshotRepository,
-            ServedBriefingEpoch servedEpoch) {
+            ServedBriefingEpoch servedEpoch,
+            LocationRepository locationRepository) {
         this.regionRepository = regionRepository;
         this.regionDriveTimeWriter = regionDriveTimeWriter;
         this.snapshotRepository = snapshotRepository;
         this.servedEpoch = servedEpoch;
+        this.locationRepository = locationRepository;
     }
 
     /**
@@ -235,13 +241,27 @@ public class RegionService {
     /**
      * Toggles the enabled state of a region.
      *
+     * <p>Turning a region <b>on</b> is always allowed. Turning it <b>off</b> is refused with a
+     * {@link RegionStateConflictException} (HTTP 409) while any of its locations is switched on, so a
+     * switched-on location never sits in a switched-off region (data-tabs-redesign-plan D3). The count and the
+     * save are not one transaction, so a location switched on in the gap can slip through; accepted, as the
+     * location doors check the region again.
+     *
      * @param id      the region primary key
      * @param enabled the new enabled state
      * @return the updated {@link RegionEntity}
-     * @throws NoSuchElementException if no region with that ID exists
+     * @throws NoSuchElementException       if no region with that ID exists
+     * @throws RegionStateConflictException if turning off while the region has switched-on locations
      */
     public RegionEntity setEnabled(Long id, boolean enabled) {
         RegionEntity region = findById(id);
+        if (!enabled) {
+            long on = locationRepository.countEnabledInRegion(region.getId());
+            if (on > 0) {
+                throw new RegionStateConflictException(
+                        "Turn off its " + (on == 1 ? "1 location" : on + " locations") + " first.");
+            }
+        }
         region.setEnabled(enabled);
         RegionEntity saved = regionRepository.save(region);
         servedEpoch.bump();
