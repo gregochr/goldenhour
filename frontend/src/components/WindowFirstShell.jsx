@@ -875,7 +875,8 @@ export default function WindowFirstShell({
   const selectTab = (id) => {
     setActiveTab(id);
     // Sticky: a pane that has been opened stays mounted, so its state and its fetches survive a
-    // round trip through another tab. `ManageView` in particular reads the hash at mount only.
+    // round trip through another tab. `ManageView` in particular reads the hash at mount and then follows
+    // `#manage/<known tab>` through its own `hashchange` listener, so an already-mounted Manage moves with it.
     setOpenedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setOpenPick(null);
     setSheetKey(null);

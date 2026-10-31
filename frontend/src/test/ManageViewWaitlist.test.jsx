@@ -75,7 +75,7 @@ describe('ManageView — Waitlist tab', () => {
     openWaitlist();
 
     await waitFor(() => {
-      expect(screen.getByTestId('waitlist-table')).toBeInTheDocument();
+      expect(screen.getByTestId('waitlist')).toBeInTheDocument();
     });
   });
 
@@ -193,10 +193,25 @@ describe('ManageView — Waitlist tab', () => {
 
     render(<ManageView onComplete={vi.fn()} />);
     openWaitlist();
-    await user.click(await screen.findByTestId('waitlist-invite-0'));
+    await user.click(await screen.findByTestId('waitlist-row-5'));
+    await user.click(screen.getByTestId('waitlist-invite'));
 
     await waitFor(() => expect(inviteWaitlistEntry).toHaveBeenCalledWith(5));
-    expect(await screen.findByTestId('waitlist-invited-0')).toHaveTextContent('expires 16 Apr 2026');
+    expect(await screen.findByTestId('waitlist-invited')).toHaveTextContent('expires 16 Apr 2026');
+  });
+
+  it('draws the Waitlist card edge to edge on a phone: no border, background, radius or padding', async () => {
+    getWaitlist.mockResolvedValue([]);
+    window.location.hash = 'manage/waitlist';
+
+    render(<ManageView onComplete={vi.fn()} />);
+
+    const card = (await screen.findByTestId('waitlist-management')).parentElement;
+    for (const cls of ['max-[639px]:border-0', 'max-[639px]:bg-transparent', 'max-[639px]:p-0', 'max-[639px]:rounded-none']) {
+      expect(card.className).toContain(cls);
+    }
+    // Desktop keeps the card: the phone rules are the only additions.
+    expect(card.className.split(' ').filter((c) => !c.startsWith('max-[639px]:'))).toEqual(['card']);
   });
 
   it('removing the last entry clears both badges', async () => {
@@ -207,8 +222,9 @@ describe('ManageView — Waitlist tab', () => {
     render(<ManageView onComplete={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('1'));
     openWaitlist();
-    await user.click(await screen.findByTestId('waitlist-remove-0'));
-    await user.click(screen.getByTestId('waitlist-remove-confirm-0'));
+    await user.click(await screen.findByTestId('waitlist-row-5'));
+    await user.click(screen.getByTestId('waitlist-remove'));
+    await user.click(screen.getByTestId('waitlist-remove-confirm'));
 
     await waitFor(() => expect(removeWaitlistEntry).toHaveBeenCalledWith(5));
     await waitFor(() => expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument());
