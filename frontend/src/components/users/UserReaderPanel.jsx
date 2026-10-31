@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import PanelShell from './PanelShell.jsx';
+import PanelSection from '../data/PanelSection.jsx';
+import PanelShell from '../data/PanelShell.jsx';
 import UserChangePicks from './UserChangePicks.jsx';
 import UserEditAccount from './UserEditAccount.jsx';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
@@ -15,27 +16,7 @@ import { formatCivilDay, groupPicksByRegion } from '../../utils/subRegionCopy.js
 import {
   STATUS, STATUS_LABELS, formatJoinedPhrase, formatLastActive, formatSentWhen, roleLabel, statusOf,
 } from '../../utils/userAdmin.js';
-import { sectionLabelClass, textButtonClass } from './userFormClasses.js';
-
-/** One labelled block of the panel, headed by a mono uppercase label (and an optional right-hand slot). */
-function Section({ label, aside = null, children, testId }) {
-  return (
-    <section className="border-b border-plex-border px-5 py-4 last:border-b-0" aria-label={label} data-testid={testId}>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className={sectionLabelClass}>{label}</h3>
-        {aside}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-Section.propTypes = {
-  label: PropTypes.string.isRequired,
-  aside: PropTypes.node,
-  children: PropTypes.node,
-  testId: PropTypes.string,
-};
+import { textButtonClass } from './userFormClasses.js';
 
 /** A label and its value on one line. */
 function Fact({ term, children, testId }) {
@@ -155,11 +136,14 @@ function standingLine(state, awaiting) {
  *   password modal
  * @param {(message: string) => void} props.onToast shows a one-line confirmation
  * @param {() => void} props.onDeleted told after the account is gone
+ * @param {boolean} [props.hideEdit] true on the phone page, where Edit rides the back bar instead of the Account
+ *   section (the parent draws it there)
  * @param {number} [props.policyVersion] bumped when the Lite limit is saved: the sub-region state is refetched in
  *   place (no remount, so a Change picks draft survives, and a failed refetch keeps the state already loaded)
  */
 export default function UserReaderPanel({
   user, mode, onModeChange, onClose, onUsersChanged, onTempPassword, onToast, onDeleted, policyVersion = 0,
+  hideEdit = false,
 }) {
   const [sub, setSub] = useState({ loading: true, state: null, error: false });
   const setMode = onModeChange;
@@ -346,17 +330,18 @@ export default function UserReaderPanel({
         title={user.username}
         subtitle={`${roleLabel(user.role)} · ${STATUS_LABELS[status]} · joined ${formatJoinedPhrase(user.createdAt)}`}
         onClose={onClose}
+        testIdPrefix="user-panel"
         testId="user-reader-panel"
       >
         {awaiting && (
-          <div className="border-b border-plex-border px-5 py-4" data-testid="awaiting-verification">
+          <div className="border-b border-plex-border px-[18px] py-4 max-[639px]:px-4" data-testid="awaiting-verification">
             <p className="rounded border border-verdict-marginal/50 bg-verdict-marginal/10 px-3 py-2 text-sm text-plex-text">
               Hasn&apos;t confirmed their email.{sentWhen ? ` The link was sent ${sentWhen}.` : ''}
             </p>
             {user.email && (
               <button
                 type="button"
-                className="btn-primary mt-3 text-sm"
+                className="btn-primary mt-3 text-sm max-[639px]:min-h-11"
                 onClick={handleResend}
                 disabled={busy === 'resend'}
                 data-testid={`resend-verify-${user.id}`}
@@ -367,9 +352,9 @@ export default function UserReaderPanel({
           </div>
         )}
 
-        <Section
+        <PanelSection
           label="Account"
-          aside={(
+          action={hideEdit ? null : (
             <button type="button" className={textButtonClass} onClick={() => setMode('edit')} data-testid={`edit-user-${user.id}`}>
               Edit
             </button>
@@ -380,12 +365,12 @@ export default function UserReaderPanel({
             <Fact term="Role">{roleLabel(user.role)}</Fact>
             <Fact term="Last active">{formatLastActive(user.lastActiveAt)}</Fact>
           </dl>
-        </Section>
+        </PanelSection>
 
-        <Section
+        <PanelSection
           label="Sub-regions"
           testId="panel-sub-regions"
-          aside={isLite && state ? (
+          action={isLite && state ? (
             <span className="font-mono text-xs text-plex-text-secondary" data-testid="panel-pick-count">
               {state.picks.length} of {state.limit}
             </span>
@@ -417,12 +402,12 @@ export default function UserReaderPanel({
               </div>
               <div className="flex flex-wrap gap-2">
                 {!awaiting && (
-                  <button type="button" className="btn-secondary text-xs" onClick={() => setMode('picks')} data-testid="change-picks">
+                  <button type="button" className="btn-secondary text-xs max-[639px]:min-h-11" onClick={() => setMode('picks')} data-testid="change-picks">
                     Change picks
                   </button>
                 )}
                 {state.status === 'LOCKED' && (
-                  <button type="button" className="btn-secondary text-xs" onClick={handleClearLock} data-testid="clear-lock">
+                  <button type="button" className="btn-secondary text-xs max-[639px]:min-h-11" onClick={handleClearLock} data-testid="clear-lock">
                     Clear lock
                   </button>
                 )}
@@ -437,9 +422,9 @@ export default function UserReaderPanel({
               )}
             </div>
           )}
-        </Section>
+        </PanelSection>
 
-        <Section label="Preferences and legal">
+        <PanelSection label="Preferences and legal">
           <dl>
             <Fact term="Home postcode" testId={`home-postcode-${user.id}`}>
               {user.homePostcode || <span className="text-plex-text-muted">Not set</span>}
@@ -451,15 +436,15 @@ export default function UserReaderPanel({
                 : <span className="text-plex-text-muted">Not accepted</span>}
             </Fact>
           </dl>
-        </Section>
+        </PanelSection>
 
-        <Section label="Account actions">
+        <PanelSection label="Account actions">
           <ErrorBanner message={actionError} className="mb-2" data-testid="panel-action-error" />
           {!awaiting && (
             <ActionRow title="Reset password" hint="Emails a temporary password. They set a new one at sign-in.">
               <button
                 type="button"
-                className="btn-secondary text-xs shrink-0"
+                className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11"
                 onClick={handleResetPassword}
                 disabled={busy === 'reset'}
                 data-testid={`reset-password-${user.id}`}
@@ -470,13 +455,13 @@ export default function UserReaderPanel({
           )}
           {!awaiting && (user.enabled ? (
             <ActionRow title="Disable account" hint="They can't sign in until it's enabled again.">
-              <button type="button" className="btn-secondary text-xs shrink-0" onClick={handleDisable} data-testid={`disable-user-${user.id}`}>
+              <button type="button" className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11" onClick={handleDisable} data-testid={`disable-user-${user.id}`}>
                 Disable
               </button>
             </ActionRow>
           ) : (
             <ActionRow title="Enable account" hint="They can sign in again.">
-              <button type="button" className="btn-secondary text-xs shrink-0" onClick={handleEnable} data-testid={`enable-user-${user.id}`}>
+              <button type="button" className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11" onClick={handleEnable} data-testid={`enable-user-${user.id}`}>
                 Enable
               </button>
             </ActionRow>
@@ -484,14 +469,14 @@ export default function UserReaderPanel({
           <ActionRow title="Delete account" hint="Permanent. They get an email saying so.">
             <button
               type="button"
-              className="shrink-0 rounded-lg border border-plex-coral px-3 py-1.5 text-xs font-medium text-plex-coral transition-colors hover:bg-plex-coral/10 focus-visible:outline-2 focus-visible:outline-plex-gold"
+              className="shrink-0 rounded-lg border border-plex-coral px-3 py-1.5 max-[639px]:min-h-11 text-xs font-medium text-plex-coral transition-colors hover:bg-plex-coral/10 focus-visible:outline-2 focus-visible:outline-plex-gold"
               onClick={handleDelete}
               data-testid={`delete-user-${user.id}`}
             >
               Delete
             </button>
           </ActionRow>
-        </Section>
+        </PanelSection>
       </PanelShell>
       {dialogElement}
     </>
@@ -508,4 +493,5 @@ UserReaderPanel.propTypes = {
   onToast: PropTypes.func.isRequired,
   onDeleted: PropTypes.func.isRequired,
   policyVersion: PropTypes.number,
+  hideEdit: PropTypes.bool,
 };

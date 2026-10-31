@@ -18,19 +18,19 @@ describe('Pagination', () => {
   it('renders showing summary with correct range', () => {
     render(<Pagination {...defaults} />);
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 28');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 28');
   });
 
   it('renders correct summary for page 2', () => {
     render(<Pagination {...defaults} page={2} />);
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 11-20 of 28');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–20 of 28');
   });
 
   it('renders correct summary for last page', () => {
     render(<Pagination {...defaults} page={3} />);
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 21-28 of 28');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('21–28 of 28');
   });
 
   it('disables Prev and First on first page', () => {
@@ -110,6 +110,34 @@ describe('Pagination', () => {
     fireEvent.click(screen.getByTestId('pagination-size-25'));
 
     expect(onSetPageSize).toHaveBeenCalledWith(25);
+  });
+
+  it('words the label as a range with an en dash, in mono 11px', () => {
+    render(<Pagination {...defaults} page={2} totalItems={266} totalPages={27} />);
+
+    const label = screen.getByTestId('pagination-summary');
+    expect(label).toHaveTextContent('11–20 of 266');
+    expect(label.className).toContain('font-mono');
+    expect(label.className).toContain('text-[11px]');
+  });
+
+  it('names the buttons Previous and Next', () => {
+    render(<Pagination {...defaults} page={2} />);
+
+    expect(screen.getByRole('button', { name: 'Previous' })).toBe(screen.getByTestId('pagination-prev'));
+    expect(screen.getByRole('button', { name: 'Next' })).toBe(screen.getByTestId('pagination-next'));
+  });
+
+  it('gives every phone button 9x14 padding and a 44px target, by class, and leaves the desktop classes alone', () => {
+    render(<Pagination {...defaults} page={2} />);
+
+    for (const id of ['pagination-first', 'pagination-prev', 'pagination-next', 'pagination-last', 'pagination-size-10']) {
+      const cls = screen.getByTestId(id).className;
+      expect(cls).toContain('max-[639px]:px-[14px]');
+      expect(cls).toContain('max-[639px]:py-[9px]');
+      expect(cls).toContain('max-[639px]:min-h-11');
+    }
+    expect(screen.getByTestId('pagination-next').className).toContain('px-2 py-0.5');
   });
 
   it('is not rendered when totalPages <= 1', () => {

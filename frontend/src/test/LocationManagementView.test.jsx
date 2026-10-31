@@ -218,7 +218,7 @@ describe('LocationManagementView', () => {
     expect(screen.getByText('Location 1')).toBeInTheDocument();
     expect(screen.getByText('Location 4')).toBeInTheDocument();
     expect(screen.queryByText('Location 5')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 15');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
 
     // Navigate to page 2
     fireEvent.click(screen.getByTestId('pagination-next'));
@@ -227,7 +227,7 @@ describe('LocationManagementView', () => {
       expect(screen.getByText('Location 5')).toBeInTheDocument();
     });
     expect(screen.queryByText('Location 1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 11-15 of 15');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–15 of 15');
   });
 
   it('hides pagination when all locations fit on one page', async () => {

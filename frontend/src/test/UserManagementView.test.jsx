@@ -6,6 +6,11 @@ import {
 } from '../api/userApi.js';
 import { getSubRegionPolicy, saveSubRegionPolicy } from '../api/subRegionPolicyApi.js';
 import UserManagementView from '../components/UserManagementView.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
+
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
+vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 vi.mock('../api/userApi.js', () => ({
   getUsers: vi.fn(),
@@ -122,13 +127,19 @@ function fixtureUsers() {
 }
 
 function rowFor(username) {
-  return screen.getByRole('button', { name: new RegExp(`^${username.replace('.', '\\.')}\\S*@`) });
+  // A row is named "{username}, {role}, {status}, {n} sub-regions, ..." (no address, no sub-region names).
+  return screen.getByRole('button', { name: new RegExp(`^${username.replace('.', '\\.')}, `) });
+}
+
+/** Every list row (a grid button), whatever it is named. */
+function allRows() {
+  return screen.getAllByTestId(/^users-row-\d+$/);
 }
 
 async function renderList(users = fixtureUsers()) {
   getUsers.mockResolvedValue(users);
   render(<UserManagementView />);
-  await screen.findByTestId('users-table');
+  await screen.findByTestId('users');
 }
 
 async function openReader(username, state = makeState()) {
@@ -141,6 +152,8 @@ describe('UserManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.location.hash = '';
+    useIsMobile.mockReturnValue(false);
+    useIsSplitLayout.mockReturnValue(false); // jsdom's own answer: the overlay layout
     getSubRegionPolicy.mockResolvedValue(POLICY);
   });
 
@@ -165,7 +178,7 @@ describe('UserManagementView', () => {
       for (const name of ['Delete', 'Reset', 'Disable', 'Enable', 'Edit', 'Resend verification email']) {
         expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
       }
-      for (const row of screen.getAllByRole('button', { name: /@/ })) {
+      for (const row of allRows()) {
         expect(within(row).queryAllByRole('button')).toHaveLength(0);
       }
       expect(screen.queryByTestId('toggle-user-enabled-1')).not.toBeInTheDocument();
@@ -205,7 +218,7 @@ describe('UserManagementView', () => {
 
       fireEvent.change(search, { target: { value: 'photocast.online' } });
       expect(screen.getByRole('button', { name: /ops_claire/ })).toBeInTheDocument();
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
     });
 
     it('carries a count on every chip', async () => {
@@ -226,23 +239,23 @@ describe('UserManagementView', () => {
       await renderList();
 
       fireEvent.click(screen.getByTestId('chip-role-PRO_USER'));
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       expect(screen.getByTestId('chip-role-PRO_USER')).toHaveAttribute('aria-pressed', 'true');
 
       fireEvent.click(screen.getByTestId('chip-role-ADMIN'));
       expect(screen.getByTestId('chip-role-PRO_USER')).toHaveAttribute('aria-pressed', 'false');
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       expect(screen.getByRole('button', { name: /ops_claire/ })).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('chip-role-ALL'));
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(7);
+      expect(allRows()).toHaveLength(7);
     });
 
     it('ANDs the toggle chips with the role', async () => {
       await renderList();
 
       fireEvent.click(screen.getByTestId('chip-disabled'));
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       expect(screen.getByRole('button', { name: /stormchaser/ })).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('chip-awaiting'));
@@ -263,17 +276,17 @@ describe('UserManagementView', () => {
 
       fireEvent.click(screen.getByTestId('chip-locked'));
       expect(screen.getByRole('button', { name: /bea\.holy/ })).toBeInTheDocument();
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       fireEvent.click(screen.getByTestId('chip-locked'));
 
       fireEvent.click(screen.getByTestId('chip-noSubRegions'));
       expect(screen.getByRole('button', { name: /hollie\.w/ })).toBeInTheDocument();
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       fireEvent.click(screen.getByTestId('chip-noSubRegions'));
 
       fireEvent.click(screen.getByTestId('chip-overLimit'));
       expect(screen.getByRole('button', { name: /anna_r/ })).toBeInTheDocument();
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(1);
+      expect(allRows()).toHaveLength(1);
       expect(within(rowFor('anna_r')).getByText(/over limit/)).toBeInTheDocument();
     });
 
@@ -284,20 +297,21 @@ describe('UserManagementView', () => {
       expect(screen.getByText('No users match.')).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
-      expect(screen.getAllByRole('button', { name: /@/ })).toHaveLength(7);
+      expect(allRows()).toHaveLength(7);
       expect(screen.getByRole('searchbox', { name: 'Search username or email' })).toHaveValue('');
     });
 
     it('sorts by a header, username ascending by default, and drops the spacer rows', async () => {
       await renderList();
 
-      const names = () => screen.getAllByRole('button', { name: /@/ }).map((r) => within(r).getAllByText(/./)[0].textContent);
+      const names = () => allRows().map((r) => within(r).getAllByText(/./)[0].textContent);
       expect(names()[0]).toBe('anna_r');
       expect(names()[6]).toBe('stormchaser');
 
       fireEvent.click(screen.getByRole('button', { name: /^User/ }));
       expect(names()[0]).toBe('stormchaser');
-      expect(document.querySelectorAll('[aria-hidden="true"] td')).toHaveLength(0);
+      // The grid holds its header and one child per user, and nothing else (no spacer rows).
+      expect(screen.getByTestId('users').children).toHaveLength(1 + 7);
     });
 
     it('paginates when there are more users than a page', async () => {
@@ -306,7 +320,7 @@ describe('UserManagementView', () => {
       }));
       await renderList(many);
 
-      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 15');
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
       expect(screen.queryByRole('button', { name: /user11/ })).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('pagination-next'));
       expect(screen.getByRole('button', { name: /user11/ })).toBeInTheDocument();
@@ -335,10 +349,18 @@ describe('UserManagementView', () => {
       expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('Lite · Active · joined 19 Oct 2026');
       expect(window.location.hash).toBe('#manage/users/1');
       expect(rowFor('anna_r')).toHaveAttribute('aria-current', 'true');
-      // The list is now User, Sub-regions, Role only.
-      expect(screen.queryByRole('columnheader', { name: /Status/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('columnheader', { name: /Joined/ })).not.toBeInTheDocument();
-      expect(screen.getByRole('columnheader', { name: /Role/ })).toBeInTheDocument();
+      // Opening the panel puts the list in the split's 1fr column beside the 440px panel, which is what narrows it.
+      // jsdom cannot evaluate container queries, so the narrowing itself is proved by the classes: the layout gains the
+      // split grid, and the secondary columns carry the container-query drop (the browser check proves the result).
+      expect(screen.getByTestId('user').className).toContain('min-[1000px]:grid-cols-[minmax(0,1fr)_440px]');
+      for (const key of ['status', 'lastActive', 'joined']) {
+        expect(screen.getByTestId(`users-cell-${key}-1`).className).toContain('@max-[820px]:hidden');
+      }
+      for (const key of ['user', 'role', 'subRegions']) {
+        expect(screen.getByTestId(`users-cell-${key}-1`).className).not.toContain('@max-[820px]:hidden');
+      }
+      // A non-Active status falls back under the role whenever the Status column is dropped.
+      expect(screen.getByTestId('users-cell-role-4').querySelector('.hidden').className).toContain('@max-[820px]:flex');
     });
 
     it('opens the panel on Enter, and on Space', async () => {
@@ -860,7 +882,7 @@ describe('UserManagementView', () => {
 
       const panel = await screen.findByTestId('user-add-panel');
       expect(within(panel).getByRole('heading', { name: 'Add user' })).toBeInTheDocument();
-      expect(screen.getByTestId('users-table')).toBeInTheDocument();
+      expect(screen.getByTestId('users')).toBeInTheDocument();
       const options = within(within(panel).getByLabelText('Role')).getAllByRole('option');
       expect(options.map((o) => o.textContent)).toEqual(['Lite', 'Pro', 'Admin']);
     });
@@ -1144,6 +1166,352 @@ describe('UserManagementView', () => {
 
       fireEvent.keyDown(document, { key: 'Escape' });
       expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the shared list-and-panel shell (Data tabs P2)', () => {
+    const many = () => Array.from({ length: 15 }, (_, i) => makeUser({
+      id: i + 1, username: `user${String(i + 1).padStart(2, '0')}`, email: `user${i + 1}@example.com`,
+    }));
+
+    it('keeps the panel open when paging, even though the reader is not on the new page', async () => {
+      // Split layout: the list stays interactive beside the panel (in the overlay it is inert behind the scrim).
+      useIsSplitLayout.mockReturnValue(true);
+      await renderList(many());
+      await openReader('user01');
+
+      fireEvent.click(screen.getByTestId('pagination-next'));
+
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+      expect(window.location.hash).toBe('#manage/users/1');
+    });
+
+    it('closes the panel when a search filters the open reader out, and keeps it while they still match', async () => {
+      await renderList(many());
+      await openReader('user01');
+      const search = screen.getByRole('searchbox', { name: 'Search username or email' });
+
+      fireEvent.change(search, { target: { value: 'user0' } });
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: 'user12' } });
+      await waitFor(() => expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument());
+      expect(window.location.hash).toBe('#manage/users');
+    });
+
+    it('draws the panel as an overlay with a scrim that closes it, and never as a dialog', async () => {
+      await renderList();
+      await openReader('anna_r');
+
+      expect(screen.getByTestId('user-panel').tagName).toBe('ASIDE');
+      expect(screen.getByTestId('user-panel')).not.toHaveAttribute('role');
+      expect(screen.getByTestId('user-panel')).not.toHaveAttribute('aria-modal');
+      expect(screen.getByTestId('user-list')).toHaveAttribute('inert');
+      fireEvent.click(screen.getByTestId('user-scrim'));
+      expect(screen.getByTestId('user-list')).not.toHaveAttribute('inert');
+      expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+      expect(window.location.hash).toBe('#manage/users');
+    });
+
+    it('leaves the list interactive (not inert) beside the panel in the split layout, with no scrim', async () => {
+      useIsSplitLayout.mockReturnValue(true);
+      await renderList();
+      expect(screen.getByTestId('user').className).not.toContain('grid-cols-[minmax(0,1fr)_440px]');
+
+      await openReader('anna_r');
+
+      expect(screen.getByTestId('user-list')).not.toHaveAttribute('inert');
+    });
+
+    it('moves focus to the panel title on open and back to the row on close', async () => {
+      await renderList();
+      await openReader('anna_r');
+      expect(screen.getByTestId('user-panel-title')).toHaveFocus();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+
+      expect(screen.getByTestId('users-row-1')).toHaveFocus();
+    });
+
+    it('rows are grid buttons with no table roles, and a disabled reader is drawn in the quiet ink', async () => {
+      await renderList();
+
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('columnheader')).toHaveLength(0);
+      expect(screen.getByTestId('users-row-7').className).toContain('text-plex-text-muted');
+      expect(screen.getByTestId('users-row-1').className).not.toContain('text-plex-text-muted');
+    });
+
+    it('reads a card row: title, role and sub-regions cells carry the card placements', async () => {
+      await renderList();
+
+      expect(screen.getByTestId('users-cell-user-1').className).toContain('@max-[540px]:order-1');
+      expect(screen.getByTestId('users-cell-role-1').className).toContain('@max-[540px]:order-2');
+      expect(screen.getByTestId('users-cell-subRegions-1').className).toContain('@max-[540px]:col-span-2');
+      expect(screen.getByTestId('users-row-1').className).toContain('@max-[540px]:min-h-[60px]');
+    });
+
+    it('sorts from the card-mode sort chip', async () => {
+      await renderList();
+      const names = () => allRows().map((r) => within(r).getAllByText(/./)[0].textContent);
+
+      fireEvent.change(screen.getByTestId('user-sort-chip'), { target: { value: 'username:desc' } });
+
+      expect(names()[0]).toBe('stormchaser');
+    });
+
+    describe('on a phone', () => {
+      beforeEach(() => useIsMobile.mockReturnValue(true));
+
+      it('shows the reader as a page under a back bar that carries Edit, with the list kept mounted', async () => {
+        await renderList();
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search username or email' }), { target: { value: 'anna' } });
+        await openReader('anna_r');
+
+        const bar = screen.getByTestId('user-backbar');
+        expect(within(bar).getByRole('button', { name: 'Back to Users' })).toBeInTheDocument();
+        expect(screen.getByTestId('user-list')).toHaveAttribute('hidden');
+        // One Edit, in the bar: the Account section's is hidden on the phone page.
+        expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+        expect(within(bar).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+        expect(screen.getByTestId('user-panel-close').className).toContain('max-[639px]:hidden');
+
+        fireEvent.click(within(bar).getByRole('button', { name: 'Edit' }));
+        expect(await screen.findByTestId('user-edit-account')).toBeInTheDocument();
+        expect(within(screen.getByTestId('user-backbar')).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+
+        // In Edit the back button steps back to the reader (as Esc does) and names it; from there it leaves.
+        fireEvent.click(screen.getByRole('button', { name: 'Back to anna_r' }));
+        expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+        expect(window.location.hash).toBe('#manage/users/1');
+        fireEvent.click(screen.getByRole('button', { name: 'Back to Users' }));
+        expect(screen.getByRole('searchbox', { name: 'Search username or email' })).toHaveValue('anna');
+        expect(window.location.hash).toBe('#manage/users');
+      });
+
+      it('gives the phone controls 44px targets by class', async () => {
+        await renderList();
+        expect(screen.getByTestId('add-user-btn').className).toContain('max-[639px]:min-h-11');
+        expect(screen.getByTestId('user-search').className).toContain('max-[639px]:min-h-11');
+        await openReader('anna_r');
+        expect(screen.getByTestId('user-back').className).toContain('min-h-[44px]');
+        expect(screen.getByTestId('delete-user-1').className).toContain('max-[639px]:min-h-11');
+      });
+    });
+  });
+
+  describe("the panel survives the admin's own refreshes and keeps focus across its modes (P2 review)", () => {
+    const search = () => screen.getByRole('searchbox', { name: 'Search username or email' });
+    /** The fixture list with one reader changed, as the refetch after an admin action returns it. */
+    const changed = (id, patch) => fixtureUsers().map((u) => (u.id === id ? { ...u, ...patch } : u));
+    const stillOpen = (hash) => {
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+      expect(window.location.hash).toBe(hash);
+    };
+
+    it('Enable under the Disabled chip keeps the reader on screen', async () => {
+      updateUserEnabled.mockResolvedValue({ message: 'Updated' });
+      await renderList();
+      fireEvent.click(screen.getByTestId('chip-disabled'));
+      await openReader('stormchaser');
+      getUsers.mockResolvedValue(changed(7, { enabled: true }));
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Enable' }));
+
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      stillOpen('#manage/users/7');
+      expect(screen.getByTestId('user-panel-title')).toHaveTextContent('stormchaser');
+    });
+
+    it('Clear lock under the Locked chip keeps the reader on screen', async () => {
+      clearUserSubRegionLock.mockResolvedValue();
+      await renderList();
+      fireEvent.click(screen.getByTestId('chip-locked'));
+      await openReader('bea.holy', makeState({ status: 'LOCKED', nextChangeOn: '2026-11-25' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Clear lock' }));
+      const dialog = await screen.findByRole('dialog', { name: "Clear bea.holy's lock?" });
+      getUsers.mockResolvedValue(changed(2, { subRegionStatus: 'OPEN', nextChangeOn: null }));
+      getUserSubRegions.mockResolvedValue(makeState({ status: 'OPEN' }));
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Clear lock' }));
+
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      stillOpen('#manage/users/2');
+    });
+
+    it('a role edit under the Lite chip keeps the reader on screen', async () => {
+      updateUserRole.mockResolvedValue({ message: 'Updated' });
+      await renderList();
+      fireEvent.click(screen.getByTestId('chip-role-LITE_USER'));
+      await openReader('anna_r');
+      fireEvent.click(await screen.findByTestId('edit-user-1'));
+      const panel = await screen.findByTestId('user-edit-account');
+      getUsers.mockResolvedValue(changed(1, { role: 'PRO_USER' }));
+
+      fireEvent.change(within(panel).getByLabelText('Role'), { target: { value: 'PRO_USER' } });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+      stillOpen('#manage/users/1');
+    });
+
+    it('an email edit under a search that no longer matches keeps the reader on screen', async () => {
+      updateUserEmail.mockResolvedValue({ message: 'Updated' });
+      await renderList();
+      fireEvent.change(search(), { target: { value: 'anna.r' } });
+      await openReader('anna_r');
+      fireEvent.click(await screen.findByTestId('edit-user-1'));
+      const panel = await screen.findByTestId('user-edit-account');
+      getUsers.mockResolvedValue(changed(1, { email: 'new@example.com' }));
+
+      fireEvent.change(within(panel).getByLabelText('Email'), { target: { value: 'new@example.com' } });
+      fireEvent.click(within(panel).getByRole('button', { name: 'Save changes' }));
+
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+      stillOpen('#manage/users/1');
+    });
+
+    it('a picks save under the No sub-regions chip keeps the reader on screen', async () => {
+      const fresh = makeUser({ id: 9, username: 'newbie', email: 'n@example.com', subRegions: [], subRegionStatus: 'FIRST_CHOICE' });
+      await renderList([...fixtureUsers(), fresh]);
+      fireEvent.click(screen.getByTestId('chip-noSubRegions'));
+      await openReader('newbie', makeState({ status: 'FIRST_CHOICE', picks: [PICKS[0]] }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Change picks' }));
+      const panel = await screen.findByTestId('user-change-picks');
+      saveUserSubRegions.mockResolvedValue(makeState({ status: 'FREE_UNTIL', picks: [PICKS[0]] }));
+      getUsers.mockResolvedValue([...fixtureUsers(), { ...fresh, subRegions: ['Berwick & Holy Island'], subRegionStatus: 'OPEN' }]);
+
+      fireEvent.click(within(panel).getByRole('checkbox', { name: /Berwick & Holy Island/ }));
+      fireEvent.click(within(panel).getByRole('checkbox', { name: /Bamburgh to Howick/ }));
+      fireEvent.click(within(panel).getByRole('button', { name: 'Save picks' }));
+
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+      stillOpen('#manage/users/9');
+    });
+
+    it('saving the Lite limit under the Over limit chip keeps the reader on screen', async () => {
+      getSubRegionPolicy.mockResolvedValueOnce(POLICY).mockResolvedValueOnce({ ...POLICY, candidateLimit: 2 });
+      saveSubRegionPolicy.mockResolvedValue({ ...POLICY, liteLimit: 2, candidateLimit: 2 });
+      await renderList(changed(1, { overLimit: true }));
+      fireEvent.click(screen.getByTestId('chip-overLimit'));
+      await openReader('anna_r');
+      getUsers.mockResolvedValue(changed(1, { overLimit: false }));
+      fireEvent.click(await screen.findByTestId('lite-limit-btn'));
+      fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+      await screen.findByTestId('sub-region-policy-saved');
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(2));
+      stillOpen('#manage/users/1');
+    });
+
+    it('Back or Forward to a reader the filters exclude leaves the panel open; only a filter change closes', async () => {
+      await renderList();
+      fireEvent.change(search(), { target: { value: 'anna' } });
+      await openReader('anna_r');
+      getUserSubRegions.mockResolvedValue(makeState());
+
+      window.location.hash = '#manage/users/2';
+      fireEvent(window, new HashChangeEvent('hashchange'));
+
+      expect(await screen.findByRole('heading', { name: 'bea.holy' })).toBeInTheDocument();
+      stillOpen('#manage/users/2');
+      fireEvent.change(search(), { target: { value: 'fell' } });
+      await waitFor(() => expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument());
+    });
+
+    it('a reader added under a search stays open, and survives a later refresh', async () => {
+      createUser.mockResolvedValue({ id: 8, username: 'jane', email: 'jane@example.com', role: 'LITE_USER' });
+      updateUserEnabled.mockResolvedValue({ message: 'Updated' });
+      await renderList();
+      fireEvent.change(search(), { target: { value: 'anna' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+      const form = await screen.findByTestId('user-add-panel');
+      const jane = makeUser({ id: 8, username: 'jane', email: 'jane@example.com' });
+      getUsers.mockResolvedValue([...fixtureUsers(), jane]);
+      getUserSubRegions.mockResolvedValue(makeState());
+
+      fireEvent.change(within(form).getByLabelText('Username'), { target: { value: 'jane' } });
+      fireEvent.change(within(form).getByLabelText('Password'), { target: { value: 'Temp-1234' } });
+      fireEvent.change(within(form).getByLabelText('Email'), { target: { value: 'jane@example.com' } });
+      fireEvent.click(within(form).getByRole('button', { name: 'Create user' }));
+
+      expect(await screen.findByRole('heading', { name: 'jane' })).toBeInTheDocument();
+      stillOpen('#manage/users/8');
+
+      getUsers.mockResolvedValue([...fixtureUsers(), { ...jane, enabled: false }]);
+      fireEvent.click(await screen.findByRole('button', { name: 'Disable' }));
+      fireEvent.click(within(await screen.findByRole('dialog', { name: 'Disable jane?' })).getByRole('button', { name: 'Disable' }));
+      await waitFor(() => expect(updateUserEnabled).toHaveBeenCalledWith(8, false));
+      await waitFor(() => expect(getUsers).toHaveBeenCalledTimes(3));
+      stillOpen('#manage/users/8');
+    });
+
+    describe('focus follows the panel mode (to the panel title, in every mode)', () => {
+      const title = () => screen.getByTestId('user-panel-title');
+
+      it('goes to the title entering Edit, and back to the title on Cancel, on Esc and on Save', async () => {
+        updateUserEmail.mockResolvedValue({ message: 'Updated' });
+        await renderList();
+        await openReader('anna_r');
+        const edit = await screen.findByTestId('edit-user-1');
+        edit.focus();
+
+        fireEvent.click(edit);
+        const panel = await screen.findByTestId('user-edit-account');
+        expect(title()).toHaveTextContent('Edit anna_r');
+        expect(title()).toHaveFocus();
+
+        fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }));
+        expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+        expect(title()).toHaveFocus();
+
+        fireEvent.click(screen.getByTestId('edit-user-1'));
+        await screen.findByTestId('user-edit-account');
+        fireEvent.keyDown(document, { key: 'Escape' });
+        expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+        expect(title()).toHaveFocus();
+
+        fireEvent.click(screen.getByTestId('edit-user-1'));
+        const form = await screen.findByTestId('user-edit-account');
+        fireEvent.change(within(form).getByLabelText('Email'), { target: { value: 'x@example.com' } });
+        fireEvent.click(within(form).getByRole('button', { name: 'Save changes' }));
+        await screen.findByTestId('user-reader-panel');
+        await waitFor(() => expect(title()).toHaveFocus());
+      });
+
+      it('goes to the title entering Change picks and back to it on Cancel', async () => {
+        await renderList();
+        await openReader('bea.holy', makeState({ status: 'LOCKED', nextChangeOn: '2026-11-25' }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Change picks' }));
+        const panel = await screen.findByTestId('user-change-picks');
+        expect(title()).toHaveFocus();
+
+        fireEvent.click(within(panel).getByTestId('change-picks-cancel'));
+
+        expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+        expect(title()).toHaveFocus();
+      });
+
+      it('goes to the title when the phone back bar steps back from Edit', async () => {
+        useIsMobile.mockReturnValue(true);
+        await renderList();
+        await openReader('anna_r');
+        fireEvent.click(within(screen.getByTestId('user-backbar')).getByRole('button', { name: 'Edit' }));
+        await screen.findByTestId('user-edit-account');
+        expect(title()).toHaveFocus();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Back to anna_r' }));
+
+        expect(await screen.findByTestId('user-reader-panel')).toBeInTheDocument();
+        expect(title()).toHaveFocus();
+        expect(screen.getByRole('button', { name: 'Back to Users' })).toBeInTheDocument();
+      });
     });
   });
 

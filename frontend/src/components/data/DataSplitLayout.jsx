@@ -19,7 +19,8 @@ export const PANEL_TITLE_ATTR = 'data-panel-title';
  * Split versus overlay is CSS (so crossing 1000px never remounts anything); {@link useIsSplitLayout} is the same
  * breakpoint in JS, used only for {@code inert}. Phone-only classes sit behind {@code isMobile}.
  *
- * <p>Focus: opening a panel (or switching entries) moves focus to the element marked {@link PANEL_TITLE_ATTR};
+ * <p>Focus: opening a panel, switching entries, or changing the panel's mode ({@code focusKey}: view to edit and back)
+ * moves focus to the element marked {@link PANEL_TITLE_ATTR};
  * closing it puts focus back on the row that opened it ({@code {rowTestIdPrefix}-row-{selectionKey}}), or, when
  * that row is gone, on the list's search box or heading. It never steals focus the reader has moved elsewhere.
  *
@@ -31,18 +32,22 @@ export const PANEL_TITLE_ATTR = 'data-panel-title';
  * @param {object} props
  * @param {import('react').ReactNode} props.list the list card's contents (always mounted)
  * @param {import('react').ReactNode} [props.panel] the panel's contents; a falsy value means no panel is open
- * @param {() => void} props.onClose closes the panel (the scrim, and the phone back button)
+ * @param {() => void} props.onClose closes the panel (the scrim, and the phone back button unless {@code onBack})
+ * @param {() => void} [props.onBack] the phone back button, when it should do something other than close (step back
+ *   from a sub-mode to the entry); defaults to {@code onClose}
  * @param {string} props.panelLabel the panel's accessible name (an {@code aria-label})
  * @param {string} props.backLabel the tab's name for the phone back button ("‹ Waitlist")
  * @param {import('react').ReactNode} [props.backAction] the panel's primary action, on the phone back bar's right
  * @param {{current: HTMLElement|null}} [props.panelRef] set to the panel's root, for {@code usePanelEscape}
  * @param {string|number|null} [props.selectionKey] the open entry's id, for returning focus to its row
+ * @param {string} [props.focusKey] changes whenever the panel's body changes mode (defaults to the selection): focus
+ *   moves to the panel title each time, so a keyboard or screen-reader user is not left on a control that is gone
  * @param {string} [props.rowTestIdPrefix] the grid's test id prefix; its rows are {@code {prefix}-row-{id}}
  * @param {string} [props.testId] the layout's test id; the panel and scrim derive theirs from it
  */
 export default function DataSplitLayout({
   list, panel = null, onClose, panelLabel, backLabel, backAction = null, panelRef = undefined,
-  selectionKey = null, rowTestIdPrefix = undefined, testId = 'data-split',
+  selectionKey = null, rowTestIdPrefix = undefined, testId = 'data-split', onBack = undefined, focusKey = undefined,
 }) {
   const isMobile = useIsMobile();
   const isSplit = useIsSplitLayout();
@@ -52,6 +57,8 @@ export default function DataSplitLayout({
   const rootRef = useRef(null);
   const wasOpen = useRef(false);
   const openKey = useRef(null);
+  const openFocusKey = useRef(null);
+  const effectiveFocusKey = focusKey ?? selectionKey;
   const listScroll = useRef(0);
 
   // The phone page replaces the list, so remember where the list was scrolled to put it back.
@@ -63,7 +70,8 @@ export default function DataSplitLayout({
   }, [isMobile, open]);
 
   useEffect(() => {
-    const opening = open && (!wasOpen.current || openKey.current !== selectionKey);
+    const opening = open && (!wasOpen.current || openKey.current !== selectionKey
+      || openFocusKey.current !== effectiveFocusKey);
     const closing = !open && wasOpen.current;
     if (opening) {
       asideRef.current?.querySelector(`[${PANEL_TITLE_ATTR}]`)?.focus({ preventScroll: true });
@@ -83,7 +91,8 @@ export default function DataSplitLayout({
     }
     wasOpen.current = open;
     openKey.current = open ? selectionKey : null;
-  }, [open, selectionKey, isMobile, asideRef, rowTestIdPrefix]);
+    openFocusKey.current = open ? effectiveFocusKey : null;
+  }, [open, selectionKey, effectiveFocusKey, isMobile, asideRef, rowTestIdPrefix]);
 
   const rootClass = open && !isMobile
     ? 'relative max-[999px]:min-h-[34rem] min-[1000px]:grid min-[1000px]:grid-cols-[minmax(0,1fr)_440px]'
@@ -124,7 +133,7 @@ export default function DataSplitLayout({
                 type="button"
                 className="flex min-h-[44px] items-center gap-1 rounded px-2 text-sm font-medium text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
                 aria-label={`Back to ${backLabel}`}
-                onClick={onClose}
+                onClick={onBack ?? onClose}
                 data-testid={`${testId}-back`}
               >
                 <span aria-hidden="true">&lsaquo;</span>
@@ -151,4 +160,6 @@ DataSplitLayout.propTypes = {
   selectionKey: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   rowTestIdPrefix: PropTypes.string,
   testId: PropTypes.string,
+  onBack: PropTypes.func,
+  focusKey: PropTypes.string,
 };

@@ -12,6 +12,10 @@ function columnClass(column) {
     return `hidden @max-[540px]:block ${place}`;
   }
   if (column.card === 'title') return `@max-[540px]:order-1 ${column.secondary ? '@max-[820px]:hidden' : ''}`;
+  // A normal column may also fill a card line (Users: Role rides line 1, Sub-regions is line 2). It stays shown in
+  // card mode, so it must not be secondary: a secondary column drops at 820px, which is before cards begin.
+  if (column.card === 'status') return '@max-[540px]:order-2 @max-[540px]:justify-self-end';
+  if (column.card === 'summary') return '@max-[540px]:order-3 @max-[540px]:col-span-2';
   return `@max-[540px]:hidden ${column.secondary ? '@max-[820px]:hidden' : ''}`;
 }
 
@@ -32,8 +36,10 @@ function template(columns, lean) {
  *   <li>540px and under: each row becomes a two-line card (line 1 the {@code card: 'title'} column and the
  *       {@code card: 'status'} cell on the right, line 2 the {@code card: 'summary'} cell) and the header hides.
  * </ul>
- * Cards need their own cells: a column with {@code cardOnly: true} is shown only in card mode, so a value that is
- * a secondary column on a wide list (Waiting) can still ride the card's right edge.
+ * Cards take their cells two ways. A column with {@code cardOnly: true} is shown only in card mode, so a value that
+ * is a secondary column on a wide list (Waiting) can still ride the card's right edge. A normal column with
+ * {@code card: 'status'} or {@code 'summary'} is shown in both modes, in its own place in the wide list and on its
+ * card line (it must not be {@code secondary}, because secondary columns are gone by the time cards begin).
  *
  * <p>Rows are {@code role="button"} with {@code tabIndex=0}; Enter and Space open them; each carries an
  * {@code aria-label} reading the row. ⚠️ A row holds <b>no</b> interactive element (no button, link, input or

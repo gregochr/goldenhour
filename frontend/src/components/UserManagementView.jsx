@@ -1,43 +1,37 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getUsers } from '../api/userApi.js';
 import Modal from './shared/Modal.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
+import DataSplitLayout from './data/DataSplitLayout.jsx';
 import SubRegionToast from './subregions/SubRegionToast.jsx';
 import UserListPane from './users/UserListPane.jsx';
 import LiteLimitButton from './users/LiteLimitButton.jsx';
 import UserReaderPanel from './users/UserReaderPanel.jsx';
 import UserAddPanel from './users/UserAddPanel.jsx';
+import { textButtonClass } from './users/userFormClasses.js';
+import useHashSelection from '../hooks/useHashSelection.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import usePanelEscape from '../hooks/usePanelEscape.js';
 
-/** The hash the Users tab lives at; a selected reader adds `/{id}`. */
-const USERS_HASH = 'manage/users';
-
-/** The reader id in the URL hash (`#manage/users/12`), or null. */
-function selectedIdFromHash() {
-  const [area, tab, id] = window.location.hash.replace('#', '').split('/');
-  if (area !== 'manage' || tab !== 'users' || !/^\d+$/.test(id ?? '')) return null;
-  return Number(id);
-}
-
-/** Writes the selection into the hash, the way the Manage tabs do, so it survives a reload and Back. */
-function writeSelectionToHash(id) {
-  // Intentional browser navigation side effect, as ManageView does for its tabs.
-  window.location.hash = id == null ? USERS_HASH : `${USERS_HASH}/${id}`;
-}
+/** The Manage tab key; a selected reader adds `/{id}` ({@code #manage/users/12}). */
+const TAB = 'users';
 
 /**
- * Operations → People → Users (sub-regions plan S4b; the Claude Design handoff, Part B).
+ * Operations → People → Users (sub-regions plan S4b; the Claude Design handoff, Part B), on the shared Data
+ * list-and-panel shell (data-tabs-redesign-plan.md, phase P2).
  *
  * <p>One list (search, chip filters, sortable columns, rows without buttons) and, beside it, the reader panel
  * a row opens: Account, Sub-regions, Preferences and legal, Account actions, with Change picks, Edit account and
  * Add user taking over the panel body. The selection is mirrored in the hash ({@code #manage/users/{id}}), so a
- * reload or the Back button lands on the same reader; Esc or × closes the panel. At iPad portrait the panel
- * replaces the list rather than sitting beside it. Phone layout is out of scope: the admin tabs are desktop and iPad.
+ * reload or the Back button lands on the same reader. The panel sits beside the list from 1000px, over it (under a
+ * scrim) from 640 to 999px, and on a phone is a full page with a "‹ Users" back bar that also carries Edit. Esc steps
+ * back from Change picks or Edit to the reader, then closes the panel; an open dialog keeps the key.
  */
 export default function UserManagementView() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [selectedId, setSelectedId] = useState(selectedIdFromHash);
+  const { selectedId, select, clear } = useHashSelection(TAB);
   const [adding, setAdding] = useState(false);
   const [mode, setMode] = useState('view'); // the reader panel's body: view | picks | edit
   const [tempPassword, setTempPassword] = useState(null);
@@ -45,6 +39,17 @@ export default function UserManagementView() {
   const clearToast = useCallback(() => setToast(null), []);
   // Bumped when the Lite limit is saved, so an open reader panel refetches its sub-region state in place.
   const [policyVersion, setPolicyVersion] = useState(0);
+  const isMobile = useIsMobile();
+  const panelRef = useRef(null);
+
+  // A new selection (a click, Back, Forward, a pasted link) starts on the reader's own view, and leaves Add user.
+  // Adjusting state while rendering, React's pattern for state derived from a changed value.
+  const [seenSelection, setSeenSelection] = useState(selectedId);
+  if (selectedId !== seenSelection) {
+    setSeenSelection(selectedId);
+    setMode('view');
+    if (selectedId != null) setAdding(false);
+  }
 
   const refreshUsers = useCallback(async () => {
     try {
@@ -63,18 +68,6 @@ export default function UserManagementView() {
     return () => { live = false; };
   }, []);
 
-  // Back and Forward (and a pasted link) move the selection.
-  useEffect(() => {
-    const onHashChange = () => {
-      const id = selectedIdFromHash();
-      if (id != null) setAdding(false);
-      setMode('view');
-      setSelectedId(id);
-    };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-
   // Each user's `overLimit` flag comes from GET /api/users, so a new limit means refetching the list too.
   const handlePolicySaved = useCallback(() => {
     refreshUsers();
@@ -84,53 +77,42 @@ export default function UserManagementView() {
   const selectedUser = users.find((u) => u.id === selectedId) ?? null;
   const panelOpen = adding || selectedUser != null;
 
+  // A hash naming nobody (a pasted unknown id, the reader just deleted) leaves the bare tab address, replacing the
+  // entry so Back does not land on a dead one.
+  useEffect(() => {
+    if (!loading && !loadError && selectedId != null && selectedUser == null) clear({ replace: true });
+  }, [loading, loadError, selectedId, selectedUser, clear]);
+
   const closePanel = useCallback(() => {
     setAdding(false);
     setMode('view');
-    setSelectedId(null);
-    writeSelectionToHash(null);
-  }, []);
+    clear();
+  }, [clear]);
 
-  // Esc closes the panel, unless a dialog is open (it has its own buttons) or something already took the key.
-  useEffect(() => {
-    if (!panelOpen) return undefined;
-    const onKeyDown = (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
-      // Esc in a text field belongs to the field (the search box clears itself in some browsers).
-      const target = event.target;
-      if (target instanceof HTMLElement && (target.tagName === 'TEXTAREA' || target.isContentEditable
-          || (target.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(target.type)))) return;
-      if (!adding && mode !== 'view') {
-        setMode('view');
-        return;
-      }
-      closePanel();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [panelOpen, adding, mode, closePanel]);
+  // Esc steps back from Change picks or Edit account to the reader first, then closes the panel. The hook leaves it
+  // alone when a dialog is open, when focus is in a text field (the search box, the Add user fields) and when the
+  // Operations pane is hidden.
+  usePanelEscape({
+    active: panelOpen,
+    panelRef,
+    onEscape: !adding && mode !== 'view' ? () => setMode('view') : closePanel,
+  });
 
   function selectUser(user) {
     setAdding(false);
     setMode('view');
-    setSelectedId(user.id);
-    writeSelectionToHash(user.id);
+    select(user.id);
   }
 
   function startAdd() {
-    setSelectedId(null);
     setAdding(true);
-    writeSelectionToHash(null);
+    clear();
   }
 
   async function handleCreated(created) {
     await refreshUsers();
     setAdding(false);
-    if (created?.id != null) {
-      setSelectedId(created.id);
-      writeSelectionToHash(created.id);
-    }
+    if (created?.id != null) select(created.id);
     setToast(`Added ${created?.username ?? 'the user'}.`);
   }
 
@@ -139,44 +121,81 @@ export default function UserManagementView() {
     await refreshUsers();
   }
 
+  let panel = null;
+  if (adding) {
+    panel = <UserAddPanel onClose={closePanel} onCreated={handleCreated} />;
+  } else if (selectedUser) {
+    panel = (
+      <UserReaderPanel
+        key={selectedUser.id}
+        user={selectedUser}
+        mode={mode}
+        onModeChange={setMode}
+        onClose={closePanel}
+        onUsersChanged={refreshUsers}
+        onTempPassword={setTempPassword}
+        onToast={setToast}
+        onDeleted={handleDeleted}
+        policyVersion={policyVersion}
+        hideEdit={isMobile}
+      />
+    );
+  }
+
+  // On the phone page the reader's Edit rides the back bar; the other modes have their own Cancel and Save.
+  const backAction = isMobile && selectedUser && !adding && mode === 'view' ? (
+    <button
+      type="button"
+      className={`${textButtonClass} min-h-[44px] px-3 font-medium`}
+      onClick={() => setMode('edit')}
+      data-testid={`edit-user-${selectedUser.id}`}
+    >
+      Edit
+    </button>
+  ) : null;
+
+  let panelLabel = 'Reader';
+  if (adding) panelLabel = 'Add user';
+  else if (selectedUser) panelLabel = `Reader ${selectedUser.username}`;
+
+  // On the phone page the back button steps back from Change picks or Edit to the reader, as Esc does; from the
+  // reader (or Add user) it returns to the list.
+  const inSubMode = !adding && selectedUser != null && mode !== 'view';
+
+  let selectionKey = null;
+  if (adding) selectionKey = 'add';
+  else if (selectedUser) selectionKey = selectedUser.id;
+
   return (
-    <div className="-m-4 overflow-hidden rounded-xl" data-testid="user-management">
+    <div className="-m-4 overflow-clip rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible" data-testid="user-management">
       {loading && <p className="p-4 text-sm text-plex-text-muted animate-pulse">Loading users...</p>}
       <ErrorBanner message={loadError} className="m-4" data-testid="users-load-error" />
 
       {!loading && !loadError && (
-        <div className={panelOpen ? 'grid lg:grid-cols-[minmax(0,1fr)_440px]' : ''}>
-          <div className={`min-w-0 ${panelOpen ? 'max-lg:hidden' : ''}`}>
+        <DataSplitLayout
+          list={(
             <UserListPane
               users={users}
               selectedId={selectedUser ? selectedUser.id : null}
-              compact={panelOpen}
+              panelOpen={panelOpen}
               onSelect={selectUser}
               onAdd={startAdd}
+              onSelectionFiltered={closePanel}
               headerActions={<LiteLimitButton onSaved={handlePolicySaved} />}
             />
-          </div>
-          {panelOpen && (
-            <aside className="min-w-0 border-plex-border bg-plex-panel lg:border-l" data-testid="user-panel">
-              {adding ? (
-                <UserAddPanel onClose={closePanel} onCreated={handleCreated} />
-              ) : (
-                <UserReaderPanel
-                  key={selectedUser.id}
-                  user={selectedUser}
-                  mode={mode}
-                  onModeChange={setMode}
-                  onClose={closePanel}
-                  onUsersChanged={refreshUsers}
-                  onTempPassword={setTempPassword}
-                  onToast={setToast}
-                  onDeleted={handleDeleted}
-                  policyVersion={policyVersion}
-                />
-              )}
-            </aside>
           )}
-        </div>
+          panel={panel}
+          onClose={closePanel}
+          panelLabel={panelLabel}
+          backLabel={inSubMode ? selectedUser.username : 'Users'}
+          onBack={inSubMode ? () => setMode('view') : closePanel}
+          backAction={backAction}
+          panelRef={panelRef}
+          selectionKey={selectionKey}
+          focusKey={`${selectionKey}:${adding ? 'add' : mode}`}
+          rowTestIdPrefix="users"
+          testId="user"
+        />
       )}
 
       {tempPassword && (

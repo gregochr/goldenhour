@@ -13,7 +13,7 @@ import { useState } from 'react';
  * @param {'asc'|'desc'} defaultSortDir - Initial sort direction.
  * @param {Object<string, function>} accessors - Map of sort key to value accessor function.
  * @returns {object} Sort/filter state and handlers:
- *   {@code sortKey}, {@code sortDir}, {@code handleSort(key)},
+ *   {@code sortKey}, {@code sortDir}, {@code handleSort(key)}, {@code setSort(key, dir)} (a column and direction at once, for a sort chip),
  *   {@code setFilter(key, value)}, {@code getFilterValue(key)}, {@code apply(items)}.
  */
 export default function useSortAndFilter(defaultSortKey, defaultSortDir, accessors) {
@@ -28,6 +28,11 @@ export default function useSortAndFilter(defaultSortKey, defaultSortDir, accesso
       setSortKey(key);
       setSortDir('asc');
     }
+  }
+
+  function setSort(key, dir) {
+    setSortKey(key);
+    setSortDir(dir);
   }
 
   function setFilter(key, value) {
@@ -87,5 +92,5 @@ export default function useSortAndFilter(defaultSortKey, defaultSortDir, accesso
     return result;
   }
 
-  return { sortKey, sortDir, handleSort, setFilter, getFilterValue, apply };
+  return { sortKey, sortDir, handleSort, setSort, setFilter, getFilterValue, apply };
 }

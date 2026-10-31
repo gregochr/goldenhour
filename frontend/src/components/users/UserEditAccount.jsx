@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import PanelShell from './PanelShell.jsx';
+import PanelShell from '../data/PanelShell.jsx';
 import { updateUserEmail, updateUserRole } from '../../api/userApi.js';
 import {
   ROLE_OPTIONS, STATUS_LABELS, roleChangeNote, roleLabel, statusOf,
@@ -82,9 +82,10 @@ export default function UserEditAccount({ user, pickCount, limit, onClose, onCan
       title={`Edit ${user.username}`}
       subtitle={`${roleLabel(user.role)} · ${STATUS_LABELS[statusOf(user)]}`}
       onClose={onClose}
+      testIdPrefix="user-panel"
       testId="user-edit-account"
     >
-      <div className="flex flex-col gap-4 px-5 py-4">
+      <div className="flex flex-col gap-4 px-[18px] py-4 max-[639px]:px-4">
         <div>
           <label htmlFor="edit-user-email" className={labelClass}>Email</label>
           <input
@@ -125,7 +126,7 @@ export default function UserEditAccount({ user, pickCount, limit, onClose, onCan
         <div className="flex items-center justify-end gap-3">
           <button
             type="button"
-            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
             onClick={onCancel}
             disabled={saving}
             data-testid="edit-cancel"
@@ -134,7 +135,7 @@ export default function UserEditAccount({ user, pickCount, limit, onClose, onCan
           </button>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary max-[639px]:min-h-11"
             onClick={handleSave}
             disabled={saving}
             data-testid={`save-edit-${user.id}`}

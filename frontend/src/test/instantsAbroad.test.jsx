@@ -171,7 +171,7 @@ describe('the terms-acceptance date abroad', () => {
     getUserSubRegions.mockResolvedValue(PRO_STATE);
     render(<UserManagementView />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /admin@example\.com/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^admin, / }));
     expect(await screen.findByTestId('terms-accepted-1')).toHaveTextContent('Accepted 1 Apr 2026');
   });
 
@@ -183,7 +183,7 @@ describe('the terms-acceptance date abroad', () => {
     getUserSubRegions.mockResolvedValue(PRO_STATE);
     render(<UserManagementView />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /admin@example\.com/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^admin, / }));
     expect(await screen.findByTestId('terms-accepted-1')).toHaveTextContent('Not accepted');
   });
 
@@ -194,7 +194,7 @@ describe('the terms-acceptance date abroad', () => {
     getUsers.mockResolvedValue(users);
     render(<UserManagementView />);
 
-    const row = await screen.findByRole('button', { name: /admin@example\.com/ });
+    const row = await screen.findByRole('button', { name: /^admin, / });
     expect(row).toHaveTextContent('1 Apr 2026');
     expect(row).not.toHaveTextContent('31 Mar');
   });
