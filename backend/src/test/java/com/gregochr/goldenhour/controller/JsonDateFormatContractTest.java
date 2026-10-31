@@ -12,6 +12,13 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.ForecastListDto;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
+import com.gregochr.goldenhour.model.runs.RunGroup;
+import com.gregochr.goldenhour.model.runs.RunKind;
+import com.gregochr.goldenhour.model.runs.RunListItem;
+import com.gregochr.goldenhour.model.runs.RunListResponse;
+import com.gregochr.goldenhour.model.runs.RunListStatus;
+import com.gregochr.goldenhour.model.runs.RunListSummary;
+import com.gregochr.goldenhour.model.runs.RunRange;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -84,6 +92,25 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].targetDate").value("2026-04-16"))
                 .andExpect(jsonPath("$[0].forecastRunAt").value("2026-04-16T12:00:00"))
                 .andExpect(jsonPath("$[0].solarEventTime").value("2026-04-16T19:45:30"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs renders its Instant fields as ISO-8601 strings")
+    void getAdminRuns_pinsInstantFormat() throws Exception {
+        RunListItem item = new RunListItem(RunKind.CYCLE, 412L, RunGroup.CYCLES, "Overnight cycle",
+                Instant.parse("2026-10-31T01:00:00Z"), Instant.parse("2026-10-31T02:30:00Z"), 5400L,
+                RunListStatus.DONE, null, null, 100L, 0.79, 2, 2, null, null, null, null, 2, null, null, null);
+        RunListResponse response = new RunListResponse(List.of(item), null, 1,
+                new RunListSummary(1, 1, 0, 0, 0, 0, 0, 100L, 0.79, 5400L, 1), Map.of("ALL", 1), 0, 0, null,
+                Instant.parse("2026-11-01T02:30:00Z"), false);
+        when(adminRunsService.list(RunRange.WEEK, null, false, null, 20)).thenReturn(response);
+
+        mockMvc.perform(get("/api/admin/runs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].startedAt").value("2026-10-31T01:00:00Z"))
+                .andExpect(jsonPath("$.items[0].endedAt").value("2026-10-31T02:30:00Z"))
+                .andExpect(jsonPath("$.nextOvernightAt").value("2026-11-01T02:30:00Z"));
     }
 
     @Test
