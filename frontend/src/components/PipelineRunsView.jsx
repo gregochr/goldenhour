@@ -281,46 +281,48 @@ function CrossRunComparison({ comparison }) {
         <span className="font-mono">#{comparison.baselineRunId}</span> ·{' '}
         {formatTimestampUk(comparison.baselineTriggerTime)}
       </p>
-      <table className="w-full text-sm" data-testid="cross-run-table">
-        <thead>
-          <tr className="text-left text-plex-text-secondary text-xs uppercase">
-            <th className="py-1 pr-3">Pick</th>
-            <th className="py-1 pr-3">Changed</th>
-            <th className="py-1 pr-3">Now (intraday)</th>
-            <th className="py-1 pr-3">This morning (nightly)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {comparison.diffs.map((d) => (
-            <tr
-              key={d.rank}
-              className="border-t border-plex-border"
-              data-testid={`cross-run-diff-${d.rank}`}
-            >
-              <td className="py-1 pr-3 text-plex-text font-medium">
-                {RANK_LABEL[d.rank] || `Rank ${d.rank}`}
-              </td>
-              <td className="py-1 pr-3 text-xs">
-                {d.changed ? (
-                  <span className="text-amber-400" data-testid={`cross-run-changed-${d.rank}`}>
-                    {d.changedDimensions.length
-                      ? d.changedDimensions.map((dim) => DIMENSION_LABEL[dim] || dim).join(', ')
-                      : 'changed'}
-                  </span>
-                ) : (
-                  <span className="text-plex-text-muted">—</span>
-                )}
-              </td>
-              <td className="py-1 pr-3 text-xs">
-                <PickCell pick={d.intraday} />
-              </td>
-              <td className="py-1 pr-3 text-xs">
-                <PickCell pick={d.nightly} />
-              </td>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm" data-testid="cross-run-table">
+          <thead>
+            <tr className="text-left text-plex-text-secondary text-xs uppercase">
+              <th className="py-1 pr-3">Pick</th>
+              <th className="py-1 pr-3">Changed</th>
+              <th className="py-1 pr-3">Now (intraday)</th>
+              <th className="py-1 pr-3">This morning (nightly)</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {comparison.diffs.map((d) => (
+              <tr
+                key={d.rank}
+                className="border-t border-plex-border"
+                data-testid={`cross-run-diff-${d.rank}`}
+              >
+                <td className="py-1 pr-3 text-plex-text font-medium">
+                  {RANK_LABEL[d.rank] || `Rank ${d.rank}`}
+                </td>
+                <td className="py-1 pr-3 text-xs">
+                  {d.changed ? (
+                    <span className="text-amber-400" data-testid={`cross-run-changed-${d.rank}`}>
+                      {d.changedDimensions.length
+                        ? d.changedDimensions.map((dim) => DIMENSION_LABEL[dim] || dim).join(', ')
+                        : 'changed'}
+                    </span>
+                  ) : (
+                    <span className="text-plex-text-muted">—</span>
+                  )}
+                </td>
+                <td className="py-1 pr-3 text-xs">
+                  <PickCell pick={d.intraday} />
+                </td>
+                <td className="py-1 pr-3 text-xs">
+                  <PickCell pick={d.nightly} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -495,60 +497,62 @@ function PipelineRunDetail({ runId, onClose }) {
       {/* Phase timeline */}
       <div className="card flex flex-col gap-2">
         <p className="text-sm font-semibold text-plex-text">Phase timeline</p>
-        <table className="w-full text-sm" data-testid="pipeline-phases-table">
-          <thead>
-            <tr className="text-left text-plex-text-secondary text-xs uppercase">
-              <th className="py-1 pr-3">#</th>
-              <th className="py-1 pr-3">Phase</th>
-              <th className="py-1 pr-3">Status</th>
-              <th className="py-1 pr-3">Started</th>
-              <th className="py-1 pr-3">Duration</th>
-              <th className="py-1 pr-3">Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {phases.map((p) => (
-              <tr
-                key={`${p.phase}-${p.sequenceOrder}`}
-                className="border-t border-plex-border"
-                data-testid={`pipeline-phase-row-${p.phase}`}
-              >
-                <td className="py-1 pr-3 text-plex-text-muted">{p.sequenceOrder}</td>
-                <td className="py-1 pr-3 text-plex-text">
-                  {PHASE_LABEL[p.phase] || p.phase}
-                </td>
-                <td className="py-1 pr-3">
-                  <StatusPill status={p.status} classes={PHASE_STATUS_PILL_CLASSES} />
-                </td>
-                <td className="py-1 pr-3 text-plex-text-secondary">
-                  {formatTimestampUk(p.startedAt)}
-                </td>
-                <td className="py-1 pr-3 text-plex-text-secondary">
-                  {/* A running phase has no recorded duration, so this used to read "—" — which
-                      hid the one number the intraday cycle is judged on. FORECAST_BATCH_WAIT is
-                      where afternoon batch latency shows up (98–173 min observed), and it is only
-                      readable while it is still running. Marked "so far" so a live count is never
-                      mistaken for a final one. */}
-                  {p.durationSeconds == null && p.status === 'RUNNING'
-                    ? (() => {
-                        const elapsed = formatElapsedSince(p.startedAt);
-                        return elapsed ? (
-                          <span data-testid={`pipeline-phase-elapsed-${p.phase}`}>
-                            {elapsed} <span className="text-plex-text-muted">so far</span>
-                          </span>
-                        ) : (
-                          formatSeconds(p.durationSeconds)
-                        );
-                      })()
-                    : formatSeconds(p.durationSeconds)}
-                </td>
-                <td className="py-1 pr-3 text-plex-text-secondary text-xs">
-                  {p.detail || '—'}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="pipeline-phases-table">
+            <thead>
+              <tr className="text-left text-plex-text-secondary text-xs uppercase">
+                <th className="py-1 pr-3">#</th>
+                <th className="py-1 pr-3">Phase</th>
+                <th className="py-1 pr-3">Status</th>
+                <th className="py-1 pr-3">Started</th>
+                <th className="py-1 pr-3">Duration</th>
+                <th className="py-1 pr-3">Detail</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {phases.map((p) => (
+                <tr
+                  key={`${p.phase}-${p.sequenceOrder}`}
+                  className="border-t border-plex-border"
+                  data-testid={`pipeline-phase-row-${p.phase}`}
+                >
+                  <td className="py-1 pr-3 text-plex-text-muted">{p.sequenceOrder}</td>
+                  <td className="py-1 pr-3 text-plex-text">
+                    {PHASE_LABEL[p.phase] || p.phase}
+                  </td>
+                  <td className="py-1 pr-3">
+                    <StatusPill status={p.status} classes={PHASE_STATUS_PILL_CLASSES} />
+                  </td>
+                  <td className="py-1 pr-3 text-plex-text-secondary">
+                    {formatTimestampUk(p.startedAt)}
+                  </td>
+                  <td className="py-1 pr-3 text-plex-text-secondary">
+                    {/* A running phase has no recorded duration, so this used to read "—" — which
+                        hid the one number the intraday cycle is judged on. FORECAST_BATCH_WAIT is
+                        where afternoon batch latency shows up (98–173 min observed), and it is only
+                        readable while it is still running. Marked "so far" so a live count is never
+                        mistaken for a final one. */}
+                    {p.durationSeconds == null && p.status === 'RUNNING'
+                      ? (() => {
+                          const elapsed = formatElapsedSince(p.startedAt);
+                          return elapsed ? (
+                            <span data-testid={`pipeline-phase-elapsed-${p.phase}`}>
+                              {elapsed} <span className="text-plex-text-muted">so far</span>
+                            </span>
+                          ) : (
+                            formatSeconds(p.durationSeconds)
+                          );
+                        })()
+                      : formatSeconds(p.durationSeconds)}
+                  </td>
+                  <td className="py-1 pr-3 text-plex-text-secondary text-xs">
+                    {p.detail || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Batch list with embedded disposition breakdowns */}
@@ -560,91 +564,93 @@ function PipelineRunDetail({ runId, onClose }) {
             to BRIEFING.
           </p>
         ) : (
-          <table className="w-full text-sm" data-testid="pipeline-batches-table">
-            <thead>
-              <tr className="text-left text-plex-text-secondary text-xs uppercase">
-                <th className="py-1 pr-3">Batch</th>
-                <th className="py-1 pr-3">Status</th>
-                <th className="py-1 pr-3">Requests</th>
-                <th className="py-1 pr-3">OK / err</th>
-                <th className="py-1 pr-3">Submitted</th>
-                <th className="py-1 pr-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {batches.map((b) => {
-                const expanded = b.jobRunId && expandedBatchJobRunIds.has(b.jobRunId);
-                return (
-                  <React.Fragment key={b.id}>
-                    <tr
-                      className="border-t border-plex-border"
-                      data-testid={`pipeline-batch-row-${b.id}`}
-                    >
-                      <td className="py-1 pr-3 font-mono text-xs text-plex-text-secondary">
-                        {b.anthropicBatchId}
-                        {b.retry && (
-                          <span
-                            className="ml-2 rounded bg-sky-900/30 px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-sky-400"
-                            data-testid={`pipeline-batch-retry-badge-${b.id}`}
-                            title="Retry of transient failures from this cycle's precursor batch(es)"
-                          >
-                            Retry
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-1 pr-3">
-                        <StatusPill
-                          status={b.status}
-                          classes={BATCH_STATUS_PILL_CLASSES}
-                        />
-                      </td>
-                      <td className="py-1 pr-3 text-plex-text-secondary">
-                        {b.requestCount}
-                      </td>
-                      <td className="py-1 pr-3 text-plex-text-secondary">
-                        {b.succeededCount != null ? b.succeededCount : '—'}
-                        {' / '}
-                        {b.erroredCount != null ? b.erroredCount : '—'}
-                      </td>
-                      <td className="py-1 pr-3 text-plex-text-secondary">
-                        {formatTimestampUk(b.submittedAt)}
-                        {b.submittedAt && (
-                          <span
-                            className="ml-1 text-plex-text-muted"
-                            data-testid={`pipeline-batch-submitted-relative-${b.id}`}
-                          >
-                            ({formatRelativeTimeUk(b.submittedAt)})
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-1 pr-3">
-                        {b.jobRunId && (
-                          <button
-                            type="button"
-                            onClick={() => toggleBatch(b.jobRunId)}
-                            className="text-xs text-plex-text-secondary hover:text-plex-text"
-                            data-testid={`pipeline-batch-toggle-${b.id}`}
-                          >
-                            {expanded ? 'Hide dispositions' : 'Show dispositions'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {expanded && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="pipeline-batches-table">
+              <thead>
+                <tr className="text-left text-plex-text-secondary text-xs uppercase">
+                  <th className="py-1 pr-3">Batch</th>
+                  <th className="py-1 pr-3">Status</th>
+                  <th className="py-1 pr-3">Requests</th>
+                  <th className="py-1 pr-3">OK / err</th>
+                  <th className="py-1 pr-3">Submitted</th>
+                  <th className="py-1 pr-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((b) => {
+                  const expanded = b.jobRunId && expandedBatchJobRunIds.has(b.jobRunId);
+                  return (
+                    <React.Fragment key={b.id}>
                       <tr
-                        className="bg-plex-bg-elevated"
-                        data-testid={`pipeline-batch-dispositions-${b.id}`}
+                        className="border-t border-plex-border"
+                        data-testid={`pipeline-batch-row-${b.id}`}
                       >
-                        <td colSpan="6" className="px-3 py-2">
-                          <DispositionBreakdown jobRunId={b.jobRunId} />
+                        <td className="py-1 pr-3 font-mono text-xs text-plex-text-secondary">
+                          {b.anthropicBatchId}
+                          {b.retry && (
+                            <span
+                              className="ml-2 rounded bg-sky-900/30 px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-sky-400"
+                              data-testid={`pipeline-batch-retry-badge-${b.id}`}
+                              title="Retry of transient failures from this cycle's precursor batch(es)"
+                            >
+                              Retry
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1 pr-3">
+                          <StatusPill
+                            status={b.status}
+                            classes={BATCH_STATUS_PILL_CLASSES}
+                          />
+                        </td>
+                        <td className="py-1 pr-3 text-plex-text-secondary">
+                          {b.requestCount}
+                        </td>
+                        <td className="py-1 pr-3 text-plex-text-secondary">
+                          {b.succeededCount != null ? b.succeededCount : '—'}
+                          {' / '}
+                          {b.erroredCount != null ? b.erroredCount : '—'}
+                        </td>
+                        <td className="py-1 pr-3 text-plex-text-secondary">
+                          {formatTimestampUk(b.submittedAt)}
+                          {b.submittedAt && (
+                            <span
+                              className="ml-1 text-plex-text-muted"
+                              data-testid={`pipeline-batch-submitted-relative-${b.id}`}
+                            >
+                              ({formatRelativeTimeUk(b.submittedAt)})
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1 pr-3">
+                          {b.jobRunId && (
+                            <button
+                              type="button"
+                              onClick={() => toggleBatch(b.jobRunId)}
+                              className="text-xs text-plex-text-secondary hover:text-plex-text"
+                              data-testid={`pipeline-batch-toggle-${b.id}`}
+                            >
+                              {expanded ? 'Hide dispositions' : 'Show dispositions'}
+                            </button>
+                          )}
                         </td>
                       </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                      {expanded && (
+                        <tr
+                          className="bg-plex-bg-elevated"
+                          data-testid={`pipeline-batch-dispositions-${b.id}`}
+                        >
+                          <td colSpan="6" className="px-3 py-2">
+                            <DispositionBreakdown jobRunId={b.jobRunId} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
