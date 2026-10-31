@@ -6,12 +6,14 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.function.Function;
 
 /**
@@ -90,6 +92,7 @@ public class TideAlmanacSource implements AlmanacSource {
     private final TideRunBuilder tideRunBuilder;
     private final LocationRepository locationRepository;
     private final TideSizeIndex tideSizeIndex;
+    private final ComingUpScoringProperties scoringProperties;
 
     /**
      * Constructs a {@code TideAlmanacSource}.
@@ -98,15 +101,18 @@ public class TideAlmanacSource implements AlmanacSource {
      * @param tideRunBuilder     supplies the bounded enrichment from stored extremes
      * @param locationRepository supplies the coastal roster the run is drawn for
      * @param tideSizeIndex      measures which dates carry spring- or king-sized water
+     * @param scoringProperties  supplies the shoulder-day ratio floor and per-side cap
      */
     public TideAlmanacSource(LunarPhaseService lunarPhaseService,
             TideRunBuilder tideRunBuilder,
             LocationRepository locationRepository,
-            TideSizeIndex tideSizeIndex) {
+            TideSizeIndex tideSizeIndex,
+            ComingUpScoringProperties scoringProperties) {
         this.lunarPhaseService = lunarPhaseService;
         this.tideRunBuilder = tideRunBuilder;
         this.locationRepository = locationRepository;
         this.tideSizeIndex = tideSizeIndex;
+        this.scoringProperties = scoringProperties;
     }
 
     @Override
@@ -116,10 +122,11 @@ public class TideAlmanacSource implements AlmanacSource {
         // needed before detection as well as after it — the roster is what gets measured.
         List<LocationEntity> coastal = locationRepository.findCoastalLocations();
 
-        // Measured with the run-walk's slack on both sides. Without it a run straddling either edge
-        // is clipped, which misreports its span and can drop the very day that decides its label.
+        // Measured with the run-walk's slack on both sides, plus one day for the shoulder probe that
+        // follows a full walk. Without it a run straddling either edge is clipped, which misreports
+        // its span and can drop the very day that decides its label.
         TideSizeIndex.Sizes sizes = tideSizeIndex.measure(coastal,
-                from.minusDays(MAX_RUN_WALK_DAYS), to.plusDays(MAX_RUN_WALK_DAYS));
+                from.minusDays(MAX_RUN_WALK_DAYS + 1L), to.plusDays(MAX_RUN_WALK_DAYS + 1L));
 
         List<Run> runs = detectRuns(from, to, sizes);
         if (runs.isEmpty()) {
@@ -207,7 +214,45 @@ public class TideAlmanacSource implements AlmanacSource {
                 break;
             }
         }
-        return new Run(start, end, king);
+        return new Run(start, end, king, shoulderBefore(start, sizes), shoulderAfter(end, sizes));
+    }
+
+    /**
+     * The outermost near-miss day before a run, or null. Walks outwards at most the configured cap,
+     * stopping at the first day that qualifies (the walk's own cap was hit) or falls short of the
+     * ratio floor. Needs a measured index: the lunar fallback has no ratios, so it yields none.
+     */
+    private LocalDate shoulderBefore(LocalDate start, TideSizeIndex.Sizes sizes) {
+        LocalDate outer = null;
+        for (int i = 1; i <= scoringProperties.getShoulder().getMaxPerSide(); i++) {
+            LocalDate date = start.minusDays(i);
+            if (!isShoulder(date, sizes)) {
+                break;
+            }
+            outer = date;
+        }
+        return outer;
+    }
+
+    /** The outermost near-miss day after a run, or null; the mirror of {@link #shoulderBefore}. */
+    private LocalDate shoulderAfter(LocalDate end, TideSizeIndex.Sizes sizes) {
+        LocalDate outer = null;
+        for (int i = 1; i <= scoringProperties.getShoulder().getMaxPerSide(); i++) {
+            LocalDate date = end.plusDays(i);
+            if (!isShoulder(date, sizes)) {
+                break;
+            }
+            outer = date;
+        }
+        return outer;
+    }
+
+    private boolean isShoulder(LocalDate date, TideSizeIndex.Sizes sizes) {
+        if (!sizes.usable() || qualifies(date, sizes)) {
+            return false;
+        }
+        Double ratio = sizes.bestRatio().get(date);
+        return ratio != null && ratio >= scoringProperties.getShoulder().getMinRatio();
     }
 
     /**
@@ -294,7 +339,8 @@ public class TideAlmanacSource implements AlmanacSource {
                         "location", peak.locationName(),
                         "peakDate", isTruePeak ? dateOf(run, enriched, peak) : null,
                         "figuresFrom", isTruePeak ? null : dateOf(run, enriched, peak),
-                        "partialCoverage", isTruePeak ? null : "true");
+                        "partialCoverage", isTruePeak ? null : "true",
+                        "shoulderDates", shoulderDatesMeta(run));
 
         return new AlmanacEvent(
                 run.start(),
@@ -305,6 +351,13 @@ public class TideAlmanacSource implements AlmanacSource {
                 run.king() ? KING_DETAIL : SPRING_DETAIL,
                 meta,
                 List.of());
+    }
+
+    /** The run's shoulder dates as comma-separated ISO dates, ascending, or null when it has none. */
+    private static String shoulderDatesMeta(Run run) {
+        List<LocalDate> dates = run.shoulderDates();
+        return dates.isEmpty() ? null
+                : dates.stream().map(LocalDate::toString).collect(Collectors.joining(","));
     }
 
     /**
@@ -384,8 +437,34 @@ public class TideAlmanacSource implements AlmanacSource {
      * @param start first day of the run
      * @param end   last day of the run
      * @param king  true when any day in the run is perigean
+     * @param shoulderBefore the outermost near-miss day before the run, or null; the days from it up
+     *                       to the day before {@code start} are all shoulders
+     * @param shoulderAfter  the outermost near-miss day after the run, or null; mirror of
+     *                       {@code shoulderBefore}
      */
-    record Run(LocalDate start, LocalDate end, boolean king) {
+    record Run(LocalDate start, LocalDate end, boolean king, LocalDate shoulderBefore,
+            LocalDate shoulderAfter) {
+
+        /**
+         * Returns the near-miss shoulder dates beside the run, ascending.
+         *
+         * @return the shoulder dates, empty when there are none
+         */
+        List<LocalDate> shoulderDates() {
+            List<LocalDate> dates = new ArrayList<>();
+            if (shoulderBefore != null) {
+                for (LocalDate date = shoulderBefore; date.isBefore(start); date = date.plusDays(1)) {
+                    dates.add(date);
+                }
+            }
+            if (shoulderAfter != null) {
+                for (LocalDate date = end.plusDays(1); !date.isAfter(shoulderAfter);
+                        date = date.plusDays(1)) {
+                    dates.add(date);
+                }
+            }
+            return dates;
+        }
 
         /**
          * Returns every date in the run, ascending.

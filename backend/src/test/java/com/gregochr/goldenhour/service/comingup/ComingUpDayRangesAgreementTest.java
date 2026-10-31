@@ -91,7 +91,7 @@ class ComingUpDayRangesAgreementTest {
         List<LocationEntity> roster = List.of(WHITBY, SEAHAM);
         when(locationRepository.findCoastalLocations()).thenReturn(roster);
         when(tideSizeIndex.measure(any(), any(), any()))
-                .thenReturn(new TideSizeIndex.Sizes(Set.of(D1, D2, D3), Set.of(), true));
+                .thenReturn(new TideSizeIndex.Sizes(Set.of(D1, D2, D3), Set.of(), true, java.util.Map.of()));
         lenient().when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))
                 .thenAnswer(inv -> ((LocalDate) inv.getArgument(2)).atTime(8, 10));
         lenient().when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
@@ -114,7 +114,8 @@ class ComingUpDayRangesAgreementTest {
         TideRunBuilder builder = new TideRunBuilder(tideExtremeRepository, marineWaveRepository,
                 tideService, solarService, "");
         TideAlmanacSource source =
-                new TideAlmanacSource(lunarPhaseService, builder, locationRepository, tideSizeIndex);
+                new TideAlmanacSource(lunarPhaseService, builder, locationRepository, tideSizeIndex,
+                        new ComingUpScoringProperties());
         ComingUpAssembler assembler = new ComingUpAssembler(locationRepository, builder,
                 tideRunPeakHistory, new DailyRangeHistory(builder, tideSizeIndex), tideService,
                 new ComingUpScoringProperties(),

@@ -1345,9 +1345,12 @@ class ComingUpAssemblerTest {
         ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
 
         assertThat(entry.dayRanges()).containsExactly(
-                new ComingUpDayRange(oct(25), 4.3, false, null), new ComingUpDayRange(oct(26), 4.7, false, null),
-                new ComingUpDayRange(oct(27), 4.9, true, null), new ComingUpDayRange(oct(28), 4.5, false, null),
-                new ComingUpDayRange(oct(29), 4.0, false, null), new ComingUpDayRange(oct(30), 3.5, false, null));
+                new ComingUpDayRange(oct(25), 4.3, false, null, false),
+                new ComingUpDayRange(oct(26), 4.7, false, null, false),
+                new ComingUpDayRange(oct(27), 4.9, true, null, false),
+                new ComingUpDayRange(oct(28), 4.5, false, null, false),
+                new ComingUpDayRange(oct(29), 4.0, false, null, false),
+                new ComingUpDayRange(oct(30), 3.5, false, null, false));
         assertThat(entry.dayMarks()).isEmpty();
     }
 
@@ -1459,7 +1462,8 @@ class ComingUpAssemblerTest {
         assertThat(merged.type()).isEqualTo("supermoon");
         assertThat(merged.startDate()).isEqualTo(oct(24));
         assertThat(merged.dayRanges()).containsExactly(
-                new ComingUpDayRange(oct(26), 4.2, false, null), new ComingUpDayRange(oct(27), 4.9, true, null));
+                new ComingUpDayRange(oct(26), 4.2, false, null, false),
+                new ComingUpDayRange(oct(27), 4.9, true, null, false));
     }
 
     @Test
@@ -1811,6 +1815,136 @@ class ComingUpAssemblerTest {
                 .containsExactly(6, 6, 1);
         assertThat(moonHosts.coincidence()).extracting(c -> c.factsLabel())
                 .anyMatch(l -> l.contains(nb("top 1% of the year")));
+    }
+
+    // ── P3: shoulder days beside a run (tide-source-integrity-plan.md) ──────────
+
+    private static Map<String, String> withShoulders(Map<String, String> meta, LocalDate... shoulders) {
+        Map<String, String> out = new java.util.HashMap<>(meta);
+        out.put("shoulderDates", java.util.Arrays.stream(shoulders).map(LocalDate::toString)
+                .collect(java.util.stream.Collectors.joining(",")));
+        return out;
+    }
+
+    private void stubRangesOver(List<LocalDate> wanted, Object... dateAndRange) {
+        java.util.Map<LocalDate, Double> ranges = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < dateAndRange.length; i += 2) {
+            ranges.put((LocalDate) dateAndRange[i], (Double) dateAndRange[i + 1]);
+        }
+        when(tideRunBuilder.dailyRangesAt(eq(SEAHAM), eq(wanted))).thenReturn(ranges);
+    }
+
+    @Test
+    @DisplayName("P3: shoulders are served flagged, ranked like the rest, never the peak, and the run's "
+            + "own dates and headline are untouched even when a shoulder is the tallest bar")
+    void shouldersAreServedFlaggedAndNeverPeak() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(24), oct(28)), oct(24), 5.4, oct(25), 4.3, oct(26), 4.6, oct(27), 4.9,
+                oct(28), 4.4);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), null), oct(24), oct(28)));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.startDate()).isEqualTo(oct(25));
+        assertThat(entry.endDate()).isEqualTo(oct(27));
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::date)
+                .containsExactly(oct(24), oct(25), oct(26), oct(27), oct(28));
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::shoulder)
+                .containsExactly(true, false, false, false, true);
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::peak)
+                .containsExactly(false, false, false, true, false);
+        // The shoulder (5.4 m) is taller than the run's peak (4.9 m): accepted, and the peak label
+        // stays the run's.
+        assertThat(entry.dayRanges().getFirst().rangeMetres()).isGreaterThan(4.9);
+    }
+
+    @Test
+    @DisplayName("P3: shoulderDates is build-time only — it is never served in meta")
+    void shoulderDatesAreNotServed() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(24), oct(28)), oct(24), 4.4, oct(25), 4.3, oct(26), 4.6, oct(27), 4.9,
+                oct(28), 4.4);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), null), oct(24), oct(28)));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.meta()).doesNotContainKey("shoulderDates");
+    }
+
+    @Test
+    @DisplayName("P3: a shoulder the representative cannot derive is dropped, not invented")
+    void anUnderivableShoulderIsDropped() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(24), oct(28)), oct(25), 4.3, oct(26), 4.6, oct(27), 4.9, oct(28), 4.4);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), null), oct(24), oct(28)));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::date)
+                .containsExactly(oct(25), oct(26), oct(27), oct(28));
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::shoulder)
+                .containsExactly(false, false, false, true);
+    }
+
+    @Test
+    @DisplayName("P3: the fewer-than-two rule counts run days, so shoulders cannot make up the numbers")
+    void shouldersDoNotSatisfyTheTwoDayRule() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(26), oct(29)), oct(26), 4.5, oct(27), 4.9, oct(29), 4.4);
+        AlmanacEvent run = event(oct(27), oct(28), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), null), oct(26), oct(29)));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("P3: ranking keeps the shoulder flag, and the coincidence rank label reads the run's peak "
+            + "even when a shoulder ranks higher")
+    void rankingKeepsTheFlagAndPeakRankIgnoresShoulders() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(24), oct(27)), oct(24), 5.4, oct(25), 4.3, oct(26), 4.6, oct(27), 4.9);
+        stubYear(365, 5, 15);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), oct(27)), oct(24)));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::shoulder)
+                .containsExactly(true, false, false, false);
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangePercentile)
+                .containsExactly(1, 6, 6, 6);
+        assertThat(entry.coincidence().get(0).factsLabel()).contains(nb("top 6% of the year"));
+    }
+
+    @Test
+    @DisplayName("P3: a merged entry keeps the flags whether the shoulder lies outside or inside the "
+            + "union span")
+    void mergeKeepsTheShoulderFlags() {
+        stubRunAtSeaham();
+        stubRangesOver(datesOf(oct(25), oct(28)), oct(25), 4.4, oct(26), 4.2, oct(27), 4.9, oct(28), 4.4);
+        AlmanacEvent run = event(oct(26), oct(27), "spring-tide", "Spring tide run",
+                withShoulders(runMeta(oct(27), null), oct(25), oct(28)));
+
+        // Supermoon hosts a wider span: both shoulders lie inside the union.
+        ComingUpEntry inside = assembler.assemble(BUILT, List.of(run, supermoon(oct(24), oct(30), oct(26))))
+                .entries().getFirst();
+        assertThat(inside.type()).isEqualTo("supermoon");
+        assertThat(inside.dayRanges()).extracting(ComingUpDayRange::shoulder)
+                .containsExactly(true, false, false, true);
+
+        // The run hosts a narrower union: both shoulders lie outside it.
+        ComingUpEntry outside = assembler.assemble(BUILT, List.of(run, supermoon(oct(27), oct(27), oct(27))))
+                .entries().getFirst();
+        assertThat(outside.startDate()).isEqualTo(oct(26));
+        assertThat(outside.endDate()).isEqualTo(oct(27));
+        assertThat(outside.dayRanges()).extracting(ComingUpDayRange::shoulder)
+                .containsExactly(true, false, false, true);
     }
 
     @Test

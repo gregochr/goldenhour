@@ -459,7 +459,7 @@ public class ComingUpAssembler {
         List<String> droppedKeys = new ArrayList<>(
                 List.of("range", "location", "peakDate", "figuresFrom", "sunriseHw", "sunriseHwGap",
                         "sunriseHwDate", "sunriseHwAligned", "sunsetHw", "sunsetHwGap", "sunsetHwDate",
-                        "sunsetHwAligned", "eventWaterPartial"));
+                        "sunsetHwAligned", "eventWaterPartial", "shoulderDates"));
         if (s.tide != null) {
             droppedKeys.add("rangeAnomaly");
         }
@@ -473,25 +473,47 @@ public class ComingUpAssembler {
      * derivable.
      */
     private List<ComingUpDayRange> dayRangesOf(LocationEntity representative, AlmanacEvent event) {
+        List<LocalDate> runDates = datesOf(event);
+        List<LocalDate> shoulders = shoulderDatesOf(event);
+        List<LocalDate> wanted = new ArrayList<>(runDates);
+        wanted.addAll(shoulders);
+        wanted.sort(null);
         Map<LocalDate, Double> ranges;
         try {
-            ranges = tideRunBuilder.dailyRangesAt(representative, datesOf(event));
+            ranges = tideRunBuilder.dailyRangesAt(representative, wanted);
         } catch (RuntimeException e) {
             // Bars are decoration on a card that is complete without them: degrade, never fail the feed.
             LOG.warn("Coming up: per-day tide ranges unavailable for {} {}: {}", event.type(),
                     event.startDate(), e.toString());
             return List.of();
         }
-        if (ranges.size() < 2) {
+        // The "fewer than two" rule is about the run, so a shoulder can never make up the numbers.
+        if (runDates.stream().filter(ranges::containsKey).count() < 2) {
             return List.of();
         }
         LocalDate trueDate = parseDate(event.meta().get("peakDate"));
         List<ComingUpDayRange> out = new ArrayList<>();
         for (Map.Entry<LocalDate, Double> e : ranges.entrySet()) {
             out.add(new ComingUpDayRange(e.getKey(), metresToOneDp(e.getValue()),
-                    e.getKey().equals(trueDate), null));
+                    e.getKey().equals(trueDate), null, shoulders.contains(e.getKey())));
         }
         return out;
+    }
+
+    /** The near-miss dates the tide source recorded in its build-time meta, ascending; empty if none. */
+    private static List<LocalDate> shoulderDatesOf(AlmanacEvent event) {
+        String raw = event.meta().get("shoulderDates");
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<LocalDate> dates = new ArrayList<>();
+        for (String part : raw.split(",")) {
+            LocalDate date = parseDate(part.trim());
+            if (date != null) {
+                dates.add(date);
+            }
+        }
+        return dates;
     }
 
     /**
@@ -528,7 +550,7 @@ public class ComingUpAssembler {
         }
         s.dayRanges = s.dayRanges.stream()
                 .map(d -> new ComingUpDayRange(d.date(), d.rangeMetres(), d.peak(),
-                        year.percentileOf(d.rangeMetres())))
+                        year.percentileOf(d.rangeMetres()), d.shoulder()))
                 .toList();
         s.rangeAverageMetres = year.average();
         return year;

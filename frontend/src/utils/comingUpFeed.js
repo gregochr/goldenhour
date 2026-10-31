@@ -307,15 +307,33 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
 
   const known = Array.isArray(forecastDates);
   const ranges = Array.isArray(entry.dayRanges) ? entry.dayRanges : [];
+  // The walk covers the EXTENDED span: a served shoulder day (a near miss just outside the run) sits
+  // before the first or after the last run day. The chip-count caps above counted run days only.
+  const shoulderDates = ranges
+    .filter((r) => r.shoulder === true && (r.date < startDate || r.date > endDate))
+    .map((r) => r.date)
+    .sort();
+  const walkStart = shoulderDates.length > 0 && shoulderDates[0] < startDate ? shoulderDates[0] : startDate;
+  const lastShoulder = shoulderDates[shoulderDates.length - 1];
+  const walkEnd = lastShoulder !== undefined && lastShoulder > endDate ? lastShoulder : endDate;
+  const walkDays = inclusiveSpanDays(walkStart, walkEnd);
   const chips = [];
   let previousMonth = null;
-  for (let i = 0; i < span; i += 1) {
-    const date = new Date(atMidday(startDate).getTime() + i * 86400000).toISOString().slice(0, 10);
+  for (let i = 0; i < walkDays; i += 1) {
+    const date = new Date(atMidday(walkStart).getTime() + i * 86400000).toISOString().slice(0, 10);
+    const served = ranges.find((r) => r.date === date);
+    const shoulder = served?.shoulder === true && (date < startDate || date > endDate);
+    // A shoulder before today is dropped (client side, via the appNow()-derived todayStr, beside the
+    // `gone` logic): it is context for a run already under way, not a day to look back at. A filter
+    // over served values, licensed in architecture-decisions.md beside buildRangeScale.
+    if (shoulder && date < todayStr) continue;
+    // A day outside the run that is not a served shoulder cannot occur on a well-formed wire (a
+    // shoulder per side, adjacent to the run) but is skipped rather than drawn as a run day.
+    if (!shoulder && (date < startDate || date > endDate)) continue;
     const month = monthName(date);
     const crossed = previousMonth !== null && month !== previousMonth;
     const gone = date < todayStr;
     previousMonth = month;
-    const served = ranges.find((r) => r.date === date);
     chips.push({
       date,
       dow: weekday(date),
@@ -331,6 +349,9 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
       // Served per-day tidal range (supermoon-tide-run-plan S4); `rangePeak` is the server's.
       rangeMetres: typeof served?.rangeMetres === 'number' ? served.rangeMetres : null,
       rangePeak: Boolean(served?.peak),
+      // A near-miss day beside the run (tide-source-integrity-plan.md P3): drawn outlined, never ranked
+      // as a peak, and never one of the run's days.
+      shoulder,
       // Served rank of the day's range among the past year's (tide-range-rank-plan R1), or null.
       rangePercentile: Number.isInteger(served?.rangePercentile) ? served.rangePercentile : null,
       live: !gone && (known ? forecastDates.includes(date) : true),
@@ -351,6 +372,8 @@ export const BIG_RANGE_PERCENTILE = 5;
  * single value has no scale). {@code min}/{@code max} span the run's days; {@code lo}/{@code hi} also
  * take in the served average so the dashed line always sits inside the bars' track. {@code
  * hasPercentiles} is true only when every ranged day serves one (the server's all-or-none rule).
+ * Shoulder chips (near-miss days beside the run) are ranged chips like any other, so their values
+ * are inside {@code min}/{@code max}: an outlined bar must never overflow the track.
  * Geometry over served values: the licensed filter/map class.
  */
 function buildRangeScale(dayChips, average) {

@@ -286,6 +286,183 @@ describe('Coming up range bars', () => {
   });
 });
 
+/**
+ * A spring run 8-10 Nov with a near-miss shoulder day each side (7 and 11 Nov), as the server
+ * serves it: `shoulder: true` on those two ranges only (tide-source-integrity-plan.md P3).
+ */
+const shoulderEntry = (over = {}) => ({
+  id: 'spring-tide:2026-11-08:2026-11-10',
+  type: 'spring-tide',
+  startDate: '2026-11-08',
+  endDate: '2026-11-10',
+  kind: 'ALMANAC',
+  family: 'coastal',
+  title: 'Spring tide run',
+  kindTag: 'Almanac',
+  facts: [],
+  action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: '2026-11-09' },
+  dayRanges: [
+    { date: '2026-11-07', rangeMetres: 4.3, peak: false, rangePercentile: 9, shoulder: true },
+    { date: '2026-11-08', rangeMetres: 4.6, peak: false, rangePercentile: 4 },
+    { date: '2026-11-09', rangeMetres: 5.0, peak: true, rangePercentile: 2 },
+    { date: '2026-11-10', rangeMetres: 4.7, peak: false, rangePercentile: 3 },
+    { date: '2026-11-11', rangeMetres: 4.4, peak: false, rangePercentile: 8, shoulder: true },
+  ],
+  rangeAverageMetres: 3.4,
+  ...over,
+});
+
+describe('shoulder days beside a tide run', () => {
+  const NOV = '2026-11-01';
+
+  it('walks the extended span, flags the shoulders and leaves the run days unflagged', () => {
+    const view = buildEntryView(shoulderEntry(), NOV, null, null);
+    expect(view.dayChips.map((c) => c.date)).toEqual([
+      '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11',
+    ]);
+    expect(view.dayChips.map((c) => c.shoulder)).toEqual([true, false, false, false, true]);
+    // Only the run days carry the action date's peak; the shoulders are never it.
+    expect(view.dayChips.filter((c) => c.peak).map((c) => c.date)).toEqual(['2026-11-09']);
+  });
+
+  it('puts the month word on the right chip when a shoulder crosses a month boundary', () => {
+    const view = buildEntryView(shoulderEntry({
+      id: 'spring-tide:2026-10-30:2026-10-31',
+      startDate: '2026-10-30',
+      endDate: '2026-10-31',
+      action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: '2026-10-30' },
+      dayRanges: [
+        { date: '2026-10-29', rangeMetres: 4.2, peak: false, rangePercentile: 9, shoulder: true },
+        { date: '2026-10-30', rangeMetres: 4.8, peak: true, rangePercentile: 3 },
+        { date: '2026-10-31', rangeMetres: 4.6, peak: false, rangePercentile: 4 },
+        { date: '2026-11-01', rangeMetres: 4.3, peak: false, rangePercentile: 8, shoulder: true },
+      ],
+    }), '2026-10-20', null, null);
+    expect(view.dayChips.map((c) => c.monthWord)).toEqual([null, null, null, 'Nov']);
+    expect(view.dayChips[3].dateLabel).toBe('Sun 1 Nov');
+  });
+
+  it('drops a shoulder before today while the run is in progress, and keeps the one after', () => {
+    const view = buildEntryView(shoulderEntry(), '2026-11-08', null, null);
+    expect(view.dayChips.map((c) => c.date)).toEqual([
+      '2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11',
+    ]);
+    expect(view.dayChips.some((c) => c.gone && c.shoulder)).toBe(false);
+  });
+
+  it('counts only run days against the chip caps', () => {
+    const days = Array.from({ length: 10 }, (_, i) => `2026-11-${String(8 + i).padStart(2, '0')}`);
+    const ranges = [
+      { date: '2026-11-07', rangeMetres: 4.0, peak: false, shoulder: true },
+      ...days.map((date, i) => ({ date, rangeMetres: 4.5 + i * 0.01, peak: i === 4 })),
+      { date: '2026-11-18', rangeMetres: 4.0, peak: false, shoulder: true },
+    ];
+    const ten = buildEntryView(shoulderEntry({
+      startDate: days[0],
+      endDate: days[9],
+      action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: days[4] },
+      dayRanges: ranges,
+    }), NOV, null, null);
+    // Ten run days is the cap; the two shoulders ride on top of it.
+    expect(ten.dayChips).toHaveLength(12);
+    const eleven = buildEntryView(shoulderEntry({
+      startDate: days[0],
+      endDate: '2026-11-18',
+      action: { label: 'Show coastal spots →', kind: 'coastal-spots', date: days[4] },
+      dayRanges: ranges,
+    }), NOV, null, null);
+    expect(eleven.dayChips).toBeNull();
+  });
+
+  it('includes the shoulders in the range scale', () => {
+    const tall = shoulderEntry().dayRanges.map((r) => (r.date === '2026-11-07' ? { ...r, rangeMetres: 5.4 } : r));
+    const view = buildEntryView(shoulderEntry({ dayRanges: tall }), NOV, null, null);
+    expect(view.rangeScale).toMatchObject({ min: 4.4, max: 5.4, hasPercentiles: true });
+  });
+
+  it('draws a shoulder as an outlined, unranked, un-peaked column with its own names', () => {
+    const { container } = draw(shoulderEntry(), NOV);
+    const columns = cols(container);
+    expect(columns.map((c) => c.getAttribute('data-tier')))
+      .toEqual(['shoulder', 'big', 'peak', 'big', 'shoulder']);
+    expect(columns.map((c) => c.getAttribute('data-shoulder'))).toEqual(['true', null, null, null, 'true']);
+    const shoulder = columns[0];
+    // No "top N%" pill, and the label row is kept so the bars stay level with the run's.
+    expect(shoulder.querySelector('.wf-cu-day-range-label').textContent).toBe('');
+    expect(shoulder.querySelector('.wf-cu-day-range-pill')).toBeNull();
+    expect(shoulder.querySelector('.wf-cu-day').getAttribute('data-peak')).toBe('false');
+    expect(shoulder.querySelector('.wf-cu-day-range-metres').textContent).toBe('4.3 m');
+    expect(shoulder.getAttribute('title')).toBe('4.3 m range · just short of spring size');
+    expect(screen.getByRole('button', {
+      name: 'Show coastal spots for Sat 7 Nov, 4.3 metre range, just short of spring size',
+    })).toBeInTheDocument();
+    // The run's own days keep their rank in the name and the multiple in the tooltip.
+    expect(columns[2].getAttribute('title')).toBe('5.0 m range · 1.5× average');
+    expect(screen.getByRole('button', {
+      name: 'Show coastal spots for Mon 9 Nov, peak day, 5.0 metre range, top 2 percent of the year',
+    })).toBeInTheDocument();
+    expect(container.querySelectorAll('.wf-cu-day-range-pill')).toHaveLength(3);
+  });
+
+  it('says what the outline means in the row note, only while a shoulder is shown', () => {
+    draw(shoulderEntry(), NOV);
+    expect(screen.getByTestId('coming-up-day-chips-note').textContent)
+      .toBe('outlined · just short of spring');
+    cleanup();
+    // The shoulder before today is dropped, the one after stays, so the note stays.
+    draw(shoulderEntry(), '2026-11-08');
+    expect(screen.getByTestId('coming-up-day-chips-note')).toBeInTheDocument();
+    cleanup();
+    draw(shoulderEntry({ dayRanges: shoulderEntry().dayRanges.map((r) => ({ ...r, shoulder: undefined })) }), NOV);
+    expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+  });
+
+  it('joins the outline note to the dimmed note when a day is also dimmed', () => {
+    draw(shoulderEntry(), NOV, ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11']);
+    expect(screen.getByTestId('coming-up-day-chips-note').textContent)
+      .toBe('dimmed · no forecast yet · outlined · just short of spring');
+  });
+
+  it('keeps a dimmed shoulder dimmed in its own way: live false still applies', () => {
+    const { container } = draw(shoulderEntry(), NOV, ['2026-11-08', '2026-11-09', '2026-11-10']);
+    const columns = cols(container);
+    expect(columns[0]).toHaveAttribute('data-live', 'false');
+    expect(columns[0]).toHaveAttribute('data-tier', 'shoulder');
+    expect(screen.getByRole('button', {
+      name: 'Sat 7 Nov, 4.3 metre range, just short of spring size — no forecast yet',
+    })).toBeInTheDocument();
+  });
+
+  it('keeps the full-moon mark and its colour family on a merged supermoon shoulder chip', () => {
+    const { container } = draw(shoulderEntry({
+      title: 'Spring tide run, on a supermoon',
+      dayMarks: [
+        { date: '2026-11-07', label: 'full moon', family: 'sun-moon' },
+        { date: '2026-11-09', label: 'peak', family: 'coastal' },
+      ],
+    }), NOV);
+    const column = cols(container)[0];
+    expect(column).toHaveAttribute('data-tier', 'shoulder');
+    const mark = column.querySelector('.wf-cu-day-mark');
+    expect(mark.textContent).toBe('full moon');
+    expect(mark).toHaveAttribute('data-family', 'sun-moon');
+    expect(screen.getByRole('button', {
+      name: 'Show coastal spots for Sat 7 Nov, full moon, 4.3 metre range, just short of spring size',
+    })).toBeInTheDocument();
+  });
+
+  it('draws the outline with no fill and no glow in the stylesheet', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = css.match(/\.wf-cu-day-col\[data-tier="shoulder"\] \.wf-cu-day-range-bar \{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule[1]).toMatch(/background: transparent;/);
+    expect(rule[1]).toMatch(/border: 1px solid/);
+    expect(rule[1]).not.toMatch(/box-shadow/);
+    // Nothing recolours the mark by tier.
+    expect(css).not.toMatch(/data-tier="shoulder"\][^{]*\.wf-cu-day-mark/);
+  });
+});
+
 describe('Coming up range bars — what the rules resolve to', () => {
   const rawCss = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
   const css = rawCss.replace(/\/\*[\s\S]*?\*\//g, '');

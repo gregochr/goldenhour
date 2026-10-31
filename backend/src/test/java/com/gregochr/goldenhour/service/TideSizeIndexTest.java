@@ -82,6 +82,61 @@ class TideSizeIndexTest {
     }
 
     @Test
+    @DisplayName("bestRatio is 1.25 x day-max high / spring threshold, and exceeds 1.25 exactly "
+            + "when springOn says the day is spring")
+    void bestRatioAgreesWithSpringOn() {
+        stats(LOCATION_ID, "4.07", "9.00");
+        String[] heights = {"3.00", "4.06", "4.07", "4.08", "5.10"};
+        for (int i = 0; i < heights.length; i++) {
+            LocalDate day = DAY.plusDays(i);
+            extremes(highWater(LOCATION_ID, day.atTime(6, 12), heights[i]));
+            TideSizeIndex.Sizes sizes = index.measure(List.of(location(LOCATION_ID)), day, day);
+            double ratio = sizes.bestRatio().get(day);
+            assertThat(ratio > 1.25).as("height %s", heights[i]).isEqualTo(sizes.springOn(day));
+            assertThat(ratio).isCloseTo(1.25 * Double.parseDouble(heights[i]) / 4.07,
+                    org.assertj.core.data.Offset.offset(1e-9));
+            index.evict();
+        }
+    }
+
+    @Test
+    @DisplayName("a high water exactly on the threshold gives a ratio of exactly 1.25")
+    void exactlyOnTheThresholdIsExactlyTheFactor() {
+        stats(LOCATION_ID, "4.07", "9.00");
+        extremes(highWater(LOCATION_ID, DAY.atTime(6, 12), "4.07"));
+
+        assertThat(index.measure(List.of(location(LOCATION_ID)), DAY, DAY).bestRatio().get(DAY))
+                .isEqualTo(1.25);
+    }
+
+    @Test
+    @DisplayName("bestRatio takes the roster's best location, and skips one with no spring threshold")
+    void bestRatioIsTheRosterBestAndSkipsNullThresholds() {
+        stats(LOCATION_ID, "4.00", "4.60");
+        stats(SECOND_LOCATION_ID, "6.00", "7.00");
+        stats(11L, null, "3.00");
+        extremes(
+                highWater(LOCATION_ID, DAY.atTime(6, 12), "3.90"),
+                highWater(SECOND_LOCATION_ID, DAY.atTime(6, 30), "5.80"),
+                highWater(11L, DAY.atTime(7, 0), "9.90"));
+
+        TideSizeIndex.Sizes sizes = index.measure(
+                List.of(location(LOCATION_ID), location(SECOND_LOCATION_ID), location(11L)), DAY, DAY);
+
+        // 1.25 x 3.90 / 4.00 = 1.21875 and 1.25 x 5.80 / 6.00 = 1.2083: the first wins. The third
+        // location has no spring threshold and contributes nothing, however tall its water.
+        assertThat(sizes.bestRatio().get(DAY)).isCloseTo(1.21875,
+                org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    @DisplayName("an unmeasured answer carries no ratios")
+    void unmeasuredHasNoRatios() {
+        assertThat(TideSizeIndex.Sizes.UNMEASURED.bestRatio()).isEmpty();
+        assertThat(new TideSizeIndex.Sizes(null, null, true, null).bestRatio()).isEmpty();
+    }
+
+    @Test
     @DisplayName("a high water above P95 makes the day king-sized even when it is not also above "
             + "the spring threshold")
     void kingIsNotAssumedToImplySpring() {
