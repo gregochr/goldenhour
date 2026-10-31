@@ -49,6 +49,8 @@ class LocalAdminSeederTest {
         assertThat(saved.getValue().getPassword()).isEqualTo("encoded-default");
         assertThat(saved.getValue().getRole()).isEqualTo(UserRole.ADMIN);
         assertThat(saved.getValue().isEnabled()).isTrue();
+        // A seeded account has not consented to marketing email: consent is an active opt-in.
+        assertThat(saved.getValue().isMarketingEmailOptIn()).isFalse();
     }
 
     @Test

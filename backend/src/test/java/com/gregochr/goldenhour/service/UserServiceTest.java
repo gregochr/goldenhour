@@ -36,6 +36,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -127,6 +128,22 @@ class UserServiceTest {
             assertThat(captured.getRole()).isEqualTo(UserRole.LITE_USER);
             assertThat(captured.getEmail()).isEqualTo("bob@example.com");
             verify(passwordEncoder).encode("pass");
+        }
+
+        @Test
+        @DisplayName("an admin-created user has NOT consented to marketing email")
+        void adminCreatedUser_hasMarketingOptInFalse() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            // Pinned to the exact account an admin creates, not a broad any().
+            when(userRepository.save(argThat(u -> "bob".equals(u.getUsername())
+                    && u.getRole() == UserRole.LITE_USER && u.isEnabled() && u.isPasswordChangeRequired()
+                    && !u.isMarketingEmailOptIn()))).thenAnswer(inv -> inv.getArgument(0));
+
+            AppUserEntity created = userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            assertThat(created).isNotNull();
+            assertThat(created.isMarketingEmailOptIn()).isFalse();
         }
 
         @Test

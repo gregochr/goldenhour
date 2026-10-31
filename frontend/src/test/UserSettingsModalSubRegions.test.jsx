@@ -48,9 +48,9 @@ describe('UserSettingsModal: Your sub-regions (S4 A4)', () => {
 
   describe('with enforcement off, Settings is what it was for every role', () => {
     it.each([
-      ['LITE_USER', LITE, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Danger zone']],
-      ['PRO_USER', PRO_SETTINGS, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Danger zone']],
-      ['ADMIN', ADMIN, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Danger zone']],
+      ['LITE_USER', LITE, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Emails', 'Danger zone']],
+      ['PRO_USER', PRO_SETTINGS, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Emails', 'Danger zone']],
+      ['ADMIN', ADMIN, ['Profile', 'Home location', 'Drive times', 'Map colours', 'Emails', 'Danger zone']],
     ])('%s', async (_role, settings, expected) => {
       getSettings.mockResolvedValue(settings);
       getSubRegions.mockResolvedValue(FLAG_OFF);
@@ -73,7 +73,7 @@ describe('UserSettingsModal: Your sub-regions (S4 A4)', () => {
 
     await screen.findByTestId('sub-regions-section');
     expect(headings()).toEqual([
-      'Profile', 'Home location', 'Your sub-regions', 'Drive times', 'Map colours', 'Danger zone',
+      'Profile', 'Home location', 'Your sub-regions', 'Drive times', 'Map colours', 'Emails', 'Danger zone',
     ]);
   });
 
