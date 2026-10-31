@@ -7,7 +7,8 @@ import java.util.List;
 /**
  * Jackson POJO for the WorldTides v3 {@code /api/v3?extremes} response.
  *
- * <p>Maps only the fields used by {@code TideService}. Unknown fields are ignored.
+ * <p>Maps the fields used by {@code TideService} plus the provenance fields (atlas, station,
+ * request and response point, datum). Unknown fields are ignored.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class WorldTidesResponse {
@@ -15,6 +16,13 @@ public class WorldTidesResponse {
     private int status;
     private List<Extreme> extremes;
     private Integer callCount;
+    private String atlas;
+    private String station;
+    private Double requestLat;
+    private Double requestLon;
+    private Double responseLat;
+    private Double responseLon;
+    private String responseDatum;
 
     /**
      * Returns the HTTP status code from the WorldTides API.
@@ -60,6 +68,146 @@ public class WorldTidesResponse {
      */
     public void setCallCount(Integer callCount) {
         this.callCount = callCount;
+    }
+
+    /**
+     * Returns the tidal atlas that produced the answer (for example {@code FES2022}).
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public String getAtlas() {
+        return atlas;
+    }
+
+    /**
+     * Sets the tidal atlas that produced the answer (for example {@code FES2022}).
+     *
+     * @param atlas the value
+     */
+    public void setAtlas(String atlas) {
+        this.atlas = atlas;
+    }
+
+    /**
+     * Returns the station the answer came from, or null when it came from a model.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public String getStation() {
+        return station;
+    }
+
+    /**
+     * Sets the station the answer came from, or null when it came from a model.
+     *
+     * @param station the value
+     */
+    public void setStation(String station) {
+        this.station = station;
+    }
+
+    /**
+     * Returns the latitude WorldTides says it was asked about.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public Double getRequestLat() {
+        return requestLat;
+    }
+
+    /**
+     * Sets the latitude WorldTides says it was asked about.
+     *
+     * @param requestLat the value
+     */
+    public void setRequestLat(Double requestLat) {
+        this.requestLat = requestLat;
+    }
+
+    /**
+     * Returns the longitude WorldTides says it was asked about.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public Double getRequestLon() {
+        return requestLon;
+    }
+
+    /**
+     * Sets the longitude WorldTides says it was asked about.
+     *
+     * @param requestLon the value
+     */
+    public void setRequestLon(Double requestLon) {
+        this.requestLon = requestLon;
+    }
+
+    /**
+     * Returns the latitude WorldTides actually answered for.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public Double getResponseLat() {
+        return responseLat;
+    }
+
+    /**
+     * Sets the latitude WorldTides actually answered for.
+     *
+     * @param responseLat the value
+     */
+    public void setResponseLat(Double responseLat) {
+        this.responseLat = responseLat;
+    }
+
+    /**
+     * Returns the longitude WorldTides actually answered for.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public Double getResponseLon() {
+        return responseLon;
+    }
+
+    /**
+     * Sets the longitude WorldTides actually answered for.
+     *
+     * @param responseLon the value
+     */
+    public void setResponseLon(Double responseLon) {
+        this.responseLon = responseLon;
+    }
+
+    /**
+     * Returns the datum the heights are relative to.
+     *
+     * <p>Provenance only; nullable, absent on an error response.
+     *
+     * @return the value, or null if the response did not report it
+     */
+    public String getResponseDatum() {
+        return responseDatum;
+    }
+
+    /**
+     * Sets the datum the heights are relative to.
+     *
+     * @param responseDatum the value
+     */
+    public void setResponseDatum(String responseDatum) {
+        this.responseDatum = responseDatum;
     }
 
     /**

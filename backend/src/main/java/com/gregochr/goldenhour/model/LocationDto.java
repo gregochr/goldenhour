@@ -55,6 +55,8 @@ import java.util.Set;
  *                                  a role-free terrain fact (ETag-safe)
  * @param valleyFloorLat            latitude of the chosen valley-floor point, or {@code null}
  * @param valleyFloorLng            longitude of the chosen valley-floor point, or {@code null}
+ * @param tideLat                   latitude WorldTides is asked about in place of the pin, or {@code null}
+ * @param tideLng                   longitude WorldTides is asked about in place of the pin, or {@code null}
  */
 public record LocationDto(
         Long id,
@@ -90,5 +92,7 @@ public record LocationDto(
         String subRegionName,
         Integer valleyFloorMetres,
         Double valleyFloorLat,
-        Double valleyFloorLng) {
+        Double valleyFloorLng,
+        Double tideLat,
+        Double tideLng) {
 }

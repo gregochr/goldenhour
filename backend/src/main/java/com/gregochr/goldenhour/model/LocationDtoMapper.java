@@ -89,7 +89,9 @@ public class LocationDtoMapper {
                 subRegion == null ? null : subRegion.areaName(),
                 entity.getValleyFloorMetres(),
                 entity.getValleyFloorLat(),
-                entity.getValleyFloorLng());
+                entity.getValleyFloorLng(),
+                entity.getTideLat(),
+                entity.getTideLng());
     }
 
     private LocationRegionDto toRegionDto(RegionEntity region) {

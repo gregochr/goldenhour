@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.repository.TideFetchRepository;
 import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,14 +125,20 @@ public class TideService {
      *
      * @param restClient             shared RestClient for outbound HTTP calls
      * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param tideFetchRepository    repository for the per-call WorldTides fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of that log; a Spring bean, so its
+     *                               transaction boundary applies even though this class builds the
+     *                               ingestion service with {@code new}
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
     public TideService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.ingestionService = new WorldTidesIngestionService(
-                restClient, tideExtremeRepository, worldTidesProperties, jobRunService,
+                restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
+                jobRunService,
                 this::evictTideStats);
     }
 
@@ -223,13 +230,16 @@ public class TideService {
      * {@code TideService} instance without change.
      *
      * @param locationId the location primary key
+     * @param pin        the location's own coordinates
+     * @param point      the effective tide point WorldTides would be asked about
      * @param startOfDay start of today, UTC
      * @param windowEnd  the target horizon
      * @return the span to fetch, or {@code null} when coverage already reaches the horizon
      */
     WorldTidesIngestionService.FetchWindow resolveFetchWindow(Long locationId,
+            LocationEntity.TidePoint pin, LocationEntity.TidePoint point,
             LocalDateTime startOfDay, LocalDateTime windowEnd) {
-        return ingestionService.resolveFetchWindow(locationId, startOfDay, windowEnd);
+        return ingestionService.resolveFetchWindow(locationId, pin, point, startOfDay, windowEnd);
     }
 
     /**
