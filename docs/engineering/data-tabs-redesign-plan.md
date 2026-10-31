@@ -341,3 +341,15 @@ British English, sentence case. "Turn off" / "turn on" in actions, "Disabled" in
 - **Tides**: Tides / {n} coastal locations · heights in metres · All · Thin data · the key as §7 · thin-data and
   definitions as §7.
 - **Waitlist**: Waitlist / {n} · oldest first / Copy emails / Download CSV · *Copied {n} emails.* · the empty state as §8.
+
+## 12. Carried forward from the P1 review
+
+- **`DataGrid` grows when a tab needs it:** grouped rows with a collapsible header (Regions, P5) and per-row "opens
+  nothing" rows (Tides entries with no matching location, P3). A `card: 'status' | 'summary'` column today needs
+  `cardOnly`; make a normal column usable in card mode when Tides or Locations first needs it.
+- **Pagination** (label `1–13 of 266`, phone 9×14 padding, keep the panel open while the selection is on the filtered
+  page) lands with P2, where Users' tests move.
+- **Accepted:** ManageView now follows Back and Forward to a `manage/<tab>` hash even while the Operations pane is
+  hidden; `DataGrid` sets its column template through a CSS custom property in `style` (per-table geometry).
+- **Browser checks still owed:** the sticky panel under the app header, the overlay at 640–999px, the phone page, focus
+  return and `inert`. P1 shipped with these proven in jsdom only.
