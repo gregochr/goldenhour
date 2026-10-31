@@ -49,6 +49,13 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SkyRatingEvalServiceTest {
 
+    @Test
+    void scheduledModels_areEverySelectableModel_includingThe55Pair() {
+        assertThat(SkyRatingEvalService.SCHEDULED_MODELS).isEqualTo(EvaluationModel.selectable());
+        assertThat(SkyRatingEvalService.SCHEDULED_MODELS)
+                .contains(EvaluationModel.HAIKU_55, EvaluationModel.SONNET_55);
+    }
+
     private static final int RUNS = 2;
     private static final long COST_PER_CALL = 1_234L;
 
@@ -310,7 +317,7 @@ class SkyRatingEvalServiceTest {
 
         // One run per scheduled model, in order, each completed — the cross-model accuracy sweep.
         assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
-                .containsExactly(EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+                .containsExactlyElementsOf(EvaluationModel.selectable());
         assertThat(runs).allSatisfy(run -> {
             assertThat(run.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.SCHEDULED);
             assertThat(run.getRunsPerFixture()).isEqualTo(SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);

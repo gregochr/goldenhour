@@ -185,6 +185,45 @@ class EvaluationModelTest {
         assertThat(EvaluationModel.WILDLIFE.getMaxTokens()).isEqualTo(512);
     }
 
+    // ── selectable ──
+
+    @Test
+    @DisplayName("selectable() is exactly the five platform models, in family-then-version order")
+    void selectable_isThePlatformModelsInOrder() {
+        assertThat(EvaluationModel.selectable()).containsExactly(
+                EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET,
+                EvaluationModel.SONNET_55, EvaluationModel.OPUS);
+    }
+
+    @Test
+    @DisplayName("the extended-thinking variants and WILDLIFE are not selectable")
+    void selectable_excludesVariantsAndWildlife() {
+        assertThat(EvaluationModel.SONNET_ET.isSelectable()).isFalse();
+        assertThat(EvaluationModel.OPUS_ET.isSelectable()).isFalse();
+        assertThat(EvaluationModel.WILDLIFE.isSelectable()).isFalse();
+        assertThat(EvaluationModel.selectable()).doesNotContain(
+                EvaluationModel.SONNET_ET, EvaluationModel.OPUS_ET, EvaluationModel.WILDLIFE);
+    }
+
+    @Test
+    @DisplayName("every selectable model has a model id and a version, and the list is unmodifiable")
+    void selectable_modelsAreCallable() {
+        for (EvaluationModel model : EvaluationModel.selectable()) {
+            assertThat(model.getModelId()).as(model.name()).isNotNull();
+            assertThat(model.getVersion()).as(model.name()).isNotNull();
+        }
+        List<EvaluationModel> list = EvaluationModel.selectable();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> list.add(EvaluationModel.OPUS_ET))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("a base model is declared before its extended-thinking variant (id-containment lookup order)")
+    void declarationOrder_baseBeforeVariant() {
+        assertThat(EvaluationModel.SONNET.ordinal()).isLessThan(EvaluationModel.SONNET_ET.ordinal());
+        assertThat(EvaluationModel.OPUS.ordinal()).isLessThan(EvaluationModel.OPUS_ET.ordinal());
+    }
+
     // ── SDK constants ──
 
     /** The ids as they were typed by hand, before they were derived from the SDK's constants. */

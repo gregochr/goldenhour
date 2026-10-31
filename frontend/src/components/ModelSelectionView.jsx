@@ -64,6 +64,43 @@ const MODEL_INFO = {
   },
 };
 
+const UNKNOWN_MODEL_DESCRIPTION = 'Newer model; no description yet.';
+const UNKNOWN = 'Unknown';
+
+/**
+ * The card details for a model. A model without a hand-written entry (a newly added platform model)
+ * gets a generic card, never Recommended, with its cost, speed and token rates marked unknown, so
+ * the backend's model list shows up here without a frontend edit.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @returns {{name: string, description: string, typicalCostUsd: (number|null), tokenRates: string,
+ *   speed: string, recommended: boolean}} the card details
+ */
+export function modelInfoFor(model) {
+  if (Object.prototype.hasOwnProperty.call(MODEL_INFO, model)) return MODEL_INFO[model];
+  return {
+    name: modelLabel(model),
+    description: UNKNOWN_MODEL_DESCRIPTION,
+    typicalCostUsd: null,
+    tokenRates: UNKNOWN,
+    speed: UNKNOWN,
+    recommended: false,
+  };
+}
+
+/**
+ * The Scheduled Batch tab's description for a model, or the generic one for a model without an entry.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @returns {string} the description
+ */
+export function batchDescriptionFor(model) {
+  if (Object.prototype.hasOwnProperty.call(BATCH_MODEL_DESCRIPTIONS, model)) {
+    return BATCH_MODEL_DESCRIPTIONS[model];
+  }
+  return UNKNOWN_MODEL_DESCRIPTION;
+}
+
 /** Format a USD amount as approximate GBP. */
 function toGbp(usd) {
   const gbp = usd * USD_TO_GBP;
@@ -274,8 +311,7 @@ export default function ModelSelectionView() {
       {/* Model cards for the active tab */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {availableModels.map((model) => {
-          const info = MODEL_INFO[model];
-          if (!info) return null;
+          const info = modelInfoFor(model);
           const isActive = model === activeModelForTab;
 
           return (
@@ -305,15 +341,21 @@ export default function ModelSelectionView() {
 
               <p className="text-sm text-plex-text-secondary mb-3">
                 {isBatchTab(activeTab)
-                  ? BATCH_MODEL_DESCRIPTIONS[model]
+                  ? batchDescriptionFor(model)
                   : (TAB_DESCRIPTIONS[activeTab] || info.description)}
               </p>
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div>
                   <span className="font-medium">Typical cost:</span>{' '}
-                  <span className="text-plex-text">{toGbp(info.typicalCostUsd)}/call</span>
-                  <span className="text-plex-text-muted font-normal"> (~${info.typicalCostUsd.toFixed(3)})</span>
+                  {info.typicalCostUsd == null ? (
+                    <span className="text-plex-text">{UNKNOWN.toLowerCase()}</span>
+                  ) : (
+                    <>
+                      <span className="text-plex-text">{toGbp(info.typicalCostUsd)}/call</span>
+                      <span className="text-plex-text-muted font-normal"> (~${info.typicalCostUsd.toFixed(3)})</span>
+                    </>
+                  )}
                 </div>
                 <div>
                   <span className="font-medium">Speed:</span> {info.speed}
@@ -477,7 +519,7 @@ export default function ModelSelectionView() {
                   return (
                     <tr key={model} className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}>
                       <td className="py-1.5 pr-4 font-medium">
-                        {MODEL_INFO[model].name}
+                        {modelInfoFor(model).name}
                         {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
                       </td>
                       <td className="py-1.5 pr-4 text-right font-mono text-xs">{perRequest}</td>
@@ -521,8 +563,9 @@ export default function ModelSelectionView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'].map((model) => {
-                    const total = (COST_PER_CALL[model] * calls).toFixed(2);
+                  {availableModels.map((model) => {
+                    const perCall = Object.prototype.hasOwnProperty.call(COST_PER_CALL, model)
+                      ? COST_PER_CALL[model] : null;
                     const isActive = model === activeModelForTab;
                     return (
                       <tr
@@ -530,16 +573,24 @@ export default function ModelSelectionView() {
                         className={isActive ? 'text-plex-gold' : 'text-plex-text-secondary'}
                       >
                         <td className="py-1.5 pr-4 font-medium">
-                          {MODEL_INFO[model].name}
+                          {modelInfoFor(model).name}
                           {isActive && <span className="text-xs ml-1.5 opacity-60">(active)</span>}
                         </td>
                         <td className="py-1.5 pr-4 text-right font-mono text-xs">
-                          {toGbp(COST_PER_CALL[model])}
-                          <span className="text-plex-text-muted"> (~${COST_PER_CALL[model].toFixed(3)})</span>
+                          {perCall == null ? '—' : (
+                            <>
+                              {toGbp(perCall)}
+                              <span className="text-plex-text-muted"> (~${perCall.toFixed(3)})</span>
+                            </>
+                          )}
                         </td>
                         <td className="py-1.5 text-right font-mono text-xs">
-                          {toGbp(COST_PER_CALL[model] * calls)}
-                          <span className="text-plex-text-muted"> (${total})</span>
+                          {perCall == null ? '—' : (
+                            <>
+                              {toGbp(perCall * calls)}
+                              <span className="text-plex-text-muted"> (${(perCall * calls).toFixed(2)})</span>
+                            </>
+                          )}
                         </td>
                       </tr>
                     );

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import SkyRatingEvalView from '../components/SkyRatingEvalView.jsx';
+import SkyRatingEvalView, {
+  modelClasses, modelColour, costPerCall, orderModelsPresent, accuracyDomainFloor,
+} from '../components/SkyRatingEvalView.jsx';
+
+vi.mock('../api/modelsApi', () => ({
+  getAvailableModels: vi.fn(),
+}));
 
 vi.mock('../api/skyRatingEvalApi', () => ({
   runSkyRatingEval: vi.fn(),
@@ -21,6 +27,17 @@ vi.mock('recharts', async (importOriginal) => {
 import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalTrend,
 } from '../api/skyRatingEvalApi';
+import { getAvailableModels } from '../api/modelsApi';
+
+const AVAILABLE = {
+  available: [
+    { name: 'HAIKU', version: '4.5' },
+    { name: 'HAIKU_55', version: '5.5' },
+    { name: 'SONNET', version: '4.6' },
+    { name: 'SONNET_55', version: '5.5' },
+    { name: 'OPUS', version: '4.6' },
+  ],
+};
 
 const TREND = [
   {
@@ -48,6 +65,7 @@ describe('SkyRatingEvalView', () => {
     vi.clearAllMocks();
     getSkyRatingEvalRuns.mockResolvedValue({ data: RUNS });
     getSkyRatingEvalTrend.mockResolvedValue({ data: TREND });
+    getAvailableModels.mockResolvedValue(AVAILABLE);
   });
 
   afterEach(() => {
@@ -173,6 +191,98 @@ describe('SkyRatingEvalView', () => {
     fireEvent.click(screen.getByTestId('sky-eval-model-OPUS'));
     expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
     expect(screen.queryByTestId('sky-eval-chart-flat-grey-overcast')).not.toBeInTheDocument();
+  });
+
+  it('renders the model radios from the fetched list, in its order, with an unknown model styled by family', async () => {
+    getAvailableModels.mockResolvedValue({
+      available: [{ name: 'HAIKU_60', version: '6.0' }, { name: 'SONNET', version: '4.6' }, { name: 'MYSTERY', version: '1' }],
+    });
+    render(<SkyRatingEvalView />);
+
+    const future = await screen.findByTestId('sky-eval-model-HAIKU_60');
+    expect(future.closest('label')).toHaveTextContent('HAIKU_60');
+    expect(future.closest('label').querySelector('span')).toHaveClass('text-blue-300');
+    expect(screen.getByTestId('sky-eval-model-MYSTERY').closest('label').querySelector('span')).toHaveClass('text-amber-300');
+    expect(screen.queryByTestId('sky-eval-model-OPUS')).not.toBeInTheDocument();
+    const names = screen.getAllByRole('radio').map((r) => r.value);
+    expect(names).toEqual(['HAIKU_60', 'SONNET', 'MYSTERY']);
+  });
+
+  it('shows the error but still renders the runs table when the models fetch fails', async () => {
+    getAvailableModels.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 403'),
+      { response: { status: 403, data: { error: 'Models are admin only' } } },
+    ));
+    render(<SkyRatingEvalView />);
+
+    expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('Models are admin only');
+    expect(await screen.findByTestId('sky-eval-run-1')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
+  });
+
+  it('confirm dialog never shows NaN for a model without a cost entry', async () => {
+    getAvailableModels.mockResolvedValue({ available: [{ name: 'HAIKU_60', version: '6.0' }] });
+    render(<SkyRatingEvalView />);
+    fireEvent.click(await screen.findByTestId('sky-eval-model-HAIKU_60'));
+    fireEvent.click(screen.getByTestId('sky-eval-run-btn'));
+
+    const cost = await screen.findByText(/Estimated cost/);
+    expect(cost).not.toHaveTextContent('NaN');
+    expect(cost).toHaveTextContent('$0.384');
+  });
+
+  it('keeps a retired model that is absent from the fetched list on the accuracy chart', async () => {
+    getAvailableModels.mockResolvedValue({ available: [{ name: 'SONNET', version: '4.6' }] });
+    getSkyRatingEvalRuns.mockResolvedValue({
+      data: [{ ...RUNS[0], id: 5, model: 'OPUS_ET' }, RUNS[0]],
+    });
+    render(<SkyRatingEvalView />);
+    expect(await screen.findByText(/Model accuracy over time/)).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-run-5')).toHaveTextContent('Opus (ET)');
+  });
+
+  describe('pure helpers', () => {
+    it('modelClasses decides by family prefix', () => {
+      expect(modelClasses('HAIKU_60').badge).toBe('bg-blue-900/30 text-blue-300');
+      expect(modelClasses('SONNET_ET').text).toBe('text-purple-300');
+      expect(modelClasses('OPUS').text).toBe('text-amber-300');
+      expect(modelClasses(undefined).text).toBe('text-amber-300');
+    });
+
+    it('modelColour keeps known colours and cycles a fallback palette for unknown models', () => {
+      expect(modelColour('OPUS', 0)).toBe('#fbbf24');
+      const a = modelColour('NEW_A', 0);
+      expect(a).toMatch(/^#[0-9a-f]{6}$/);
+      expect(modelColour('NEW_B', 1)).not.toBe(a);
+      expect(modelColour('NEW_C', 6)).toBe(a);
+    });
+
+    it('costPerCall falls back to the highest known rate', () => {
+      expect(costPerCall('HAIKU')).toBe(0.002);
+      expect(costPerCall('HAIKU_60')).toBe(0.008);
+      expect(Number.isNaN(costPerCall(undefined))).toBe(false);
+    });
+
+    it('orderModelsPresent uses distinct completed models, fetched order first, then alphabetical', () => {
+      const runs = [
+        { status: 'COMPLETED', model: 'OPUS' },
+        { status: 'COMPLETED', model: 'ZETA_OLD' },
+        { status: 'COMPLETED', model: 'ALPHA_OLD' },
+        { status: 'COMPLETED', model: 'HAIKU' },
+        { status: 'COMPLETED', model: 'HAIKU' },
+        { status: 'FAILED', model: 'SONNET' },
+      ];
+      expect(orderModelsPresent(runs, ['HAIKU', 'SONNET', 'OPUS']))
+        .toEqual(['HAIKU', 'OPUS', 'ALPHA_OLD', 'ZETA_OLD']);
+      expect(orderModelsPresent(runs, [])).toEqual(['ALPHA_OLD', 'HAIKU', 'OPUS', 'ZETA_OLD']);
+    });
+
+    it('accuracyDomainFloor is min less 5, floored to ten, clamped at zero', () => {
+      expect(accuracyDomainFloor([84, 92, 100])).toBe(70);
+      expect(accuracyDomainFloor([95, 100])).toBe(90);
+      expect(accuracyDomainFloor([3, 100])).toBe(0);
+      expect(accuracyDomainFloor([])).toBe(0);
+    });
   });
 
   it("shows the server's error sentence, not axios's generic message, when the load is refused", async () => {

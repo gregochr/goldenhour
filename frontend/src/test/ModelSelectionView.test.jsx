@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
-import ModelSelectionView from '../components/ModelSelectionView.jsx';
+import ModelSelectionView, { modelInfoFor, batchDescriptionFor } from '../components/ModelSelectionView.jsx';
 
 // Mock the API modules
 vi.mock('../api/modelsApi', () => ({
@@ -460,6 +460,61 @@ describe('ModelSelectionView', () => {
     fireEvent.click(sonnet55);
     await waitFor(() => {
       expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'SONNET_55');
+    });
+  });
+
+  it('shows a generic card, switch button and a dash cost row for an unknown future model', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: [{ name: 'HAIKU', version: '4.5' }, { name: 'HAIKU_60', version: '6.0' }],
+    });
+    setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'HAIKU_60' });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-AURORA_EVALUATION'));
+
+    const button = await screen.findByTestId('switch-AURORA_EVALUATION-HAIKU_60');
+    expect(button).toHaveTextContent('Switch to HAIKU_60');
+    const card = button.closest('.card');
+    expect(card).toHaveTextContent('HAIKU_60');
+    expect(card).toHaveTextContent('Typical cost: unknown');
+    expect(card).not.toHaveTextContent('Recommended');
+    expect(card).not.toHaveTextContent('NaN');
+
+    const row = within(screen.getByTestId('cost-estimate-table')).getByText('HAIKU_60').closest('tr');
+    expect(row).toHaveTextContent('—');
+    expect(row).not.toHaveTextContent('NaN');
+
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'HAIKU_60');
+    });
+  });
+
+  it('Scheduled Batch tab gives an unknown model the generic description', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: [{ name: 'HAIKU_60', version: '6.0' }],
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+
+    const button = await screen.findByTestId('switch-BATCH_NEAR_TERM-HAIKU_60');
+    expect(button.closest('.card')).toHaveTextContent('Newer model; no description yet.');
+  });
+
+  describe('modelInfoFor and batchDescriptionFor', () => {
+    it('return the hand-written entry for a known model', () => {
+      expect(modelInfoFor('HAIKU').recommended).toBe(true);
+      expect(batchDescriptionFor('OPUS')).toMatch(/Highest accuracy/);
+    });
+
+    it('return a generic, unrecommended, cost-less entry for an unknown model', () => {
+      const info = modelInfoFor('HAIKU_60');
+      expect(info).toMatchObject({
+        name: 'HAIKU_60', recommended: false, typicalCostUsd: null, speed: 'Unknown', tokenRates: 'Unknown',
+      });
+      expect(info.description).toBe('Newer model; no description yet.');
+      expect(batchDescriptionFor('HAIKU_60')).toBe('Newer model; no description yet.');
     });
   });
 

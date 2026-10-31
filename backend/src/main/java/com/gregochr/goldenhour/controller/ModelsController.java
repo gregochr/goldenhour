@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -36,11 +35,7 @@ public class ModelsController {
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
-        EvaluationModel[] selectableModels = {
-            EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET,
-            EvaluationModel.SONNET_55, EvaluationModel.OPUS
-        };
-        List<Map<String, String>> availableWithVersions = Arrays.stream(selectableModels)
+        List<Map<String, String>> availableWithVersions = EvaluationModel.selectable().stream()
                 .map(m -> Map.of("name", m.name(), "version", m.getVersion()))
                 .toList();
         return ResponseEntity.ok(Map.of(
@@ -59,8 +54,9 @@ public class ModelsController {
      *
      * @param request body containing "runType" (or "configType") and "model" fields
      * @return response containing the updated run type and model
-     * @throws IllegalArgumentException if the model or run type is unknown, or the run type is not
-     *                                  configurable (mapped to 400)
+     * @throws IllegalArgumentException if the model or run type is unknown, the model is not
+     *                                  {@link EvaluationModel#selectable() selectable}, or the run
+     *                                  type is not configurable (mapped to 400)
      */
     @PutMapping("/active")
     @PreAuthorize("hasRole('ADMIN')")
@@ -72,6 +68,9 @@ public class ModelsController {
                 request.get("configType"));
         EvaluationModel model = EvaluationModel.valueOf(modelName.toUpperCase());
         RunType runType = RunType.valueOf(runTypeName.toUpperCase());
+        if (!model.isSelectable()) {
+            throw new IllegalArgumentException("Model " + model + " is not selectable");
+        }
         if (!ModelSelectionService.isConfigurable(runType)) {
             throw new IllegalArgumentException("Run type " + runType + " has no configurable model");
         }

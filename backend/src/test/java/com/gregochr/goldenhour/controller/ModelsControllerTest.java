@@ -16,6 +16,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -294,6 +295,36 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .contentType("application/json")
                 .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"INVALID_MODEL\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active refuses a non-selectable model with 400")
+    void setActiveModel_nonSelectableModel_badRequest() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        for (String model : List.of("WILDLIFE", "SONNET_ET", "OPUS_ET")) {
+            mockMvc.perform(put("/api/models/active")
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType("application/json")
+                    .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"" + model + "\"}"))
+                    .andExpect(status().isBadRequest());
+        }
+        verify(modelSelectionService, never()).setActiveModel(any(RunType.class), any(EvaluationModel.class));
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active accepts Haiku 5.5")
+    void setActiveModel_haiku55_ok() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.BATCH_NEAR_TERM, EvaluationModel.HAIKU_55))
+                .thenReturn(EvaluationModel.HAIKU_55);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BATCH_NEAR_TERM\",\"model\":\"HAIKU_55\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value("HAIKU_55"));
     }
 
     @Test

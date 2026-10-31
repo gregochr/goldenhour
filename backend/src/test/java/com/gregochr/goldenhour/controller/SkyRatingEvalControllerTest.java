@@ -75,6 +75,35 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("POST /run accepts a Haiku 5.5 run")
+    @WithMockUser(roles = "ADMIN")
+    void runAcceptsHaiku55() throws Exception {
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(9L).runTimestamp(LocalDateTime.now()).startedAt(LocalDateTime.now())
+                .model(EvaluationModel.HAIKU_55).runsPerFixture(8)
+                .triggerSource(SkyRatingEvalTrigger.MANUAL).status(SkyRatingEvalStatus.RUNNING)
+                .build();
+        when(skyRatingEvalService.startRun(EvaluationModel.HAIKU_55, SkyRatingEvalTrigger.MANUAL, 8))
+                .thenReturn(run);
+
+        mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=HAIKU_55"))
+                .andExpect(status().isAccepted());
+    }
+
+    @Test
+    @DisplayName("POST /run refuses a non-selectable model with 400")
+    @WithMockUser(roles = "ADMIN")
+    void runRefusesNonSelectableModels() throws Exception {
+        for (String model : List.of("WILDLIFE", "SONNET_ET", "OPUS_ET")) {
+            mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=" + model))
+                    .andExpect(status().isBadRequest());
+        }
+        verify(skyRatingEvalService, org.mockito.Mockito.never())
+                .startRun(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.Mockito.anyInt());
+    }
+
+    @Test
     @DisplayName("GET /trend returns the drift series for ADMIN")
     @WithMockUser(roles = "ADMIN")
     void trendReturnsSeries() throws Exception {
