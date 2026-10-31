@@ -21,6 +21,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
@@ -60,7 +61,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     @WithMockUser
     @DisplayName("GET /api/user/settings serves marketingEmailOptIn=true as a JSON boolean")
     void getSettings_servesMarketingEmailOptInTrue() throws Exception {
-        when(settingsService.getSettings(any())).thenReturn(
+        when(settingsService.getSettings(argThat(auth -> auth != null && "user".equals(auth.getName())))).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null, null, null, false, true));
 
