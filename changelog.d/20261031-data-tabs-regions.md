@@ -1,3 +1,0 @@
-### Changed — Regions tab rebuilt with an honest turn-off panel
-
-Operations → Places → Regions now uses the shared list-and-panel layout. Regions that are off sit under a collapsed "Off" group; a row opens a panel with the region's name and base town (each with its own edit), its sub-regions and its actions. A region that still has switched-on locations shows "Turn its 3 locations off first." with a disabled button and a link to those locations, instead of letting you press a button the server will refuse; a region with none turns off at once. A refused change is undone on screen and shows the server's reason. Add region, Rename and Edit base open as forms in the panel with the same checks as before.

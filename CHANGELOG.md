@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.6] - 2026-10-31
+
+### Added — model-disagreement sizing study scripts
+
+`scripts/model-disagreement/` is a read-only Python study (standard library only, no production code, no
+migration, no Claude spend) that sizes whether "other models see cloud" predicts the mid and high cloud ERA5
+shows when `best_match` stored none, the 31 Oct 2026 Angel of the North shape. `md_probe.py` checks what each
+model serves, `md_sample.py` deduplicates the P1 export to units, draws a month-proportional sample, prints the
+expected fetch days against the daily budget and a power table, and stops until `--go`. `md_fetch.py` fetches one
+single-model request per model into P1's cache, and `md_size.py` writes the pass / fail / inconclusive report
+with the alignment control, the lead-fair population, the null comparators and the baselines. It reuses
+`scripts/far-cloud-p1/` without editing it; the owner runs the network steps from the new `README.md`.
+
+### Docs — far-cloud P1: Part B re-run on ERA5 verification to 25 October
+
+Records the third Part B run (plan §21): Sonnet 5.5's ERA5-blocked-horizon share stays at 1.7% / 0.9% on twice the sample, R1 still fails its cost side, 175 weak-canvas gos of which one is rated, and the three unrated Angel-shaped evenings of 27–30 October. No production change.
+
+### Added — 250 and 200 hPa cloud recorded at the far point
+
+The far-solar pressure-level capture now runs from 850 down to 200 hPa: two more variables,
+`cloud_cover_250hPa` and `cloud_cover_200hPa`, ride the existing separate best-effort request and
+are stored in two new nullable `forecast_evaluation` columns (V209). UK cirrus often sits at
+250 to 200 hPa, above the old 300 hPa top level, so a far point under a cirrus deck could read 0 at
+every stored level. Data only: nothing reaches a prompt, triage or a rating. Even so, pressure-level
+cloud sees only about half of single-level high-only cirrus, so "all levels 0" is not "no cloud".
+
+### Changed — Regions tab rebuilt with an honest turn-off panel
+
+Operations → Places → Regions now uses the shared list-and-panel layout. Regions that are off sit under a collapsed "Off" group; a row opens a panel with the region's name and base town (each with its own edit), its sub-regions and its actions. A region that still has switched-on locations shows "Turn its 3 locations off first." with a disabled button and a link to those locations, instead of letting you press a button the server will refuse; a region with none turns off at once. A refused change is undone on screen and shows the server's reason. Add region, Rename and Edit base open as forms in the panel with the same checks as before.
+
+### Changed — the Locations tab opens a panel to view, edit and add
+
+Manage → Places → Locations is rebuilt on the same list-and-panel shell as Users, Regions, Tides and the Waitlist (Data
+tabs, last phase). The list has a search (name or sub-region), type chips with counts, Needs attention and Disabled chips
+and an All regions select (which a Regions "Show them" link also sets), a Mist tag, light and tide tokens, and a status
+for every place: Active, failed runs, Disabled, or Disabled after failures. Rows hold no buttons and the status is no
+longer a toggle. The amber alert names one failing and one turned-off place, and Show them applies the chip; the
+Locations sub-tab carries an amber count of the places that need attention (sub-tab, sidebar and phone menu).
+
+A row opens a panel: a failure box with Reset failure count (new, for an enabled place with failures) or Turn back on
+(for one the server turned off), Shooting, Place, Sky, a Tides section with the range bar for seascapes (in place of the
+Tides modal), and Location actions to turn the place off or on, which show the server's sentence when it refuses (such as
+Turn {region} on first.). Edit and Add take over the panel, with the validation message under each field and no confirm
+step when adding. Every field the inline editor had is kept, and so is its save sequence; the inline editor, the confirm
+modal and the tide statistics modal are gone. Adding a location by coordinates now also takes the Overlooks water,
+Coastal tidal and Mist-prone choices. A failed load of the locations now says so instead of reading as empty.
+
 ## [v2.35.5] - 2026-10-31
 
 ### Added — The map names places that were stood down for the weather
