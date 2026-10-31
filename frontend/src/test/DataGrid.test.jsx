@@ -107,6 +107,28 @@ describe('DataGrid', () => {
       expect(screen.getByTestId('grid-cell-card-status-1').className).toContain('@max-[540px]:justify-self-end');
     });
 
+    it('lets a normal column fill a card line: shown in both modes, right of line 1 or across line 2', () => {
+      renderGrid({
+        columns: [
+          COLUMNS[0],
+          { key: 'role', header: 'Role', width: '1fr', card: 'status', cell: (r) => <span>{r.status}</span> },
+          { key: 'subs', header: 'Subs', width: '1fr', card: 'summary', cell: (r) => <span>{r.note}</span> },
+          { key: 'extra', header: 'Extra', width: '1fr', secondary: true, cell: (r) => <span>{r.note}</span> },
+        ],
+      });
+      const role = screen.getByTestId('grid-cell-role-1').className;
+      expect(role).toContain('@max-[540px]:order-2');
+      expect(role).toContain('@max-[540px]:justify-self-end');
+      expect(role).not.toContain('@max-[540px]:hidden');
+      const subs = screen.getByTestId('grid-cell-subs-1').className;
+      expect(subs).toContain('@max-[540px]:order-3');
+      expect(subs).toContain('@max-[540px]:col-span-2');
+      expect(subs).not.toContain('@max-[540px]:hidden');
+      expect(screen.getByTestId('grid-cell-extra-1').className).toContain('@max-[540px]:hidden');
+      // They are real columns too: in the wide template.
+      expect(screen.getByTestId('grid-row-1').getAttribute('style')).toContain('--data-cols: minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)');
+    });
+
     it('keeps the title in the card and gives the template without secondary or card-only columns for narrow lists', () => {
       renderGrid();
       expect(screen.getByTestId('grid-cell-name-1').className).toContain('@max-[540px]:order-1');

@@ -212,7 +212,7 @@ describe('RegionManagementView', () => {
     expect(screen.getByText('Region 1')).toBeInTheDocument();
     expect(screen.getByText('Region 4')).toBeInTheDocument();
     expect(screen.queryByText('Region 5')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 15');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
 
     // Navigate to page 2
     fireEvent.click(screen.getByTestId('pagination-next'));
@@ -221,7 +221,7 @@ describe('RegionManagementView', () => {
       expect(screen.getByText('Region 5')).toBeInTheDocument();
     });
     expect(screen.queryByText('Region 1')).not.toBeInTheDocument();
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 11-15 of 15');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–15 of 15');
   });
 
   it('hides pagination when all regions fit on one page', async () => {
@@ -248,7 +248,7 @@ describe('RegionManagementView', () => {
     fireEvent.click(screen.getByTestId('pagination-next'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 11-12 of 12');
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–12 of 12');
     });
 
     const table = screen.getByTestId('regions-table');
@@ -267,13 +267,13 @@ describe('RegionManagementView', () => {
       expect(screen.getByTestId('pagination')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 30');
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 30');
 
     // Change to 25 per page
     fireEvent.click(screen.getByTestId('pagination-size-25'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-25 of 30');
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–25 of 30');
     });
   });
 

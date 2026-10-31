@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import PanelShell from './PanelShell.jsx';
+import PanelShell from '../data/PanelShell.jsx';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
 import SubRegionPicker from '../subregions/SubRegionPicker.jsx';
 import useConfirmDialog from '../../hooks/useConfirmDialog.js';
@@ -54,14 +54,14 @@ export default function UserChangePicks({ user, state, onClose, onCancel, onSave
 
   const overLimit = value.length > state.limit;
   const footer = (
-    <footer className="flex flex-col gap-3 border-t border-plex-border px-5 py-4">
+    <div className="flex flex-col gap-3 px-[18px] py-4 max-[639px]:px-4">
       <p className="text-xs text-plex-text-secondary">
         Saving also clears their lock, so they can change their picks again straight away.
       </p>
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          className="rounded-sm px-1 py-0.5 text-sm text-plex-coral hover:text-plex-coral-bright focus-visible:outline-2 focus-visible:outline-plex-gold disabled:opacity-40"
+          className="rounded-sm px-1 py-0.5 text-sm text-plex-coral hover:text-plex-coral-bright focus-visible:outline-2 focus-visible:outline-plex-gold disabled:opacity-40 max-[639px]:min-h-11"
           onClick={handleClearAll}
           disabled={saving || state.picks.length === 0}
           data-testid="clear-all-picks"
@@ -71,7 +71,7 @@ export default function UserChangePicks({ user, state, onClose, onCancel, onSave
         <div className="flex items-center gap-3">
           <button
             type="button"
-            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
             onClick={onCancel}
             disabled={saving}
             data-testid="change-picks-cancel"
@@ -80,7 +80,7 @@ export default function UserChangePicks({ user, state, onClose, onCancel, onSave
           </button>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary max-[639px]:min-h-11"
             onClick={() => persist(value, `Saved ${user.username}'s picks. Their lock is cleared.`)}
             disabled={saving || value.length === 0 || overLimit}
             data-testid="save-picks"
@@ -89,7 +89,7 @@ export default function UserChangePicks({ user, state, onClose, onCancel, onSave
           </button>
         </div>
       </div>
-    </footer>
+    </div>
   );
 
   return (
@@ -98,10 +98,11 @@ export default function UserChangePicks({ user, state, onClose, onCancel, onSave
         title={`Change ${user.username}'s picks`}
         subtitle={`${value.length} of ${state.limit} chosen`}
         onClose={onClose}
+        testIdPrefix="user-panel"
         testId="user-change-picks"
         footer={footer}
       >
-        <div className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex flex-col gap-3 px-[18px] py-4 max-[639px]:px-4">
           <ErrorBanner message={error} data-testid="change-picks-error" />
           <SubRegionPicker
             options={state.options ?? []}

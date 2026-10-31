@@ -422,6 +422,18 @@ most hourly, login stamps it) and `lastActiveAt` was already in the summary, so 
 - *Escape* closes the whole panel from any mode (Change picks, Edit); an open dialog keeps the key.
 - *`formFieldFocusRules`* now reads the shared form classes from `components/users/userFormClasses.js` (the
   `const inputClass` definitions moved out of `UserManagementView.jsx`).
+- *P2 notes (Data tabs, 2026-10-31).* The Users tab moved onto the shared list-and-panel shell
+  (`data-tabs-redesign-plan.md` P2). **A deliberate tablet change:** 1000 to 1023px went from list-replaced to split, and
+  640 to 999px from list-replaced to an overlay under a scrim; Users also gained the phone page (a "‹ Users" back bar
+  carrying Edit, safe-area insets, focus to the title and back to the row, the list `inert` behind an overlay). The
+  `<table>` is now `DataGrid` (CSS grid, `role="button"` rows): the columns the old `compact` prop dropped (Status, Last
+  active, Joined) are `secondary`, so a container query drops them when the panel narrows the list, instead of a JS prop;
+  the old compact order (Sub-regions before Role) is not kept, the wide order (User, Role, Sub-regions, ...) holds in
+  both. A card row keeps Role on line 1 and the sub-regions count on line 2, with a non-Active status under the role.
+  The chip row still hides while a panel is open. Row accessible names now read the whole row
+  (`anna_r, anna.r@example.com, Lite, Active, ...`). Paging keeps the open panel; filtering the open reader out of the
+  list closes it. Esc still steps back from Change picks and Edit to the reader before closing (the "closes the whole
+  panel" departure above describes the first build; the shipped behaviour and its tests are step-back).
 
 ## §11 S5 build notes (2026-10-27)
 

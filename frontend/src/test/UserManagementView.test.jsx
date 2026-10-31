@@ -6,6 +6,9 @@ import {
 } from '../api/userApi.js';
 import { getSubRegionPolicy, saveSubRegionPolicy } from '../api/subRegionPolicyApi.js';
 import UserManagementView from '../components/UserManagementView.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
 
 vi.mock('../api/userApi.js', () => ({
   getUsers: vi.fn(),
@@ -122,13 +125,14 @@ function fixtureUsers() {
 }
 
 function rowFor(username) {
-  return screen.getByRole('button', { name: new RegExp(`^${username.replace('.', '\\.')}\\S*@`) });
+  // A row is named by reading all of it: "{username}, {email}, {role}, ...".
+  return screen.getByRole('button', { name: new RegExp(`^${username.replace('.', '\\.')}, \\S+@`) });
 }
 
 async function renderList(users = fixtureUsers()) {
   getUsers.mockResolvedValue(users);
   render(<UserManagementView />);
-  await screen.findByTestId('users-table');
+  await screen.findByTestId('users');
 }
 
 async function openReader(username, state = makeState()) {
@@ -141,6 +145,7 @@ describe('UserManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.location.hash = '';
+    useIsMobile.mockReturnValue(false);
     getSubRegionPolicy.mockResolvedValue(POLICY);
   });
 
@@ -297,7 +302,7 @@ describe('UserManagementView', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /^User/ }));
       expect(names()[0]).toBe('stormchaser');
-      expect(document.querySelectorAll('[aria-hidden="true"] td')).toHaveLength(0);
+      expect(document.querySelectorAll('[data-testid="users"] > [aria-hidden="true"]')).toHaveLength(0);
     });
 
     it('paginates when there are more users than a page', async () => {
@@ -306,7 +311,7 @@ describe('UserManagementView', () => {
       }));
       await renderList(many);
 
-      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 1-10 of 15');
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('1–10 of 15');
       expect(screen.queryByRole('button', { name: /user11/ })).not.toBeInTheDocument();
       fireEvent.click(screen.getByTestId('pagination-next'));
       expect(screen.getByRole('button', { name: /user11/ })).toBeInTheDocument();
@@ -335,10 +340,14 @@ describe('UserManagementView', () => {
       expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('Lite · Active · joined 19 Oct 2026');
       expect(window.location.hash).toBe('#manage/users/1');
       expect(rowFor('anna_r')).toHaveAttribute('aria-current', 'true');
-      // The list is now User, Sub-regions, Role only.
-      expect(screen.queryByRole('columnheader', { name: /Status/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole('columnheader', { name: /Joined/ })).not.toBeInTheDocument();
-      expect(screen.getByRole('columnheader', { name: /Role/ })).toBeInTheDocument();
+      // The list is now User, Role, Sub-regions only: Status, Last active and Joined are the grid's secondary
+      // columns, which its container query drops when the panel narrows it (classes asserted; jsdom has none).
+      for (const key of ['status', 'lastActive', 'joined']) {
+        expect(screen.getByTestId(`users-cell-${key}-1`).className).toContain('@max-[820px]:hidden');
+      }
+      for (const key of ['user', 'role', 'subRegions']) {
+        expect(screen.getByTestId(`users-cell-${key}-1`).className).not.toContain('@max-[820px]:hidden');
+      }
     });
 
     it('opens the panel on Enter, and on Space', async () => {
@@ -860,7 +869,7 @@ describe('UserManagementView', () => {
 
       const panel = await screen.findByTestId('user-add-panel');
       expect(within(panel).getByRole('heading', { name: 'Add user' })).toBeInTheDocument();
-      expect(screen.getByTestId('users-table')).toBeInTheDocument();
+      expect(screen.getByTestId('users')).toBeInTheDocument();
       const options = within(within(panel).getByLabelText('Role')).getAllByRole('option');
       expect(options.map((o) => o.textContent)).toEqual(['Lite', 'Pro', 'Admin']);
     });
@@ -1144,6 +1153,119 @@ describe('UserManagementView', () => {
 
       fireEvent.keyDown(document, { key: 'Escape' });
       expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the shared list-and-panel shell (Data tabs P2)', () => {
+    const many = () => Array.from({ length: 15 }, (_, i) => makeUser({
+      id: i + 1, username: `user${String(i + 1).padStart(2, '0')}`, email: `user${i + 1}@example.com`,
+    }));
+
+    it('keeps the panel open when paging, even though the reader is not on the new page', async () => {
+      await renderList(many());
+      await openReader('user01');
+
+      fireEvent.click(screen.getByTestId('pagination-next'));
+
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+      expect(window.location.hash).toBe('#manage/users/1');
+    });
+
+    it('closes the panel when a search filters the open reader out, and keeps it while they still match', async () => {
+      await renderList(many());
+      await openReader('user01');
+      const search = screen.getByRole('searchbox', { name: 'Search username or email' });
+
+      fireEvent.change(search, { target: { value: 'user0' } });
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+
+      fireEvent.change(search, { target: { value: 'user12' } });
+      await waitFor(() => expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument());
+      expect(window.location.hash).toBe('#manage/users');
+    });
+
+    it('draws the panel as an overlay with a scrim that closes it, and never as a dialog', async () => {
+      await renderList();
+      await openReader('anna_r');
+
+      expect(screen.getByTestId('user-panel').tagName).toBe('ASIDE');
+      expect(screen.getByTestId('user-panel')).not.toHaveAttribute('role');
+      expect(screen.getByTestId('user-panel')).not.toHaveAttribute('aria-modal');
+      fireEvent.click(screen.getByTestId('user-scrim'));
+      expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
+      expect(window.location.hash).toBe('#manage/users');
+    });
+
+    it('moves focus to the panel title on open and back to the row on close', async () => {
+      await renderList();
+      await openReader('anna_r');
+      expect(screen.getByTestId('user-panel-title')).toHaveFocus();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+
+      expect(screen.getByTestId('users-row-1')).toHaveFocus();
+    });
+
+    it('rows are grid buttons with no table roles, and a disabled reader is drawn in the quiet ink', async () => {
+      await renderList();
+
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.queryAllByRole('columnheader')).toHaveLength(0);
+      expect(screen.getByTestId('users-row-7').className).toContain('text-plex-text-muted');
+      expect(screen.getByTestId('users-row-1').className).not.toContain('text-plex-text-muted');
+    });
+
+    it('reads a card row: title, role and sub-regions cells carry the card placements', async () => {
+      await renderList();
+
+      expect(screen.getByTestId('users-cell-user-1').className).toContain('@max-[540px]:order-1');
+      expect(screen.getByTestId('users-cell-role-1').className).toContain('@max-[540px]:order-2');
+      expect(screen.getByTestId('users-cell-subRegions-1').className).toContain('@max-[540px]:col-span-2');
+      expect(screen.getByTestId('users-row-1').className).toContain('@max-[540px]:min-h-[60px]');
+    });
+
+    it('sorts from the card-mode sort chip', async () => {
+      await renderList();
+      const names = () => screen.getAllByRole('button', { name: /@/ }).map((r) => within(r).getAllByText(/./)[0].textContent);
+
+      fireEvent.change(screen.getByTestId('user-sort-chip'), { target: { value: 'username:desc' } });
+
+      expect(names()[0]).toBe('stormchaser');
+    });
+
+    describe('on a phone', () => {
+      beforeEach(() => useIsMobile.mockReturnValue(true));
+
+      it('shows the reader as a page under a back bar that carries Edit, with the list kept mounted', async () => {
+        await renderList();
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search username or email' }), { target: { value: 'anna' } });
+        await openReader('anna_r');
+
+        const bar = screen.getByTestId('user-backbar');
+        expect(within(bar).getByRole('button', { name: 'Back to Users' })).toBeInTheDocument();
+        expect(screen.getByTestId('user-list')).toHaveAttribute('hidden');
+        // One Edit, in the bar: the Account section's is hidden on the phone page.
+        expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(1);
+        expect(within(bar).getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+        expect(screen.getByTestId('user-panel-close').className).toContain('max-[639px]:hidden');
+
+        fireEvent.click(within(bar).getByRole('button', { name: 'Edit' }));
+        expect(await screen.findByTestId('user-edit-account')).toBeInTheDocument();
+        expect(within(screen.getByTestId('user-backbar')).queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Back to Users' }));
+        expect(screen.getByRole('searchbox', { name: 'Search username or email' })).toHaveValue('anna');
+        expect(window.location.hash).toBe('#manage/users');
+      });
+
+      it('gives the phone controls 44px targets by class', async () => {
+        await renderList();
+        expect(screen.getByTestId('add-user-btn').className).toContain('max-[639px]:min-h-11');
+        expect(screen.getByTestId('user-search').className).toContain('max-[639px]:min-h-11');
+        await openReader('anna_r');
+        expect(screen.getByTestId('user-back').className).toContain('min-h-[44px]');
+        expect(screen.getByTestId('delete-user-1').className).toContain('max-[639px]:min-h-11');
+      });
     });
   });
 

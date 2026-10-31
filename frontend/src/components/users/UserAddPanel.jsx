@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import PanelShell from './PanelShell.jsx';
+import PanelShell from '../data/PanelShell.jsx';
 import { createUser } from '../../api/userApi.js';
 import { ROLE_OPTIONS } from '../../utils/userAdmin.js';
 import { inputClass, labelClass, selectClass } from './userFormClasses.js';
@@ -60,8 +60,8 @@ export default function UserAddPanel({ onClose, onCreated }) {
   }
 
   return (
-    <PanelShell title="Add user" onClose={onClose} testId="user-add-panel">
-      <div className="flex flex-col gap-4 px-5 py-4">
+    <PanelShell title="Add user" onClose={onClose} testIdPrefix="user-panel" testId="user-add-panel">
+      <div className="flex flex-col gap-4 px-[18px] py-4 max-[639px]:px-4">
         <div>
           <label htmlFor="add-user-username" className={labelClass}>Username</label>
           <input
@@ -128,13 +128,13 @@ export default function UserAddPanel({ onClose, onCreated }) {
         <div className="flex items-center justify-end gap-3">
           <button
             type="button"
-            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+            className="rounded-sm px-1 py-0.5 text-sm text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
             onClick={onClose}
             disabled={saving}
           >
             Cancel
           </button>
-          <button type="button" className="btn-primary" onClick={handleCreate} disabled={saving} data-testid="create-user">
+          <button type="button" className="btn-primary max-[639px]:min-h-11" onClick={handleCreate} disabled={saving} data-testid="create-user">
             {saving ? 'Saving...' : 'Create user'}
           </button>
         </div>

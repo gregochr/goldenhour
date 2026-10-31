@@ -3,10 +3,15 @@ import PropTypes from 'prop-types';
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
-const navBtnClass = 'px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text disabled:opacity-40 disabled:cursor-not-allowed';
+/** Phone (639px and under): 9x14 padding and a 44px touch target; the desktop classes are untouched. */
+const PHONE_BTN = 'max-[639px]:min-h-11 max-[639px]:min-w-11 max-[639px]:px-[14px] max-[639px]:py-[9px]';
+
+const navBtnClass = `px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text disabled:opacity-40 disabled:cursor-not-allowed ${PHONE_BTN}`;
 
 /**
- * Dark-themed pagination controls for data tables.
+ * Dark-themed pagination controls for data tables. The label reads {@code 1–13 of 266} (en dash, mono 11px);
+ * the buttons are First, Previous, Next and Last, with the page-size chips. On a phone (639px and under) every
+ * button gets 9x14 padding and a 44px touch target.
  *
  * @param {object} props
  * @param {number} props.page - Current 1-indexed page number.
@@ -30,8 +35,8 @@ export default function Pagination({ page, totalPages, pageSize, totalItems, onN
       className="flex flex-wrap items-center justify-between gap-2 text-xs text-plex-text-muted pt-3"
       data-testid="pagination"
     >
-      <span data-testid="pagination-summary">
-        Showing {start}-{end} of {totalItems}
+      <span className="font-mono text-[11px]" data-testid="pagination-summary">
+        {start}&ndash;{end} of {totalItems}
       </span>
 
       <div className="flex items-center gap-1">
@@ -51,7 +56,7 @@ export default function Pagination({ page, totalPages, pageSize, totalItems, onN
           disabled={page <= 1}
           data-testid="pagination-prev"
         >
-          Prev
+          <span aria-hidden="true">&lsaquo; </span>Previous
         </button>
         <span className="px-1" data-testid="pagination-indicator">
           Page {page} of {totalPages}
@@ -63,7 +68,7 @@ export default function Pagination({ page, totalPages, pageSize, totalItems, onN
           disabled={page >= totalPages}
           data-testid="pagination-next"
         >
-          Next
+          Next<span aria-hidden="true"> &rsaquo;</span>
         </button>
         <button
           type="button"
@@ -81,7 +86,7 @@ export default function Pagination({ page, totalPages, pageSize, totalItems, onN
           <button
             key={size}
             type="button"
-            className={`px-1.5 py-0.5 rounded ${
+            className={`px-1.5 py-0.5 rounded ${PHONE_BTN} ${
               size === pageSize
                 ? 'bg-plex-gold/20 text-plex-gold font-medium'
                 : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text'

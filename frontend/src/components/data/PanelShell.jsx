@@ -17,13 +17,17 @@ import { PANEL_TITLE_ATTR } from './DataSplitLayout.jsx';
  * @param {string} props.title the panel title (an email, a name)
  * @param {import('react').ReactNode} [props.subtitle] one line under the title
  * @param {() => void} props.onClose closes the panel
- * @param {string} props.testIdPrefix prefix for the test ids; also the root's test id
+ * @param {string} props.testIdPrefix prefix for the test ids; also the root's test id unless {@code testId} is given
+ * @param {string} [props.testId] the root's test id, when a tab has several panel modes that tests tell apart
+ *   (Users: {@code user-reader-panel}, {@code user-edit-account}) but that share one title and × id
  * @param {import('react').ReactNode} [props.children] the body
  * @param {import('react').ReactNode} [props.footer] pinned under the body
  */
-export default function PanelShell({ title, subtitle = null, onClose, testIdPrefix, children = null, footer = null }) {
+export default function PanelShell({
+  title, subtitle = null, onClose, testIdPrefix, testId = undefined, children = null, footer = null,
+}) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid={testIdPrefix}>
+    <div className="flex min-h-0 flex-1 flex-col" data-testid={testId ?? testIdPrefix}>
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-plex-border px-[18px] pb-4 pt-[18px] max-[639px]:px-4">
         <div className="min-w-0">
           <h2
@@ -68,6 +72,7 @@ PanelShell.propTypes = {
   subtitle: PropTypes.node,
   onClose: PropTypes.func.isRequired,
   testIdPrefix: PropTypes.string.isRequired,
+  testId: PropTypes.string,
   children: PropTypes.node,
   footer: PropTypes.node,
 };
