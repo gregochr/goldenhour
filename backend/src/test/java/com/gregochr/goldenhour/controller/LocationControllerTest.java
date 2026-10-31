@@ -433,6 +433,36 @@ class LocationControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} carries the tide-point fields through to the UpdateLocationRequest")
+    void updateLocation_tidePointFields_reachTheService() throws Exception {
+        UpdateLocationRequest expected = new UpdateLocationRequest(null, null, null, null, null, null, null,
+                null, null, null, null, null, null, null, 55.0, -1.4, Boolean.FALSE);
+        when(locationService.update(7L, expected))
+                .thenReturn(buildEntity(7L, "Cullercoats", 55.03, -1.43));
+
+        mockMvc.perform(put("/api/locations/7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tideLat\":55.0,\"tideLng\":-1.4,\"clearTidePoint\":false}"))
+                .andExpect(status().isOk());
+
+        verify(locationService).update(7L, expected);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} with a tide point the service rejects returns 400")
+    void updateLocation_tidePointRejected_returns400() throws Exception {
+        when(locationService.update(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalArgumentException("The tide point must be within 25 km of the location"));
+
+        mockMvc.perform(put("/api/locations/7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"tideLat\":56.0,\"tideLng\":-1.4}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/locations/{id} with none of the height keys leaves them all null")
     void updateLocation_noHeightKeys_allNull() throws Exception {
         UpdateLocationRequest expected = new UpdateLocationRequest("Latrigg", null, null, null, null, null, null,

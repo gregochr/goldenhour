@@ -37,6 +37,12 @@ import java.util.Set;
  * @param valleyFloorLng   longitude of the valley-floor point (null = don't change)
  * @param clearValleyFloor {@code true} to null all three valley-floor columns; rejected alongside any of the
  *                         three values (null or false = don't clear)
+ * @param tideLat          latitude of the point WorldTides is asked about in place of the pin, for a coastal
+ *                         location whose own sea area is unreliable; set with {@code tideLng} or not at all
+ *                         (null = don't change)
+ * @param tideLng          longitude of the tide point (null = don't change)
+ * @param clearTidePoint   {@code true} to null both tide-point columns (the pin is used again); rejected
+ *                         alongside either value (null or false = don't clear)
  */
 public record UpdateLocationRequest(
         String name,
@@ -52,8 +58,40 @@ public record UpdateLocationRequest(
         Integer valleyFloorMetres,
         Double valleyFloorLat,
         Double valleyFloorLng,
-        Boolean clearValleyFloor
+        Boolean clearValleyFloor,
+        Double tideLat,
+        Double tideLng,
+        Boolean clearTidePoint
 ) {
+    /**
+     * Constructor for callers that predate the tide point: all three tide-point fields read as
+     * "don't change".
+     *
+     * @param name              optional new name
+     * @param lat               optional new latitude
+     * @param lon               optional new longitude
+     * @param solarEventTypes   which solar events to evaluate (null = don't change)
+     * @param locationTypes     photography types (null = don't change)
+     * @param tideTypes         tide preferences (null = don't change)
+     * @param regionId          optional region ID
+     * @param mistProne         whether mist forms around this location (null = don't change)
+     * @param subRegionId       the sub-region to move into (null = don't change)
+     * @param elevationMetres   viewpoint height (null = don't change)
+     * @param valleyFloorMetres valley-floor height (null = don't change)
+     * @param valleyFloorLat    valley-floor latitude (null = don't change)
+     * @param valleyFloorLng    valley-floor longitude (null = don't change)
+     * @param clearValleyFloor  true to clear the valley floor
+     */
+    public UpdateLocationRequest(String name, Double lat, Double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId, Boolean mistProne, Long subRegionId,
+            Integer elevationMetres, Integer valleyFloorMetres, Double valleyFloorLat,
+            Double valleyFloorLng, Boolean clearValleyFloor) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, subRegionId,
+                elevationMetres, valleyFloorMetres, valleyFloorLat, valleyFloorLng, clearValleyFloor,
+                null, null, null);
+    }
+
     /**
      * Constructor for callers that predate the height fields: all five read as "don't change".
      *

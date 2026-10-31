@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -205,6 +206,20 @@ public class TideService {
     @Transactional
     public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location) {
         return ingestionService.fetchAndStoreTideExtremes(location);
+    }
+
+    /**
+     * As {@link #fetchAndStoreTideExtremes(LocationEntity)}, but always in a transaction of its own.
+     *
+     * <p>For a caller running in a transaction's after-commit callback (the admin tide-point edit): there the
+     * finished transaction is still bound to the thread, so a plain {@code REQUIRED} method would join it and
+     * its writes would never be committed.
+     *
+     * @param location the coastal location to fetch tide data for
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void fetchAndStoreTideExtremesInNewTransaction(LocationEntity location) {
+        ingestionService.fetchAndStoreTideExtremes(location);
     }
 
     /**

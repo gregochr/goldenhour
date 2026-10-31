@@ -314,6 +314,16 @@ function parseMetres(value) {
   return Number.isFinite(n) ? Math.round(n) : NaN;
 }
 
+/** The tide point a form holds as the new server baseline after a save, or null when it holds none. */
+function tidePointBaseline(values) {
+  const latText = String(values.tideLat ?? '').trim();
+  const lngText = String(values.tideLng ?? '').trim();
+  const lat = Number(latText);
+  const lng = Number(lngText);
+  const blank = latText === '' || lngText === '';
+  return blank || !Number.isFinite(lat) || !Number.isFinite(lng) ? null : { lat, lng };
+}
+
 /** True when the edited lat/lon text is a valid coordinate pair. */
 function coordsValid(lat, lon) {
   const a = parseFloat(lat);
@@ -507,6 +517,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
   function handleStartEdit(loc) {
     floorToken.current += 1;
     const hasStoredFloor = loc.valleyFloorMetres != null && loc.valleyFloorLat != null && loc.valleyFloorLng != null;
+    const hasStoredTidePoint = loc.tideLat != null && loc.tideLng != null;
     setEditingRowId(loc.id);
     setEditValues({
       name: loc.name,
@@ -538,6 +549,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
         ? { metres: loc.valleyFloorMetres, lat: loc.valleyFloorLat, lng: loc.valleyFloorLng }
         : null,
       floorCleared: false,
+      // Tide point: where WorldTides is asked about instead of the pin. Held as text; baseline is what the
+      // server holds, so a save sends the tide keys only when they differ.
+      tideLat: hasStoredTidePoint ? String(loc.tideLat) : '',
+      tideLng: hasStoredTidePoint ? String(loc.tideLng) : '',
+      tideBaseline: hasStoredTidePoint ? { lat: loc.tideLat, lng: loc.tideLng } : null,
       floorCandidates: null,
       floorCell: null,
       floorStatus: '',
@@ -666,6 +682,31 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }));
   }
 
+  function handleClearTidePoint() {
+    setEditValues((prev) => ({ ...prev, tideLat: '', tideLng: '' }));
+  }
+
+  // Tide-point fields of the save payload: present only when they differ from what the server holds.
+  // Both blank clears a stored point; one blank is an error. Returns { error } or { fields }.
+  function tidePointPayload() {
+    const latText = String(editValues.tideLat ?? '').trim();
+    const lngText = String(editValues.tideLng ?? '').trim();
+    const baseline = editValues.tideBaseline;
+    if (latText === '' && lngText === '') {
+      return { fields: baseline ? { clearTidePoint: true } : {} };
+    }
+    if (latText === '' || lngText === '') {
+      return { error: 'A tide point needs both latitude and longitude, or clear it.' };
+    }
+    const lat = Number(latText);
+    const lng = Number(lngText);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+      return { error: 'Tide point latitude must be between -90 and 90 and longitude between -180 and 180.' };
+    }
+    if (baseline && lat === baseline.lat && lng === baseline.lng) return { fields: {} };
+    return { fields: { tideLat: lat, tideLng: lng } };
+  }
+
   // Height fields of the save payload, each present only when it differs from what the server holds.
   // Returns { error } for a value that cannot be sent, otherwise { fields }.
   function heightPayload() {
@@ -727,6 +768,11 @@ export default function LocationManagementView({ onLocationsChanged }) {
       setEditError(heights.error);
       return;
     }
+    const tidePoint = tidePointPayload();
+    if (tidePoint.error) {
+      setEditError(tidePoint.error);
+      return;
+    }
     setEditSaving(true);
     setEditError('');
     setAliasDetail('');
@@ -745,6 +791,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         mistProne: editValues.mistProne === true,
         ...subRegionChange,
         ...heights.fields,
+        ...tidePoint.fields,
       });
       // The region and sub-region may both have moved memberships: read them again.
       await refreshAreas();
@@ -773,6 +820,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 ? { metres: parseMetres(prev.floorMetres), lat: prev.floorLat, lng: prev.floorLng }
                 : null,
               floorCleared: false,
+              tideBaseline: tidePointBaseline(prev),
               latBaseline: parseFloat(prev.lat),
               lonBaseline: parseFloat(prev.lon),
             };
@@ -1415,6 +1463,51 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <div className="mt-1 text-xs text-plex-text-muted" data-testid="inline-edit-valley-floor-cell">
                                   Model cell {editValues.floorCell.cellLat.toFixed(3)}, {editValues.floorCell.cellLng.toFixed(3)}{' '}
                                   ({editValues.floorCell.cellDistanceKm.toFixed(1)} km from the floor)
+                                </div>
+                              )}
+                              {editValues.locationTypes.includes('SEASCAPE') && (
+                                <div className="mt-1.5" data-testid="inline-edit-tide-point">
+                                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <span className="text-plex-text-muted">Tide point</span>
+                                    <label htmlFor={`inline-edit-tide-lat-${loc.id}`} className="sr-only">
+                                      Tide point latitude
+                                    </label>
+                                    <input
+                                      id={`inline-edit-tide-lat-${loc.id}`}
+                                      type="number"
+                                      step="any"
+                                      placeholder="Lat"
+                                      className={inlineInputClass + ' w-28'}
+                                      value={editValues.tideLat}
+                                      onChange={(e) => handleEditChange('tideLat', e.target.value)}
+                                      data-testid="inline-edit-tide-lat"
+                                    />
+                                    <label htmlFor={`inline-edit-tide-lng-${loc.id}`} className="sr-only">
+                                      Tide point longitude
+                                    </label>
+                                    <input
+                                      id={`inline-edit-tide-lng-${loc.id}`}
+                                      type="number"
+                                      step="any"
+                                      placeholder="Lng"
+                                      className={inlineInputClass + ' w-28'}
+                                      value={editValues.tideLng}
+                                      onChange={(e) => handleEditChange('tideLng', e.target.value)}
+                                      data-testid="inline-edit-tide-lng"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
+                                      onClick={handleClearTidePoint}
+                                      disabled={editValues.tideLat === '' && editValues.tideLng === ''}
+                                      data-testid="inline-edit-tide-point-clear"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-plex-text-muted" data-testid="inline-edit-tide-point-help">
+                                    Where tide times are read from, when the pin&apos;s own sea area is unreliable
+                                  </div>
                                 </div>
                               )}
                               <div className="mt-1.5 flex items-center gap-2 text-xs">
