@@ -305,10 +305,14 @@ class RegionServiceTest {
         RegionEntity entity = buildRegion(1L, "Lake District");
         when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
         when(regionRepository.existsByName("Lakes")).thenReturn(false);
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(regionRepository.save(entity)).thenAnswer(inv -> inv.getArgument(0));
 
         regionService.update(1L, new UpdateRegionRequest("Lakes"));
 
+        ArgumentCaptor<RegionEntity> captor = ArgumentCaptor.forClass(RegionEntity.class);
+        verify(regionRepository).save(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(1L);
+        assertThat(captor.getValue().getName()).isEqualTo("Lakes");
         verify(regionRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
