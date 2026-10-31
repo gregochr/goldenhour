@@ -54,13 +54,16 @@ function template(columns, lean) {
  * @param {(row: object) => string} props.getRowLabel the row's accessible name, reading the whole row
  * @param {string|number|null} [props.selectedId] the row whose panel is open
  * @param {(row: object) => void} props.onSelect called when a row is activated
+ * @param {(row: object) => boolean} [props.isSelectable] false for a row that opens nothing (Tides: statistics with no
+ *   matching location). Such a row is plain: no {@code role="button"}, not focusable, no pointer cursor or hover tint,
+ *   and it never calls {@code onSelect}. Defaults to every row opening.
  * @param {(row: object) => boolean} [props.isOff] true for a row drawn in the quiet ink (a switched-off item)
  * @param {{key: string, dir: 'asc'|'desc'}} [props.sort] the current sort, for the header's arrow and the sort button's accessible name
  * @param {(sortKey: string) => void} [props.onSort] called when a sortable header is pressed
  * @param {string} props.testIdPrefix the grid's test id; rows are {@code {prefix}-row-{id}}
  */
 export default function DataGrid({
-  columns, rows, getRowId, getRowLabel, selectedId = null, onSelect, isOff = undefined, sort = undefined,
+  columns, rows, getRowId, getRowLabel, selectedId = null, onSelect, isSelectable = undefined, isOff = undefined, sort = undefined,
   onSort = undefined, testIdPrefix,
 }) {
   const gridVars = { '--data-cols': template(columns, false), '--data-cols-lean': template(columns, true) };
@@ -112,19 +115,26 @@ export default function DataGrid({
         const id = getRowId(row);
         const selected = id === selectedId;
         const off = isOff ? isOff(row) : false;
+        const openable = isSelectable ? isSelectable(row) : true;
+        const tone = off ? 'text-plex-text-muted' : 'text-plex-text';
+        const rowBase = `${rowGrid} border-b border-plex-border/60 px-3 py-2.5 text-[13px] last:border-b-0 @max-[540px]:min-h-[60px] @max-[540px]:gap-y-1 @max-[540px]:px-1 @max-[540px]:py-3`;
+        const interaction = openable
+          ? 'cursor-pointer transition-colors hover:bg-[rgba(242,231,211,0.03)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold'
+          : '';
+        const selectedTint = selected && openable ? 'bg-[rgba(242,231,211,0.06)] shadow-[inset_2px_0_0_var(--color-plex-text)]' : '';
         return (
           <div
             key={id}
-            role="button"
-            tabIndex={0}
-            aria-label={getRowLabel(row)}
-            aria-current={selected ? 'true' : undefined}
-            onClick={() => onSelect(row)}
-            onKeyDown={(e) => onRowKeyDown(e, row)}
+            {...(openable ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': getRowLabel(row),
+              'aria-current': selected ? 'true' : undefined,
+              onClick: () => onSelect(row),
+              onKeyDown: (e) => onRowKeyDown(e, row),
+            } : {})}
             style={gridVars}
-            className={`${rowGrid} cursor-pointer border-b border-plex-border/60 px-3 py-2.5 text-[13px] transition-colors last:border-b-0 hover:bg-[rgba(242,231,211,0.03)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold @max-[540px]:min-h-[60px] @max-[540px]:gap-y-1 @max-[540px]:px-1 @max-[540px]:py-3 ${
-              selected ? 'bg-[rgba(242,231,211,0.06)] shadow-[inset_2px_0_0_var(--color-plex-text)]' : ''
-            } ${off ? 'text-plex-text-muted' : 'text-plex-text'}`}
+            className={`${rowBase} ${interaction} ${selectedTint} ${tone}`}
             data-testid={`${testIdPrefix}-row-${id}`}
           >
             {columns.map((column) => (
@@ -155,6 +165,7 @@ DataGrid.propTypes = {
   getRowLabel: PropTypes.func.isRequired,
   selectedId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onSelect: PropTypes.func.isRequired,
+  isSelectable: PropTypes.func,
   isOff: PropTypes.func,
   sort: PropTypes.shape({ key: PropTypes.string, dir: PropTypes.oneOf(['asc', 'desc']) }),
   onSort: PropTypes.func,

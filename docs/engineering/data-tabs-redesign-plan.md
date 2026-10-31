@@ -1,6 +1,6 @@
 # Data tabs redesign: Locations, Regions, Tides and Waitlist
 
-**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
+**Status:** planned 2026-10-31; P1 built (Waitlist and the shared components); P2 built (Users, and Pagination); P3 built (Tides, `TideRangeBar`, and `DataGrid`'s `isSelectable`). **Source:** the owner's Claude Design export "PhotoCast - Admin Screens"
 (`design_handoff_data_tabs`: `README.md`, `Data Tabs Redesign.html`, 18 frames). It lives with the owner, not in the repo.
 Where it and the codebase disagree, **the codebase wins** (the handoff says so itself).
 
@@ -261,7 +261,10 @@ coordinates instead* (Name/Lat/Lon). Then Type/Light/Tides as in Edit, checkboxe
 Mist-prone, Region (enabled only) + Sub-region (2-col). Footer Cancel + **Add location**, disabled until there is a
 result or valid manual coordinates. On success: refresh, `onLocationsChanged`, select the new location.
 
-## 7. Tides (P3)
+## 7. Tides (P3, built)
+
+*Built departures:* sub-regions are not on `GET /api/locations`, so the tab also reads `GET /api/areas` (`SUB_REGION`
+members); the search also matches the sub-region; chip counts follow the search and region.
 
 Read-only. Header *Tides* + *{n} coastal locations · heights in metres* (the Unit column goes). Chips All · Thin data
 (`dataPoints < THIN_TIDE_READINGS`, a constant = 2000) | All regions ▾. Key under the chips: light band *Lowest low to
@@ -344,9 +347,9 @@ British English, sentence case. "Turn off" / "turn on" in actions, "Disabled" in
 
 ## 12. Carried forward from the P1 review
 
-- **`DataGrid` grows when a tab needs it:** grouped rows with a collapsible header (Regions, P5) and per-row "opens
-  nothing" rows (Tides entries with no matching location, P3). A `card: 'status' | 'summary'` column today needs
-  `cardOnly`; make a normal column usable in card mode when Tides or Locations first needs it.
+- **`DataGrid` grows when a tab needs it:** grouped rows with a collapsible header (Regions, P5). (Per-row "opens
+  nothing" rows landed in P3 as `isSelectable`; a normal column is usable in card mode with `card: 'status' | 'summary'`
+  and no `cardOnly`, as Users and Tides use it.)
 - **Pagination** (label `1–13 of 266`, phone 9×14 padding, keep the panel open while the selection is on the filtered
   page) lands with P2, where Users' tests move.
 - **Accepted:** ManageView now follows Back and Forward to a `manage/<tab>` hash even while the Operations pane is
