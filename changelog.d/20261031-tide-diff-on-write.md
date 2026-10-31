@@ -1,0 +1,3 @@
+### Added — Admin alert when WorldTides changes tide times it has already given us
+
+The weekly tide refresh now re-fetches one stored week of every location's tide times and compares it with what is stored before replacing it. If any high or low moved by more than 5 minutes or 0.05 m, or WorldTides' tidal atlas, station or answering point changed, the admins get one email per refresh listing every affected location with before and after examples and saying the fix is a tide point. A difference that persists is not mailed again until a fetch has shown none. The new values are stored as before, and each fetch records its comparison in the `tide_fetch` log. The overlap costs about one extra WorldTides credit per location per week.

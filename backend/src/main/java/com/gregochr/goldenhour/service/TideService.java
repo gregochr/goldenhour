@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TideFetchRepository;
@@ -199,10 +200,11 @@ public class TideService {
      * <p>Delegates to {@link WorldTidesIngestionService#fetchAndStoreTideExtremes(LocationEntity)}.
      *
      * @param location the coastal location to fetch tide data for
+     * @return the source change the fetch detected, or {@code null} when none
      */
     @Transactional
-    public void fetchAndStoreTideExtremes(LocationEntity location) {
-        ingestionService.fetchAndStoreTideExtremes(location);
+    public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location) {
+        return ingestionService.fetchAndStoreTideExtremes(location);
     }
 
     /**
@@ -218,10 +220,11 @@ public class TideService {
      *
      * @param location the coastal location to fetch tide data for
      * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return the source change the fetch detected, or {@code null} when none
      */
     @Transactional
-    public void fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
-        ingestionService.fetchAndStoreTideExtremes(location, jobRun);
+    public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
+        return ingestionService.fetchAndStoreTideExtremes(location, jobRun);
     }
 
     /**

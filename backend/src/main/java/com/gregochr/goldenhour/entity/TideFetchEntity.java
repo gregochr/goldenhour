@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.entity;
 
+import com.gregochr.goldenhour.model.TideDiff;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -111,4 +112,26 @@ public class TideFetchEntity {
     /** Number of extremes stored from this call. */
     @Column(name = "extremes_stored", nullable = false)
     private int extremesStored;
+
+    /** Stored/new extremes paired by the diff-on-write comparison, or null when none was made. */
+    @Column(name = "overlap_pairs")
+    private Integer overlapPairs;
+
+    /** Largest timing difference over the paired extremes, in minutes, or null. */
+    @Column(name = "max_lag_delta_min")
+    private Double maxLagDeltaMin;
+
+    /** Largest height difference over the paired extremes, in metres, or null. */
+    @Column(name = "max_height_delta_m")
+    private Double maxHeightDeltaM;
+
+    /**
+     * Whether this row's diff-on-write comparison showed a change: more than five minutes or
+     * 0.05 m on any pair. A row with no comparison did not show one.
+     *
+     * @return true when the recorded deltas exceed either threshold
+     */
+    public boolean showedChange() {
+        return TideDiff.exceeds(maxLagDeltaMin, maxHeightDeltaM);
+    }
 }

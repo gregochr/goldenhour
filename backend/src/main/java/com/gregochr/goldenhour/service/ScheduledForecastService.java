@@ -4,11 +4,14 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.TideSourceChange;
+import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -38,6 +41,7 @@ public class ScheduledForecastService {
     private final LocationService locationService;
     private final JobRunService jobRunService;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final AdminAlertService adminAlertService;
 
     /**
      * True from the moment a tide refresh is accepted until it finishes, whichever route started
@@ -65,14 +69,16 @@ public class ScheduledForecastService {
      * @param locationService          the service providing persisted locations
      * @param jobRunService            the service for tracking job run metrics
      * @param dynamicSchedulerService  the dynamic scheduler for job registration
+     * @param adminAlertService        sends the one tide source-change alert a refresh may raise
      */
     public ScheduledForecastService(TideService tideService, LocationService locationService,
             JobRunService jobRunService,
-            DynamicSchedulerService dynamicSchedulerService) {
+            DynamicSchedulerService dynamicSchedulerService, AdminAlertService adminAlertService) {
         this.tideService = tideService;
         this.locationService = locationService;
         this.jobRunService = jobRunService;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.adminAlertService = adminAlertService;
     }
 
     /**
@@ -152,10 +158,14 @@ public class ScheduledForecastService {
         LOG.info("Weekly tide refresh started — {} SEASCAPE coastal location(s)", coastal.size());
         int succeeded = 0;
         int failed = 0;
+        List<TideSourceChange> changes = new ArrayList<>();
 
         for (LocationEntity location : coastal) {
             try {
-                tideService.fetchAndStoreTideExtremes(location, jobRun);
+                TideSourceChange change = tideService.fetchAndStoreTideExtremes(location, jobRun);
+                if (change != null) {
+                    changes.add(change);
+                }
                 succeeded++;
             } catch (Exception e) {
                 LOG.error("Tide refresh failed for {}: {}", location.getName(), e.getMessage(), e);
@@ -164,8 +174,27 @@ public class ScheduledForecastService {
         }
 
         jobRunService.completeRun(jobRun, succeeded, failed);
+        alertTideSourceChanges(changes);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
+    }
+
+    /**
+     * Sends the one tide source-change alert for the refresh that just ended, if any location showed a
+     * change. All three routes (the schedule, Run Now, the admin endpoint) end in
+     * {@link #doRefreshTideExtremes}, so this is the single send point. An alert failure never fails the
+     * refresh.
+     */
+    private void alertTideSourceChanges(List<TideSourceChange> changes) {
+        if (changes.isEmpty()) {
+            return;
+        }
+        try {
+            adminAlertService.sendTideSourceChangeAlert(changes);
+        } catch (RuntimeException e) {
+            LOG.warn("Could not send the tide source-change alert for {} location(s) — the refresh is unaffected",
+                    changes.size(), e);
+        }
     }
 
     /**

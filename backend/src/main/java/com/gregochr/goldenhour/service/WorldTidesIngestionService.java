@@ -7,6 +7,8 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideFetchEntity;
+import com.gregochr.goldenhour.model.TideDiff;
+import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TideFetchRepository;
@@ -21,12 +23,16 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -108,17 +114,19 @@ public class WorldTidesIngestionService {
     private static final int RESEED_INTERVAL_DAYS = 90;
 
     /**
-     * Margin the tail fetch starts before the frontier extreme, so the frontier sits strictly
-     * inside the requested span instead of exactly on its boundary.
+     * How far before the frontier extreme the tail fetch starts, so every weekly fetch re-buys one
+     * stored week and compares it with what is stored (diff-on-write, tide-source-integrity-plan P2).
      *
-     * <p>On 2026-08-10 WorldTides did not return the extreme at exactly {@code start}, and the
-     * inclusive delete had already removed it — see
-     * {@code docs/engineering/tide-frontier-extreme-loss-plan.md}. A one-minute margin costs
-     * nothing (the frontier is {@code MAX(event_time)}, so no other stored row can exist inside
-     * it) and removes the reliance on WorldTides' boundary-inclusive behaviour, which production
-     * has now shown false.
+     * <p>This also keeps the frontier strictly inside the requested span instead of exactly on its
+     * boundary: on 2026-08-10 WorldTides did not return the extreme at exactly {@code start}, and
+     * the inclusive delete had already removed it — see
+     * {@code docs/engineering/tide-frontier-extreme-loss-plan.md}.
+     *
+     * <p>Billing is {@code ceil(days / 7)}, so the overlap costs about one extra credit per location
+     * per week. The start is still clamped to {@code startOfDay}: the delete is derived from it and
+     * must never reach stored history.
      */
-    private static final long TAIL_OVERLAP_MINUTES = 1;
+    private static final int TAIL_OVERLAP_DAYS = 7;
 
     /**
      * Largest difference, in degrees, at which two coordinates still count as the same point.
@@ -220,10 +228,12 @@ public class WorldTidesIngestionService {
      * a non-200 status, no rows are deleted or written — the existing data is preserved.
      *
      * @param location the coastal location to fetch tide data for
+     * @return the source change the fetch detected, or {@code null} when none (see
+     *         {@link #fetchAndStoreTideExtremes(LocationEntity, JobRunEntity)})
      */
     @Transactional
-    public void fetchAndStoreTideExtremes(LocationEntity location) {
-        fetchAndStoreTideExtremes(location, null);
+    public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location) {
+        return fetchAndStoreTideExtremes(location, null);
     }
 
     /**
@@ -237,14 +247,19 @@ public class WorldTidesIngestionService {
      *
      * @param location the coastal location to fetch tide data for
      * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return what changed, when this fetch showed stored tide times or heights moving by more than
+     *         5 minutes or 0.05 m, or its atlas, station or response point differing from the previous
+     *         forward fetch at the same request point, and the previous fetch had not already shown the
+     *         same kind of change; otherwise {@code null}. The caller collects these across a refresh
+     *         and alerts once.
      */
     @Transactional
-    public void fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
+    public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
         String apiKey = worldTidesProperties.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             LOG.warn("WorldTides API key not configured — skipping tide fetch for {}",
                     location.getName());
-            return;
+            return null;
         }
 
         LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
@@ -256,7 +271,7 @@ public class WorldTidesIngestionService {
         if (window == null) {
             LOG.debug("Tide coverage for {} already reaches {} — no fetch needed",
                     location.getName(), horizon.toLocalDate());
-            return;
+            return null;
         }
 
         long startEpoch = window.from().toEpochSecond(ZoneOffset.UTC);
@@ -300,7 +315,7 @@ public class WorldTidesIngestionService {
                         location.getName(), response != null ? response.getStatus() : "null");
                 recordFetch(location, window.code(), window.from(), window.to(), point, response,
                         false, 0);
-                return;
+                return null;
             }
 
             LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
@@ -321,6 +336,12 @@ public class WorldTidesIngestionService {
                             .build())
                     .toList();
 
+            // Both reads happen before the delete: the stored values are about to be replaced, and
+            // the previous forward row is still the latest because this fetch's own is written
+            // only after the merge.
+            Optional<TideFetchEntity> previous = previousForwardFetch(location);
+            TideDiff diff = diffAgainstStored(location, window, entities);
+
             // Delete only the span just fetched, preserving both historical data and the
             // forward days this fetch did not ask for. window.from() is never before
             // startOfDay, so backfilled history can never fall inside this range.
@@ -334,7 +355,7 @@ public class WorldTidesIngestionService {
 
             // After the merge has returned, so a merge that throws leaves no success row behind.
             recordFetch(location, window.code(), window.from(), window.to(), point, response, true,
-                    entities.size());
+                    entities.size(), diff);
 
             if (jobRun != null) {
                 // Priced from the credits WorldTides itself reports, not a flat per-call figure:
@@ -352,6 +373,8 @@ public class WorldTidesIngestionService {
                     response.getAtlas(), response.getStation(),
                     response.getResponseLat(), response.getResponseLon());
 
+            return detectChange(location, point, response, previous.orElse(null), diff);
+
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
             String errorMsg = SecretRedactor.redactKeys(
@@ -364,7 +387,103 @@ public class WorldTidesIngestionService {
             }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), errorMsg);
             recordFetch(location, window.code(), window.from(), window.to(), point, null, false, 0);
+            return null;
         }
+    }
+
+    /**
+     * The latest successful forward fetch of the location, read before this fetch's own row exists.
+     * Never throws: without it a source change cannot be seen, which is better than no fetch.
+     */
+    private Optional<TideFetchEntity> previousForwardFetch(LocationEntity location) {
+        try {
+            return tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
+                    location.getId(), FORWARD_REASONS);
+        } catch (RuntimeException e) {
+            LOG.warn("Could not read the previous WorldTides fetch of {} — source-change detection skipped",
+                    location.getName(), e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Compares the stored extremes about to be deleted with the ones just fetched, over the window
+     * about to be replaced. Skipped (returns {@code null}) for {@code SEED}, where nothing is stored, and
+     * {@code POINT_CHANGE}, where a difference is expected. Never throws.
+     */
+    private TideDiff diffAgainstStored(LocationEntity location, FetchWindow window,
+            List<TideExtremeEntity> fresh) {
+        if (TideFetchEntity.SEED.equals(window.code()) || TideFetchEntity.POINT_CHANGE.equals(window.code())) {
+            return null;
+        }
+        try {
+            List<TideExtremeEntity> stored = tideExtremeRepository
+                    .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                            location.getId(), window.from(), window.to());
+            return TideDiff.compute(stored, fresh);
+        } catch (RuntimeException e) {
+            LOG.warn("Tide diff failed for {} — the merge proceeds without it", location.getName(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Decides whether this fetch is worth an admin alert, and builds its entry. Alert state lives in
+     * the provenance log itself: a difference is reported only when the previous successful forward
+     * fetch did not already show one, and a source change only when it differs from that previous
+     * fetch at the same request point. The next fetch then reads this fetch's row, so a persisting
+     * difference is not repeated until a fetch has shown none.
+     */
+    private TideSourceChange detectChange(LocationEntity location, LocationEntity.TidePoint point,
+            WorldTidesResponse response, TideFetchEntity previous, TideDiff diff) {
+        String sourceChange = describeSourceChange(previous, point, response);
+        boolean timingChange = diff != null && diff.changed()
+                && (previous == null || !previous.showedChange());
+        if (sourceChange == null && !timingChange) {
+            return null;
+        }
+        List<String> examples = timingChange
+                ? diff.examples().stream().map(WorldTidesIngestionService::describePair).toList()
+                : List.of();
+        return new TideSourceChange(location.getName(), sourceChange, examples);
+    }
+
+    /**
+     * Describes an atlas, station or response-point change against the previous forward fetch, or
+     * returns {@code null}. Only meaningful at the same request point, and only when the previous row
+     * recorded a source at all.
+     */
+    private static String describeSourceChange(TideFetchEntity previous, LocationEntity.TidePoint point,
+            WorldTidesResponse response) {
+        if (previous == null || previous.getRequestLat() == null || previous.getRequestLng() == null
+                || !samePoint(new LocationEntity.TidePoint(previous.getRequestLat(), previous.getRequestLng()),
+                        point)
+                || (previous.getAtlas() == null && previous.getStation() == null
+                        && previous.getResponseLat() == null)) {
+            return null;
+        }
+        List<String> parts = new ArrayList<>();
+        if (!Objects.equals(previous.getAtlas(), response.getAtlas())) {
+            parts.add("atlas " + previous.getAtlas() + " -> " + response.getAtlas());
+        }
+        if (!Objects.equals(previous.getStation(), response.getStation())) {
+            parts.add("station " + previous.getStation() + " -> " + response.getStation());
+        }
+        if (previous.getResponseLat() != null && previous.getResponseLng() != null
+                && response.getResponseLat() != null && response.getResponseLon() != null
+                && !samePoint(new LocationEntity.TidePoint(previous.getResponseLat(), previous.getResponseLng()),
+                        new LocationEntity.TidePoint(response.getResponseLat(), response.getResponseLon()))) {
+            parts.add("response point (" + previous.getResponseLat() + ", " + previous.getResponseLng()
+                    + ") -> (" + response.getResponseLat() + ", " + response.getResponseLon() + ")");
+        }
+        return parts.isEmpty() ? null : String.join("; ", parts);
+    }
+
+    private static String describePair(TideDiff.Pair pair) {
+        long lagMinutes = Duration.between(pair.beforeTime(), pair.afterTime()).toMinutes();
+        return String.format(Locale.ROOT, "%s %s UTC -> %s UTC (%+d min), %s m -> %s m",
+                pair.type(), pair.beforeTime(), pair.afterTime(), lagMinutes,
+                pair.beforeHeight().toPlainString(), pair.afterHeight().toPlainString());
     }
 
     /**
@@ -388,6 +507,17 @@ public class WorldTidesIngestionService {
     private void recordFetch(LocationEntity location, String reason, LocalDateTime from,
             LocalDateTime to, LocationEntity.TidePoint point, WorldTidesResponse response,
             boolean success, int stored) {
+        recordFetch(location, reason, from, to, point, response, success, stored, null);
+    }
+
+    /**
+     * As above, also recording the diff-on-write outcome.
+     *
+     * @param diff the comparison made before the delete, or {@code null} when none was
+     */
+    private void recordFetch(LocationEntity location, String reason, LocalDateTime from,
+            LocalDateTime to, LocationEntity.TidePoint point, WorldTidesResponse response,
+            boolean success, int stored, TideDiff diff) {
         try {
             tideFetchRecorder.record(TideFetchEntity.builder()
                     .locationId(location.getId())
@@ -405,6 +535,9 @@ public class WorldTidesIngestionService {
                     .responseDatum(response != null ? response.getResponseDatum() : null)
                     .callCount(response != null ? response.getCallCount() : null)
                     .extremesStored(stored)
+                    .overlapPairs(diff != null ? diff.pairs() : null)
+                    .maxLagDeltaMin(diff != null ? diff.maxLagMinutes() : null)
+                    .maxHeightDeltaM(diff != null ? diff.maxHeightMetres() : null)
                     .build());
         } catch (RuntimeException e) {
             LOG.warn("Could not record the {} WorldTides fetch of {} — the fetch itself is unaffected",
@@ -419,7 +552,7 @@ public class WorldTidesIngestionService {
      * <p>Package-private so the decision can be tested without an HTTP call — it is the half of
      * the refresh that determines both the credit cost and what gets deleted.
      *
-     * <p><strong>The tail starts {@value #TAIL_OVERLAP_MINUTES} minute(s) before the frontier
+     * <p><strong>The tail starts {@value #TAIL_OVERLAP_DAYS} days before the frontier
      * extreme.</strong> Production showed WorldTides does not reliably return an extreme at
      * exactly {@code start} — an extremum at the window's first instant has no left-hand sample
      * to be detected against, and/or recomputation can shift it a second earlier. The delete's
@@ -427,9 +560,9 @@ public class WorldTidesIngestionService {
      * still deleted; the margin only moves that bound to sit strictly below the frontier instead
      * of on top of it, so the frontier is now genuinely inside the requested span and comes back
      * in the response regardless of WorldTides' boundary semantics. It also still prevents a
-     * {@code uq_tide_extreme} violation on re-insert. Note the frontier is a tide instant while the
-     * horizon is midnight, so a weekly tail spans seven days plus up to one inter-extreme gap —
-     * which is why it bills two credits rather than one.
+     * {@code uq_tide_extreme} violation on re-insert. Since P2 the margin is a whole stored week,
+     * which the fetch compares with what is stored before replacing it, so a weekly tail spans
+     * fourteen days plus up to one inter-extreme gap and bills three credits rather than two.
      *
      * <p>⚠️ Every branch returns a window whose {@code from} is at or after {@code startOfDay}.
      * The delete is derived from it, and stored history sits strictly before that bound, so the
@@ -492,7 +625,7 @@ public class WorldTidesIngestionService {
             // window.
             return null;
         }
-        LocalDateTime from = frontier.minusMinutes(TAIL_OVERLAP_MINUTES);
+        LocalDateTime from = frontier.minusDays(TAIL_OVERLAP_DAYS);
         if (from.isBefore(startOfDay)) {
             from = startOfDay;          // preserves the "never reaches backwards" invariant
         }
@@ -510,7 +643,7 @@ public class WorldTidesIngestionService {
      * WARN for every same-type adjacency found.
      *
      * <p>Called immediately after the delete+save so a hole left by the merge — such as the
-     * frontier extreme {@link #TAIL_OVERLAP_MINUTES} was added to stop losing — is caught the
+     * frontier extreme {@link #TAIL_OVERLAP_DAYS} was added to stop losing — is caught the
      * week it happens rather than sitting silent for months. Deliberately no auto-repair: this is
      * a smoke detector, not a sprinkler system.
      *
