@@ -5,6 +5,77 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.5] - 2026-10-31
+
+### Added — The map names places that were stood down for the weather
+
+Zoomed in on the Map tab, a place that was stood down for the weather now carries its name and the reason: "Tynemouth stood down · visibility" (cloud, rain or visibility). Before, such a place was only hatched ground with no name on it. The labels are quiet, never show a star, and never take space from a rated place, an Ask PhotoCast pick or a region name. On a phone only "stood down" shows, with the reason kept in the accessible name. The reason word "murk" is now "visibility" everywhere. A single place with no rating that was stood down now says "Stood down" instead of "Poor" in the map callout and the location sheet; region and window verdicts still say "Poor" when ratings are low.
+
+### Changed — A switched-off region can no longer hold switched-on locations
+
+Turning a region off is now refused while any of its locations is switched on ("Turn off its 3 locations first."), and switching a location on, adding one, or moving a switched-on one into a switched-off region is refused ("Turn Northumberland on first."). Re-enabling an auto-disabled place in a switched-off region is refused too, leaving it and its alert untouched. Existing half-off data is left alone. The Regions and Locations lists now show the server's sentence when a toggle is refused.
+
+### Changed — Glance on a phone: a day with one window keeps a half-width card
+
+On a phone, a day holding only one window (today once this morning's sunrise has passed, or the
+last forecast day's sunrise) no longer stretches that card across both columns. It stays half
+width, as on desktop, and the empty slot beside it is shown with its wording ("this morning has
+gone" / "past the end of the forecast"), so a single, often weak, window is not given the focus of
+a hero card. Desktop and tablet are unchanged.
+
+### Docs — landing page frames mist and cloud inversions as something to look for
+
+The landing page's mist feature now reads "Spot promising mist and cloud inversions" and explains
+that PhotoCast looks for the conditions that help mist and low cloud form, checks whether you could
+photograph it from above or within it, and weighs overnight conditions and winds on higher ground.
+
+### Changed — the Waitlist tab opens each entry in a side panel
+
+Operations → People → Waitlist now lists the queue with a stable position number, the email, when each address
+joined and how long it has waited. The Invite and Remove buttons are gone from the rows: click (or press Enter on)
+a row and a panel opens with the dates, the invitation status, Invite or Invite again, and Remove with its
+confirm step. The entry is kept in the address (`#manage/waitlist/{id}`), so a reload or the Back button lands
+on the same one. Copy emails and Download CSV act on the whole list, and a failed load now says so instead of
+claiming no one is waiting. On a phone the panel is a full page with a back bar. A link from another Operations
+tab now moves an already-open Operations pane to the tab it names. This is the first of four Data tab rebuilds;
+it also adds the shared list-and-panel pieces the others will use.
+
+### Changed — the Users tab moves onto the shared list-and-panel shell
+
+Operations → People → Users now uses the same list-and-panel shell as the Waitlist (Data tabs, phase 2). The table is a
+grid that drops its Status, Last active and Joined columns when the panel narrows it and turns each row into a two-line
+card on a narrow list. The reader panel sits beside the list from 1000px, slides over it under a scrim from 640 to 999px
+(both were list-replaced on a tablet before), and on a phone is a full page with a "‹ Users" back bar that carries Edit.
+Pagination now reads `1–13 of 266` with Previous and Next, and gives phone buttons a 44px target; every paged admin list
+shares it. Paging keeps an open reader on screen, and a search that filters the open reader out closes the panel.
+
+### Changed — the Tides tab moves onto the shared list-and-panel shell, with range bars
+
+Operations → Places → Tides (Data tabs, phase 3) now shows each coastal location's tide range as a bar on one shared
+scale (lowest low to highest high, the average band, and an amber P95 tick), with the average range, P95 high, spring
+share and reading count beside it. Search by name or sub-region, filter to locations with thin data (under 2000
+readings) or one region, and sort any numeric column. A row opens a panel (`#manage/tides/{id}`) with the full figures,
+the high-tide percentiles, the spring and king thresholds and a link to the location; a thin-data location carries a
+warning with the median reading count. A statistics entry that matches no location still lists but opens nothing. The
+list reflows to two-line cards when narrow, and the panel is split, an overlay or a full page by screen width, as on
+Waitlist and Users.
+
+### Changed — Coming up shows a locked row where the high water at the light would be (Lite)
+
+On Coming up, a Lite reader's tide-run cards now carry a locked row, "High water at sunrise and sunset", with the Pro
+pill, a small tide sketch and the line "Pro shows where high water falls against sunrise and sunset on this run."
+It sits in the card where Pro's sunrise and sunset rows are, so the gap is visible instead of silent. It replaces the
+single "When high water meets the light" door that used to sit beside the first such card. The "Coastal spots
+everywhere" door now skips cards that carry the row. Client only; Pro and Admin cards are unchanged.
+
+### Fixed — places that suit any tide no longer read "Wrong water"
+
+A place set to want high, mid or low water (all three) is now treated as fitting any tide. Before,
+the three wanted states were matched by narrow bands around a high, a low and the midpoint, so a
+spot like Bamburgh could read "Wrong water" when the tide sat between those bands. Places that
+want only one or two of the states behave as before. Stars scored before this fix were worked out
+with the old tide check, so a slot at such a place may run slightly low until the next forecast run.
+
 ## [v2.35.4] - 2026-10-31
 
 ### Added — near-miss shoulder days beside Coming up tide runs

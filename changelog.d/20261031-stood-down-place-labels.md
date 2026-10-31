@@ -1,3 +1,0 @@
-### Added — The map names places that were stood down for the weather
-
-Zoomed in on the Map tab, a place that was stood down for the weather now carries its name and the reason: "Tynemouth stood down · visibility" (cloud, rain or visibility). Before, such a place was only hatched ground with no name on it. The labels are quiet, never show a star, and never take space from a rated place, an Ask PhotoCast pick or a region name. On a phone only "stood down" shows, with the reason kept in the accessible name. The reason word "murk" is now "visibility" everywhere. A single place with no rating that was stood down now says "Stood down" instead of "Poor" in the map callout and the location sheet; region and window verdicts still say "Poor" when ratings are low.
