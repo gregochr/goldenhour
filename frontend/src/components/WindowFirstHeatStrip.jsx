@@ -601,8 +601,9 @@ function areaLabel(regionName, tiny) {
  * <p>{@code buildWindowMatrix} derives the columns from the data and every cell carries
  * {@code --c}/{@code --r}, so the stylesheet places rather than flows. The phone transposes the
  * identical markup into two columns under a spanning day header with no second render path — a
- * day holding one window takes the full row ({@code .solo}) and the empty cell is
- * {@code display: none}, because a 390px screen has no width to spend on a hole.
+ * day holding one window keeps its half-width cell ({@code .solo} is only a marker) and the empty
+ * cell beside it is shown with the same copy as desktop, so a lone, often weak, window is not
+ * promoted to a full-width hero card.
  *
  * <h2>Every word on a card comes from the payload</h2>
  *
@@ -1077,8 +1078,8 @@ export default function WindowFirstHeatStrip({
       );
       const projection = drawGeo(canvas, cardWidth, cardHeight, points, POINT_SCORE_INDEX, {
         grid: THUMB_GRID,
-        // Scaled to THIS card, so a solo full-width card is not drawn with a paired card's blur
-        // radius — the same reason its width is measured separately.
+        // Scaled to THIS card, so each card is drawn with a blur radius matching its own measured
+        // width rather than a neighbour's — the same reason widths are measured per card.
         radius: Math.max(THUMB_RADIUS_MIN, cardWidth * THUMB_RADIUS_FACTOR),
         blur: THUMB_BLUR,
         line: THUMB_LINE,

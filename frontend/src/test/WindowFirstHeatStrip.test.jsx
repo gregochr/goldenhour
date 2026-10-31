@@ -1952,9 +1952,8 @@ describe('WindowFirstHeatStrip — the grid it lays out', () => {
     expect(holes.map((e) => e.textContent)).toEqual(['this morning has gone', '']);
   });
 
-  it('marks a day holding one window as solo, which is what widens it on a phone', async () => {
-    // jsdom has no layout, so the media query itself is a browser claim — what is asserted here is
-    // the class the rule selects on.
+  it('marks a day holding one window as solo', async () => {
+    // The class is a marker only (the phone keeps a solo card half width); jsdom has no layout.
     //
     // ⚠️ Row-major indices (matrix-axis plan §6.4, same fixture and DOM order as the placement test
     // above): [day2 sunrise, day3 sunrise, day1 sunset, day2 sunset]. Day 1 (sunset only) and day 3
@@ -1965,6 +1964,14 @@ describe('WindowFirstHeatStrip — the grid it lays out', () => {
     expect(cards[1]).toHaveClass('solo');
     expect(cards[2]).toHaveClass('solo');
     expect(cards[3]).not.toHaveClass('solo');
+  });
+
+  it('phone: renders the empty cells with their desktop copy beside the lone cards', async () => {
+    useIsMobile.mockReturnValue(true);
+    await renderStrip({ cards: WEEK });
+    expect(screen.getAllByTestId('wf-heat-empty').map((e) => e.textContent))
+      .toEqual(['this morning has gone', 'past the end of the forecast']);
+    useIsMobile.mockReturnValue(false);
   });
 });
 
