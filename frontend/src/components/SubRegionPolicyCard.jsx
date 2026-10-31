@@ -21,7 +21,7 @@ function parseLimit(text, max) {
  * The admin setting for how many sub-regions a Lite reader may pick (sub-regions-plan D5, S2).
  * Shows the saved value, says how many Lite readers hold more picks than a lowered value BEFORE it is saved
  * (they keep them until they next change), and saves. Admin only: it lives in the Lite limit dialog on
- * Manage → Data → Users, which only the Manage screen (admin) mounts.
+ * Operations → People → Users, which only the Manage screen (admin) mounts.
  *
  * @param {object} props
  * @param {(saved: object) => void} [props.onSaved] called with the saved policy after a successful save only

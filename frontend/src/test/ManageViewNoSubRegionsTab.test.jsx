@@ -15,26 +15,26 @@ vi.mock('../components/ModelSelectionView.jsx', () => ({ default: () => <div>Run
 vi.mock('../components/SchedulerView.jsx', () => ({ default: () => <div>Scheduler</div> }));
 vi.mock('../components/PipelineRunsView.jsx', () => ({ default: () => <div>Pipeline Runs</div> }));
 
-describe('ManageView — the Sub-regions tab is gone (the Lite limit lives on Data → Users)', () => {
+describe('ManageView — the Sub-regions tab is gone (the Lite limit lives on Operations → People → Users)', () => {
   beforeEach(() => {
     window.location.hash = '';
   });
 
-  it('carries no Sub-regions tab in the Data or the Operations group', () => {
+  it('carries no Sub-regions tab in any group', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.queryByTestId('manage-tab-subregions')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('manage-group-operations'));
-    expect(screen.queryByTestId('manage-tab-subregions')).toBeNull();
-    expect(screen.queryByText('Sub-regions')).toBeNull();
+    ['runs', 'tuning', 'places', 'people', 'testing'].forEach((group) => {
+      fireEvent.click(screen.getByTestId(`manage-group-${group}`));
+      expect(screen.queryByTestId('manage-tab-subregions')).toBeNull();
+      expect(screen.queryByText('Sub-regions')).toBeNull();
+    });
   });
 
-  it('an old #manage/subregions link lands on Data → Users', () => {
+  it('an old #manage/subregions link falls back to Runs → Pipeline Runs', () => {
     window.location.hash = '#manage/subregions';
     render(<ManageView onComplete={vi.fn()} />);
 
-    expect(screen.getByTestId('users-stub')).toBeInTheDocument();
-    expect(screen.getByTestId('manage-tab-users')).toBeInTheDocument();
+    expect(screen.getByText('Pipeline Runs', { selector: 'div' })).toBeInTheDocument();
+    expect(screen.getByTestId('manage-tab-pipelineruns')).toBeInTheDocument();
     expect(screen.queryByLabelText('Picks per Lite reader')).toBeNull();
   });
 });

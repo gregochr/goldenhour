@@ -25,7 +25,7 @@ function writeSelectionToHash(id) {
 }
 
 /**
- * Manage → Data → Users (sub-regions plan S4b; the Claude Design handoff, Part B).
+ * Operations → People → Users (sub-regions plan S4b; the Claude Design handoff, Part B).
  *
  * <p>One list (search, chip filters, sortable columns, rows without buttons) and, beside it, the reader panel
  * a row opens: Account, Sub-regions, Preferences and legal, Account actions, with Change picks, Edit account and

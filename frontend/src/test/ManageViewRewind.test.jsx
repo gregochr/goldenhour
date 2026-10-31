@@ -6,7 +6,7 @@ vi.mock('../api/waitlistApi.js', () => ({ getWaitlist: vi.fn().mockResolvedValue
 vi.mock('../api/rewindApi.js', () => ({
   getRewindEvents: vi.fn().mockResolvedValue({ now: '2026-10-04T09:30:00Z', briefingGeneratedAt: null, events: [] }),
 }));
-// ManageView renders a tree of admin views; the Operations group's default tab still fetches via
+// ManageView renders a tree of admin views; the Runs group's default tab still fetches via
 // apiClient, so keep the transport mocked (the shape `ManageViewWaitlist.test.jsx` uses).
 vi.mock('../api/axiosClient.js', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
@@ -25,9 +25,9 @@ describe('ManageView — Rewind tab', () => {
     window.location.hash = '';
   });
 
-  it('is the last Operations sub-tab and mounts the rewind view', async () => {
+  it('is the last Testing sub-tab and mounts the rewind view', async () => {
     render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-group-operations'));
+    fireEvent.click(screen.getByTestId('manage-group-testing'));
     const tab = screen.getByTestId('manage-tab-rewind');
     expect(tab).toHaveTextContent('Rewind');
     fireEvent.click(tab);
@@ -37,7 +37,7 @@ describe('ManageView — Rewind tab', () => {
 
   it('lists Sky Eval as the only model-test screen (the other two were retired)', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-group-operations'));
+    fireEvent.click(screen.getByTestId('manage-group-tuning'));
     expect(screen.getByText('Sky Eval')).toBeInTheDocument();
     expect(screen.queryByText('Location Model Test')).not.toBeInTheDocument();
     expect(screen.queryByText('Briefing Model Test')).not.toBeInTheDocument();
