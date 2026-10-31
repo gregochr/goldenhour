@@ -310,7 +310,7 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
   // The walk covers the EXTENDED span: a served shoulder day (a near miss just outside the run) sits
   // before the first or after the last run day. The chip-count caps above counted run days only.
   const shoulderDates = ranges
-    .filter((r) => r.shoulder === true && (r.date < startDate || r.date > endDate))
+    .filter((r) => r.shoulder === true)
     .map((r) => r.date)
     .sort();
   const walkStart = shoulderDates.length > 0 && shoulderDates[0] < startDate ? shoulderDates[0] : startDate;
@@ -322,7 +322,7 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
   for (let i = 0; i < walkDays; i += 1) {
     const date = new Date(atMidday(walkStart).getTime() + i * 86400000).toISOString().slice(0, 10);
     const served = ranges.find((r) => r.date === date);
-    const shoulder = served?.shoulder === true && (date < startDate || date > endDate);
+    const shoulder = served?.shoulder === true;
     // A shoulder before today is dropped (client side, via the appNow()-derived todayStr, beside the
     // `gone` logic): it is context for a run already under way, not a day to look back at. A filter
     // over served values, licensed in architecture-decisions.md beside buildRangeScale.

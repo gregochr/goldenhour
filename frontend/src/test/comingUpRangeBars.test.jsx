@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  describe, it, expect, afterEach, beforeAll, afterAll,
+  describe, it, expect, afterEach, beforeAll, afterAll, vi,
 } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
@@ -420,7 +420,7 @@ describe('shoulder days beside a tide run', () => {
   it('joins the outline note to the dimmed note when a day is also dimmed', () => {
     draw(shoulderEntry(), NOV, ['2026-11-08', '2026-11-09', '2026-11-10', '2026-11-11']);
     expect(screen.getByTestId('coming-up-day-chips-note').textContent)
-      .toBe('dimmed · no forecast yet · outlined · just short of spring');
+      .toBe('dimmed · no forecast yet — outlined · just short of spring');
   });
 
   it('keeps a dimmed shoulder dimmed in its own way: live false still applies', () => {
@@ -449,6 +449,35 @@ describe('shoulder days beside a tide run', () => {
     expect(screen.getByRole('button', {
       name: 'Show coastal spots for Sat 7 Nov, full moon, 4.3 metre range, just short of spring size',
     })).toBeInTheDocument();
+  });
+
+  it('trusts a served shoulder inside a merged card’s union span, and names it in the crumb', () => {
+    const onShowOnMap = vi.fn();
+    const e = shoulderEntry({
+      title: 'Spring tide run, on a supermoon',
+      startDate: '2026-11-07',
+      dayMarks: [
+        { date: '2026-11-07', label: 'full moon', family: 'sun-moon' },
+        { date: '2026-11-09', label: 'peak', family: 'coastal' },
+      ],
+    });
+    const view = buildEntryView(e, NOV, null, null);
+    const { container } = render(
+      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={onShowOnMap} />,
+    );
+    const first = cols(container)[0];
+    expect(first).toHaveAttribute('data-tier', 'shoulder');
+    expect(first.querySelector('.wf-cu-day-range-pill')).toBeNull();
+    expect(first.querySelector('.wf-cu-day-mark')).toHaveAttribute('data-family', 'sun-moon');
+    const name = first.querySelector('.wf-cu-day').getAttribute('aria-label');
+    expect(name).toContain('just short of spring size');
+    expect(name).not.toMatch(/percent of the year/);
+    expect(screen.getByTestId('coming-up-day-chips-note').textContent)
+      .toBe('outlined · just short of spring');
+    first.querySelector('.wf-cu-day').click();
+    expect(onShowOnMap).toHaveBeenCalledWith(expect.objectContaining({
+      date: '2026-11-07', label: 'Spring tide run, on a supermoon · Sat 7 Nov · just short of spring',
+    }));
   });
 
   it('draws the outline with no fill and no glow in the stylesheet', () => {

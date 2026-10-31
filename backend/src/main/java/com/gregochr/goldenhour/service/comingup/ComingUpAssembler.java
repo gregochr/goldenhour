@@ -518,7 +518,7 @@ public class ComingUpAssembler {
 
     /**
      * A range in metres to one decimal place by the same rule the headline figure is spelt with
-     * ({@code TideWording.metres}'s {@code "%.1f"}), so the tallest bar can never read 0.1 m away from
+     * ({@code TideWording.metres}'s {@code "%.1f"}), so the run's tallest bar can never read 0.1 m away from
      * the metric printed beside it. Used for the day ranges and for {@code ComingUpTide.range}/{@code delta}.
      */
     private static double metresToOneDp(double metres) {

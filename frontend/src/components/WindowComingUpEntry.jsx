@@ -62,7 +62,7 @@ function DayChips({ entry, onShowOnMap }) {
   const dimmedText = allDimmed ? allDimmedNote : 'dimmed · no forecast yet';
   const shoulderText = 'outlined · just short of spring';
   const noteParts = [anyDimmed ? dimmedText : null, hasShoulder ? shoulderText : null].filter(Boolean);
-  const noteText = noteParts.join(' · ');
+  const noteText = noteParts.join(' — ');
   const showNote = anyDimmed || hasShoulder;
   // A ranged row draws it under the row instead of inside it (see the return).
   const note = (
@@ -78,7 +78,7 @@ function DayChips({ entry, onShowOnMap }) {
     filterAction: coastal ? 'SEASCAPE' : null,
     darkSky,
     // Names the day picked, so the crumb's headline says which day's map it is.
-    label: `${entry.title} · ${chip.dateLabel}`,
+    label: `${entry.title} · ${chip.dateLabel}${chip.shoulder ? ' · just short of spring' : ''}`,
     date: chip.date,
   });
 

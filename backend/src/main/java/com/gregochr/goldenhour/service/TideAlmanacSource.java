@@ -122,11 +122,12 @@ public class TideAlmanacSource implements AlmanacSource {
         // needed before detection as well as after it — the roster is what gets measured.
         List<LocationEntity> coastal = locationRepository.findCoastalLocations();
 
-        // Measured with the run-walk's slack on both sides, plus one day for the shoulder probe that
-        // follows a full walk. Without it a run straddling either edge is clipped, which misreports
-        // its span and can drop the very day that decides its label.
+        // Measured with the run-walk's slack on both sides, plus the shoulder cap so the probes after a
+        // full walk are still measured. Without it a run straddling either edge is clipped, which
+        // misreports its span and can drop the very day that decides its label.
+        int slack = MAX_RUN_WALK_DAYS + scoringProperties.getShoulder().getMaxPerSide();
         TideSizeIndex.Sizes sizes = tideSizeIndex.measure(coastal,
-                from.minusDays(MAX_RUN_WALK_DAYS + 1L), to.plusDays(MAX_RUN_WALK_DAYS + 1L));
+                from.minusDays(slack), to.plusDays(slack));
 
         List<Run> runs = detectRuns(from, to, sizes);
         if (runs.isEmpty()) {
