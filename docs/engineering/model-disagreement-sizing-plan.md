@@ -94,8 +94,12 @@ refetched `best_match`. These carry the same stitched lead as the other models, 
 2. Separation P(Y|S2) − P(Y|¬S2), lower bound ≥ **+15 pp**.
 3. Recall's lower bound ≥ **25%**.
 4. Flag rate ≤ **40%**.
-5. S2 beats the null comparator: precision(S2) − precision(S_UK), lower bound **> 0**, on units where
-   either fires.
+5. S2 beats the null comparators, **evaluated on full P** (in P′ they are below 10 by construction and
+   can never fire). Per comparator (refetched UKMO, refetched `best_match`): if it reaches M ≥ 30 on
+   fewer than 30 units it is **silent** and that part passes (short lead alone does not reproduce the
+   cloud); otherwise precision(S2) − precision(comparator) needs a lower bound **> 0**. Fail if either
+   part fails, else inconclusive if either is unassessable, else pass. (Revised during the build review,
+   2026-10-31: the first wording made a silent comparator block every pass.)
 6. Separation holds within month (Mantel–Haenszel pooled within-month difference, lower bound > 0), so S2
    is not merely tracking season.
 7. Each event alone has a point precision ≥ 50% (consistency, not a second test).
