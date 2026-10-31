@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { resetLocationFailures } from '../api/forecastApi.js';
-import { apiErrorMessage } from '../utils/apiError.js';
+import useLocationFailureReset from '../hooks/useLocationFailureReset.js';
 import { formatTimestampUk } from '../utils/conversions';
 
 /**
@@ -22,30 +21,7 @@ export default function LocationAlerts({ locations = [], onReenabledLocation = (
     [locations],
   );
 
-  // Names with a Re-enable request in flight (their button is disabled), and the server's
-  // sentence for any that failed (shown on the row, cleared by the next attempt).
-  const [pending, setPending] = useState(() => new Set());
-  const [errors, setErrors] = useState({});
-
-  async function handleReenableLocation(locationName) {
-    setPending((prev) => new Set(prev).add(locationName));
-    setErrors((prev) => ({ ...prev, [locationName]: null }));
-    try {
-      await resetLocationFailures(locationName);
-      onReenabledLocation(locationName);
-    } catch (err) {
-      setErrors((prev) => ({
-        ...prev,
-        [locationName]: apiErrorMessage(err, 'Could not re-enable this location.'),
-      }));
-    } finally {
-      setPending((prev) => {
-        const next = new Set(prev);
-        next.delete(locationName);
-        return next;
-      });
-    }
-  }
+  const { pending, errors, reset: handleReenableLocation } = useLocationFailureReset(onReenabledLocation);
 
   if (failingLocations.length === 0) {
     return null; // Don't show anything if no failing locations

@@ -1,61 +1,23 @@
-import React, { useEffect, useOptimistic, useRef, useState, useTransition, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { fetchLocations, addLocation, updateLocation, setLocationEnabled, geocodePlace, enrichLocation, fetchValleyFloorCandidates, fetchValleyFloorCell } from '../api/forecastApi.js';
-import { fetchRegions } from '../api/regionApi.js';
-import { fetchTideStats } from '../api/tideApi.js';
-import { fetchAreas, fetchLocationAliases, setLocationAliases } from '../api/areaApi.js';
-import { parseAliases, formatAliases } from '../utils/aliasText.js';
 import AreasSection from './AreasSection.jsx';
 import LocationAlerts from './LocationAlerts.jsx';
 import InfoTip from './InfoTip.jsx';
 import { formatTimestampUk } from '../utils/conversions';
-import { apiErrorMessage } from '../utils/apiError.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
 import SortableHeader from './shared/SortableHeader.jsx';
 import useSortAndFilter from '../hooks/useSortAndFilter.js';
 import Modal from './shared/Modal.jsx';
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
-
-const SOLAR_EVENT_TYPES = [
-  { value: 'SUNRISE', label: 'Sunrise', emoji: '🌅' },
-  { value: 'SUNSET', label: 'Sunset', emoji: '🌇' },
-  { value: 'ALLDAY', label: 'All Day', emoji: '☀️' },
-];
-
-/** Assignable types, derived so a new backend constant needs no edit here. */
-const LOCATION_TYPES = DISPLAY_TYPES.map((value) => ({ value, ...LOCATION_TYPE_META[value] }));
-
-const TIDE_TYPES = [
-  { value: 'HIGH', label: 'H', fullLabel: 'High' },
-  { value: 'MID',  label: 'M', fullLabel: 'Mid' },
-  { value: 'LOW',  label: 'L', fullLabel: 'Low' },
-];
-
-/**
- * Formats a location type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['SEASCAPE']
- * @returns {string} Readable label.
- */
-function formatLocationType(types) {
-  if (!types || types.length === 0) return 'Landscape';
-  return types.map(locationTypeLabel).join(', ');
-}
-
-/**
- * Formats a tide type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['HIGH', 'LOW']
- * @returns {string} Readable label.
- */
-function formatTideType(types) {
-  if (!types || types.length === 0) return '—';
-  return types.map((t) => {
-    const found = TIDE_TYPES.find((tt) => tt.value === t);
-    return found ? found.fullLabel : t;
-  }).join(', ');
-}
+import useLocationsData from '../hooks/useLocationsData.js';
+import useLocationEditor from '../hooks/useLocationEditor.js';
+import useLocationAdd from '../hooks/useLocationAdd.js';
+import useLocationToggle from '../hooks/useLocationToggle.js';
+import { fetchTideStats } from '../api/tideApi.js';
+import {
+  SOLAR_EVENT_TYPES, LOCATION_TYPES, TIDE_TYPES, INVERSION_MIN_ELEVATION_M, formatLocationType, formatTideType,
+  formatSolarEventType, typesOrDefault, parseMetres, coordsValid, crossesInversionThreshold, coordinatesChanged,
+} from '../utils/locationEdit.js';
 
 /**
  * Compact toggle chip group for multi-select tide types.
@@ -229,41 +191,6 @@ SolarToggleChips.propTypes = {
 };
 
 /**
- * Formats a solar event type set (array) into a readable label.
- *
- * @param {Array<string>} types - e.g. ['SUNRISE', 'SUNSET']
- * @returns {string} Readable label.
- */
-function formatSolarEventType(types) {
-  if (!types || types.length === 0) return 'Sunrise, Sunset';
-  return types.map((t) => {
-    const found = SOLAR_EVENT_TYPES.find((s) => s.value === t);
-    return found ? found.label : t;
-  }).join(', ');
-}
-
-/**
- * Normalises a location's type set for editing, falling back to LANDSCAPE.
- *
- * <p>Deliberately keeps every value. The predecessor of this helper returned {@code set[0]},
- * which silently discarded the rest — and because the set arrives from a Java HashSet, which
- * element survived was not even stable between requests.
- *
- * @param {Array<string>} types - The stored type values.
- * @returns {Array<string>} A copy of the types, or ['LANDSCAPE'] when absent.
- */
-function typesOrDefault(types) {
-  if (!Array.isArray(types) || types.length === 0) return ['LANDSCAPE'];
-  return [...types];
-}
-
-/**
- * Location management view with list/add/edit modes, sorting, filtering, and geocoding.
- *
- * @param {object} props
- * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
- */
-/**
  * The sub-region select shared by the edit row and the add form: only the sub-regions of the chosen region, and
  * nothing at all when that region has none. The empty choice is offered only when it means something (a
  * location with a sub-region cannot be left with none by a plain pick, since the API has no "clear").
@@ -303,104 +230,33 @@ SubRegionSelect.propTypes = {
   testId: PropTypes.string.isRequired,
 };
 
-const MIN_HEIGHT_M = -50;
-const MAX_HEIGHT_M = 1500;
-// Inversion scoring reads a site's own height from here up (InversionScoreCalculator.MIN_ELEVATION_METRES).
-const INVERSION_MIN_ELEVATION_M = 200;
-
-/** Parses a whole-metre input: '' is null, a non-number is NaN, anything else is rounded. */
-function parseMetres(value) {
-  if (value === '' || value == null) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : NaN;
-}
-
-/** The tide point a form holds as the new server baseline after a save, or null when it holds none. */
-function tidePointBaseline(values) {
-  const latText = String(values.tideLat ?? '').trim();
-  const lngText = String(values.tideLng ?? '').trim();
-  const lat = Number(latText);
-  const lng = Number(lngText);
-  const blank = latText === '' || lngText === '';
-  return blank || !Number.isFinite(lat) || !Number.isFinite(lng) ? null : { lat, lng };
-}
-
-/** True when the edited lat/lon text is a valid coordinate pair. */
-function coordsValid(lat, lon) {
-  const a = parseFloat(lat);
-  const b = parseFloat(lon);
-  return !isNaN(a) && a >= -90 && a <= 90 && !isNaN(b) && b >= -180 && b <= 180;
-}
-
-/** True when an elevation edit moves an overlooks-water site across the 200 m inversion threshold. */
-function crossesInversionThreshold(values) {
-  if (!values.overlooksWater) return false;
-  const next = parseMetres(values.elevation);
-  if (next === null || Number.isNaN(next)) return false;
-  const was = (values.elevationBaseline ?? -Infinity) >= INVERSION_MIN_ELEVATION_M;
-  return was !== (next >= INVERSION_MIN_ELEVATION_M);
-}
-
-/** True when the edited lat/lon differ from the stored coordinates. */
-function coordinatesChanged(values) {
-  const lat = parseFloat(values.lat);
-  const lon = parseFloat(values.lon);
-  if (isNaN(lat) || isNaN(lon)) return false;
-  return lat !== values.latBaseline || lon !== values.lonBaseline;
-}
-
+/**
+ * Location management view with list/add/edit modes, sorting, filtering, and geocoding.
+ *
+ * @param {object} props
+ * @param {function} props.onLocationsChanged - Called when locations are added/updated/toggled.
+ */
 export default function LocationManagementView({ onLocationsChanged }) {
-  const [locations, setLocations] = useState([]);
-  const [regions, setRegions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const data = useLocationsData();
+  const {
+    locations, regions, loading, areas, areasVersion, subRegions, aliasesFailed, refreshLocations, refreshAreas,
+  } = data;
   const [mode, setMode] = useState('list'); // list | add
-  const [editingRowId, setEditingRowId] = useState(null);
-  const [editValues, setEditValues] = useState(null);
-  const [editError, setEditError] = useState('');
-  const [editSaving, setEditSaving] = useState(false);
-  // Identifies the latest valley-floor request of the open editor. Bumped on open, Cancel, Clear and every
-  // new request, so a reply that no longer belongs to the editor on screen is dropped.
-  const floorToken = useRef(0);
-  // Other names per location id; null until loaded, and stays null if the load fails so the field is
-  // disabled rather than offering to overwrite names it never saw.
-  // Every area and sub-region (null until read). A location's sub-region is the SUB_REGION area listing it; it is
-  // read here, never derived from names, and written through the location's own save (subRegionId).
-  const [areas, setAreas] = useState(null);
-  const [areasVersion, setAreasVersion] = useState(0);
-  const [aliasesByLocation, setAliasesByLocation] = useState(null);
-  const [aliasesFailed, setAliasesFailed] = useState(false);
-  const [aliasDetail, setAliasDetail] = useState('');
-
-  // Add form state
-  const [placeName, setPlaceName] = useState('');
-  const [geocodeResult, setGeocodeResult] = useState(null);
-  const [geocoding, setGeocoding] = useState(false);
-  const [geocodeError, setGeocodeError] = useState('');
-  const [manualEntry, setManualEntry] = useState(false);
-  const [manualName, setManualName] = useState('');
-  const [manualLat, setManualLat] = useState('');
-  const [manualLon, setManualLon] = useState('');
-  const [addSolarEventTypes, setAddSolarEventTypes] = useState(['SUNRISE', 'SUNSET']);
-  const [addLocationTypes, setAddLocationTypes] = useState(['LANDSCAPE']);
-  const [addTideTypes, setAddTideTypes] = useState([]);
-  const [addRegionId, setAddRegionId] = useState('');
-  const [addSubRegionId, setAddSubRegionId] = useState('');
-  const [enrichmentData, setEnrichmentData] = useState(null);
-  const [enriching, setEnriching] = useState(false);
-  const [addOverlooksWater, setAddOverlooksWater] = useState(false);
-  const [addCoastalTidal, setAddCoastalTidal] = useState(false);
-  const [addMistProne, setAddMistProne] = useState(false);
-
-  // Confirm modal state
-  const [confirmData, setConfirmData] = useState(null);
+  const editor = useLocationEditor({
+    areas,
+    subRegions,
+    aliasesByLocation: data.aliasesByLocation,
+    setAliasesByLocation: data.setAliasesByLocation,
+    refreshLocations,
+    refreshAreas,
+    onLocationsChanged,
+  });
+  const add = useLocationAdd({ refreshLocations, refreshAreas });
+  const toggle = useLocationToggle({ locations, refreshLocations, refreshAreas });
+  const { form } = add;
 
   // Tide stats modal state
   const [tideStatsModal, setTideStatsModal] = useState(null); // { name, stats, loading }
-
-  // Save state
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
 
   const locationAccessors = useMemo(() => ({
     name: (loc) => loc.name,
@@ -412,158 +268,26 @@ export default function LocationManagementView({ onLocationsChanged }) {
     status: (loc) => loc.enabled ? 'Enabled' : 'Disabled',
   }), []);
 
-  const [optimisticLocations, addOptimisticLocation] = useOptimistic(locations, (current, toggledId) =>
-    current.map((loc) => loc.id === toggledId ? { ...loc, enabled: !loc.enabled } : loc),
-  );
-  const [, startToggleTransition] = useTransition();
-  // The server's sentence for a refused on/off toggle (e.g. "Turn Northumberland on first.").
-  const [toggleError, setToggleError] = useState('');
-
   const sf = useSortAndFilter('name', 'asc', locationAccessors);
 
-  const subRegions = useMemo(() => (areas ?? []).filter((a) => a.kind === 'SUB_REGION'), [areas]);
-
-  const filteredLocations = useMemo(() => sf.apply(optimisticLocations), [sf, optimisticLocations]);
+  const filteredLocations = useMemo(() => sf.apply(toggle.locations), [sf, toggle.locations]);
 
   const { pageItems: pageLocations, ...pagination } = usePagination(filteredLocations);
 
-  async function refreshLocations() {
-    try {
-      const data = await fetchLocations();
-      setLocations(data);
-    } catch {
-      // Keep existing list on failure
-    }
-  }
-
-  /** Reads the areas again after a location was saved, and tells the Areas section to do the same. */
-  async function refreshAreas(bump = true) {
-    if (bump) setAreasVersion((v) => v + 1);
-    try {
-      setAreas(await fetchAreas());
-    } catch {
-      // Keep what was read before
-    }
-  }
-
-  useEffect(() => {
-    fetchAreas()
-      .then((data) => {
-        setAreas(data);
-        // An editor opened before the areas landed starts its sub-region now.
-        setEditValues((prev) => {
-          if (!prev || prev.subRegionsLoaded) return prev;
-          const current = data.find((a) => a.kind === 'SUB_REGION' && a.locationIds.includes(prev.locId));
-          const id = current ? String(current.id) : '';
-          return { ...prev, subRegionId: id, subRegionBaseline: id, subRegionsLoaded: true };
-        });
-      })
-      .catch(() => { /* no sub-region select; the Areas section reports its own load failure */ });
-    Promise.all([fetchLocations(), fetchRegions()])
-      .then(([locs, regs]) => { setLocations(locs); setRegions(regs); })
-      .finally(() => setLoading(false));
-    fetchLocationAliases()
-      .then((aliases) => {
-        const map = aliases ?? {};
-        setAliasesByLocation(map);
-        // An editor opened before the names landed starts the field (and its baseline) now; it was disabled,
-        // so nothing the admin typed can be lost.
-        setEditValues((prev) => {
-          if (!prev || prev.aliasesLoaded) return prev;
-          const text = formatAliases(map[prev.locId]);
-          return { ...prev, aliases: text, aliasesBaseline: text, aliasesLoaded: true };
-        });
-      })
-      .catch(() => { setAliasesFailed(true); });
-  }, []);
-
   // Cancel inline edit when page changes (edited row may no longer be visible)
   useEffect(() => {
-    if (editingRowId) {
+    if (editor.editingId) {
       // Inline async wrapper satisfies react-hooks/set-state-in-effect; runs synchronously this tick.
       (async () => {
-        setEditingRowId(null);
-        setEditValues(null);
-        setEditError('');
+        editor.cancel();
       })();
     }
   }, [pagination.page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleStartAdd() {
-    handleEditCancel();
+    editor.cancel();
     setMode('add');
-    setPlaceName('');
-    setGeocodeResult(null);
-    setGeocodeError('');
-    setManualEntry(false);
-    setManualName('');
-    setManualLat('');
-    setManualLon('');
-    setAddSolarEventTypes(['SUNRISE', 'SUNSET']);
-    setAddLocationTypes(['LANDSCAPE']);
-    setAddTideTypes([]);
-    setAddRegionId('');
-    setAddSubRegionId('');
-    setEnrichmentData(null);
-    setEnriching(false);
-    setAddOverlooksWater(false);
-    setAddCoastalTidal(false);
-    setAddMistProne(false);
-    setError('');
-  }
-
-  function currentSubRegionId(locationId) {
-    const current = subRegions.find((a) => a.locationIds.includes(locationId));
-    return current ? String(current.id) : '';
-  }
-
-  function handleStartEdit(loc) {
-    floorToken.current += 1;
-    const hasStoredFloor = loc.valleyFloorMetres != null && loc.valleyFloorLat != null && loc.valleyFloorLng != null;
-    const hasStoredTidePoint = loc.tideLat != null && loc.tideLng != null;
-    setEditingRowId(loc.id);
-    setEditValues({
-      name: loc.name,
-      lat: String(loc.lat),
-      lon: String(loc.lon),
-      solarEventTypes: Array.isArray(loc.solarEventType) ? [...loc.solarEventType] : ['SUNRISE', 'SUNSET'],
-      locationTypes: typesOrDefault(loc.locationType),
-      tideTypes: Array.isArray(loc.tideType) ? [...loc.tideType] : [],
-      regionId: loc.region?.id ? String(loc.region.id) : '',
-      regionBaseline: loc.region?.id ? String(loc.region.id) : '',
-      subRegionId: currentSubRegionId(loc.id),
-      subRegionBaseline: currentSubRegionId(loc.id),
-      subRegionsLoaded: areas !== null,
-      mistProne: loc.mistProne === true,
-      locId: loc.id,
-      aliases: formatAliases(aliasesByLocation?.[loc.id]),
-      aliasesBaseline: formatAliases(aliasesByLocation?.[loc.id]),
-      aliasesLoaded: aliasesByLocation !== null,
-      // Heights: the baselines are what the server holds; a save sends a height field only when it differs.
-      elevation: loc.elevationMetres != null ? String(loc.elevationMetres) : '',
-      elevationBaseline: loc.elevationMetres ?? null,
-      overlooksWater: loc.overlooksWater === true,
-      latBaseline: loc.lat,
-      lonBaseline: loc.lon,
-      floorMetres: hasStoredFloor ? String(loc.valleyFloorMetres) : '',
-      floorLat: hasStoredFloor ? loc.valleyFloorLat : null,
-      floorLng: hasStoredFloor ? loc.valleyFloorLng : null,
-      floorBaseline: hasStoredFloor
-        ? { metres: loc.valleyFloorMetres, lat: loc.valleyFloorLat, lng: loc.valleyFloorLng }
-        : null,
-      floorCleared: false,
-      // Tide point: where WorldTides is asked about instead of the pin. Held as text; baseline is what the
-      // server holds, so a save sends the tide keys only when they differ.
-      tideLat: hasStoredTidePoint ? String(loc.tideLat) : '',
-      tideLng: hasStoredTidePoint ? String(loc.tideLng) : '',
-      tideBaseline: hasStoredTidePoint ? { lat: loc.tideLat, lng: loc.tideLng } : null,
-      floorCandidates: null,
-      floorCell: null,
-      floorStatus: '',
-      floorBusy: false,
-    });
-    setEditError('');
-    setAliasDetail('');
+    add.reset();
   }
 
   async function handleShowTideStats(loc) {
@@ -576,417 +300,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
     }
   }
 
-  function handleEditCancel() {
-    floorToken.current += 1;
-    setEditingRowId(null);
-    setEditValues(null);
-    setEditError('');
-    setAliasDetail('');
-  }
-
-  function handleEditChange(field, value) {
-    setEditValues((prev) => {
-      const next = { ...prev, [field]: value };
-      if (field === 'regionId') {
-        // A sub-region belongs to one region: keep the pick only while it is still in the chosen region, and
-        // put the location's own back when the region goes back to what it was.
-        const stillInRegion = subRegions.some(
-          (a) => String(a.id) === prev.subRegionId && String(a.regionId) === value,
-        );
-        if (value === prev.regionBaseline) next.subRegionId = prev.subRegionBaseline;
-        else if (!stillInRegion) next.subRegionId = '';
-      }
-      if (field === 'lat' || field === 'lon') {
-        // Candidates were fetched for the old coordinates: they must not be pickable for the new ones.
-        next.floorCandidates = null;
-        next.floorStatus = '';
-      }
-      if (field === 'locationTypes') {
-        const wasCoastal = (prev.locationTypes || []).includes('SEASCAPE');
-        const isCoastal = value.includes('SEASCAPE');
-        // Only re-seed on an actual coastal transition. Rewriting on every change would wipe a
-        // curated tide preference the moment an unrelated chip (say WOODLAND) was added to a
-        // coastal site.
-        if (isCoastal && !wasCoastal) next.tideTypes = ['HIGH', 'MID', 'LOW'];
-        else if (!isCoastal) next.tideTypes = [];
-      }
-      return next;
-    });
-  }
-
-  async function handleSuggestFloor() {
-    const token = ++floorToken.current;
-    const lat = parseFloat(editValues.lat);
-    const lon = parseFloat(editValues.lon);
-    setEditValues((prev) => ({ ...prev, floorBusy: true, floorStatus: '' }));
-    try {
-      const result = await fetchValleyFloorCandidates(lat, lon);
-      if (token !== floorToken.current) return;
-      const list = result?.candidates ?? [];
-      setEditValues((prev) => (prev ? {
-        ...prev,
-        floorBusy: false,
-        floorCandidates: list,
-        floorStatus: list.length === 0 ? 'No valley floor 30 m below within 5 km' : '',
-      } : prev));
-    } catch (err) {
-      if (token !== floorToken.current) return;
-      setEditValues((prev) => (prev ? {
-        ...prev,
-        floorBusy: false,
-        floorStatus: err?.response?.data?.error ?? 'Could not look up valley floors; try again shortly.',
-      } : prev));
-    }
-  }
-
-  async function handlePickFloor(candidate) {
-    const token = ++floorToken.current;
-    setEditValues((prev) => ({
-      ...prev,
-      floorMetres: String(candidate.metres),
-      floorLat: candidate.lat,
-      floorLng: candidate.lng,
-      floorCleared: false,
-      floorCell: null,
-      floorStatus: '',
-      floorBusy: true,
-    }));
-    try {
-      const cell = await fetchValleyFloorCell(candidate.lat, candidate.lng, candidate.metres);
-      if (token !== floorToken.current) return;
-      setEditValues((prev) => (prev ? { ...prev, floorBusy: false, floorCell: cell } : prev));
-    } catch (err) {
-      if (token !== floorToken.current) return;
-      setEditValues((prev) => (prev ? {
-        ...prev,
-        floorBusy: false,
-        floorStatus: err?.response?.data?.error ?? 'Could not look up the model cell for that point.',
-      } : prev));
-    }
-  }
-
-  function handleFloorHeightChange(value) {
-    // Drops a cell reply still in flight for the previous height.
-    floorToken.current += 1;
-    setEditValues((prev) => ({ ...prev, floorMetres: value, floorCell: null, floorBusy: false }));
-  }
-
-  function handleClearFloor() {
-    floorToken.current += 1;
-    setEditValues((prev) => ({
-      ...prev,
-      floorMetres: '',
-      floorLat: null,
-      floorLng: null,
-      floorCleared: true,
-      floorCell: null,
-      floorStatus: '',
-      floorBusy: false,
-    }));
-  }
-
-  function handleClearTidePoint() {
-    setEditValues((prev) => ({ ...prev, tideLat: '', tideLng: '' }));
-  }
-
-  // Tide-point fields of the save payload: present only when they differ from what the server holds.
-  // Both blank clears a stored point; one blank is an error. Returns { error } or { fields }.
-  function tidePointPayload() {
-    // The pair is hidden unless the location is coastal: a hidden half-blanked point must not block a save.
-    if (!editValues.locationTypes.includes('SEASCAPE')) return { fields: {} };
-    const latText = String(editValues.tideLat ?? '').trim();
-    const lngText = String(editValues.tideLng ?? '').trim();
-    const baseline = editValues.tideBaseline;
-    if (latText === '' && lngText === '') {
-      return { fields: baseline ? { clearTidePoint: true } : {} };
-    }
-    if (latText === '' || lngText === '') {
-      return { error: 'A tide point needs both latitude and longitude, or clear it.' };
-    }
-    const lat = Number(latText);
-    const lng = Number(lngText);
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-      return { error: 'Tide point latitude must be between -90 and 90 and longitude between -180 and 180.' };
-    }
-    if (baseline && lat === baseline.lat && lng === baseline.lng) return { fields: {} };
-    return { fields: { tideLat: lat, tideLng: lng } };
-  }
-
-  // Height fields of the save payload, each present only when it differs from what the server holds.
-  // Returns { error } for a value that cannot be sent, otherwise { fields }.
-  function heightPayload() {
-    const fields = {};
-    const elevation = parseMetres(editValues.elevation);
-    if (elevation === null && editValues.elevationBaseline !== null) {
-      return { error: "Elevation can't be cleared; enter a value" };
-    }
-    if (elevation !== null) {
-      if (Number.isNaN(elevation) || elevation < MIN_HEIGHT_M || elevation > MAX_HEIGHT_M) {
-        return { error: 'Elevation must be a whole number between -50 and 1,500 m.' };
-      }
-      if (elevation !== editValues.elevationBaseline) fields.elevationMetres = elevation;
-    }
-    const baseline = editValues.floorBaseline;
-    if (editValues.floorCleared) {
-      if (baseline) fields.clearValleyFloor = true;
-    } else if (editValues.floorLat !== null && editValues.floorLng !== null) {
-      const metres = parseMetres(editValues.floorMetres);
-      if (metres === null || Number.isNaN(metres) || metres < MIN_HEIGHT_M || metres > MAX_HEIGHT_M) {
-        return { error: 'Valley floor height must be a whole number between -50 and 1,500 m, or clear the floor.' };
-      }
-      if (!baseline || metres !== baseline.metres
-        || editValues.floorLat !== baseline.lat || editValues.floorLng !== baseline.lng) {
-        fields.valleyFloorMetres = metres;
-        fields.valleyFloorLat = editValues.floorLat;
-        fields.valleyFloorLng = editValues.floorLng;
-      }
-    }
-    return { fields };
-  }
-
-  async function handleEditSave() {
-    if (!editValues.name.trim()) {
-      setEditError('Name cannot be blank.');
-      return;
-    }
-    const parsedLat = parseFloat(editValues.lat);
-    const parsedLon = parseFloat(editValues.lon);
-    if (isNaN(parsedLat) || parsedLat < -90 || parsedLat > 90) {
-      setEditError('Latitude must be between -90 and 90.');
-      return;
-    }
-    if (isNaN(parsedLon) || parsedLon < -180 || parsedLon > 180) {
-      setEditError('Longitude must be between -180 and 180.');
-      return;
-    }
-    const editIsCoastal = editValues.locationTypes.includes('SEASCAPE');
-    if (editIsCoastal && (!editValues.tideTypes || editValues.tideTypes.length === 0)) {
-      setEditError('Coastal locations require at least one tide preference (High, Mid, or Low).');
-      return;
-    }
-    if (editValues.locationTypes.length === 0) {
-      setEditError('A location must have at least one type.');
-      return;
-    }
-    const heights = heightPayload();
-    if (heights.error) {
-      setEditError(heights.error);
-      return;
-    }
-    const tidePoint = tidePointPayload();
-    if (tidePoint.error) {
-      setEditError(tidePoint.error);
-      return;
-    }
-    setEditSaving(true);
-    setEditError('');
-    setAliasDetail('');
-    const subRegionChange = editValues.subRegionId && editValues.subRegionId !== editValues.subRegionBaseline
-      ? { subRegionId: Number(editValues.subRegionId) }
-      : {};
-    try {
-      await updateLocation(editingRowId, {
-        name: editValues.name.trim(),
-        lat: parsedLat,
-        lon: parsedLon,
-        solarEventTypes: editValues.solarEventTypes,
-        locationTypes: editValues.locationTypes,
-        tideTypes: editIsCoastal ? editValues.tideTypes : [],
-        regionId: editValues.regionId ? Number(editValues.regionId) : null,
-        mistProne: editValues.mistProne === true,
-        ...subRegionChange,
-        ...heights.fields,
-        ...tidePoint.fields,
-      });
-      // The region and sub-region may both have moved memberships: read them again.
-      await refreshAreas();
-      // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
-      // was edited: an unedited field must never overwrite names it may not have seen.
-      // The comparison is against the text the field STARTED with (recorded when the editor opened, or when
-      // the names landed), never the live map: an editor opened before the load must not read as "cleared".
-      if (editValues.aliasesLoaded && editValues.aliases !== editValues.aliasesBaseline) {
-        try {
-          const savedAliases = await setLocationAliases(editingRowId, parseAliases(editValues.aliases));
-          setAliasesByLocation((prev) => ({ ...prev, [editingRowId]: savedAliases }));
-        } catch (aliasErr) {
-          await refreshLocations();
-          onLocationsChanged();
-          // The location itself is saved: what the form holds for region and sub-region is now the stored truth.
-          // The same goes for the heights and coordinates this save just wrote.
-          setEditValues((prev) => {
-            if (!prev) return prev;
-            const floorSet = !prev.floorCleared && prev.floorLat !== null && prev.floorLng !== null;
-            return {
-              ...prev,
-              regionBaseline: prev.regionId,
-              subRegionBaseline: prev.subRegionId,
-              elevationBaseline: parseMetres(prev.elevation),
-              floorBaseline: floorSet
-                ? { metres: parseMetres(prev.floorMetres), lat: prev.floorLat, lng: prev.floorLng }
-                : null,
-              floorCleared: false,
-              tideBaseline: tidePointBaseline(prev),
-              latBaseline: parseFloat(prev.lat),
-              lonBaseline: parseFloat(prev.lon),
-            };
-          });
-          setEditError('Location saved; its other names were not');
-          setAliasDetail(aliasErr?.response?.data?.error ?? '');
-          return;
-        }
-      }
-      await refreshLocations();
-      handleEditCancel();
-      onLocationsChanged();
-    } catch (err) {
-      setEditError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-    } finally {
-      setEditSaving(false);
-    }
-  }
-
   function handleCancel() {
     setMode('list');
-    setConfirmData(null);
-    setError('');
-  }
-
-  async function handleGeocode() {
-    const trimmed = placeName.trim();
-    if (!trimmed) {
-      setGeocodeError('Please enter a place name.');
-      return;
-    }
-    setGeocoding(true);
-    setGeocodeError('');
-    setGeocodeResult(null);
-    setEnrichmentData(null);
-    try {
-      const result = await geocodePlace(trimmed);
-      setGeocodeResult(result);
-      // Fire enrichment in background — don't block geocode result
-      setEnriching(true);
-      enrichLocation(result.lat, result.lon)
-        .then((data) => setEnrichmentData(data))
-        .catch((err) => {
-          console.error('Enrichment failed:', err);
-          setEnrichmentData({ bortleClass: null, skyBrightnessSqm: null, elevationMetres: null, gridLat: null, gridLng: null });
-        })
-        .finally(() => setEnriching(false));
-    } catch (err) {
-      setGeocodeError(err.message || 'Geocoding failed.');
-    } finally {
-      setGeocoding(false);
-    }
-  }
-
-  function handleAddReviewConfirm() {
-    const addIsCoastal = addLocationTypes.includes('SEASCAPE');
-    if (addIsCoastal && (!addTideTypes || addTideTypes.length === 0)) {
-      setError('Coastal locations require at least one tide preference (High, Mid, or Low).');
-      return;
-    }
-    if (manualEntry) {
-      const trimmedName = manualName.trim();
-      const lat = parseFloat(manualLat);
-      const lon = parseFloat(manualLon);
-      if (!trimmedName) { setError('Name is required.'); return; }
-      if (isNaN(lat) || lat < -90 || lat > 90) { setError('Latitude must be between -90 and 90.'); return; }
-      if (isNaN(lon) || lon < -180 || lon > 180) { setError('Longitude must be between -180 and 180.'); return; }
-      setError('');
-      setConfirmData({
-        mode: 'add',
-        name: trimmedName,
-        lat,
-        lon,
-        displayName: `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-        solarEventTypes: addSolarEventTypes,
-        locationTypes: addLocationTypes,
-        tideTypes: addIsCoastal ? addTideTypes : [],
-        regionId: addRegionId ? Number(addRegionId) : null,
-        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
-      });
-    } else {
-      if (!geocodeResult) return;
-      setConfirmData({
-        mode: 'add',
-        name: placeName.trim(),
-        lat: geocodeResult.lat,
-        lon: geocodeResult.lon,
-        displayName: geocodeResult.displayName,
-        solarEventTypes: addSolarEventTypes,
-        locationTypes: addLocationTypes,
-        tideTypes: addIsCoastal ? addTideTypes : [],
-        regionId: addRegionId ? Number(addRegionId) : null,
-        subRegionId: addSubRegionId ? Number(addSubRegionId) : null,
-        bortleClass: enrichmentData?.bortleClass ?? null,
-        skyBrightnessSqm: enrichmentData?.skyBrightnessSqm ?? null,
-        elevationMetres: enrichmentData?.elevationMetres ?? null,
-        gridLat: enrichmentData?.gridLat ?? null,
-        gridLng: enrichmentData?.gridLng ?? null,
-        overlooksWater: addOverlooksWater,
-        coastalTidal: addCoastalTidal,
-        mistProne: addMistProne,
-      });
-    }
+    add.setConfirm(null);
+    add.setError('');
   }
 
   async function handleConfirmSave() {
-    setSaving(true);
-    setError('');
-    try {
-      await addLocation({
-        name: confirmData.name,
-        lat: confirmData.lat,
-        lon: confirmData.lon,
-        solarEventTypes: confirmData.solarEventTypes,
-        locationTypes: confirmData.locationTypes,
-        tideTypes: confirmData.tideTypes,
-        regionId: confirmData.regionId,
-        bortleClass: confirmData.bortleClass,
-        skyBrightnessSqm: confirmData.skyBrightnessSqm,
-        elevationMetres: confirmData.elevationMetres,
-        gridLat: confirmData.gridLat,
-        gridLng: confirmData.gridLng,
-        overlooksWater: confirmData.overlooksWater,
-        coastalTidal: confirmData.coastalTidal,
-        mistProne: confirmData.mistProne === true,
-        ...(confirmData.subRegionId ? { subRegionId: confirmData.subRegionId } : {}),
-      });
-      await refreshLocations();
-      await refreshAreas();
-      handleCancel();
-    } catch (err) {
-      setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleToggleEnabled(loc) {
-    setToggleError('');
-    startToggleTransition(async () => {
-      addOptimisticLocation(loc.id);
-      try {
-        await setLocationEnabled(loc.id, !loc.enabled);
-        await refreshLocations();
-        // The "no sub-region" count only covers enabled locations.
-        await refreshAreas();
-      } catch (err) {
-        console.error('Failed to toggle location enabled:', err);
-        setToggleError(apiErrorMessage(err, 'Could not change this location.'));
-      }
-    });
-  }
-
-  // Seed tide preferences on an actual coastal transition, not on every type change — adding
-  // WOODLAND to a coastal site must not reset a curated tide preference.
-  function handleAddLocationTypesChange(next) {
-    const wasCoastal = addLocationTypes.includes('SEASCAPE');
-    const isCoastal = next.includes('SEASCAPE');
-    setAddLocationTypes(next);
-    if (isCoastal && !wasCoastal) setAddTideTypes(['HIGH', 'MID', 'LOW']);
-    else if (!isCoastal) setAddTideTypes([]);
+    if (await add.confirmSave()) handleCancel();
   }
 
   const inlineInputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
@@ -1018,8 +339,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
             onReenabledLocation={() => { refreshLocations(); onLocationsChanged(); }}
           />
 
-          {toggleError && (
-            <p role="alert" className="text-xs text-red-400" data-testid="location-toggle-error">{toggleError}</p>
+          {toggle.error && (
+            <p role="alert" className="text-xs text-red-400" data-testid="location-toggle-error">{toggle.error.message}</p>
           )}
 
           {loading && (
@@ -1153,12 +474,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 </thead>
                 <tbody>
                   {pageLocations.map((loc) => {
-                    const isEditing = loc.id === editingRowId;
+                    const isEditing = loc.id === editor.editingId;
                     return (
                       <React.Fragment key={loc.id}>
                         <tr
                           className={`border-b border-plex-surface last:border-0 ${!loc.enabled && !isEditing ? 'opacity-50' : ''}`}
-                          onKeyDown={isEditing ? (e) => { if (e.key === 'Escape') handleEditCancel(); } : undefined}
+                          onKeyDown={isEditing ? (e) => { if (e.key === 'Escape') editor.cancel(); } : undefined}
                         >
                           {isEditing ? (
                             <>
@@ -1166,8 +487,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <input
                                   type="text"
                                   className={inlineInputClass}
-                                  value={editValues.name}
-                                  onChange={(e) => handleEditChange('name', e.target.value)}
+                                  value={editor.values.name}
+                                  onChange={(e) => editor.change('name', e.target.value)}
                                   data-testid="inline-edit-name"
                                 />
                               </td>
@@ -1176,28 +497,28 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2" data-testid="inline-edit-type">
                                 <LocationTypeChips
-                                  selected={editValues.locationTypes}
-                                  onChange={(next) => handleEditChange('locationTypes', next)}
+                                  selected={editor.values.locationTypes}
+                                  onChange={(next) => editor.change('locationTypes', next)}
                                 />
                               </td>
                               <td className="py-2">
                                 <select
                                   className={inlineSelectClass}
-                                  value={editValues.regionId}
-                                  onChange={(e) => handleEditChange('regionId', e.target.value)}
+                                  value={editor.values.regionId}
+                                  onChange={(e) => editor.change('regionId', e.target.value)}
                                   data-testid="inline-edit-region"
                                 >
                                   <option value="">— None —</option>
-                                  {regions.filter((r) => r.enabled || String(r.id) === editValues.regionId).map((r) => (
+                                  {regions.filter((r) => r.enabled || String(r.id) === editor.values.regionId).map((r) => (
                                     <option key={r.id} value={r.id}>{r.name}</option>
                                   ))}
                                 </select>
                                 <SubRegionSelect
                                   subRegions={subRegions}
-                                  regionId={editValues.regionId}
-                                  value={editValues.subRegionId}
-                                  onChange={(v) => handleEditChange('subRegionId', v)}
-                                  canBeEmpty={!editValues.subRegionBaseline || editValues.regionId !== editValues.regionBaseline}
+                                  regionId={editor.values.regionId}
+                                  value={editor.values.subRegionId}
+                                  onChange={(v) => editor.change('subRegionId', v)}
+                                  canBeEmpty={!editor.values.subRegionBaseline || editor.values.regionId !== editor.values.regionBaseline}
                                   className={`${inlineSelectClass} mt-1`}
                                   testId="inline-edit-sub-region"
                                 />
@@ -1205,8 +526,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   <input
                                     className="shrink-0 mt-0.5"
                                     type="checkbox"
-                                    checked={editValues.mistProne === true}
-                                    onChange={(e) => handleEditChange('mistProne', e.target.checked)}
+                                    checked={editor.values.mistProne === true}
+                                    onChange={(e) => editor.change('mistProne', e.target.checked)}
                                     data-testid="inline-edit-mist-prone"
                                   />
                                   Mist forms here: valley floor, riverside, lake shore
@@ -1214,15 +535,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2" data-testid="inline-edit-solar">
                                 <SolarToggleChips
-                                  selected={editValues.solarEventTypes}
-                                  onChange={(next) => setEditValues((prev) => ({ ...prev, solarEventTypes: next }))}
+                                  selected={editor.values.solarEventTypes}
+                                  onChange={(next) => editor.patch({ solarEventTypes: next })}
                                 />
                               </td>
                               <td className="py-2" data-testid="inline-edit-tide">
                                 <TideToggleChips
-                                  selected={editValues.tideTypes}
-                                  onChange={(next) => setEditValues((prev) => ({ ...prev, tideTypes: next }))}
-                                  disabled={!editValues.locationTypes.includes('SEASCAPE')}
+                                  selected={editor.values.tideTypes}
+                                  onChange={(next) => editor.patch({ tideTypes: next })}
+                                  disabled={!editor.values.locationTypes.includes('SEASCAPE')}
                                 />
                               </td>
                               <td className="py-2 text-plex-text-secondary text-xs" data-testid={`bortle-edit-${loc.id}`}>
@@ -1230,7 +551,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2">
                                 <button
-                                  onClick={() => handleToggleEnabled(loc)}
+                                  onClick={() => toggle.toggle(loc)}
                                   className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
                                     loc.enabled
                                       ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
@@ -1245,16 +566,16 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <div className="flex gap-1">
                                   <button
                                     className="text-xs px-2 py-0.5 rounded bg-green-900/40 text-green-400 hover:bg-green-900/60 disabled:opacity-50"
-                                    onClick={handleEditSave}
-                                    disabled={editSaving || editValues.floorBusy === true}
+                                    onClick={editor.save}
+                                    disabled={editor.saving || editor.values.floorBusy === true}
                                     data-testid="inline-edit-save"
                                   >
-                                    {editSaving ? 'Saving…' : 'Save'}
+                                    {editor.saving ? 'Saving…' : 'Save'}
                                   </button>
                                   <button
                                     className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text"
-                                    onClick={handleEditCancel}
-                                    disabled={editSaving}
+                                    onClick={editor.cancel}
+                                    disabled={editor.saving}
                                     data-testid="inline-edit-cancel"
                                   >
                                     Cancel
@@ -1313,7 +634,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                               </td>
                               <td className="py-2">
                                 <button
-                                  onClick={() => handleToggleEnabled(loc)}
+                                  onClick={() => toggle.toggle(loc)}
                                   className={`text-xs px-2 py-0.5 rounded cursor-pointer ${
                                     loc.enabled
                                       ? 'bg-green-900/40 text-green-400 hover:bg-green-900/60'
@@ -1339,7 +660,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <div className="flex gap-1">
                                   <button
                                     className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border hover:text-plex-text"
-                                    onClick={() => handleStartEdit(loc)}
+                                    onClick={() => editor.start(loc)}
                                     data-testid={`edit-location-${loc.id}`}
                                   >
                                     Edit
@@ -1367,8 +688,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   type="number"
                                   step="any"
                                   className={inlineInputClass + ' w-28'}
-                                  value={editValues.lat}
-                                  onChange={(e) => handleEditChange('lat', e.target.value)}
+                                  value={editor.values.lat}
+                                  onChange={(e) => editor.change('lat', e.target.value)}
                                   data-testid="inline-edit-lat"
                                 />
                                 <span className="text-plex-text-muted">Lon</span>
@@ -1376,8 +697,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   type="number"
                                   step="any"
                                   className={inlineInputClass + ' w-28'}
-                                  value={editValues.lon}
-                                  onChange={(e) => handleEditChange('lon', e.target.value)}
+                                  value={editor.values.lon}
+                                  onChange={(e) => editor.change('lon', e.target.value)}
                                   data-testid="inline-edit-lon"
                                 />
                                 <label htmlFor={`inline-edit-elevation-${loc.id}`} className="text-plex-text-muted">
@@ -1389,26 +710,26 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   step="1"
                                   inputMode="numeric"
                                   className={inlineInputClass + ' w-24'}
-                                  value={editValues.elevation}
-                                  onChange={(e) => handleEditChange('elevation', e.target.value)}
+                                  value={editor.values.elevation}
+                                  onChange={(e) => editor.change('elevation', e.target.value)}
                                   data-testid="inline-edit-elevation"
                                 />
                               </div>
-                              {crossesInversionThreshold(editValues) && (
+                              {crossesInversionThreshold(editor.values) && (
                                 <div className="mt-1 text-xs text-amber-400" data-testid="inline-edit-elevation-warning">
-                                  {parseMetres(editValues.elevation) >= INVERSION_MIN_ELEVATION_M
+                                  {parseMetres(editor.values.elevation) >= INVERSION_MIN_ELEVATION_M
                                     ? 'This makes the site eligible for inversion scoring (200 m or higher, overlooks water).'
                                     : 'This takes the site out of inversion scoring (below 200 m).'}
                                 </div>
                               )}
-                              {coordinatesChanged(editValues) && (
+                              {coordinatesChanged(editor.values) && (
                                 <div className="mt-1 text-xs text-amber-400" data-testid="inline-edit-coords-hint">
                                   Coordinates changed: check elevation and valley floor
                                 </div>
                               )}
                               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs" data-testid="inline-edit-valley-floor">
                                 <span className="text-plex-text-muted">Valley floor</span>
-                                {editValues.floorLat !== null ? (
+                                {editor.values.floorLat !== null ? (
                                   <>
                                     <label htmlFor={`inline-edit-floor-height-${loc.id}`} className="sr-only">
                                       Valley floor height (m)
@@ -1419,12 +740,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                       step="1"
                                       inputMode="numeric"
                                       className={inlineInputClass + ' w-20'}
-                                      value={editValues.floorMetres}
-                                      onChange={(e) => handleFloorHeightChange(e.target.value)}
+                                      value={editor.values.floorMetres}
+                                      onChange={(e) => editor.changeFloorHeight(e.target.value)}
                                       data-testid="inline-edit-valley-floor-height"
                                     />
                                     <span className="text-plex-text-muted">
-                                      m at {editValues.floorLat.toFixed(4)}, {editValues.floorLng.toFixed(4)}
+                                      m at {editor.values.floorLat.toFixed(4)}, {editor.values.floorLng.toFixed(4)}
                                     </span>
                                   </>
                                 ) : (
@@ -1433,8 +754,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <button
                                   type="button"
                                   className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
-                                  onClick={handleSuggestFloor}
-                                  disabled={!coordsValid(editValues.lat, editValues.lon) || editValues.floorBusy === true}
+                                  onClick={editor.suggestFloor}
+                                  disabled={!coordsValid(editor.values.lat, editor.values.lon) || editor.values.floorBusy === true}
                                   data-testid="inline-edit-valley-floor-suggest"
                                 >
                                   Suggest
@@ -1442,26 +763,26 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                 <button
                                   type="button"
                                   className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
-                                  onClick={handleClearFloor}
-                                  disabled={editValues.floorLat === null}
+                                  onClick={editor.clearFloor}
+                                  disabled={editor.values.floorLat === null}
                                   data-testid="inline-edit-valley-floor-clear"
                                 >
                                   Clear
                                 </button>
-                                {editValues.floorStatus && (
+                                {editor.values.floorStatus && (
                                   <span className="text-plex-text-secondary" data-testid="inline-edit-valley-floor-status">
-                                    {editValues.floorStatus}
+                                    {editor.values.floorStatus}
                                   </span>
                                 )}
                               </div>
-                              {editValues.floorCandidates && editValues.floorCandidates.length > 0 && (
+                              {editor.values.floorCandidates && editor.values.floorCandidates.length > 0 && (
                                 <ul className="mt-1 flex flex-wrap gap-1 text-xs">
-                                  {editValues.floorCandidates.map((c, i) => (
+                                  {editor.values.floorCandidates.map((c, i) => (
                                     <li key={`${c.lat}-${c.lng}`}>
                                       <button
                                         type="button"
                                         className="px-2 py-0.5 rounded bg-plex-surface-light text-plex-text hover:bg-plex-border"
-                                        onClick={() => handlePickFloor(c)}
+                                        onClick={() => editor.pickFloor(c)}
                                         data-testid={`inline-edit-valley-floor-candidate-${i}`}
                                       >
                                         {c.metres} m, {c.distanceKm.toFixed(1)} km {c.bearing}
@@ -1470,13 +791,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   ))}
                                 </ul>
                               )}
-                              {editValues.floorCell && (
+                              {editor.values.floorCell && (
                                 <div className="mt-1 text-xs text-plex-text-muted" data-testid="inline-edit-valley-floor-cell">
-                                  Model cell {editValues.floorCell.cellLat.toFixed(3)}, {editValues.floorCell.cellLng.toFixed(3)}{' '}
-                                  ({editValues.floorCell.cellDistanceKm.toFixed(1)} km from the floor)
+                                  Model cell {editor.values.floorCell.cellLat.toFixed(3)}, {editor.values.floorCell.cellLng.toFixed(3)}{' '}
+                                  ({editor.values.floorCell.cellDistanceKm.toFixed(1)} km from the floor)
                                 </div>
                               )}
-                              {editValues.locationTypes.includes('SEASCAPE') && (
+                              {editor.values.locationTypes.includes('SEASCAPE') && (
                                 <div className="mt-1.5" data-testid="inline-edit-tide-point">
                                   <div className="flex flex-wrap items-center gap-2 text-xs">
                                     <span className="text-plex-text-muted">Tide point</span>
@@ -1489,8 +810,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                       step="any"
                                       placeholder="Lat"
                                       className={inlineInputClass + ' w-28'}
-                                      value={editValues.tideLat}
-                                      onChange={(e) => handleEditChange('tideLat', e.target.value)}
+                                      value={editor.values.tideLat}
+                                      onChange={(e) => editor.change('tideLat', e.target.value)}
                                       data-testid="inline-edit-tide-lat"
                                     />
                                     <label htmlFor={`inline-edit-tide-lng-${loc.id}`} className="sr-only">
@@ -1502,15 +823,15 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                       step="any"
                                       placeholder="Lng"
                                       className={inlineInputClass + ' w-28'}
-                                      value={editValues.tideLng}
-                                      onChange={(e) => handleEditChange('tideLng', e.target.value)}
+                                      value={editor.values.tideLng}
+                                      onChange={(e) => editor.change('tideLng', e.target.value)}
                                       data-testid="inline-edit-tide-lng"
                                     />
                                     <button
                                       type="button"
                                       className="text-xs px-2 py-0.5 rounded bg-plex-surface-light text-plex-text-muted hover:bg-plex-border hover:text-plex-text disabled:opacity-50"
-                                      onClick={handleClearTidePoint}
-                                      disabled={editValues.tideLat === '' && editValues.tideLng === ''}
+                                      onClick={editor.clearTidePoint}
+                                      disabled={editor.values.tideLat === '' && editor.values.tideLng === ''}
                                       data-testid="inline-edit-tide-point-clear"
                                     >
                                       Clear
@@ -1529,10 +850,10 @@ export default function LocationManagementView({ onLocationsChanged }) {
                                   id={`inline-edit-aliases-${loc.id}`}
                                   type="text"
                                   className={inlineInputClass}
-                                  value={editValues.aliases}
-                                  onChange={(e) => handleEditChange('aliases', e.target.value)}
-                                  disabled={!editValues.aliasesLoaded}
-                                  placeholder={!editValues.aliasesLoaded
+                                  value={editor.values.aliases}
+                                  onChange={(e) => editor.change('aliases', e.target.value)}
+                                  disabled={!editor.values.aliasesLoaded}
+                                  placeholder={!editor.values.aliasesLoaded
                                     ? (aliasesFailed ? 'Other names could not be loaded' : 'Loading other names...')
                                     : 'Other names, comma-separated (e.g. The Heugh)'}
                                   data-testid="inline-edit-aliases"
@@ -1541,13 +862,13 @@ export default function LocationManagementView({ onLocationsChanged }) {
                             </td>
                           </tr>
                         )}
-                        {isEditing && editError && (
+                        {isEditing && editor.error && (
                           <tr>
                             <td colSpan={10} className="py-1 text-xs text-red-400 pl-1" data-testid="inline-edit-error">
-                              {editError}
-                              {aliasDetail && (
+                              {editor.error}
+                              {editor.aliasDetail && (
                                 <span className="ml-1 text-plex-text-secondary" data-testid="inline-edit-alias-detail">
-                                  ({aliasDetail})
+                                  ({editor.aliasDetail})
                                 </span>
                               )}
                             </td>
@@ -1599,7 +920,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
         <div className="flex flex-col gap-4">
           <p className="text-sm font-semibold text-plex-text">Add New Location</p>
 
-          {!manualEntry && (
+          {!form.manualEntry && (
             <>
               <div>
                 <label htmlFor="place-name" className={labelClass}>Place name</label>
@@ -1609,29 +930,29 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     type="text"
                     className="flex-1 bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. Bamburgh, Northumberland"
-                    value={placeName}
-                    onChange={(e) => setPlaceName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleGeocode(); }}
+                    value={form.placeName}
+                    onChange={(e) => add.set('placeName', e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') add.geocode(); }}
                     data-testid="place-name-input"
                   />
                   <button
                     className="btn-secondary text-xs shrink-0"
-                    onClick={handleGeocode}
-                    disabled={geocoding}
+                    onClick={add.geocode}
+                    disabled={add.geocoding}
                     data-testid="geocode-btn"
                   >
-                    {geocoding ? 'Looking up...' : 'Look up'}
+                    {add.geocoding ? 'Looking up...' : 'Look up'}
                   </button>
                 </div>
               </div>
 
-              {geocodeError && (
+              {form.geocodeError && (
                 <div className="flex flex-col gap-1">
-                  <p className="text-xs text-red-400">{geocodeError}</p>
+                  <p className="text-xs text-red-400">{form.geocodeError}</p>
                   <button
                     type="button"
                     className="text-xs text-plex-gold hover:text-plex-text self-start"
-                    onClick={() => { setManualEntry(true); setManualName(placeName.trim()); setGeocodeError(''); }}
+                    onClick={add.enterManually}
                     data-testid="manual-entry-btn"
                   >
                     Enter coordinates manually
@@ -1639,64 +960,64 @@ export default function LocationManagementView({ onLocationsChanged }) {
                 </div>
               )}
 
-              {geocodeResult && (
+              {form.geocodeResult && (
                 <div className="bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-xs text-plex-text-secondary">
                   <p className="font-medium text-plex-text">
-                    {geocodeResult.lat.toFixed(4)}, {geocodeResult.lon.toFixed(4)}
+                    {form.geocodeResult.lat.toFixed(4)}, {form.geocodeResult.lon.toFixed(4)}
                   </p>
-                  <p className="mt-0.5">{geocodeResult.displayName}</p>
+                  <p className="mt-0.5">{form.geocodeResult.displayName}</p>
                 </div>
               )}
 
-              {enriching && (
+              {add.enriching && (
                 <p className="text-xs text-plex-text-muted animate-pulse" data-testid="enriching-spinner">
                   Detecting elevation, bortle, grid cell…
                 </p>
               )}
 
-              {!enriching && enrichmentData && (
+              {!add.enriching && form.enrichmentData && (
                 <div className="border border-plex-border rounded px-3 py-2" data-testid="enrichment-panel">
                   <p className="text-xs font-medium text-plex-text-secondary mb-1.5">Auto-detected</p>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div className="flex justify-between">
                       <span className="text-plex-text-secondary">Elevation</span>
                       <span className="text-plex-text" data-testid="enrichment-elevation">
-                        {enrichmentData.elevationMetres != null ? `${enrichmentData.elevationMetres}m` : '—'}
+                        {form.enrichmentData.elevationMetres != null ? `${form.enrichmentData.elevationMetres}m` : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-plex-text-secondary">Grid cell</span>
                       <span className="text-plex-text" data-testid="enrichment-grid">
-                        {enrichmentData.gridLat != null && enrichmentData.gridLng != null
-                          ? `${enrichmentData.gridLat}, ${enrichmentData.gridLng}`
+                        {form.enrichmentData.gridLat != null && form.enrichmentData.gridLng != null
+                          ? `${form.enrichmentData.gridLat}, ${form.enrichmentData.gridLng}`
                           : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-plex-text-secondary">Bortle</span>
                       <span className="text-plex-text" data-testid="enrichment-bortle">
-                        {enrichmentData.bortleClass != null ? enrichmentData.bortleClass : '—'}
+                        {form.enrichmentData.bortleClass != null ? form.enrichmentData.bortleClass : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-plex-text-secondary">SQM</span>
                       <span className="text-plex-text" data-testid="enrichment-sqm">
-                        {enrichmentData.skyBrightnessSqm != null ? enrichmentData.skyBrightnessSqm : '—'}
+                        {form.enrichmentData.skyBrightnessSqm != null ? form.enrichmentData.skyBrightnessSqm : '—'}
                       </span>
                     </div>
                   </div>
                 </div>
               )}
 
-              {!enriching && enrichmentData && (
+              {!add.enriching && form.enrichmentData && (
                 <div className="border border-plex-border rounded px-3 py-2" data-testid="manual-toggles-panel">
                   <p className="text-xs font-medium text-plex-text-secondary mb-1.5">Manual</p>
                   <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                     <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={addOverlooksWater}
-                        onChange={(e) => setAddOverlooksWater(e.target.checked)}
+                        checked={form.overlooksWater}
+                        onChange={(e) => add.set('overlooksWater', e.target.checked)}
                         data-testid="overlooks-water-checkbox"
                       />
                       Overlooks water
@@ -1704,8 +1025,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={addCoastalTidal}
-                        onChange={(e) => setAddCoastalTidal(e.target.checked)}
+                        checked={form.coastalTidal}
+                        onChange={(e) => add.set('coastalTidal', e.target.checked)}
                         data-testid="coastal-tidal-checkbox"
                       />
                       Coastal tidal
@@ -1713,8 +1034,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     <label className="flex items-center gap-1.5 text-xs text-plex-text cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={addMistProne}
-                        onChange={(e) => setAddMistProne(e.target.checked)}
+                        checked={form.mistProne}
+                        onChange={(e) => add.set('mistProne', e.target.checked)}
                         data-testid="mist-prone-checkbox"
                       />
                       Mist forms here: valley floor, riverside, lake shore
@@ -1725,7 +1046,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             </>
           )}
 
-          {manualEntry && (
+          {form.manualEntry && (
             <div className="flex flex-col gap-3">
               <div>
                 <label htmlFor="manual-name" className={labelClass}>Name</label>
@@ -1734,8 +1055,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                   type="text"
                   className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                   placeholder="e.g. Bamburgh Castle"
-                  value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
+                  value={form.manualName}
+                  onChange={(e) => add.set('manualName', e.target.value)}
                   data-testid="manual-name-input"
                 />
               </div>
@@ -1748,8 +1069,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     step="any"
                     className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. 55.6089"
-                    value={manualLat}
-                    onChange={(e) => setManualLat(e.target.value)}
+                    value={form.manualLat}
+                    onChange={(e) => add.set('manualLat', e.target.value)}
                     data-testid="manual-lat-input"
                   />
                 </div>
@@ -1761,8 +1082,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
                     step="any"
                     className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                     placeholder="e.g. -1.7099"
-                    value={manualLon}
-                    onChange={(e) => setManualLon(e.target.value)}
+                    value={form.manualLon}
+                    onChange={(e) => add.set('manualLon', e.target.value)}
                     data-testid="manual-lon-input"
                   />
                 </div>
@@ -1770,7 +1091,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <button
                 type="button"
                 className="text-xs text-plex-gold hover:text-plex-text self-start"
-                onClick={() => { setManualEntry(false); setError(''); }}
+                onClick={add.backToLookup}
                 data-testid="back-to-geocode-btn"
               >
                 Back to place lookup
@@ -1784,8 +1105,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div id="add-solar-event-type-chips" role="group" aria-labelledby="add-solar-event-type-label"
                    className="py-1.5" data-testid="add-solar-event-type">
                 <SolarToggleChips
-                  selected={addSolarEventTypes}
-                  onChange={setAddSolarEventTypes}
+                  selected={form.solarEventTypes}
+                  onChange={(next) => add.set('solarEventTypes', next)}
                 />
               </div>
             </div>
@@ -1796,12 +1117,12 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div id="add-location-type" role="group" aria-labelledby="add-location-type-label"
                    className="py-1.5" data-testid="add-location-type">
                 <LocationTypeChips
-                  selected={addLocationTypes}
-                  onChange={handleAddLocationTypesChange}
+                  selected={form.locationTypes}
+                  onChange={add.changeTypes}
                 />
               </div>
               <p className="text-xs text-plex-text-muted mt-0.5">
-                {formatLocationType(addLocationTypes)}
+                {formatLocationType(form.locationTypes)}
               </p>
             </div>
             <div>
@@ -1809,9 +1130,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <div id="add-tide-type-chips" role="group" aria-labelledby="add-tide-type-label"
                    className="py-1.5" data-testid="add-tide-type">
                 <TideToggleChips
-                  selected={addTideTypes}
-                  onChange={setAddTideTypes}
-                  disabled={!addLocationTypes.includes('SEASCAPE')}
+                  selected={form.tideTypes}
+                  onChange={(next) => add.set('tideTypes', next)}
+                  disabled={!form.locationTypes.includes('SEASCAPE')}
                 />
               </div>
             </div>
@@ -1820,8 +1141,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
               <select
                 id="add-region"
                 className={selectClass}
-                value={addRegionId}
-                onChange={(e) => { setAddRegionId(e.target.value); setAddSubRegionId(''); }}
+                value={form.regionId}
+                onChange={(e) => add.changeRegion(e.target.value)}
                 data-testid="add-region"
               >
                 <option value="">— None —</option>
@@ -1831,9 +1152,9 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </select>
               <SubRegionSelect
                 subRegions={subRegions}
-                regionId={addRegionId}
-                value={addSubRegionId}
-                onChange={setAddSubRegionId}
+                regionId={form.regionId}
+                value={form.subRegionId}
+                onChange={(v) => add.set('subRegionId', v)}
                 canBeEmpty
                 id="add-sub-region"
                 className={`${selectClass} mt-2`}
@@ -1842,7 +1163,7 @@ export default function LocationManagementView({ onLocationsChanged }) {
             </div>
           </div>
 
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {add.error && <p className="text-xs text-red-400">{add.error}</p>}
 
           <div className="flex flex-col gap-2">
             <div className="flex justify-between">
@@ -1851,14 +1172,14 @@ export default function LocationManagementView({ onLocationsChanged }) {
               </button>
               <button
                 className="btn-primary text-sm"
-                onClick={handleAddReviewConfirm}
-                disabled={manualEntry ? (!manualName.trim() || !manualLat || !manualLon) : !geocodeResult}
+                onClick={add.review}
+                disabled={!add.canSubmit}
                 data-testid="review-confirm-btn"
               >
                 Review & Confirm
               </button>
             </div>
-            {!manualEntry && !geocodeResult && (
+            {!form.manualEntry && !form.geocodeResult && (
               <p className="text-xs text-plex-text-muted text-right">Search for a place above, or switch to manual entry</p>
             )}
           </div>
@@ -1866,8 +1187,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
       )}
 
       {/* Confirm modal (add only) */}
-      {confirmData && (
-        <Modal label="Confirm location" onClose={() => setConfirmData(null)} data-testid="confirm-location-modal">
+      {add.confirm && (
+        <Modal label="Confirm location" onClose={() => add.setConfirm(null)} data-testid="confirm-location-modal">
             <p className="text-sm font-semibold text-plex-text">
               Confirm New Location
             </p>
@@ -1875,93 +1196,93 @@ export default function LocationManagementView({ onLocationsChanged }) {
             <div className="text-sm space-y-2">
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Name</span>
-                <span className="text-plex-text font-medium">{confirmData.name}</span>
+                <span className="text-plex-text font-medium">{add.confirm.name}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Coordinates</span>
                 <span className="text-plex-text">
-                  {confirmData.lat.toFixed(4)} N, {Math.abs(confirmData.lon).toFixed(4)} {confirmData.lon < 0 ? 'W' : 'E'}
+                  {add.confirm.lat.toFixed(4)} N, {Math.abs(add.confirm.lon).toFixed(4)} {add.confirm.lon < 0 ? 'W' : 'E'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Solar</span>
-                <span className="text-plex-text">{formatSolarEventType(confirmData.solarEventTypes)}</span>
+                <span className="text-plex-text">{formatSolarEventType(add.confirm.solarEventTypes)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Type</span>
                 <span className="text-plex-text">
-                  {formatLocationType(confirmData.locationTypes)}
+                  {formatLocationType(add.confirm.locationTypes)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Tide</span>
                 <span className="text-plex-text">
-                  {formatTideType(confirmData.tideTypes)}
+                  {formatTideType(add.confirm.tideTypes)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Region</span>
                 <span className="text-plex-text">
-                  {confirmData.regionId ? (regions.find((r) => r.id === confirmData.regionId)?.name ?? '—') : '—'}
+                  {add.confirm.regionId ? (regions.find((r) => r.id === add.confirm.regionId)?.name ?? '—') : '—'}
                 </span>
               </div>
               <hr className="border-plex-border" />
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Elevation</span>
                 <span className="text-plex-text">
-                  {confirmData.elevationMetres != null ? `${confirmData.elevationMetres}m` : '—'}
+                  {add.confirm.elevationMetres != null ? `${add.confirm.elevationMetres}m` : '—'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Bortle</span>
-                <span className="text-plex-text">{confirmData.bortleClass ?? '—'}</span>
+                <span className="text-plex-text">{add.confirm.bortleClass ?? '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">SQM</span>
-                <span className="text-plex-text">{confirmData.skyBrightnessSqm ?? '—'}</span>
+                <span className="text-plex-text">{add.confirm.skyBrightnessSqm ?? '—'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Grid cell</span>
                 <span className="text-plex-text">
-                  {confirmData.gridLat != null && confirmData.gridLng != null
-                    ? `${confirmData.gridLat}, ${confirmData.gridLng}`
+                  {add.confirm.gridLat != null && add.confirm.gridLng != null
+                    ? `${add.confirm.gridLat}, ${add.confirm.gridLng}`
                     : '—'}
                 </span>
               </div>
               <hr className="border-plex-border" />
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Overlooks water</span>
-                <span className="text-plex-text">{confirmData.overlooksWater ? 'Yes' : 'No'}</span>
+                <span className="text-plex-text">{add.confirm.overlooksWater ? 'Yes' : 'No'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Coastal tidal</span>
-                <span className="text-plex-text">{confirmData.coastalTidal ? 'Yes' : 'No'}</span>
+                <span className="text-plex-text">{add.confirm.coastalTidal ? 'Yes' : 'No'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-plex-text-secondary">Mist forms here</span>
                 <span className="text-plex-text" data-testid="confirm-mist-prone">
-                  {confirmData.mistProne ? 'Yes' : 'No'}
+                  {add.confirm.mistProne ? 'Yes' : 'No'}
                 </span>
               </div>
             </div>
 
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {add.error && <p className="text-xs text-red-400">{add.error}</p>}
 
             <div className="flex justify-between">
               <button
                 className="btn-secondary text-sm"
-                onClick={() => setConfirmData(null)}
-                disabled={saving}
+                onClick={() => add.setConfirm(null)}
+                disabled={add.saving}
               >
                 Back
               </button>
               <button
                 className="btn-primary text-sm"
                 onClick={handleConfirmSave}
-                disabled={saving}
+                disabled={add.saving}
                 data-testid="confirm-save-btn"
               >
-                {saving ? 'Saving...' : 'Save'}
+                {add.saving ? 'Saving...' : 'Save'}
               </button>
             </div>
         </Modal>
