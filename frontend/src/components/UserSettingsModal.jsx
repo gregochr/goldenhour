@@ -63,6 +63,17 @@ const DELETE_FAILED = 'Couldn’t delete your account. Try again.';
  */
 const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visible:outline-plex-gold';
 
+/**
+ * Whether focus has been ORPHANED — `<body>`, the document, nothing, or this dialog's own root —
+ * rather than the reader having moved on to a control. The one rule both focus restorers in this
+ * dialog share: neither may take focus back from a reader who chose where they are.
+ */
+function isFocusOrphaned(dialog) {
+  const focused = document.activeElement;
+  return !focused || focused === document.body
+    || focused === document.documentElement || focused === dialog;
+}
+
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
   onColourSaved, colourSaveQueue = null, focusField = null, restoreFocusFallback = null,
@@ -107,6 +118,7 @@ export default function UserSettingsModal({
   const [marketingSaved, setMarketingSaved] = useState(false);
   const [marketingError, setMarketingError] = useState(false);
   const marketingBoxRef = useRef(null);
+  const marketingErrorId = useId();
   // True when the checkbox held focus as a save began: a disabled control drops focus, so the
   // reader is put back once the save settles (see the effect below).
   const marketingRefocus = useRef(false);
@@ -192,10 +204,7 @@ export default function UserSettingsModal({
   useLayoutEffect(() => {
     if (!focusRequest) return;
     const dialog = viewRef.current?.closest('[role="dialog"]') ?? null;
-    const focused = document.activeElement;
-    const orphaned = !focused || focused === document.body
-      || focused === document.documentElement || focused === dialog;
-    if (!orphaned) return;
+    if (!isFocusOrphaned(dialog)) return;
     for (const ref of focusRequest) {
       const el = ref.current;
       if (!el) continue;
@@ -457,6 +466,9 @@ export default function UserSettingsModal({
     const next = e.target.checked;
     marketingRefocus.current = document.activeElement === marketingBoxRef.current;
     marketingSavingRef.current = true;
+    // Optimistic: the box shows the pending value (disabled) while the request is out, so a failure's
+    // revert below is a real change the reader sees, not a no-op.
+    setMarketingOptIn(next);
     setMarketingSaving(true);
     setMarketingSaved(false);
     setMarketingError(false);
@@ -478,8 +490,7 @@ export default function UserSettingsModal({
     if (marketingSaving || !marketingRefocus.current) return;
     marketingRefocus.current = false;
     const box = marketingBoxRef.current;
-    const focused = document.activeElement;
-    if (box && (!focused || focused === document.body)) box.focus();
+    if (box && isFocusOrphaned(box.closest('[role="dialog"]'))) box.focus();
   }, [marketingSaving]);
 
   /**
@@ -1026,6 +1037,7 @@ export default function UserSettingsModal({
                   checked={marketingOptIn}
                   onChange={handleMarketingChange}
                   disabled={marketingSaving}
+                  aria-describedby={marketingError ? marketingErrorId : undefined}
                   className="mt-0.5 accent-plex-gold"
                   data-testid="settings-marketing-checkbox"
                 />
@@ -1040,7 +1052,12 @@ export default function UserSettingsModal({
                 {marketingSaving ? 'Saving…' : marketingSaved ? 'Saved' : ''}
               </span>
               {marketingError && (
-                <p className="text-xs text-plex-error" data-testid="settings-marketing-error">
+                <p
+                  id={marketingErrorId}
+                  role="alert"
+                  className="text-xs text-plex-error"
+                  data-testid="settings-marketing-error"
+                >
                   Could not save the email preference. Try again.
                 </p>
               )}

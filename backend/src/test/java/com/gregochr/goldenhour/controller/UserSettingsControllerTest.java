@@ -58,6 +58,19 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings serves marketingEmailOptIn=true as a JSON boolean")
+    void getSettings_servesMarketingEmailOptInTrue() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                        null, null, null, null, null, null, null, null, null, null, false, true));
+
+        mockMvc.perform(get("/api/user/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(true));
+    }
+
+    @Test
     @DisplayName("GET /api/user/settings returns 401 without authentication")
     void getSettings_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/user/settings"))

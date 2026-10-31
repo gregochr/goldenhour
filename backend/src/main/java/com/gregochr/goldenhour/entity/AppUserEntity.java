@@ -108,10 +108,11 @@ public class AppUserEntity implements UserDetails {
 
     /**
      * Whether the user has opted in to marketing emails (feature updates, photography tips). Consent is
-     * active, so an account nobody ticked the box for (admin-created, seeded) defaults to false.
+     * active, so an account nobody ticked the box for (admin-created, seeded) defaults to false. Written
+     * only by the scoped {@code AppUserRepository.updateMarketingEmailOptIn}, never by {@code save()}.
      */
     @Builder.Default
-    @Column(name = "marketing_email_opt_in", nullable = false)
+    @Column(name = "marketing_email_opt_in", nullable = false, updatable = false)
     private boolean marketingEmailOptIn = false;
 
     /** Timestamp of the user's most recent activity (updated at most once per hour). */

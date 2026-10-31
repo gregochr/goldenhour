@@ -392,6 +392,11 @@ class AppUserRepositoryTest {
             assertThat(accountRow().get("marketing_email_opt_in")).isEqualTo(false);
             assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
             assertThat(repository.updateMarketingEmailOptIn(userId + 1000, true)).isZero();
+
+            // The column is updatable = false on the entity, so this scoped update is its only writer:
+            // prove it still persists in BOTH directions.
+            assertThat(repository.updateMarketingEmailOptIn(userId, true)).isEqualTo(1);
+            assertThat(accountRow().get("marketing_email_opt_in")).isEqualTo(true);
         }
 
         @Test

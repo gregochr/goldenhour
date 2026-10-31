@@ -2,7 +2,7 @@ import {
   describe, it, expect, vi, beforeEach,
 } from 'vitest';
 import {
-  render, screen, waitFor, within,
+  act, render, screen, waitFor, within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
@@ -127,38 +127,108 @@ describe('Settings: marketing email toggle', () => {
     await waitFor(() => expect(box).not.toBeChecked());
   });
 
-  it('reverts and shows the error when the save fails', async () => {
-    updateMarketingEmailOptIn.mockRejectedValue(new Error('boom'));
+  it('shows the pending value while the save is out, then reverts it when the save fails', async () => {
+    const save = deferred();
+    updateMarketingEmailOptIn.mockReturnValue(save.promise);
     const box = await openWith({ ...BASE, marketingEmailOptIn: true });
 
     await userEvent.click(box);
 
-    expect(await screen.findByTestId('settings-marketing-error')).toBeInTheDocument();
+    // Optimistic and disabled: the reader sees the value they asked for while the request is out...
+    expect(box).not.toBeChecked();
+    expect(box).toBeDisabled();
+
+    await act(async () => { save.reject(new Error('boom')); });
+
+    // ...so the revert is a visible change back, not a no-op.
     expect(box).toBeChecked();
     expect(box).toBeEnabled();
+    expect(screen.getByTestId('settings-marketing-error')).toBeInTheDocument();
     expect(screen.getByTestId('settings-marketing-status')).not.toHaveTextContent('Saved');
   });
 
-  it('clears an earlier error when the next save starts', async () => {
+  it('announces a failed save: the error is an alert and the checkbox is described by it', async () => {
+    updateMarketingEmailOptIn.mockRejectedValue(new Error('boom'));
+    const box = await openWith({ ...BASE, marketingEmailOptIn: false });
+    expect(box).not.toHaveAttribute('aria-describedby');
+
+    await userEvent.click(box);
+
+    const error = await screen.findByRole('alert');
+    expect(error).toBe(screen.getByTestId('settings-marketing-error'));
+    expect(error.id).toBeTruthy();
+    expect(box).toHaveAttribute('aria-describedby', error.id);
+  });
+
+  it('clears an earlier error as soon as the next save starts, before it settles', async () => {
     updateMarketingEmailOptIn.mockRejectedValueOnce(new Error('boom'));
     const box = await openWith({ ...BASE, marketingEmailOptIn: false });
     await userEvent.click(box);
     await screen.findByTestId('settings-marketing-error');
 
-    updateMarketingEmailOptIn.mockResolvedValueOnce({ marketingEmailOptIn: true });
+    const second = deferred();
+    updateMarketingEmailOptIn.mockReturnValueOnce(second.promise);
     await userEvent.click(box);
 
-    await waitFor(() => expect(screen.queryByTestId('settings-marketing-error')).not.toBeInTheDocument());
+    // Still pending: the old error is already gone.
+    expect(box).toBeDisabled();
+    expect(screen.queryByTestId('settings-marketing-error')).not.toBeInTheDocument();
+    expect(box).not.toHaveAttribute('aria-describedby');
+
+    await act(async () => { second.resolve({ marketingEmailOptIn: true }); });
     expect(box).toBeChecked();
   });
 
-  it('returns focus to the checkbox once the save settles', async () => {
-    updateMarketingEmailOptIn.mockResolvedValue({ marketingEmailOptIn: true });
-    const box = await openWith({ ...BASE, marketingEmailOptIn: false });
+  describe('focus after the save settles', () => {
+    /** Starts a save and returns what the focus cases need. Chromium blurs a control that becomes disabled. */
+    async function startSave() {
+      const save = deferred();
+      updateMarketingEmailOptIn.mockReturnValue(save.promise);
+      const box = await openWith({ ...BASE, marketingEmailOptIn: false });
+      await userEvent.click(box);
+      expect(box).toBeDisabled();
+      return { box, save };
+    }
 
-    await userEvent.click(box);
+    const settle = (save) => act(async () => { save.resolve({ marketingEmailOptIn: true }); });
 
-    await waitFor(() => expect(box).toBeEnabled());
-    await waitFor(() => expect(box).toHaveFocus());
+    it('gives focus back when the disabled box lost it to <body>', async () => {
+      const { box, save } = await startSave();
+      // jsdom keeps focus on a disabled control; Chromium drops it. Simulate the browser.
+      act(() => {
+        // jsdom ignores blur() on a disabled control, so park focus on <body> by hand.
+        document.body.tabIndex = -1;
+        document.body.focus();
+        document.body.removeAttribute('tabindex');
+      });
+      expect(document.activeElement).toBe(document.body);
+
+      await settle(save);
+
+      expect(box).toBeEnabled();
+      expect(box).toHaveFocus();
+    });
+
+    it('gives focus back when it was left on the dialog root', async () => {
+      const { box, save } = await startSave();
+      act(() => screen.getByRole('dialog').focus());
+      expect(document.activeElement).toBe(screen.getByRole('dialog'));
+
+      await settle(save);
+
+      expect(box).toHaveFocus();
+    });
+
+    it('does NOT take focus from a reader who moved on to another control', async () => {
+      const { box, save } = await startSave();
+      const close = screen.getByRole('button', { name: 'Close' });
+      act(() => close.focus());
+      expect(close).toHaveFocus();
+
+      await settle(save);
+
+      expect(box).toBeEnabled();
+      expect(close).toHaveFocus();
+    });
   });
 });
