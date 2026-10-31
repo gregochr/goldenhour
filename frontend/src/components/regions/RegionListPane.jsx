@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import Pagination from '../Pagination.jsx';
 import DataGrid from '../data/DataGrid.jsx';
@@ -118,18 +118,31 @@ export default function RegionListPane({ regions, selectedId, offOpen, onToggleO
   const on = useMemo(() => sort.apply(regions.filter((r) => r.enabled)), [sort, regions]);
   const off = useMemo(() => sort.apply(regions.filter((r) => !r.enabled)), [sort, regions]);
   const paged = useMemo(() => (offOpen ? [...on, ...off] : on), [offOpen, on, off]);
-  const { pageItems, ...pagination } = usePagination(paged);
+  const { pageItems, ...pagination } = usePagination(paged, 10, regions.length);
+
+  // Opening or closing the group moves the header (and detaches it from the page), which would drop focus to the
+  // page; put it back on the header the reader pressed.
+  const refocusHeader = useRef(false);
+  const toggleOff = useCallback(() => {
+    refocusHeader.current = true;
+    onToggleOff();
+  }, [onToggleOff]);
+  useEffect(() => {
+    if (!refocusHeader.current) return;
+    refocusHeader.current = false;
+    document.querySelector('[data-testid="regions-group-off"]')?.focus();
+  }, [offOpen]);
 
   const rows = useMemo(() => {
     if (off.length === 0) return pageItems;
     const header = {
-      groupHeader: true, id: OFF_GROUP, label: `Off · ${off.length}`, expanded: offOpen, onToggle: onToggleOff,
+      groupHeader: true, id: OFF_GROUP, label: `Off · ${off.length}`, expanded: offOpen, onToggle: toggleOff,
     };
     const firstOff = pageItems.findIndex((r) => !r.enabled);
     if (firstOff >= 0) return [...pageItems.slice(0, firstOff), header, ...pageItems.slice(firstOff)];
     // Collapsed, the header closes the list: on the last page, after the last "on" row.
     return !offOpen && pagination.page >= pagination.totalPages ? [...pageItems, header] : pageItems;
-  }, [pageItems, off.length, offOpen, onToggleOff, pagination.page, pagination.totalPages]);
+  }, [pageItems, off.length, offOpen, toggleOff, pagination.page, pagination.totalPages]);
 
   const onCount = regions.filter((r) => r.enabled).length;
 

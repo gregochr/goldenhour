@@ -19,6 +19,7 @@ import {
 } from '../api/regionApi';
 import { fetchLocations } from '../api/forecastApi';
 import { fetchAreas } from '../api/areaApi';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 const MOCK_REGIONS = [
   { id: 1, name: 'North East', enabled: true, createdAt: '2026-01-15T10:00:00' },
@@ -71,6 +72,7 @@ describe('RegionManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.location.hash = '';
+    useIsMobile.mockReturnValue(false);
     fetchRegions.mockResolvedValue(MOCK_REGIONS);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
     fetchAreas.mockResolvedValue(MOCK_AREAS);
@@ -342,7 +344,11 @@ describe('RegionManagementView', () => {
       await openPanel(1);
       // Two locations in North East, ONE switched on: the count is of switched-on ones only.
       expect(screen.getByTestId('region-actions')).toHaveTextContent('Turn its 1 location off first.');
-      expect(screen.getByTestId('toggle-region-enabled-1')).toBeDisabled();
+      const button = screen.getByTestId('toggle-region-enabled-1');
+      // aria-disabled, not disabled: it stays focusable and its reason is announced with it.
+      expect(button).toHaveAttribute('aria-disabled', 'true');
+      expect(button).not.toBeDisabled();
+      expect(button).toHaveAccessibleDescription('Turn its 1 location off first.');
       expect(screen.getByTestId('region-show-locations')).toHaveAttribute('href', '#manage/locations?region=1');
 
       fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
@@ -406,6 +412,8 @@ describe('RegionManagementView', () => {
       expect(screen.getByTestId('region-panel-subtitle')).toHaveTextContent('On ·');
       expect(screen.getByTestId('toggle-region-enabled-1')).toHaveTextContent('Turn off');
       expect(screen.getByTestId('toggle-region-enabled-1')).toBeEnabled();
+      // A refused turn-off must not leave the Off group open.
+      expect(screen.getByTestId('regions-group-off')).toHaveAttribute('aria-expanded', 'false');
       consoleError.mockRestore();
     });
 
@@ -684,6 +692,153 @@ describe('RegionManagementView', () => {
       }]);
       await openBase(1);
       expect(screen.getByTestId('region-base-lon-input')).toHaveValue('0');
+    });
+  });
+  describe('review fixes', () => {
+    const TWELVE_ON_ONE_OFF = [
+      ...makeMockRegions(12),
+      { id: 99, name: 'Zed', enabled: false, createdAt: '2026-01-01T10:00:00' },
+    ];
+
+    it('keeps the page, and focus on the header, when the Off group opens and closes', async () => {
+      fetchRegions.mockResolvedValue(TWELVE_ON_ONE_OFF);
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('pagination-next'));
+      fireEvent.click(await screen.findByTestId('regions-group-off'));
+
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–13 of 13');
+      expect(screen.getByTestId('regions-row-99')).toBeInTheDocument();
+      expect(screen.getByTestId('regions-group-off')).toHaveFocus();
+
+      fireEvent.click(screen.getByTestId('regions-group-off'));
+      expect(screen.getByTestId('pagination-summary')).toHaveTextContent('11–12 of 12');
+      expect(screen.queryByTestId('regions-row-99')).not.toBeInTheDocument();
+      expect(screen.getByTestId('regions-group-off')).toHaveFocus();
+    });
+
+    it('keeps the in-flight Turn off focusable (aria-disabled) and ignores a second press', async () => {
+      let resolve;
+      setRegionEnabled.mockReturnValue(new Promise((r) => { resolve = r; }));
+      fetchLocations.mockResolvedValue([]);
+      await renderLoaded();
+      await openPanel(1);
+      const button = screen.getByTestId('toggle-region-enabled-1');
+      button.focus();
+      fireEvent.click(button);
+      await waitFor(() => expect(setRegionEnabled).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByTestId('toggle-region-enabled-1')).toHaveAttribute('aria-disabled', 'true'));
+      fireEvent.click(screen.getByTestId('toggle-region-enabled-1'));
+      expect(setRegionEnabled).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('toggle-region-enabled-1')).not.toBeDisabled();
+      resolve({});
+    });
+
+    it('sends one addRegion when Enter is pressed twice during the save', async () => {
+      let resolve;
+      addRegion.mockReturnValue(new Promise((r) => { resolve = r; }));
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      const input = await screen.findByTestId('region-name-input');
+      fireEvent.change(input, { target: { value: 'Yorkshire' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(addRegion).toHaveBeenCalledTimes(1);
+      resolve({ id: 9, name: 'Yorkshire' });
+      await screen.findByTestId('region-reader-panel');
+    });
+
+    it('sends one setRegionBase when Enter is pressed twice during the save', async () => {
+      let resolve;
+      setRegionBase.mockReturnValue(new Promise((r) => { resolve = r; }));
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('edit-region-base-1'));
+      const name = await screen.findByTestId('region-base-name-input');
+      fireEvent.change(name, { target: { value: 'Alnwick' } });
+      fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '55.4' } });
+      fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+      fireEvent.keyDown(name, { key: 'Enter' });
+      fireEvent.keyDown(name, { key: 'Enter' });
+      expect(setRegionBase).toHaveBeenCalledTimes(1);
+      resolve({});
+      await screen.findByTestId('region-reader-panel');
+    });
+
+    it('selects a new region even when the re-read after the add fails', async () => {
+      addRegion.mockResolvedValue({ id: 9, name: 'Yorkshire', enabled: true, createdAt: '2026-10-31T10:00:00' });
+      fetchRegions.mockResolvedValueOnce(MOCK_REGIONS).mockRejectedValue(new Error('down'));
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      fireEvent.change(await screen.findByTestId('region-name-input'), { target: { value: 'Yorkshire' } });
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+
+      expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('region-panel-title')).toHaveTextContent('Yorkshire');
+      expect(window.location.hash).toBe('#manage/regions/9');
+    });
+
+    it('says the name is required when Enter submits a blank name', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('add-region-btn'));
+      const input = await screen.findByTestId('region-name-input');
+      fireEvent.change(input, { target: { value: '  ' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(await screen.findByText('Region name is required.')).toBeInTheDocument();
+      expect(addRegion).not.toHaveBeenCalled();
+    });
+
+    it('moves focus to the panel title on opening a form, after Cancel and after Save', async () => {
+      updateRegion.mockResolvedValue({});
+      await renderLoaded();
+      await openPanel(1);
+      fireEvent.click(screen.getByTestId('rename-region-1'));
+      await screen.findByTestId('region-form-rename');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+
+      fireEvent.click(screen.getByTestId('region-form-cancel'));
+      await screen.findByTestId('region-reader-panel');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+
+      fireEvent.click(screen.getByTestId('rename-region-1'));
+      await screen.findByTestId('region-form-rename');
+      fireEvent.click(screen.getByTestId('save-region-btn'));
+      await screen.findByTestId('region-reader-panel');
+      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+    });
+
+    describe('on a phone', () => {
+      beforeEach(() => useIsMobile.mockReturnValue(true));
+
+      it('steps back from Rename and Edit base to the region with a back bar named for it', async () => {
+        await renderLoaded();
+        await openPanel(1);
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to Regions');
+
+        fireEvent.click(screen.getByTestId('rename-region-1'));
+        await screen.findByTestId('region-form-rename');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to North East');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('edit-region-base-1'));
+        await screen.findByTestId('region-form-base');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to North East');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(await screen.findByTestId('region-reader-panel')).toBeInTheDocument();
+      });
+
+      it('returns to the list from the region, and from Add region', async () => {
+        await renderLoaded();
+        await openPanel(1);
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(screen.queryByTestId('region-reader-panel')).not.toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('add-region-btn'));
+        await screen.findByTestId('region-form-add');
+        expect(screen.getByTestId('region-back')).toHaveAccessibleName('Back to Regions');
+        fireEvent.click(screen.getByTestId('region-back'));
+        expect(screen.queryByTestId('region-form-add')).not.toBeInTheDocument();
+      });
     });
   });
 });

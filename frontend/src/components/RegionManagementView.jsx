@@ -68,7 +68,9 @@ export default function RegionManagementView() {
   }
 
   // The Off group opens when the selection is (or becomes) an off region: a pasted link, or a region just turned off.
-  const offSelectedId = selected && !selected.enabled ? selected.id : null;
+  // Read from the STORED regions, not the optimistic ones: a turn-off the server refuses must not leave the group open.
+  const storedSelected = regions.find((r) => r.id === selectedId);
+  const offSelectedId = storedSelected && !storedSelected.enabled ? storedSelected.id : null;
   const [seenOffSelected, setSeenOffSelected] = useState(null);
   if (offSelectedId !== seenOffSelected) {
     setSeenOffSelected(offSelectedId);
@@ -136,7 +138,11 @@ export default function RegionManagementView() {
   async function handleSaved(saved) {
     if (adding) {
       setAdding(false);
-      if (saved?.id != null) select(saved.id);
+      if (saved?.id != null) {
+        // The re-read may have failed; make sure the new region is known so the selection does not look dangling.
+        setRegions((current) => (current.some((r) => r.id === saved.id) ? current : [...current, saved]));
+        select(saved.id);
+      }
       return;
     }
     setMode('view');

@@ -5,9 +5,11 @@ import { useState, useMemo } from 'react';
  *
  * @param {Array} items - The full list of items to paginate.
  * @param {number} [initialPageSize=10] - Default page size.
+ * @param {*} [resetKey] - When given, the page returns to 1 only when this value changes, instead of whenever the
+ *   item count does. For a list whose count moves without the data changing (a collapsible group opening).
  * @returns {object} Pagination state and helpers.
  */
-export default function usePagination(items, initialPageSize = 10) {
+export default function usePagination(items, initialPageSize = 10, resetKey = undefined) {
   const [page, setPageRaw] = useState(1);
   const [pageSize, setPageSizeRaw] = useState(initialPageSize);
 
@@ -15,9 +17,10 @@ export default function usePagination(items, initialPageSize = 10) {
 
   // Reset to page 1 when items count changes (e.g. filter applied).
   // Uses React's recommended setState-during-render pattern for derived state.
-  const [prevLength, setPrevLength] = useState(items.length);
-  if (items.length !== prevLength) {
-    setPrevLength(items.length);
+  const resetOn = resetKey === undefined ? items.length : resetKey;
+  const [prevReset, setPrevReset] = useState(resetOn);
+  if (resetOn !== prevReset) {
+    setPrevReset(resetOn);
     setPageRaw(1);
   }
 

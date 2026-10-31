@@ -140,4 +140,18 @@ describe('usePagination', () => {
     expect(result.current.totalPages).toBe(1);
     expect(result.current.pageItems).toEqual(items);
   });
+  it('with a resetKey, keeps the page when the item count changes and resets only when the key does', () => {
+    const base = Array.from({ length: 25 }, (_, i) => i);
+    const { result, rerender } = renderHook(({ items, key }) => usePagination(items, 10, key), {
+      initialProps: { items: base, key: 'a' },
+    });
+    act(() => result.current.nextPage());
+    expect(result.current.page).toBe(2);
+
+    rerender({ items: [...base, 25, 26], key: 'a' });
+    expect(result.current.page).toBe(2);
+
+    rerender({ items: base, key: 'b' });
+    expect(result.current.page).toBe(1);
+  });
 });

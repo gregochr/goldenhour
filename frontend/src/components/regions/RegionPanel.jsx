@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import PanelSection from '../data/PanelSection.jsx';
@@ -5,7 +6,7 @@ import KvList from '../data/KvList.jsx';
 import { textButtonClass } from '../users/userFormClasses.js';
 import { locationsText, regionMeta } from '../../utils/regionAdmin.js';
 
-const ACTION_BUTTON = 'btn-secondary text-xs shrink-0 max-[639px]:min-h-11';
+const ACTION_BUTTON = 'btn-secondary text-xs shrink-0 max-[639px]:min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
 
 /** A Details value with its own text button on the right (Rename, Edit). */
 function EditableValue({ children, actionLabel, onAction, testId }) {
@@ -44,19 +45,19 @@ function BaseValue({ region }) {
 BaseValue.propTypes = { region: PropTypes.object.isRequired };
 
 /** The one Region actions row: what the action does, and its button. */
-function ActionRow({ title, hint, children }) {
+function ActionRow({ title, hint, hintId = undefined, children }) {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
       <div className="min-w-0">
         <p className="text-sm text-plex-text">{title}</p>
-        <p className="text-xs text-plex-text-secondary">{hint}</p>
+        <p id={hintId} className="text-xs text-plex-text-secondary">{hint}</p>
       </div>
       {children}
     </div>
   );
 }
 
-ActionRow.propTypes = { title: PropTypes.string.isRequired, hint: PropTypes.string.isRequired, children: PropTypes.node };
+ActionRow.propTypes = { title: PropTypes.string.isRequired, hint: PropTypes.string.isRequired, hintId: PropTypes.string, children: PropTypes.node };
 
 /**
  * The region panel (plan §5.4): Details (Name, Base), Sub-regions and Region actions.
@@ -76,6 +77,7 @@ ActionRow.propTypes = { title: PropTypes.string.isRequired, hint: PropTypes.stri
  * @param {string} props.toggleError the server's sentence for the last refused toggle of this region
  */
 export default function RegionPanel({ region, onClose, onRename, onEditBase, onToggle, toggling, toggleError }) {
+  const hintId = useId();
   const blocked = region.enabled && region.enabledLocationCount > 0;
   const n = region.enabledLocationCount;
 
@@ -83,7 +85,7 @@ export default function RegionPanel({ region, onClose, onRename, onEditBase, onT
   if (!region.enabled) {
     action = (
       <ActionRow title="Turn on" hint="It comes back to the region pickers, Ask and the Plan's starting points.">
-        <button type="button" className={ACTION_BUTTON} onClick={() => onToggle(region)} disabled={toggling} data-testid={`toggle-region-enabled-${region.id}`}>
+        <button type="button" className={ACTION_BUTTON} onClick={() => { if (!toggling) onToggle(region); }} aria-disabled={toggling || undefined} data-testid={`toggle-region-enabled-${region.id}`}>
           Turn on
         </button>
       </ActionRow>
@@ -91,8 +93,8 @@ export default function RegionPanel({ region, onClose, onRename, onEditBase, onT
   } else if (blocked) {
     action = (
       <>
-        <ActionRow title="Turn off" hint={`Turn its ${n} ${n === 1 ? 'location' : 'locations'} off first.`}>
-          <button type="button" className={ACTION_BUTTON} disabled data-testid={`toggle-region-enabled-${region.id}`}>
+        <ActionRow title="Turn off" hint={`Turn its ${n} ${n === 1 ? 'location' : 'locations'} off first.`} hintId={hintId}>
+          <button type="button" className={ACTION_BUTTON} aria-disabled="true" aria-describedby={hintId} data-testid={`toggle-region-enabled-${region.id}`}>
             Turn off
           </button>
         </ActionRow>
@@ -108,7 +110,7 @@ export default function RegionPanel({ region, onClose, onRename, onEditBase, onT
   } else {
     action = (
       <ActionRow title="Turn off" hint="It leaves the region pickers, Ask and the Plan's starting points.">
-        <button type="button" className={ACTION_BUTTON} onClick={() => onToggle(region)} disabled={toggling} data-testid={`toggle-region-enabled-${region.id}`}>
+        <button type="button" className={ACTION_BUTTON} onClick={() => { if (!toggling) onToggle(region); }} aria-disabled={toggling || undefined} data-testid={`toggle-region-enabled-${region.id}`}>
           Turn off
         </button>
       </ActionRow>

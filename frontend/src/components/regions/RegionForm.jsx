@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
@@ -65,11 +65,14 @@ export default function RegionForm({ mode, region = undefined, onClose, onCancel
   const [baseLon, setBaseLon] = useState(region?.baseLon == null ? '' : String(region.baseLon));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // A ref as well as state: a second Enter lands before the re-render that would disable Save.
+  const savingRef = useRef(false);
 
   const nameForm = mode !== 'base';
   const saveDisabled = saving || (nameForm && !name.trim());
 
   async function handleSave() {
+    if (savingRef.current) return;
     if (nameForm && !name.trim()) {
       setError('Region name is required.');
       return;
@@ -82,6 +85,7 @@ export default function RegionForm({ mode, region = undefined, onClose, onCancel
         return;
       }
     }
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
@@ -95,6 +99,7 @@ export default function RegionForm({ mode, region = undefined, onClose, onCancel
       setError(apiErrorMessage(err, 'Failed to save region.'));
       await onRefresh().catch(() => {});
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
