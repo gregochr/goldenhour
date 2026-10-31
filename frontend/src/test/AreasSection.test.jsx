@@ -389,57 +389,6 @@ describe('AreasSection', () => {
       expect(screen.queryByTestId('areas-uncovered')).not.toBeInTheDocument();
       expect(screen.queryByTestId('areas-all-covered')).not.toBeInTheDocument();
     });
-
-    it('tells its parent after an area is created, renamed or deleted, and not when a save fails', async () => {
-      const changed = vi.fn();
-      fetchAreas.mockResolvedValue([WALL, KIELDER]);
-      createArea.mockResolvedValue({ id: 9, name: 'New One', aliases: [], locationIds: [], kind: 'NAMED' });
-      updateArea.mockResolvedValueOnce(WALL).mockRejectedValueOnce(clash('x'));
-      deleteArea.mockResolvedValue(undefined);
-      render(<AreasSection locations={LOCATIONS} onAreasChanged={changed} />);
-
-      fireEvent.click(await screen.findByTestId('add-area-btn'));
-      fireEvent.change(screen.getByTestId('area-name-input'), { target: { value: 'New One' } });
-      fireEvent.click(screen.getByTestId('area-create-btn'));
-      await waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
-
-      fireEvent.click(screen.getByTestId('area-edit-7'));
-      fireEvent.click(screen.getByTestId('area-save-names'));
-      await waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
-      fireEvent.click(screen.getByTestId('area-save-names'));
-      await screen.findByTestId('area-error');
-      expect(changed).toHaveBeenCalledTimes(2);
-
-      fireEvent.click(screen.getByTestId('area-delete-8'));
-      fireEvent.click(screen.getByTestId('area-delete-yes-8'));
-      await waitFor(() => expect(changed).toHaveBeenCalledTimes(3));
-    });
-
-    it('clears an earlier load error when a reload succeeds', async () => {
-      fetchAreas.mockRejectedValueOnce(new Error('boom'));
-      const { rerender } = render(<AreasSection locations={LOCATIONS} reloadKey={0} />);
-      expect(await screen.findByTestId('areas-load-error')).toBeInTheDocument();
-
-      fetchAreas.mockResolvedValue([WALL]);
-      rerender(<AreasSection locations={LOCATIONS} reloadKey={1} />);
-
-      expect(await screen.findByTestId('area-row-7')).toBeInTheDocument();
-      expect(screen.queryByTestId('areas-load-error')).not.toBeInTheDocument();
-    });
-
-    it('reads the areas and the coverage again when reloadKey changes', async () => {
-      const { rerender } = render(<AreasSection locations={LOCATIONS} reloadKey={0} />);
-      await screen.findByTestId('area-row-7');
-      expect(fetchAreas).toHaveBeenCalledTimes(1);
-      expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1);
-
-      fetchAreas.mockResolvedValue([WALL, SWALEDALE]);
-      rerender(<AreasSection locations={LOCATIONS} reloadKey={1} />);
-
-      expect(await screen.findByTestId('area-row-21')).toBeInTheDocument();
-      expect(fetchAreas).toHaveBeenCalledTimes(2);
-      expect(fetchUncoveredLocations).toHaveBeenCalledTimes(2);
-    });
   });
 
   it('opening a delete confirm on one row leaves another row\'s unsaved editor alone', async () => {

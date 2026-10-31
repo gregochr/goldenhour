@@ -32,7 +32,7 @@ import {
 } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import {
-  fetchAreas, fetchUncoveredLocations, fetchLocationAliases, setLocationAliases, updateArea, deleteArea,
+  fetchAreas, fetchUncoveredLocations, fetchLocationAliases, setLocationAliases,
 } from '../api/areaApi';
 
 const DALES = { id: 4, name: 'The Yorkshire Dales', enabled: true };
@@ -206,45 +206,34 @@ describe('LocationManagementView: the sub-region select', () => {
     ));
   });
 
-  it('passes the Areas section a new reloadKey after a location is saved, so its members are read again', async () => {
+  it('does not render the Areas section: it has its own sub-tab', async () => {
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
-    await screen.findByTestId('areas-section');
-    await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1));
+    await screen.findByTestId('locations-row-1');
+    expect(screen.queryByTestId('areas-section')).not.toBeInTheDocument();
+    expect(fetchUncoveredLocations).not.toHaveBeenCalled();
+  });
+
+  it('reads the areas again after a location is saved, so the sub-region select is current', async () => {
+    render(<LocationManagementView onLocationsChanged={() => {}} />);
+
+    await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(1));
     await openEditor(1);
     await screen.findByRole('combobox', { name: 'Sub-region' });
     fireEvent.click(screen.getByTestId('location-edit-save'));
 
-    await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(2));
   });
 
-  it('reads the areas and the uncovered count again after a location is enabled or disabled', async () => {
+  it('reads the areas again after a location is enabled or disabled', async () => {
     setLocationEnabled.mockResolvedValue({});
     render(<LocationManagementView onLocationsChanged={() => {}} />);
 
-    await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId('locations-row-1'));
     fireEvent.click(await screen.findByTestId('toggle-enabled-1'));
 
     await waitFor(() => expect(setLocationEnabled).toHaveBeenCalledWith(1, false));
-    await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalledTimes(2));
-  });
-
-  it('reads the areas again for the edit form when the Areas section renames or deletes an area', async () => {
-    updateArea.mockResolvedValue({ ...SWALEDALE, name: 'Swale Dale' });
-    deleteArea.mockResolvedValue(undefined);
-    render(<LocationManagementView onLocationsChanged={() => {}} />);
-
-    fireEvent.click(await screen.findByTestId('area-edit-21'));
-    await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(2));
-    fetchAreas.mockClear();
-    fireEvent.click(screen.getByTestId('area-save-names'));
-    await waitFor(() => expect(updateArea).toHaveBeenCalled());
-    await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(screen.getByTestId('area-delete-22'));
-    fireEvent.click(screen.getByTestId('area-delete-yes-22'));
-    await waitFor(() => expect(deleteArea).toHaveBeenCalledWith(22));
     await waitFor(() => expect(fetchAreas).toHaveBeenCalledTimes(2));
   });
 
@@ -311,11 +300,11 @@ describe('LocationManagementView: the sub-region select', () => {
       await fillManual('4');
       fireEvent.change(await screen.findByRole('combobox', { name: 'Sub-region' }), { target: { value: '21' } });
       fireEvent.click(screen.getByTestId('location-add-submit'));
-      fetchUncoveredLocations.mockClear();
+      fetchAreas.mockClear();
 
       await waitFor(() => expect(addLocation).toHaveBeenCalledTimes(1));
       expect(addLocation).toHaveBeenCalledWith(expect.objectContaining({ regionId: 4, subRegionId: 21 }));
-      await waitFor(() => expect(fetchUncoveredLocations).toHaveBeenCalled());
+      await waitFor(() => expect(fetchAreas).toHaveBeenCalled());
     });
 
     it('sends no subRegionId when none was picked, and drops a pick when the region changes', async () => {
