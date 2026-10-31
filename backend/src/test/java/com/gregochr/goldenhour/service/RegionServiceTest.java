@@ -256,26 +256,60 @@ class RegionServiceTest {
     @Test
     @DisplayName("setEnabled(true) enables region")
     void setEnabled_enable_setsEnabledTrue() {
-        RegionEntity entity = buildRegion(1L, "Northumberland");
-        entity.setEnabled(false);
-        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        RegionEntity before = buildRegion(1L, "Northumberland");
+        before.setEnabled(false);
+        RegionEntity after = buildRegion(1L, "Northumberland");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(before), Optional.of(after));
 
         RegionEntity result = regionService.setEnabled(1L, true);
 
         assertThat(result.isEnabled()).isTrue();
+        // enabled is updatable = false on the entity: it must go through the scoped update, never save().
+        verify(regionRepository).updateEnabled(1L, true);
+        verify(regionRepository, never()).save(any());
     }
 
     @Test
     @DisplayName("setEnabled(false) disables region")
     void setEnabled_disable_setsEnabledFalse() {
-        RegionEntity entity = buildRegion(1L, "Northumberland");
-        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        RegionEntity before = buildRegion(1L, "Northumberland");
+        RegionEntity after = buildRegion(1L, "Northumberland");
+        after.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(before), Optional.of(after));
 
         RegionEntity result = regionService.setEnabled(1L, false);
 
         assertThat(result.isEnabled()).isFalse();
+        verify(regionRepository).updateEnabled(1L, false);
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("setEnabled(false) on a region that is already off is a no-op: no count, no write, no 409")
+    void setEnabled_alreadyOff_isNoOp() {
+        RegionEntity entity = buildRegion(1L, "Northumberland");
+        entity.setEnabled(false);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        RegionEntity result = regionService.setEnabled(1L, false);
+
+        assertThat(result).isSameAs(entity);
+        verifyNoInteractions(locationRepository);
+        verify(regionRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(regionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("a rename saves the entity and never writes enabled through the scoped update")
+    void update_rename_doesNotTouchEnabledColumn() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.existsByName("Lakes")).thenReturn(false);
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.update(1L, new UpdateRegionRequest("Lakes"));
+
+        verify(regionRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -310,7 +344,6 @@ class RegionServiceTest {
         RegionEntity entity = buildRegion(1L, "Northumberland");
         entity.setEnabled(false);
         when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         regionService.setEnabled(1L, true);
 

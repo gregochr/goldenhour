@@ -64,5 +64,8 @@ switched-on location into a different, switched-off region) refuse with "Turn {r
 **on** is always allowed. `LocationService.resetFailures` of an auto-disabled place (one with a `disabledReason`) in a switched-off region is
 refused with the same 409 **before any write**, so the reason, counters and Needs-attention signal survive (clearing the
 reason alone would silently make it a manually-disabled place). A place with no reason only has its counters cleared.
-The only other re-enable path is `LocationFailureService` auto-disabling (it only switches places off). No migration:
+No other path re-enables a location (`LocationFailureService` only switches places off). `regions.enabled` is
+`updatable = false` and written only by `RegionRepository.updateEnabled` (the *Column-scoped writes* invariant), so a
+rename or base save cannot write a stale value back over a concurrent turn-on; `setEnabled` to the state a region is already in
+is a no-op, never a 409. No migration (`updatable = false` is a JPA mapping only):
 existing half-off data is left as is. The checks are check-then-write, not atomic against a concurrent toggle.

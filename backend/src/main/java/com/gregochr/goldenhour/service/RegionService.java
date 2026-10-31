@@ -241,7 +241,8 @@ public class RegionService {
     /**
      * Toggles the enabled state of a region.
      *
-     * <p>Turning a region <b>on</b> is always allowed. Turning it <b>off</b> is refused with a
+     * <p>Asking for the state the region is already in is a no-op that returns it unchanged (never a 409).
+     * Turning a region <b>on</b> is always allowed. Turning it <b>off</b> is refused with a
      * {@link RegionStateConflictException} (HTTP 409) while any of its locations is switched on, so a
      * switched-on location never sits in a switched-off region (data-tabs-redesign-plan D3). The count and the
      * save are not one transaction, so a location switched on in the gap can slip through; accepted, as the
@@ -255,6 +256,10 @@ public class RegionService {
      */
     public RegionEntity setEnabled(Long id, boolean enabled) {
         RegionEntity region = findById(id);
+        if (region.isEnabled() == enabled) {
+            // Already in the asked state: nothing to write, and an already-off region is never refused.
+            return region;
+        }
         if (!enabled) {
             long on = locationRepository.countEnabledInRegion(region.getId());
             if (on > 0) {
@@ -262,8 +267,9 @@ public class RegionService {
                         "Turn off its " + (on == 1 ? "1 location" : on + " locations") + " first.");
             }
         }
-        region.setEnabled(enabled);
-        RegionEntity saved = regionRepository.save(region);
+        // enabled is updatable = false on the entity: write it with the scoped update, then read the row back.
+        regionRepository.updateEnabled(region.getId(), enabled);
+        RegionEntity saved = findById(id);
         servedEpoch.bump();
 
         LOG.info("Region '{}' {}", saved.getName(), enabled ? "enabled" : "disabled");

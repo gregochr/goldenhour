@@ -39,8 +39,15 @@ public class RegionEntity {
     @Column(nullable = false, unique = true)
     private String name;
 
-    /** Whether this region is enabled and visible in location dropdowns. */
-    @Column(nullable = false)
+    /**
+     * Whether this region is enabled and visible in location dropdowns.
+     *
+     * <p>Not updatable through the entity: a rename or base save loads the row, edits other fields and writes the
+     * whole entity back, which would carry a stale {@code enabled} over a concurrent turn-on and re-create the
+     * half-off state D3 forbids. Written only by {@code RegionRepository.updateEnabled}
+     * (the column-scoped writes invariant). An insert still writes the initial value.
+     */
+    @Column(nullable = false, updatable = false)
     @Builder.Default
     private boolean enabled = true;
 
