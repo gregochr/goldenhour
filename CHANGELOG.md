@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.7] - 2026-10-31
+
+### Added — a merged Runs list endpoint for the admin Operations tab
+
+`GET /api/admin/runs` serves pipeline runs and top-level job runs as one newest-first list, already
+grouped, named and given a status (Running, Done, Degraded, Partial or Failed), with range-scoped
+summary figures, per-group counts, a running count and the next overnight fire. A job run that never
+closed is now served as "Did not finish" once it passes its stale ceiling (26 hours for a batch, 6 for
+everything else). `GET /api/admin/runs/job/{id}` serves any single job run with its batch. This is the
+server half of the Runs redesign (R1); the old pipeline-run and metrics endpoints are unchanged.
+
+### Changed — the eval and Models screen take their model list from `EvaluationModel`
+
+The weekly sky-rating eval, the Models screen and the eval screen's model picker now all read one list, `EvaluationModel.selectable()`, instead of three hand-copied ones that had drifted: the weekly eval never ran Haiku 5.5 or Sonnet 5.5. Both now join it, and any future model joins every surface by being flagged selectable. The Models screen now lists every selectable model automatically, for every run type, with a generic card and a dash in the cost table until someone writes its details. Each selectable model adds one weekly eval run, so cost rises with the list. `POST /api/admin/sky-rating-eval/run` and `PUT /api/models/active` now refuse a non-selectable model (the extended-thinking variants and wildlife) with 400. On the eval screen's "Model accuracy over time" chart the Y-axis numbers are no longer clipped, the axis scales to the data instead of 0–100, and the legend and tooltip show model names such as "Haiku 4.5" rather than raw keys.
+
+### Changed — Areas has its own Operations tab
+
+The Areas section no longer sits at the bottom of Operations → Places → Locations. It is now its own sub-tab,
+Operations → Places → Areas (`#manage/areas`), between Regions and Tides.
+
 ## [v2.35.6] - 2026-10-31
 
 ### Added — model-disagreement sizing study scripts
