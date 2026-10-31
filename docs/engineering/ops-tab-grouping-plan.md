@@ -41,15 +41,27 @@ Rules:
 4. Group testids become `manage-group-runs|tuning|places|people|testing`; `manage-group-data` and
    `manage-group-operations` cease to exist. Sub-tab testids are unchanged.
 5. Fix the misplaced JSDoc: the component comment currently sits above `parseHash`, not `ManageView`.
+6. **Accepted cost of the new default:** `PipelineRunsView` polls every 60 s
+   (`LIST_REFRESH_INTERVAL_MS`) and the Operations pane never unmounts once opened, so a first open
+   now leaves that poll running for the session (Users had none). Admin-only, one interval, the same
+   trade the Scheduler sub-view already makes. Update the `WindowFirstShell.jsx` comment (~2915-2928)
+   that says mounting `ManageView` fires "its waitlist and user fetches" and names Scheduler's poll.
+7. Comment-only edit allowed in `UserManagementView.jsx:27` ("Manage → Data → Users" → "Operations →
+   People → Users").
 
 Tests (Vitest, read `docs/engineering/frontend-test-standards.md` first):
 - Update `ManageViewWaitlist`, `ManageViewRewind`, `ManageViewSubRegions`, `RunProgressKeptAfterFailures`
-  for the new groups and default.
+  for the new groups and default. Rewrite test *titles* that name the old groups (e.g. SubRegions'
+  "an Operations sub-tab", "the Data group does not carry the tab"), not just their testids.
+  `ManageViewWaitlist` renders with no hash, which now mounts the real `PipelineRunsView`: mock it as
+  the Rewind and Sub-regions tests mock their neighbours.
 - New `ManageViewGroups.test.jsx`: each group renders exactly its tabs in order; default landing is
   Pipeline Runs; every tab's hash lands on its group and tab (table-driven over `GROUPS`'s expected
   layout written out literally in the test, not imported); unknown tab falls back to Pipeline Runs;
   group click selects first tab and writes `#manage/<first tab>`; People badge shows/hides with count.
-- `test/e2e/forecast.spec.js` "Operations view — ADMIN": new group testids and default.
+- `test/e2e/forecast.spec.js` "Operations view — ADMIN": both tests. The first for the new group
+  testids and default; the second ("Locations sub-tab shows location cards") must click
+  `manage-group-places` before `manage-tab-locations`.
 
 Docs: `docs/engineering/reference/platform.md` paths ("Manage → Data → Users" → "Operations → People →
 Users", "Operations → Rewind" → "Operations → Testing → Rewind"); grep `docs/engineering/reference/`
@@ -62,23 +74,36 @@ Three layouts, exactly one rendered at a time (never CSS-hidden duplicates: test
 
 | Width | Navigation |
 |---|---|
-| ≥ 1024 px | Left sidebar `<nav aria-label="Operations sections">`: each group as a small uppercase heading, its tabs as buttons below; active tab `aria-current="page"` and the gold accent. Content in a `min-w-0 flex-1` column to its right. Fixed sidebar width (about `w-44`), `shrink-0`. |
-| 640–1023 px | Phase 1's two-row tab bar, unchanged. |
+| ≥ 1280 px | Left sidebar `<nav aria-label="Operations sections">`: each group as a small uppercase heading, its tabs as buttons below; active tab `aria-current="page"` and the gold accent. Content in a `min-w-0 flex-1` column to its right. Fixed sidebar width (about `w-44`), `shrink-0`. |
+| 640–1279 px | Phase 1's two-row tab bar, unchanged. |
 | < 640 px | One labelled `<select className="field">` (visually hidden `<label>` "Section") with an `<optgroup>` per group; option text "Waitlist (3)" when the count is > 0. Change writes the same hash. |
 
-- New hook `hooks/useIsWide.js` (`(min-width: 1024px)`), a copy of `useIsMobile.js`'s shape. Phone
-  detection uses the existing `useIsMobile`.
+- New hook `hooks/useIsWide.js` (`(min-width: 1280px)`), a copy of `useIsMobile.js`'s shape. Phone
+  detection uses the existing `useIsMobile`. **Precedence is explicit:** `isMobile ? select : isWide ?
+  sidebar : bar`, so no combination renders two navigations.
+- **Why 1280, not 1024** (plan review): at 1024 the content column is ~716 px, and
+  `UserManagementView.jsx:139` goes side-by-side on the *viewport* (`lg:`), squeezing its list to
+  ~276 px; at 1280 it is ~364 px and the frame cap (1080 px, `WindowFirstShell.jsx:193`) binds.
+- **One tree shape.** The content `<div key={activeTab}>` keeps the same parent in all three
+  layouts; only the navigation slot changes (e.g. a flex row whose first child is the sidebar or
+  nothing). Crossing a breakpoint must not remount the sub-view (it would drop the selected run and
+  filters and re-fire fetches). Test it: change the mocked hook and assert the sub-view did not remount.
+- Wrap `PipelineRunsView.jsx`'s phase, batch and cross-run tables (~284, ~498, ~563) in
+  `overflow-x-auto` like the one at ~169.
 - Sidebar and select reuse the same `GROUPS`, `setActiveTab` and badge state; selecting a tab sets
   its group. Sub-tab buttons keep their `manage-tab-<value>` testids in the sidebar; the select is
   `manage-section-select`; the sidebar is `manage-sidebar`.
 - Tablet must be provably unchanged from phase 1 (a test renders it with both hooks false and
   asserts the phase 1 markup).
-- Browser check at 390, 800, 1024 and 1280 px against the local backend (port 8083): no horizontal
+- Browser check at 390, 800, 1279 and 1280 px against the local backend (port 8083): no horizontal
   page scroll; Job Runs and Pipeline Runs tables still fit or scroll inside their own card.
 
 Tests: sidebar renders all groups and tabs, `aria-current` follows selection, hash sync; select lists
 every tab under its optgroup, changing it switches content and hash, waitlist count in option text;
-each width renders exactly one navigation. Mock `matchMedia` the way existing `useIsMobile` tests do.
+each width renders exactly one navigation. `test/setup.js` stubs `matchMedia` to "no match", so
+`vi.mock` the two hooks rather than `matchMedia`; existing ManageView tests then keep rendering the
+tablet bar unchanged. Update `test/e2e/forecast.spec.js` too: Playwright runs Desktop Chrome at
+1280 px (`playwright.config.js`), so it gets the sidebar, which has no `manage-group-*` buttons.
 
 Docs: add the layout to `platform.md`'s admin-features paragraph. Changelog:
 `changelog.d/YYYYMMDD-ops-tab-sidebar.md`.
