@@ -20,8 +20,8 @@ vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
  *
  * <p><b>What breaks if these fail:</b> the line says a reader has no coastal or dark-sky place when they do (or
  * stays silent when they do not), the line and the map disagree about what coastal means, the door lands inside a
- * card button, twice, or on the tide-light entry, the copy slips into "upgrade" or "not rated", or a Pro, Admin or
- * flag-off reader sees any of it.
+ * card button, twice, or on an entry that already carries the locked tide row while another is free, the copy
+ * slips into "upgrade" or "not rated", or a Pro, Admin or flag-off reader sees any of it.
  */
 
 const TODAY = '2026-08-09';
@@ -200,26 +200,45 @@ describe('Coming up — the sub-regions door (item 12)', () => {
     expect(door.parentElement).toBe(screen.getByTestId('coming-up-entry'));
   });
 
-  it('skips the first entry that shows the line only if it carries the tide-light door', () => {
+  it('skips an entry carrying the locked tide row for a later outside entry without one', () => {
     const entries = [
       entry('c1', 'coastal-spots', '2026-08-12', { lightRowsWithheld: true }),
       entry('c2', 'coastal-spots', '2026-08-20'),
     ];
     renderPane(entries, { briefing: { tideLocked: true, allowedLocationIds: [3] } });
     const rows = screen.getAllByTestId('coming-up-entry');
-    expect(within(rows[0]).getByTestId('coming-up-tide-light-upsell-door')).toBeInTheDocument();
+    expect(within(rows[0]).getByTestId('coming-up-tide-light-locked')).toBeInTheDocument();
     expect(within(rows[0]).queryByTestId('coming-up-subregion-door')).toBeNull();
     expect(within(rows[1]).getByTestId('coming-up-subregion-door')).toBeInTheDocument();
     // The skipped entry still carries the line.
     expect(within(rows[0]).getByTestId('coming-up-outside-line')).toBeInTheDocument();
   });
 
-  it('lets the line stand alone when the only entry carries the tide-light door', () => {
-    renderPane([entry('c1', 'coastal-spots', '2026-08-12', { lightRowsWithheld: true })], {
-      briefing: { tideLocked: true, allowedLocationIds: [3] },
-    });
-    expect(screen.getByTestId('coming-up-outside-line')).toBeInTheDocument();
-    expect(screen.queryByTestId('coming-up-subregion-door')).toBeNull();
+  it('puts the door on the first entry when every outside entry carries the locked tide row', () => {
+    renderPane([
+      entry('c1', 'coastal-spots', '2026-08-12', { lightRowsWithheld: true }),
+      entry('c2', 'coastal-spots', '2026-08-20', { lightRowsWithheld: true }),
+    ], { briefing: { tideLocked: true, allowedLocationIds: [3] } });
+    const rows = screen.getAllByTestId('coming-up-entry');
+    expect(screen.getAllByTestId('coming-up-subregion-door')).toHaveLength(1);
+    expect(within(rows[0]).getByTestId('coming-up-subregion-door')).toBeInTheDocument();
+    expect(within(rows[0]).getByTestId('coming-up-tide-light-locked')).toBeInTheDocument();
+  });
+
+  it('puts the door on the first RENDERED candidate under an active filter chip', () => {
+    const entries = [
+      entry('n1', 'dark-sky-spots', '2026-08-11'),
+      entry('c1', 'coastal-spots', '2026-08-12', { lightRowsWithheld: true }),
+      entry('c2', 'coastal-spots', '2026-08-20', { lightRowsWithheld: true }),
+    ];
+    renderPane(entries, { briefing: { tideLocked: true, allowedLocationIds: [3] } });
+    const coastalChip = screen.getAllByTestId('coming-up-chip')
+      .find((chip) => /coastal/i.test(chip.textContent));
+    fireEvent.click(coastalChip);
+    const rows = screen.getAllByTestId('coming-up-entry');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByTestId('coming-up-subregion-door')).toBeInTheDocument();
+    expect(within(rows[1]).queryByTestId('coming-up-subregion-door')).toBeNull();
   });
 
   it('names the coastal door with the roster count', () => {

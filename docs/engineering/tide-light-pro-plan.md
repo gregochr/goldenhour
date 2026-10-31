@@ -214,6 +214,10 @@ reworded (B2).
   event-water fact and an aligned clock, so the two role bodies really differ; Lite, Pro and Admin legs.
 
 ### F2 — client: the Coming up door
+
+> **Superseded (draw)** by `coming-up-tide-light-locked-row-plan.md` (2026-10-31): the door is replaced by a
+> locked row inside every flagged card. The server side (B2) is unchanged.
+
 - **Which cards:** `tideLocked && entry.lightRowsWithheld`, never the card family (a merged
   supermoon-hosted card has family `sun-moon`) and never fact text.
 - **How many:** one door on the **first** such card in render order; later cards show no door (Q9).

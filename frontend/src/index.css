@@ -10992,11 +10992,35 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   min-width: 0;
 }
 .wf-cu-subregion-door:empty { display: none; }
-/* The tide-light Pro door (tide-light-pro-plan.md F2): like the sub-regions door, a sibling after the card in
-   `.wf-cu-ent`'s grid, so it must name the card's column or it auto-places into the date rail. */
-.wf-cu-tide-door {
-  grid-column: 2;
+/* The Lite locked row (coming-up-tide-light-locked-row-plan.md §2.2): where Pro's sunrise and sunset
+   high-water rows sit. Scoped to `.wf-cu-card .wf-facts >` because `.wf-facts > span { display: inline-flex }`
+   (0,1,1) beats a bare class, the same trap as `.wf-cu-spark` above. It always takes its own line. */
+.wf-cu-card .wf-facts > .wf-cu-locked {
+  display: flex;
+  flex-wrap: wrap;
+  flex-basis: 100%;
   min-width: 0;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-tide);
+  border-radius: 6px;
+}
+/* Secondary, not muted: muted measures 3.49:1 at this size (see `.wf-facts`). */
+.wf-cu-locked-label {
+  min-width: 0;
+  color: var(--color-plex-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.wf-cu-locked > .wf-lens-pro { flex: none; }
+.wf-cu-locked-sketch { flex: none; width: 104px; height: 24px; }
+.wf-cu-locked-body {
+  flex-basis: 100%;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
 }
 /* A `<span>`, for the same button-content-model reason `.wf-cu-prose` gives. */
 .wf-cu-threshold {
