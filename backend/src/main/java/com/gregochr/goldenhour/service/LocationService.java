@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -41,6 +43,13 @@ public class LocationService {
 
     /** The valley floor must lie within this distance of the location, in kilometres. */
     private static final double MAX_FLOOR_DISTANCE_KM = 10.0;
+
+    /**
+     * Furthest a tide point may sit from the location's pin. A tide point is a neighbouring coastal point a few
+     * kilometres away that WorldTides models better than the pin's own cell; 25 km is generous for that and
+     * rejects a mistyped coordinate or a point on another stretch of coast.
+     */
+    private static final double MAX_TIDE_POINT_DISTANCE_KM = 25.0;
 
     private static final double MIN_LAT = -90.0;
     private static final double MAX_LAT = 90.0;
@@ -227,6 +236,7 @@ public class LocationService {
         // coordinate edit looks like a no-op.
         double previousLat = location.getLat();
         double previousLon = location.getLon();
+        LocationEntity.TidePoint previousTidePoint = location.getEffectiveTidePoint();
 
         // Handle name change — no cascade needed, forecast_evaluation
         // references location by ID, so renaming is a single-row update.
@@ -316,6 +326,8 @@ public class LocationService {
         }
 
         applyHeights(location, request);
+        applyTidePoint(location, request);
+        requireStoredTidePointNearPin(location, previousLat, previousLon);
 
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
                 || Double.compare(previousLon, location.getLon()) != 0;
@@ -335,6 +347,8 @@ public class LocationService {
 
         if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
             tideService.fetchAndStoreTideExtremes(saved);
+        } else if (isCoastal(saved) && !previousTidePoint.equals(saved.getEffectiveTidePoint())) {
+            refetchTidesAfterCommit(saved);
         }
 
         LOG.info("Updated location '{}' — type={}, solar={}, tide={}",
@@ -384,7 +398,7 @@ public class LocationService {
                 || !floorLng.equals(location.getValleyFloorLng());
         if (differs) {
             requireHeight(floorMetres, "Valley floor height");
-            if (floorLat < MIN_LAT || floorLat > MAX_LAT || floorLng < MIN_LON || floorLng > MAX_LON) {
+            if (!isValidCoordinate(floorLat, floorLng)) {
                 throw new IllegalArgumentException("Valley floor coordinates are out of range");
             }
             double distanceKm = GeoUtils.distanceKm(location.getLat(), location.getLon(), floorLat, floorLng);
@@ -396,6 +410,106 @@ public class LocationService {
         location.setValleyFloorMetres(floorMetres);
         location.setValleyFloorLat(floorLat);
         location.setValleyFloorLng(floorLng);
+    }
+
+    /**
+     * Applies the tide point of an update (tide-source-integrity-plan P1b), mirroring the valley-floor triple.
+     *
+     * <p>Both coordinates or neither; {@code clearTidePoint} alone nulls both and is rejected alongside either
+     * value; all null means "don't change". Each coordinate is range-checked, and the point must lie within
+     * {@value #MAX_TIDE_POINT_DISTANCE_KM} km of the pin as this same request leaves it. Every failure is an
+     * {@link IllegalArgumentException} (HTTP 400).
+     *
+     * @param location the location being updated, mutated in place
+     * @param request  the update request
+     */
+    private void applyTidePoint(LocationEntity location, UpdateLocationRequest request) {
+        Double tideLat = request.tideLat();
+        Double tideLng = request.tideLng();
+        int present = (tideLat != null ? 1 : 0) + (tideLng != null ? 1 : 0);
+        if (Boolean.TRUE.equals(request.clearTidePoint())) {
+            if (present > 0) {
+                throw new IllegalArgumentException("Clear the tide point or set it, not both");
+            }
+            location.setTideLat(null);
+            location.setTideLng(null);
+            return;
+        }
+        if (present == 0) {
+            return;
+        }
+        if (tideLat == null || tideLng == null) {
+            throw new IllegalArgumentException("A tide point needs its latitude and longitude together");
+        }
+        boolean differs = !tideLat.equals(location.getTideLat()) || !tideLng.equals(location.getTideLng());
+        if (differs) {
+            if (!isValidCoordinate(tideLat, tideLng)) {
+                throw new IllegalArgumentException("Tide point coordinates are out of range");
+            }
+            double distanceKm = GeoUtils.distanceKm(location.getLat(), location.getLon(), tideLat, tideLng);
+            if (distanceKm > MAX_TIDE_POINT_DISTANCE_KM) {
+                throw new IllegalArgumentException("The tide point must be within 25 km of the location");
+            }
+        }
+        location.setTideLat(tideLat);
+        location.setTideLng(tideLng);
+    }
+
+    /**
+     * True when both values are finite numbers inside the latitude and longitude ranges. NaN and the
+     * infinities fail every ordered comparison, so a range test alone lets them through.
+     */
+    private static boolean isValidCoordinate(double lat, double lng) {
+        return Double.isFinite(lat) && Double.isFinite(lng)
+                && lat >= MIN_LAT && lat <= MAX_LAT && lng >= MIN_LON && lng <= MAX_LON;
+    }
+
+    /**
+     * Rejects a pin move that strands a tide point (sent or kept) more than the allowed distance from the new pin.
+     *
+     * @param location    the location, with this request's pin and tide point applied
+     * @param previousLat the pin latitude before this request
+     * @param previousLon the pin longitude before this request
+     */
+    private void requireStoredTidePointNearPin(LocationEntity location, double previousLat, double previousLon) {
+        boolean moved = Double.compare(previousLat, location.getLat()) != 0
+                || Double.compare(previousLon, location.getLon()) != 0;
+        if (moved && location.getTideLat() != null && location.getTideLng() != null
+                && GeoUtils.distanceKm(location.getLat(), location.getLon(),
+                        location.getTideLat(), location.getTideLng()) > MAX_TIDE_POINT_DISTANCE_KM) {
+            throw new IllegalArgumentException(
+                    "The tide point must be within 25 km of the location — clear or move it");
+        }
+    }
+
+    /**
+     * Re-reads tides for a coastal location whose effective tide point has just changed, once the edit has
+     * committed, so the new point takes effect without waiting for the weekly refresh.
+     *
+     * <p>Runs after commit and in a transaction of its own, so a WorldTides failure can never roll back the
+     * admin's edit; it is logged and the weekly refresh retries. With no transaction in progress it runs at once.
+     *
+     * @param saved the saved location
+     */
+    private void refetchTidesAfterCommit(LocationEntity saved) {
+        Runnable refetch = () -> {
+            try {
+                tideService.fetchAndStoreTideExtremesInNewTransaction(saved);
+            } catch (RuntimeException e) {
+                LOG.warn("Tide re-read after a tide point change failed for '{}'; the weekly refresh will retry: {}",
+                        saved.getName(), e.getMessage());
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    refetch.run();
+                }
+            });
+        } else {
+            refetch.run();
+        }
     }
 
     private static void requireHeight(int metres, String what) {

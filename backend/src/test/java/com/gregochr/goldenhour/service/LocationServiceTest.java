@@ -1505,6 +1505,210 @@ class LocationServiceTest {
                 .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isTrue();
     }
 
+    // --- tide point (tide-source-integrity-plan P1b) ---
+
+    private LocationEntity coastalWithTidePoint() {
+        LocationEntity existing = buildEntity("Cullercoats", 55.03, -1.43);
+        existing.setGridLat(55.03);
+        existing.setGridLng(-1.43);
+        existing.setTideType(new java.util.HashSet<>(java.util.Set.of(TideType.HIGH)));
+        existing.setTideLat(55.00);
+        existing.setTideLng(-1.40);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        return existing;
+    }
+
+    /** As {@link #coastalWithTidePoint()}, for accepted updates: saves that entity, finds stored tides. */
+    private LocationEntity persistedCoastalWithTidePoint() {
+        LocationEntity existing = coastalWithTidePoint();
+        when(locationRepository.save(existing)).thenReturn(existing);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(true);
+        return existing;
+    }
+
+    private static UpdateLocationRequest tidePoint(Double lat, Double lng, Boolean clear) {
+        return new UpdateLocationRequest(null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, lat, lng, clear);
+    }
+
+    @Test
+    @DisplayName("update() sets a tide point and re-reads tides once, in a new transaction")
+    void update_tidePoint_setsAndRefetches() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+
+        locationService.update(1L, tidePoint(55.01, -1.41, null));
+
+        assertThat(existing.getTideLat()).isEqualTo(55.01);
+        assertThat(existing.getTideLng()).isEqualTo(-1.41);
+        verify(tideService).fetchAndStoreTideExtremesInNewTransaction(existing);
+    }
+
+    @Test
+    @DisplayName("update() with the tide point unchanged, or absent, does not re-read tides")
+    void update_tidePoint_unchangedOrAbsent_noRefetch() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+
+        locationService.update(1L, tidePoint(55.00, -1.40, null));
+        locationService.update(1L, tidePoint(null, null, null));
+        locationService.update(1L, tidePoint(null, null, false));
+
+        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
+    }
+
+    @Test
+    @DisplayName("update() clearTidePoint alone nulls both and re-reads tides; with a value it is a 400")
+    void update_tidePoint_clear() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, null, true)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not both");
+        assertThat(existing.getTideLat()).isEqualTo(55.00);
+
+        locationService.update(1L, tidePoint(null, null, true));
+
+        assertThat(existing.getTideLat()).isNull();
+        assertThat(existing.getTideLng()).isNull();
+        verify(tideService).fetchAndStoreTideExtremesInNewTransaction(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects one tide-point coordinate alone as a 400 and saves nothing")
+    void update_tidePoint_partialIsRejected() {
+        LocationEntity existing = coastalWithTidePoint();
+
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, null, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("together");
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(null, -1.41, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects an out-of-range tide point and one more than 25 km from the pin")
+    void update_tidePoint_outOfRangeAndTooFar() {
+        LocationEntity existing = coastalWithTidePoint();
+
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(91.0, -1.4, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.0, -181.0, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("out of range");
+        assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.50, -1.43, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() keeps the edit when the tide re-read fails")
+    void update_tidePoint_fetchFailureDoesNotFailUpdate() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+        org.mockito.Mockito.doThrow(new IllegalStateException("WorldTides down"))
+                .when(tideService).fetchAndStoreTideExtremesInNewTransaction(existing);
+
+        LocationEntity result = locationService.update(1L, tidePoint(55.01, -1.41, null));
+
+        assertThat(result.getTideLat()).isEqualTo(55.01);
+    }
+
+    @Test
+    @DisplayName("update() on a non-coastal location never re-reads tides for a tide-point edit")
+    void update_tidePoint_inlandNoRefetch() {
+        LocationEntity existing = buildEntity("Latrigg", 54.6, -3.1);
+        existing.setGridLat(54.6);
+        existing.setGridLng(-3.1);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, tidePoint(54.61, -3.1, null));
+
+        verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
+    }
+
+    @Test
+    @DisplayName("update() inside a transaction defers the tide re-read until after commit")
+    void update_tidePoint_runsAfterCommit() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            locationService.update(1L, tidePoint(55.01, -1.41, null));
+            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            verify(tideService).fetchAndStoreTideExtremesInNewTransaction(existing);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
+        }
+    }
+
+    @Test
+    @DisplayName("update() rejects a pin move that strands the stored tide point beyond 25 km, saving nothing")
+    void update_pinMove_strandsTidePoint_rejected() {
+        LocationEntity existing = coastalWithTidePoint();
+
+        assertThatThrownBy(() -> locationService.update(1L, new UpdateLocationRequest(
+                null, 55.75, null, null, null, null, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("clear or move it");
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() accepts a small pin move with a stored tide point still within 25 km")
+    void update_pinMove_tidePointStillNear_saves() {
+        LocationEntity existing = persistedCoastalWithTidePoint();
+
+        locationService.update(1L, new UpdateLocationRequest(null, 55.04, null, null, null, null, null));
+
+        assertThat(existing.getLat()).isEqualTo(55.04);
+        verify(locationRepository).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects NaN and infinite tide-point coordinates")
+    void update_tidePoint_nonFinite_rejected() {
+        LocationEntity existing = coastalWithTidePoint();
+
+        for (double bad : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> locationService.update(1L, tidePoint(bad, -1.41, null)))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> locationService.update(1L, tidePoint(55.01, bad, null)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() rejects NaN and infinite valley-floor coordinates")
+    void update_floor_nonFinite_rejected() {
+        LocationEntity existing = existingWithFloor();
+
+        for (double bad : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, bad, -3.11, null)))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> locationService.update(1L, heights(null, null, null, 95, 54.59, bad, null)))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("update() on a coastal location with no stored extremes fetches synchronously, not after commit")
+    void update_tidePoint_noStoredExtremes_syncFetchWins() {
+        LocationEntity existing = coastalWithTidePoint();
+        when(locationRepository.save(existing)).thenReturn(existing);
+        when(tideService.hasStoredExtremes(1L)).thenReturn(false);
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            locationService.update(1L, tidePoint(55.01, -1.41, null));
+
+            verify(tideService).fetchAndStoreTideExtremes(existing);
+            verify(tideService, never()).fetchAndStoreTideExtremesInNewTransaction(existing);
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager
+                    .getSynchronizations()).isEmpty();
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
+        }
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)
