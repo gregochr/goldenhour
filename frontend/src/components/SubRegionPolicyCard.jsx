@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { getSubRegionPolicy, saveSubRegionPolicy } from '../api/subRegionPolicyApi.js';
 import { apiErrorMessage } from '../utils/apiError.js';
 import ErrorBanner from './shared/ErrorBanner.jsx';
@@ -17,11 +18,16 @@ function parseLimit(text, max) {
 }
 
 /**
- * Operations: the admin setting for how many sub-regions a Lite reader may pick (sub-regions-plan D5, S2).
+ * The admin setting for how many sub-regions a Lite reader may pick (sub-regions-plan D5, S2).
  * Shows the saved value, says how many Lite readers hold more picks than a lowered value BEFORE it is saved
- * (they keep them until they next change), and saves. Admin only: the tab that mounts it is.
+ * (they keep them until they next change), and saves. Admin only: it lives in the Lite limit dialog on
+ * Manage → Data → Users, which only the Manage screen (admin) mounts.
+ *
+ * @param {object} props
+ * @param {(saved: object) => void} [props.onSaved] called with the saved policy after a successful save only
+ * @param {boolean} [props.bare] drop the card chrome and the title, for a host (the dialog) that supplies both
  */
-export default function SubRegionPolicyCard() {
+export default function SubRegionPolicyCard({ onSaved, bare = false }) {
   const [policy, setPolicy] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [draft, setDraft] = useState('');
@@ -95,6 +101,7 @@ export default function SubRegionPolicyCard() {
       latestDraft.current = String(saved.liteLimit);
       setPreview({ state: 'ready', count: saved.liteUsersOverLimit });
       setSavedNote(`Saved: Lite readers may now pick up to ${saved.liteLimit}.`);
+      if (onSaved) onSaved(saved);
     } catch (err) {
       setSaveError(apiErrorMessage(err, 'Could not save the sub-region limit.'));
     } finally {
@@ -103,8 +110,8 @@ export default function SubRegionPolicyCard() {
   }
 
   return (
-    <div className="card flex flex-col gap-3" data-testid="sub-region-policy">
-      <p className="text-sm font-semibold text-plex-text">Lite sub-region picks</p>
+    <div className={`${bare ? '' : 'card '}flex flex-col gap-3`} data-testid="sub-region-policy">
+      {!bare && <p className="text-sm font-semibold text-plex-text">Lite sub-region picks</p>}
       <p className="text-xs text-plex-text-secondary">
         How many sub-regions a Lite reader may choose. Pro and Admin readers see every sub-region and never choose.
       </p>
@@ -166,3 +173,8 @@ export default function SubRegionPolicyCard() {
     </div>
   );
 }
+
+SubRegionPolicyCard.propTypes = {
+  onSaved: PropTypes.func,
+  bare: PropTypes.bool,
+};
