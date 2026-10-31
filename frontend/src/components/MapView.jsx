@@ -6920,6 +6920,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tab's ONLY selection surface now (no Leaflet popup left to fall back to). */}
           {selectedLoc && (activeMapEvent || hideDayCard) && (
             <MapCallout
+              chipAlertNight={auroraAlertNight}
+              chipAlertLevel={auroraAlertLevel}
               location={selectedLoc}
               rating={getRatingForLocation(selectedLoc)}
               event={activeMapEvent}

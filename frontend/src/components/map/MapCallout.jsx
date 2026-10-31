@@ -8,6 +8,7 @@ import {
   anchorCallout, CALLOUT_MARGIN, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
   NIGHT_RETRY_LINE, regionGlossFor,
 } from '../../utils/mapCallout.js';
+import { auroraChipLevel } from '../../utils/auroraChipLevel.js';
 import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import {
@@ -349,7 +350,7 @@ export default function MapCallout({
   dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
   userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false, highWaterLead = null,
-  outsidePicks = false,
+  outsidePicks = false, chipAlertNight = null, chipAlertLevel = null,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
@@ -932,7 +933,12 @@ export default function MapCallout({
             background: rgb(rampColour, 0.1),
           } : undefined}
         >
-          <span className={`wf-hc-sun ${kindClass(event)}`}>{kindWord(event)}</span>
+          <span
+            className={`wf-hc-sun ${kindClass(event)}`}
+            data-aurora-level={auroraChipLevel(event, chipAlertNight, chipAlertLevel) ?? undefined}
+          >
+            {kindWord(event)}
+          </span>
           <span className="wf-callout-verdict-label">
             {event.time ? `${eventDayLabel} · ${event.time}` : eventDayLabel}
           </span>
@@ -1279,7 +1285,12 @@ export default function MapCallout({
                   title={row.time ? `${row.label} · ${row.time}` : row.label}
                   onClick={() => onSelectEv?.(row)}
                 >
-                  <span className={`wf-hc-sun ${kindClass(row)}`}>{kindShort(row)}</span>
+                  <span
+                    className={`wf-hc-sun ${kindClass(row)}`}
+                    data-aurora-level={auroraChipLevel(row, chipAlertNight, chipAlertLevel) ?? undefined}
+                  >
+                    {kindShort(row)}
+                  </span>
                   <span className="wf-callout-strip-date">{row.dayLabel ?? row.label}</span>
                   {rowRatingRounded != null ? (
                     <span className="wf-callout-strip-score">
@@ -1332,6 +1343,10 @@ export default function MapCallout({
 }
 
 MapCallout.propTypes = {
+  /** The night the aurora alert describes, and its level: that night's aurora chips follow the level
+   * (not `auroraAlertLevel`, which is the per-place served level). */
+  chipAlertNight: PropTypes.string,
+  chipAlertLevel: PropTypes.string,
   location: PropTypes.shape({
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     name: PropTypes.string.isRequired,
