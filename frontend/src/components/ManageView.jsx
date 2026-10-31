@@ -123,7 +123,10 @@ export default function ManageView({ onComplete }) {
     <div className="flex flex-col gap-4">
 
       {/* Group tabs */}
-      <div className="flex gap-6 border-b border-plex-border">
+      <div
+        className="flex flex-wrap gap-x-6 gap-y-2 border-b border-plex-border"
+        data-testid="manage-group-bar"
+      >
         {GROUPS.map((group) => (
           <button
             key={group.value}
@@ -146,7 +149,7 @@ export default function ManageView({ onComplete }) {
       </div>
 
       {/* Sub-tabs */}
-      <div className="flex gap-5">
+      <div className="flex flex-wrap gap-x-5 gap-y-2" data-testid="manage-tab-bar">
         {currentGroup.tabs.map((tab) => (
           <button
             key={tab.value}

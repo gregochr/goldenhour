@@ -2917,15 +2917,17 @@ export default function WindowFirstShell({
           That split is this file's own idiom, not a new one: `useComingUpFeed` is already gated on
           the selected tab while its panel is always mounted. It matters more here. Mounting
           `ManageView` eagerly would pull 633 KB and fire its waitlist fetch and the landing
-          sub-view's (Pipeline Runs) on every Plan-tab first paint, for a pane most sessions never open. Never unmounting after that is
-          equally deliberate — but NOT for the reason first written here. `ManageView` writes
+          sub-view's own (Pipeline Runs) on every Plan-tab first paint, for a pane most sessions
+          never open. Never unmounting after that is equally deliberate — but NOT for the reason
+          first written here. `ManageView` writes
           `#manage/<tab>` on every sub-tab click and parses that hash on mount, so the sub-view is
           the one thing that WOULD survive a remount. What a remount actually discards is the rest:
           the selected run, table filters, scroll position, and a re-fired waitlist fetch.
           ⚠️ The cost of never unmounting is real and measured: the landing Pipeline Runs sub-view's
           60-second list poll (and a Scheduler sub-view's 30-second one) keeps running for the rest
-          of the session, invisibly, after the reader has gone back to Plan. Admin-only and one interval, not several — but if that is not wanted,
-          release the pane here rather than deleting the comment. */}
+          of the session, invisibly, after the reader has gone back to Plan. Admin-only and one
+          interval, not several — but if that is not wanted, release the pane here rather than
+          deleting the comment. */}
       {tabs.filter((t) => t.slot).map((tab) => (
         <div
           key={tab.id}

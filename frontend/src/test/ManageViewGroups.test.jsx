@@ -46,7 +46,7 @@ const EXPECTED = [
 const ALL_TABS = EXPECTED.flatMap((g) => g.tabs.map(([value, label]) => ({ group: g.group, value, label })));
 
 const GROUP_IDS = EXPECTED.map((g) => `manage-group-${g.group}`);
-const subTabIds = () => screen.getAllByTestId(/^manage-tab-/).map((el) => el.dataset.testid.replace('manage-tab-', ''));
+const subTabIds = () => screen.getAllByTestId(/^manage-tab-(?!bar$)/).map((el) => el.dataset.testid.replace('manage-tab-', ''));
 const isSelectedGroup = (group) => screen.getByTestId(`manage-group-${group}`).className.includes('text-plex-gold');
 
 describe('ManageView — grouping', () => {
@@ -58,7 +58,7 @@ describe('ManageView — grouping', () => {
 
   it('renders exactly the five groups, in order, and no old Data/Operations group', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    const ids = screen.getAllByTestId(/^manage-group-/).map((el) => el.dataset.testid);
+    const ids = screen.getAllByTestId(/^manage-group-(?!bar$)/).map((el) => el.dataset.testid);
     expect(ids).toEqual(GROUP_IDS);
     expect(screen.queryByTestId('manage-group-data')).toBeNull();
     expect(screen.queryByTestId('manage-group-operations')).toBeNull();
@@ -72,6 +72,12 @@ describe('ManageView — grouping', () => {
     tabs.forEach(([value, tabLabel]) => {
       expect(screen.getByTestId(`manage-tab-${value}`)).toHaveTextContent(tabLabel);
     });
+  });
+
+  it('lets both tab rows wrap so five groups fit a phone', () => {
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('manage-group-bar')).toHaveClass('flex-wrap');
+    expect(screen.getByTestId('manage-tab-bar')).toHaveClass('flex-wrap');
   });
 
   it('lands on Runs / Pipeline Runs with no hash', () => {
