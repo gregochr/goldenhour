@@ -4,6 +4,7 @@ import Modal from './shared/Modal.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import SubRegionToast from './subregions/SubRegionToast.jsx';
 import UserListPane from './users/UserListPane.jsx';
+import LiteLimitButton from './users/LiteLimitButton.jsx';
 import UserReaderPanel from './users/UserReaderPanel.jsx';
 import UserAddPanel from './users/UserAddPanel.jsx';
 
@@ -42,6 +43,8 @@ export default function UserManagementView() {
   const [tempPassword, setTempPassword] = useState(null);
   const [toast, setToast] = useState(null);
   const clearToast = useCallback(() => setToast(null), []);
+  // Bumped when the Lite limit is saved, so an open reader panel refetches its sub-region state in place.
+  const [policyVersion, setPolicyVersion] = useState(0);
 
   const refreshUsers = useCallback(async () => {
     try {
@@ -71,6 +74,12 @@ export default function UserManagementView() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  // Each user's `overLimit` flag comes from GET /api/users, so a new limit means refetching the list too.
+  const handlePolicySaved = useCallback(() => {
+    refreshUsers();
+    setPolicyVersion((v) => v + 1);
+  }, [refreshUsers]);
 
   const selectedUser = users.find((u) => u.id === selectedId) ?? null;
   const panelOpen = adding || selectedUser != null;
@@ -144,6 +153,7 @@ export default function UserManagementView() {
               compact={panelOpen}
               onSelect={selectUser}
               onAdd={startAdd}
+              headerActions={<LiteLimitButton onSaved={handlePolicySaved} />}
             />
           </div>
           {panelOpen && (
@@ -161,6 +171,7 @@ export default function UserManagementView() {
                   onTempPassword={setTempPassword}
                   onToast={setToast}
                   onDeleted={handleDeleted}
+                  policyVersion={policyVersion}
                 />
               )}
             </aside>

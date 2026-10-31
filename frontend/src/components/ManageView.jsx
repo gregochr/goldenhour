@@ -14,7 +14,6 @@ import HotTopicSimulation from './HotTopicSimulation.jsx';
 import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
-import SubRegionPolicyCard from './SubRegionPolicyCard.jsx';
 
 const GROUPS = [
   {
@@ -40,7 +39,6 @@ const GROUPS = [
       { value: 'traveldays', label: 'Travel Days' },
       { value: 'hottopics', label: 'Hot Topics' },
       { value: 'rewind', label: 'Rewind' },
-      { value: 'subregions', label: 'Sub-regions' },
     ],
   },
 ];
@@ -198,8 +196,6 @@ export default function ManageView({ onComplete }) {
             />
           </div>
         )}
-
-        {activeTab === 'subregions' && <SubRegionPolicyCard />}
 
         {activeTab === 'models' && (
           <ModelSelectionView />

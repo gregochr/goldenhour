@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import {
   getUsers, createUser, resetUserPassword, updateUserEmail, updateUserRole, updateUserEnabled, deleteUser,
   resendVerification, getUserSubRegions, saveUserSubRegions, clearUserSubRegionLock,
 } from '../api/userApi.js';
+import { getSubRegionPolicy, saveSubRegionPolicy } from '../api/subRegionPolicyApi.js';
 import UserManagementView from '../components/UserManagementView.jsx';
 
 vi.mock('../api/userApi.js', () => ({
@@ -19,6 +20,15 @@ vi.mock('../api/userApi.js', () => ({
   saveUserSubRegions: vi.fn(),
   clearUserSubRegionLock: vi.fn(),
 }));
+
+vi.mock('../api/subRegionPolicyApi.js', () => ({
+  getSubRegionPolicy: vi.fn(),
+  saveSubRegionPolicy: vi.fn(),
+}));
+
+const POLICY = {
+  liteLimit: 3, maxLimit: 24, liteUsersOverLimit: 0, candidateLimit: 3, updatedAt: null, updatedBy: null,
+};
 
 const OPTIONS = [
   {
@@ -131,6 +141,7 @@ describe('UserManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.location.hash = '';
+    getSubRegionPolicy.mockResolvedValue(POLICY);
   });
 
   describe('the list', () => {
@@ -1033,6 +1044,106 @@ describe('UserManagementView', () => {
       expect(screen.queryByRole('button', { name: 'Change picks' })).not.toBeInTheDocument();
       expect(screen.queryByTestId('filtering-off-note')).not.toBeInTheDocument();
       expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('Lite · Awaiting verification · joined today');
+    });
+  });
+
+  describe('the Lite limit button', () => {
+    /** Opens the limit dialog, changes the limit to 2 and saves it. */
+    async function saveLimitOfTwo() {
+      getSubRegionPolicy.mockResolvedValueOnce(POLICY).mockResolvedValueOnce({ ...POLICY, candidateLimit: 2 });
+      saveSubRegionPolicy.mockResolvedValue({ ...POLICY, liteLimit: 2, candidateLimit: 2 });
+      fireEvent.click(await screen.findByTestId('lite-limit-btn'));
+      fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await screen.findByTestId('sub-region-policy-saved');
+    }
+
+    it('sits in the list header beside Add user and shows the saved limit', async () => {
+      await renderList();
+
+      const header = screen.getByTestId('lite-limit-btn').parentElement;
+      expect(await screen.findByText('Lite limit: 3')).toBe(screen.getByTestId('lite-limit-btn'));
+      expect(within(header).getByTestId('add-user-btn')).toBeInTheDocument();
+    });
+
+    it('is still rendered in the compact list header while a reader panel is open (lg and wider layout)', async () => {
+      await renderList();
+      await openReader('anna_r');
+
+      expect(screen.getByTestId('lite-limit-btn')).toBeInTheDocument();
+    });
+
+    it('refetches the users after a save, so the Over limit chip count follows', async () => {
+      await renderList();
+      expect(screen.getByTestId('chip-overLimit-count')).toHaveTextContent('0');
+      getUsers.mockResolvedValue(fixtureUsers().map((u) => (u.id === 1 ? { ...u, overLimit: true } : u)));
+
+      await saveLimitOfTwo();
+
+      await waitFor(() => expect(screen.getByTestId('chip-overLimit-count')).toHaveTextContent('1'));
+      expect(getUsers).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId('lite-limit-btn')).toHaveTextContent('Lite limit: 2');
+    });
+
+    it("refetches the open reader's sub-regions in place: the panel stays mounted", async () => {
+      await renderList();
+      await openReader('anna_r', makeState({ limit: 3 }));
+      getUserSubRegions.mockResolvedValue(makeState({ limit: 2 }));
+      const panelBefore = screen.getByTestId('user-reader-panel');
+
+      await saveLimitOfTwo();
+
+      await waitFor(() => expect(getUserSubRegions).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId('user-reader-panel')).toBe(panelBefore);
+    });
+
+    it('keeps a Change picks draft through the refetch and shows the new limit', async () => {
+      await renderList();
+      await openReader('anna_r', makeState({ limit: 3 }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Change picks' }));
+      const picker = await screen.findByTestId('user-change-picks');
+      fireEvent.click(within(picker).getByRole('checkbox', { name: /Bamburgh to Howick/ }));
+      expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('3 of 3 chosen');
+      getUserSubRegions.mockResolvedValue(makeState({ limit: 5 }));
+
+      await saveLimitOfTwo();
+
+      await waitFor(() => expect(screen.getByTestId('user-panel-subtitle')).toHaveTextContent('3 of 5 chosen'));
+      expect(screen.getByTestId('user-change-picks')).toBeInTheDocument();
+      expect(within(screen.getByTestId('user-change-picks')).getByRole('checkbox', { name: /Bamburgh to Howick/ }))
+        .toBeChecked();
+    });
+
+    it('keeps picks mode and the draft when the refetch fails', async () => {
+      await renderList();
+      await openReader('anna_r', makeState({ limit: 3 }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Change picks' }));
+      const picker = await screen.findByTestId('user-change-picks');
+      fireEvent.click(within(picker).getByRole('checkbox', { name: /Bamburgh to Howick/ }));
+      getUserSubRegions.mockRejectedValue(new Error('down'));
+
+      await saveLimitOfTwo();
+
+      await waitFor(() => expect(getUserSubRegions).toHaveBeenCalledTimes(2));
+      expect(screen.getByTestId('user-change-picks')).toBeInTheDocument();
+      expect(within(screen.getByTestId('user-change-picks')).getByRole('checkbox', { name: /Bamburgh to Howick/ }))
+        .toBeChecked();
+    });
+
+    it('Esc with the limit dialog open closes only the dialog; a second Esc closes the panel', async () => {
+      await renderList();
+      await openReader('anna_r');
+      fireEvent.click(await screen.findByTestId('lite-limit-btn'));
+      await screen.findByTestId('lite-limit-dialog');
+
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+
+      expect(screen.queryByTestId('lite-limit-dialog')).not.toBeInTheDocument();
+      expect(screen.getByTestId('user-panel')).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('user-panel')).not.toBeInTheDocument();
     });
   });
 
