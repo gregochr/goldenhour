@@ -3,14 +3,11 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BatchSubmitRequest;
 import com.gregochr.goldenhour.model.RegionSummaryDto;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService;
-import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultResponse;
-import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmitResult;
 import com.gregochr.goldenhour.service.batch.BatchSubmitResult;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import org.springframework.http.ResponseEntity;
@@ -22,13 +19,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Admin endpoints for monitoring and testing Anthropic Batch API submissions.
+ * Admin endpoints for monitoring and forcing Anthropic Batch API submissions.
  *
  * <p>All endpoints require the {@code ADMIN} role.
  */
@@ -46,7 +42,7 @@ public class BatchAdminController {
      *
      * @param batchRepository         repository for reading batch records
      * @param batchEvaluationService  service exposing the batch guard reset operation
-     * @param forceSubmitBatchService service for force-submitting test batches
+     * @param forceSubmitBatchService service for submitting JFDI batches
      * @param locationService         service for retrieving enabled locations
      */
     public BatchAdminController(ForecastBatchRepository batchRepository,
@@ -185,61 +181,4 @@ public class BatchAdminController {
         return !batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED)
                 .isEmpty();
     }
-
-    /**
-     * Submits a force-test batch for all locations in a region, bypassing all gates
-     * (triage, stability, cache). Proves the SDK batch wiring works independently.
-     *
-     * @param request the force-submit request containing regionId, date, and event
-     * @return submission summary with batch ID and location breakdown
-     */
-    @PostMapping("/force-submit")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ForceSubmitResult> forceSubmit(
-            @RequestBody ForceSubmitRequest request) {
-        if (request.regionId() == null || request.date() == null
-                || request.event() == null) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        TargetType targetType;
-        try {
-            targetType = TargetType.valueOf(request.event().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        try {
-            ForceSubmitResult result = forceSubmitBatchService.forceSubmit(
-                    request.regionId(), request.date(), targetType);
-            if (result.batchId() == null) {
-                return ResponseEntity.unprocessableContent().body(result);
-            }
-            return ResponseEntity.ok(result);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.unprocessableContent().body(
-                    new ForceSubmitResult(null, 0, null, 0, 0, 0, List.of(e.getMessage())));
-        }
-    }
-
-    /**
-     * Retrieves the status and results of a force-submitted batch.
-     *
-     * @param batchId the Anthropic batch ID
-     * @return current status and any available results
-     */
-    @GetMapping("/force-result/{batchId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ForceResultResponse forceResult(@PathVariable String batchId) {
-        return forceSubmitBatchService.getResult(batchId);
-    }
-
-    /**
-     * Request body for the force-submit endpoint.
-     *
-     * @param regionId the database ID of the target region
-     * @param date     the forecast date (ISO format)
-     * @param event    "SUNRISE" or "SUNSET"
-     */
-    public record ForceSubmitRequest(Long regionId, LocalDate date, String event) {}
 }

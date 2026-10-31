@@ -6,7 +6,7 @@
 
 - **Rollback already exists and is good.** `scripts/rollback.sh` (digest-pinned, `--single-transaction` restore, safety dump first, compose-override pin) and `scripts/pre-release-backup.sh` (dump + image digests + schema version, aborts the release on failure) are both in the tree and both wired into `deploy.yml`. All three proposals said "there is no rollback anywhere in the repo". Wrong. What is missing is *anything that decides to call it*.
 - **The failure notifier is already wired into six of ten workflows** — `deploy.yml`, `codeql.yml`, `pitest.yml`, `zap.yml`, `security-scan.yml`, `backup-verify.yml` (`grep -ln ci-failure-issue .github/workflows/*.yml`). Only `real-api-smoke.yml` still lacks it. The recon's "four of six scheduled workflows have no notifier" is stale.
-- **`GET /api/status` does not exist.** `StatusController` declares exactly one mapping: `@GetMapping(path = "/stream")` at line 103. Three tiers across two proposals built their deploy verification on it. The version lives only behind `@PreAuthorize("hasRole('ADMIN')")` on `AdminBuildInfoController` (`/api/admin/build-info`) and in `/actuator/health` details, which prod gates with `show-details: when_authorized`.
+- **`GET /api/status` does not exist.** `StatusController` declares exactly one mapping: `@GetMapping(path = "/stream")` at line 103. Three tiers across two proposals built their deploy verification on it. The version lives only in `/actuator/health` details, which prod gates with `show-details: when_authorized`. (The ADMIN-only `AdminBuildInfoController`, `/api/admin/build-info`, had no caller and was deleted in the 2026-10-30 dead-code sweep, Phase C.)
 
 ---
 
@@ -458,7 +458,7 @@ Also here: delete `frontend/src/api/healthApi.js` (zero importers, mirrors a liv
 
 `deploy.yml` currently ends `sleep 30 && docker compose ps` — which exits 0 over a crash-looping container, and whose output is printed and never asserted on. The v2.16.7 log shows `mkdir: cannot create directory '/Users/gregochr/goldenhour-data/logs': Permission denied` being swallowed while the deploy reported success. `docker-compose.yml:10,52` still bind-mounts macOS paths on a Linux host; `backend/Dockerfile` runs as `appuser` (uid 1001) against a Docker-auto-created root-owned directory, so `/app/logs` is very likely unwritable right now.
 
-**Prerequisite production change — this is the enabler and it must be scoped, not assumed.** `GET /api/status` does not exist; `SecurityConfig.java:78` makes `/api/**` authenticated; prod sets `show-details: when_authorized` so the version in `AppVersionHealthIndicator` is invisible unauthenticated; `/api/admin/build-info` is ADMIN-only, and putting ADMIN credentials in a public repo's secrets is not acceptable (`JwtAuthenticationFilter.java:87-92` reads the role off the claim with no DB lookup, so revocation takes 24h). So:
+**Prerequisite production change — this is the enabler and it must be scoped, not assumed.** `GET /api/status` does not exist; `SecurityConfig.java:78` makes `/api/**` authenticated; prod sets `show-details: when_authorized` so the version in `AppVersionHealthIndicator` is invisible unauthenticated; the former `/api/admin/build-info` was ADMIN-only (and is now deleted), and putting ADMIN credentials in a public repo's secrets is not acceptable (`JwtAuthenticationFilter.java:87-92` reads the role off the claim with no DB lookup, so revocation takes 24h). So:
 
 ```java
 // backend/src/main/java/com/gregochr/goldenhour/controller/StatusController.java  (add)

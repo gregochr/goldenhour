@@ -19,9 +19,5 @@ export const getSkyRatingEvalRuns = () => apiClient.get('/api/admin/sky-rating-e
 /** A single run, for progress polling. */
 export const getSkyRatingEvalRun = (id) => apiClient.get(`/api/admin/sky-rating-eval/runs/${id}`);
 
-/** The per-(fixture × run-index) results for one run. */
-export const getSkyRatingEvalResults = (id) =>
-  apiClient.get(`/api/admin/sky-rating-eval/runs/${id}/results`);
-
 /** The calibration-drift series — one aggregate point per (completed run × fixture). */
 export const getSkyRatingEvalTrend = () => apiClient.get('/api/admin/sky-rating-eval/trend');

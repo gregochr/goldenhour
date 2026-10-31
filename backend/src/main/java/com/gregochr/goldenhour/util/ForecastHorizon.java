@@ -134,8 +134,8 @@ public final class ForecastHorizon {
      * UK could legitimately ask for T-1. That stopped being true when it moved to the UK calendar
      * ({@code ukDateStr}); both sides of that comparison are now {@code Europe/London}.
      *
-     * <p>Anything older belongs in {@code GET /api/forecast/history}, the ADMIN-only backtesting
-     * endpoint, which takes explicit from/to dates and is unaffected by this bound.
+     * <p>Older stored days are not served by the list endpoint at all; the one exception is the
+     * single-day {@code GET /api/forecast?date=} below, bounded by {@link #MAX_PAST_DAYS}.
      */
     public static final int SERVE_PAST_DAYS = 2;
 

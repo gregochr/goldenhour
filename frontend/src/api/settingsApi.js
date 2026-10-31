@@ -63,15 +63,6 @@ export async function refreshDriveTimes() {
 }
 
 /**
- * Fetches the current user's per-location drive times.
- * @returns {Promise<Object>} Map of locationId → minutes
- */
-export async function getDriveTimes() {
-  const response = await apiClient.get(`${BASE_URL}/drive-times`);
-  return response.data;
-}
-
-/**
  * Saves the caller's map colour preferences.
  *
  * <p>Its own endpoint rather than fields on `saveHome`: a colour preference is not home-derived,

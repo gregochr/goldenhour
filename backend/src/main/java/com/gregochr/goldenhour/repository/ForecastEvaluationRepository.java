@@ -82,33 +82,6 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("to") LocalDate to);
 
     /**
-     * Returns evaluations for a set of locations within a date range, ordered by location name,
-     * then target date, then target type.
-     *
-     * <p>Backs {@code GET /api/forecast/history}: whether the caller passed one location (a
-     * singleton collection) or wants every enabled location (the full id list), this is the one
-     * query either way — {@code IN :locationIds} lets both shapes share a single round trip
-     * instead of one query per location. Ordering by location name first reproduces the order the
-     * old per-location loop produced (it iterated {@code findAllEnabled()}, which is itself
-     * name-ordered) so callers see byte-for-byte the same sequence.
-     *
-     * @param locationIds the location primary keys to query (never empty — callers should return
-     *                     an empty list without querying rather than pass one)
-     * @param from        the start of the date range (inclusive)
-     * @param to          the end of the date range (inclusive)
-     * @return evaluations ordered by location name ascending, then target date ascending, then
-     *         target type ascending
-     */
-    @Query("SELECT e FROM ForecastEvaluationEntity e JOIN FETCH e.location loc"
-            + " WHERE loc.id IN :locationIds"
-            + " AND e.targetDate BETWEEN :from AND :to"
-            + " ORDER BY loc.name ASC, e.targetDate ASC, e.targetType ASC")
-    List<ForecastEvaluationEntity> findByLocationIdInAndTargetDateBetween(
-            @Param("locationIds") Collection<Long> locationIds,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to);
-
-    /**
      * Returns evaluations for a location, date range, and evaluation model, ordered by date
      * and target type. Used by {@code GET /api/forecast} to return role-appropriate rows.
      *
@@ -146,18 +119,6 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      */
     List<ForecastEvaluationEntity> findByTargetDateAndTargetTypeIn(
             LocalDate targetDate, Collection<TargetType> targetTypes);
-
-    /**
-     * Returns all evaluation runs for a specific location, date, and target type, ordered
-     * chronologically by when the forecast was run. Used to plot forecast convergence over time.
-     *
-     * @param locationId the location primary key
-     * @param targetDate the date being forecast
-     * @param targetType SUNRISE or SUNSET
-     * @return evaluations ordered by forecast_run_at ascending
-     */
-    List<ForecastEvaluationEntity> findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
-            Long locationId, LocalDate targetDate, TargetType targetType);
 
     /**
      * Returns the most recent non-{@code PENDING} evaluation for a given location, date, and

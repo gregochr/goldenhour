@@ -18,7 +18,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -257,31 +256,6 @@ class UserSettingsControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "PRO_USER")
-    @DisplayName("GET /api/user/settings/drive-times returns per-location map")
-    void getDriveTimes_returnsMap() throws Exception {
-        when(settingsService.getUserId(any())).thenReturn(42L);
-        when(driveTimeResolver.getAllMinutes(42L)).thenReturn(Map.of(1L, 30, 2L, 90));
-
-        mockMvc.perform(get("/api/user/settings/drive-times"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.1").value(30))
-                .andExpect(jsonPath("$.2").value(90));
-    }
-
-    @Test
-    @WithMockUser(roles = "PRO_USER")
-    @DisplayName("GET /api/user/settings/drive-times returns empty map when none calculated")
-    void getDriveTimes_noDriveTimes_returnsEmpty() throws Exception {
-        when(settingsService.getUserId(any())).thenReturn(42L);
-        when(driveTimeResolver.getAllMinutes(42L)).thenReturn(Map.of());
-
-        mockMvc.perform(get("/api/user/settings/drive-times"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
-    }
-
-    @Test
-    @WithMockUser(roles = "PRO_USER")
     @DisplayName("GET /api/user/settings/reach returns an entry per location, omitting absent figures")
     void getReach_returnsRosterWithNullsOmitted() throws Exception {
         // The client joins this to the briefing on locationId, so the id is the one field that must
@@ -322,26 +296,22 @@ class UserSettingsControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("The three drive-time routes answer an Admin")
+    @DisplayName("The two drive-time routes answer an Admin")
     void driveTimeRoutes_adminAllowed() throws Exception {
         when(settingsService.refreshDriveTimes(any(Authentication.class))).thenReturn(
                 new DriveTimeRefreshResponse(3, Instant.parse("2026-04-01T10:00:00Z")));
-        when(settingsService.getUserId(any(Authentication.class))).thenReturn(7L);
-        when(driveTimeResolver.getAllMinutes(7L)).thenReturn(Map.of());
         when(reachService.getReach(any(Authentication.class))).thenReturn(List.of());
 
         mockMvc.perform(post("/api/user/settings/drive-times/refresh")).andExpect(status().isOk());
-        mockMvc.perform(get("/api/user/settings/drive-times")).andExpect(status().isOk());
         mockMvc.perform(get("/api/user/settings/reach")).andExpect(status().isOk());
     }
 
     @Test
     @WithMockUser(roles = "LITE_USER")
-    @DisplayName("The three drive-time routes are 403 for a Lite account and reach no service")
+    @DisplayName("The two drive-time routes are 403 for a Lite account and reach no service")
     void driveTimeRoutes_liteForbidden() throws Exception {
         mockMvc.perform(post("/api/user/settings/drive-times/refresh"))
                 .andExpect(status().isForbidden());
-        mockMvc.perform(get("/api/user/settings/drive-times")).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/user/settings/reach")).andExpect(status().isForbidden());
 
         verifyNoInteractions(settingsService, driveTimeResolver, reachService);

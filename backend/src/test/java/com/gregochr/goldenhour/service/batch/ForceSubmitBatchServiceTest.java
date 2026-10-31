@@ -1,31 +1,15 @@
 package com.gregochr.goldenhour.service.batch;
 
-import com.anthropic.client.AnthropicClient;
-import com.anthropic.core.http.StreamResponse;
-import com.anthropic.models.messages.ContentBlock;
-import com.anthropic.models.messages.Message;
-import com.anthropic.models.messages.TextBlock;
-import com.anthropic.models.messages.batches.MessageBatch;
-import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
-import com.anthropic.models.messages.batches.MessageBatchRequestCounts;
-import com.anthropic.models.messages.batches.MessageBatchResult;
-import com.anthropic.models.messages.batches.MessageBatchSucceededResult;
-import com.anthropic.services.blocking.MessageService;
-import com.anthropic.services.blocking.messages.BatchService;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
-import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
-import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
-import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceResultResponse;
-import com.gregochr.goldenhour.service.batch.ForceSubmitBatchService.ForceSubmitResult;
 import com.gregochr.goldenhour.service.evaluation.EvaluationHandle;
 import com.gregochr.goldenhour.service.evaluation.EvaluationService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
@@ -44,12 +28,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -64,7 +45,7 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link ForceSubmitBatchService}.
  *
- * <p>Post Pass 3.3.2 the service routes its JFDI and force-submit work through
+ * <p>Post Pass 3.3.2 the service routes its JFDI work through
  * {@link EvaluationService#submit}; the engine owns request building, custom-id
  * generation, prompt-builder selection, and {@code ForecastBatchEntity}
  * persistence. Those concerns are tested in the engine-level test suites
@@ -72,20 +53,11 @@ import static org.mockito.Mockito.when;
  * {@code BatchSubmissionServiceTest}). This class therefore focuses on the
  * service's own responsibilities: location filtering, data assembly via
  * {@code ForecastService.fetchWeatherAndTriage}, error / partial-failure
- * handling, return shape, and the {@code getResult} polling-bypass path that
- * still calls the SDK directly per Pass 2.5 design.
+ * handling and return shape.
  */
 @ExtendWith(MockitoExtension.class)
 class ForceSubmitBatchServiceTest {
 
-    @Mock
-    private AnthropicClient anthropicClient;
-    @Mock
-    private MessageService messageService;
-    @Mock
-    private BatchService batchService;
-    @Mock
-    private RegionRepository regionRepository;
     @Mock
     private LocationService locationService;
     @Mock
@@ -100,92 +72,11 @@ class ForceSubmitBatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new ForceSubmitBatchService(
-                anthropicClient, regionRepository, locationService,
-                forecastService, modelSelectionService, evaluationService, CLOCK);
+                locationService, forecastService, modelSelectionService, evaluationService, CLOCK);
     }
 
     /** Production's clock, so the existing cases keep exercising the real calendar. */
     private static final Clock CLOCK = Clock.systemUTC();
-
-    private void stubBatchService() {
-        when(anthropicClient.messages()).thenReturn(messageService);
-        when(messageService.batches()).thenReturn(batchService);
-    }
-
-    // ── forceSubmit: input validation ─────────────────────────────────────
-
-    @Test
-    @DisplayName("forceSubmit throws when region not found")
-    void forceSubmit_unknownRegion_throws() {
-        when(regionRepository.findById(999L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.forceSubmit(999L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Region not found");
-        verifyNoInteractions(evaluationService);
-    }
-
-    @Test
-    @DisplayName("forceSubmit throws when no enabled sky locations in region")
-    void forceSubmit_noLocationsInRegion_throws() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        when(locationService.findAllEnabled()).thenReturn(List.of());
-
-        assertThatThrownBy(() -> service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("No enabled sky locations");
-        verifyNoInteractions(evaluationService);
-    }
-
-    // ── forceSubmit: happy-path engine routing ────────────────────────────
-
-    @Test
-    @DisplayName("forceSubmit submits a forecast task per location with WriteTarget.BRIEFING_CACHE via FORCE trigger")
-    void forceSubmit_validRegion_submitsThroughEngine() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_force001", 1));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.batchId()).isEqualTo("msgbatch_force001");
-        assertThat(result.requestCount()).isEqualTo(1);
-        assertThat(result.locationsAttempted()).isEqualTo(1);
-        assertThat(result.locationsIncluded()).isEqualTo(1);
-        assertThat(result.locationsFailedData()).isEqualTo(0);
-        assertThat(result.failedLocations()).isEmpty();
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
-                ArgumentCaptor.forClass(List.class);
-        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
-        List<EvaluationTask.Forecast> tasks = taskCaptor.getValue();
-        assertThat(tasks).hasSize(1);
-        EvaluationTask.Forecast task = tasks.get(0);
-        assertThat(task.location()).isEqualTo(loc);
-        assertThat(task.date()).isEqualTo(LocalDate.of(2026, 4, 16));
-        assertThat(task.targetType()).isEqualTo(TargetType.SUNSET);
-        assertThat(task.model()).isEqualTo(EvaluationModel.HAIKU);
-        assertThat(task.data()).isSameAs(data);
-    }
 
     // ── Record conditions for every place (Phase 1, owner decision 2026-09-30) ────────────────
     // The write moved to a single seam inside ForecastService.fetchWeatherAndTriage (a Codex P1
@@ -194,226 +85,8 @@ class ForceSubmitBatchServiceTest {
     // synchronous engine's runTriagePhase got none). forecastService is mocked in this test
     // class, so fetchWeatherAndTriage's real body — which now does the write — never runs here;
     // the seam itself is pinned in ForecastServiceTest, and this class keeps only the tests
-    // below verifying forceSubmit/submitJfdiBatch call fetchWeatherAndTriage with the right
+    // below verifying submitJfdiBatch calls fetchWeatherAndTriage with the right
     // candidates, which is what makes the seam reachable from this service at all.
-
-    @Test
-    @DisplayName("forceSubmit returns null batchId when all data assembly fails")
-    void forceSubmit_allDataFails_returnsNullBatchId() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("Open-Meteo timeout"));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.batchId()).isNull();
-        assertThat(result.requestCount()).isEqualTo(0);
-        assertThat(result.locationsFailedData()).isEqualTo(1);
-        assertThat(result.failedLocations()).containsExactly("Bamburgh Castle");
-        verify(evaluationService, never()).submit(anyList(), any());
-    }
-
-    @Test
-    @DisplayName("forceSubmit handles null atmospheric data gracefully")
-    void forceSubmit_nullAtmosphericData_recordsFailure() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, null, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.batchId()).isNull();
-        assertThat(result.locationsFailedData()).isEqualTo(1);
-        assertThat(result.failedLocations()).containsExactly("Bamburgh Castle");
-        verify(evaluationService, never()).submit(anyList(), any());
-    }
-
-    @Test
-    @DisplayName("forceSubmit returns failed status when engine returns null handle")
-    void forceSubmit_engineNullHandle_returnsFailed() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(null);
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.batchId()).isNull();
-        assertThat(result.status()).isEqualTo("failed");
-        assertThat(result.locationsAttempted()).isEqualTo(1);
-        assertThat(result.locationsIncluded()).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("forceSubmit filters locations to the target region only")
-    void forceSubmit_multipleRegions_onlyIncludesTargetRegion() {
-        RegionEntity northumberland = buildRegion(7L, "Northumberland");
-        RegionEntity yorkshire = buildRegion(8L, "Yorkshire");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(northumberland));
-
-        LocationEntity loc1 = buildLocation(10L, "Bamburgh Castle", northumberland);
-        LocationEntity loc2 = buildLocation(20L, "Flamborough Head", yorkshire);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc1,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc1.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_filter", 1));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.locationsAttempted()).isEqualTo(1);
-        assertThat(result.requestCount()).isEqualTo(1);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
-                ArgumentCaptor.forClass(List.class);
-        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
-        assertThat(taskCaptor.getValue()).hasSize(1);
-        assertThat(taskCaptor.getValue().get(0).location()).isEqualTo(loc1);
-    }
-
-    @Test
-    @DisplayName("forceSubmit passes correct location, date, event, tideType, model to forecastService")
-    void forceSubmit_verifiesFetchWeatherArgs() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        loc.setTideType(Set.of(TideType.HIGH));
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.SONNET);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 16, 5, 30), 90, 1,
-                EvaluationModel.SONNET, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(
-                eq(loc), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNRISE),
-                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET), isNull()))
-                .thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_args", 1));
-
-        service.forceSubmit(7L, LocalDate.of(2026, 4, 16), TargetType.SUNRISE);
-
-        verify(forecastService).fetchWeatherAndTriage(
-                eq(loc), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNRISE),
-                eq(Set.of(TideType.HIGH)), eq(EvaluationModel.SONNET), isNull());
-    }
-
-    @Test
-    @DisplayName("forceSubmit resolves model from BATCH_NEAR_TERM, not other RunTypes")
-    void forceSubmit_resolvesBatchNearTermModel() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.OPUS);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
-                false, null, data, loc,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.OPUS, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any())).thenReturn(preEval);
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_model", 1));
-
-        service.forceSubmit(7L, LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        verify(modelSelectionService).getActiveModel(RunType.BATCH_NEAR_TERM);
-    }
-
-    @Test
-    @DisplayName("forceSubmit reports counts with mixed pass/fail outcomes")
-    void forceSubmit_mixedOutcomes_correctCounts() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-
-        LocationEntity loc1 = buildLocation(10L, "Bamburgh Castle", region);
-        LocationEntity loc2 = buildLocation(11L, "Lindisfarne", region);
-        LocationEntity loc3 = buildLocation(12L, "Dunstanburgh", region);
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        ForecastPreEvalResult okPreEval = new ForecastPreEvalResult(
-                false, null, data, loc1,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc1.getTideType(), "key", null);
-        ForecastPreEvalResult nullDataPreEval = new ForecastPreEvalResult(
-                false, null, null, loc2,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET,
-                LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
-                EvaluationModel.HAIKU, loc2.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(eq(loc1), any(), any(), any(), any(), any())).thenReturn(okPreEval);
-        when(forecastService.fetchWeatherAndTriage(eq(loc2), any(), any(), any(), any(), any()))
-                .thenReturn(nullDataPreEval);
-        when(forecastService.fetchWeatherAndTriage(eq(loc3), any(), any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("Open-Meteo down"));
-
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_mixed", 1));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.locationsAttempted()).isEqualTo(3);
-        assertThat(result.locationsIncluded()).isEqualTo(1);
-        assertThat(result.locationsFailedData()).isEqualTo(2);
-        assertThat(result.failedLocations()).containsExactlyInAnyOrder(
-                "Lindisfarne", "Dunstanburgh");
-    }
 
     // ── submitJfdiBatch: engine routing ───────────────────────────────────
 
@@ -478,8 +151,7 @@ class ForceSubmitBatchServiceTest {
         LocalDate ukYesterday = LocalDate.of(2027, 8, 11);
 
         ForceSubmitBatchService pinned = new ForceSubmitBatchService(
-                anthropicClient, regionRepository, locationService,
-                forecastService, modelSelectionService, evaluationService, lateBstEvening);
+                locationService, forecastService, modelSelectionService, evaluationService, lateBstEvening);
 
         RegionEntity region = buildRegion(7L, "Northumberland");
         LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
@@ -542,42 +214,6 @@ class ForceSubmitBatchServiceTest {
     }
 
     @Test
-    @DisplayName("forceSubmit uses the caller's date verbatim, past dates included")
-    void forceSubmit_usesTheCallersDateEvenWhenPast() {
-        // The residual, pinned so the next -1 in forecast_evaluation is not refiled as a
-        // regression of the JFDI fix. forceSubmit takes its date from the request body and this
-        // is deliberate: naming a past date explicitly is how a backfill asks for one, and
-        // BatchAdminController rejects a null date rather than defaulting it. Only the *default*
-        // range moved to the UK calendar; an explicit date was never the default's problem.
-        LocalDate longPast = LocalDate.of(2020, 1, 15);
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        LocationEntity loc = buildLocation(10L, "Bamburgh Castle", region);
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-
-        AtmosphericData data = mock(AtmosphericData.class);
-        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(longPast), eq(TargetType.SUNSET),
-                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
-                .thenReturn(new ForecastPreEvalResult(
-                        false, null, data, loc, longPast, TargetType.SUNSET,
-                        LocalDateTime.now(), 270, -2400,
-                        EvaluationModel.HAIKU, loc.getTideType(), "key", null));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_force", 1));
-
-        service.forceSubmit(7L, longPast, TargetType.SUNSET);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
-                ArgumentCaptor.forClass(List.class);
-        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
-        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::date)
-                .containsExactly(longPast);
-    }
-
-    @Test
     @DisplayName("submitJfdiBatch returns null when no eligible locations")
     void submitJfdiBatch_noEligibleLocations_returnsNull() {
         when(locationService.findAllEnabled()).thenReturn(List.of());
@@ -606,180 +242,6 @@ class ForceSubmitBatchServiceTest {
         verify(evaluationService, never()).submit(anyList(), any());
     }
 
-    // ── getResult: SDK polling-bypass path (Pass 2.5) ─────────────────────
-
-    @Test
-    @DisplayName("getResult returns in-progress status when batch not ended")
-    void getResult_inProgress_returnsStatus() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus())
-                .thenReturn(MessageBatch.ProcessingStatus.IN_PROGRESS);
-        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
-        when(counts.processing()).thenReturn(3L);
-        when(counts.succeeded()).thenReturn(2L);
-        when(counts.errored()).thenReturn(0L);
-        when(status.requestCounts()).thenReturn(counts);
-        when(batchService.retrieve("msgbatch_test")).thenReturn(status);
-
-        ForceResultResponse result = service.getResult("msgbatch_test");
-
-        assertThat(result.status()).isEqualTo("in_progress");
-        assertThat(result.processing()).isEqualTo(3);
-        assertThat(result.succeeded()).isEqualTo(2);
-        assertThat(result.results()).isNull();
-    }
-
-    @Test
-    @DisplayName("getResult streams results when batch has ended")
-    @SuppressWarnings("unchecked")
-    void getResult_ended_returnsResults() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_done")).thenReturn(status);
-
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        when(response.customId()).thenReturn("fc-10-2026-04-16-SUNSET");
-        MessageBatchResult batchResult = mock(MessageBatchResult.class);
-        when(batchResult.isSucceeded()).thenReturn(true);
-        MessageBatchSucceededResult succeeded = mock(MessageBatchSucceededResult.class);
-        when(batchResult.succeeded()).thenReturn(Optional.of(succeeded));
-        Message message = mock(Message.class);
-        when(succeeded.message()).thenReturn(message);
-        TextBlock textBlock = mock(TextBlock.class);
-        when(textBlock.text()).thenReturn("{\"rating\":4,\"summary\":\"test\"}");
-        ContentBlock contentBlock = mock(ContentBlock.class);
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(message.content()).thenReturn(List.of(contentBlock));
-        when(response.result()).thenReturn(batchResult);
-
-        StreamResponse<MessageBatchIndividualResponse> streamResponse =
-                mock(StreamResponse.class);
-        when(streamResponse.stream()).thenReturn(Stream.of(response));
-        when(batchService.resultsStreaming("msgbatch_done")).thenReturn(streamResponse);
-
-        ForceResultResponse result = service.getResult("msgbatch_done");
-
-        assertThat(result.status()).isEqualTo("ended");
-        assertThat(result.succeeded()).isEqualTo(1);
-        assertThat(result.totalResults()).isEqualTo(1);
-        assertThat(result.results()).hasSize(1);
-        assertThat(result.results().get(0).customId())
-                .isEqualTo("fc-10-2026-04-16-SUNSET");
-        assertThat(result.results().get(0).responsePreview())
-                .contains("rating");
-    }
-
-    @Test
-    @DisplayName("getResult counts errored results and records them with null preview")
-    @SuppressWarnings("unchecked")
-    void getResult_erroredResult_countsAndNullPreview() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_err")).thenReturn(status);
-
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        when(response.customId()).thenReturn("fc-10-2026-04-16-SUNSET");
-        MessageBatchResult batchResult = mock(MessageBatchResult.class);
-        when(batchResult.isSucceeded()).thenReturn(false);
-        when(response.result()).thenReturn(batchResult);
-
-        StreamResponse<MessageBatchIndividualResponse> streamResponse =
-                mock(StreamResponse.class);
-        when(streamResponse.stream()).thenReturn(Stream.of(response));
-        when(batchService.resultsStreaming("msgbatch_err")).thenReturn(streamResponse);
-
-        ForceResultResponse result = service.getResult("msgbatch_err");
-
-        assertThat(result.errored()).isEqualTo(1);
-        assertThat(result.totalResults()).isEqualTo(1);
-        assertThat(result.results()).hasSize(1);
-        assertThat(result.results().get(0).responsePreview()).isNull();
-    }
-
-    @Test
-    @DisplayName("getResult truncates response preview to 500 chars")
-    @SuppressWarnings("unchecked")
-    void getResult_longResponse_truncatesTo500Chars() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_long")).thenReturn(status);
-
-        StringBuilder longText = new StringBuilder();
-        for (int i = 0; i < 600; i++) {
-            longText.append("a");
-        }
-
-        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
-        when(response.customId()).thenReturn("fc-10-2026-04-16-SUNSET");
-        MessageBatchResult batchResult = mock(MessageBatchResult.class);
-        when(batchResult.isSucceeded()).thenReturn(true);
-        MessageBatchSucceededResult succeeded = mock(MessageBatchSucceededResult.class);
-        when(batchResult.succeeded()).thenReturn(Optional.of(succeeded));
-        Message message = mock(Message.class);
-        when(succeeded.message()).thenReturn(message);
-        TextBlock textBlock = mock(TextBlock.class);
-        when(textBlock.text()).thenReturn(longText.toString());
-        ContentBlock contentBlock = mock(ContentBlock.class);
-        when(contentBlock.isText()).thenReturn(true);
-        when(contentBlock.asText()).thenReturn(textBlock);
-        when(message.content()).thenReturn(List.of(contentBlock));
-        when(response.result()).thenReturn(batchResult);
-
-        StreamResponse<MessageBatchIndividualResponse> streamResponse =
-                mock(StreamResponse.class);
-        when(streamResponse.stream()).thenReturn(Stream.of(response));
-        when(batchService.resultsStreaming("msgbatch_long")).thenReturn(streamResponse);
-
-        ForceResultResponse result = service.getResult("msgbatch_long");
-
-        assertThat(result.results().get(0).responsePreview()).hasSize(500);
-    }
-
-    @Test
-    @DisplayName("getResult returns empty results when stream is empty")
-    @SuppressWarnings("unchecked")
-    void getResult_emptyStream_zeroCounts() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.ENDED);
-        when(batchService.retrieve("msgbatch_empty")).thenReturn(status);
-
-        StreamResponse<MessageBatchIndividualResponse> streamResponse =
-                mock(StreamResponse.class);
-        when(streamResponse.stream()).thenReturn(Stream.empty());
-        when(batchService.resultsStreaming("msgbatch_empty")).thenReturn(streamResponse);
-
-        ForceResultResponse result = service.getResult("msgbatch_empty");
-
-        assertThat(result.succeeded()).isEqualTo(0);
-        assertThat(result.errored()).isEqualTo(0);
-        assertThat(result.totalResults()).isEqualTo(0);
-        assertThat(result.results()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("getResult returns canceling status when batch is canceling")
-    void getResult_canceling_returnsCanceling() {
-        stubBatchService();
-        MessageBatch status = mock(MessageBatch.class);
-        when(status.processingStatus()).thenReturn(MessageBatch.ProcessingStatus.CANCELING);
-        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
-        when(counts.processing()).thenReturn(0L);
-        when(counts.succeeded()).thenReturn(0L);
-        when(counts.errored()).thenReturn(0L);
-        when(status.requestCounts()).thenReturn(counts);
-        when(batchService.retrieve("msgbatch_cancel")).thenReturn(status);
-
-        ForceResultResponse result = service.getResult("msgbatch_cancel");
-
-        assertThat(result.status()).isEqualTo("canceling");
-    }
-
     // ── helpers ───────────────────────────────────────────────────────────
 
     // ── Sky subjects only: neither route has a lane for a hide, a wood or a bluebell wood ──────
@@ -797,64 +259,6 @@ class ForceSubmitBatchServiceTest {
                 LocalDate.of(2026, 4, 16), TargetType.SUNSET,
                 LocalDateTime.of(2026, 4, 16, 19, 30), 270, 1,
                 EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-    }
-
-    @Test
-    @DisplayName("forceSubmit builds one task and fetches weather once for a region holding "
-            + "one sky location and one hide")
-    void forceSubmit_regionWithSkyLocationAndHide_submitsOnlyTheSkyLocation() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        LocationEntity sky = buildTypedLocation(10L, "Bamburgh Castle", region,
-                com.gregochr.goldenhour.entity.LocationType.SEASCAPE);
-        LocationEntity hide = buildTypedLocation(11L, "Reserve Hide", region,
-                com.gregochr.goldenhour.entity.LocationType.WILDLIFE);
-        when(locationService.findAllEnabled()).thenReturn(List.of(hide, sky));
-        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
-                .thenReturn(preEvalFor(sky, mock(AtmosphericData.class)));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.FORCE)))
-                .thenReturn(new EvaluationHandle(null, "msgbatch_sky_only", 1));
-
-        ForceSubmitResult result = service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET);
-
-        assertThat(result.locationsAttempted()).isEqualTo(1);
-        assertThat(result.requestCount()).isEqualTo(1);
-        verify(forecastService, times(1)).fetchWeatherAndTriage(
-                eq(sky), eq(LocalDate.of(2026, 4, 16)), eq(TargetType.SUNSET), eq(sky.getTideType()),
-                eq(EvaluationModel.HAIKU), isNull());
-        verify(forecastService, never()).fetchWeatherAndTriage(
-                eq(hide), any(), any(), any(), any(), any());
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor =
-                ArgumentCaptor.forClass(List.class);
-        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.FORCE));
-        assertThat(taskCaptor.getValue()).hasSize(1);
-        assertThat(taskCaptor.getValue().get(0).location()).isEqualTo(sky);
-    }
-
-    @Test
-    @DisplayName("forceSubmit refuses a region of only hides, woods and bluebell woods, as it does an empty one")
-    void forceSubmit_regionWithOnlyNonSkyLocations_behavesAsEmptyRegion() {
-        RegionEntity region = buildRegion(7L, "Northumberland");
-        when(regionRepository.findById(7L)).thenReturn(Optional.of(region));
-        when(locationService.findAllEnabled()).thenReturn(List.of(
-                buildTypedLocation(11L, "Reserve Hide", region,
-                        com.gregochr.goldenhour.entity.LocationType.WILDLIFE),
-                buildTypedLocation(12L, "Canopy Wood", region,
-                        com.gregochr.goldenhour.entity.LocationType.WOODLAND),
-                buildTypedLocation(13L, "Bluebell Wood", region,
-                        com.gregochr.goldenhour.entity.LocationType.BLUEBELL)));
-
-        assertThatThrownBy(() -> service.forceSubmit(7L,
-                LocalDate.of(2026, 4, 16), TargetType.SUNSET))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("No enabled sky locations found in region: Northumberland");
-        verifyNoInteractions(forecastService);
-        verifyNoInteractions(evaluationService);
     }
 
     @Test

@@ -56,7 +56,7 @@ public class HttpCachingConfig {
      * {@code no-store} default rather than lingering at rest on a shared machine:
      * <ul>
      *   <li>{@code /api/travel-days} — carries an optional free-text note plus absence dates.</li>
-     *   <li>{@code /api/user/settings}, {@code /api/user/settings/drive-times} — home postcode /
+     *   <li>{@code /api/user/settings} — home postcode /
      *       lat-lon and home-proximity data. Also fetched at most once, so there is nothing to save.</li>
      *   <li>{@code /api/user/settings/map-colours} — write-only (PUT), so it is excluded from this
      *       set by construction, but it lives under the same personal-data prefix and is pinned
