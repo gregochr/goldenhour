@@ -130,25 +130,22 @@ test.describe('Operations view — ADMIN', () => {
     await expect(operationsTab).toBeVisible();
     await operationsTab.click();
 
-    // Group tabs should be visible
-    await expect(page.getByTestId('manage-group-runs')).toBeVisible({ timeout: 5000 });
-    for (const group of ['tuning', 'places', 'people', 'testing']) {
-      await expect(page.getByTestId(`manage-group-${group}`)).toBeVisible();
+    // Playwright runs Desktop Chrome at 1280px, so the Operations sidebar renders: every tab of
+    // every group is visible at once, and there are no manage-group-* buttons.
+    await expect(page.getByTestId('manage-sidebar')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('manage-group-runs')).toHaveCount(0);
+    for (const tab of ['pipelineruns', 'metrics', 'models', 'skyeval', 'locations', 'users', 'hottopics']) {
+      await expect(page.getByTestId(`manage-tab-${tab}`)).toBeVisible();
     }
 
-    // Runs sub-tabs should be visible by default
-    await expect(page.getByTestId('manage-tab-pipelineruns')).toBeVisible();
-    await expect(page.getByTestId('manage-tab-metrics')).toBeVisible();
-
-    // Switch to Tuning group and verify its sub-tabs
-    await page.getByTestId('manage-group-tuning').click();
-    await expect(page.getByTestId('manage-tab-models')).toBeVisible();
-    await expect(page.getByTestId('manage-tab-skyeval')).toBeVisible();
+    // The default tab is marked current; selecting another moves the mark
+    await expect(page.getByTestId('manage-tab-pipelineruns')).toHaveAttribute('aria-current', 'page');
+    await page.getByTestId('manage-tab-models').click();
+    await expect(page.getByTestId('manage-tab-models')).toHaveAttribute('aria-current', 'page');
   });
 
   test('Locations sub-tab shows location cards with coordinates', async ({ page }) => {
     await page.getByRole('tab', { name: 'Operations' }).click();
-    await page.getByTestId('manage-group-places').click();
     await page.getByTestId('manage-tab-locations').click();
     // Location cards contain lat/lon coordinates text (e.g. "54.7753° N, 1.5849° W")
     await expect(page.locator('text=/\\d+\\.\\d+° [NS]/').first()).toBeVisible({ timeout: 10000 });

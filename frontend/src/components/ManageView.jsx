@@ -14,6 +14,8 @@ import HotTopicSimulation from './HotTopicSimulation.jsx';
 import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsWide } from '../hooks/useIsWide.js';
 
 const GROUPS = [
   {
@@ -77,8 +79,10 @@ function parseHash() {
 }
 
 /**
- * Management screen shell — renders a two-level tab bar (group + sub-tab)
- * and routes to the active tab component.
+ * Management screen shell — routes to the active tab component. Exactly one navigation is
+ * rendered: a section menu on phones, a left sidebar from 1280px, and the two-level tab bar
+ * (group + sub-tab) in between. The content slot keeps one position in the tree in all three
+ * layouts, so crossing a breakpoint never remounts the sub-view.
  *
  * @param {object}   props
  * @param {function} props.onComplete - Called after any change so other views refresh.
@@ -91,6 +95,8 @@ export default function ManageView({ onComplete }) {
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
   const [activePipelineRunId, setActivePipelineRunId] = useState(null);
   const clearActivePipelineRun = useCallback(() => setActivePipelineRunId(null), []);
+  const isMobile = useIsMobile();
+  const isWide = useIsWide();
   const [waitlistCount, setWaitlistCount] = useState(null);
   const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
 
@@ -117,8 +123,85 @@ export default function ManageView({ onComplete }) {
     setActiveTab(group.tabs[0].value);
   }
 
-  return (
-    <div className="flex flex-col gap-4">
+  /** Select a tab from the sidebar or the menu: set its group and tab together. */
+  function handleSelectTab(tabValue) {
+    const group = GROUPS.find((g) => g.tabs.some((t) => t.value === tabValue));
+    setActiveGroup(group.value);
+    setActiveTab(tabValue);
+  }
+
+  const waitlistShown = waitlistCount != null && waitlistCount > 0;
+
+  const phoneMenu = (
+    <div>
+      <label htmlFor="manage-section-select" className="sr-only">Section</label>
+      <select
+        id="manage-section-select"
+        className="field"
+        value={activeTab}
+        onChange={(e) => handleSelectTab(e.target.value)}
+        data-testid="manage-section-select"
+      >
+        {GROUPS.map((group) => (
+          <optgroup key={group.value} label={group.label}>
+            {group.tabs.map((tab) => (
+              <option key={tab.value} value={tab.value}>
+                {tab.value === 'waitlist' && waitlistShown ? `${tab.label} (${waitlistCount})` : tab.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
+
+  const sidebar = (
+    <nav
+      aria-label="Operations sections"
+      className="w-44 shrink-0 flex flex-col gap-4"
+      data-testid="manage-sidebar"
+    >
+      {GROUPS.map((group) => (
+        <div
+          key={group.value}
+          role="group"
+          aria-labelledby={`manage-sidebar-heading-${group.value}`}
+          className="flex flex-col gap-1"
+          data-testid={`manage-sidebar-group-${group.value}`}
+        >
+          <p
+            id={`manage-sidebar-heading-${group.value}`}
+            className="text-[10px] font-semibold uppercase tracking-wider text-plex-text-muted px-2"
+          >
+            {group.label}
+          </p>
+          {group.tabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => handleSelectTab(tab.value)}
+              aria-current={activeTab === tab.value ? 'page' : undefined}
+              className={`flex items-center text-left px-2 py-1 text-sm rounded transition-colors border-l-2 ${
+                activeTab === tab.value
+                  ? 'text-plex-gold border-plex-gold bg-plex-gold/10 font-medium'
+                  : 'text-plex-text-secondary hover:text-plex-text border-transparent'
+              }`}
+              data-testid={`manage-tab-${tab.value}`}
+            >
+              {tab.label}
+              {tab.value === 'waitlist' && waitlistShown && (
+                <span className={WAITLIST_BADGE_CLASSES} data-testid="waitlist-count-badge">
+                  {waitlistCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
+  );
+
+  const tabBars = (
+    <>
 
       {/* Group tabs */}
       <div
@@ -168,9 +251,19 @@ export default function ManageView({ onComplete }) {
           </button>
         ))}
       </div>
+    </>
+  );
+
+  let navigation = tabBars;
+  if (isMobile) navigation = phoneMenu;
+  else if (isWide) navigation = sidebar;
+
+  return (
+    <div className={isWide && !isMobile ? 'flex items-start gap-6' : 'flex flex-col gap-4'}>
+      {navigation}
 
       {/* Tab content — keyed wrapper replays fade-in on every tab switch */}
-      <div key={activeTab} className="animate-popup-refresh">
+      <div key={activeTab} className="min-w-0 flex-1 animate-popup-refresh w-full">
         {activeTab === 'users' && (
           <div className="card">
             <UserManagementView />
