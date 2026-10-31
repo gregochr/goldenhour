@@ -1,6 +1,6 @@
 # Operations tab grouping plan
 
-**Status:** planned 2026-10-31. Two phases, one PR each (phase 2 branches from `main` after phase 1 merges). Phase 1 merged (#1546); phase 2 in progress.
+**Status:** planned 2026-10-31. Two phases, one PR each (phase 2 branches from `main` after phase 1 merges). Phase 1 merged (#1546); phase 2 merged (#1548). Complete.
 
 ## Why
 
