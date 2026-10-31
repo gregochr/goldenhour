@@ -52,6 +52,11 @@ class TideGaugeCheckServiceTest {
     private static final Long LOCATION_ID = 7L;
     private static final Instant START = Instant.parse("2026-10-24T00:00:00Z");
     private static final Instant NOW = START.plus(Duration.ofDays(7));
+    /** The fixture's first and last reading times, each widened by the 3-hour pairing margin. */
+    private static final LocalDateTime WINDOW_FROM =
+            LocalDateTime.ofInstant(START.minus(Duration.ofHours(3)), ZoneOffset.UTC);
+    private static final LocalDateTime WINDOW_TO =
+            LocalDateTime.ofInstant(NOW.plus(Duration.ofHours(3)), ZoneOffset.UTC);
     private static final double PERIOD_MINUTES = 12.42 * 60;
     private static final double FIRST_PEAK_MINUTE = 300;
 
@@ -119,8 +124,8 @@ class TideGaugeCheckServiceTest {
                 .thenReturn(Optional.of(LocationEntity.builder().id(LOCATION_ID).name(NAME).build()));
         when(gaugeClient.fetchReadings(MEASURE, LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 31)))
                 .thenReturn(sevenDaysOfReadings());
-        when(tideExtremeRepository.findHighWatersInWindow(eq(List.of(LOCATION_ID)), any(LocalDateTime.class),
-                any(LocalDateTime.class))).thenReturn(predicted);
+        when(tideExtremeRepository.findHighWatersInWindow(eq(List.of(LOCATION_ID)), eq(WINDOW_FROM),
+                eq(WINDOW_TO))).thenReturn(predicted);
         if (priors == null) {
             return;
         }
@@ -210,8 +215,8 @@ class TideGaugeCheckServiceTest {
                 .thenReturn(Optional.of(LocationEntity.builder().id(LOCATION_ID).name(NAME).build()));
         when(gaugeClient.fetchReadings(MEASURE, LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 31)))
                 .thenReturn(sevenDaysOfReadings());
-        when(tideExtremeRepository.findHighWatersInWindow(eq(List.of(LOCATION_ID)), any(LocalDateTime.class),
-                any(LocalDateTime.class))).thenReturn(predictedHighs(60.0));
+        when(tideExtremeRepository.findHighWatersInWindow(eq(List.of(LOCATION_ID)), eq(WINDOW_FROM),
+                eq(WINDOW_TO))).thenReturn(predictedHighs(60.0));
         when(checkRepository.findByLocationIdAndGaugeMeasureIdOrderByRunAtDesc(
                 eq(LOCATION_ID), eq(MEASURE), eq(PageRequest.of(0, 1)))).thenReturn(List.of());
         when(checkRepository.save(any(TideGaugeCheckEntity.class))).thenAnswer(i -> i.getArgument(0));
@@ -268,7 +273,7 @@ class TideGaugeCheckServiceTest {
         properties.setMeasures(List.of(measure("broken", "Blyth Beach"), measure(MEASURE, NAME)));
         when(locationRepository.findByName("Blyth Beach"))
                 .thenReturn(Optional.of(LocationEntity.builder().id(9L).name("Blyth Beach").build()));
-        when(gaugeClient.fetchReadings(eq("broken"), any(LocalDate.class), any(LocalDate.class)))
+        when(gaugeClient.fetchReadings(eq("broken"), eq(LocalDate.of(2026, 10, 24)), eq(LocalDate.of(2026, 10, 31))))
                 .thenThrow(new IllegalStateException("EA down"));
         stubHappyPath(8.0, List.of());
 
@@ -283,7 +288,7 @@ class TideGaugeCheckServiceTest {
     void noReadings_skipped() {
         when(locationRepository.findByName(NAME))
                 .thenReturn(Optional.of(LocationEntity.builder().id(LOCATION_ID).name(NAME).build()));
-        when(gaugeClient.fetchReadings(eq(MEASURE), any(LocalDate.class), any(LocalDate.class)))
+        when(gaugeClient.fetchReadings(MEASURE, LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 31)))
                 .thenReturn(List.of());
 
         assertThat(service.runChecks()).isEmpty();
