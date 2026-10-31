@@ -364,6 +364,32 @@ class AdminAlertServiceTest {
     }
 
     @Test
+    @DisplayName("the tide-gauge drift alert emails every enabled ADMIN with the location in the subject "
+            + "and the detail in the body")
+    void tideGaugeDriftAlert_sendsToEveryAdmin() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendTideGaugeDriftAlert("Tynemouth",
+                "Median timing error moved. Contains Environment Agency data licensed under the Open "
+                        + "Government Licence v3.0.");
+
+        verify(mailSender, times(1)).send(message);
+        assertThat(message.getSubject()).isEqualTo("PhotoCast: tide predictions drifting at Tynemouth");
+        assertThat((String) message.getContent()).contains("Open Government Licence v3.0");
+    }
+
+    @Test
+    @DisplayName("with admin alerts disabled the tide-gauge drift alert sends nothing")
+    void tideGaugeDriftAlert_silentWhenDisabled() {
+        new AdminAlertService(mailSender, appUserRepository, false).sendTideGaugeDriftAlert("Tynemouth", "d");
+
+        verify(mailSender, never()).createMimeMessage();
+    }
+
+    @Test
     @DisplayName("with admin alerts disabled, or no mail sender, or no admin address, the watchdog alert "
             + "sends nothing and throws nothing")
     void forecastCycleWatchdogAlert_silentWhenItCannotSend() {

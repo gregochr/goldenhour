@@ -1,0 +1,3 @@
+### Added — A weekly check of tide predictions against Environment Agency tide gauges
+
+After each tide refresh, PhotoCast now compares the last week of WorldTides' predicted high-water times with the water measured at five Environment Agency gauges (North Shields, Blyth, Tees Dock, Whitby and Bridlington) and records the median timing and height error for each in a new `tide_gauge_check` table. If a gauge's timing error moves more than 10 minutes from its recent average, admins get an email. The gauge readings themselves are not stored. Contains Environment Agency data licensed under the Open Government Licence v3.0.

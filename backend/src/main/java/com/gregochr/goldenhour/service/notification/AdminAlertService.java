@@ -280,6 +280,27 @@ public class AdminAlertService {
         return body.toString();
     }
 
+    /**
+     * Sends a tide-gauge drift alert: a gauge's median timing error moved more than the threshold
+     * from its trailing median (tide-source-integrity-plan P4). Sent once, when the gauge becomes
+     * newly flagged.
+     *
+     * <p>Same channel, recipients and best-effort rules as {@link #sendAskSpendCapAlert}.
+     *
+     * @param locationName the location the gauge stands for
+     * @param detail       the full message, which carries the Open Government Licence attribution
+     */
+    @Async
+    public void sendTideGaugeDriftAlert(String locationName, String detail) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping tide-gauge drift admin alert ({})",
+                    locationName);
+            return;
+        }
+        Supplier<String> subject = () -> "PhotoCast: tide predictions drifting at " + locationName;
+        deliver(subject, () -> detail, "tide-gauge-drift", locationName);
+    }
+
     private static String buildAskSpendCapBody(LocalDate day, long spent, long cap) {
         return "Typed Ask PhotoCast questions have spent $" + dollars(spent) + " on " + day
                 + ", reaching the daily cap of $" + dollars(cap) + " (photocast.ask.daily-spend-cap-usd).\n\n"

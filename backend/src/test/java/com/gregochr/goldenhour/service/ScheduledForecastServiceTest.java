@@ -55,13 +55,16 @@ class ScheduledForecastServiceTest {
     @Mock
     private AdminAlertService adminAlertService;
 
+    @Mock
+    private TideGaugeCheckService tideGaugeCheckService;
+
     private ScheduledForecastService scheduledForecastService;
 
     @BeforeEach
     void setUp() {
         scheduledForecastService = new ScheduledForecastService(
                 tideService, locationService, jobRunService,
-                dynamicSchedulerService, adminAlertService);
+                dynamicSchedulerService, adminAlertService, tideGaugeCheckService);
     }
 
     // -------------------------------------------------------------------------
@@ -82,6 +85,28 @@ class ScheduledForecastServiceTest {
         verify(tideService, times(1)).fetchAndStoreTideExtremes(locCaptor.capture(),
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getValue().getName()).isEqualTo("Durham UK");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() runs the gauge check once, at the end")
+    void refreshTideExtremes_runsGaugeCheckOnce() {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(tideGaugeCheckService, times(1)).runChecks();
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() completes the run even when the gauge check throws")
+    void refreshTideExtremes_gaugeCheckFailure_doesNotFailRefresh() {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+        when(tideGaugeCheckService.runChecks()).thenThrow(new IllegalStateException("EA down"));
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(jobRunService, times(1)).completeRun(any(), org.mockito.ArgumentMatchers.eq(0),
+                org.mockito.ArgumentMatchers.eq(0));
     }
 
     @Test
