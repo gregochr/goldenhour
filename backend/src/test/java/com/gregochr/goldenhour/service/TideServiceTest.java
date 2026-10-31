@@ -902,6 +902,12 @@ class TideServiceTest {
         assertTrue(tideService.calculateTideAligned(tideData(TideState.LOW), allThree));
         assertTrue(tideService.calculateTideAligned(tideData(TideState.HIGH), allThree));
         assertTrue(tideService.calculateTideAligned(tideData(TideState.MID), allThree));
+        // A genuine gap: classed MID but outside the midpoint band.
+        TideData gap = gapTideData();
+        assertTrue(tideService.calculateTideAligned(gap, allThree));
+        // Two of three keep the narrow bands, so the same gap still misses.
+        assertFalse(tideService.calculateTideAligned(gap, Set.of(TideType.HIGH, TideType.MID)));
+        assertFalse(tideService.calculateTideAligned(gap, Set.of()));
     }
 
     // -------------------------------------------------------------------------
@@ -1620,6 +1626,18 @@ class TideServiceTest {
                 .heightMetres(BigDecimal.valueOf(height).setScale(3, java.math.RoundingMode.HALF_UP))
                 .fetchedAt(LocalDateTime.of(2026, 2, 24, 2, 0))
                 .build();
+    }
+
+    private TideData gapTideData() {
+        return new TideData(
+                TideState.MID,
+                false,
+                LocalDateTime.of(2026, 2, 24, 14, 30),
+                BigDecimal.valueOf(1.50),
+                LocalDateTime.of(2026, 2, 24, 20, 45),
+                BigDecimal.valueOf(0.30),
+                null,
+                null);
     }
 
     private TideData tideData(TideState state) {

@@ -545,4 +545,21 @@ class TideFactDeriverTest {
                         + "not degrade silently")
                 .anyMatch(msg -> msg.contains(LOC_ID.toString()) && msg.contains("tideAligned=true"));
     }
+
+    @Test
+    @DisplayName("an all-three (any tide) spot at a gap instant is aligned, with no quality and no WARN")
+    void allThreeWanted_gapInstant_alignedWithNullQualityAndNoWarn() {
+        Set<TideType> allThree = Set.of(TideType.HIGH, TideType.MID, TideType.LOW);
+        // Classed MID but outside the midpoint band, and no extreme close enough to score.
+        TideData gap = tideAt(TideState.MID, false, null, null);
+        stubDerivable(gap, true);
+
+        TideDerivation d = deriver()
+                .derive(LOC_ID, EVENT_TIME, allThree, LAT, LON, TargetType.SUNSET).orElseThrow();
+
+        assertThat(d.tideAligned()).isTrue();
+        assertThat(d.widenedAligned()).isTrue();
+        assertThat(d.tideAlignmentQuality()).isNull();
+        assertThat(warnLogMessages()).isEmpty();
+    }
 }

@@ -128,7 +128,9 @@ public class TideFactDeriver {
                 ? computeAlignmentQuality(locationId, eventTime, tideData, tideTypes, tightWindowMinutes,
                         snapshot)
                 : null;
-        if (tideAligned && tideAlignmentQuality == null) {
+        // An any-tide spot (all three wanted) is aligned in the gaps between bands, where a null
+        // quality is expected, so it is not worth a warning.
+        if (tideAligned && tideAlignmentQuality == null && !TideType.coversEveryState(tideTypes)) {
             // Should not occur — tideAligned already confirmed at least one want matches — but
             // the one avenue that COULD disagree is TideType.MID: it re-fetches extremes through
             // a second, time-separated query (TideService#nearestMidpointOffsetMinutes; only on the
