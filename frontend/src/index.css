@@ -7473,6 +7473,46 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   font-weight: 600;
   color: var(--color-plex-text);
 }
+/* A stood-down PLACE's label (stood-down-place-labels-plan.md): the chip's own plate and behaviour (it
+   carries `.wf-maplab-chip` too, so the Ask fade, the topic dim, hover and focus all apply), quietened
+   as "ruled out" and NEVER by opacity - opacity is how the map dims a chip. The cool stand-down ink, a
+   dotted hairline in place of the solid ring, and the hatch swatch where a chip has its ramp square.
+   Written after `.wf-maplab-chip`'s hover/selected rules at the same specificity-plus-one, so the dotted
+   ring yields to them only where they say so below. */
+.wf-maplab-chip.wf-maplab-stood {
+  padding: 1px 4px;
+  border: 1px dotted rgba(184, 197, 220, 0.5);
+  box-shadow: none;
+}
+.wf-maplab-chip.wf-maplab-stood:hover,
+.wf-maplab-chip.wf-maplab-stood[data-selected='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--color-home);
+}
+.wf-maplab-stood .wf-maplab-chip-n {
+  color: var(--color-standdown-ink);
+}
+.wf-maplab-stood .wf-maplab-stood-sw {
+  width: 14px;
+  height: 9px;
+}
+.wf-maplab-stood-w {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--color-standdown-ink-2);
+}
+/* The phone's narrow frame: the name is clipped as the region label's is, and the cause word is not
+   rendered at all (it stays in the accessible name and the callout). */
+.wf-maplab-stood[data-tiny='true'] .wf-maplab-chip-n {
+  display: block;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (forced-colors: active) {
+  .wf-maplab-chip.wf-maplab-stood {
+    border: 1px dotted CanvasText;
+  }
+}
 /* ⚠️ `--color-plex-text` (this app's `--ink`), NEVER the ramp colour — map-tab-v2-plan.md §3 P8:
    the design bundle's own HTML wins over its README §6 ("N★ in ramp colour"), which contradicts
    the bundle's OWN "no ramp colour as text, anywhere" rule two sections later. A star numeral is

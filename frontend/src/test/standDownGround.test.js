@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   buildHeatSpots, buildHeatWindowStates, forecastScoreRows, stoodPointsFor,
 } from '../utils/heatSpots.js';
-import { STAND_DOWN_CAUSE_WORD, standDownCauseWord } from '../utils/standDown.js';
+import {
+  STAND_DOWN_CAUSE_WORD, standDownCauseWord, stoodPlaceAriaLabel, stoodPlaceCauseWord,
+} from '../utils/standDown.js';
 import {
   standDownFooterCount, standDownRegions, weatherStoodOf, windowHasEvidence,
 } from '../utils/mapStandDown.js';
@@ -67,8 +69,12 @@ describe('buildHeatWindowStates — the stood list', () => {
 
   it('lists every stood place with its reason, region NAME and join key — tide included', () => {
     expect(entry.stood).toEqual([
-      { lat: 55.1, lng: -1.5, reason: 'HIGH_CLOUD', rid: 'North', key: '#1' },
-      { lat: 55.2, lng: -1.5, reason: 'TIDE_MISALIGNED', rid: 'South', key: '#2' },
+      {
+        id: 1, name: 'A', lat: 55.1, lng: -1.5, reason: 'HIGH_CLOUD', rid: 'North', key: '#1',
+      },
+      {
+        id: 2, name: 'B', lat: 55.2, lng: -1.5, reason: 'TIDE_MISALIGNED', rid: 'South', key: '#2',
+      },
     ]);
   });
 
@@ -93,7 +99,7 @@ describe('standDownCauseWord — one shared reason, else weather', () => {
   it.each([
     [['HIGH_CLOUD'], 'cloud'],
     [['PRECIPITATION', 'PRECIPITATION'], 'rain'],
-    [['LOW_VISIBILITY'], 'murk'],
+    [['LOW_VISIBILITY'], 'visibility'],
     [['GENERIC'], 'weather'],
     [[null], 'weather'],
     [['SOMETHING_NEW'], 'weather'],
@@ -219,7 +225,7 @@ describe('standDownRegions — when a region earns its label', () => {
       spots: [],
       states: new Map(),
     });
-    expect(shared[0].cause).toBe('murk');
+    expect(shared[0].cause).toBe('visibility');
     expect(mixed[0].cause).toBe('weather');
   });
 
@@ -248,5 +254,42 @@ describe('standDownFooterCount — the scope pool\'s weather stand-downs', () =>
 
   it('joins on the name when there is no id', () => {
     expect(standDownFooterCount([{ id: null, name: 'Q' }], [{ key: '@Q', reason: null }])).toBe(1);
+  });
+});
+
+describe('stoodPlaceCauseWord and stoodPlaceAriaLabel — one stood place', () => {
+  it.each([
+    ['HIGH_CLOUD', 'cloud'],
+    ['PRECIPITATION', 'rain'],
+    ['LOW_VISIBILITY', 'visibility'],
+  ])('%s reads %s', (reason, word) => {
+    expect(stoodPlaceCauseWord(reason)).toBe(word);
+  });
+
+  it.each([['GENERIC'], [null], [undefined], ['SOMETHING_NEW'], ['TIDE_MISALIGNED']])(
+    '%s names no cause (never "weather", which a Lite tide stand-down would otherwise claim)',
+    (reason) => {
+      expect(stoodPlaceCauseWord(reason)).toBeNull();
+    },
+  );
+
+  it('words the accessible name, with "poor visibility" for the visibility cause', () => {
+    expect(stoodPlaceAriaLabel('Tynemouth', 'LOW_VISIBILITY')).toBe('Tynemouth, stood down: poor visibility');
+    expect(stoodPlaceAriaLabel('Tynemouth', 'HIGH_CLOUD')).toBe('Tynemouth, stood down: cloud');
+    expect(stoodPlaceAriaLabel('Tynemouth', 'PRECIPITATION')).toBe('Tynemouth, stood down: rain');
+    expect(stoodPlaceAriaLabel('Tynemouth', 'GENERIC')).toBe('Tynemouth, stood down');
+    expect(stoodPlaceAriaLabel('Tynemouth', 'SOMETHING_NEW')).toBe('Tynemouth, stood down');
+  });
+});
+
+describe('stoodPointsFor — the place name rides on the point', () => {
+  it('carries the name and id of each stood place', () => {
+    const spots = buildHeatSpots(
+      [loc(1, 'A', 'North')],
+      [rowOf(1, 'A', { triageReason: 'LOW_VISIBILITY' })],
+      EVENTS,
+    );
+    const [point] = stoodPointsFor(spots, 0);
+    expect(point).toMatchObject({ id: 1, name: 'A', reason: 'LOW_VISIBILITY', key: '#1' });
   });
 });

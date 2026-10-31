@@ -195,6 +195,13 @@ describe('the collision tiers', () => {
     expect(ordered.map((i) => i.key)).toEqual(['home', 'ring:25', 'chip:pick', 'region:r', 'bs:1', 'chip:a']);
   });
 
+  it('has no stood-down tier: a stood place label is placed by its own later pass, never ordered here', () => {
+    const ordered = labelTierOrder({
+      chips: [at('chip:a')], home: [at('home')], stood: [at('stood:#1')],
+    });
+    expect(ordered.map((i) => i.key)).toEqual(['home', 'chip:a']);
+  });
+
   it('is the order the greedy pass honours: with room for one, the earlier tier keeps it', () => {
     // Everything anchored on one point in a frame with room for one box.
     const winner = (tiers) => [...placeLabelPass(labelTierOrder(tiers), 100, 20).keys()];

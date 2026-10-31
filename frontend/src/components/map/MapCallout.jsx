@@ -123,7 +123,7 @@ const PEEK_SHEET_COLLAPSED_HEIGHT = PEEK_HEIGHT.plain;
 /**
  * "Not scored yet" promises a score still to come; on a window that has PASSED none is, so it reads
  * "Not scored" (outcome-rating-plan.md §3 O4a). Every other unrated word is already a statement of
- * fact ("Not rated", "Poor") and is left alone.
+ * fact ("Not rated", "Stood down") and is left alone.
  */
 function pastUnratedWord(word, past) {
   return past && word === 'Not scored yet' ? 'Not scored' : word;
@@ -959,7 +959,7 @@ export default function MapCallout({
               Comfort only
             </span>
           ) : (
-            // An unrated slot's word ("Not rated" / "Poor" / "Not scored yet") only on the word of
+            // An unrated slot's word ("Not rated" / "Stood down" / "Not scored yet") only on the word of
             // the rating's own source. Until it has answered, what it is doing: loading, or trying
             // again after a failure (`ratingRetrying`) — the answer outranks the failure, so a night
             // still holding one keeps it through a failed refresh.

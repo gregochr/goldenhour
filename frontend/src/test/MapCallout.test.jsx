@@ -251,7 +251,7 @@ describe('MapCallout — header and verdict', () => {
       scoreRow({ rating: null, displayVerdict }),
     ]);
 
-    it('says "Not rated" for UNRATED and "Poor" for STAND_DOWN once the source has answered', async () => {
+    it('says "Not rated" for UNRATED and "Stood down" for STAND_DOWN once the source has answered', async () => {
       const { unmount } = await mount({
         rating: null, ratingKnown: true, scoresKnown: true, scoreIndex: indexOf('UNRATED'),
       });
@@ -260,7 +260,7 @@ describe('MapCallout — header and verdict', () => {
       await mount({
         rating: null, ratingKnown: true, scoresKnown: true, scoreIndex: indexOf('STAND_DOWN'),
       });
-      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Stood down');
     });
 
     it('keeps "Not scored yet" for AWAITING, a legacy row and no row at all', async () => {
@@ -312,21 +312,21 @@ describe('MapCallout — header and verdict', () => {
       }]);
       const known = { rating: null, ratingKnown: true, scoresKnown: true };
 
-      it('says "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', async () => {
+      it('says "Not rated" for a briefing UNRATED slot and "Stood down" for a briefing STAND_DOWN one', async () => {
         const { unmount } = await mount({ ...known, scoreIndex: null, slotIndex: slotIndexOf('UNRATED') });
         expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not rated');
         unmount();
         await mount({ ...known, scoreIndex: buildScoreIndex([]), slotIndex: slotIndexOf('STAND_DOWN') });
-        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Stood down');
       });
 
-      it('⚠️ the score row wins when both speak: STAND_DOWN beside a briefing UNRATED is "Poor"', async () => {
+      it('⚠️ the score row wins when both speak: STAND_DOWN beside a briefing UNRATED is "Stood down"', async () => {
         await mount({
           ...known,
           scoreIndex: buildScoreIndex([scoreRow({ rating: null, displayVerdict: 'STAND_DOWN' })]),
           slotIndex: slotIndexOf('UNRATED'),
         });
-        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Stood down');
       });
 
       it('keeps "Not scored yet" with no verdict on either side', async () => {

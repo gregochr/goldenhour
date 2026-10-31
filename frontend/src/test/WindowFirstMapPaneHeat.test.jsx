@@ -361,7 +361,7 @@ describe('WindowFirstMapPane — the heat prop', () => {
       renderPane(ctx(true));
       const entry = MapStub.lastProps.heat.windowStates.get(`${TODAY}:SUNSET`);
       expect(entry.stood).toEqual([{
-        lat: 54.44, lng: -3.3, reason: 'PRECIPITATION', rid: 'The Lakes', key: '#2',
+        id: 2, name: 'Wastwater', lat: 54.44, lng: -3.3, reason: 'PRECIPITATION', rid: 'The Lakes', key: '#2',
       }]);
     });
 

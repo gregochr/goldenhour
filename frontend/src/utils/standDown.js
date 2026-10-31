@@ -41,7 +41,7 @@ export function resolveStandDown(briefingScore, forecast) {
 export const STAND_DOWN_CAUSE_WORD = Object.freeze({
   HIGH_CLOUD: 'cloud',
   PRECIPITATION: 'rain',
-  LOW_VISIBILITY: 'murk',
+  LOW_VISIBILITY: 'visibility',
   GENERIC: 'weather',
 });
 
@@ -60,11 +60,42 @@ export const TIDE_STAND_DOWN_REASON = 'TIDE_MISALIGNED';
  * {@code docs/engineering/reference/architecture-decisions.md}.
  *
  * @param {Array<?string>} reasons the stood places' normalised reasons
- * @returns {string} {@code cloud}, {@code rain}, {@code murk} or {@code weather}
+ * @returns {string} {@code cloud}, {@code rain}, {@code visibility} or {@code weather}
  */
 export function standDownCauseWord(reasons) {
   const distinct = new Set((Array.isArray(reasons) ? reasons : []).map((r) => r ?? 'GENERIC'));
   if (distinct.size !== 1) return STAND_DOWN_MIXED_WORD;
   const [only] = distinct;
   return STAND_DOWN_CAUSE_WORD[only] ?? STAND_DOWN_MIXED_WORD;
+}
+
+/**
+ * The cause word for ONE stood place: its own reason's word, or null for {@code GENERIC}, a missing
+ * or an unknown reason. Unlike {@link standDownCauseWord} there is no "weather" fallback: a Lite
+ * reader's tide stand-down is served as {@code GENERIC} and must not be called weather.
+ *
+ * <p>Licensed client derivation: the stood place labels member of the Map scope class in
+ * {@code docs/engineering/reference/architecture-decisions.md}; a lexical map over a served reason.
+ *
+ * @param {?string} reason the place's served {@code triageReason}
+ * @returns {?string} {@code cloud}, {@code rain}, {@code visibility}, or null for no cause to name
+ */
+export function stoodPlaceCauseWord(reason) {
+  if (reason == null || reason === 'GENERIC') return null;
+  return STAND_DOWN_CAUSE_WORD[reason] ?? null;
+}
+
+/**
+ * The accessible name of a stood place's map label: {@code "Tynemouth, stood down: poor visibility"},
+ * {@code "…: cloud"}, {@code "…: rain"}, and just {@code "Tynemouth, stood down"} when the cause is
+ * generic or unknown.
+ *
+ * @param {string} name the place's name
+ * @param {?string} reason the place's served {@code triageReason}
+ * @returns {string} the label's aria-label
+ */
+export function stoodPlaceAriaLabel(name, reason) {
+  const word = stoodPlaceCauseWord(reason);
+  if (word == null) return `${name}, stood down`;
+  return `${name}, stood down: ${word === 'visibility' ? 'poor visibility' : word}`;
 }

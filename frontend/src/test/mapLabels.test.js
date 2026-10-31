@@ -9,6 +9,7 @@ import {
   BADGE_OVERHANG_X, BADGE_OVERHANG_Y, chipBoxWithinBadgedBox, hasRatedBadge, withBadgeOverhang,
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
   standDownRegionItems, withStandDownLabels,
+  STOOD_PLACE_LABEL_MIN_ZOOM, stoodPlaceCandidates,
 } from '../utils/mapLabels.js';
 import { MAP_NUDGES, mapDxOffsets, placeWithNudges } from '../utils/labelPlacement.js';
 import { withoutBigSeasDuplicates } from '../utils/bigSeasChips.js';
@@ -716,19 +717,94 @@ describe('mapLabels — the stood-down region labels (big-seas plan F3)', () => 
 
   it('substitutes IN PLACE by key, so the region order (and the pass\'s priority) is unchanged', () => {
     const ordinary = [{ key: 'region:A' }, { key: 'region:B' }, { key: 'region:C' }];
-    const stood = [{ key: 'region:B', standDown: 'rain' }, { key: 'region:Z', standDown: 'murk' }];
+    const stood = [{ key: 'region:B', standDown: 'rain' }, { key: 'region:Z', standDown: 'visibility' }];
     const merged = withStandDownLabels(ordinary, stood);
     expect(merged.map((m) => m.key)).toEqual(['region:A', 'region:B', 'region:C', 'region:Z']);
     expect(merged[1].standDown).toBe('rain');
   });
 
   it('adds the label for a region with no ordinary one (every place stood down)', () => {
-    const merged = withStandDownLabels([], standDownRegionItems([region('North', 'murk', [54, 2])], project, 9));
+    const merged = withStandDownLabels([], standDownRegionItems([region('North', 'visibility', [54, 2])], project, 9));
     expect(merged).toHaveLength(1);
   });
 
   it('returns the ordinary list untouched when nothing stood down', () => {
     const ordinary = [{ key: 'region:South' }];
     expect(withStandDownLabels(ordinary, [])).toBe(ordinary);
+  });
+});
+
+describe('stood-down place labels (stood-down-place-labels-plan.md)', () => {
+  const place = (key, name, over = {}) => ({
+    key, name, lat: 55, lng: -1.5, reason: 'HIGH_CLOUD', driveMinutes: null, ...over,
+  });
+  const ALL_IN_VIEW = { contains: () => true };
+
+  it('starts at exactly the zoom the region stand-down labels stop at', () => {
+    expect(STOOD_PLACE_LABEL_MIN_ZOOM).toBe(REGION_LABEL_MAX_ZOOM);
+    const project = () => [10, 10];
+    const regions = [{ rid: 'North', cause: 'rain', points: [{ lat: 55, lng: -1.5, rid: 'North' }] }];
+    const stood = [place('#1', 'A')];
+    const args = (zoom) => ({ stoodPlaces: stood, zoom, bounds: ALL_IN_VIEW, budgetLeft: 5 });
+
+    expect(standDownRegionItems(regions, project, 11.19)).toHaveLength(1);
+    expect(stoodPlaceCandidates(args(11.19))).toHaveLength(0);
+    expect(standDownRegionItems(regions, project, 11.2)).toHaveLength(0);
+    expect(stoodPlaceCandidates(args(11.2))).toHaveLength(1);
+  });
+
+  it('keeps only places inside the (unpadded) bounds', () => {
+    const inside = place('#1', 'In');
+    const outside = place('#2', 'Out', { lat: 60 });
+    const bounds = { contains: ([lat]) => lat < 58 };
+    const result = stoodPlaceCandidates({
+      stoodPlaces: [inside, outside], zoom: 12, bounds, budgetLeft: 9,
+    });
+    expect(result.map((p) => p.name)).toEqual(['In']);
+  });
+
+  it('drops a place that already has a chip, by join key: an id point and a name point', () => {
+    const result = stoodPlaceCandidates({
+      stoodPlaces: [place('#1', 'Same'), place('@Same', 'Same'), place('#2', 'Same')],
+      zoom: 12,
+      bounds: ALL_IN_VIEW,
+      takenKeys: new Set(['#1', '@Same']),
+      budgetLeft: 9,
+    });
+    // Two places that share a display name are told apart by key, not name.
+    expect(result.map((p) => p.key)).toEqual(['#2']);
+  });
+
+  it('keeps the selected place first and outside the budget', () => {
+    const result = stoodPlaceCandidates({
+      stoodPlaces: [place('#1', 'A'), place('#2', 'B'), place('#3', 'C')],
+      zoom: 12,
+      bounds: ALL_IN_VIEW,
+      budgetLeft: 1,
+      selectedName: 'C',
+    });
+    expect(result.map((p) => p.name)).toEqual(['C', 'A']);
+  });
+
+  it('keeps the selected place at any zoom and outside the bounds, but still de-duplicated', () => {
+    const stoodPlaces = [place('#1', 'A'), place('#2', 'B')];
+    const none = { contains: () => false };
+    const args = { stoodPlaces, bounds: none, budgetLeft: 0, selectedName: 'B' };
+    expect(stoodPlaceCandidates({ ...args, zoom: 10 }).map((p) => p.name)).toEqual(['B']);
+    expect(stoodPlaceCandidates({ ...args, zoom: 12 }).map((p) => p.name)).toEqual(['B']);
+    expect(stoodPlaceCandidates({ ...args, zoom: 10, takenKeys: new Set(['#2']) })).toEqual([]);
+  });
+
+  it('takes at most budgetLeft, none at 0, in the order given (drive time, then name, set by the caller)', () => {
+    const stoodPlaces = [place('#1', 'A'), place('#2', 'B'), place('#3', 'C')];
+    const base = { stoodPlaces, zoom: 12, bounds: ALL_IN_VIEW };
+    expect(stoodPlaceCandidates({ ...base, budgetLeft: 0 })).toEqual([]);
+    expect(stoodPlaceCandidates({ ...base, budgetLeft: -3 })).toEqual([]);
+    expect(stoodPlaceCandidates({ ...base, budgetLeft: 1 }).map((p) => p.name)).toEqual(['A']);
+  });
+
+  it('tolerates no places and no bounds', () => {
+    expect(stoodPlaceCandidates({ stoodPlaces: null, zoom: 12, budgetLeft: 3 })).toEqual([]);
+    expect(stoodPlaceCandidates({ stoodPlaces: [place('#1', 'A')], zoom: 12, budgetLeft: 3 })).toHaveLength(1);
   });
 });

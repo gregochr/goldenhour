@@ -335,13 +335,15 @@ export function unratedPointsFor(spots, windowIndex) {
  *
  * @param {Array<object>} spots spots from {@link buildHeatSpots}
  * @param {number} windowIndex which of the rendered windows to build the list for
- * @returns {Array<{lat: number, lng: number, reason: ?string, rid: string, key: string}>}
+ * @returns {Array<{id: *, name: string, lat: number, lng: number, reason: ?string, rid: string, key: string}>}
  */
 export function stoodPointsFor(spots, windowIndex) {
   const list = [];
   for (const spot of Array.isArray(spots) ? spots : []) {
     if (spot?.states?.[windowIndex] !== 'stood') continue;
     list.push({
+      id: spot.id,
+      name: spot.name,
       lat: spot.lat,
       lng: spot.lng,
       reason: spot.reasons?.[windowIndex] ?? null,

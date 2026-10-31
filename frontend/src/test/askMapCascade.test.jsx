@@ -184,3 +184,16 @@ describe('the fade wins on SPECIFICITY, not on where its block happens to sit', 
     expect(opacityOf(mark('button', className, { 'data-tide': 'miss', 'data-ask': 'fade' }))).toBe('0.25');
   });
 });
+
+describe('a stood-down place label (stood-down-place-labels-plan.md)', () => {
+  const STOOD = 'wf-maplab-chip wf-maplab-stood';
+
+  it('fades to .25 while an answer\'s picks are showing, and is restored when selected', () => {
+    expect(opacityOf(mark('button', STOOD, { 'data-ask': 'fade' }))).toBe('0.25');
+    expect(opacityOf(mark('button', STOOD, { 'data-ask': 'fade', 'data-selected': 'true' }))).toBe('1');
+  });
+
+  it('is otherwise at full strength: "ruled out" is never written as opacity', () => {
+    expect(opacityOf(mark('button', STOOD, {}))).toBe('1');
+  });
+});

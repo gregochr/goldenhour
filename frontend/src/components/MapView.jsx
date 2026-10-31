@@ -310,6 +310,9 @@ const NO_STAND_GROUND = Object.freeze({
   stood: EMPTY_POINTS, regions: EMPTY_POINTS, entry: null,
 });
 
+/** No stood-down place labels: one frozen identity, so an empty answer never repaints the label pass. */
+const NO_STOOD_PLACES = Object.freeze([]);
+
 /** The Heat view's key-slot line for a window where every place stood down (big-seas plan F3). */
 const STOOD_DOWN_UNSCORED_LINE = 'Stood down by the weather — no place rated for this event';
 /** The same line when the window still has places nobody has looked at. */
@@ -3169,6 +3172,46 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return resolveStandDown(briefingScore, forecast);
   }, [eventType, date, briefingScoreIndex, solarWindowOnScreen, activeWindowPast]);
 
+  /**
+   * The weather-stood places the map NAMES from zoom 11.2 (stood-down-place-labels-plan.md): the list the
+   * hatch paints ({@code standGround.stood}), kept only where {@link isStandDownLocation} agrees (the hatch
+   * reads briefing score rows alone, the callout lets a forecast-row rating win, so a place rated 1-2 stars
+   * in the forecast row is never labelled "stood down" over a callout that rates it), joined to its drive
+   * time and pre-sorted by it (unknown last, then name) as the placer's priority. A filter, join and sort
+   * over served state: nothing here rates or thresholds. Memoised so {@code MapLabels} sees a stable
+   * identity; empty is one frozen constant. (A separate memo from {@code standGround}, which is declared
+   * above {@link isStandDownLocation} and so cannot call it.)
+   */
+  const stoodPlaces = useMemo(() => {
+    const stood = standGround.stood;
+    if (!stood || stood.length === 0) return NO_STOOD_PLACES;
+    const byId = new Map();
+    const byName = new Map();
+    for (const loc of locations) {
+      byId.set(loc.id, loc);
+      byName.set(loc.name, loc);
+    }
+    const places = [];
+    for (const point of stood) {
+      const loc = (point.id != null ? byId.get(point.id) : undefined) ?? byName.get(point.name);
+      if (!loc || !isStandDownLocation(loc)) continue;
+      const mins = driveMinutesFor(loc.id);
+      places.push({
+        key: point.key,
+        // The location's own name (what `selectMapLocation` and the chips key on), not the heat spot's.
+        name: loc.name,
+        reason: point.reason ?? null,
+        lat: point.lat,
+        lng: point.lng,
+        driveMinutes: Number.isFinite(mins) ? mins : null,
+      });
+    }
+    if (places.length === 0) return NO_STOOD_PLACES;
+    const minutes = (p) => (p.driveMinutes ?? Infinity);
+    places.sort((a, b) => (minutes(a) === minutes(b) ? a.name.localeCompare(b.name) : minutes(a) - minutes(b)));
+    return places;
+  }, [standGround, locations, isStandDownLocation, driveMinutesFor]);
+
   /** Get the forecast rating for a location on the current date/event. */
   const getRatingForLocation = useCallback((loc) => {
     if (eventType === 'AURORA') {
@@ -4406,7 +4449,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ]);
   const labelSpots = useMemo(() => {
     const spots = scopedVisibleLocations.map(spotOf);
-    if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
+    // A selected stood-down place stays its stood label (MapLabels keeps it, `data-selected`), so it is not
+    // pushed here as an ordinary chip - that would unmount the focused label (stood-down-place-labels-plan.md).
+    if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)
+      && !stoodPlaces.some((p) => p.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
     }
     // ⚠️ Ask PhotoCast's picks (F3, plan §2.7). Every pick is on the map: one the reader's rating
@@ -4455,7 +4501,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     return spots;
   }, [
-    scopedVisibleLocations, selectedLoc, spotOf, locations, askPicks, askSelectedRank,
+    scopedVisibleLocations, selectedLoc, spotOf, locations, askPicks, askSelectedRank, stoodPlaces,
   ]);
   // P4d: what `handleTideBounds` compares a new report against. Refreshed after every render that changed a
   // pool or took a bounds bump, so the stored signature is always the one the screen is showing (a pool
@@ -6003,7 +6049,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // Only a VISIBLE match: a label the placer has hidden (`display: none`, or still off-screen
     // measuring) is not focusable, and focusing it would drop focus to <body>.
     const origin = [...(mapPaneRef.current?.querySelectorAll(
-      '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
+      '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-label-stood"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
     ) ?? [])].find((el) => el.style.display !== 'none' && el.style.visibility !== 'hidden');
     const target = origin instanceof HTMLElement && origin.isConnected ? origin : mapPaneRef.current;
     target?.focus({ preventScroll: true });
@@ -6663,6 +6709,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <MapLabels
                 spots={chipSpots}
                 standRegions={standGround.regions}
+                stoodPlaces={stoodPlaces}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
                 reachMeasured={mapReachMeasured}
