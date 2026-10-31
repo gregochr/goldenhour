@@ -124,21 +124,22 @@ describe('DataGrid', () => {
       expect(within(header).queryByText('3 locations')).not.toBeInTheDocument();
     });
 
-    it('draws a sortable header as a button, the sorted one with an arrow and aria-sort', () => {
+    it('draws a sortable header as a button, the sorted one with an arrow and its state in its name', () => {
       const onSort = vi.fn();
       renderGrid({ sort: { key: 'name', dir: 'asc' }, onSort });
       const button = screen.getByTestId('grid-sort-name');
       expect(button).toHaveTextContent('Name ▲');
-      expect(button.parentElement).toHaveAttribute('aria-sort', 'ascending');
-      expect(screen.getByTestId('grid-sort-status').parentElement).not.toHaveAttribute('aria-sort');
+      expect(screen.getByRole('button', { name: 'Name, sorted ascending' })).toBe(button);
+      expect(button.parentElement).not.toHaveAttribute('aria-sort');
+      expect(screen.getByRole('button', { name: 'Status' })).toBe(screen.getByTestId('grid-sort-status'));
       fireEvent.click(screen.getByTestId('grid-sort-status'));
       expect(onSort).toHaveBeenCalledWith('status');
     });
 
-    it('shows ▼ and aria-sort descending when the sort runs the other way', () => {
+    it('shows ▼ and "sorted descending" when the sort runs the other way', () => {
       renderGrid({ sort: { key: 'status', dir: 'desc' }, onSort: vi.fn() });
       expect(screen.getByTestId('grid-sort-status')).toHaveTextContent('Status ▼');
-      expect(screen.getByTestId('grid-sort-status').parentElement).toHaveAttribute('aria-sort', 'descending');
+      expect(screen.getByRole('button', { name: 'Status, sorted descending' })).toBeInTheDocument();
     });
 
     it('draws plain labels when no sort handler is given', () => {

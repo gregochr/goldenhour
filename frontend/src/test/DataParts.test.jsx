@@ -27,11 +27,41 @@ describe('PanelShell', () => {
     expect(close.className).toContain('max-[639px]:hidden');
   });
 
-  it('draws the body and a pinned footer, and no meta when there is none', () => {
+  it('draws the body and the footer, and no meta when there is none', () => {
     render(<PanelShell title="Ada" onClose={vi.fn()} testIdPrefix="p" footer={<p>foot</p>}>body</PanelShell>);
     expect(screen.getByText('body')).toBeInTheDocument();
     expect(screen.getByText('foot')).toBeInTheDocument();
     expect(screen.queryByTestId('p-subtitle')).not.toBeInTheDocument();
+  });
+
+  it('scrolls the body inside the panel and pins the footer under it', () => {
+    render(<PanelShell title="Ada" onClose={vi.fn()} testIdPrefix="p" footer={<p>foot</p>}>body</PanelShell>);
+    // The body is the one flexible, scrolling region; the header and footer never shrink.
+    const body = screen.getByTestId('p-body').className;
+    expect(body).toContain('flex-1');
+    expect(body).toContain('min-h-0');
+    expect(body).toContain('overflow-y-auto');
+    expect(screen.getByTestId('p-footer').className).toContain('shrink-0');
+    expect(screen.getByTestId('p').className).toContain('flex-col');
+    expect(screen.getByTestId('p').className).toContain('min-h-0');
+  });
+
+  it('sticks the footer to the foot of the screen on the phone page', () => {
+    render(<PanelShell title="Ada" onClose={vi.fn()} testIdPrefix="p" footer={<p>foot</p>}>body</PanelShell>);
+    expect(screen.getByTestId('p-footer').className).toContain('max-[639px]:sticky');
+    expect(screen.getByTestId('p-footer').className).toContain('max-[639px]:bottom-0');
+  });
+
+  it('draws no footer box when there is no footer', () => {
+    render(<PanelShell title="Ada" onClose={vi.fn()} testIdPrefix="p">body</PanelShell>);
+    expect(screen.queryByTestId('p-footer')).not.toBeInTheDocument();
+  });
+
+  it('makes the title focusable by script, so a newly opened panel can take focus there', () => {
+    render(<PanelShell title="Ada" onClose={vi.fn()} testIdPrefix="p">body</PanelShell>);
+    const title = screen.getByTestId('p-title');
+    expect(title).toHaveAttribute('tabindex', '-1');
+    expect(title).toHaveAttribute('data-panel-title');
   });
 
   it('is never a dialog', () => {
@@ -146,9 +176,9 @@ describe('Chips', () => {
     expect(screen.queryByTestId('c-count')).not.toBeInTheDocument();
   });
 
-  it('is 36px tall and does not shrink on a phone', () => {
+  it('is 44px tall (the touch-target rule) and does not shrink on a phone', () => {
     render(<Chip label="A" on={false} onClick={vi.fn()} testId="c" />);
-    expect(screen.getByTestId('c').className).toContain('max-[639px]:h-9');
+    expect(screen.getByTestId('c').className).toContain('max-[639px]:min-h-11');
     expect(screen.getByTestId('c').className).toContain('max-[639px]:shrink-0');
   });
 

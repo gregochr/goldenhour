@@ -4,6 +4,7 @@ import { downloadTextFile, waitlistCsv, waitlistEmailLines } from '../utils/wait
 describe('waitlistExport', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     // jsdom has neither; the download test installs them, so take them away again.
     delete globalThis.URL.createObjectURL;
     delete globalThis.URL.revokeObjectURL;
@@ -39,7 +40,24 @@ describe('waitlistExport', () => {
     expect(waitlistEmailLines([{ email: 'a@x.com' }, { email: 'b@x.com' }])).toBe('a@x.com\nb@x.com');
   });
 
+  it.each(['=cmd@x.com', '+1@x.com', '-a@x.com', '@a@x.com', '\tb@x.com'])(
+    'defuses a spreadsheet formula in the CSV by prefixing a single quote: %j',
+    (email) => {
+      const row = waitlistCsv([{ email, submittedAt: 'x' }]).split('\r\n')[1];
+      expect(row.startsWith(`'${email}`)).toBe(true);
+    },
+  );
+
+  it('quotes a defused field that also needs RFC 4180 quoting', () => {
+    expect(waitlistCsv([{ email: '=a,b', submittedAt: 'x' }])).toContain('"\'=a,b",x');
+  });
+
+  it('leaves the copied addresses raw, formula characters and all', () => {
+    expect(waitlistEmailLines([{ email: '=cmd@x.com' }])).toBe('=cmd@x.com');
+  });
+
   it('saves a file through a temporary object URL and revokes it', () => {
+    vi.useFakeTimers();
     const create = vi.fn(() => 'blob:fake');
     const revoke = vi.fn();
     globalThis.URL.createObjectURL = create;
@@ -50,6 +68,9 @@ describe('waitlistExport', () => {
 
     expect(create).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
+    // Not yet: the download may start after the click returns.
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
     expect(revoke).toHaveBeenCalledWith('blob:fake');
     expect(document.querySelector('a[download]')).toBeNull();
   });

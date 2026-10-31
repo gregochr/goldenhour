@@ -107,7 +107,7 @@ New folder `components/data/` (one place, not copies). Users keeps its own compo
   ink-2, value ink, mono where numeric).
 - **`ChipRow`** + **`Chip`** (the Users chip, with counts; single-select within a group, groups AND), a **select styled as
   a chip** (*All regions ▾*), 1px group dividers, and a **sort chip** shown only in card mode. Search box 280px. At
-  ≤639px chips are 36px tall and scroll sideways, and the search moves above them.
+  ≤639px chips are 44px tall (min-h-11: the touch-target rule wins over the handoff's 36px) and scroll sideways, and the search moves above them.
 - **`DataGrid`**: a CSS grid (not `<table>`) inside a `@container` element (Tailwind 4's built-in container variants;
   JSX has none yet, `index.css` has hand-written ones). Columns come as a template; cells marked secondary drop at
   `@max-[820px]`; at `@max-[540px]` rows become two-line cards (line 1 name + right status/value, line 2 the summary

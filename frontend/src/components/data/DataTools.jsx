@@ -38,7 +38,7 @@ export function DataSearch({ value, onChange, placeholder, testId }) {
         type="search"
         aria-label={placeholder}
         placeholder={placeholder}
-        className={`${inputClass} pr-8 max-[639px]:min-h-10 [&::-webkit-search-cancel-button]:appearance-none`}
+        className={`${inputClass} pr-8 max-[639px]:min-h-11 [&::-webkit-search-cancel-button]:appearance-none`}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-testid={testId}

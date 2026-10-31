@@ -2,9 +2,17 @@
  * Export helpers for the admin Waitlist (data-tabs-redesign-plan.md §8): the whole list, never the search result.
  */
 
-/** One CSV field, RFC 4180: quoted when it holds a comma, a quote or a line break, with quotes doubled. */
+/** How long the object URL lives after the click, so the download can start. */
+const REVOKE_DELAY_MS = 1000;
+
+/**
+ * One CSV field. A field a spreadsheet would read as a formula (it starts with = + - @ tab or CR) gets a single
+ * quote in front (OWASP CSV injection); then RFC 4180: quoted when it holds a comma, a quote or a line break,
+ * with quotes doubled. Only the CSV is guarded: Copy emails stays raw, because those are used as addresses.
+ */
 function csvField(value) {
-  const text = value == null ? '' : String(value);
+  let text = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
@@ -45,5 +53,6 @@ export function downloadTextFile(filename, text, type = 'text/csv;charset=utf-8'
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  // Not synchronously: some browsers start the download after the click returns and would find the URL gone.
+  setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
 }

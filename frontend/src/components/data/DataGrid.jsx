@@ -49,7 +49,7 @@ function template(columns, lean) {
  * @param {string|number|null} [props.selectedId] the row whose panel is open
  * @param {(row: object) => void} props.onSelect called when a row is activated
  * @param {(row: object) => boolean} [props.isOff] true for a row drawn in the quiet ink (a switched-off item)
- * @param {{key: string, dir: 'asc'|'desc'}} [props.sort] the current sort, for the header's arrow and aria-sort
+ * @param {{key: string, dir: 'asc'|'desc'}} [props.sort] the current sort, for the header's arrow and the sort button's accessible name
  * @param {(sortKey: string) => void} [props.onSort] called when a sortable header is pressed
  * @param {string} props.testIdPrefix the grid's test id; rows are {@code {prefix}-row-{id}}
  */
@@ -83,12 +83,12 @@ export default function DataGrid({
             <div
               key={column.key}
               className={`min-w-0 ${columnClass(column)}`}
-              aria-sort={sorted ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined}
             >
               {column.sortKey != null && onSort ? (
                 <button
                   type="button"
                   className={`${HEADER_LABEL} ${tone} cursor-pointer whitespace-nowrap hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold`}
+                  aria-label={sorted ? `${column.header}, sorted ${sort.dir === 'asc' ? 'ascending' : 'descending'}` : undefined}
                   onClick={() => onSort(column.sortKey)}
                   data-testid={`${testIdPrefix}-sort-${column.sortKey}`}
                 >

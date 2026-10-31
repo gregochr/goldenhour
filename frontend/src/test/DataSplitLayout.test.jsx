@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import PropTypes from 'prop-types';
 import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 import DataSplitLayout from '../components/data/DataSplitLayout.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
+vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 function renderLayout(props = {}) {
   const onClose = vi.fn();
@@ -25,6 +28,8 @@ describe('DataSplitLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useIsMobile.mockReturnValue(false);
+    useIsSplitLayout.mockReturnValue(true);
+    window.scrollTo = vi.fn();
   });
 
   it('draws only the list when no panel is open', () => {
@@ -130,6 +135,139 @@ describe('DataSplitLayout', () => {
       renderLayout({ panel: null });
       expect(screen.getByTestId('data-split-list')).not.toHaveAttribute('hidden');
       expect(screen.getByText('the list')).toBeInTheDocument();
+    });
+  });
+
+  describe('the list while a panel is open', () => {
+    it('stays interactive in split mode (1000px and up)', () => {
+      useIsSplitLayout.mockReturnValue(true);
+      renderLayout();
+      expect(screen.getByTestId('data-split-list')).not.toHaveAttribute('inert');
+    });
+
+    it('is inert in overlay mode, so Tab and clicks cannot reach what the scrim covers', () => {
+      useIsSplitLayout.mockReturnValue(false);
+      renderLayout();
+      expect(screen.getByTestId('data-split-list')).toHaveAttribute('inert');
+    });
+
+    it('is inert on the phone page too', () => {
+      useIsSplitLayout.mockReturnValue(false);
+      useIsMobile.mockReturnValue(true);
+      renderLayout();
+      expect(screen.getByTestId('data-split-list')).toHaveAttribute('inert');
+    });
+
+    it('is never inert with no panel open', () => {
+      useIsSplitLayout.mockReturnValue(false);
+      renderLayout({ panel: null });
+      expect(screen.getByTestId('data-split-list')).not.toHaveAttribute('inert');
+    });
+  });
+
+  describe('keeping the panel in view', () => {
+    it('rides in a box that sticks to the top and is no taller than the viewport', () => {
+      renderLayout();
+      const box = screen.getByTestId('data-split-panel-box').className;
+      expect(box).toContain('sticky');
+      expect(box).toContain('top-0');
+      expect(box).toContain('max-h-[min(100dvh,100%)]');
+      expect(box).toContain('min-h-0');
+    });
+
+    it('is not boxed on the phone page, which scrolls as a page', () => {
+      useIsMobile.mockReturnValue(true);
+      renderLayout();
+      expect(screen.getByTestId('data-split-panel-box').className).not.toContain('sticky');
+    });
+  });
+
+  describe('focus', () => {
+    const TITLE = <h2 tabIndex={-1} data-panel-title="" data-testid="title">Entry</h2>;
+
+    function Harness(props) {
+      return (
+        <DataSplitLayout
+          list={(
+            <>
+              <h2>The list</h2>
+              <input type="search" data-testid="search" />
+              <button type="button" data-testid="grid-row-5">row</button>
+            </>
+          )}
+          onClose={vi.fn()}
+          panelLabel="x"
+          backLabel="Tab"
+          rowTestIdPrefix="grid"
+          {...props}
+        />
+      );
+    }
+
+    Harness.propTypes = { panel: PropTypes.node, selectionKey: PropTypes.number, list: PropTypes.node };
+
+    it('moves focus to the panel title when a panel opens', () => {
+      const { rerender } = render(<Harness panel={null} />);
+      rerender(<Harness panel={TITLE} selectionKey={5} />);
+      expect(screen.getByTestId('title')).toHaveFocus();
+    });
+
+    it('moves focus to the new title when the open entry changes', () => {
+      const { rerender } = render(<Harness panel={TITLE} selectionKey={5} />);
+      screen.getByTestId('search').focus();
+      rerender(<Harness panel={TITLE} selectionKey={6} />);
+      expect(screen.getByTestId('title')).toHaveFocus();
+    });
+
+    it('returns focus to the row that opened the panel when it closes', () => {
+      const { rerender } = render(<Harness panel={null} />);
+      rerender(<Harness panel={TITLE} selectionKey={5} />);
+      rerender(<Harness panel={null} selectionKey={null} />);
+      expect(screen.getByTestId('grid-row-5')).toHaveFocus();
+    });
+
+    it('falls back to the search box when that row is gone', () => {
+      const { rerender } = render(<Harness panel={null} />);
+      rerender(<Harness panel={TITLE} selectionKey={99} />);
+      rerender(<Harness panel={null} selectionKey={null} />);
+      expect(screen.getByTestId('search')).toHaveFocus();
+    });
+
+    it('falls back to the list heading when there is no search box either', () => {
+      const bare = { list: <h2>The list</h2> };
+      const { rerender } = render(<Harness {...bare} panel={null} />);
+      rerender(<Harness {...bare} panel={TITLE} selectionKey={99} />);
+      rerender(<Harness {...bare} panel={null} selectionKey={null} />);
+      expect(screen.getByRole('heading', { name: 'The list' })).toHaveFocus();
+    });
+
+    it('does not take focus the reader has moved elsewhere', () => {
+      const { rerender } = render(<Harness panel={null} />);
+      rerender(<Harness panel={TITLE} selectionKey={5} />);
+      screen.getByTestId('search').focus();
+      rerender(<Harness panel={null} selectionKey={null} />);
+      expect(screen.getByTestId('search')).toHaveFocus();
+    });
+  });
+
+  describe('phone scroll position', () => {
+    it('opens the page at the top and puts the list back where it was scrolled to', () => {
+      useIsMobile.mockReturnValue(true);
+      Object.defineProperty(window, 'scrollY', { value: 480, configurable: true });
+      const { rerender } = render(
+        <DataSplitLayout list={<p>l</p>} panel={null} onClose={vi.fn()} panelLabel="x" backLabel="Tab" />,
+      );
+      fireEvent.scroll(window);
+      rerender(<DataSplitLayout list={<p>l</p>} panel={<p>p</p>} onClose={vi.fn()} panelLabel="x" backLabel="Tab" />);
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 0);
+      Object.defineProperty(window, 'scrollY', { value: 0, configurable: true });
+      rerender(<DataSplitLayout list={<p>l</p>} panel={null} onClose={vi.fn()} panelLabel="x" backLabel="Tab" />);
+      expect(window.scrollTo).toHaveBeenLastCalledWith(0, 480);
+    });
+
+    it('does not touch the scroll position on tablet or desktop', () => {
+      renderLayout();
+      expect(window.scrollTo).not.toHaveBeenCalled();
     });
   });
 });

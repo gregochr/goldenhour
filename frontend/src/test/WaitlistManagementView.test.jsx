@@ -54,6 +54,7 @@ describe('WaitlistManagementView', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(NOW));
     useIsMobile.mockReturnValue(false);
+    window.scrollTo = vi.fn();
     window.location.hash = '';
   });
 
@@ -61,7 +62,8 @@ describe('WaitlistManagementView', () => {
     vi.useRealTimers();
     delete navigator.clipboard;
     delete globalThis.URL.createObjectURL;
-    delete globalThis.URL.revokeObjectURL;
+    // The download revokes its URL on a timer, which may fire after the test: leave a no-op there.
+    globalThis.URL.revokeObjectURL = () => {};
   });
 
   describe('the list', () => {
@@ -406,10 +408,24 @@ describe('WaitlistManagementView', () => {
       expect(screen.getByTestId('waitlist-split-list')).not.toHaveAttribute('hidden');
     });
 
-    it('lays the header buttons and rows out with phone touch targets', async () => {
+    it('gives every phone control a 44px touch target: header buttons, search, back, Invite, Remove, Keep', async () => {
+      useIsMobile.mockReturnValue(true);
       await renderLoaded();
-      expect(screen.getByTestId('waitlist-copy').className).toContain('max-[639px]:min-h-10');
-      expect(screen.getByTestId('waitlist-csv').className).toContain('max-[639px]:min-h-10');
+      for (const id of ['waitlist-copy', 'waitlist-csv', 'waitlist-search']) {
+        expect(screen.getByTestId(id).className).toContain('max-[639px]:min-h-11');
+      }
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      expect(screen.getByTestId('waitlist-split-back').className).toContain('min-h-[44px]');
+      expect(screen.getByTestId('waitlist-invite').className).toContain('max-[639px]:min-h-11');
+      expect(screen.getByTestId('waitlist-remove').className).toContain('max-[639px]:min-h-11');
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+      expect(screen.getByTestId('waitlist-remove-confirm').className).toContain('max-[639px]:min-h-11');
+      expect(screen.getByTestId('waitlist-remove-cancel').className).toContain('max-[639px]:min-h-11');
+    });
+
+    it('makes a row a two-line card in a narrow list, with the 60px minimum, by class', async () => {
+      await renderLoaded();
+      expect(screen.getByTestId('waitlist-row-42').className).toContain('@max-[540px]:min-h-[60px]');
     });
   });
 
@@ -478,7 +494,7 @@ describe('WaitlistManagementView', () => {
       inviteWaitlistEntry.mockRejectedValue(new Error('boom'));
       await openFirst();
       fireEvent.click(screen.getByTestId('waitlist-invite'));
-      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent('Could not send the invitation');
+      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent("Couldn't send the invitation");
     });
 
     it('still says the invitation went out when only the re-read fails', async () => {
@@ -552,7 +568,7 @@ describe('WaitlistManagementView', () => {
 
       fireEvent.click(screen.getByTestId('waitlist-remove-confirm'));
 
-      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent('Could not remove');
+      expect(await screen.findByTestId('waitlist-action-error')).toHaveTextContent("Couldn't remove");
       expect(screen.getByTestId('waitlist-row-42')).toBeInTheDocument();
       expect(screen.getByTestId('waitlist-panel-shell')).toBeInTheDocument();
       expect(screen.getByTestId('waitlist-remove-confirm')).not.toBeDisabled();
@@ -572,6 +588,171 @@ describe('WaitlistManagementView', () => {
       expect(screen.queryByTestId('waitlist-notice')).not.toBeInTheDocument();
       expect(screen.getByTestId('waitlist-remove')).toBeInTheDocument();
       expect(screen.queryByTestId('waitlist-remove-confirm')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Esc and the two-step Remove', () => {
+    it('Esc while the confirm shows cancels the confirm; a second Esc closes the panel', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+
+      expect(screen.queryByTestId('waitlist-remove-confirm')).not.toBeInTheDocument();
+      expect(screen.getByTestId('waitlist-panel-shell')).toBeInTheDocument();
+      expect(removeWaitlistEntry).not.toHaveBeenCalled();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(screen.queryByTestId('waitlist-panel-shell')).not.toBeInTheDocument();
+    });
+
+    it('takes the Esc even though a dialog is mounted, hidden, in the Map pane', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      const pane = document.createElement('div');
+      pane.hidden = true;
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      pane.appendChild(dialog);
+      document.body.appendChild(pane);
+
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      pane.remove();
+
+      expect(screen.queryByTestId('waitlist-panel-shell')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('focus', () => {
+    it('moves focus to the panel title on open', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      expect(screen.getByTestId('waitlist-panel-shell-title')).toHaveFocus();
+    });
+
+    it('returns focus to the row after the close button, and after Esc', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-panel-shell-close'));
+      expect(screen.getByTestId('waitlist-row-42')).toHaveFocus();
+
+      fireEvent.click(screen.getByTestId('waitlist-row-99'));
+      fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+      expect(screen.getByTestId('waitlist-row-99')).toHaveFocus();
+    });
+
+    it('moves focus into the confirm step, and back to Remove on Keep', async () => {
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+      expect(screen.getByTestId('waitlist-remove-confirm')).toHaveFocus();
+
+      fireEvent.click(screen.getByTestId('waitlist-remove-cancel'));
+      expect(screen.getByTestId('waitlist-remove')).toHaveFocus();
+    });
+
+    it('puts focus on the search box after a Remove, because the entry has no row left', async () => {
+      removeWaitlistEntry.mockResolvedValue(undefined);
+      await renderLoaded([FIRST, SECOND]);
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+      fireEvent.click(screen.getByTestId('waitlist-remove-confirm'));
+
+      await waitFor(() => expect(screen.queryByTestId('waitlist-row-42')).not.toBeInTheDocument());
+      expect(screen.getByTestId('waitlist-search')).toHaveFocus();
+    });
+  });
+
+  describe('a removal racing a re-read', () => {
+    it('does not bring a removed entry back when an invite re-read, already in flight, lands after it', async () => {
+      let landRead;
+      inviteWaitlistEntry.mockResolvedValue({});
+      removeWaitlistEntry.mockResolvedValue(undefined);
+      const { onCountChange } = await renderLoaded([FIRST, SECOND]);
+      getWaitlist.mockReturnValue(new Promise((resolve) => { landRead = resolve; }));
+
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-invite'));
+      await waitFor(() => expect(getWaitlist).toHaveBeenCalledTimes(2));
+      // While that re-read is out, remove the other entry.
+      fireEvent.click(screen.getByTestId('waitlist-row-99'));
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+      fireEvent.click(screen.getByTestId('waitlist-remove-confirm'));
+      await waitFor(() => expect(screen.queryByTestId('waitlist-row-99')).not.toBeInTheDocument());
+
+      // The server's answer was read before the delete, so it still lists the removed entry.
+      await act(async () => { landRead([INVITED, SECOND]); });
+
+      expect(screen.queryByTestId('waitlist-row-99')).not.toBeInTheDocument();
+      expect(screen.getByTestId('waitlist-row-42')).toBeInTheDocument();
+      expect(onCountChange).toHaveBeenLastCalledWith(1);
+      expect(screen.getByTestId('waitlist-total')).toHaveTextContent('1 · oldest first');
+    });
+
+    it('reports the count after an invite re-read', async () => {
+      inviteWaitlistEntry.mockResolvedValue({});
+      const { onCountChange } = await renderLoaded([FIRST, SECOND]);
+      getWaitlist.mockResolvedValue([INVITED, SECOND, THIRD]);
+
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-invite'));
+
+      await waitFor(() => expect(onCountChange).toHaveBeenLastCalledWith(3));
+    });
+  });
+
+  describe('the address when the selection vanishes', () => {
+    it('replaces, not adds, the history entry when the selected entry is removed', async () => {
+      removeWaitlistEntry.mockResolvedValue(undefined);
+      const replace = vi.spyOn(window.history, 'replaceState');
+      await renderLoaded([FIRST, SECOND]);
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      expect(window.location.hash).toBe('#manage/waitlist/42');
+      fireEvent.click(screen.getByTestId('waitlist-remove'));
+      fireEvent.click(screen.getByTestId('waitlist-remove-confirm'));
+
+      await waitFor(() => expect(window.location.hash).toBe('#manage/waitlist'));
+      expect(replace.mock.calls.at(-1).slice(1)).toEqual(['', '#manage/waitlist']);
+      replace.mockRestore();
+    });
+
+    it('replaces the address when a pasted id is not on the list', async () => {
+      window.location.hash = '#manage/waitlist/12345';
+      const replace = vi.spyOn(window.history, 'replaceState');
+      await renderLoaded();
+      await waitFor(() => expect(window.location.hash).toBe('#manage/waitlist'));
+      expect(replace.mock.calls.at(-1).slice(1)).toEqual(['', '#manage/waitlist']);
+      replace.mockRestore();
+    });
+
+    it('leaves the address alone when the list failed to load, because nothing is known about the id', async () => {
+      window.location.hash = '#manage/waitlist/12345';
+      getWaitlist.mockRejectedValue(new Error('down'));
+      renderView();
+      await screen.findByTestId('waitlist-load-error');
+      expect(window.location.hash).toBe('#manage/waitlist/12345');
+    });
+
+    it('still adds a history entry when the reader closes a panel that is open', async () => {
+      const replace = vi.spyOn(window.history, 'replaceState');
+      await renderLoaded();
+      fireEvent.click(screen.getByTestId('waitlist-row-42'));
+      fireEvent.click(screen.getByTestId('waitlist-panel-shell-close'));
+      expect(replace).not.toHaveBeenCalled();
+      replace.mockRestore();
+    });
+  });
+
+  describe('loading and load-error insets', () => {
+    it('carry no padding of their own, so they sit where the loaded list does', async () => {
+      getWaitlist.mockReturnValue(new Promise(() => {}));
+      const { unmount } = render(<WaitlistManagementView onCountChange={vi.fn()} />);
+      expect(screen.getByText('Loading waitlist...').className).not.toMatch(/\bp-\d/);
+      unmount();
+      getWaitlist.mockRejectedValue(new Error('x'));
+      renderView();
+      expect((await screen.findByTestId('waitlist-load-error')).className).not.toMatch(/\bp-\d/);
     });
   });
 });

@@ -96,11 +96,16 @@ describe('ManageView — following the hash while mounted', () => {
     expect(screen.getByTestId('stub-view')).toHaveTextContent('Waitlist');
   });
 
-  it('stops listening when it unmounts', () => {
+  it('stops listening when it unmounts, removing the very listener it added', () => {
+    const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
     const { unmount } = render(<ManageView onComplete={vi.fn()} />);
+    const added = add.mock.calls.filter(([type]) => type === 'hashchange').map(([, fn]) => fn);
+    expect(added).toHaveLength(1);
     unmount();
-    expect(remove).toHaveBeenCalledWith('hashchange', expect.any(Function));
+    const removed = remove.mock.calls.filter(([type]) => type === 'hashchange').map(([, fn]) => fn);
+    expect(removed).toContain(added[0]);
+    add.mockRestore();
     remove.mockRestore();
   });
 });

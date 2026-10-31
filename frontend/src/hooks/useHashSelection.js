@@ -29,7 +29,7 @@ function writeSelection(tab, id) {
  * selection stays as it was. {@code manage/{tab}} with no id, or another tab's hash, clears it.
  *
  * @param {string} tab the Manage tab's key (e.g. {@code waitlist})
- * @returns {{selectedId: number|null, select: (id: number) => void, clear: () => void}}
+ * @returns {{selectedId: number|null, select: (id: number) => void, clear: (options?: {replace: boolean}) => void}}
  */
 export default function useHashSelection(tab) {
   const [selectedId, setSelectedId] = useState(() => selectionFromHash(tab));
@@ -48,9 +48,16 @@ export default function useHashSelection(tab) {
     writeSelection(tab, id);
   }, [tab]);
 
-  const clear = useCallback(() => {
+  const clear = useCallback((options) => {
     setSelectedId(null);
-    writeSelection(tab, null);
+    // `{replace: true}` rewrites the current entry instead of adding one: for a selection that has vanished (a
+    // removed row, a pasted id that is not on the list), so Back does not land on a dead `#manage/{tab}/{id}`.
+    // A click handler passes its event here, so only a literal `true` counts.
+    if (options?.replace === true) {
+      window.history.replaceState(window.history.state, '', `#manage/${tab}`);
+    } else {
+      writeSelection(tab, null);
+    }
   }, [tab]);
 
   return { selectedId, select, clear };

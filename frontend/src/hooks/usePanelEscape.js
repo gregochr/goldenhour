@@ -14,13 +14,25 @@ function isTextField(target) {
 }
 
 /**
+ * Whether a dialog or modal is actually showing. The Map's non-modal {@code role="dialog"} panels stay mounted in the
+ * hidden Map pane, so a dialog inside a {@code [hidden]} ancestor (or one the browser says is not visible) does not
+ * count.
+ */
+function visibleDialogOpen() {
+  return Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).some((node) => {
+    if (node.closest('[hidden]')) return false;
+    return typeof node.checkVisibility === 'function' ? node.checkVisibility() : true;
+  });
+}
+
+/**
  * Esc for a list-and-panel tab: it closes the open panel, or steps back from a sub-mode (an edit or add form)
  * first. {@code onEscape} decides which; this hook decides whether the key is the panel's to take.
  *
  * <p>It ignores the key when
  * <ul>
- *   <li>another dialog is open (any {@code [role="dialog"]} or {@code [aria-modal="true"]}; the panel is neither,
- *       and has buttons of its own),
+ *   <li>another dialog is open and visible (any {@code [role="dialog"]} or {@code [aria-modal="true"]} not inside a
+ *       {@code [hidden]} ancestor; the panel is neither, and has buttons of its own),
  *   <li>something already took the key ({@code defaultPrevented}),
  *   <li>the Operations pane is hidden (the reader is on Map or Plan: the panel is still mounted, a {@code hidden}
  *       ancestor away), because Esc there belongs to the Map's own rules,
@@ -43,7 +55,7 @@ export default function usePanelEscape({ active, panelRef, onEscape }) {
     if (!active) return undefined;
     const onKeyDown = (event) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+      if (visibleDialogOpen()) return;
       const panel = panelRef.current;
       if (!panel || panel.closest('[hidden]')) return;
       const target = event.target;

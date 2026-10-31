@@ -69,6 +69,32 @@ describe('usePanelEscape', () => {
     expect(onEscape).not.toHaveBeenCalled();
   });
 
+  it('does not count a dialog that is mounted inside a hidden pane (the Map\'s non-modal panels)', () => {
+    const onEscape = vi.fn();
+    render(<Harness onEscape={onEscape} />);
+    const wrapper = document.createElement('div');
+    wrapper.hidden = true;
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    wrapper.appendChild(dialog);
+    document.body.appendChild(wrapper);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    wrapper.remove();
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not count a dialog the browser reports as not visible', () => {
+    const onEscape = vi.fn();
+    render(<Harness onEscape={onEscape} />);
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    dialog.checkVisibility = () => false;
+    document.body.appendChild(dialog);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    dialog.remove();
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores Esc while an aria-modal element is open', () => {
     const onEscape = vi.fn();
     render(<Harness onEscape={onEscape} />);

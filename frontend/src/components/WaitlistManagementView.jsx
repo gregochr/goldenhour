@@ -33,11 +33,34 @@ function errorSentence(err, fallback) {
  * and Remove behind its two-step confirm. Keyed by entry id by the caller, so its busy, notice and error state
  * never carries from one entry to the next.
  */
-function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
+function WaitlistPanel({ entry, total, onClose, onInvite, onRemove, panelRef }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const removeButton = useRef(null);
+  const confirmButton = useRef(null);
+  // Which button takes focus once the confirm step has changed what is on screen; null on first render.
+  const focusAfterToggle = useRef(null);
+
+  useEffect(() => {
+    if (focusAfterToggle.current === 'confirm') confirmButton.current?.focus();
+    if (focusAfterToggle.current === 'remove') removeButton.current?.focus();
+    focusAfterToggle.current = null;
+  }, [confirming]);
+
+  function askToRemove() {
+    focusAfterToggle.current = 'confirm';
+    setConfirming(true);
+  }
+
+  function keepEntry() {
+    focusAfterToggle.current = 'remove';
+    setConfirming(false);
+  }
+
+  // Esc backs out of the confirm step first, and only then closes the panel.
+  usePanelEscape({ active: true, panelRef, onEscape: confirming ? keepEntry : onClose });
 
   async function invite() {
     setError('');
@@ -47,7 +70,7 @@ function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
       await onInvite(entry);
       setNotice('Invitation sent.');
     } catch (err) {
-      setError(errorSentence(err, 'Could not send the invitation. Please try again.'));
+      setError(errorSentence(err, "Couldn't send the invitation. Please try again."));
     } finally {
       setBusy(false);
     }
@@ -60,7 +83,7 @@ function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
     try {
       await onRemove(entry);
     } catch (err) {
-      setError(errorSentence(err, 'Could not remove the entry. Please try again.'));
+      setError(errorSentence(err, "Couldn't remove the entry. Please try again."));
       setBusy(false);
     }
   }
@@ -97,6 +120,7 @@ function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
               <button
                 type="button"
                 className="min-h-9 text-xs text-plex-error hover:underline max-[639px]:min-h-11"
+                ref={confirmButton}
                 disabled={busy}
                 onClick={remove}
                 data-testid="waitlist-remove-confirm"
@@ -107,7 +131,7 @@ function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
                 type="button"
                 className={`${textButtonClass} text-xs max-[639px]:min-h-11`}
                 disabled={busy}
-                onClick={() => setConfirming(false)}
+                onClick={keepEntry}
                 data-testid="waitlist-remove-cancel"
               >
                 Keep
@@ -117,8 +141,9 @@ function WaitlistPanel({ entry, total, onClose, onInvite, onRemove }) {
             <button
               type="button"
               className={`${textButtonClass} text-xs hover:text-plex-error max-[639px]:min-h-11`}
+              ref={removeButton}
               disabled={busy}
-              onClick={() => setConfirming(true)}
+              onClick={askToRemove}
               data-testid="waitlist-remove"
             >
               Remove
@@ -142,6 +167,7 @@ WaitlistPanel.propTypes = {
   onClose: PropTypes.func.isRequired,
   onInvite: PropTypes.func.isRequired,
   onRemove: PropTypes.func.isRequired,
+  panelRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
 };
 
 /**
@@ -166,19 +192,27 @@ export default function WaitlistManagementView({ onCountChange }) {
   const clearToast = useCallback(() => setToast(null), []);
   const { selectedId, select, clear } = useHashSelection(TAB);
   const panelRef = useRef(null);
+  // The latest list, and the ids removed this session: a re-read that was already in flight when an entry was
+  // removed still carries that entry, and must not bring it back (nor its count).
+  const entriesRef = useRef([]);
+  const removedIds = useRef(new Set());
+  const commit = useCallback((list) => {
+    entriesRef.current = list;
+    setEntries(list);
+  }, []);
 
   useEffect(() => {
     let live = true;
     getWaitlist()
       .then((list) => {
         if (!live) return;
-        setEntries(list);
+        commit(list);
         onCountChange(list.length);
       })
       .catch(() => { if (live) setLoadError(true); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [onCountChange]);
+  }, [onCountChange, commit]);
 
   // The queue position is the entry's place in the server's oldest-first list, so a search never renumbers it.
   const queue = useMemo(() => entries.map((entry, index) => ({ ...entry, position: index + 1 })), [entries]);
@@ -189,25 +223,32 @@ export default function WaitlistManagementView({ onCountChange }) {
   );
   const selected = queue.find((e) => e.id === selectedId) ?? null;
 
-  usePanelEscape({ active: selected != null, panelRef, onEscape: clear });
+  // A selection that is not on the list (a pasted unknown id, or the entry just removed) leaves the address as the
+  // bare tab, replacing the entry so Back does not land on a dead one.
+  useEffect(() => {
+    if (!loading && !loadError && selectedId != null && selected == null) clear({ replace: true });
+  }, [loading, loadError, selectedId, selected, clear]);
 
   const handleInvite = useCallback(async (entry) => {
     await inviteWaitlistEntry(entry.id);
     try {
       // The server holds the dates; read them back rather than guessing the expiry on the client.
-      setEntries(await getWaitlist());
+      const list = (await getWaitlist()).filter((e) => !removedIds.current.has(e.id));
+      commit(list);
+      onCountChange(list.length);
     } catch {
       // The invitation went out; a failed re-read leaves the old dates until the next load.
     }
-  }, []);
+  }, [commit, onCountChange]);
 
   const handleRemove = useCallback(async (entry) => {
     await removeWaitlistEntry(entry.id);
-    const next = entries.filter((e) => e.id !== entry.id);
-    setEntries(next);
+    removedIds.current.add(entry.id);
+    const next = entriesRef.current.filter((e) => e.id !== entry.id);
+    commit(next);
     onCountChange(next.length);
-    clear();
-  }, [entries, onCountChange, clear]);
+    clear({ replace: true });
+  }, [commit, onCountChange, clear]);
 
   async function copyEmails() {
     setCopyError('');
@@ -224,12 +265,12 @@ export default function WaitlistManagementView({ onCountChange }) {
   }
 
   if (loading) {
-    return <p className="p-4 text-sm text-plex-text-muted animate-pulse">Loading waitlist...</p>;
+    return <p className="text-sm text-plex-text-muted animate-pulse">Loading waitlist...</p>;
   }
 
   if (loadError) {
     return (
-      <p className="p-4 text-sm text-plex-error" role="alert" data-testid="waitlist-load-error">
+      <p className="text-sm text-plex-error" role="alert" data-testid="waitlist-load-error">
         Couldn&apos;t load the waitlist.
       </p>
     );
@@ -295,7 +336,7 @@ export default function WaitlistManagementView({ onCountChange }) {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className="btn-secondary text-xs max-[639px]:min-h-10"
+            className="btn-secondary text-xs max-[639px]:min-h-11"
             onClick={copyEmails}
             data-testid="waitlist-copy"
           >
@@ -303,7 +344,7 @@ export default function WaitlistManagementView({ onCountChange }) {
           </button>
           <button
             type="button"
-            className="btn-secondary text-xs max-[639px]:min-h-10"
+            className="btn-secondary text-xs max-[639px]:min-h-11"
             onClick={downloadCsv}
             data-testid="waitlist-csv"
           >
@@ -369,7 +410,7 @@ export default function WaitlistManagementView({ onCountChange }) {
   );
 
   return (
-    <div className="-m-4 overflow-hidden rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible" data-testid="waitlist-management">
+    <div className="-m-4 overflow-clip rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible" data-testid="waitlist-management">
       <DataSplitLayout
         list={list}
         panel={selected && (
@@ -380,12 +421,15 @@ export default function WaitlistManagementView({ onCountChange }) {
             onClose={clear}
             onInvite={handleInvite}
             onRemove={handleRemove}
+            panelRef={panelRef}
           />
         )}
         onClose={clear}
         panelLabel={selected ? `Waitlist entry ${selected.email}` : 'Waitlist entry'}
         backLabel="Waitlist"
         panelRef={panelRef}
+        selectionKey={selected ? selected.id : null}
+        rowTestIdPrefix="waitlist"
         testId="waitlist-split"
       />
       <SubRegionToast message={toast} onDone={clearToast} />

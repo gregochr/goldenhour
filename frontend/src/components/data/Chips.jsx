@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types';
 
-/** The chip body. 36px tall and never shrinking on a phone, where the row scrolls sideways. */
-const CHIP_BASE = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:h-9 max-[639px]:shrink-0';
+/** The chip body. 44px tall (the touch-target rule) and never shrinking on a phone, where the row scrolls sideways. */
+const CHIP_BASE = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11 max-[639px]:shrink-0';
 const CHIP_ON = 'border-plex-gold bg-plex-gold/10 text-plex-text';
 const CHIP_OFF = 'border-plex-border text-plex-text-secondary hover:border-plex-border-light hover:text-plex-text';
 
