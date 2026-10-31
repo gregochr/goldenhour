@@ -155,9 +155,11 @@ function standingLine(state, awaiting) {
  *   password modal
  * @param {(message: string) => void} props.onToast shows a one-line confirmation
  * @param {() => void} props.onDeleted told after the account is gone
+ * @param {number} [props.policyVersion] bumped when the Lite limit is saved: the sub-region state is refetched in
+ *   place (no remount, so a Change picks draft survives, and a failed refetch keeps the state already loaded)
  */
 export default function UserReaderPanel({
-  user, mode, onModeChange, onClose, onUsersChanged, onTempPassword, onToast, onDeleted,
+  user, mode, onModeChange, onClose, onUsersChanged, onTempPassword, onToast, onDeleted, policyVersion = 0,
 }) {
   const [sub, setSub] = useState({ loading: true, state: null, error: false });
   const setMode = onModeChange;
@@ -182,9 +184,13 @@ export default function UserReaderPanel({
     let live = true;
     getUserSubRegions(user.id)
       .then((state) => { if (live) setSub({ loading: false, state, error: false }); })
-      .catch(() => { if (live) setSub({ loading: false, state: null, error: true }); });
+      .catch(() => {
+        // A refetch that fails keeps what is already loaded (a Change picks draft lives on it); only the
+        // first load, with nothing to keep, clears the state.
+        if (live) setSub((prev) => ({ loading: false, state: prev.state, error: true }));
+      });
     return () => { live = false; };
-  }, [user.id, user.role]);
+  }, [user.id, user.role, policyVersion]);
 
   function handleResetPassword() {
     openDialog({
@@ -501,4 +507,5 @@ UserReaderPanel.propTypes = {
   onTempPassword: PropTypes.func.isRequired,
   onToast: PropTypes.func.isRequired,
   onDeleted: PropTypes.func.isRequired,
+  policyVersion: PropTypes.number,
 };

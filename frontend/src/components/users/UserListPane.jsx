@@ -90,8 +90,10 @@ SubRegionsCell.propTypes = { user: PropTypes.object.isRequired };
  * @param {boolean} props.compact the panel is open: show the narrow column set
  * @param {(user: object) => void} props.onSelect called with the user whose row was activated
  * @param {() => void} props.onAdd called by Add user
+ * @param {import('react').ReactNode} [props.headerActions] controls shown in the header row before Add user
+ *   (the Lite limit button); kept in the compact render too
  */
-export default function UserListPane({ users, selectedId, compact, onSelect, onAdd }) {
+export default function UserListPane({ users, selectedId, compact, onSelect, onAdd, headerActions = null }) {
   const [filters, setFilters] = useState(NO_FILTERS);
   const sort = useSortAndFilter('username', 'asc', USER_SORT_ACCESSORS);
   const counts = useMemo(() => chipCounts(users), [users]);
@@ -131,9 +133,12 @@ export default function UserListPane({ users, selectedId, compact, onSelect, onA
             {users.length}
           </span>
         </h2>
-        <button type="button" className="btn-secondary text-xs shrink-0" onClick={onAdd} data-testid="add-user-btn">
-          Add user
-        </button>
+        <div className="flex items-center gap-2">
+          {headerActions}
+          <button type="button" className="btn-secondary text-xs shrink-0" onClick={onAdd} data-testid="add-user-btn">
+            Add user
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2" data-testid="user-tools">
@@ -312,4 +317,5 @@ UserListPane.propTypes = {
   compact: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,
   onAdd: PropTypes.func.isRequired,
+  headerActions: PropTypes.node,
 };

@@ -1,5 +1,5 @@
 /**
- * View-model helpers for the admin Users screen (Manage → Data → Users). Everything the server decides (a
+ * View-model helpers for the admin Users screen (Operations → People → Users). Everything the server decides (a
  * reader's sub-region status and dates, whether an account is awaiting verification) arrives in the user
  * summary; this file only names, filters, sorts and spells it. No date is computed from another date.
  */

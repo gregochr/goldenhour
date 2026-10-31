@@ -24,8 +24,8 @@ A Lite reader holds up to *n* sub-regions (`SUB_REGION` areas): rows in `app_use
 wall-clock stamp). Both columns are `updatable = false` and written only by the scoped `@Modifying` updates on
 `AppUserRepository` (`startSubRegionGraceIfUnset`, `stampSubRegionsChanged`, `stampSubRegionsChangedIfUnlocked`,
 `clearSubRegionsChangedAt`, `clearSubRegionsChangedAtForPickersOf`): the *Column-scoped writes* invariant. *n* is
-the single `sub_region_policy` row (default 3, 1..24), read through `SubRegionPolicyService` and edited in the
-Operations tab's Sub-regions sub-tab; `photocast.sub-regions.grace-days` (7) and `lock-days` (30) are config.
+the single `sub_region_policy` row (default 3, 1..24), read through `SubRegionPolicyService` and
+edited from Operations → People → Users (the *Lite limit* button in the list header opens it in a dialog); `photocast.sub-regions.grace-days` (7) and `lock-days` (30) are config.
 Pro and Admin never pick: `GET` says `NOT_APPLICABLE`, `PUT` is 403, and picks a demoted-from-Lite Pro still holds
 are kept, unused. `photocast.sub-regions.enforce` is only *reported* by S2; nothing is shaped by it until S3.
 

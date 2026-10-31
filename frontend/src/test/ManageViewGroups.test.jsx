@@ -25,7 +25,6 @@ vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
-vi.mock('../components/SubRegionPolicyCard.jsx', () => stub('Sub-regions'));
 
 // The expected layout, written out literally (deliberately not imported from ManageView).
 const EXPECTED = [
@@ -38,7 +37,7 @@ const EXPECTED = [
     ['locations', 'Locations'], ['regions', 'Regions'], ['tides', 'Tides'],
   ] },
   { group: 'people', label: 'People', tabs: [
-    ['users', 'Users'], ['waitlist', 'Waitlist'], ['subregions', 'Sub-regions'],
+    ['users', 'Users'], ['waitlist', 'Waitlist'],
   ] },
   { group: 'testing', label: 'Testing', tabs: [['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
 ];
@@ -107,6 +106,13 @@ describe('ManageView — grouping', () => {
     expect(isSelectedGroup(group)).toBe(true);
     expect(screen.getByTestId(`manage-tab-${value}`)).toBeInTheDocument();
     expect(screen.getByTestId('stub-view')).toHaveTextContent(label);
+  });
+
+  it('the retired #manage/subregions link falls back to Runs / Pipeline Runs', () => {
+    window.location.hash = '#manage/subregions';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(isSelectedGroup('runs')).toBe(true);
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
   });
 
   it('a user deep link (#manage/users/<id>) still resolves to People / Users', () => {

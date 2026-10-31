@@ -25,8 +25,10 @@ Only `ManageView.jsx`'s `GROUPS` table, its default, and a badge change. No sub-
 | `runs` | Runs | `pipelineruns` Pipeline Runs · `metrics` Job Runs · `scheduler` Scheduler · `traveldays` Travel Days |
 | `tuning` | Tuning | `models` Run Config · `skyeval` Sky Eval |
 | `places` | Places | `locations` Locations · `regions` Regions · `tides` Tides |
-| `people` | People | `users` Users · `waitlist` Waitlist · `subregions` Sub-regions |
+| `people` | People | `users` Users · `waitlist` Waitlist |
 | `testing` | Testing | `hottopics` Hot Topics · `rewind` Rewind |
+
+Note: #1545 removed the Sub-regions tab (the Lite limit moved into the Users list), so People is Users · Waitlist only.
 
 Rules:
 1. **Tab `value`s do not change.** `parseHash()` maps a tab to its group by lookup, so every existing
@@ -54,7 +56,7 @@ Tests (Vitest, read `docs/engineering/frontend-test-standards.md` first):
   for the new groups and default. Rewrite test *titles* that name the old groups (e.g. SubRegions'
   "an Operations sub-tab", "the Data group does not carry the tab"), not just their testids.
   `ManageViewWaitlist` renders with no hash, which now mounts the real `PipelineRunsView`: mock it as
-  the Rewind and Sub-regions tests mock their neighbours.
+  the Rewind test mocks their neighbours.
 - New `ManageViewGroups.test.jsx`: each group renders exactly its tabs in order; default landing is
   Pipeline Runs; every tab's hash lands on its group and tab (table-driven over `GROUPS`'s expected
   layout written out literally in the test, not imported); unknown tab falls back to Pipeline Runs;

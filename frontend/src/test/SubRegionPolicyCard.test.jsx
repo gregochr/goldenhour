@@ -154,6 +154,44 @@ describe('SubRegionPolicyCard', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
+  it('calls onSaved with the saved policy after a successful save', async () => {
+    getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockResolvedValueOnce({ ...SAVED, candidateLimit: 2 });
+    const saved = { ...SAVED, liteLimit: 2, candidateLimit: 2 };
+    saveSubRegionPolicy.mockResolvedValue(saved);
+    const onSaved = vi.fn();
+    render(<SubRegionPolicyCard onSaved={onSaved} />);
+    fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '2' } });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByTestId('sub-region-policy-saved');
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(onSaved).toHaveBeenCalledWith(saved);
+  });
+
+  it('does not call onSaved when the save is refused', async () => {
+    getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockResolvedValueOnce({ ...SAVED, candidateLimit: 4 });
+    saveSubRegionPolicy.mockRejectedValue({ response: { status: 400, data: { error: 'Nope' } } });
+    const onSaved = vi.fn();
+    render(<SubRegionPolicyCard onSaved={onSaved} />);
+    fireEvent.change(await screen.findByLabelText('Picks per Lite reader'), { target: { value: '4' } });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await screen.findByTestId('sub-region-policy-save-error');
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it('bare drops the card chrome and its own title', async () => {
+    render(<SubRegionPolicyCard bare />);
+
+    const root = await screen.findByTestId('sub-region-policy');
+    expect(root).not.toHaveClass('card');
+    expect(screen.queryByText('Lite sub-region picks')).toBeNull();
+  });
+
   it('refuses a value outside 1 to the number of sub-regions: a message, no request, Save disabled', async () => {
     render(<SubRegionPolicyCard />);
     const box = await screen.findByLabelText('Picks per Lite reader');
