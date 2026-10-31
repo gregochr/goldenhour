@@ -1269,6 +1269,13 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // MEASURED day (a run straddling the stored window marks its largest
                                          // measured day; a run known for one day gets no bars); a day with no
                                          // stored extremes is absent; ranges round as the metric does (%.1f)
+                                         // P3 (tide-source-integrity-plan.md): an element may also carry
+                                         // `"shoulder": true` — a near-miss day just OUTSIDE the run (roster-best
+                                         // ratio >= 1.20 of the spring bar, one per side). Absent when false
+                                         // (NON_DEFAULT), never `peak`, ranked like the rest. The run's own
+                                         // startDate/endDate do not include it. `shoulderDates` (the comma-
+                                         // separated ISO meta key that feeds this) is BUILD-TIME ONLY: dropped
+                                         // by `ComingUpAssembler.enrichTide`, never served
       ,"rangeAverageMetres": 3.4       // R1 (tide-range-rank-plan.md), tide-run entries with dayRanges AND >= 300
                                          // derivable days in the past year only; mean daily range, 1 dp. Each
                                          // dayRanges element then also carries rangePercentile (1-100, "top N%")

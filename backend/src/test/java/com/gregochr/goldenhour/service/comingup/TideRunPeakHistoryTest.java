@@ -100,7 +100,7 @@ class TideRunPeakHistoryTest {
     void groupsConsecutiveDaysIntoOneRun() {
         LocalDate day1 = LocalDate.of(2027, 1, 10);
         LocalDate day2 = LocalDate.of(2027, 1, 11);
-        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1, day2), Set.of(), true);
+        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1, day2), Set.of(), true, java.util.Map.of());
         when(tideSizeIndex.measure(eq(ROSTER), any(), any())).thenReturn(sizes);
         when(tideRunBuilder.peakRangeAt(eq(REPRESENTATIVE), eq(List.of(day1, day2))))
                 .thenReturn(OptionalDouble.of(4.6));
@@ -115,7 +115,7 @@ class TideRunPeakHistoryTest {
     void separatedRunsAreTwoPeaks() {
         LocalDate day1 = LocalDate.of(2027, 1, 10);
         LocalDate day2 = LocalDate.of(2027, 1, 24);
-        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1, day2), Set.of(), true);
+        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1, day2), Set.of(), true, java.util.Map.of());
         when(tideSizeIndex.measure(eq(ROSTER), any(), any())).thenReturn(sizes);
         when(tideRunBuilder.peakRangeAt(eq(REPRESENTATIVE), eq(List.of(day1))))
                 .thenReturn(OptionalDouble.of(3.1));
@@ -131,7 +131,7 @@ class TideRunPeakHistoryTest {
     @DisplayName("a run with no derivable peak at the representative contributes nothing")
     void undeliverableRunIsDropped() {
         LocalDate day1 = LocalDate.of(2027, 1, 10);
-        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1), Set.of(), true);
+        TideSizeIndex.Sizes sizes = new TideSizeIndex.Sizes(Set.of(day1), Set.of(), true, java.util.Map.of());
         when(tideSizeIndex.measure(eq(ROSTER), any(), any())).thenReturn(sizes);
         when(tideRunBuilder.peakRangeAt(eq(REPRESENTATIVE), eq(List.of(day1))))
                 .thenReturn(OptionalDouble.empty());
@@ -171,7 +171,7 @@ class TideRunPeakHistoryTest {
     private void stubOneRunOnJan10() {
         LocalDate day1 = LocalDate.of(2027, 1, 10);
         when(tideSizeIndex.measure(any(), any(), any()))
-                .thenReturn(new TideSizeIndex.Sizes(Set.of(day1), Set.of(), true));
+                .thenReturn(new TideSizeIndex.Sizes(Set.of(day1), Set.of(), true, java.util.Map.of()));
         when(tideRunBuilder.peakRangeAt(eq(REPRESENTATIVE), eq(List.of(day1))))
                 .thenReturn(OptionalDouble.of(4.6));
     }

@@ -11235,6 +11235,22 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   background: var(--color-topic-coastal);
   box-shadow: 0 0 10px color-mix(in oklch, var(--color-topic-coastal) 55%, transparent);
 }
+/* A shoulder (tide-source-integrity-plan.md P3) is a near miss beside the run: an OUTLINE bar with no
+   fill and no glow, in the same coastal ink. "Dimmed" already means no forecast, so this is a
+   different treatment, not a lower opacity. A no-forecast shoulder mutes its outline by colour. */
+.wf-cu-day-col[data-tier="shoulder"] .wf-cu-day-range-bar {
+  box-sizing: border-box;
+  background: transparent;
+  border: 1px solid color-mix(in oklch, var(--color-topic-coastal) 80%, transparent);
+  border-bottom-width: 0;
+}
+.wf-cu-day-col[data-tier="shoulder"][data-live="false"] .wf-cu-day-range-bar {
+  border-color: var(--color-plex-text-secondary);
+}
+/* Forced colours: keep run bars filled, so the outlined shoulder is not the only visible bar. */
+@media (forced-colors: active) {
+  .wf-cu-day-range-bar { forced-color-adjust: none; }
+}
 /* The average: per-column dashed segments at the height `--wf-cu-avg-h` set once on the row (one
    line cannot follow a row that wraps 4 + 2 with different row heights). Each segment runs 6px past
    its column so neighbours meet across the gap; a 6px overshoot after a row's last column is

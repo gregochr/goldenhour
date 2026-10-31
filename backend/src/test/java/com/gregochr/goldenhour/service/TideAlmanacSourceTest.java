@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class TideAlmanacSourceTest {
 
     private TideAlmanacSource source() {
         return new TideAlmanacSource(
-                lunarPhaseService, tideRunBuilder, locationRepository, tideSizeIndex);
+                lunarPhaseService, tideRunBuilder, locationRepository, tideSizeIndex, new ComingUpScoringProperties());
     }
 
     /**
@@ -77,10 +78,18 @@ class TideAlmanacSourceTest {
 
     /** A measured index carrying the given offsets from MONDAY as spring and king days. */
     private static TideSizeIndex.Sizes sizes(Set<Integer> springOffsets, Set<Integer> kingOffsets) {
+        return sizes(springOffsets, kingOffsets, Map.of());
+    }
+
+    /** As above, with the roster-best ratio of the given offsets from MONDAY. */
+    private static TideSizeIndex.Sizes sizes(Set<Integer> springOffsets, Set<Integer> kingOffsets,
+            Map<Integer, Double> ratiosByOffset) {
+        Map<java.time.LocalDate, Double> ratios = new java.util.HashMap<>();
+        ratiosByOffset.forEach((offset, ratio) -> ratios.put(MONDAY.plusDays(offset), ratio));
         return new TideSizeIndex.Sizes(
                 springOffsets.stream().map(MONDAY::plusDays).collect(Collectors.toSet()),
                 kingOffsets.stream().map(MONDAY::plusDays).collect(Collectors.toSet()),
-                true);
+                true, ratios);
     }
 
     /**
@@ -700,7 +709,7 @@ class TideAlmanacSourceTest {
     @DisplayName("Run.dates() enumerates every day inclusive of both ends")
     void runDatesAreInclusive() {
         TideAlmanacSource.Run run =
-                new TideAlmanacSource.Run(MONDAY, MONDAY.plusDays(2), false);
+                new TideAlmanacSource.Run(MONDAY, MONDAY.plusDays(2), false, null, null);
         assertThat(run.dates()).containsExactly(MONDAY, MONDAY.plusDays(1), MONDAY.plusDays(2));
     }
 
@@ -720,5 +729,148 @@ class TideAlmanacSourceTest {
 
         assertThat(events).hasSize(3);
         verify(locationRepository, org.mockito.Mockito.times(1)).findCoastalLocations();
+    }
+
+    private TideAlmanacSource sourceWithShoulderCap(int maxPerSide) {
+        ComingUpScoringProperties properties = new ComingUpScoringProperties();
+        properties.getShoulder().setMaxPerSide(maxPerSide);
+        return new TideAlmanacSource(
+                lunarPhaseService, tideRunBuilder, locationRepository, tideSizeIndex, properties);
+    }
+
+    @Nested
+    @DisplayName("shoulder days — near misses beside a run (tide-source-integrity-plan.md P3)")
+    class Shoulders {
+
+        @Test
+        @DisplayName("a non-qualifying day at ratio 1.20 or more is a shoulder on each side")
+        void nearMissesBesideTheRunAreShoulders() {
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(4),
+                    sizes(Set.of(1, 2), Set.of(), Map.of(0, 1.245, 3, 1.20)));
+
+            assertThat(runs).hasSize(1);
+            TideAlmanacSource.Run run = runs.getFirst();
+            assertThat(run.start()).isEqualTo(MONDAY.plusDays(1));
+            assertThat(run.end()).isEqualTo(MONDAY.plusDays(2));
+            assertThat(run.shoulderBefore()).isEqualTo(MONDAY);
+            assertThat(run.shoulderAfter()).isEqualTo(MONDAY.plusDays(3));
+            assertThat(run.shoulderDates()).containsExactly(MONDAY, MONDAY.plusDays(3));
+        }
+
+        @Test
+        @DisplayName("a ratio under 1.20 is not a shoulder, and a missing ratio is not one either")
+        void belowTheFloorIsNotAShoulder() {
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(4),
+                    sizes(Set.of(1, 2), Set.of(), Map.of(0, 1.199)));
+
+            TideAlmanacSource.Run run = runs.getFirst();
+            assertThat(run.shoulderBefore()).isNull();
+            assertThat(run.shoulderAfter()).isNull();
+            assertThat(run.shoulderDates()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("only one shoulder per side by default, however big the next day out is")
+        void oneShoulderPerSideByDefault() {
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(6),
+                    sizes(Set.of(3), Set.of(), Map.of(2, 1.24, 1, 1.24, 4, 1.24, 5, 1.24)));
+
+            assertThat(runs.getFirst().shoulderDates())
+                    .containsExactly(MONDAY.plusDays(2), MONDAY.plusDays(4));
+        }
+
+        @Test
+        @DisplayName("the per-side cap is configuration, and the walk stops at the first miss")
+        void theCapIsConfigurable() {
+            List<TideAlmanacSource.Run> runs = sourceWithShoulderCap(2).detectRuns(MONDAY,
+                    MONDAY.plusDays(8),
+                    sizes(Set.of(4), Set.of(), Map.of(3, 1.24, 2, 1.24, 1, 1.24, 5, 1.24)));
+
+            assertThat(runs.getFirst().shoulderDates()).containsExactly(
+                    MONDAY.plusDays(2), MONDAY.plusDays(3), MONDAY.plusDays(5));
+        }
+
+        @Test
+        @DisplayName("a spring-sized neighbour is part of the run, never a shoulder of it")
+        void aQualifyingNeighbourExtendsTheRun() {
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(3),
+                    sizes(Set.of(1, 2), Set.of(), Map.of(1, 1.3, 2, 1.3)));
+
+            assertThat(runs.getFirst().shoulderDates()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("the lunar fallback has no ratios, so no shoulders")
+        void unmeasuredYieldsNone() {
+            when(lunarPhaseService.classifyTide(any())).thenReturn(LunarTideType.REGULAR_TIDE);
+            when(lunarPhaseService.classifyTide(MONDAY.plusDays(1)))
+                    .thenReturn(LunarTideType.SPRING_TIDE);
+
+            List<TideAlmanacSource.Run> runs = source().detectRuns(MONDAY, MONDAY.plusDays(2),
+                    TideSizeIndex.Sizes.UNMEASURED);
+
+            assertThat(runs).hasSize(1);
+            assertThat(runs.getFirst().shoulderDates()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a near miss with no run beside it emits nothing at all")
+        void aNearMissWithoutARunIsNotAnEvent() {
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideSizeIndex.measure(anyList(), any(), any()))
+                    .thenReturn(sizes(Set.of(), Set.of(), Map.of(1, 1.249, 2, 1.249)));
+
+            assertThat(source().events(MONDAY, MONDAY.plusDays(4))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("shoulderDates is published as comma-separated ISO dates; the run's own "
+                + "dates are unchanged")
+        void shoulderDatesRideTheMeta() {
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideSizeIndex.measure(anyList(), any(), any()))
+                    .thenReturn(sizes(Set.of(1, 2), Set.of(), Map.of(0, 1.245, 3, 1.243)));
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), anyBoolean()))
+                    .thenReturn(built(
+                            Map.of(MONDAY.plusDays(1), runDay("3.9 m", false),
+                                    MONDAY.plusDays(2), runDay("4.6 m", true)),
+                            Map.of()));
+
+            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(4)).getFirst();
+
+            assertThat(event.startDate()).isEqualTo(MONDAY.plusDays(1));
+            assertThat(event.endDate()).isEqualTo(MONDAY.plusDays(2));
+            assertThat(event.meta()).containsEntry("shoulderDates",
+                    MONDAY + "," + MONDAY.plusDays(3));
+        }
+
+        @Test
+        @DisplayName("a run without shoulders carries no shoulderDates key")
+        void noShouldersNoKey() {
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideSizeIndex.measure(anyList(), any(), any()))
+                    .thenReturn(sizes(Set.of(1, 2), Set.of(), Map.of()));
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), anyBoolean()))
+                    .thenReturn(built(Map.of(MONDAY.plusDays(2), runDay("4.6 m", true)), Map.of()));
+
+            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(4)).getFirst();
+
+            assertThat(event.meta()).doesNotContainKey("shoulderDates");
+        }
+
+        @Test
+        @DisplayName("the index is measured one day beyond the run-walk's slack, so the shoulder "
+                + "probe after a full walk is still inside the window")
+        void theMeasuredWindowIsPaddedByTheWalkPlusOne() {
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+            when(tideSizeIndex.measure(anyList(), any(), any()))
+                    .thenReturn(TideSizeIndex.Sizes.UNMEASURED);
+            when(lunarPhaseService.classifyTide(any())).thenReturn(LunarTideType.REGULAR_TIDE);
+
+            source().events(MONDAY, MONDAY.plusDays(4));
+
+            verify(tideSizeIndex).measure(anyList(), eq(MONDAY.minusDays(11)),
+                    eq(MONDAY.plusDays(15)));
+        }
     }
 }

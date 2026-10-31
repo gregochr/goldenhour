@@ -68,6 +68,9 @@ public class TideSizeIndex {
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
+    /** The spring threshold is 125% of a location's mean high water; the ratio is scaled to match. */
+    private static final double SPRING_FACTOR = 1.25;
+
     private final TideExtremeRepository tideExtremeRepository;
     private final TideService tideService;
 
@@ -152,16 +155,22 @@ public class TideSizeIndex {
      * @param springDates dates carrying spring-sized water somewhere on the roster
      * @param kingDates   dates carrying king-sized water somewhere on the roster
      * @param usable      whether anything could be measured at all
+     * @param bestRatio   per date, the roster's best {@code 1.25 x dayMaxHigh / springThreshold}, so a
+     *                    value above 1.25 holds exactly when that date is spring-sized; it lets a caller
+     *                    ask how narrowly a non-qualifying date missed. Locations with no spring
+     *                    threshold are skipped; empty when nothing was measured
      */
-    public record Sizes(Set<LocalDate> springDates, Set<LocalDate> kingDates, boolean usable) {
+    public record Sizes(Set<LocalDate> springDates, Set<LocalDate> kingDates, boolean usable,
+            Map<LocalDate, Double> bestRatio) {
 
         /** An index that measured nothing — the caller falls back to lunar arithmetic. */
-        public static final Sizes UNMEASURED = new Sizes(Set.of(), Set.of(), false);
+        public static final Sizes UNMEASURED = new Sizes(Set.of(), Set.of(), false, Map.of());
 
-        /** Normalises the sets so callers never have to null-check them. */
+        /** Normalises the collections so callers never have to null-check them. */
         public Sizes {
             springDates = springDates == null ? Set.of() : Set.copyOf(springDates);
             kingDates = kingDates == null ? Set.of() : Set.copyOf(kingDates);
+            bestRatio = bestRatio == null ? Map.of() : Map.copyOf(bestRatio);
         }
 
         /**
@@ -229,6 +238,7 @@ public class TideSizeIndex {
 
         Set<LocalDate> spring = new HashSet<>();
         Set<LocalDate> king = new HashSet<>();
+        Map<LocalDate, Double> bestRatio = new HashMap<>();
         // Thresholds and extremes have to meet at the same location for anything to be measurable:
         // one location with history and another with heights answers nothing between them.
         boolean measured = false;
@@ -240,15 +250,21 @@ public class TideSizeIndex {
             measured = true;
             for (Map.Entry<LocalDate, Double> day : entry.getValue().entrySet()) {
                 double high = day.getValue();
-                if (limits.spring() != null && high > limits.spring().doubleValue()) {
-                    spring.add(day.getKey());
+                if (limits.spring() != null) {
+                    double threshold = limits.spring().doubleValue();
+                    if (high > threshold) {
+                        spring.add(day.getKey());
+                    }
+                    // Divided before scaling so a high water exactly on the threshold gives exactly
+                    // SPRING_FACTOR, and the ratio exceeds it precisely when the test above passes.
+                    bestRatio.merge(day.getKey(), high / threshold * SPRING_FACTOR, Math::max);
                 }
                 if (limits.king() != null && high > limits.king().doubleValue()) {
                     king.add(day.getKey());
                 }
             }
         }
-        return measured ? new Sizes(spring, king, true) : Sizes.UNMEASURED;
+        return measured ? new Sizes(spring, king, true, bestRatio) : Sizes.UNMEASURED;
     }
 
     /**

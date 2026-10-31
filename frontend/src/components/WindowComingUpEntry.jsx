@@ -57,10 +57,17 @@ function DayChips({ entry, onShowOnMap }) {
   // of a run whose other days have gone).
   const allDimmedNote = future.length === 1
     ? 'no forecast for this day yet' : 'no forecast for these days yet';
+  // Shoulders are outlined near-miss days beside the run; the note says so while any is shown.
+  const hasShoulder = dayChips.some((chip) => chip.shoulder);
+  const dimmedText = allDimmed ? allDimmedNote : 'dimmed · no forecast yet';
+  const shoulderText = 'outlined · just short of spring';
+  const noteParts = [anyDimmed ? dimmedText : null, hasShoulder ? shoulderText : null].filter(Boolean);
+  const noteText = noteParts.join(' — ');
+  const showNote = anyDimmed || hasShoulder;
   // A ranged row draws it under the row instead of inside it (see the return).
   const note = (
     <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
-      {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
+      {noteText}
     </span>
   );
   // A DOM id from an entry id like `spring-tide:2026-10-09:2026-10-14`.
@@ -71,7 +78,7 @@ function DayChips({ entry, onShowOnMap }) {
     filterAction: coastal ? 'SEASCAPE' : null,
     darkSky,
     // Names the day picked, so the crumb's headline says which day's map it is.
-    label: `${entry.title} · ${chip.dateLabel}`,
+    label: `${entry.title} · ${chip.dateLabel}${chip.shoulder ? ' · just short of spring' : ''}`,
     date: chip.date,
   });
 
@@ -84,10 +91,13 @@ function DayChips({ entry, onShowOnMap }) {
     const peak = !chip.marks
       ? (chip.peak ? ', peak day' : '')
       : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
-    const ranked = labelled && chip.rangePercentile !== null && chip.rangePercentile !== undefined
+    // A shoulder is named by what it is, without the rank: it is not one of the run's days.
+    const ranked = !chip.shoulder && labelled && chip.rangePercentile !== null
+      && chip.rangePercentile !== undefined
       ? `, top ${chip.rangePercentile} percent of the year` : '';
+    const nearMiss = chip.shoulder ? ', just short of spring size' : '';
     const range = rangeScale && chip.rangeMetres !== null && chip.rangeMetres !== undefined
-      ? `, ${chip.rangeMetres.toFixed(1)} metre range${ranked}` : '';
+      ? `, ${chip.rangeMetres.toFixed(1)} metre range${ranked}${nearMiss}` : '';
     if (chip.gone) return `${label}${peak}${range} — gone`;
     if (!chip.live) return `${label}${peak}${range} — no forecast yet`;
     return `Show ${noun} for ${label}${peak}${range}`;
@@ -154,14 +164,19 @@ function DayChips({ entry, onShowOnMap }) {
             </button>
           );
           if (!rangeScale) return button;
-          const pct = labelled && chip.rangePercentile !== null && chip.rangePercentile !== undefined
+          // A shoulder shows no rank pill and no peak: it is a near miss, not one of the run's days.
+          const pct = !chip.shoulder && labelled && chip.rangePercentile !== null
+            && chip.rangePercentile !== undefined
             ? chip.rangePercentile : null;
-          // Tiers read served facts only: the server's peak flag, then the served percentile.
+          // Tiers read served facts only: shoulder first (it overrides peak and big), then the
+          // server's peak flag, then the served percentile.
           let tier = 'rest';
-          if (chip.rangePeak) tier = 'peak';
+          if (chip.shoulder) tier = 'shoulder';
+          else if (chip.rangePeak) tier = 'peak';
           else if (pct !== null && pct <= BIG_RANGE_PERCENTILE) tier = 'big';
           const multiple = hasRange && averaged && rangeAverage > 0
             ? ` · ${(chip.rangeMetres / rangeAverage).toFixed(1)}× average` : '';
+          const tooltipTail = chip.shoulder ? ' · just short of spring size' : multiple;
           // The aria-hidden spans are label, track and metres only: the column holds the button and
           // must stay exposed. The served `peak` day and the gold PEAK chip are the same day on a
           // true-peak run; on a partial-coverage run `dayRanges` flags no peak, so no pill.
@@ -171,8 +186,9 @@ function DayChips({ entry, onShowOnMap }) {
               className="wf-cu-day-col"
               data-testid="coming-up-day-col"
               data-tier={hasRange ? tier : undefined}
+              data-shoulder={chip.shoulder ? 'true' : undefined}
               data-live={chip.live ? 'true' : 'false'}
-              title={hasRange ? `${chip.rangeMetres.toFixed(1)} m range${multiple}` : undefined}
+              title={hasRange ? `${chip.rangeMetres.toFixed(1)} m range${tooltipTail}` : undefined}
             >
               {labelled && (
                 <span className="wf-cu-day-range-label" aria-hidden="true">
@@ -196,7 +212,7 @@ function DayChips({ entry, onShowOnMap }) {
           );
         })}
       </div>
-      {anyDimmed && !rangeScale && (
+      {showNote && !rangeScale && (
         <>
           {' '}
           {note}
@@ -205,7 +221,7 @@ function DayChips({ entry, onShowOnMap }) {
     </div>
     {/* A ranged row's note sits under the row, outside it, so a wrapped note never inherits the
         row-centring padding. */}
-    {anyDimmed && rangeScale && (
+    {showNote && rangeScale && (
       <>
         {' '}
         {note}
@@ -236,6 +252,7 @@ DayChips.propTypes = {
       })),
       rangeMetres: PropTypes.number,
       rangePeak: PropTypes.bool,
+      shoulder: PropTypes.bool,
       rangePercentile: PropTypes.number,
       live: PropTypes.bool.isRequired,
     })).isRequired,

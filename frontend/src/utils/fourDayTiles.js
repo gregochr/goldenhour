@@ -101,7 +101,7 @@ function tideSpan(entry) {
   if ((entry.coincidence ?? []).length === 0) {
     return entry.startDate && entry.endDate ? { first: entry.startDate, last: entry.endDate } : null;
   }
-  const days = (entry.dayRanges ?? []).map((d) => d?.date).filter(Boolean).sort();
+  const days = (entry.dayRanges ?? []).filter((d) => d?.shoulder !== true).map((d) => d?.date).filter(Boolean).sort();
   return days.length > 0 ? { first: days[0], last: days[days.length - 1] } : null;
 }
 

@@ -229,7 +229,8 @@ class TideSurfaceAgreementTest {
                 org.mockito.ArgumentMatchers.anyBoolean()))
                 .thenReturn(new TideRunBuilder.RunBuild(java.util.Map.of(), java.util.Map.of()));
         TideAlmanacSource chronologySource =
-                new TideAlmanacSource(lunarPhaseService, tideRunBuilder, locationRepository, feed);
+                new TideAlmanacSource(lunarPhaseService, tideRunBuilder, locationRepository, feed,
+                        new com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties());
 
         List<com.gregochr.goldenhour.model.AlmanacEvent> events = chronologySource.events(PEAK, PEAK);
 

@@ -115,8 +115,9 @@ class AlmanacControllerTest extends AbstractControllerTest {
                         new ComingUpCoincidenceLine("sun-moon", "Untyped", "Tue 18 Aug", null)),
                 "Same cause, two effects.",
                 List.of(new ComingUpDayMark(LocalDate.of(2026, 8, 17), "full moon", "sun-moon")),
-                List.of(new ComingUpDayRange(LocalDate.of(2026, 8, 16), 4.3, false, null),
-                        new ComingUpDayRange(LocalDate.of(2026, 8, 17), 4.9, true, 2)),
+                List.of(new ComingUpDayRange(LocalDate.of(2026, 8, 16), 4.3, false, null, false),
+                        new ComingUpDayRange(LocalDate.of(2026, 8, 17), 4.9, true, 2, false),
+                        new ComingUpDayRange(LocalDate.of(2026, 8, 18), 4.4, false, null, true)),
                 3.4);
         when(almanacService.getFeed(90)).thenReturn(response(merged, springRun()));
 
@@ -133,6 +134,10 @@ class AlmanacControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.entries[0].dayRanges[1].peak").value(true))
                 .andExpect(jsonPath("$.entries[0].dayRanges[0].peak").value(false))
                 .andExpect(jsonPath("$.entries[0].dayRanges[1].rangePercentile").value(2))
+                // shoulder is on the wire only when true: absent on run days, true on a shoulder
+                .andExpect(jsonPath("$.entries[0].dayRanges[0].shoulder").doesNotExist())
+                .andExpect(jsonPath("$.entries[0].dayRanges[1].shoulder").doesNotExist())
+                .andExpect(jsonPath("$.entries[0].dayRanges[2].shoulder").value(true))
                 .andExpect(jsonPath("$.entries[0].dayRanges[0].rangePercentile").doesNotExist())
                 .andExpect(jsonPath("$.entries[0].rangeAverageMetres").value(3.4))
                 .andExpect(jsonPath("$.entries[1].rangeAverageMetres").doesNotExist())

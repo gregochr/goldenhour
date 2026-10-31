@@ -306,6 +306,22 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     expect(chipsOf(result, TUE)[0].jump).toBeNull();
   });
 
+  it('never counts a shoulder day as covered by the run on a merged entry', () => {
+    const merged = entry({
+      id: 'supermoon:2026-10-24:2026-10-30', type: 'supermoon', endDate: '2026-10-30',
+      coincidence: [{ type: 'spring-tide' }],
+      dayRanges: [{ date: TODAY, shoulder: true }, { date: SUN }, { date: MON }, { date: TUE, shoulder: true }],
+    });
+    const result = tiles({
+      hotTopics: [tide(TODAY), tide(SUN), tide(TUE)],
+      entries: [merged],
+      renderedEntryIds: [merged.id],
+    });
+    expect(chipsOf(result, SUN)[0].jump).toEqual({ entryId: merged.id });
+    expect(chipsOf(result, TODAY)[0].jump).toBeNull();
+    expect(chipsOf(result, TUE)[0].jump).toBeNull();
+  });
+
   it('offers a merged entry with no dayRanges no jump for the tide', () => {
     const merged = entry({ id: 'm', type: 'supermoon', coincidence: [{ type: 'spring-tide' }] });
     const result = tiles({ hotTopics: [tide(SUN)], entries: [merged], renderedEntryIds: ['m'] });

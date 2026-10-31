@@ -406,7 +406,7 @@ describe('buildEntryView — a short run gets a door per day (plan §11.25)', ()
     expect(view.dayChips).toHaveLength(1);
     expect(view.dayChips[0]).toEqual({
       date: '2026-10-21', dow: 'Wed', day: '21', monthWord: null, dateLabel: 'Wed 21 Oct',
-      today: false, gone: false, peak: true, marks: null, rangeMetres: null, rangePeak: false, rangePercentile: null, live: true,
+      today: false, gone: false, peak: true, marks: null, rangeMetres: null, rangePeak: false, shoulder: false, rangePercentile: null, live: true,
     });
     expect(view.rangeScale).toBeNull();
     expect(view.doorNoun).toBe('Dark-sky spots');

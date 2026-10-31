@@ -33,6 +33,26 @@ public class ComingUpScoringProperties {
     /** Recurrent-topic knobs: the trailing window the slot-atmosphere retention is sized from. */
     private RecurrentTopics recurrent = new RecurrentTopics();
 
+    /** Near-miss "shoulder" days drawn beside a tide run (tide-source-integrity-plan.md P3). */
+    private Shoulder shoulder = new Shoulder();
+
+    /**
+     * Which non-qualifying days beside a spring or king run are shown as outlined shoulder bars.
+     */
+    @Getter
+    @Setter
+    public static class Shoulder {
+
+        /**
+         * Lowest roster-best ratio ({@code 1.25 x dayMaxHigh / springThreshold}) for a day to count as
+         * a shoulder; spring itself starts above 1.25. A starting calibration, not a measured fact.
+         */
+        private double minRatio = 1.20;
+
+        /** The most shoulder days drawn on each side of a run. */
+        private int maxPerSide = 1;
+    }
+
     /**
      * The surprise-score band edges (plan §13), lower-inclusive: a score of exactly {@link #list}
      * already clears the "in the list" band.
