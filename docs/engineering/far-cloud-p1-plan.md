@@ -504,7 +504,7 @@ Written after the exports, Part B, the Part D set, the probe fix (#1166) and the
 5. **Part E starts now** (§2 Part E): 5–8 named locations, two with a westward high horizon like the Angel; every go recorded with `POST /api/outcome` whatever the sky did.
 
 **Two to three weeks**
-6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row. **Done 2026-10-21 (§15)**; re-run again when verification passes the end of October to widen the Sonnet 5.5 sample.
+6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row. **Done 2026-10-21 (§15) and again 2026-10-31 (§21)**; a third re-run waits on ratings or on ERA5 reaching the 27 and 30 October evenings.
 7. **Part C in the background**, now the probe passes: `size.py` under the 60-call daily Open-Meteo weight, so weeks; drop it if steps 3 and 6 settle the question.
 8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open. **Done 2026-10-21 for the Angel (§14)**; the other training cases (§9 Q5) are not run.
 
@@ -790,3 +790,30 @@ One frame each, read by eye from a dusk composite, not a measurement. A second f
 - Shown these skies, Sonnet 5.5 gives a go to about 28% of the ones ERA5's cone reads clear and to none of the 81 where it reads obstructed. It separates them better on the cone (28.6% clear against 0% obstructed) than on the observer point (27.9% clear against 13.8% obstructed). That is an association between the prompt's inputs and ERA5, which share physics; it is not evidence that any of those skies lit.
 - It is not evidence about the released slots. The analogues have forecast cone low cloud of at most 80 (median 54) and the released slots are above 80 by definition, so the replay is an extrapolation in the one variable that defines the rule. Seven dates, all early-to-mid October, and no owner rating is joined.
 - Nothing here changes a rule or any §9 item.
+
+## 21. Part B re-run on verification to 25 October (2026-10-31)
+
+§12 step 6's second re-run. ERA5 verification had reached `target_date` 2026-10-25 (13,891 verified rows
+dated 16 October or later); the forecasts and outcome ratings were re-exported (126,412 rows, dates to
+2026-11-03) and `premise.py` and `canvas.py --ratings` were run with no network and no spend. Outputs:
+`scripts/far-cloud-p1/out3/part_b.md` and `out/canvas.md` in the owner's checkout (git-ignored).
+
+**Part B (`premise.py`).** Sonnet 5.5's gos with a known P-low went from 286 sunrise / 220 sunset (§15)
+to 525 / 231, and the P-low share did not move: sunrise 9/525 (1.7%), sunset 2/231 (0.9%), against
+Haiku's 79/904 (8.7%) and 39/714 (5.5%). The Angel still passes all three premises. R1's cost side is
+88.1% (59 of 67 Angel-shape gos with an ERA5 canvas) against the 25% ceiling, and R2/R3 fail as before.
+§9 item 1 (keep Sonnet 5.5) stands on the wider sample.
+
+**Weak canvas (`canvas.py`).** 175 of 2,684 testable gos match the broad shape (6.5%, date-block
+95% [2.9%, 10.1%]); 106 the strict Angel shape (3.9%). By model, Sonnet 5.5 9.4% of its gos, Haiku 4.6%,
+on different weeks. ERA5 confirms the whole shape for 10 of the 137 with a verification row (as §17).
+
+**Ratings.** Five `outcome_rating` rows exist in all. Exactly one weak-canvas go carries a rating, the
+Angel (reader 2★, forecast 4★). The shape occurred on three further evenings inside the 24-day rating
+window: 27 October (22 Lake District sunset gos and 5 North York Moors sunrise gos), 28 October (Crummock
+Water, Scale Force) and 30 October (Sycamore Gap, Peel, Hotbank and Highshield Crags, Cawfields, Allen
+Banks, Crummock Water, Rannerdale Knotts, Scale Force). The owner saw none of them, so they stay unrated;
+ERA5 has not reached them yet. The question the plan is waiting on is still Part E, not more data.
+
+**Decision.** Nothing changes. The next re-run is worth doing only once ratings exist on weak-canvas gos,
+or when ERA5 passes the end of November to see the 27 and 30 October evenings.
