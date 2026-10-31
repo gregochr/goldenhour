@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.JobRunDto;
 import com.gregochr.goldenhour.model.runs.NoteTone;
 import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunJobDetail;
+import com.gregochr.goldenhour.model.runs.RunKind;
 import com.gregochr.goldenhour.model.runs.RunListResponse;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.model.runs.RunListSummary;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -77,7 +80,7 @@ class AdminRunsControllerTest extends AbstractControllerTest {
     @DisplayName("params reach the service parsed; the cursor is decoded; an oversized page is clamped to 100")
     void list_paramsParsed() throws Exception {
         RunCursor cursor = new RunCursor(Instant.parse("2026-10-31T01:00:00Z"),
-                com.gregochr.goldenhour.model.runs.RunKind.JOB, 9L);
+                RunKind.JOB, 9L);
         ArgumentCaptor<RunCursor> captor = ArgumentCaptor.forClass(RunCursor.class);
         when(adminRunsService.list(eq(RunRange.MONTH), eq(RunGroup.AURORA), eq(true), captor.capture(), eq(100)))
                 .thenReturn(emptyResponse());
@@ -86,17 +89,23 @@ class AdminRunsControllerTest extends AbstractControllerTest {
                         .param("attention", "true").param("before", cursor.encode()).param("size", "500"))
                 .andExpect(status().isOk());
 
-        org.assertj.core.api.Assertions.assertThat(captor.getValue()).isEqualTo(cursor);
+        assertThat(captor.getValue()).isEqualTo(cursor);
     }
 
     @Test
     @WithMockUser(roles = "ADMIN")
     @DisplayName("a bad range, kind, cursor or size is 400 and never reaches the service")
     void list_badParams() throws Exception {
-        mockMvc.perform(get("/api/admin/runs").param("range", "YEAR")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs").param("range", "YEAR")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid range, kind or cursor"));
         mockMvc.perform(get("/api/admin/runs").param("kind", "NOPE")).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/admin/runs").param("before", "not-a-cursor")).andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/admin/runs").param("size", "0")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs").param("size", "0")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("size must be >= 1"));
+        mockMvc.perform(get("/api/admin/runs").param("size", "abc")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+        mockMvc.perform(get("/api/admin/runs").param("attention", "maybe")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/job/abc")).andExpect(status().isBadRequest());
 
         verifyNoInteractions(adminRunsService);
     }
@@ -114,7 +123,7 @@ class AdminRunsControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/admin/runs/job/{id} serves the run with its status, group, name and note")
     void job_found() throws Exception {
-        JobRunDto run = new JobRunDto(7L, com.gregochr.goldenhour.entity.RunType.TIDE, null, null, null, null,
+        JobRunDto run = new JobRunDto(7L, RunType.TIDE, null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null, null);
         when(adminRunsService.jobDetail(7L)).thenReturn(Optional.of(new RunJobDetail(run, RunListStatus.PARTIAL,
                 RunGroup.TIDE, "Tide data", "2 requests errored", NoteTone.WARN, true, null)));

@@ -3,7 +3,8 @@ package com.gregochr.goldenhour.model.runs;
 /**
  * Whether a Runs-list row is a pipeline run (cycle) or a job run.
  *
- * <p>Declaration order is the tie-break rank when two rows share a start instant.
+ * <p>When two rows share a start instant the list puts {@link #JOB} before {@link #CYCLE}
+ * (kind descending, as {@code RunCursor.ORDER} sorts).
  */
 public enum RunKind {
 

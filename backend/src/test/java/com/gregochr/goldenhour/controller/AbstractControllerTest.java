@@ -58,6 +58,7 @@ import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
+import com.gregochr.goldenhour.service.runs.AdminRunsService;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -170,7 +171,7 @@ abstract class AbstractControllerTest {
 
     /** Builds the merged Runs list for {@code AdminRunsController}. */
     @MockitoBean
-    protected com.gregochr.goldenhour.service.runs.AdminRunsService adminRunsService;
+    protected AdminRunsService adminRunsService;
 
     @MockitoBean
     protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService

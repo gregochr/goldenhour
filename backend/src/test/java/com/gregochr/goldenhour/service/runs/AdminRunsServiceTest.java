@@ -180,8 +180,8 @@ class AdminRunsServiceTest {
     void dispositionAndNotesFallback() {
         PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, Instant.parse("2026-10-31T01:00:00Z"),
                 PipelineRunStatus.COMPLETED);
-        JobRunEntity anchor = doneJob(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 5));
-        JobRunEntity unlinked = doneJob(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 6));
+        JobRunEntity anchor = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 5), true, 5, 0, 100L);
+        JobRunEntity unlinked = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 6), true, 5, 0, 40L);
         unlinked.setNotes("Anthropic batch: msgbatch_cycle");
         JobRunEntity handStarted = doneJob(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 2, 0));
         handStarted.setNotes("Anthropic batch: msgbatch_hand");
@@ -195,6 +195,42 @@ class AdminRunsServiceTest {
 
         assertThat(ids(response, RunKind.JOB)).containsExactly(handStarted.getId());
         assertThat(ids(response, RunKind.CYCLE)).containsExactly(nightly.getId());
+        // The unlinked run's cost joins its cycle's Batch cost (once), and so the summary spend.
+        assertThat(response.items().stream().filter(i -> i.kind() == RunKind.CYCLE).findFirst().orElseThrow()
+                .costMicroDollars()).isEqualTo(140L);
+        assertThat(response.summary().spendMicroDollars()).isEqualTo(140L);
+    }
+
+    @Test
+    @DisplayName("an unlinked batch run is grouped and detailed from the batch its notes name")
+    void unlinkedBatchRunUsesNotesForGroupAndDetail() {
+        JobRunEntity aurora = doneJob(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 5, 0));
+        aurora.setNotes("Anthropic batch: msgbatch_aurora");
+        batch("msgbatch_aurora", BatchType.AURORA, null, null, BatchStatus.COMPLETED);
+        commit();
+
+        RunListResponse response = list(RunRange.TODAY, RunGroup.AURORA, false);
+        assertThat(ids(response, RunKind.JOB)).containsExactly(aurora.getId());
+        assertThat(byId(response, aurora.getId()).name()).isEqualTo("Aurora batch");
+
+        var detail = service.jobDetail(aurora.getId()).orElseThrow();
+        assertThat(detail.group()).isEqualTo(RunGroup.AURORA);
+        assertThat(detail.batch().anthropicBatchId()).isEqualTo("msgbatch_aurora");
+    }
+
+    @Test
+    @DisplayName("a RUNNING cycle-batch job run is not counted in runningCount (only its cycle is)")
+    void runningCycleBatchRunNotCounted() {
+        PipelineRunEntity live = cycle(CycleType.NIGHTLY, Instant.parse("2026-10-31T01:00:00Z"),
+                PipelineRunStatus.RUNNING);
+        JobRunEntity batchRun = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 5), false, 0, 0, null);
+        batch("msgbatch_live", BatchType.FORECAST, live.getId(), batchRun.getId(), BatchStatus.SUBMITTED);
+        commit();
+
+        RunListResponse response = list(RunRange.TODAY, null, false);
+
+        assertThat(response.runningCount()).isEqualTo(1);
+        assertThat(ids(response, RunKind.JOB)).isEmpty();
     }
 
     @Test

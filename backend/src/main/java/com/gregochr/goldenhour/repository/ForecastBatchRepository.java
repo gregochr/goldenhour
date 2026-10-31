@@ -148,15 +148,13 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
     List<Long> findCycleBatchJobRunIdsFrom(@Param("minId") long minId);
 
     /**
-     * Of the given Anthropic batch ids, those that belong to a cycle. Backs the Runs list's fallback for a
-     * batch whose job run link was never written (matched on the run's {@code notes}).
+     * The batches with any of the given Anthropic batch ids. Backs the Runs list's fallback for a batch run
+     * whose job run link was never written (matched on the run's {@code notes}).
      *
-     * @param anthropicBatchIds the candidate Anthropic batch ids
-     * @return the ids that a cycle submitted
+     * @param anthropicBatchIds the Anthropic batch ids
+     * @return the matching batches
      */
-    @Query("SELECT b.anthropicBatchId FROM ForecastBatchEntity b WHERE b.pipelineRunId IS NOT NULL "
-            + "AND b.anthropicBatchId IN :anthropicBatchIds")
-    List<String> findCycleAnthropicBatchIds(@Param("anthropicBatchIds") Collection<String> anthropicBatchIds);
+    List<ForecastBatchEntity> findByAnthropicBatchIdIn(Collection<String> anthropicBatchIds);
 
     /**
      * The batches linked to any of the given job runs (one set query for a whole page).

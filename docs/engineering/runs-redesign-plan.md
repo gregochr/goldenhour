@@ -816,6 +816,10 @@ Where the code or the wording of §5.1 made the plan's text ambiguous, R1 follow
   `startBatchRun` records no strategies, so a JFDI batch currently reads "Scheduled batch" unless a writer records it.
 - **The job-run detail also serves `noteTone` and `triggeredManually`** (the latter is deliberately absent from
   `JobRunDto`), and the cycle row carries `batchCount` as well as `batchesDone` / `batchesTotal`.
+- **The batch scope (`batchSummary`) is derived per scheduled-batch row on the returned page**, which is one extra
+  query set per row (up to 100). It matches the existing job-runs endpoint; a batched `deriveAll` is a follow-up.
+- **A batch run whose `forecast_batch.job_run_id` was never written** is matched on its `notes`
+  (`Anthropic batch: <id>`) for its group, for the detail's `batch`, and for its cycle's Batch cost.
 - **`nextOvernightAt`** comes from `DynamicSchedulerService.getAll()` filtered to `ForecastCycleJobs.NIGHTLY_JOB`, then
   `calculateNextFireTime`: null when the job is paused, disabled, unknown, or the call throws.
 

@@ -19,7 +19,6 @@ import com.gregochr.goldenhour.model.runs.RunListResponse;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.model.runs.RunListSummary;
 import com.gregochr.goldenhour.model.runs.RunRange;
-import java.util.Map;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;

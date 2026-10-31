@@ -93,7 +93,7 @@ class RunsListQueriesTest {
     }
 
     @Test
-    @DisplayName("cycle Anthropic batch ids: only cycle batches among the ids asked about")
+    @DisplayName("batches by Anthropic batch id: only the ids asked about, cycle or not")
     void cycleAnthropicBatchIds() {
         PipelineRunEntity cycle = cycle();
         batch("msgbatch_cycle", BatchType.FORECAST, cycle.getId(), null);
@@ -101,8 +101,9 @@ class RunsListQueriesTest {
         batch("msgbatch_hand", BatchType.FORECAST, null, null);
         em.flush();
 
-        assertThat(batches.findCycleAnthropicBatchIds(List.of("msgbatch_cycle", "msgbatch_hand", "msgbatch_none")))
-                .containsExactly("msgbatch_cycle");
+        assertThat(batches.findByAnthropicBatchIdIn(List.of("msgbatch_cycle", "msgbatch_hand", "msgbatch_none")))
+                .extracting(ForecastBatchEntity::getAnthropicBatchId)
+                .containsExactlyInAnyOrder("msgbatch_cycle", "msgbatch_hand");
     }
 
     @Test

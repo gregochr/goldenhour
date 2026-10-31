@@ -114,6 +114,13 @@ public class AdminRunsService {
     }
 
     /**
+     * The top-level job runs, plus the runs the notes fallback hid, keyed by the Anthropic batch id their
+     * notes name (so a cycle can still count their cost).
+     */
+    private record TopLevel(List<TopLevelRun> runs, Map<String, JobRunEntity> hiddenByNotes) {
+    }
+
+    /**
      * Serves one page of the merged list and its aggregates.
      *
      * @param range     the UK-day-aligned window
@@ -140,7 +147,7 @@ public class AdminRunsService {
         jobRuns.findByCompletedAtIsNullAndStartedAtGreaterThanEqual(
                 nowUtc.minus(RunClassifier.longestStaleCeiling()))
                 .forEach(r -> candidates.putIfAbsent(r.getId(), r));
-        List<TopLevelRun> topLevel = topLevel(candidates.values());
+        TopLevel topLevel = topLevel(candidates.values());
 
         List<PipelineRunEntity> cyclesInRange =
                 pipelineRuns.findByTriggerTimeGreaterThanEqualOrderByTriggerTimeDescIdDesc(fromInstant);
@@ -150,14 +157,14 @@ public class AdminRunsService {
         Map<Long, PipelineRunEntity> cycleSet = new LinkedHashMap<>();
         cyclesInRange.forEach(c -> cycleSet.put(c.getId(), c));
         runningCycles.forEach(c -> cycleSet.putIfAbsent(c.getId(), c));
-        CycleFacts cycleFacts = loadCycleFacts(cycleSet.values());
+        CycleFacts cycleFacts = loadCycleFacts(cycleSet.values(), topLevel.hiddenByNotes());
 
         List<RunListItem> allItems = new ArrayList<>();
         for (PipelineRunEntity cycle : cyclesInRange) {
             allItems.add(cycleItem(cycle, cycleFacts));
         }
         long runningJobs = 0;
-        for (TopLevelRun top : topLevel) {
+        for (TopLevelRun top : topLevel.runs()) {
             RunListItem item = jobItem(top.run(), top.batchType(), nowUtc);
             if (item.status() == RunListStatus.RUNNING) {
                 runningJobs++;
@@ -200,7 +207,8 @@ public class AdminRunsService {
      */
     public Optional<RunJobDetail> jobDetail(long id) {
         return jobRuns.findById(id).map(run -> {
-            Optional<ForecastBatchEntity> batch = batches.findByJobRunId(id);
+            Optional<ForecastBatchEntity> batch = batches.findByJobRunId(id)
+                    .or(() -> batchNamedInNotes(run).flatMap(batches::findByAnthropicBatchId));
             BatchType batchType = batch.map(ForecastBatchEntity::getBatchType).orElse(null);
             batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary);
             RunClassifier.Outcome outcome = RunClassifier.classifyJob(run, nowUtc());
@@ -216,6 +224,15 @@ public class AdminRunsService {
         });
     }
 
+    /** The Anthropic batch id a batch run's {@code notes} name, when it has the standard note. */
+    private static Optional<String> batchNamedInNotes(JobRunEntity run) {
+        if (run.getRunType() != RunType.SCHEDULED_BATCH || run.getNotes() == null
+                || !run.getNotes().startsWith(BATCH_NOTE_PREFIX)) {
+            return Optional.empty();
+        }
+        return Optional.of(run.getNotes().substring(BATCH_NOTE_PREFIX.length()));
+    }
+
     private LocalDateTime nowUtc() {
         return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
@@ -225,28 +242,39 @@ public class AdminRunsService {
     /**
      * Drops every job run that belongs to a cycle, and attaches the batch type of those that remain.
      */
-    private List<TopLevelRun> topLevel(Collection<JobRunEntity> candidates) {
+    private TopLevel topLevel(Collection<JobRunEntity> candidates) {
         if (candidates.isEmpty()) {
-            return List.of();
+            return new TopLevel(List.of(), Map.of());
         }
         long minId = candidates.stream().mapToLong(JobRunEntity::getId).min().orElse(0L);
         Set<Long> hidden = new HashSet<>(batches.findCycleBatchJobRunIdsFrom(minId));
         hidden.addAll(pipelineRuns.findDispositionJobRunIdsFrom(minId));
 
-        // The notes fallback: a batch run whose link to its cycle's batch row was never written.
+        // The notes fallback: a batch run whose link to its batch row was never written is matched on the
+        // Anthropic batch id its notes name. A cycle's batch hides the run; any batch gives it its type.
         Map<String, List<JobRunEntity>> byBatchNote = new LinkedHashMap<>();
         for (JobRunEntity run : candidates) {
-            if (run.getRunType() == RunType.SCHEDULED_BATCH && !hidden.contains(run.getId())
-                    && run.getNotes() != null && run.getNotes().startsWith(BATCH_NOTE_PREFIX)) {
-                byBatchNote.computeIfAbsent(run.getNotes().substring(BATCH_NOTE_PREFIX.length()),
-                        k -> new ArrayList<>()).add(run);
+            if (!hidden.contains(run.getId())) {
+                batchNamedInNotes(run).ifPresent(
+                        id -> byBatchNote.computeIfAbsent(id, k -> new ArrayList<>()).add(run));
             }
         }
+        Map<String, ForecastBatchEntity> namedBatches = new LinkedHashMap<>();
         if (!byBatchNote.isEmpty()) {
-            for (String cycleBatchId : batches.findCycleAnthropicBatchIds(byBatchNote.keySet())) {
-                byBatchNote.getOrDefault(cycleBatchId, List.of()).forEach(r -> hidden.add(r.getId()));
+            for (ForecastBatchEntity batch : batches.findByAnthropicBatchIdIn(byBatchNote.keySet())) {
+                namedBatches.put(batch.getAnthropicBatchId(), batch);
             }
         }
+        Map<String, JobRunEntity> hiddenByNotes = new LinkedHashMap<>();
+        byBatchNote.forEach((batchId, runs) -> {
+            ForecastBatchEntity named = namedBatches.get(batchId);
+            if (named != null && named.getPipelineRunId() != null) {
+                runs.forEach(r -> {
+                    hidden.add(r.getId());
+                    hiddenByNotes.put(batchId, r);
+                });
+            }
+        });
 
         List<JobRunEntity> remaining = candidates.stream().filter(r -> !hidden.contains(r.getId())).toList();
         Set<Long> batchRunIds = remaining.stream()
@@ -259,19 +287,22 @@ public class AdminRunsService {
                 batchTypes.put(batch.getJobRunId(), batch.getBatchType());
             }
         }
-        return remaining.stream().map(r -> new TopLevelRun(r, batchTypes.get(r.getId()))).toList();
+        List<TopLevelRun> runs = remaining.stream().map(r -> new TopLevelRun(r, batchTypes.getOrDefault(r.getId(),
+                batchNamedInNotes(r).map(namedBatches::get).map(ForecastBatchEntity::getBatchType).orElse(null))))
+                .toList();
+        return new TopLevel(runs, hiddenByNotes);
     }
 
     // ── Cycles ────────────────────────────────────────────────────────────────
 
     /** The batches and the cost-bearing job runs of a set of cycles. */
     private record CycleFacts(Map<Long, List<ForecastBatchEntity>> batchesByCycle,
-            Map<Long, JobRunEntity> costRuns) {
+            Map<Long, JobRunEntity> costRuns, Map<String, JobRunEntity> hiddenByNotes) {
     }
 
-    private CycleFacts loadCycleFacts(Collection<PipelineRunEntity> cycles) {
+    private CycleFacts loadCycleFacts(Collection<PipelineRunEntity> cycles, Map<String, JobRunEntity> byNotes) {
         if (cycles.isEmpty()) {
-            return new CycleFacts(Map.of(), Map.of());
+            return new CycleFacts(Map.of(), Map.of(), byNotes);
         }
         List<Long> cycleIds = cycles.stream().map(PipelineRunEntity::getId).toList();
         Map<Long, List<ForecastBatchEntity>> byCycle = batches.findByPipelineRunIdIn(cycleIds).stream()
@@ -284,7 +315,7 @@ public class AdminRunsService {
         Map<Long, JobRunEntity> costRuns = costRunIds.isEmpty() ? Map.of()
                 : jobRuns.findAllById(costRunIds).stream()
                         .collect(Collectors.toMap(JobRunEntity::getId, Function.identity()));
-        return new CycleFacts(byCycle, costRuns);
+        return new CycleFacts(byCycle, costRuns, byNotes);
     }
 
     private RunListItem cycleItem(PipelineRunEntity cycle, CycleFacts facts) {
@@ -295,12 +326,21 @@ public class AdminRunsService {
 
         // Distinct ids: the cycle's disposition anchor is its first batch's run, so it must not count twice.
         Set<Long> runIds = new HashSet<>();
-        cycleBatches.stream().map(ForecastBatchEntity::getJobRunId).filter(Objects::nonNull)
-                .forEach(runIds::add);
+        Map<Long, JobRunEntity> costRunsById = new LinkedHashMap<>(facts.costRuns());
+        for (ForecastBatchEntity b : cycleBatches) {
+            JobRunEntity linked = b.getJobRunId() != null ? null : facts.hiddenByNotes().get(b.getAnthropicBatchId());
+            if (linked != null) {
+                // The batch row has no job run link; the run is matched on its notes instead.
+                runIds.add(linked.getId());
+                costRunsById.put(linked.getId(), linked);
+            } else if (b.getJobRunId() != null) {
+                runIds.add(b.getJobRunId());
+            }
+        }
         if (cycle.getDispositionJobRunId() != null) {
             runIds.add(cycle.getDispositionJobRunId());
         }
-        List<JobRunEntity> costRuns = runIds.stream().map(facts.costRuns()::get)
+        List<JobRunEntity> costRuns = runIds.stream().map(costRunsById::get)
                 .filter(Objects::nonNull).toList();
         long cost = costRuns.stream().map(JobRunEntity::getTotalCostMicroDollars)
                 .filter(Objects::nonNull).mapToLong(Long::longValue).sum();

@@ -1,16 +1,19 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.controller.GlobalExceptionHandler.ErrorResponse;
 import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunRange;
 import com.gregochr.goldenhour.service.runs.AdminRunsService;
 import com.gregochr.goldenhour.service.runs.RunCursor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * The merged Runs list for the admin Operations tab: pipeline runs and top-level job runs in one
@@ -53,15 +56,20 @@ public class AdminRunsController {
             @RequestParam(required = false) String before,
             @RequestParam(defaultValue = "" + AdminRunsService.DEFAULT_SIZE) int size) {
         if (size < 1) {
-            return ResponseEntity.badRequest().body("size must be >= 1");
+            return ResponseEntity.badRequest().body(new ErrorResponse("size must be >= 1"));
         }
+        RunRange parsedRange;
+        RunGroup parsedKind;
+        RunCursor cursor;
         try {
-            RunCursor cursor = before == null || before.isBlank() ? null : RunCursor.decode(before);
-            return ResponseEntity.ok(runsService.list(RunRange.parse(range), RunGroup.parseKind(kind),
-                    attention, cursor, Math.min(size, AdminRunsService.MAX_SIZE)));
+            parsedRange = RunRange.parse(range);
+            parsedKind = RunGroup.parseKind(kind);
+            cursor = before == null || before.isBlank() ? null : RunCursor.decode(before);
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("Invalid range, kind or cursor");
+            return ResponseEntity.badRequest().body(new ErrorResponse("Invalid range, kind or cursor"));
         }
+        return ResponseEntity.ok(runsService.list(parsedRange, parsedKind, attention, cursor,
+                Math.min(size, AdminRunsService.MAX_SIZE)));
     }
 
     /**
@@ -75,5 +83,18 @@ public class AdminRunsController {
         return runsService.jobDetail(id)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Answers a request parameter or path variable of the wrong type (such as {@code size=abc},
+     * {@code attention=yes} or {@code /job/abc}) with 400 instead of the global handler's 500. Scoped to
+     * this controller only.
+     *
+     * @param e the binding failure
+     * @return a 400 with the shared error body
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> badParameter(MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse("Invalid value for " + e.getName()));
     }
 }
