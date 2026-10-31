@@ -117,7 +117,7 @@ docs it touches in the same PR. New code reads time from an injected `Clock`; ci
 
 ### P1a — Tide point and fetch provenance (deadline: deployed before Mon 9 Nov 02:00 UTC)
 
-**Schema (V205):**
+**Schema (V206):**
 - `locations.tide_lat`, `locations.tide_lng` — nullable `DOUBLE PRECISION`, both or neither
   (`CHECK ((tide_lat IS NULL) = (tide_lng IS NULL))`). `lng`, matching `valley_floor_lng`.
 - Table `tide_fetch` — one row per WorldTides call: `id` BIGSERIAL, `location_id` BIGINT NOT NULL
@@ -195,7 +195,7 @@ test (columns, CHECK, table, FK cascade, data block on a seeded roster sets the 
   and `SEED` fetches (a change is expected / nothing to compare). `RESEED` fetches compare across
   their whole window for free.
 - **Store and alert (D4).** The new values are written as today. The `tide_fetch` row records
-  `overlap_pairs`, `max_lag_delta_min`, `max_height_delta_m` (V206 `ALTER`). When a location's
+  `overlap_pairs`, `max_lag_delta_min`, `max_height_delta_m` (V207 `ALTER`). When a location's
   fetch shows a change, or its `atlas`/`station`/response point differs from its previous
   successful forward row at the same request point, `AdminAlertService` sends one email per
   refresh listing every such location with before/after examples, and saying that the fix is a
@@ -206,7 +206,7 @@ test (columns, CHECK, table, FK cascade, data block on a seeded roster sets the 
 
 **Tests:** overlap window and credit maths; pairing and thresholds; no diff on `POINT_CHANGE` /
 `SEED`; re-seed diffs its whole window; alert on change, no alert on a clean fetch, no repeat alert
-for an unchanged persisting difference; atlas/station change alert; V206 migration test.
+for an unchanged persisting difference; atlas/station change alert; V207 migration test.
 
 **Docs:** `hot-topics-tides-eclipse.md`, `database-migrations.md`, `platform.md` (admin alerts).
 
@@ -312,7 +312,7 @@ ground truth, and to catch drift there.
 - Reads the last 7 days (`startdate`/`enddate`, `_sorted`, explicit `_limit`), extracts high
   waters (local maximum over ±2 h with five equally spaced readings, five-point quadratic peak),
   pairs each with the stored prediction at the mapped location (±2 h), and records the median
-  timing and height error per pair on a `tide_gauge_check` row (V207). Skips a pair with fewer than
+  timing and height error per pair on a `tide_gauge_check` row (V208). Skips a pair with fewer than
   8 paired high waters.
 - Flags a pair whose median timing error moves more than 10 min from its own trailing median over
   the previous 4 runs (the absolute error is not zero: gauges sit in harbours; "Mean" readings may

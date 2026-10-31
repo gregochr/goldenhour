@@ -1,4 +1,4 @@
--- V205: tide point and WorldTides fetch provenance (tide-source-integrity-plan P1a).
+-- V206: tide point and WorldTides fetch provenance (tide-source-integrity-plan P1a).
 --
 -- tide_lat / tide_lng: an optional point sent to WorldTides in place of the pin, for locations whose own
 -- sea area is served by an unreliable model cell. Both set or both NULL. Nothing but WorldTides reads it.
@@ -61,5 +61,5 @@ BEGIN
         GET DIAGNOSTICS batch = ROW_COUNT;
         updated := updated + batch;
     END LOOP;
-    RAISE NOTICE 'V205: set % tide point(s)', updated;
+    RAISE NOTICE 'V206: set % tide point(s)', updated;
 END $$;

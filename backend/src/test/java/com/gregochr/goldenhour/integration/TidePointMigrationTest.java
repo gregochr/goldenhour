@@ -17,13 +17,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves V205 against a real Postgres: {@code locations.tide_lat} / {@code tide_lng} (nullable
+ * Proves V206 against a real Postgres: {@code locations.tide_lat} / {@code tide_lng} (nullable
  * DOUBLE PRECISION, both-or-neither CHECK), the {@code tide_fetch} table (columns, foreign-key
  * cascade) and the data block that copies a neighbour's coordinates onto the ten affected
  * locations by exact name.
  *
  * <p>CI-only: it starts its own Testcontainer, and there is no Docker on the development machine
- * (see CLAUDE.md). It migrates to V204 first so it can plant a roster before V205 runs.
+ * (see CLAUDE.md). It migrates to V205 first so it can plant a roster before V206 runs.
  */
 @Testcontainers
 class TidePointMigrationTest {
@@ -71,9 +71,9 @@ class TidePointMigrationTest {
     }
 
     @Test
-    @DisplayName("V205 copies each source location's coordinates onto the ten targets and no others")
+    @DisplayName("V206 copies each source location's coordinates onto the ten targets and no others")
     void dataBlockSetsTheTenTidePoints() throws SQLException {
-        flyway("204").migrate();
+        flyway("205").migrate();
         try (Connection c = connect(); Statement st = c.createStatement()) {
             insertLocation(st, "Runswick Bay", 54.5, -0.7);
             insertLocation(st, "Staithes", 54.56, -0.79);
@@ -92,7 +92,7 @@ class TidePointMigrationTest {
             insertLocation(st, "Whitby Piers", 54.49, -0.61);
         }
 
-        flyway("205").migrate();
+        flyway("206").migrate();
 
         try (Connection c = connect(); Statement st = c.createStatement()) {
             assertTidePoint(st, "Staithes", 54.5, -0.7);
@@ -115,9 +115,9 @@ class TidePointMigrationTest {
     }
 
     @Test
-    @DisplayName("V205 on an empty roster sets nothing and does not fail")
+    @DisplayName("V206 on an empty roster sets nothing and does not fail")
     void emptyRosterIsHarmless() throws SQLException {
-        flyway("205").migrate();
+        flyway("206").migrate();
 
         try (Connection c = connect(); Statement st = c.createStatement();
                 ResultSet rs = st.executeQuery("SELECT count(*) FROM locations WHERE tide_lat IS NOT NULL")) {
@@ -129,7 +129,7 @@ class TidePointMigrationTest {
     @Test
     @DisplayName("tide_lat and tide_lng are both set or both null; tide_fetch rows cascade with the location")
     void checkConstraintAndCascade() throws SQLException {
-        flyway("205").migrate();
+        flyway("206").migrate();
         try (Connection c = connect(); Statement st = c.createStatement()) {
             insertLocation(st, "Tide Point Migration Test Point", 54.6, -3.1);
             long id = idOf(st, "Tide Point Migration Test Point");
@@ -161,7 +161,7 @@ class TidePointMigrationTest {
     @Test
     @DisplayName("tide_fetch has the planned columns and types")
     void tideFetchColumns() throws SQLException {
-        flyway("205").migrate();
+        flyway("206").migrate();
         try (Connection c = connect(); Statement st = c.createStatement()) {
             assertColumn(st, "reason", "character varying", "NO");
             assertColumn(st, "success", "boolean", "NO");
