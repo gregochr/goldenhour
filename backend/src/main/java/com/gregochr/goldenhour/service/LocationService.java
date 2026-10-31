@@ -636,22 +636,27 @@ public class LocationService {
      * on the roster ({@code enabled = true}); a place with no reason that is disabled was switched
      * off by an admin on purpose and stays disabled, with only its counters cleared.
      *
-     * <p>D3: when the location's region is switched off, the counters are cleared but the place is
-     * <b>not</b> re-enabled, and the call returns normally (not a 409) with the returned entity still showing
-     * {@code enabled = false}. A 409 after the counters were already cleared would report a failure for a write
-     * that happened; the client reads {@code enabled} in the response and tells the admin to turn the region
-     * on first.
+     * <p>D3: a place that would be re-enabled (it carries a {@code disabledReason}) in a switched-off region is
+     * refused with a {@link RegionStateConflictException} (HTTP 409, "Turn {region} on first.") <b>before any
+     * write</b>, so the auto-disabled record, its reason and its failure counters all survive and it stays in the
+     * Needs-attention list. Clearing the reason alone would silently turn it into a manually-disabled place. A
+     * place with no reason is not re-enabled by this call, so it only has its counters cleared as before (in a
+     * switched-off region that is legacy data the invariant no longer lets arise).
      *
      * @param name the location name to reset
      * @return the updated {@link LocationEntity}
      * @throws java.util.NoSuchElementException if no location with that name exists
+     * @throws RegionStateConflictException      if it would be re-enabled while its region is switched off
      */
     @Transactional
     public LocationEntity resetFailures(String name) {
         LocationEntity saved = findByName(name);
+        if (saved.getDisabledReason() != null) {
+            requireRegionOn(saved.getRegion());
+        }
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
-        if (saved.getDisabledReason() != null && isRegionOn(saved.getRegion())) {
+        if (saved.getDisabledReason() != null) {
             locationRepository.updateEnabled(saved.getId(), true);
             saved.setEnabled(true);
         }

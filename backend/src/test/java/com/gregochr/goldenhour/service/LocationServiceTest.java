@@ -794,8 +794,8 @@ class LocationServiceTest {
     }
 
     @Test
-    @DisplayName("resetFailures() in a switched-off region clears the counters but does not re-enable")
-    void resetFailures_autoDisabledInRegionOff_clearsCountersButStaysDisabled() {
+    @DisplayName("resetFailures() of an auto-disabled place in a switched-off region is refused and writes nothing")
+    void resetFailures_autoDisabledInRegionOff_isRefusedAndWritesNothing() {
         LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
         entity.setEnabled(false);
         entity.setRegion(buildRegion(7L, "Northumberland", false));
@@ -804,12 +804,29 @@ class LocationServiceTest {
         entity.setLastFailureAt(java.time.LocalDateTime.of(2026, 10, 2, 3, 0));
         when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
 
+        assertThatThrownBy(() -> locationService.resetFailures("Durham UK"))
+                .isInstanceOf(RegionStateConflictException.class)
+                .hasMessage("Turn Northumberland on first.");
+
+        assertThat(entity.isEnabled()).isFalse();
+        assertThat(entity.getConsecutiveFailures()).isEqualTo(3);
+        assertThat(entity.getDisabledReason()).isNotNull();
+        verify(locationRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(locationRepository, never()).clearFailureState(any());
+    }
+
+    @Test
+    @DisplayName("resetFailures() of a still-enabled place with counters in an off region (legacy) clears them")
+    void resetFailures_legacyEnabledWithCountersInRegionOff_clearsCounters() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setRegion(buildRegion(7L, "Northumberland", false));
+        entity.setConsecutiveFailures(2);
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+
         LocationEntity result = locationService.resetFailures("Durham UK");
 
-        assertThat(result.isEnabled()).isFalse();
+        assertThat(result.isEnabled()).isTrue();
         assertThat(result.getConsecutiveFailures()).isZero();
-        assertThat(result.getDisabledReason()).isNull();
-        assertThat(result.getLastFailureAt()).isNull();
         verify(locationRepository).clearFailureState(1L);
         verify(locationRepository, never()).updateEnabled(any(), org.mockito.ArgumentMatchers.anyBoolean());
     }

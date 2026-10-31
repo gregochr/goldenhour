@@ -170,13 +170,12 @@ export async function setLocationEnabled(id, enabled) {
  * ADMIN only.
  *
  * @param {string} locationName - The configured location name.
- * @returns {Promise<object>} the location as stored afterwards; `enabled` stays false when its region is off.
+ * @returns {Promise<void>}
  */
 export async function resetLocationFailures(locationName) {
-  const { data } = await apiClient.put(`${BASE_URL}/locations/reset-failures`, null, {
+  await apiClient.put(`${BASE_URL}/locations/reset-failures`, null, {
     params: { name: locationName },
   });
-  return data;
 }
 
 /**

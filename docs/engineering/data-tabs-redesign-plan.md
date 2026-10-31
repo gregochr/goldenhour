@@ -174,9 +174,10 @@ plain sentence the UI shows as is:
 - Turning a region **on** is always allowed. Existing data in the half-off state is left alone (no migration); the
   rule stops new cases. The check-then-save is not transactional against a concurrent toggle; accepted and noted.
 **P4 built.** `RegionStateConflictException` (409) in `GlobalExceptionHandler`; `LocationRepository.countEnabledInRegion`.
-Decisions: `resetFailures` in a switched-off region clears the counters, does **not** re-enable, and returns 200 with
-`enabled: false` (a 409 after clearing would misreport a write that landed); `LocationAlerts` shows "stays off because its
-region is off" and skips the refresh so the row and sentence stay. `update` is refused only when it *moves a switched-on
+Decisions: `resetFailures` of an auto-disabled place (has a `disabledReason`) in a switched-off region is a 409 "Turn {region}
+on first." **before any write** (clearing the reason alone would silently turn it into a manually-disabled place and lose
+the Needs-attention signal); a place with no reason just has its counters cleared; the alert shows the server sentence
+through the existing `apiErrorMessage` path. `update` is refused only when it *moves a switched-on
 location* to a different switched-off region (a disabled location moves freely; staying put in an off region is not
 re-checked). No other path re-enables a location (`LocationFailureService` only switches places off). The Regions and
 Locations list toggles previously only `console.error`ed; they now show the server's sentence (`region-toggle-error`,

@@ -61,8 +61,8 @@ The services enforce **no switched-on location in a switched-off region** at eve
 `RegionService.setEnabled(id, false)` counts `LocationRepository.countEnabledInRegion` and refuses with
 "Turn off its {n} locations first."; `LocationService.setEnabled(id, true)`, `add` and `update` (only when it moves a
 switched-on location into a different, switched-off region) refuse with "Turn {region} on first.". Turning a region
-**on** is always allowed. `LocationService.resetFailures` in a switched-off region clears the failure counters but does
-**not** re-enable the place and returns 200 with `enabled: false` (a 409 after the counters were cleared would report a
-failure for a write that happened); the Locations alert reads `enabled` and says the region must be turned on first.
+**on** is always allowed. `LocationService.resetFailures` of an auto-disabled place (one with a `disabledReason`) in a switched-off region is
+refused with the same 409 **before any write**, so the reason, counters and Needs-attention signal survive (clearing the
+reason alone would silently make it a manually-disabled place). A place with no reason only has its counters cleared.
 The only other re-enable path is `LocationFailureService` auto-disabling (it only switches places off). No migration:
 existing half-off data is left as is. The checks are check-then-write, not atomic against a concurrent toggle.

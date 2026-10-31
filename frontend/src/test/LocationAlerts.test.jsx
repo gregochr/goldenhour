@@ -146,14 +146,16 @@ describe('LocationAlerts', () => {
     await waitFor(() => expect(button).toBeEnabled());
   });
 
-  it('says so, and keeps the row, when the server cleared the counters but the place stays off (region off)', async () => {
-    resetLocationFailures.mockResolvedValue({ name: 'Bamburgh Castle', enabled: false });
+  it('shows the server\'s 409 sentence when Re-enable is refused because its region is off', async () => {
+    resetLocationFailures.mockRejectedValue({
+      response: { status: 409, data: { error: 'Turn Northumberland on first.' } },
+    });
     const onReenabled = vi.fn();
     render(<LocationAlerts locations={[AUTO_DISABLED]} onReenabledLocation={onReenabled} />);
 
     fireEvent.click(reenableButton());
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('stays off because its region is off');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Turn Northumberland on first.');
     expect(onReenabled).not.toHaveBeenCalled();
   });
 
