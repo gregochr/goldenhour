@@ -39,6 +39,9 @@ export default function useLocationEditor({
   // Identifies the latest valley-floor request of the open editor. Bumped on open, Cancel, Clear and every
   // new request, so a reply that no longer belongs to the editor on screen is dropped.
   const floorToken = useRef(0);
+  // Identifies the latest save. Bumped when a save starts and whenever the draft is opened, cancelled or discarded, so a
+  // save still in flight for a draft that is no longer on screen writes nothing to the one that is.
+  const saveToken = useRef(0);
 
   // Late fill, as React's adjust-state-while-rendering pattern: an editor opened before the areas or the names
   // landed starts that field now (and its baseline).
@@ -53,6 +56,8 @@ export default function useLocationEditor({
 
   const start = useCallback((loc) => {
     floorToken.current += 1;
+    saveToken.current += 1;
+    setSaving(false);
     setEditingId(loc.id);
     setValues(buildEditValues(loc, { subRegions, areasLoaded: areas !== null, aliasesByLocation }));
     setError('');
@@ -66,6 +71,7 @@ export default function useLocationEditor({
    * next {@link start} bumps the token anyway.
    */
   const discard = useCallback(() => {
+    setSaving(false);
     setEditingId(null);
     setValues(null);
     setError('');
@@ -75,6 +81,7 @@ export default function useLocationEditor({
 
   const cancel = useCallback(() => {
     floorToken.current += 1;
+    saveToken.current += 1;
     discard();
   }, [discard]);
 
@@ -173,12 +180,16 @@ export default function useLocationEditor({
       setErrorField(plan.field);
       return false;
     }
+    const token = ++saveToken.current;
+    const id = editingId;
+    // After any await the draft may have moved on (another row opened, or Cancel): then nothing here touches the form.
+    const current = () => token === saveToken.current;
     setSaving(true);
     setError('');
     setErrorField(null);
     setAliasDetail('');
     try {
-      await updateLocation(editingId, plan.payload);
+      await updateLocation(id, plan.payload);
       // The region and sub-region may both have moved memberships: read them again.
       await refreshAreas();
       // Other names are a separate write, AFTER the location's own save succeeds, and only when the field
@@ -187,11 +198,12 @@ export default function useLocationEditor({
       // the names landed), never the live map: an editor opened before the load must not read as "cleared".
       if (values.aliasesLoaded && values.aliases !== values.aliasesBaseline) {
         try {
-          const savedAliases = await setLocationAliases(editingId, parseAliases(values.aliases));
-          setAliasesByLocation((prev) => ({ ...prev, [editingId]: savedAliases }));
+          const savedAliases = await setLocationAliases(id, parseAliases(values.aliases));
+          setAliasesByLocation((prev) => ({ ...prev, [id]: savedAliases }));
         } catch (aliasErr) {
           await refreshLocations();
           onLocationsChanged();
+          if (!current()) return false;
           setValues((prev) => (prev ? withSavedBaselines(prev) : prev));
           setError('Location saved; its other names were not');
           setErrorField('aliases');
@@ -200,15 +212,18 @@ export default function useLocationEditor({
         }
       }
       await refreshLocations();
-      cancel();
       onLocationsChanged();
+      if (!current()) return false;
+      cancel();
       return true;
     } catch (err) {
-      setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-      setErrorField(null);
+      if (current()) {
+        setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
+        setErrorField(null);
+      }
       return false;
     } finally {
-      setSaving(false);
+      if (current()) setSaving(false);
     }
   }
 

@@ -28,6 +28,8 @@ function withUnit(value, unit) {
  *
  * @param {object} props
  * @param {object} props.location the location as the list holds it (with any optimistic on/off applied)
+ * @param {object} [props.failureLocation] the stored location (no optimistic flip) the failure box describes, so a
+ *   Turn on in flight never makes it read as an enabled place with failures; defaults to {@code location}
  * @param {() => void} props.onClose closes the panel
  * @param {() => void} props.onEdit opens the edit form
  * @param {(location: object) => void} props.onToggle turns the location on or off
@@ -35,10 +37,11 @@ function withUnit(value, unit) {
  * @param {string} props.toggleError the server's sentence for the last refused toggle of this location
  * @param {boolean} props.resetting a failure reset for this location is in flight
  * @param {string|null} props.resetError the server's sentence for the last refused reset
- * @param {() => void} props.onReset resets the failure count (or turns an auto-disabled place back on)
+ * @param {(fallback: string) => void} props.onReset resets the failure count (or turns an auto-disabled place back on)
  */
 export default function LocationPanel({
-  location, onClose, onEdit, onToggle, toggling, toggleError, resetting, resetError, onReset,
+  location, failureLocation = undefined, onClose, onEdit, onToggle, toggling, toggleError, resetting, resetError,
+  onReset,
 }) {
   const seascape = isSeascape(location);
   const bortle = location.bortleClass;
@@ -78,7 +81,7 @@ export default function LocationPanel({
       testIdPrefix="location-panel"
       testId="location-view-panel"
     >
-      <LocationFailureBox location={location} pending={resetting} error={resetError} onReset={onReset} />
+      <LocationFailureBox location={failureLocation ?? location} pending={resetting} error={resetError} onReset={onReset} />
 
       <PanelSection
         label="Shooting"
@@ -129,11 +132,9 @@ export default function LocationPanel({
         <div className="flex items-center justify-between gap-4 py-2">
           <div className="min-w-0">
             <p className="text-[13px] text-plex-text">{location.enabled ? 'Turn off' : 'Turn on'}</p>
-            <p className="text-xs text-plex-text-secondary">
-              {location.enabled
-                ? 'Left out of forecast runs until you turn it back on.'
-                : 'It goes back into forecast runs.'}
-            </p>
+            {location.enabled && (
+              <p className="text-xs text-plex-text-secondary">Left out of forecast runs until you turn it back on.</p>
+            )}
           </div>
           <button
             type="button"
@@ -155,6 +156,7 @@ export default function LocationPanel({
 
 LocationPanel.propTypes = {
   location: PropTypes.object.isRequired,
+  failureLocation: PropTypes.object,
   onClose: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onToggle: PropTypes.func.isRequired,

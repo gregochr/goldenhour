@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import LocationManagementView from '../components/LocationManagementView.jsx';
 
 vi.mock('../api/forecastApi', () => ({
@@ -89,7 +89,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(1);
 
-      const labels = Array.from(panel.querySelectorAll('section h3')).map((h) => h.textContent);
+      const labels = within(panel).getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
       expect(labels).toEqual(['Shooting', 'Place', 'Sky', 'Tides', 'Location actions']);
     });
 
@@ -97,7 +97,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(2);
 
-      const labels = Array.from(panel.querySelectorAll('section h3')).map((h) => h.textContent);
+      const labels = within(panel).getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
       expect(labels).toEqual(['Shooting', 'Place', 'Sky', 'Location actions']);
       expect(fetchTideStats).not.toHaveBeenCalled();
     });
@@ -106,7 +106,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(1);
 
-      const shooting = panel.querySelector('[data-testid="location-shooting"]');
+      const shooting = within(panel).getByTestId('location-shooting');
       expect(shooting).toHaveTextContent('Seascape');
       expect(shooting).toHaveTextContent('Sunrise, Sunset');
       expect(shooting).toHaveTextContent('High, Mid, Low');
@@ -117,7 +117,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(2);
 
-      const shooting = panel.querySelector('[data-testid="location-shooting"]');
+      const shooting = within(panel).getByTestId('location-shooting');
       expect(shooting).toHaveTextContent('Not tidal');
       expect(shooting).toHaveTextContent('Sunrise, All day');
       expect(screen.getByTestId('location-mist-prone')).toHaveTextContent('Yes');
@@ -127,7 +127,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(1);
 
-      const place = panel.querySelector('[data-testid="location-place"]');
+      const place = within(panel).getByTestId('location-place');
       expect(place).toHaveTextContent('Northumberland');
       expect(place).toHaveTextContent('Alnwick Coast');
       expect(screen.getByTestId('location-coordinates')).toHaveTextContent('55.390, -1.613');
@@ -152,8 +152,8 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(2);
 
-      const place = panel.querySelector('[data-testid="location-place"]');
-      expect(place.querySelectorAll('dd')[0]).toHaveTextContent('—');
+      const place = within(panel).getByTestId('location-place');
+      expect(within(place).getAllByRole('definition')[0]).toHaveTextContent('—');
       expect(screen.getByTestId('location-bortle')).toHaveTextContent('—');
     });
 
@@ -173,7 +173,7 @@ describe('LocationManagementView — the view panel', () => {
       renderView();
       const panel = await openPanel(1);
 
-      const sky = panel.querySelector('[data-testid="location-sky"]');
+      const sky = within(panel).getByTestId('location-sky');
       expect(sky).toHaveTextContent('21.4 SQM');
       expect(sky).toHaveTextContent('Overlooks water');
       expect(sky).toHaveTextContent('Coastal tidal');
@@ -304,11 +304,13 @@ describe('LocationManagementView — the view panel', () => {
       resetLocationFailures
         .mockRejectedValueOnce({ response: { status: 409, data: { error: 'Something went wrong server-side.' } } })
         .mockResolvedValueOnce(undefined);
-      renderView();
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
       await openPanel(3);
 
       fireEvent.click(screen.getByTestId('location-reset-failures'));
       expect(await screen.findByTestId('location-failure-error')).toHaveTextContent('Something went wrong server-side.');
+      expect(onChanged).not.toHaveBeenCalled();
 
       fireEvent.click(screen.getByTestId('location-reset-failures'));
       await waitFor(() => expect(screen.queryByTestId('location-failure-error')).not.toBeInTheDocument());
@@ -316,12 +318,24 @@ describe('LocationManagementView — the view panel', () => {
 
     it('falls back to a plain sentence when the server said nothing usable', async () => {
       resetLocationFailures.mockRejectedValue(new Error('Network Error'));
-      renderView();
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
       await openPanel(3);
 
       fireEvent.click(screen.getByTestId('location-reset-failures'));
 
-      expect(await screen.findByTestId('location-failure-error')).toHaveTextContent('Could not re-enable this location.');
+      expect(await screen.findByTestId('location-failure-error')).toHaveTextContent("Couldn't reset the failure count.");
+      expect(onChanged).not.toHaveBeenCalled();
+    });
+
+    it('falls back to its own plain sentence for Turn back on, in the same "Couldn\'t" voice', async () => {
+      resetLocationFailures.mockRejectedValue(new Error('Network Error'));
+      renderView();
+      await openPanel(4);
+
+      fireEvent.click(screen.getByTestId('location-turn-back-on'));
+
+      expect(await screen.findByTestId('location-failure-error')).toHaveTextContent("Couldn't turn this location back on.");
     });
 
     it('for a place turned off by the failures says so, shows the reason, and offers Turn back on', async () => {
@@ -333,6 +347,69 @@ describe('LocationManagementView — the view panel', () => {
       expect(screen.getByTestId('location-turn-back-on')).toHaveTextContent('Turn back on');
       expect(screen.queryByTestId('location-reset-failures')).not.toBeInTheDocument();
       expect(screen.getByTestId('location-panel-subtitle')).toHaveTextContent('Disabled after failures');
+    });
+
+    it('also says when a turned-off place last failed, because the reason holds only a UTC date', async () => {
+      renderView();
+      await openPanel(4);
+
+      expect(screen.getByTestId('location-failure-last')).toHaveTextContent('Last failed 2 Oct 2026, 04:00.');
+    });
+
+    it('leaves that line out when the server holds no failure time', async () => {
+      fetchLocations.mockResolvedValue([{ ...AUTO_DISABLED, lastFailureAt: null }]);
+      renderView();
+      await openPanel(4);
+
+      expect(screen.queryByTestId('location-failure-last')).not.toBeInTheDocument();
+    });
+
+    it('shows the box above Shooting, as the first section of the panel', async () => {
+      renderView();
+      await openPanel(3);
+
+      const box = screen.getByTestId('location-failure-box');
+      const shooting = screen.getByTestId('location-shooting');
+      expect(box.compareDocumentPosition(shooting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('shows the box for a place switched off by hand that still has failures, without the third-failure sentence', async () => {
+      fetchLocations.mockResolvedValue([{ ...FAILING, enabled: false }]);
+      renderView();
+      await openPanel(3);
+
+      expect(screen.getByTestId('location-failure-title')).toHaveTextContent('2 failed runs in a row');
+      expect(screen.getByTestId('location-failure-box')).not.toHaveTextContent('third failure');
+      expect(screen.getByTestId('location-reset-failures')).toBeInTheDocument();
+    });
+
+    it('keeps describing a turned-off place as turned off while Turn on is in flight', async () => {
+      let finish;
+      setLocationEnabled.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+      renderView();
+      await openPanel(4);
+
+      fireEvent.click(screen.getByTestId('toggle-enabled-4'));
+      await waitFor(() => expect(screen.getByTestId('toggle-enabled-4')).toHaveTextContent('Turn off'));
+
+      expect(screen.getByTestId('location-failure-title')).toHaveTextContent('Turned off after 3 failed runs');
+      expect(screen.getByTestId('location-failure-box')).not.toHaveTextContent('third failure');
+      finish({});
+    });
+
+    it('shows no stale refusal when the location is opened again', async () => {
+      resetLocationFailures.mockRejectedValue({ response: { status: 409, data: { error: 'Turn Northumberland on first.' } } });
+      renderView();
+      await openPanel(4);
+      fireEvent.click(screen.getByTestId('location-turn-back-on'));
+      await screen.findByTestId('location-failure-error');
+
+      fireEvent.click(screen.getByTestId('locations-row-2'));
+      await waitFor(() => expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Durham Cathedral'));
+      fireEvent.click(screen.getByTestId('locations-row-4'));
+
+      await screen.findByTestId('location-turn-back-on');
+      expect(screen.queryByTestId('location-failure-error')).not.toBeInTheDocument();
     });
 
     it('still shows it for a turned-off place whose counter was reset elsewhere', async () => {
@@ -349,24 +426,28 @@ describe('LocationManagementView — the view panel', () => {
         .mockResolvedValueOnce([AUTO_DISABLED])
         .mockResolvedValue([{ ...AUTO_DISABLED, enabled: true, consecutiveFailures: 0, disabledReason: null, lastFailureAt: null }]);
       resetLocationFailures.mockResolvedValue(undefined);
-      renderView();
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
       await openPanel(4);
 
       fireEvent.click(screen.getByTestId('location-turn-back-on'));
 
       await waitFor(() => expect(resetLocationFailures).toHaveBeenCalledWith('Bamburgh Castle'));
+      await waitFor(() => expect(onChanged).toHaveBeenCalled());
       await waitFor(() => expect(screen.queryByTestId('location-failure-box')).not.toBeInTheDocument());
       expect(screen.getByTestId('location-panel-subtitle')).toHaveTextContent('Active');
     });
 
     it('shows the server\'s sentence when the region is off ("Turn Northumberland on first.")', async () => {
       resetLocationFailures.mockRejectedValue({ response: { status: 409, data: { error: 'Turn Northumberland on first.' } } });
-      renderView();
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
       await openPanel(4);
 
       fireEvent.click(screen.getByTestId('location-turn-back-on'));
 
       expect(await screen.findByTestId('location-failure-error')).toHaveTextContent('Turn Northumberland on first.');
+      expect(onChanged).not.toHaveBeenCalled();
       // The place stays turned off and listed.
       expect(screen.getByTestId('location-turn-back-on')).toBeInTheDocument();
     });
@@ -380,13 +461,24 @@ describe('LocationManagementView — the view panel', () => {
     });
   });
 
+  describe('on a phone', () => {
+    it('gives the Edit button, and the Full tide stats link, a 44px touch target', async () => {
+      renderView();
+      await openPanel(1);
+
+      expect(screen.getByTestId('edit-location-1')).toHaveClass('max-[639px]:min-h-11');
+      expect(await screen.findByTestId('location-full-tide-stats')).toHaveClass('max-[639px]:min-h-11');
+      expect(screen.getByTestId('toggle-enabled-1')).toHaveClass('max-[639px]:min-h-11');
+    });
+  });
+
   describe('Location actions', () => {
     it('offers Turn off with its explanation, and turning off calls the server and tells the app', async () => {
       setLocationEnabled.mockResolvedValue({});
       const onChanged = vi.fn();
       renderView({ onLocationsChanged: onChanged });
       const panel = await openPanel(2);
-      expect(panel.querySelector('[data-testid="location-actions"]'))
+      expect(within(panel).getByTestId('location-actions'))
         .toHaveTextContent('Left out of forecast runs until you turn it back on.');
       fetchLocations.mockResolvedValue([SEASCAPE, { ...LANDSCAPE, enabled: false }, FAILING, AUTO_DISABLED, MANUAL_OFF]);
 
@@ -396,6 +488,57 @@ describe('LocationManagementView — the view panel', () => {
       await waitFor(() => expect(onChanged).toHaveBeenCalled());
       await waitFor(() => expect(screen.getByTestId('toggle-enabled-2')).toHaveTextContent('Turn on'));
       expect(screen.getByTestId('location-status-2')).toHaveTextContent('Disabled');
+    });
+
+    it('says nothing more than Turn on for a place that is off', async () => {
+      renderView();
+      await openPanel(5);
+
+      expect(within(screen.getByTestId('location-actions')).queryByText(/forecast runs/)).not.toBeInTheDocument();
+      expect(screen.getByTestId('toggle-enabled-5')).toHaveTextContent('Turn on');
+    });
+
+    it('does not disable one location\'s button while another location\'s toggle is running', async () => {
+      let finish;
+      setLocationEnabled.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+      renderView();
+      await openPanel(5);
+      fireEvent.click(screen.getByTestId('toggle-enabled-5'));
+      await waitFor(() => expect(screen.getByTestId('toggle-enabled-5')).toHaveAttribute('aria-disabled', 'true'));
+
+      fireEvent.click(screen.getByTestId('locations-row-2'));
+      await waitFor(() => expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Durham Cathedral'));
+
+      expect(screen.getByTestId('toggle-enabled-2')).not.toHaveAttribute('aria-disabled');
+      // Let the first toggle finish, so no transition is left open for the next test.
+      finish({});
+      await waitFor(() => expect(setLocationEnabled).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByTestId('location-status-5')).toHaveTextContent('Active'));
+    });
+
+    it('keeps the server\'s state when the change succeeded but the re-read failed', async () => {
+      setLocationEnabled.mockResolvedValue({});
+      renderView();
+      await openPanel(5);
+      fetchLocations.mockRejectedValue(new Error('down'));
+
+      fireEvent.click(screen.getByTestId('toggle-enabled-5'));
+
+      await waitFor(() => expect(setLocationEnabled).toHaveBeenCalledWith(5, true));
+      await waitFor(() => expect(fetchLocations).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.getByTestId('location-status-5')).toHaveTextContent('Active'));
+      expect(screen.getByTestId('toggle-enabled-5')).toHaveTextContent('Turn off');
+    });
+
+    it('merges the place the server replied with, when it replies with one', async () => {
+      setLocationEnabled.mockResolvedValue({ id: 5, enabled: true, name: 'Blea Tarn (renamed)' });
+      renderView();
+      await openPanel(5);
+      fetchLocations.mockRejectedValue(new Error('down'));
+
+      fireEvent.click(screen.getByTestId('toggle-enabled-5'));
+
+      await waitFor(() => expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Blea Tarn (renamed)'));
     });
 
     it('turning on a disabled location sends enabled true', async () => {
@@ -424,6 +567,23 @@ describe('LocationManagementView — the view panel', () => {
       expect(await screen.findByTestId('location-toggle-error')).toHaveTextContent('Turn Northumberland on first.');
       await waitFor(() => expect(screen.getByTestId('toggle-enabled-5')).toHaveTextContent('Turn on'));
       expect(onChanged).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
+
+    it('does not show a refusal again when the location is reopened', async () => {
+      setLocationEnabled.mockRejectedValue({ response: { status: 409, data: { error: 'Turn Northumberland on first.' } } });
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      renderView();
+      await openPanel(5);
+      fireEvent.click(screen.getByTestId('toggle-enabled-5'));
+      await screen.findByTestId('location-toggle-error');
+
+      fireEvent.click(screen.getByTestId('locations-row-2'));
+      await waitFor(() => expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Durham Cathedral'));
+      fireEvent.click(screen.getByTestId('locations-row-5'));
+
+      await screen.findByTestId('toggle-enabled-5');
+      expect(screen.queryByTestId('location-toggle-error')).not.toBeInTheDocument();
       consoleError.mockRestore();
     });
 

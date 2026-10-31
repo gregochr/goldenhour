@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import KvList from '../data/KvList.jsx';
@@ -7,7 +8,7 @@ import {
 } from './LocationFormParts.jsx';
 import { inputClass, textButtonClass } from '../users/userFormClasses.js';
 import { LOCATION_TYPES, TIDE_TYPES } from '../../utils/locationEdit.js';
-import { LIGHT_TOKENS } from '../../utils/locationAdmin.js';
+import { LIGHT_TOKENS, bortleBlurb } from '../../utils/locationAdmin.js';
 
 const LIGHT_OPTIONS = LIGHT_TOKENS.map((t) => ({ value: t.value, label: t.word }));
 const TIDE_OPTIONS = TIDE_TYPES.map((t) => ({ value: t.value, label: t.fullLabel }));
@@ -35,7 +36,12 @@ function Detected({ enriching, data }) {
       <KvList
         items={[
           { label: 'Elevation', value: found(data.elevationMetres, ' m'), mono: true, testId: 'enrichment-elevation' },
-          { label: 'Bortle', value: found(data.bortleClass), mono: true, testId: 'enrichment-bortle' },
+          {
+            label: 'Bortle',
+            value: data.bortleClass == null ? '—' : `${data.bortleClass} ${bortleBlurb(data.bortleClass)}`,
+            mono: true,
+            testId: 'enrichment-bortle',
+          },
           { label: 'Sky brightness', value: found(data.skyBrightnessSqm, data.skyBrightnessSqm == null ? '' : ' SQM'), mono: true, testId: 'enrichment-sqm' },
           {
             label: 'Grid cell',
@@ -68,6 +74,15 @@ Detected.propTypes = { enriching: PropTypes.bool.isRequired, data: PropTypes.obj
 export default function LocationAddForm({ add, regions, subRegions, onSubmit, onCancel }) {
   const { form } = add;
   const coastal = form.locationTypes.includes('SEASCAPE');
+  // A validation message sits under its field; only a refusal from the server (no field) sits under the form.
+  const errorFor = (field) => (add.errorField === field ? add.error : '');
+  const unplaced = add.errorField == null ? add.error : '';
+
+  // The message may be out of sight behind the pinned footer: bring it in, as the edit form does.
+  const body = useRef(null);
+  useEffect(() => {
+    if (add.error) body.current?.querySelector('[data-testid="location-add-error"]')?.scrollIntoView?.({ block: 'nearest' });
+  }, [add.error, add.errorField]);
 
   const footer = (
     <div className="flex items-center justify-end gap-3 px-[18px] py-3 max-[639px]:px-4">
@@ -89,12 +104,13 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
   return (
     <PanelShell
       title="Add location"
+      subtitle="Look up a place, then check the details."
       onClose={onCancel}
       testIdPrefix="location-panel"
       testId="location-add-panel"
       footer={footer}
     >
-      <div {...{ [PANEL_EDIT_FORM_ATTR]: '' }}>
+      <div ref={body} {...{ [PANEL_EDIT_FORM_ATTR]: '' }}>
         <div className={BLOCK}>
           {!form.manualEntry ? (
             <>
@@ -130,6 +146,9 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
                     {form.geocodeResult.lat.toFixed(4)}, {form.geocodeResult.lon.toFixed(4)}
                   </p>
                   <p className="mt-0.5 text-xs text-plex-text-secondary">{form.geocodeResult.displayName}</p>
+                  <p className="mt-1 text-xs text-plex-text-muted" data-testid="location-add-save-name">
+                    Added as <span className="text-plex-text">{form.placeName.trim() || '—'}</span>
+                  </p>
                 </div>
               )}
 
@@ -162,6 +181,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
                   onChange={(e) => add.set('manualName', e.target.value)}
                   data-testid="manual-name-input"
                 />
+                <FieldError message={errorFor('name')} testId="location-add-error" />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Latitude" htmlFor="manual-lat">
@@ -175,6 +195,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
                     onChange={(e) => add.set('manualLat', e.target.value)}
                     data-testid="manual-lat-input"
                   />
+                  <FieldError message={errorFor('lat')} testId="location-add-error" />
                 </Field>
                 <Field label="Longitude" htmlFor="manual-lon">
                   <input
@@ -187,6 +208,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
                     onChange={(e) => add.set('manualLon', e.target.value)}
                     data-testid="manual-lon-input"
                   />
+                  <FieldError message={errorFor('lon')} testId="location-add-error" />
                 </Field>
               </div>
               <button
@@ -231,6 +253,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
               disabled={!coastal}
               testIdPrefix="tide-chip"
             />
+            <FieldError message={errorFor('tides')} testId="location-add-error" />
           </Field>
           <div className="flex flex-col" data-testid="manual-toggles-panel">
             <CheckRow
@@ -246,7 +269,8 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
               testId="coastal-tidal-checkbox"
             />
             <CheckRow
-              label="Mist forms here: valley floor, riverside, lake shore"
+              label="Mist-prone"
+              hint="Mist forms here: valley floor, riverside, lake shore"
               checked={form.mistProne}
               onChange={(checked) => add.set('mistProne', checked)}
               testId="mist-prone-checkbox"
@@ -275,7 +299,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
               testId="add-sub-region"
             />
           </div>
-          <FieldError message={add.error} testId="location-add-error" />
+          <FieldError message={unplaced} testId="location-add-error" />
         </div>
       </div>
     </PanelShell>

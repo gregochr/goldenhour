@@ -27,7 +27,7 @@ vi.mock('../api/areaApi', () => ({
 vi.mock('../api/tideApi', () => ({ fetchTideStats: vi.fn(), fetchAllTideStats: vi.fn() }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
-import { fetchLocations } from '../api/forecastApi';
+import { fetchLocations, resetLocationFailures } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases } from '../api/areaApi';
 import { fetchTideStats } from '../api/tideApi';
@@ -72,8 +72,7 @@ function makeMany(count) {
 
 /** The location names in the grid, in row order. */
 function listedNames() {
-  return screen.getAllByTestId(/^locations-row-/)
-    .map((row) => row.querySelector('[data-testid^="locations-cell-location-"] span span').textContent);
+  return screen.getAllByTestId(/^location-name-/).map((name) => name.textContent);
 }
 
 async function renderLoaded(props = {}) {
@@ -145,7 +144,9 @@ describe('LocationManagementView — the list', () => {
     await renderLoaded();
 
     screen.getAllByTestId(/^locations-row-/).forEach((row) => {
-      expect(row.querySelectorAll('button, a, input, select, textarea')).toHaveLength(0);
+      ['button', 'link', 'textbox', 'combobox', 'checkbox', 'searchbox'].forEach((role) => {
+        expect(within(row).queryAllByRole(role)).toHaveLength(0);
+      });
     });
     expect(screen.queryByTestId('toggle-enabled-1')).not.toBeInTheDocument();
     expect(screen.queryByTestId('edit-location-1')).not.toBeInTheDocument();
@@ -239,7 +240,7 @@ describe('LocationManagementView — the list', () => {
       fireEvent.click(screen.getByTestId('locations-row-1'));
       await screen.findByTestId('location-view-panel');
 
-      expect(document.querySelector('[role="dialog"], [aria-modal="true"]')).toBeNull();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
       expect(screen.getByRole('complementary', { name: 'Location Alnmouth' })).toBeInTheDocument();
     });
 
@@ -345,6 +346,21 @@ describe('LocationManagementView — the list', () => {
       await waitFor(() => expect(screen.queryByTestId('location-view-panel')).not.toBeInTheDocument());
     });
 
+    it('sorts Status by severity: Disabled after failures, failed runs by count (10 before 2), Disabled, Active', async () => {
+      fetchLocations.mockResolvedValue([
+        { ...AMBLE, id: 11, name: 'Two', consecutiveFailures: 2 },
+        { ...AMBLE, id: 12, name: 'Ten', consecutiveFailures: 10 },
+        BLACKHALL, BLEA, DURHAM,
+      ]);
+      await renderLoaded();
+
+      fireEvent.click(screen.getByTestId('locations-sort-status'));
+      expect(listedNames()).toEqual(['Durham Cathedral', 'Blea Tarn', 'Two', 'Ten', 'Blackhall Rocks']);
+
+      fireEvent.click(screen.getByTestId('locations-sort-status'));
+      expect(listedNames()).toEqual(['Blackhall Rocks', 'Ten', 'Two', 'Blea Tarn', 'Durham Cathedral']);
+    });
+
     it('sorts by a header, and by the sort chip', async () => {
       await renderLoaded();
 
@@ -357,13 +373,13 @@ describe('LocationManagementView — the list', () => {
   });
 
   describe('a Regions link (#manage/locations?region={id})', () => {
-    it('opens filtered to that region, and drops the query from the address', async () => {
+    it('opens filtered to that region, and leaves the address as it was', async () => {
       window.location.hash = '#manage/locations?region=2';
       await renderLoaded();
 
       expect(listedNames()).toEqual(['Aira Force', 'Blea Tarn']);
       expect(screen.getByTestId('locations-region')).toHaveValue('2');
-      await waitFor(() => expect(window.location.hash).toBe('#manage/locations'));
+      expect(window.location.hash).toBe('#manage/locations?region=2');
     });
 
     it('follows the link while the tab is already open', async () => {
@@ -373,6 +389,31 @@ describe('LocationManagementView — the list', () => {
       window.location.hash = '#manage/locations?region=1';
 
       await waitFor(() => expect(listedNames()).toEqual(['Alnmouth', 'Amble', 'Blackhall Rocks', 'Durham Cathedral']));
+    });
+
+    it('leaves the address alone, so Back restores the filter after a row was opened', async () => {
+      window.location.hash = '#manage/locations?region=2';
+      await renderLoaded();
+      expect(listedNames()).toEqual(['Aira Force', 'Blea Tarn']);
+      expect(window.location.hash).toBe('#manage/locations?region=2');
+
+      fireEvent.change(screen.getByTestId('locations-region'), { target: { value: 'ALL' } });
+      fireEvent.click(screen.getByTestId('locations-row-1'));
+      await waitFor(() => expect(window.location.hash).toBe('#manage/locations/1'));
+      expect(listedNames()).toHaveLength(6);
+
+      window.history.back();
+
+      await waitFor(() => expect(listedNames()).toEqual(['Aira Force', 'Blea Tarn']));
+    });
+
+    it('applies the filter and selects the location when both ride the hash', async () => {
+      window.location.hash = '#manage/locations/2?region=2';
+      await renderLoaded();
+
+      expect(listedNames()).toEqual(['Aira Force', 'Blea Tarn']);
+      expect(await screen.findByTestId('location-panel-title')).toHaveTextContent('Aira Force');
+      expect(window.location.hash).toBe('#manage/locations/2?region=2');
     });
 
     it('ignores a region that does not exist', async () => {
@@ -431,6 +472,20 @@ describe('LocationManagementView — the list', () => {
       expect(screen.queryByTestId('locations-attention-alert')).not.toBeInTheDocument();
     });
 
+    it('gives Show them a 44px touch target on a phone', async () => {
+      await renderLoaded();
+
+      expect(screen.getByTestId('locations-show-attention')).toHaveClass('max-[639px]:min-h-11');
+    });
+
+    it('does not count a place that is on but carries a stale reason', async () => {
+      fetchLocations.mockResolvedValue([{ ...DURHAM, disabledReason: 'old reason' }, ALNMOUTH]);
+      await renderLoaded();
+
+      expect(screen.queryByTestId('locations-attention-alert')).not.toBeInTheDocument();
+      expect(screen.getByTestId('locations-chip-attention-count')).toHaveTextContent('0');
+    });
+
     it('Show them applies the Needs attention chip over everything else', async () => {
       await renderLoaded();
       fireEvent.change(screen.getByTestId('locations-search'), { target: { value: 'durham' } });
@@ -450,6 +505,13 @@ describe('LocationManagementView — the list', () => {
 
       await waitFor(() => expect(onCount).toHaveBeenLastCalledWith(2));
       expect(onCount).not.toHaveBeenCalledWith(0);
+
+      resetLocationFailures.mockResolvedValue(undefined);
+      fetchLocations.mockResolvedValue(ALL.map((loc) => (loc.id === 3 ? { ...loc, consecutiveFailures: 0 } : loc)));
+      fireEvent.click(screen.getByTestId('locations-row-3'));
+      fireEvent.click(await screen.findByTestId('location-reset-failures'));
+
+      await waitFor(() => expect(onCount).toHaveBeenLastCalledWith(1));
     });
   });
 

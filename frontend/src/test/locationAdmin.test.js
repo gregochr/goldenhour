@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ALL_REGIONS, FAILURE_THRESHOLD, STATUS_FILTERS, attentionSummary, bortleBlurb, failureThresholdWord, inScope,
   isAutoDisabled, lightWords, locationMeta, locationRowLabel, locationStatus, locationSummary, needsAttention,
-  passesStatus, passesType, regionFromHash, tideWords, typeWords,
+  passesStatus, passesType, regionFromHash, statusSeverity, tideWords, typeWords,
 } from '../utils/locationAdmin.js';
 
 const ON = { id: 1, name: 'Durham', enabled: true, consecutiveFailures: 0, locationType: ['LANDSCAPE'] };
@@ -12,6 +12,12 @@ describe('needsAttention and isAutoDisabled', () => {
     expect(needsAttention({ ...ON, consecutiveFailures: 1 })).toBe(true);
     expect(needsAttention({ ...ON, enabled: false, consecutiveFailures: 3, disabledReason: 'x' })).toBe(true);
     expect(needsAttention({ ...ON, enabled: false, consecutiveFailures: 0, disabledReason: 'x' })).toBe(true);
+  });
+
+  it('ignores a stale reason on a place that is on: it has no box and no action', () => {
+    expect(needsAttention({ ...ON, disabledReason: 'old reason' })).toBe(false);
+    expect(isAutoDisabled({ ...ON, disabledReason: 'old reason' })).toBe(false);
+    expect(passesStatus({ ...ON, disabledReason: 'old reason' }, STATUS_FILTERS.ATTENTION)).toBe(false);
   });
 
   it('does not count a healthy place or one an admin switched off by hand', () => {
@@ -44,6 +50,22 @@ describe('locationStatus', () => {
 
   it('does not call a switched-off place with a failure count "failed runs" (off wins)', () => {
     expect(locationStatus({ ...ON, enabled: false, consecutiveFailures: 2 }).label).toBe('Disabled');
+  });
+});
+
+describe('statusSeverity', () => {
+  it('orders Active < Disabled < failed runs (by count, numerically) < Disabled after failures', () => {
+    const ranked = [
+      statusSeverity({ ...ON, consecutiveFailures: 2 }),
+      statusSeverity({ ...ON, consecutiveFailures: 10 }),
+      statusSeverity({ ...ON, enabled: false, disabledReason: 'x', consecutiveFailures: 3 }),
+      statusSeverity({ ...ON, enabled: false }),
+      statusSeverity(ON),
+    ];
+    expect(ranked[1]).toBeGreaterThan(ranked[0]);
+    expect(ranked[2]).toBeGreaterThan(ranked[1]);
+    expect(ranked[0]).toBeGreaterThan(ranked[3]);
+    expect(ranked[3]).toBeGreaterThan(ranked[4]);
   });
 });
 
@@ -153,6 +175,7 @@ describe('regionFromHash', () => {
   it('is null for any other hash, another tab, or a non-numeric region', () => {
     expect(regionFromHash('#manage/locations')).toBeNull();
     expect(regionFromHash('#manage/locations/12')).toBeNull();
+    expect(regionFromHash('#manage/locations/12?region=3')).toBe('3');
     expect(regionFromHash('#manage/tides?region=3')).toBeNull();
     expect(regionFromHash('#manage/locations?region=abc')).toBeNull();
     expect(regionFromHash('#other?region=3')).toBeNull();

@@ -213,17 +213,18 @@ export function tidePointPayload(values) {
  * Height fields of the save payload, each present only when it differs from what the server holds.
  *
  * @param {object} values the form values
- * @returns {{error: string}|{fields: object}} an error for a value that cannot be sent, otherwise the fields
+ * @returns {{error: string, field: string}|{fields: object}} an error for a value that cannot be sent (with the form
+ *   field it belongs to: 'elevation' or 'floor'), otherwise the fields
  */
 export function heightPayload(values) {
   const fields = {};
   const elevation = parseMetres(values.elevation);
   if (elevation === null && values.elevationBaseline !== null) {
-    return { error: "Elevation can't be cleared; enter a value" };
+    return { error: "Elevation can't be cleared; enter a value", field: 'elevation' };
   }
   if (elevation !== null) {
     if (Number.isNaN(elevation) || elevation < MIN_HEIGHT_M || elevation > MAX_HEIGHT_M) {
-      return { error: 'Elevation must be a whole number between -50 and 1,500 m.' };
+      return { error: 'Elevation must be a whole number between -50 and 1,500 m.', field: 'elevation' };
     }
     if (elevation !== values.elevationBaseline) fields.elevationMetres = elevation;
   }
@@ -233,7 +234,7 @@ export function heightPayload(values) {
   } else if (values.floorLat !== null && values.floorLng !== null) {
     const metres = parseMetres(values.floorMetres);
     if (metres === null || Number.isNaN(metres) || metres < MIN_HEIGHT_M || metres > MAX_HEIGHT_M) {
-      return { error: 'Valley floor height must be a whole number between -50 and 1,500 m, or clear the floor.' };
+      return { error: 'Valley floor height must be a whole number between -50 and 1,500 m, or clear the floor.', field: 'floor' };
     }
     if (!baseline || metres !== baseline.metres
       || values.floorLat !== baseline.lat || values.floorLng !== baseline.lng) {
@@ -273,7 +274,7 @@ export function planEditSave(values) {
   }
   if (values.locationTypes.length === 0) return { error: EDIT_ERROR_FIELDS.types, field: 'types' };
   const heights = heightPayload(values);
-  if (heights.error) return { error: heights.error, field: heights.error.startsWith('Valley') ? 'floor' : 'elevation' };
+  if (heights.error) return { error: heights.error, field: heights.field };
   const tidePoint = tidePointPayload(values);
   if (tidePoint.error) return { error: tidePoint.error, field: 'tidePoint' };
   const subRegionChange = values.subRegionId && values.subRegionId !== values.subRegionBaseline
@@ -356,13 +357,13 @@ export const EMPTY_ENRICHMENT = {
  * mist-prone) apply either way.
  *
  * @param {object} form the add form (see {@link emptyAddForm})
- * @returns {{error: string}|{pending: true}|{payload: object}} an error, nothing to add yet (no lookup result), or
+ * @returns {{error: string, field: string}|{pending: true}|{payload: object}} an error (with the field it belongs to), nothing to add yet (no lookup result), or
  *   the body to send
  */
 export function planAdd(form) {
   const coastal = form.locationTypes.includes('SEASCAPE');
   if (coastal && (!form.tideTypes || form.tideTypes.length === 0)) {
-    return { error: EDIT_ERROR_FIELDS.tides };
+    return { error: EDIT_ERROR_FIELDS.tides, field: 'tides' };
   }
   const common = {
     solarEventTypes: form.solarEventTypes,
@@ -378,9 +379,9 @@ export function planAdd(form) {
     const name = form.manualName.trim();
     const lat = parseFloat(form.manualLat);
     const lon = parseFloat(form.manualLon);
-    if (!name) return { error: 'Name is required.' };
-    if (isNaN(lat) || lat < -90 || lat > 90) return { error: EDIT_ERROR_FIELDS.lat };
-    if (isNaN(lon) || lon < -180 || lon > 180) return { error: EDIT_ERROR_FIELDS.lon };
+    if (!name) return { error: 'Name is required.', field: 'name' };
+    if (isNaN(lat) || lat < -90 || lat > 90) return { error: EDIT_ERROR_FIELDS.lat, field: 'lat' };
+    if (isNaN(lon) || lon < -180 || lon > 180) return { error: EDIT_ERROR_FIELDS.lon, field: 'lon' };
     return {
       payload: {
         name, lat, lon, ...common,

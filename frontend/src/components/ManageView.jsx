@@ -68,9 +68,9 @@ const GROUPS = [
 const WAITLIST_BADGE_CLASSES =
   'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-plex-gold/20 text-plex-gold';
 
-/** The Locations sub-tab's count of places that need attention: amber, because they are failing. */
+/** The Locations sub-tab's count of places that need attention: plain amber text after the label, not a pill. */
 const ATTENTION_BADGE_CLASSES =
-  'ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-verdict-marginal/20 text-verdict-marginal';
+  'ml-1.5 text-[11px] font-semibold text-verdict-marginal';
 
 /**
  * Resolve group and tab from the current hash ("manage/skyeval", "manage/waitlist/12"), or null when it is not
@@ -121,9 +121,14 @@ export default function ManageView({ onComplete }) {
     getWaitlist()
       .then((list) => setWaitlistCount(list.length))
       .catch(() => { /* badge stays hidden on failure */ });
-    fetchLocations()
-      .then((list) => setAttentionCount(list.filter(needsAttention).length))
-      .catch(() => { /* badge stays hidden on failure */ });
+    // On the Locations tab the view reports the count itself once it has read the list, so a second read would only
+    // race it.
+    if (initial.tab !== 'locations') {
+      fetchLocations()
+        .then((list) => setAttentionCount(list.filter(needsAttention).length))
+        .catch(() => { /* badge stays hidden on failure */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A cross-tab link (Full tide stats, Open in Locations, Show them) sets `#manage/{tab}[/{id}]` while Manage is

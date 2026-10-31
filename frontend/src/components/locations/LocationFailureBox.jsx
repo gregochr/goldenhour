@@ -3,6 +3,10 @@ import {
   failedRunsText, failureThresholdWord, isAutoDisabled, lastFailedSentence,
 } from '../../utils/locationAdmin.js';
 
+/** The sentences shown when the server refused with nothing usable to say. */
+const RESET_FAILED = "Couldn't reset the failure count.";
+const TURN_BACK_ON_FAILED = "Couldn't turn this location back on.";
+
 /**
  * The amber failure box at the top of a panel (data-tabs-redesign-plan.md §6.2), for a place the failure tracking has
  * touched:
@@ -20,7 +24,8 @@ import {
  * @param {object} props.location the location
  * @param {boolean} props.pending a reset request for this location is in flight
  * @param {string|null} props.error the server's sentence for the last refused reset
- * @param {() => void} props.onReset resets the failure count
+ * @param {(fallback: string) => void} props.onReset resets the failure count; called with the sentence to show if
+ *   the server says nothing usable
  */
 export default function LocationFailureBox({ location, pending, error, onReset }) {
   const autoDisabled = isAutoDisabled(location);
@@ -43,6 +48,7 @@ export default function LocationFailureBox({ location, pending, error, onReset }
           <p className="mt-0.5 text-plex-text-secondary" data-testid="location-failure-reason">
             {location.disabledReason}
           </p>
+          {lastFailed && <p className="mt-0.5 text-plex-text-secondary" data-testid="location-failure-last">{lastFailed}</p>}
         </>
       ) : (
         <>
@@ -60,7 +66,7 @@ export default function LocationFailureBox({ location, pending, error, onReset }
       <button
         type="button"
         className="btn-secondary mt-2 text-xs max-[639px]:min-h-11"
-        onClick={onReset}
+        onClick={() => onReset(autoDisabled ? TURN_BACK_ON_FAILED : RESET_FAILED)}
         disabled={pending}
         data-testid={autoDisabled ? 'location-turn-back-on' : 'location-reset-failures'}
       >

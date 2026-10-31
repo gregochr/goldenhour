@@ -7,16 +7,16 @@ import { apiErrorMessage } from '../utils/apiError.js';
  * state, the server's sentence for a refusal (cleared by the next attempt), and a callback when it worked.
  *
  * @param {(locationName: string) => void} onDone called after a successful reset
- * @param {string} [fallback] the sentence to show when the server said nothing usable
  * @returns {{pending: Set<string>, errors: Object<string, string|null>,
  *   reset: (locationName: string) => Promise<void>}}
  */
-export default function useLocationFailureReset(onDone, fallback = 'Could not re-enable this location.') {
+export default function useLocationFailureReset(onDone) {
   // Names with a request in flight (their button is disabled), and the server's sentence for any that failed.
   const [pending, setPending] = useState(() => new Set());
   const [errors, setErrors] = useState({});
 
-  async function reset(locationName) {
+  /** Resets one place; {@code fallback} is the sentence to show when the server said nothing usable. */
+  async function reset(locationName, fallback) {
     setPending((prev) => new Set(prev).add(locationName));
     setErrors((prev) => ({ ...prev, [locationName]: null }));
     try {
@@ -33,5 +33,10 @@ export default function useLocationFailureReset(onDone, fallback = 'Could not re
     }
   }
 
-  return { pending, errors, reset };
+  /** Forgets every refusal (the selection moved on, so none of them belongs on screen). */
+  function clearErrors() {
+    setErrors({});
+  }
+
+  return { pending, errors, reset, clearErrors };
 }

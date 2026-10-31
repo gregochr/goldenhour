@@ -4,14 +4,6 @@ import {
   ALL_REGIONS, STATUS_FILTERS, inScope, passesStatus, passesType, regionFromHash,
 } from '../utils/locationAdmin.js';
 
-/** Where a consumed {@code ?region=} link leaves the address bar: the bare tab. */
-const BARE_HASH = '#manage/locations';
-
-/** Drops the {@code ?region=} query once it has been applied, so a reload does not reapply a stale filter. */
-function stripRegionQuery() {
-  window.history.replaceState(window.history.state, '', BARE_HASH);
-}
-
 /**
  * The Locations list's filters: the search (name or sub-region), the type chip, the status chip (needs attention or
  * disabled) and the region select, which a Regions "Show them" link also sets ({@code #manage/locations?region={id}},
@@ -30,13 +22,12 @@ export default function useLocationFilters(locations, regions) {
   const [status, setStatus] = useState(STATUS_FILTERS.NONE);
   const [requestedRegion, setRegion] = useState(() => regionFromHash(window.location.hash) ?? ALL_REGIONS);
 
+  // The hash is left alone: rewriting it would break Back and Forward and drop a `/{id}`. A later selection writes
+  // `#manage/locations/{id}` over it, and the filter, being state, stays.
   useEffect(() => {
-    if (regionFromHash(window.location.hash) != null) stripRegionQuery();
     const onHashChange = () => {
       const id = regionFromHash(window.location.hash);
-      if (id == null) return;
-      setRegion(id);
-      stripRegionQuery();
+      if (id != null) setRegion(id);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);

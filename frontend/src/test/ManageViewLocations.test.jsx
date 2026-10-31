@@ -49,7 +49,7 @@ function setLayout(layout) {
 describe('ManageView — the Locations attention count', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    window.location.hash = '#manage/locations';
+    window.location.hash = '#manage/regions';
     getWaitlist.mockResolvedValue([]);
     fetchLocations.mockResolvedValue([FAILING, AUTO_DISABLED, HEALTHY, MANUAL_OFF]);
     setLayout('tablet');
@@ -61,6 +61,8 @@ describe('ManageView — the Locations attention count', () => {
     const badge = await screen.findByTestId('locations-attention-badge');
     expect(badge).toHaveTextContent('2');
     expect(badge).toHaveClass('text-verdict-marginal');
+    // Plain amber text after the label, not a filled pill.
+    expect(badge.className).not.toMatch(/\bbg-|rounded-full/);
     expect(screen.getByTestId('manage-tab-locations')).toContainElement(badge);
     expect(screen.queryByTestId('manage-tab-regions').querySelector('[data-testid$="-badge"]')).toBeNull();
   });
@@ -97,11 +99,28 @@ describe('ManageView — the Locations attention count', () => {
     expect(screen.getByRole('option', { name: 'Regions' })).toBeInTheDocument();
   });
 
+  it('reads the locations itself when another tab is showing, and not when Locations is (the view reports it)', async () => {
+    const first = render(<ManageView onComplete={vi.fn()} />);
+    await waitFor(() => expect(fetchLocations).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    fetchLocations.mockClear();
+    window.location.hash = '#manage/locations';
+    render(<ManageView onComplete={vi.fn()} />);
+    await screen.findByTestId('report-count');
+
+    expect(fetchLocations).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('locations-attention-badge')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('report-count'));
+    await waitFor(() => expect(screen.getByTestId('locations-attention-badge')).toHaveTextContent('7'));
+  });
+
   it('follows the count the Locations view reports', async () => {
     render(<ManageView onComplete={vi.fn()} />);
     await screen.findByTestId('locations-attention-badge');
+    fireEvent.click(screen.getByTestId('manage-tab-locations'));
 
-    fireEvent.click(screen.getByTestId('report-count'));
+    fireEvent.click(await screen.findByTestId('report-count'));
 
     await waitFor(() => expect(screen.getByTestId('locations-attention-badge')).toHaveTextContent('7'));
   });

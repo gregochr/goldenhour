@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import LocationManagementView from '../components/LocationManagementView.jsx';
 
 vi.mock('../api/forecastApi', () => ({
@@ -334,8 +334,9 @@ describe('LocationManagementView — the edit form', () => {
 
       fireEvent.click(screen.getByTestId('location-edit-save'));
 
-      expect(await screen.findByTestId('location-edit-error'))
-        .toHaveTextContent('Coastal locations require at least one tide preference');
+      const error = await screen.findByTestId('location-edit-error');
+      expect(error).toHaveTextContent('Coastal locations require at least one tide preference');
+      expect(screen.getByTestId('tide-chips').parentElement).toContainElement(error);
       expect(updateLocation).not.toHaveBeenCalled();
     });
 
@@ -381,13 +382,13 @@ describe('LocationManagementView — the edit form', () => {
     renderView();
     await openEdit(1);
 
-    const options = Array.from(screen.getByTestId('location-edit-region').querySelectorAll('option')).map((o) => o.textContent);
+    const options = within(screen.getByTestId('location-edit-region')).getAllByRole('option').map((o) => o.textContent);
     expect(options).toEqual(['— None —', 'North East', 'Lake District', 'Switched Off Shire']);
     expect(screen.getByTestId('location-edit-region')).toHaveValue('3');
 
     fireEvent.click(screen.getByTestId('location-edit-cancel'));
     await openEdit(3);
-    const other = Array.from(screen.getByTestId('location-edit-region').querySelectorAll('option')).map((o) => o.textContent);
+    const other = within(screen.getByTestId('location-edit-region')).getAllByRole('option').map((o) => o.textContent);
     expect(other).toEqual(['— None —', 'North East', 'Lake District']);
   });
 
@@ -408,6 +409,55 @@ describe('LocationManagementView — the edit form', () => {
     fireEvent.click(screen.getByTestId('locations-row-1'));
     await screen.findByTestId('location-view-panel');
     expect(screen.queryByTestId('location-edit-name')).not.toBeInTheDocument();
+  });
+
+  describe('a save still in flight when the admin moves on', () => {
+    it('never touches the draft of the location opened meanwhile', async () => {
+      let finish;
+      updateLocation.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+      fetchLocations.mockResolvedValue([DURHAM, BERWICK]);
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
+      await openEdit(1);
+      fireEvent.change(screen.getByTestId('location-edit-name'), { target: { value: 'Durham renamed' } });
+      fireEvent.click(screen.getByTestId('location-edit-save'));
+
+      await openEdit(2);
+      fireEvent.change(screen.getByTestId('location-edit-name'), { target: { value: 'Berwick draft' } });
+      finish({});
+
+      await waitFor(() => expect(onChanged).toHaveBeenCalled());
+      expect(screen.getByTestId('location-edit-name')).toHaveValue('Berwick draft');
+      expect(screen.getByTestId('location-edit-save')).not.toBeDisabled();
+      expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Edit Berwick-Upon-Tweed');
+    });
+
+    it('never writes its failure onto the draft opened meanwhile', async () => {
+      let refuse;
+      updateLocation.mockReturnValueOnce(new Promise((_, reject) => { refuse = reject; }));
+      fetchLocations.mockResolvedValue([DURHAM, BERWICK]);
+      renderView();
+      await openEdit(1);
+      fireEvent.click(screen.getByTestId('location-edit-save'));
+      await openEdit(2);
+
+      refuse(new Error('Server error'));
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+      expect(screen.queryByTestId('location-edit-error')).not.toBeInTheDocument();
+      expect(screen.getByTestId('location-edit-save')).not.toBeDisabled();
+    });
+  });
+
+  describe('on a phone', () => {
+    it('gives both forms a 44px Cancel', async () => {
+      renderView();
+      await openEdit(1);
+      expect(screen.getByTestId('location-edit-cancel')).toHaveClass('max-[639px]:min-h-11');
+
+      fireEvent.click(screen.getByTestId('add-location-btn'));
+      expect(await screen.findByTestId('location-add-cancel')).toHaveClass('max-[639px]:min-h-11');
+    });
   });
 
   describe('Escape', () => {
@@ -480,7 +530,7 @@ describe('LocationManagementView — the edit form', () => {
       expect(screen.getByTestId('location-add-submit')).toBeDisabled();
       expect(screen.getByTestId('location-add-submit')).toHaveTextContent('Add location');
       expect(screen.getByTestId('location-add-hint')).toHaveTextContent('Search for a place above');
-      expect(document.querySelector('[role="dialog"], [aria-modal="true"]')).toBeNull();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
     it('enables Add location after a lookup, shows its coordinates and display name, and drops the hint', async () => {
@@ -599,7 +649,8 @@ describe('LocationManagementView — the edit form', () => {
       await lookUp();
       const mist = screen.getByTestId('mist-prone-checkbox');
       expect(mist).not.toBeChecked();
-      expect(mist.closest('label')).toHaveTextContent('Mist forms here: valley floor, riverside, lake shore');
+      expect(mist.closest('label')).toHaveTextContent('Mist-prone');
+      expect(mist).toHaveAccessibleDescription('Mist forms here: valley floor, riverside, lake shore');
 
       fireEvent.click(mist);
       fireEvent.click(screen.getByTestId('location-add-submit'));
@@ -659,16 +710,19 @@ describe('LocationManagementView — the edit form', () => {
         expect(enrichLocation).not.toHaveBeenCalled();
       });
 
-      it('refuses an out-of-range latitude or longitude with the message under the form', async () => {
+      it('refuses an out-of-range latitude or longitude with the message under that field', async () => {
         await openAdd();
         await enterManually('Keld Force', '95', '-2.1');
         fireEvent.click(screen.getByTestId('location-add-submit'));
-        expect(await screen.findByTestId('location-add-error')).toHaveTextContent('Latitude must be between -90 and 90.');
+        const latError = await screen.findByTestId('location-add-error');
+        expect(latError).toHaveTextContent('Latitude must be between -90 and 90.');
+        expect(screen.getByTestId('manual-lat-input').parentElement).toContainElement(latError);
 
         fireEvent.change(screen.getByTestId('manual-lat-input'), { target: { value: '54' } });
         fireEvent.change(screen.getByTestId('manual-lon-input'), { target: { value: '200' } });
         fireEvent.click(screen.getByTestId('location-add-submit'));
-        expect(await screen.findByTestId('location-add-error')).toHaveTextContent('Longitude must be between -180 and 180.');
+        await waitFor(() => expect(screen.getByTestId('location-add-error')).toHaveTextContent('Longitude must be between -180 and 180.'));
+        expect(screen.getByTestId('manual-lon-input').parentElement).toContainElement(screen.getByTestId('location-add-error'));
         expect(addLocation).not.toHaveBeenCalled();
       });
 
@@ -690,7 +744,7 @@ describe('LocationManagementView — the edit form', () => {
     it('offers only the enabled regions', async () => {
       await openAdd();
 
-      const options = Array.from(screen.getByTestId('add-region').querySelectorAll('option')).map((o) => o.textContent);
+      const options = within(screen.getByTestId('add-region')).getAllByRole('option').map((o) => o.textContent);
       expect(options).toEqual(['— None —', 'North East', 'Lake District']);
     });
 
@@ -738,6 +792,98 @@ describe('LocationManagementView — the edit form', () => {
       expect(await screen.findByTestId('location-add-error')).toHaveTextContent('Turn North East on first.');
       expect(screen.getByTestId('location-add-submit')).not.toBeDisabled();
       expect(onChanged).not.toHaveBeenCalled();
+    });
+
+    it('shows the form\'s heading copy, and the detected Bortle with what it means', async () => {
+      await openAdd();
+      expect(screen.getByTestId('location-panel-subtitle')).toHaveTextContent('Look up a place, then check the details.');
+
+      await lookUp();
+
+      await waitFor(() => expect(screen.getByTestId('enrichment-bortle')).toHaveTextContent('3 Moderate, aurora-friendly'));
+    });
+
+    it('keeps the edited name but the looked-up coordinates, and the result box says what will be saved', async () => {
+      await openAdd();
+      await lookUp('Latrigg');
+      fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: 'Latrigg Fell' } });
+
+      expect(screen.getByTestId('location-add-save-name')).toHaveTextContent('Added as Latrigg Fell');
+      expect(screen.getByTestId('location-geocode-result')).toHaveTextContent('54.6124, -3.1179');
+      await waitFor(() => expect(screen.getByTestId('enrichment-elevation')).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId('location-add-submit'));
+
+      await waitFor(() => expect(addLocation).toHaveBeenCalledWith(expect.objectContaining({
+        name: 'Latrigg Fell', lat: 54.6124, lon: -3.1179,
+      })));
+    });
+
+    it('disables Add location while the enrichment is still running', async () => {
+      let land;
+      enrichLocation.mockReturnValue(new Promise((resolve) => { land = resolve; }));
+      await openAdd();
+      await lookUp();
+
+      expect(screen.getByTestId('location-add-submit')).toBeDisabled();
+      land({ bortleClass: 2, skyBrightnessSqm: 22, elevationMetres: 5, gridLat: 1, gridLng: 2 });
+
+      await waitFor(() => expect(screen.getByTestId('location-add-submit')).not.toBeDisabled());
+    });
+
+    it('ignores an enrichment reply that belongs to an earlier lookup', async () => {
+      let landFirst;
+      enrichLocation
+        .mockReturnValueOnce(new Promise((resolve) => { landFirst = resolve; }))
+        .mockResolvedValueOnce({ bortleClass: 1, skyBrightnessSqm: 22, elevationMetres: 111, gridLat: 5, gridLng: 6 });
+      await openAdd();
+      await lookUp('First');
+
+      geocodePlace.mockResolvedValue({ lat: 50.5, lon: -2.5, displayName: 'Second, UK' });
+      fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: 'Second' } });
+      fireEvent.click(screen.getByTestId('geocode-btn'));
+      await waitFor(() => expect(screen.getByTestId('enrichment-elevation')).toHaveTextContent('111 m'));
+
+      landFirst({ bortleClass: 9, skyBrightnessSqm: 18, elevationMetres: 999, gridLat: 9, gridLng: 9 });
+      await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+      expect(screen.getByTestId('enrichment-elevation')).toHaveTextContent('111 m');
+      expect(screen.getByTestId('location-add-submit')).not.toBeDisabled();
+    });
+
+    it('does not select the new location when the admin opened another row while it was being added', async () => {
+      let finish;
+      addLocation.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+      const onChanged = vi.fn();
+      fetchLocations.mockResolvedValue([DURHAM, { ...DURHAM, id: 99, name: 'Latrigg' }]);
+      renderView({ onLocationsChanged: onChanged });
+      fireEvent.click(await screen.findByTestId('add-location-btn'));
+      await lookUp();
+      fireEvent.click(screen.getByTestId('location-add-submit'));
+
+      fireEvent.click(screen.getByTestId('locations-row-1'));
+      await waitFor(() => expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Durham'));
+      finish({ id: 99, name: 'Latrigg' });
+
+      await waitFor(() => expect(onChanged).toHaveBeenCalled());
+      expect(screen.getByTestId('location-panel-title')).toHaveTextContent('Durham');
+      expect(window.location.hash).toBe('#manage/locations/1');
+    });
+
+    it('does not select the new location when the admin closed the form while it was being added', async () => {
+      let finish;
+      addLocation.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+      const onChanged = vi.fn();
+      renderView({ onLocationsChanged: onChanged });
+      fireEvent.click(await screen.findByTestId('add-location-btn'));
+      await lookUp();
+      fireEvent.click(screen.getByTestId('location-add-submit'));
+      fireEvent.click(screen.getByTestId('location-panel-close'));
+
+      finish({ id: 99, name: 'Latrigg' });
+
+      await waitFor(() => expect(onChanged).toHaveBeenCalled());
+      expect(screen.queryByTestId('location-view-panel')).not.toBeInTheDocument();
+      expect(window.location.hash).not.toBe('#manage/locations/99');
     });
 
     it('Cancel and Escape close the form, and a reopened form starts empty', async () => {

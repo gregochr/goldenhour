@@ -182,18 +182,23 @@ SubRegionSelect.propTypes = {
 };
 
 /** A labelled checkbox row. */
-export function CheckRow({ label, checked, onChange, testId }) {
+export function CheckRow({ label, checked, onChange, testId, hint = null }) {
+  const hintId = `${testId}-hint`;
   return (
-    <label className="flex cursor-pointer items-start gap-2 text-[13px] text-plex-text max-[639px]:min-h-11 max-[639px]:items-center">
-      <input
-        className="mt-0.5 shrink-0 max-[639px]:mt-0 max-[639px]:size-5"
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        data-testid={testId}
-      />
-      {label}
-    </label>
+    <div>
+      <label className="flex cursor-pointer items-start gap-2 text-[13px] text-plex-text max-[639px]:min-h-11 max-[639px]:items-center">
+        <input
+          className="mt-0.5 shrink-0 max-[639px]:mt-0 max-[639px]:size-5"
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          aria-describedby={hint ? hintId : undefined}
+          data-testid={testId}
+        />
+        {label}
+      </label>
+      {hint && <p id={hintId} className="ml-6 text-xs text-plex-text-muted">{hint}</p>}
+    </div>
   );
 }
 
@@ -202,6 +207,7 @@ CheckRow.propTypes = {
   checked: PropTypes.bool.isRequired,
   onChange: PropTypes.func.isRequired,
   testId: PropTypes.string.isRequired,
+  hint: PropTypes.string,
 };
 
 /** A small secondary button inside a form (Suggest, Clear), 44px on a phone. */

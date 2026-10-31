@@ -74,7 +74,7 @@ const COLUMNS = [
     cell: (loc) => (
       <>
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-medium" title={loc.name}>{loc.name}</span>
+          <span className="truncate font-medium" title={loc.name} data-testid={`location-name-${loc.id}`}>{loc.name}</span>
           {loc.mistProne === true && (
             <span
               className="shrink-0 rounded-sm bg-plex-surface-light px-1.5 py-px font-mono text-[10px] text-plex-text-secondary"

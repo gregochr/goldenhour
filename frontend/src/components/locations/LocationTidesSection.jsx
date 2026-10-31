@@ -55,7 +55,7 @@ export default function LocationTidesSection({ location }) {
   const action = status === 'ready' && location.enabled ? (
     <a
       href={`#manage/tides/${location.id}`}
-      className="text-xs text-tide underline hover:text-tide-light focus-visible:outline-2 focus-visible:outline-plex-gold"
+      className="text-xs text-tide underline hover:text-tide-light focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:inline-flex max-[639px]:min-h-11 max-[639px]:items-center"
       data-testid="location-full-tide-stats"
     >
       Full tide stats

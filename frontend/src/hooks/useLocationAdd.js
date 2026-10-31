@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { addLocation, geocodePlace, enrichLocation } from '../api/forecastApi.js';
 import {
   ALL_TIDE_TYPES, EMPTY_ENRICHMENT, emptyAddForm, planAdd,
@@ -18,6 +18,10 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   const [enriching, setEnriching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // The form field a validation message belongs to ('name', 'lat', 'lon', 'tides'), or null for a server refusal.
+  const [errorField, setErrorField] = useState(null);
+  // Identifies the latest lookup: a geocode or enrichment reply for an older one (or for a form since reset) is dropped.
+  const lookupToken = useRef(0);
 
   /** Sets one form field. */
   function set(field, value) {
@@ -26,6 +30,8 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
 
   /** Resets the whole form (opening Add). */
   function reset() {
+    lookupToken.current += 1;
+    setErrorField(null);
     setForm(emptyAddForm());
     setGeocoding(false);
     setEnriching(false);
@@ -55,24 +61,27 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
       set('geocodeError', 'Please enter a place name.');
       return;
     }
+    const token = ++lookupToken.current;
     setGeocoding(true);
+    setEnriching(false);
     setForm((prev) => ({ ...prev, geocodeError: '', geocodeResult: null, enrichmentData: null }));
     try {
       const result = await geocodePlace(trimmed);
+      if (token !== lookupToken.current) return;
       set('geocodeResult', result);
       // Fire enrichment in background — don't block geocode result
       setEnriching(true);
       enrichLocation(result.lat, result.lon)
-        .then((data) => set('enrichmentData', data))
+        .then((data) => { if (token === lookupToken.current) set('enrichmentData', data); })
         .catch((err) => {
           console.error('Enrichment failed:', err);
-          set('enrichmentData', { ...EMPTY_ENRICHMENT });
+          if (token === lookupToken.current) set('enrichmentData', { ...EMPTY_ENRICHMENT });
         })
-        .finally(() => setEnriching(false));
+        .finally(() => { if (token === lookupToken.current) setEnriching(false); });
     } catch (err) {
-      set('geocodeError', err.message || 'Geocoding failed.');
+      if (token === lookupToken.current) set('geocodeError', err.message || 'Geocoding failed.');
     } finally {
-      setGeocoding(false);
+      if (token === lookupToken.current) setGeocoding(false);
     }
   }
 
@@ -84,12 +93,14 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   function backToLookup() {
     set('manualEntry', false);
     setError('');
+    setErrorField(null);
   }
 
   /** Whether there is enough to add: a lookup result, or a name with both manual coordinates. */
+  // A lookup's detected values are still on their way while it is enriching, so Add waits for them.
   const canSubmit = form.manualEntry
     ? Boolean(form.manualName.trim() && form.manualLat && form.manualLon)
-    : Boolean(form.geocodeResult);
+    : Boolean(form.geocodeResult) && !enriching;
 
   /**
    * Validates and adds the location, then re-reads the locations and the areas. Resolves with the server's reply
@@ -99,11 +110,13 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
     const plan = planAdd(form);
     if (plan.error) {
       setError(plan.error);
+      setErrorField(plan.field ?? null);
       return null;
     }
     if (!plan.payload) return null;
     setSaving(true);
     setError('');
+    setErrorField(null);
     try {
       const created = await addLocation(plan.payload);
       await refreshLocations();
@@ -111,6 +124,7 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
       return created ?? {};
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
+      setErrorField(null);
       return null;
     } finally {
       setSaving(false);
@@ -118,7 +132,7 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   }
 
   return {
-    form, set, reset, geocoding, enriching, saving, error, setError,
+    form, set, reset, geocoding, enriching, saving, error, errorField, setError,
     changeTypes, changeRegion, geocode, enterManually, backToLookup, canSubmit, submit,
   };
 }

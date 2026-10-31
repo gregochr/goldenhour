@@ -29,12 +29,12 @@ export function isAutoDisabled(loc) {
 }
 
 /**
- * Whether a place belongs in the "needs attention" set: it has a failure count above zero, OR carries a disabled
- * reason. The scheduled-cycle auto-disable stores a reason, and a place switched off that way must stay listed even
+ * Whether a place belongs in the "needs attention" set: it has a failure count above zero, OR it is switched off with
+ * a stored reason (a stale reason on a place that is on is ignored: it has no box and no action). The scheduled-cycle auto-disable stores a reason, and a place switched off that way must stay listed even
  * if its counter was reset elsewhere.
  */
 export function needsAttention(loc) {
-  return (loc.consecutiveFailures ?? 0) > 0 || Boolean(loc.disabledReason);
+  return (loc.consecutiveFailures ?? 0) > 0 || isAutoDisabled(loc);
 }
 
 /** "1 failed run" / "3 failed runs". */
@@ -137,12 +137,24 @@ export function locationMeta(loc) {
   return [typeWords(loc.locationType), loc.subRegionName, locationStatus(loc).label].filter(Boolean).join(' · ');
 }
 
+/**
+ * How serious a row's status is, for the Status sort (ascending runs from the least serious): Active (0), Disabled by
+ * hand (1), then a place with failed runs by its count (1000 + count, so 10 outranks 2), then Disabled after failures
+ * (the most serious).
+ */
+export function statusSeverity(loc) {
+  const status = locationStatus(loc);
+  if (status.key === 'auto-disabled') return 1_000_000;
+  if (status.key === 'failing') return 1000 + loc.consecutiveFailures;
+  return status.key === 'disabled' ? 1 : 0;
+}
+
 /** Sort accessors for the columns the header and the sort chip offer. */
 export const LOCATION_SORT_ACCESSORS = {
   name: (loc) => loc.name,
   type: (loc) => typeWords(loc.locationType),
   bortle: (loc) => loc.bortleClass ?? null,
-  status: (loc) => locationStatus(loc).label,
+  status: statusSeverity,
 };
 
 /** The 3.dp coordinates the panel shows ("55.390, -1.613"). */

@@ -51,6 +51,8 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   const { selectedId, select, clear } = useHashSelection(TAB);
   const [adding, setAdding] = useState(false);
   const panelRef = useRef(null);
+  // What is on screen now, for an add that resolves later: it selects the new location only if nothing moved meanwhile.
+  const live = useRef({ selectedId, adding });
 
   const editor = useLocationEditor({
     areas,
@@ -63,7 +65,7 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   });
   const add = useLocationAdd({ refreshLocations, refreshAreas });
   const toggle = useLocationToggle({
-    locations, refreshLocations, refreshAreas, onChanged: onLocationsChanged,
+    locations, setLocations: data.setLocations, refreshLocations, refreshAreas, onChanged: onLocationsChanged,
   });
   const failureReset = useLocationFailureReset(() => {
     refreshLocations();
@@ -73,6 +75,8 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   const shown = toggle.locations;
   const filters = useLocationFilters(shown, regions);
   const selected = shown.find((loc) => loc.id === selectedId) ?? null;
+  // The failure box reads the stored place, so an optimistic turn on never makes it describe the wrong state.
+  const stored = locations.find((loc) => loc.id === selectedId) ?? selected;
   const editing = selected != null && editor.editingId === selected.id && editor.values != null;
   const panelOpen = adding || selected != null;
 
@@ -88,6 +92,8 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   if (selectedId !== seenSelection) {
     setSeenSelection(selectedId);
     editor.discard();
+    toggle.clearError();
+    failureReset.clearErrors();
     if (selectedId != null) setAdding(false);
   }
 
@@ -95,6 +101,10 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   useEffect(() => {
     if (!loading && !loadError && selectedId != null && selected == null) clear({ replace: true });
   }, [loading, loadError, selectedId, selected, clear]);
+
+  useEffect(() => {
+    live.current = { selectedId, adding };
+  }, [selectedId, adding]);
 
   const cancelEdit = editor.cancel;
   const closePanel = useCallback(() => {
@@ -133,10 +143,15 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
   }
 
   async function handleAdd() {
+    const before = live.current;
     const created = await add.submit();
     if (!created) return;
-    setAdding(false);
     onLocationsChanged();
+    // The admin may have opened a row, or cancelled, while it was saving: then the form is already gone and the new
+    // location is left for them to find in the list.
+    const unchanged = live.current.adding && live.current.selectedId === before.selectedId;
+    if (!unchanged) return;
+    setAdding(false);
     if (created.id != null) {
       // The re-read may have failed; make sure the new location is known so the selection does not look dangling.
       data.setLocations((current) => (current.some((loc) => loc.id === created.id) ? current : [...current, created]));
@@ -176,11 +191,12 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
         onClose={closePanel}
         onEdit={() => editor.start(selected)}
         onToggle={toggle.toggle}
-        toggling={toggle.pending}
+        toggling={toggle.pendingIds.has(selected.id)}
+        failureLocation={stored}
         toggleError={toggle.error?.id === selected.id ? toggle.error.message : ''}
         resetting={failureReset.pending.has(selected.name)}
         resetError={failureReset.errors[selected.name] ?? null}
-        onReset={() => failureReset.reset(selected.name)}
+        onReset={(fallback) => failureReset.reset(selected.name, fallback)}
       />
     );
   }

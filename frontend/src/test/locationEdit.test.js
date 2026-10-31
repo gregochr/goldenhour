@@ -150,14 +150,15 @@ describe('planAdd', () => {
     expect(planAdd(manual).payload).toMatchObject({
       name: 'Keld', lat: 54.4, lon: -2.1, coastalTidal: true, overlooksWater: false, bortleClass: null,
     });
-    expect(planAdd({ ...manual, manualName: ' ' })).toEqual({ error: 'Name is required.' });
-    expect(planAdd({ ...manual, manualLat: '91' }).error).toBe('Latitude must be between -90 and 90.');
-    expect(planAdd({ ...manual, manualLon: '' }).error).toBe('Longitude must be between -180 and 180.');
+    expect(planAdd({ ...manual, manualName: ' ' })).toEqual({ error: 'Name is required.', field: 'name' });
+    expect(planAdd({ ...manual, manualLat: '91' })).toEqual({ error: 'Latitude must be between -90 and 90.', field: 'lat' });
+    expect(planAdd({ ...manual, manualLon: '' })).toEqual({ error: 'Longitude must be between -180 and 180.', field: 'lon' });
   });
 
   it('refuses a seascape with no tide preference, and drops tides for a non-seascape', () => {
-    expect(planAdd({ ...looked, locationTypes: ['SEASCAPE'], tideTypes: [] }).error)
-      .toBe('Coastal locations require at least one tide preference (High, Mid, or Low).');
+    expect(planAdd({ ...looked, locationTypes: ['SEASCAPE'], tideTypes: [] })).toEqual({
+      error: 'Coastal locations require at least one tide preference (High, Mid, or Low).', field: 'tides',
+    });
     expect(planAdd({ ...looked, locationTypes: ['LANDSCAPE'], tideTypes: ['HIGH'] }).payload.tideTypes).toEqual([]);
   });
 });
