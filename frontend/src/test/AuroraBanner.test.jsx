@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import AuroraBanner, { SEVERITY, formatDetectedAt } from '../components/AuroraBanner.jsx';
 import { auroraRampHex } from '../utils/auroraRamp.js';
+import { expandBanner } from './auroraBannerHarness.js';
 
 // Mock the useAuroraStatus hook
 vi.mock('../hooks/useAuroraStatus.js', () => ({
@@ -96,9 +97,13 @@ const STRONG = {
   eligibleLocations: 12,
 };
 
-function renderBanner(status, props = {}) {
+// A MODERATE alert at 640px and up starts as the strip, so the card tests open it first; pass
+// `{ collapsed: true }` to see it as it arrives.
+function renderBanner(status, props = {}, { collapsed = false } = {}) {
   useAuroraStatus.mockReturnValue({ status, loading: false });
-  return render(<AuroraBanner {...props} />);
+  const view = render(<AuroraBanner {...props} />);
+  if (!collapsed) expandBanner();
+  return view;
 }
 
 /**

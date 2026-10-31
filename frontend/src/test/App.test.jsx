@@ -126,6 +126,7 @@ import { setRewind } from '../utils/rewind.js';
 import { resetLinkTokenForTests } from '../utils/oneTimeLinkToken.js';
 import { resetInviteTokenForTests } from '../utils/inviteLinkToken.js';
 import userEvent from '@testing-library/user-event';
+import { expandBanner } from './auroraBannerHarness.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -1715,7 +1716,9 @@ describe('App — the aurora banner is inside the briefing provider', () => {
     ]);
     renderApp();
 
-    const banner = await screen.findByTestId('aurora-banner');
+    await screen.findByTestId('aurora-banner');
+    expandBanner();
+    const banner = screen.getByTestId('aurora-banner');
     // The roster, scores and briefing settle in the provider; until then the banner degrades to every
     // rated site, so the wait is for the NARROWING.
     await waitFor(() => {

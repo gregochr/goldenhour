@@ -27,6 +27,7 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
 
 import { focusPastGap } from './pollGap.js';
 import AuroraBannerRoot from '../components/AuroraBannerRoot.jsx';
+import { expandBanner } from './auroraBannerHarness.js';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import {
   getAuroraAlert,
@@ -208,6 +209,7 @@ describe('LiteAuroraBanner — isolation', () => {
       darkSkyLocationCount: 4, clearLocationCount: 3, currentNightEndsAt: '2026-01-16T06:00:00Z',
     });
     await mount();
+    expandBanner();
 
     expect(screen.getByTestId('aurora-banner')).toHaveTextContent('Pro words');
     expect(screen.queryByTestId('aurora-banner-upsell-trigger')).toBeNull();

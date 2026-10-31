@@ -1,4 +1,6 @@
-import React, { Component, Suspense, lazy, useMemo, useState } from 'react';
+import React, {
+  Component, Suspense, lazy, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
@@ -417,7 +419,42 @@ function activates(e) {
 }
 
 /**
- * The wide layout (≥ 640px): thumbnail slot at left, the alert in words at right.
+ * The desktop expand/collapse toggle: its own button, never the banner's door. The click is stopped
+ * by the handler so the synthesised click never reaches the root's `onClick` (as dismiss does).
+ *
+ * @param {object} props
+ * @param {boolean} props.expanded whether the card is showing
+ * @param {function} props.onToggle the click handler (it calls `stopPropagation`)
+ * @param {object} props.toggleRef the ref the banner moves focus with after a swap
+ * @param {string} [props.className] extra class, for the strip's placement
+ */
+function AuroraToggle({
+  expanded, onToggle, toggleRef, className = '',
+}) {
+  return (
+    <button
+      type="button"
+      ref={toggleRef}
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={expanded ? 'Hide aurora details' : 'Show aurora details'}
+      data-testid="aurora-banner-toggle"
+      className={`wf-aurora-tog ${className}`.trim()}
+    >
+      <span aria-hidden="true">{expanded ? '˄' : '˅'}</span>
+    </button>
+  );
+}
+
+AuroraToggle.propTypes = {
+  expanded: PropTypes.bool.isRequired,
+  onToggle: PropTypes.func.isRequired,
+  toggleRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  className: PropTypes.string,
+};
+
+/**
+ * The expanded wide layout (≥ 640px): thumbnail slot at left, the alert in words at right.
  *
  * @param {object} props
  * @param {object} props.m the presentation model from {@link deriveModel}
@@ -430,9 +467,12 @@ function activates(e) {
  *   technology and drawn nowhere; null whenever the line is not on screen
  * @param {function(boolean): void} [props.onViewlineDrawn] handed to the thumbnail, which reports
  *   whether the line is on its canvas
+ * @param {function} props.onToggle collapses the card to the strip
+ * @param {object} props.toggleRef the collapse toggle's ref, for focus
  */
 function AuroraCard({
   m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate = null, onDismiss,
+  onToggle, toggleRef,
 }) {
   const parts = [];
   if (m.best) {
@@ -535,15 +575,18 @@ function AuroraCard({
           )}
           {cta && <span className="wf-aurora-cta" data-testid="aurora-banner-cta">{cta}</span>}
         </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss aurora banner"
-          data-testid="aurora-banner-dismiss"
-          className="wf-aurora-x"
-        >
-          ✕
-        </button>
+        <div className="wf-aurora-actions">
+          <AuroraToggle expanded onToggle={onToggle} toggleRef={toggleRef} />
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss aurora banner"
+            data-testid="aurora-banner-dismiss"
+            className="wf-aurora-x"
+          >
+            ✕
+          </button>
+        </div>
       </div>
     </>
   );
@@ -557,17 +600,24 @@ AuroraCard.propTypes = {
   onViewlineDrawn: PropTypes.func,
   onActivate: PropTypes.func,
   onDismiss: PropTypes.func.isRequired,
+  onToggle: PropTypes.func.isRequired,
+  toggleRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
 };
 
 /**
- * The narrow layout (< 640px): one 56px strip — glyph, two lines, a `Map →` door, dismiss.
+ * The strip: one 56px row — glyph, two lines, a `Map →` door, dismiss. The whole banner below 640px;
+ * at 640px and up the collapsed form, with an expand toggle beside the dismiss.
  *
  * @param {object} props
  * @param {object} props.m the presentation model from {@link deriveModel}
  * @param {function} props.onActivate the banner's door (the Map tab, or Operations for a simulated alert), or null when it has none
  * @param {function} props.onDismiss dismisses the banner at its current level
+ * @param {function} [props.onToggle] expands to the card; null on a phone, which has no toggle
+ * @param {object} [props.toggleRef] the expand toggle's ref, for focus
  */
-function AuroraStrip({ m, onActivate = null, onDismiss }) {
+function AuroraStrip({
+  m, onActivate = null, onDismiss, onToggle = null, toggleRef = null,
+}) {
   // The best site gets its own markup (a name that ellipsises and a rating that never does); every
   // other form is one text run.
   const showBest = !m.allOvercast && m.best;
@@ -634,6 +684,9 @@ function AuroraStrip({ m, onActivate = null, onDismiss }) {
           )}
         </div>
         {cta && <span className="wf-aurora-strip-cta" data-testid="aurora-banner-cta">{cta}</span>}
+        {onToggle && (
+          <AuroraToggle expanded={false} onToggle={onToggle} toggleRef={toggleRef} className="wf-aurora-tog-strip" />
+        )}
         <button
           type="button"
           onClick={onDismiss}
@@ -652,6 +705,8 @@ AuroraStrip.propTypes = {
   m: MODEL_SHAPE,
   onActivate: PropTypes.func,
   onDismiss: PropTypes.func.isRequired,
+  onToggle: PropTypes.func,
+  toggleRef: PropTypes.shape({ current: PropTypes.any }),
 };
 
 /**
@@ -661,13 +716,16 @@ AuroraStrip.propTypes = {
  * - Not rendered for free-tier users (403 from the API → status is null)
  * - Not rendered for QUIET or MINOR status, nor for a MODERATE alert under full overcast
  * - Severity rides the aurora ramp, chosen from `status.level` (never the API's `hexColour`)
- * - At 640px and up a card: a thumbnail slot (Kp on a nine-step meter while no per-location scores
+ * - At 640px and up the 56px strip by default, with a toggle that expands it to a card (STRONG opens
+ *   expanded); a reader's toggle is an override keyed on the alert's identity, cleared when the
+ *   identity changes or the banner stops rendering; not persisted
+ * - The expanded card: a thumbnail slot (Kp on a nine-step meter while no per-location scores
  *   exist for the planning area, tonight's aurora field once they do), the level pill, when-line,
  *   description, best/sites-clear line and a call to action
- * - Below 640px a 56px glow strip
+ * - Below 640px the strip only, with no toggle
  * - Needs the briefing provider for the planning area and the HOME drive (App mounts it above the
  *   banner block); without one the field falls back to every rated site
- * - The card's field carries the southern viewline (live first, forecast else) once it is drawn
+ * - The expanded card's field carries the southern viewline (live first, forecast else) once it is drawn
  * - A STRONG alert breathes gently while it is live and Bz is southward (< −1 nT)
  * - Dismissible per session; re-appears if the level escalates
  *
@@ -686,6 +744,11 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
   // request's own gate cannot know: a chunk still loading, a failed chunk, a declined draw or a
   // line the projection cannot place all leave the slot without a line while the data is in hand.
   const [lineDrawn, setLineDrawn] = useState(false);
+  // A reader's expand/collapse choice, `{ key, expanded }`: an override of the level's default that
+  // holds only while `key` (the alert's identity) matches the current alert.
+  const [override, setOverride] = useState(null);
+  const focusPending = useRef(false);
+  const toggleRef = useRef(null);
 
   // Tonight's per-location ratings, restricted to the reader's planning area (plan §4 D8). The hooks
   // run before the early returns below: nothing is asked for a status that is null, not alert-worthy
@@ -707,8 +770,23 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
   // by the overcast gate below. No request while the slot shows the Kp meter or a test tube. Both
   // sources, the hook's default: the live OVATION contour, else NOAA's forecast line — the Map tab's
   // own precedence. Enabled by the owner, 2026-10-12 (plan §4 D4); there is no flag.
-  const viewlineEnabled = isRealAlert(status) && !dismissed && !isMobile && field !== null
+  // A collapsed banner is the strip, which has no thumbnail either, so it asks for no line.
+  const rendering = Boolean(status) && ALERT_WORTHY.has(status.level) && !dismissed
     && !hiddenByOvercast(status);
+  const alertKey = rendering ? `${status.level}|${status.simulated === true}|${status.triggerType}` : null;
+  // Cleared in render, so a stale choice is never used for even one frame: any change of identity
+  // (an escalation or a de-escalation) or the banner not rendering drops it.
+  if (override && override.key !== alertKey) setOverride(null);
+  const expanded = !isMobile && rendering
+    && (override && override.key === alertKey ? override.expanded : status.level === 'STRONG');
+  const viewlineEnabled = isRealAlert(status) && !dismissed && !isMobile && field !== null
+    && !hiddenByOvercast(status) && expanded;
+  // Toggling swaps the whole root, so the pressed button unmounts: focus moves to its counterpart.
+  useLayoutEffect(() => {
+    if (!focusPending.current) return;
+    focusPending.current = false;
+    toggleRef.current?.focus();
+  }, [expanded]);
   const { viewline } = useAuroraViewline(viewlineEnabled);
 
   // Not eligible (free-tier, 403) or not yet loaded
@@ -760,10 +838,17 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
     ? viewline.summary
     : null;
 
+  // Safari does not focus a button on a mouse click, so focus follows the toggle only if it had it.
+  function handleToggle(e) {
+    e.stopPropagation();
+    if (document.activeElement === e.currentTarget) focusPending.current = true;
+    setOverride({ key: alertKey, expanded: !expanded });
+  }
+
   // The strip has no thumbnail, so only the card is handed the field.
-  return isMobile
-    ? <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />
-    : (
+  if (isMobile) return <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />;
+  return expanded
+    ? (
       <AuroraCard
         m={m}
         field={field}
@@ -772,6 +857,17 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
         onViewlineDrawn={setLineDrawn}
         onActivate={handleActivate}
         onDismiss={handleDismiss}
+        onToggle={handleToggle}
+        toggleRef={toggleRef}
+      />
+    )
+    : (
+      <AuroraStrip
+        m={m}
+        onActivate={handleActivate}
+        onDismiss={handleDismiss}
+        onToggle={handleToggle}
+        toggleRef={toggleRef}
       />
     );
 }

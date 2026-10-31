@@ -16,6 +16,7 @@ vi.mock('../utils/heatField.js', () => ({
 }));
 
 import AuroraBanner from '../components/AuroraBanner.jsx';
+import { expandBanner } from './auroraBannerHarness.js';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
@@ -52,6 +53,7 @@ const label = () => screen.queryByTestId('aurora-banner-viewline-label');
 
 async function mountBanner() {
   render(<AuroraBanner />);
+  expandBanner();
   // The lazy chunk, then the kernel's load, then the draw.
   await screen.findByTestId('aurora-banner-field');
   await act(async () => {});
@@ -96,6 +98,7 @@ describe('the aurora card speaks the viewline only when the real thumbnail has d
     let resolveLand;
     load.mockReturnValue(new Promise((resolve) => { resolveLand = resolve; }));
     render(<AuroraBanner />);
+    expandBanner();
     await screen.findByTestId('aurora-banner-field');
     await act(async () => {});
     expect(label()).toBeNull();
