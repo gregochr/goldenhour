@@ -1686,9 +1686,11 @@ describe('LocationManagementView — tide point in the inline editor', () => {
   const COAST_BARE = { ...COAST, id: 22, name: 'Plain Coast', tideLat: null, tideLng: null };
   const INLAND = { ...COAST, id: 23, name: 'Inland', locationType: ['LANDSCAPE'], tideType: [], tideLat: null, tideLng: null };
 
+  const COAST_MIXED = { ...COAST, id: 24, name: 'Mixed Coast', locationType: ['SEASCAPE', 'LANDSCAPE'] };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchLocations.mockResolvedValue([COAST, COAST_BARE, INLAND]);
+    fetchLocations.mockResolvedValue([COAST, COAST_BARE, INLAND, COAST_MIXED]);
     fetchRegions.mockResolvedValue([]);
     fetchAreas.mockResolvedValue([]);
     fetchUncoveredLocations.mockResolvedValue([]);
@@ -1786,5 +1788,37 @@ describe('LocationManagementView — tide point in the inline editor', () => {
     save();
 
     expect(await screen.findByTestId('inline-edit-error')).toHaveTextContent('within 25 km');
+  });
+
+  it('sends no tide keys and is not blocked when SEASCAPE is unticked with a half-blanked point', async () => {
+    await openEditor(24);
+    fireEvent.change(screen.getByTestId('inline-edit-tide-lat'), { target: { value: '' } });
+    fireEvent.click(within(screen.getByTestId('inline-edit-type')).getByTestId('type-chip-SEASCAPE'));
+    expect(screen.queryByTestId('inline-edit-tide-point')).toBeNull();
+    save();
+
+    await waitFor(() => expect(updateLocation).toHaveBeenCalled());
+    const payload = updateLocation.mock.calls[0][1];
+    expect(payload).not.toHaveProperty('tideLat');
+    expect(payload).not.toHaveProperty('clearTidePoint');
+  });
+
+  it('after an alias-write failure the saved tide point is the baseline and a second save resends nothing', async () => {
+    setLocationAliases.mockRejectedValue({ response: { data: { error: 'alias clash' } } });
+    await openEditor(22);
+    await waitFor(() => expect(screen.getByTestId('inline-edit-aliases')).not.toBeDisabled());
+    fireEvent.change(screen.getByTestId('inline-edit-tide-lat'), { target: { value: '55.01' } });
+    fireEvent.change(screen.getByTestId('inline-edit-tide-lng'), { target: { value: '-1.41' } });
+    fireEvent.change(screen.getByTestId('inline-edit-aliases'), { target: { value: 'The Bay' } });
+    save();
+
+    expect(await screen.findByTestId('inline-edit-error')).toHaveTextContent('Location saved; its other names were not');
+    expect(updateLocation.mock.calls[0][1].tideLat).toBe(55.01);
+
+    save();
+    await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(2));
+    const second = updateLocation.mock.calls[1][1];
+    expect(second).not.toHaveProperty('tideLat');
+    expect(second).not.toHaveProperty('clearTidePoint');
   });
 });

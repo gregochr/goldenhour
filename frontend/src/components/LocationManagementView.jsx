@@ -689,6 +689,8 @@ export default function LocationManagementView({ onLocationsChanged }) {
   // Tide-point fields of the save payload: present only when they differ from what the server holds.
   // Both blank clears a stored point; one blank is an error. Returns { error } or { fields }.
   function tidePointPayload() {
+    // The pair is hidden unless the location is coastal: a hidden half-blanked point must not block a save.
+    if (!editValues.locationTypes.includes('SEASCAPE')) return { fields: {} };
     const latText = String(editValues.tideLat ?? '').trim();
     const lngText = String(editValues.tideLng ?? '').trim();
     const baseline = editValues.tideBaseline;

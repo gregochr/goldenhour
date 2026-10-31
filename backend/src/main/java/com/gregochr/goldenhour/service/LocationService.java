@@ -327,6 +327,7 @@ public class LocationService {
 
         applyHeights(location, request);
         applyTidePoint(location, request);
+        requireStoredTidePointNearPin(location, previousLat, previousLon);
 
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
                 || Double.compare(previousLon, location.getLon()) != 0;
@@ -397,7 +398,7 @@ public class LocationService {
                 || !floorLng.equals(location.getValleyFloorLng());
         if (differs) {
             requireHeight(floorMetres, "Valley floor height");
-            if (floorLat < MIN_LAT || floorLat > MAX_LAT || floorLng < MIN_LON || floorLng > MAX_LON) {
+            if (!isValidCoordinate(floorLat, floorLng)) {
                 throw new IllegalArgumentException("Valley floor coordinates are out of range");
             }
             double distanceKm = GeoUtils.distanceKm(location.getLat(), location.getLon(), floorLat, floorLng);
@@ -442,7 +443,7 @@ public class LocationService {
         }
         boolean differs = !tideLat.equals(location.getTideLat()) || !tideLng.equals(location.getTideLng());
         if (differs) {
-            if (tideLat < MIN_LAT || tideLat > MAX_LAT || tideLng < MIN_LON || tideLng > MAX_LON) {
+            if (!isValidCoordinate(tideLat, tideLng)) {
                 throw new IllegalArgumentException("Tide point coordinates are out of range");
             }
             double distanceKm = GeoUtils.distanceKm(location.getLat(), location.getLon(), tideLat, tideLng);
@@ -452,6 +453,33 @@ public class LocationService {
         }
         location.setTideLat(tideLat);
         location.setTideLng(tideLng);
+    }
+
+    /**
+     * True when both values are finite numbers inside the latitude and longitude ranges. NaN and the
+     * infinities fail every ordered comparison, so a range test alone lets them through.
+     */
+    private static boolean isValidCoordinate(double lat, double lng) {
+        return Double.isFinite(lat) && Double.isFinite(lng)
+                && lat >= MIN_LAT && lat <= MAX_LAT && lng >= MIN_LON && lng <= MAX_LON;
+    }
+
+    /**
+     * Rejects a pin move that strands a tide point (sent or kept) more than the allowed distance from the new pin.
+     *
+     * @param location    the location, with this request's pin and tide point applied
+     * @param previousLat the pin latitude before this request
+     * @param previousLon the pin longitude before this request
+     */
+    private void requireStoredTidePointNearPin(LocationEntity location, double previousLat, double previousLon) {
+        boolean moved = Double.compare(previousLat, location.getLat()) != 0
+                || Double.compare(previousLon, location.getLon()) != 0;
+        if (moved && location.getTideLat() != null && location.getTideLng() != null
+                && GeoUtils.distanceKm(location.getLat(), location.getLon(),
+                        location.getTideLat(), location.getTideLng()) > MAX_TIDE_POINT_DISTANCE_KM) {
+            throw new IllegalArgumentException(
+                    "The tide point must be within 25 km of the location — clear or move it");
+        }
     }
 
     /**
