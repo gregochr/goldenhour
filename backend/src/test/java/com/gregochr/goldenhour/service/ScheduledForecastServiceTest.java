@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.TideSourceChange;
+import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -50,13 +52,16 @@ class ScheduledForecastServiceTest {
     @Mock
     private DynamicSchedulerService dynamicSchedulerService;
 
+    @Mock
+    private AdminAlertService adminAlertService;
+
     private ScheduledForecastService scheduledForecastService;
 
     @BeforeEach
     void setUp() {
         scheduledForecastService = new ScheduledForecastService(
                 tideService, locationService, jobRunService,
-                dynamicSchedulerService);
+                dynamicSchedulerService, adminAlertService);
     }
 
     // -------------------------------------------------------------------------
@@ -114,6 +119,89 @@ class ScheduledForecastServiceTest {
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
                 .containsExactly("Durham UK", "Scarborough");
+    }
+
+    // -------------------------------------------------------------------------
+    // Tide source-change alert — collected across the refresh, sent once at the end
+    // -------------------------------------------------------------------------
+
+    private LocationEntity coastal(String name) {
+        LocationEntity location = LocationEntity.builder().name(name)
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.isCoastal(location)).thenReturn(true);
+        return location;
+    }
+
+    @Test
+    @DisplayName("a scheduled refresh sends ONE alert listing every location that changed, after the last fetch")
+    void refreshTideExtremes_sendsOneAlertForAllChangedLocations() {
+        LocationEntity staithes = coastal("Staithes");
+        LocationEntity clean = coastal("Whitby");
+        LocationEntity saltburn = coastal("Saltburn");
+        when(locationService.findAllEnabled()).thenReturn(List.of(staithes, clean, saltburn));
+        TideSourceChange staithesChange = new TideSourceChange("Staithes", null,
+                List.of("HIGH 2026-11-09T06:12 UTC -> 2026-11-09T06:58 UTC (+46 min), 5.6 m -> 5.6 m"));
+        TideSourceChange saltburnChange = new TideSourceChange("Saltburn", "atlas FES2022 -> FES2024", List.of());
+        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(staithesChange);
+        when(tideService.fetchAndStoreTideExtremes(saltburn, null)).thenReturn(saltburnChange);
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(adminAlertService, times(1)).sendTideSourceChangeAlert(List.of(staithesChange, saltburnChange));
+    }
+
+    @Test
+    @DisplayName("the admin route (Run Now / POST run/tide) sends the same single alert")
+    void startTideRefresh_sendsTheAlertToo() {
+        LocationEntity staithes = coastal("Staithes");
+        when(locationService.findAllEnabled()).thenReturn(List.of(staithes));
+        TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
+        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+
+        scheduledForecastService.startTideRefresh(Runnable::run);
+
+        verify(adminAlertService, times(1)).sendTideSourceChangeAlert(List.of(change));
+    }
+
+    @Test
+    @DisplayName("a refresh in which nothing changed sends no alert")
+    void refreshTideExtremes_cleanRefreshSendsNothing() {
+        LocationEntity whitby = coastal("Whitby");
+        when(locationService.findAllEnabled()).thenReturn(List.of(whitby));
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verifyNoInteractions(adminAlertService);
+    }
+
+    @Test
+    @DisplayName("a failing alert never fails the refresh: the run is still completed")
+    void refreshTideExtremes_alertFailureDoesNotFailTheRefresh() {
+        LocationEntity staithes = coastal("Staithes");
+        when(locationService.findAllEnabled()).thenReturn(List.of(staithes));
+        TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
+        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+        doThrow(new IllegalStateException("mail down"))
+                .when(adminAlertService).sendTideSourceChangeAlert(List.of(change));
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(jobRunService).completeRun(null, 1, 0);
+    }
+
+    @Test
+    @DisplayName("a location whose fetch threw contributes nothing, and the others are still reported")
+    void refreshTideExtremes_failedLocationDoesNotBlockTheAlert() {
+        LocationEntity broken = coastal("Broken");
+        LocationEntity staithes = coastal("Staithes");
+        when(locationService.findAllEnabled()).thenReturn(List.of(broken, staithes));
+        TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
+        when(tideService.fetchAndStoreTideExtremes(broken, null)).thenThrow(new RuntimeException("boom"));
+        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+
+        scheduledForecastService.refreshTideExtremes();
+
+        verify(adminAlertService).sendTideSourceChangeAlert(List.of(change));
     }
 
     // -------------------------------------------------------------------------

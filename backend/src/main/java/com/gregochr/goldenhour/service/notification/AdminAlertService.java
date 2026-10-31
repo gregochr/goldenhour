@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.notification;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import jakarta.mail.MessagingException;
@@ -230,6 +231,53 @@ public class AdminAlertService {
         deliver(subject, () -> detail + "\n\nThis is the forecast-cycle watchdog "
                 + "(forecast_cycle_watchdog). It only reads; nothing has been started, stopped or "
                 + "retried.\n", "forecast-cycle-watchdog", jobKey);
+    }
+
+    /**
+     * Sends the "tide source changed" alert: one message per tide refresh listing every location whose
+     * WorldTides fetch showed stored tide times or heights moving (more than 5 minutes or 0.05 m), or
+     * whose atlas, station or response point changed (tide-source-integrity-plan P2). The caller
+     * collects the locations across the whole refresh and calls this once, and only for locations that
+     * are newly changed, so a persisting difference is not repeated.
+     *
+     * <p>Same channel, recipients and best-effort rules as {@link #sendPipelineDegradedAlert}:
+     * asynchronous, never throws, silent when alerts are disabled or no mail sender or admin address
+     * exists.
+     *
+     * @param changes every location that showed a change this refresh, in refresh order
+     */
+    @Async
+    public void sendTideSourceChangeAlert(List<TideSourceChange> changes) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping tide-source-change admin alert "
+                    + "({} location(s))", changes.size());
+            return;
+        }
+        String noun = changes.size() == 1 ? "location" : "locations";
+        Supplier<String> subject = () -> "PhotoCast: WorldTides tide data changed for " + changes.size() + " "
+                + noun;
+        deliver(subject, () -> buildTideSourceChangeBody(changes), "tide-source-change", changes.size());
+    }
+
+    private static String buildTideSourceChangeBody(List<TideSourceChange> changes) {
+        StringBuilder body = new StringBuilder();
+        body.append("The weekly WorldTides fetch changed tide data it had already stored, or the source behind "
+                + "it, for ").append(changes.size())
+                .append(changes.size() == 1 ? " location" : " locations").append(":\n\n");
+        for (TideSourceChange change : changes) {
+            body.append("- ").append(change.locationName()).append('\n');
+            if (change.sourceChange() != null) {
+                body.append("    source: ").append(change.sourceChange()).append('\n');
+            }
+            for (String example : change.timingExamples()) {
+                body.append("    ").append(example).append('\n');
+            }
+        }
+        body.append("\nThe new values are already stored. WorldTides' model can move a location's tide times "
+                + "when its tidal atlas or station changes. If the new times are wrong, the fix is a tide "
+                + "point: set a tide point on the location (an admin action) at a nearby spot whose "
+                + "times are right, which re-seeds its tide data on the next refresh.\n");
+        return body.toString();
     }
 
     private static String buildAskSpendCapBody(LocalDate day, long spent, long cap) {

@@ -91,9 +91,9 @@ class TideFetchWindowTest {
     void coveredLocationFetchesOnlyTheTail() {
         // A real frontier is a tide instant, not a midnight — MAX(event_time) over stored rows.
         // The fixture used to sit on midnight, which made the span look like exactly seven days
-        // and a one-credit fetch. It is not: the horizon IS midnight, so the tail spans seven days
-        // plus up to one inter-extreme gap, and bills two credits under the per-seven-days rule.
-        // Still ~4.8x cheaper than re-buying the whole 97-day window every Monday.
+        // and a one-credit fetch. It is not: the horizon IS midnight, so the tail spans a week of overlap,
+        // the week of new coverage and up to one inter-extreme gap, and bills three credits under the
+        // per-seven-days rule. Still ~4.6x cheaper than re-buying the whole 97-day window.
         LocalDateTime frontier = START_OF_DAY.plusDays(90).plusHours(17).plusMinutes(52);
         when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
                 .thenReturn(frontier);
@@ -103,14 +103,14 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, PIN, PIN, START_OF_DAY, HORIZON);
 
         assertThat(window).isNotNull();
-        // frontier minus the 1-minute overlap margin — see TAIL_OVERLAP_MINUTES. Production
+        // frontier minus the 7-day overlap margin — see TAIL_OVERLAP_DAYS. Production
         // proved WorldTides does not reliably return an extreme sitting exactly on `start`, so
         // the tail now starts just before the frontier instead of on it.
-        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+        assertThat(window.from()).isEqualTo(frontier.minusDays(7));
         assertThat(window.to()).isEqualTo(HORIZON);
         assertThat(window.lengthSeconds())
-                .isGreaterThan(6L * 24 * 3600)
-                .isLessThanOrEqualTo(8L * 24 * 3600);
+                .isGreaterThan(13L * 24 * 3600)
+                .isLessThanOrEqualTo(15L * 24 * 3600);
         assertThat(window.reason()).contains("tail");
     }
 
@@ -127,8 +127,8 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, PIN, PIN, START_OF_DAY, HORIZON);
 
         assertThat(window).isNotNull();
-        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
-        assertThat(window.lengthSeconds()).isEqualTo(14L * 24 * 3600 + 60);
+        assertThat(window.from()).isEqualTo(frontier.minusDays(7));
+        assertThat(window.lengthSeconds()).isEqualTo(21L * 24 * 3600);
     }
 
     @Test
@@ -174,7 +174,7 @@ class TideFetchWindowTest {
         var window = service().resolveFetchWindow(LOCATION, PIN, PIN, START_OF_DAY, HORIZON);
 
         assertThat(window.reason()).contains("tail");
-        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+        assertThat(window.from()).isEqualTo(frontier.minusDays(7));
     }
 
     @Test
@@ -182,7 +182,7 @@ class TideFetchWindowTest {
             + "still returns it")
     void tailMarginSitsStrictlyBeforeTheFrontier() {
         // The whole point of fix 1: production proved WorldTides does not reliably return an
-        // extreme sitting exactly on `start`. Starting the tail a minute earlier means the
+        // extreme sitting exactly on `start`. Starting the tail a week earlier means the
         // frontier is no longer on the boundary, so a response whose first extreme is the
         // frontier's own dt (now strictly greater than `start`) genuinely comes back and is
         // re-inserted after the delete.
@@ -196,14 +196,14 @@ class TideFetchWindowTest {
 
         assertThat(window).isNotNull();
         assertThat(window.from()).isBefore(frontier);
-        assertThat(window.from()).isEqualTo(frontier.minusMinutes(1));
+        assertThat(window.from()).isEqualTo(frontier.minusDays(7));
     }
 
     @Test
     @DisplayName("a frontier within the margin of the start of today clamps to the start of "
             + "today — the margin never reaches into yesterday")
     void frontierWithinMarginOfStartOfDayClampsToStartOfDay() {
-        // 30 seconds after midnight — less than the 1-minute margin, so a naive subtraction
+        // 30 seconds after midnight — less than the 7-day margin, so a naive subtraction
         // would land before startOfDay and reach into the previous day's backfilled history.
         LocalDateTime frontier = START_OF_DAY.plusSeconds(30);
         when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
@@ -398,11 +398,10 @@ class TideFetchWindowTest {
         verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
                 eq(LOCATION), bounds.capture(), bounds.capture());
 
-        // The lower bound is one minute before the frontier, NOT the start of today — which is
+        // The lower bound is a week before the frontier, NOT the start of today — which is
         // the whole point. Deleting from today would destroy the 90 stored days this fetch did
-        // not re-buy; the 1-minute margin removes nothing extra, since the frontier is
-        // MAX(event_time) and no other row can exist inside that minute.
-        assertThat(bounds.getAllValues().get(0)).isEqualTo(frontier.minusMinutes(1));
+        // not re-buy. The week of overlap is compared with what is stored before it is replaced.
+        assertThat(bounds.getAllValues().get(0)).isEqualTo(frontier.minusDays(7));
         assertThat(bounds.getAllValues().get(1))
                 .isAfterOrEqualTo(frontier)
                 .isEqualTo(LocalDate.now(ZoneOffset.UTC).atStartOfDay().plusDays(97));

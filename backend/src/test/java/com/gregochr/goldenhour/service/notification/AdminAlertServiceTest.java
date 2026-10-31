@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.notification;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
@@ -386,6 +387,40 @@ class AdminAlertServiceTest {
         enabledService().sendLocationDisableCapAlert(300L, CycleType.NIGHTLY, TRIGGER,
                 List.of("A"), 5);
 
+        verify(mailSender, never()).createMimeMessage();
+    }
+
+    @Test
+    @DisplayName("tide source-change alert: one email lists every changed location with its examples "
+            + "and says the fix is a tide point")
+    void tideSourceChangeAlert_listsEveryLocationInOneEmail() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN))
+                .thenReturn(List.of(admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendTideSourceChangeAlert(List.of(
+                new TideSourceChange("Staithes", null,
+                        List.of("HIGH 2026-11-09T06:12 UTC -> 2026-11-09T06:58 UTC (+46 min), "
+                                + "5.600 m -> 5.610 m")),
+                new TideSourceChange("Saltburn", "atlas FES2022 -> FES2024", List.of())));
+
+        verify(mailSender, times(1)).send(message);
+        assertThat(message.getSubject()).isEqualTo("PhotoCast: WorldTides tide data changed for 2 locations");
+        String body = (String) message.getContent();
+        assertThat(body).contains("- Staithes").contains("(+46 min)")
+                .contains("- Saltburn").contains("source: atlas FES2022 -> FES2024")
+                .contains("the fix is a tide point");
+    }
+
+    @Test
+    @DisplayName("tide source-change alert: disabled alerts never touch the repository or the mail sender")
+    void tideSourceChangeAlert_disabledSkips() {
+        AdminAlertService service = new AdminAlertService(mailSender, appUserRepository, false);
+
+        service.sendTideSourceChangeAlert(List.of(new TideSourceChange("Staithes", "x", List.of())));
+
+        verify(appUserRepository, never()).findByRoleAndEnabledTrue(UserRole.ADMIN);
         verify(mailSender, never()).createMimeMessage();
     }
 }
