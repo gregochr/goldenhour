@@ -20,6 +20,7 @@ import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
 import com.gregochr.goldenhour.service.batch.EveningCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EveningEligibilityPolicy;
+import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -1062,6 +1063,40 @@ class PipelineOrchestratorTest {
             // And it reaches briefing through the identical tail.
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest(name = "evening due = {0}")
+        @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+        @DisplayName("runIntradayCycle asks the scheduler once whether tonight's evening refresh is "
+                + "due and hands the answer to the strategy")
+        void intraday_resolves_evening_due_once_and_passes_it_on(boolean due) {
+            DynamicSchedulerService scheduler =
+                    org.mockito.Mockito.mock(DynamicSchedulerService.class);
+            when(scheduler.firesLaterTodayUk("evening_sunrise_refresh")).thenReturn(due);
+            PipelineOrchestrator wired = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC),
+                    directExecutor, Duration.ofMillis(1), Duration.ofSeconds(10),
+                    scheduler, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(briefingService.getCachedBriefing()).thenReturn(null);
+
+            wired.runIntradayCycle();
+
+            org.mockito.ArgumentCaptor<CandidateCollectionStrategy> strategy =
+                    org.mockito.ArgumentCaptor.forClass(CandidateCollectionStrategy.class);
+            verify(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
+                    eq(RUN_ID), strategy.capture(), eq(IntradayEligibilityPolicy.INSTANCE),
+                    eq(true), any());
+            java.time.LocalDate tomorrow = com.gregochr.goldenhour.util.ForecastHorizon
+                    .today(Clock.fixed(T0, ZoneOffset.UTC)).plusDays(1);
+            org.assertj.core.api.Assertions.assertThat(strategy.getValue().defersRatedSlot(
+                    tomorrow, com.gregochr.goldenhour.entity.TargetType.SUNRISE)).isEqualTo(due);
+            verify(scheduler, org.mockito.Mockito.times(1))
+                    .firesLaterTodayUk("evening_sunrise_refresh");
         }
 
         @Test

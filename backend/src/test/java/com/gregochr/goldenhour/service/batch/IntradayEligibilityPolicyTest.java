@@ -45,8 +45,8 @@ class IntradayEligibilityPolicyTest {
         }
 
         @Test
-        @DisplayName("tomorrow's sunrise is evaluated: its only later run is the next morning's, "
-                + "landing while the reader sleeps")
+        @DisplayName("tomorrow's sunrise is still included by the policy; the evening-refresh "
+                + "deferral is decided in candidate collection, not here")
         void tomorrowSunrise_included() {
             EligibilityDecision d = policy.resolve(
                     TOMORROW, TargetType.SUNRISE, ForecastStability.SETTLED, NEAR, FAR);

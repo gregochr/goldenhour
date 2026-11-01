@@ -35,7 +35,21 @@ import java.time.LocalDate;
  */
 public final class IntradayCandidateCollectionStrategy implements CandidateCollectionStrategy {
 
+    /** The disposition detail of a T+1 sunrise left for tonight's evening refresh. */
+    public static final String EVENING_DEFERRAL_REASON =
+            "tonight's evening refresh re-rates tomorrow's sunrise";
+
     private final LocalDate today;
+    private final boolean eveningRefreshDue;
+
+    /**
+     * Constructs the strategy with no evening refresh to lean on: every slot in the window is rated.
+     *
+     * @param clock the cycle's clock; its instant is interpreted in {@code Europe/London}
+     */
+    public IntradayCandidateCollectionStrategy(Clock clock) {
+        this(clock, false);
+    }
 
     /**
      * Constructs the strategy, pinning the reference date ("today") to the
@@ -43,9 +57,13 @@ public final class IntradayCandidateCollectionStrategy implements CandidateColle
      *
      * @param clock the cycle's clock; its instant is interpreted in
      *              {@code Europe/London} to derive the reference date
+     * @param eveningRefreshDue whether tonight's evening sunrise refresh will run (resolved once per
+     *                          cycle by the orchestrator); when {@code true} an already-rated T+1
+     *                          sunrise is left for it
      */
-    public IntradayCandidateCollectionStrategy(Clock clock) {
+    public IntradayCandidateCollectionStrategy(Clock clock, boolean eveningRefreshDue) {
         this.today = ForecastHorizon.today(clock);
+        this.eveningRefreshDue = eveningRefreshDue;
     }
 
     @Override
@@ -57,5 +75,20 @@ public final class IntradayCandidateCollectionStrategy implements CandidateColle
             return targetType == TargetType.SUNRISE || targetType == TargetType.SUNSET;
         }
         return false;
+    }
+
+    /**
+     * Tomorrow's sunrise is re-rated by tonight's 21:00 evening refresh at every stability, so when
+     * that refresh is due the afternoon look at a slot that already has a rating adds only noise (the
+     * last 30 days' same-day re-ratings repeat the earlier stars about half the time and move two
+     * stars or more about 5% of the time, whatever the gap). A slot with no rating is still rated, so
+     * no region waits for 21:00 to show a score.
+     *
+     * <p>The accepted risk: if the evening run fails, the overnight rating (up to about 20 hours old)
+     * keeps serving until the next overnight run.
+     */
+    @Override
+    public boolean defersRatedSlot(LocalDate date, TargetType targetType) {
+        return eveningRefreshDue && date.equals(today.plusDays(1)) && targetType == TargetType.SUNRISE;
     }
 }

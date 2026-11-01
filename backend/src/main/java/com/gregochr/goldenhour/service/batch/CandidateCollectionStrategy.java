@@ -45,4 +45,21 @@ public interface CandidateCollectionStrategy {
     default boolean bypassesCacheGate() {
         return false;
     }
+
+    /**
+     * Whether a slot this cycle would otherwise re-rate is deliberately left to a later, already
+     * scheduled run, provided the location already holds a stored rating for it. {@code
+     * ForecastTaskCollector} asks this only after the slot has passed weather fetch, triage and the
+     * eligibility policy (so a triage stand-down still records SKIPPED_TRIAGED and retracts), and
+     * only for a location with a live rating; a {@code true} answer records a no-refresh skip
+     * instead of building a Claude request.
+     *
+     * @param date       the slot's date
+     * @param targetType the slot's event type
+     * @return {@code true} to leave an already-rated slot alone this cycle; {@code false} (the
+     *         default) to rate it as usual
+     */
+    default boolean defersRatedSlot(LocalDate date, TargetType targetType) {
+        return false;
+    }
 }

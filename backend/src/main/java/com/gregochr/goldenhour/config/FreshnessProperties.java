@@ -90,7 +90,11 @@ public class FreshnessProperties {
          * <p>3h is chosen to survive no cycle boundary. The cap applies to both cycles through the
          * shared CACHED gate in {@code BriefingCandidateCollector} (the {@code maxAgeFor(daysAhead,
          * stability)} / {@code hasFreshEvaluation} check), which runs <em>before</em> eligibility,
-         * so a T+1 slot is refreshed by both cycles rather than held by whichever ran first.
+         * so a T+1 slot is not held by whichever cycle ran first. Clearing this gate is not the same as
+         * being re-evaluated: a SETTLED T+1 sunset is then skipped by {@code IntradayEligibilityPolicy}
+         * (two further looks are guaranteed), and when tonight's evening refresh is due an
+         * already-rated T+1 sunrise is skipped by the intraday cycle at any stability
+         * ({@code IntradayCandidateCollectionStrategy#defersRatedSlot}), because that refresh re-rates it.
          *
          * <p>A cached entry's age runs from when its results <em>arrived</em>
          * ({@code BriefingEvaluationService} stamps the write with the current instant), not from
