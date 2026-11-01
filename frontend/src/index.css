@@ -14298,14 +14298,6 @@ button.wf-mchip:hover {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
 }
-.wf-ask-bar-k {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--color-home);
-}
 .wf-ask-bar-q {
   flex: 1;
   min-width: 0;
@@ -14389,14 +14381,6 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .wf-askf:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
-}
-.wf-askf-k {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--color-home);
 }
 .wf-askf-q {
   flex: 1;
@@ -14733,7 +14717,7 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   gap: 6px;
   margin: 0 10px 8px;
 }
-/* THE COLLAPSED ROW — "ASK · Ask PhotoCast… ↑". */
+/* THE COLLAPSED ROW — "Ask PhotoCast… ↑". */
 .wf-map-peek-ask-entry {
   flex: 1;
   min-width: 0;
@@ -14761,14 +14745,6 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .wf-map-peek-mini:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: -2px;
-}
-.wf-map-peek-ask-k {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  color: var(--color-home);
 }
 .wf-map-peek-ask-q {
   flex: 1;
@@ -14809,7 +14785,7 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .wf-map-peek-ask-field .wf-ask-next { padding: 0 0 6px; border-top: 0; }
 .wf-map-peek-ask-field .wf-ask-next + .wf-ask-in { padding-top: 0; }
 /* The row holds the field, ↑ and ✕ in a 320px phone's 300px: 8px of side padding instead of 12 gives the
-   16px placeholder ("Ask PhotoCast…", was 183px for the longer wording; shorter now measured) the 191px it needs rather than 176. */
+   16px placeholder ("Ask PhotoCast…", shorter than the 183px the old wording measured) the 191px it needs rather than 176. */
 .wf-map-peek-ask-field .wf-ask-in-field { padding: 0 8px; }
 .wf-map-peek-ask-x {
   flex: none;

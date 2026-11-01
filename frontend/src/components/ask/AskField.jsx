@@ -85,7 +85,6 @@ export default function AskField({
       onClick={onOpen}
       onKeyDown={onKeyDown}
     >
-      <span className="wf-askf-k" aria-hidden="true">Ask</span>
       <span className="wf-askf-q">{prompt}</span>
       {showKeyHint && !locked && <kbd className="wf-askf-kbd" aria-hidden="true">/</kbd>}
       {locked && <span className="wf-lens-pro" data-testid="ask-field-upsell">Pro</span>}

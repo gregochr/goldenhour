@@ -54,7 +54,6 @@ export default function AskBar({
       onClick={onOpen}
       onKeyDown={onKeyDown}
     >
-      <span className="wf-ask-bar-k" aria-hidden="true">Ask</span>
       <span className="wf-ask-bar-q">{prompt}</span>
       {locked && <span className="wf-lens-pro" data-testid="ask-bar-upsell">Pro</span>}
       <span className="wf-ask-bar-go" aria-hidden="true">↑</span>

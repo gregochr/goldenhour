@@ -29,10 +29,10 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * (the one gate, {@code openMapMenu}) and tells this component the {@code mode} the sheet is in
  * ({@code utils/askPeek.js}); this component draws that mode and reports the reader's presses.
  * <ul>
- *   <li><b>collapsed / section / minimised</b> — the row is a BUTTON, "ASK · Ask PhotoCast… ↑", that opens the Ask section. A refusal's sentence ({@code inputError}) that arrived while
- *       the section was closed and has not been seen is shown in its place: the conversation is not
- *       mounted then ({@code AskConversation} renders the sentence itself while it is open, so the
- *       field never does). Minimised adds the one line under it.</li>
+ *   <li><b>collapsed / section / minimised</b> — the row is a BUTTON, "Ask PhotoCast… ↑", that opens the Ask
+ *       section. A refusal's sentence ({@code inputError}) that arrived while the section was closed and
+ *       has not been seen is shown in its place: the conversation is not mounted then
+ *       ({@code AskConversation} renders the sentence itself while it is open, so the field never does). Minimised adds the one line under it.</li>
  *   <li><b>expanded</b> — the row holds the question field ({@code AskInputRow}, the same piece the
  *       sheet and the dock repeat) and a ✕; the conversation fills the body below it.</li>
  * </ul>
@@ -224,7 +224,6 @@ export default function MapPeekAsk({
       disabled={availability === 'down'}
       onClick={onOpen}
     >
-      <span className="wf-map-peek-ask-k" aria-hidden="true">Ask</span>
       <span
         className="wf-map-peek-ask-q"
         data-error={unseenError ? 'true' : undefined}

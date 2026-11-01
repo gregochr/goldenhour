@@ -20,7 +20,7 @@ describe('AskBar', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps its decorative "Ask" kicker and arrow out of the accessible name', () => {
+  it('keeps its decorative arrow out of the accessible name', () => {
     render(<AskBar prompt="Ask PhotoCast…" onOpen={vi.fn()} />);
     expect(screen.getByTestId('ask-bar')).toHaveAccessibleName('Ask PhotoCast…');
   });
@@ -44,6 +44,15 @@ describe('AskBar', () => {
     const ref = React.createRef();
     render(<AskBar prompt="p" onOpen={vi.fn()} buttonRef={ref} />);
     expect(ref.current).toBe(screen.getByTestId('ask-bar'));
+  });
+});
+
+describe('no separate "Ask" key label', () => {
+  it('shows only the prompt in the bar and the field', () => {
+    const { container } = render(<><AskBar prompt="Ask PhotoCast…" onOpen={vi.fn()} /><AskField onOpen={vi.fn()} /></>);
+    expect(screen.getByTestId('ask-bar')).toHaveTextContent(/^Ask PhotoCast….?$/);
+    expect(screen.getByTestId('ask-field')).toHaveTextContent(/^Ask PhotoCast….?$/);
+    expect(container.querySelector('.wf-ask-bar-k, .wf-askf-k')).toBeNull();
   });
 });
 
