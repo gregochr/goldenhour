@@ -15,6 +15,7 @@ const { stub } = vi.hoisted(() => ({
 vi.mock('../components/UserManagementView.jsx', () => stub('Users'));
 vi.mock('../components/LocationManagementView.jsx', () => stub('Locations'));
 vi.mock('../components/RegionManagementView.jsx', () => stub('Regions'));
+vi.mock('../components/AreaManagementView.jsx', () => stub('Areas'));
 vi.mock('../components/WaitlistManagementView.jsx', () => stub('Waitlist'));
 vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
@@ -59,6 +60,18 @@ describe('ManageView — following the hash while mounted', () => {
     expect(window.location.hash).toBe('#manage/tides/12');
     expect(screen.getByTestId('manage-group-places').className).toContain('text-plex-gold');
     expect(screen.getByTestId('manage-tab-tides')).toBeInTheDocument();
+  });
+
+  it('opens the Areas sub-tab, in the Places group, from #manage/areas', () => {
+    window.location.hash = '#manage/areas';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Areas');
+    expect(screen.getByTestId('manage-group-places').className).toContain('text-plex-gold');
+
+    goTo('#manage/regions');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Regions');
+    goTo('#manage/areas');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Areas');
   });
 
   it('follows a bare tab hash too', () => {

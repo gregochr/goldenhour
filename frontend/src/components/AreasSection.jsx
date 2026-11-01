@@ -11,7 +11,7 @@ const UNCOVERED_NAMES_SHOWN = 12;
 const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
 
 /**
- * The "Areas" section of the location management view (admin only): the named areas Ask understands, such as
+ * The Areas sub-tab (Operations → Places → Areas, admin only): the named areas Ask understands, such as
  * "Hadrian's Wall". Each area has a name, other names for it and a set of member locations.
  *
  * <p>Names and members are saved by two separate requests with two separate buttons, because the server keeps
@@ -25,11 +25,8 @@ const inputClass = 'w-full bg-plex-surface-light border border-plex-border round
  *
  * @param {object} props
  * @param {Array<{id: number, name: string, enabled?: boolean}>} props.locations every location, for the picker
- * @param {number} [props.reloadKey] changes when a location was saved, so memberships are read again
- * @param {() => void} [props.onAreasChanged] called after an area is created, renamed or deleted, so a
- *   parent that lists sub-regions (the location form's select) can read them again
  */
-export default function AreasSection({ locations, reloadKey = 0, onAreasChanged = undefined }) {
+export default function AreasSection({ locations }) {
   const [areas, setAreas] = useState([]);
   // Enabled, regioned locations with no sub-region: null until read, and left null when the read fails.
   const [uncovered, setUncovered] = useState(null);
@@ -60,7 +57,7 @@ export default function AreasSection({ locations, reloadKey = 0, onAreasChanged 
       .then((data) => { if (!cancelled) setUncovered(data); })
       .catch(() => { /* the coverage line is simply not shown */ });
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, []);
 
   const locationNames = useMemo(() => new Map(locations.map((l) => [l.id, l.name])), [locations]);
   const hasSubRegions = areas.some((a) => a.kind === 'SUB_REGION');
@@ -109,7 +106,6 @@ export default function AreasSection({ locations, reloadKey = 0, onAreasChanged 
       const created = await createArea({ name: nameText, aliases: parseAliases(aliasText) });
       setAreas((prev) => [...prev, created]);
       setCreating(false);
-      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: 'new', message: errorText(err, 'Failed to create the area.') });
     } finally {
@@ -125,7 +121,6 @@ export default function AreasSection({ locations, reloadKey = 0, onAreasChanged 
     try {
       replaceArea(await updateArea(id, { name: nameText, aliases: parseAliases(aliasText) }));
       setSaved(`names-${id}`);
-      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `edit-${id}`, message: errorText(err, 'Failed to save the names.') });
     } finally {
@@ -156,7 +151,6 @@ export default function AreasSection({ locations, reloadKey = 0, onAreasChanged 
       setAreas((prev) => prev.filter((a) => a.id !== id));
       setConfirmDeleteId(null);
       if (editingId === id) setEditingId(null);
-      if (onAreasChanged) onAreasChanged();
     } catch (err) {
       setFailure({ key: `delete-${id}`, message: errorText(err, 'Failed to delete the area.') });
     } finally {
@@ -209,7 +203,7 @@ export default function AreasSection({ locations, reloadKey = 0, onAreasChanged 
   }
 
   return (
-    <section className="flex flex-col gap-3 border-t border-plex-border pt-4" data-testid="areas-section">
+    <section className="flex flex-col gap-3" data-testid="areas-section">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-plex-text">Areas</p>
@@ -454,6 +448,4 @@ AreasSection.propTypes = {
     name: PropTypes.string.isRequired,
     enabled: PropTypes.bool,
   })).isRequired,
-  reloadKey: PropTypes.number,
-  onAreasChanged: PropTypes.func,
 };

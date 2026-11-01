@@ -10,7 +10,7 @@ import {
  *
  * @param {object} options
  * @param {() => Promise<void>} options.refreshLocations re-reads the locations
- * @param {(bump?: boolean) => Promise<void>} options.refreshAreas re-reads the areas
+ * @param {() => Promise<void>} options.refreshAreas re-reads the areas
  */
 export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   const [form, setForm] = useState(emptyAddForm);

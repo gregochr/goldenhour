@@ -21,6 +21,7 @@ const { stub } = vi.hoisted(() => ({
 vi.mock('../components/UserManagementView.jsx', () => stub('Users'));
 vi.mock('../components/LocationManagementView.jsx', () => stub('Locations'));
 vi.mock('../components/RegionManagementView.jsx', () => stub('Regions'));
+vi.mock('../components/AreaManagementView.jsx', () => stub('Areas'));
 vi.mock('../components/TideManagementView.jsx', () => stub('Tides'));
 vi.mock('../components/WaitlistManagementView.jsx', () => stub('Waitlist'));
 vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
@@ -49,7 +50,7 @@ const EXPECTED = [
   ] },
   { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },
   { group: 'places', label: 'Places', tabs: [
-    ['locations', 'Locations'], ['regions', 'Regions'], ['tides', 'Tides'],
+    ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
   ] },
   { group: 'people', label: 'People', tabs: [['users', 'Users'], ['waitlist', 'Waitlist']] },
   { group: 'testing', label: 'Testing', tabs: [['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },

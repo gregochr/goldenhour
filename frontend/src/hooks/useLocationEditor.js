@@ -24,7 +24,7 @@ import {
  * @param {Object|null} options.aliasesByLocation other names per location id, null until read
  * @param {Function} options.setAliasesByLocation sets that map
  * @param {() => Promise<void>} options.refreshLocations re-reads the locations
- * @param {(bump?: boolean) => Promise<void>} options.refreshAreas re-reads the areas
+ * @param {() => Promise<void>} options.refreshAreas re-reads the areas
  * @param {() => void} options.onLocationsChanged called after a save (and after an other-names failure)
  */
 export default function useLocationEditor({
