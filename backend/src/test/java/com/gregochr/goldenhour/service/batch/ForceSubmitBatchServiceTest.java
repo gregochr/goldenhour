@@ -233,12 +233,32 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(forecastService.fetchWeatherAndTriage(any(), any(), any(), any(), any(), any()))
-                .thenThrow(new RuntimeException("Open-Meteo down"));
+        // A fixed clock makes the four JFDI dates known, so every slot's call is stubbed with its exact
+        // arguments (and the model the stubbed selection returns) instead of any().
+        Clock fixed = Clock.fixed(Instant.parse("2027-08-12T10:00:00Z"), ZoneOffset.UTC);
+        ForceSubmitBatchService pinned = new ForceSubmitBatchService(
+                locationService, forecastService, modelSelectionService, evaluationService, fixed);
+        LocalDate today = LocalDate.of(2027, 8, 12);
+        List<LocalDate> dates = List.of(today, today.plusDays(1), today.plusDays(2), today.plusDays(3));
+        List<TargetType> events = List.of(TargetType.SUNRISE, TargetType.SUNSET);
+        for (LocalDate date : dates) {
+            for (TargetType event : events) {
+                when(forecastService.fetchWeatherAndTriage(
+                        eq(loc), eq(date), eq(event), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                        .thenThrow(new RuntimeException("Open-Meteo down"));
+            }
+        }
 
-        BatchSubmitResult result = service.submitJfdiBatch(null);
+        BatchSubmitResult result = pinned.submitJfdiBatch(null);
 
         assertThat(result).isNull();
+        // Every slot was attempted exactly once, and each failed.
+        for (LocalDate date : dates) {
+            for (TargetType event : events) {
+                verify(forecastService, times(1)).fetchWeatherAndTriage(
+                        eq(loc), eq(date), eq(event), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull());
+            }
+        }
         verify(evaluationService, never()).submit(anyList(), any());
     }
 
