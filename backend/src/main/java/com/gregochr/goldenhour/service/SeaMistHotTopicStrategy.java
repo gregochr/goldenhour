@@ -34,7 +34,8 @@ import java.util.List;
  *   <li>the band is exactly {@link CoastalMistBand#LIGHT} (never THICK, which is fog, and never NONE);</li>
  *   <li>the event is SUNRISE (there is no sunset evidence);</li>
  *   <li>the date is today or tomorrow in UK civil time (the evidence is short-lead forecasts);</li>
- *   <li>the site is on the east (North Sea) coast, longitude above {@value #EAST_COAST_MIN_LONGITUDE}, and
+ *   <li>the site is on the North Sea coast: longitude above {@value #EAST_COAST_MIN_LONGITUDE} and latitude at or
+ *       above {@value #NORTH_SEA_MIN_LATITUDE} (the longitude alone also admits the English Channel coast), and
  *       satisfies the Phase 1 predicate ({@link CoastalMistCalculator#appliesTo}): tide types, not
  *       {@code mist_prone};</li>
  *   <li>low cloud at the event slot is under {@value #SEA_MIST_TOPIC_MAX_LOW_CLOUD_PCT} %;</li>
@@ -54,6 +55,14 @@ public class SeaMistHotTopicStrategy implements HotTopicStrategy {
 
     /** Sites at or west of this longitude are off the North Sea coast (the Irish Sea is a different mechanism). */
     public static final double EAST_COAST_MIN_LONGITUDE = -2.5;
+
+    /**
+     * Sites south of this latitude are not treated as North Sea haar territory: the longitude test alone admits the
+     * English Channel coast (Dorset to Kent). 53.5 is roughly the Yorkshire coast northwards. A prior, like every
+     * threshold here: the evidence is Northumberland haar, so it is set to keep the claim near that evidence and is
+     * cheap to move once outcome ratings recalibrate it.
+     */
+    public static final double NORTH_SEA_MIN_LATITUDE = 53.5;
 
     /** Event-slot low cloud (percent) at or above which the topic is not raised. */
     public static final int SEA_MIST_TOPIC_MAX_LOW_CLOUD_PCT = 50;
@@ -122,7 +131,7 @@ public class SeaMistHotTopicStrategy implements HotTopicStrategy {
      *
      * @param signals the slot's composite
      * @return true when the band is LIGHT, the event is SUNRISE, the date is today or tomorrow, the site is on
-     *         the east coast and coastal, low cloud is under the limit and the slot is dry
+     *         the North Sea coast and coastal, low cloud is under the limit and the slot is dry
      */
     boolean qualifies(SlotSignals signals) {
         SlotSignals.Readings readings = signals.readings();
@@ -134,7 +143,8 @@ public class SeaMistHotTopicStrategy implements HotTopicStrategy {
             return false;
         }
         LocationEntity location = signals.location();
-        if (!CoastalMistCalculator.appliesTo(location) || location.getLon() <= EAST_COAST_MIN_LONGITUDE) {
+        if (!CoastalMistCalculator.appliesTo(location) || location.getLon() <= EAST_COAST_MIN_LONGITUDE
+                || location.getLat() < NORTH_SEA_MIN_LATITUDE) {
             return false;
         }
         Integer lowCloud = readings.coastalMistLowCloudPct();

@@ -184,7 +184,7 @@ describe('WindowGlanceDayTopics — the accessible name is built from content', 
     expect(pill('MIST')).toHaveAccessibleName(/weather-driven, Monday, opens the Map that evening$/);
   });
 
-  it('draws a SEA_MIST topic as its own "Sea" pill, a weather pill that opens the Map that morning', () => {
+  it('draws a SEA_MIST topic as a "Sea mist" weather pill that opens the Map that morning', () => {
     const seaMist = {
       type: 'SEA_MIST', label: 'Sea mist', date: SUN, eventType: 'SUNRISE',
       glance: { value: 'dawn · light mist, 1 site', shortValue: 'likely', weather: true },
@@ -192,7 +192,7 @@ describe('WindowGlanceDayTopics — the accessible name is built from content', 
     renderStacks({ topics: [seaMist] });
     const sea = pill('SEA_MIST');
     expect(sea).toBeDefined();
-    expect(sea).toHaveTextContent('Sea');
+    expect(sea.querySelector('.wf-dt-name')).toHaveTextContent(/^Sea mist$/);
     expect(sea).toHaveAccessibleName(/^Sea mist .*weather-driven, Sunday, opens the Map that morning$/);
   });
 

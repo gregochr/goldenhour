@@ -27,8 +27,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link SeaMistHotTopicStrategy} (coastal-mist-plan Phase 2). Every gate gets a test where it
- * alone fails, against a base slot that passes all of them, so a gate that was dropped or widened is caught.
+ * Unit tests for {@link SeaMistHotTopicStrategy} (coastal-mist-plan Phase 2). Every gate is proven in isolation by
+ * asserting {@code qualifies} directly on a positive row and on a row that differs ONLY in that gate, so a negative
+ * case cannot pass vacuously through the freshness filter (an unstubbed mock answers "passed"). The {@code detect}
+ * tests stub freshness ahead and cover the grouping, wording and the freshness drop.
  */
 @ExtendWith(MockitoExtension.class)
 class SeaMistHotTopicStrategyTest {
@@ -52,8 +54,9 @@ class SeaMistHotTopicStrategyTest {
         strategy = new SeaMistHotTopicStrategy(slotSignalReader, freshness, CLOCK);
     }
 
-    private static LocationEntity location(long id, String name, double lon, Set<TideType> tides, boolean mistProne) {
-        LocationEntity location = LocationEntity.builder().id(id).name(name).lon(lon).tideType(tides)
+    private static LocationEntity location(long id, String name, double lat, double lon, Set<TideType> tides,
+            boolean mistProne) {
+        LocationEntity location = LocationEntity.builder().id(id).name(name).lat(lat).lon(lon).tideType(tides)
                 .mistProne(mistProne).build();
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");
@@ -62,7 +65,7 @@ class SeaMistHotTopicStrategyTest {
     }
 
     private static LocationEntity boulmer() {
-        return location(1L, "Boulmer", -1.59, Set.of(TideType.HIGH), false);
+        return location(1L, "Boulmer", 55.42, -1.59, Set.of(TideType.HIGH), false);
     }
 
     private static SlotSignals row(LocationEntity location, LocalDate date, TargetType event,
@@ -115,7 +118,7 @@ class SeaMistHotTopicStrategyTest {
     @DisplayName("two sites on one date are one topic naming both, and tomorrow is its own topic")
     void groupsPerDate() {
         LocationEntity boulmer = boulmer();
-        LocationEntity whitby = location(2L, "Whitby", -0.61, Set.of(TideType.LOW), false);
+        LocationEntity whitby = location(2L, "Whitby", 54.49, -0.61, Set.of(TideType.LOW), false);
         LocalDate tomorrow = TODAY.plusDays(1);
         stubAhead(boulmer, TODAY);
         stubAhead(whitby, TODAY);
@@ -129,102 +132,111 @@ class SeaMistHotTopicStrategyTest {
         assertThat(topics.getFirst().facts().getFirst().value()).isEqualTo("likely at 2 sites");
     }
 
+    /** Asserts the gate in isolation: the passing row qualifies and the row differing only in that gate does not. */
+    private void assertGate(SlotSignals positive, SlotSignals negative) {
+        assertThat(strategy.qualifies(positive)).as("the matching positive row qualifies").isTrue();
+        assertThat(strategy.qualifies(negative)).as("the row failing only this gate does not").isFalse();
+    }
+
     @Test
-    @DisplayName("THICK and NONE never fire, even with every other gate passing")
-    void thickAndNoneNeverFire() {
+    @DisplayName("band gate: LIGHT qualifies; THICK and NONE never do, with every other gate passing")
+    void bandGate() {
         LocationEntity site = boulmer();
-
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.THICK, true, 30, 0.0)))
-                .isEmpty();
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.NONE, true, 30, 0.0)))
-                .isEmpty();
+        SlotSignals light = passing(site, TODAY);
+        assertGate(light, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.THICK, true, 30, 0.0));
+        assertGate(light, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.NONE, true, 30, 0.0));
     }
 
     @Test
-    @DisplayName("a row the coastal check never scored does not fire, whatever band it carries")
-    void unscoredRowDoesNotFire() {
-        assertThat(detectOver(row(boulmer(), TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, false, 30, 0.0)))
-                .isEmpty();
+    @DisplayName("scored gate: an unscored row does not qualify, whatever band it carries")
+    void scoredGate() {
+        LocationEntity site = boulmer();
+        assertGate(passing(site, TODAY),
+                row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, false, 30, 0.0));
     }
 
     @Test
-    @DisplayName("a SUNSET slot does not fire")
-    void sunsetDoesNotFire() {
-        assertThat(detectOver(row(boulmer(), TODAY, TargetType.SUNSET, CoastalMistBand.LIGHT, true, 30, 0.0)))
-                .isEmpty();
+    @DisplayName("event gate: SUNRISE qualifies, SUNSET does not")
+    void eventGate() {
+        LocationEntity site = boulmer();
+        assertGate(passing(site, TODAY),
+                row(site, TODAY, TargetType.SUNSET, CoastalMistBand.LIGHT, true, 30, 0.0));
     }
 
     @Test
-    @DisplayName("daysAhead 1 fires and daysAhead 2 does not")
+    @DisplayName("daysAhead gate: 1 qualifies, 2 does not")
     void daysAheadGate() {
         LocationEntity site = boulmer();
-        LocalDate tomorrow = TODAY.plusDays(1);
-        stubAhead(site, tomorrow);
-
-        assertThat(detectOver(passing(site, tomorrow))).hasSize(1);
-        assertThat(detectOver(passing(site, TODAY.plusDays(2)))).isEmpty();
+        assertGate(passing(site, TODAY.plusDays(1)), passing(site, TODAY.plusDays(2)));
     }
 
     @Test
-    @DisplayName("daysAhead is counted on the UK civil date: 00:30 BST on 1 July is already 1 July")
+    @DisplayName("daysAhead is counted on the UK civil date: 00:30 BST on 1 July makes 2 July daysAhead 1, 3 July 2")
     void daysAheadUsesUkCivilDate() {
-        // 23:30 UTC on 30 June is 00:30 BST on 1 July, so UK today is 1 July: 2 July is daysAhead 1, 3 July is 2.
         Clock justAfterUkMidnight = Clock.fixed(Instant.parse("2026-06-30T23:30:00Z"), ZoneOffset.UTC);
         SeaMistHotTopicStrategy bst = new SeaMistHotTopicStrategy(slotSignalReader, freshness, justAfterUkMidnight);
         LocationEntity site = boulmer();
         LocalDate july2 = LocalDate.of(2026, 7, 2);
         LocalDate july3 = LocalDate.of(2026, 7, 3);
+
+        assertThat(bst.qualifies(passing(site, july2))).isTrue();
+        assertThat(bst.qualifies(passing(site, july3))).isFalse();
         stubAhead(site, july2);
         when(slotSignalReader.read(july2, july3)).thenReturn(List.of(passing(site, july2), passing(site, july3)));
-
-        List<HotTopic> topics = bst.detect(july2, july3);
-
-        assertThat(topics).extracting(HotTopic::date).containsExactly(july2);
+        assertThat(bst.detect(july2, july3)).extracting(HotTopic::date).containsExactly(july2);
     }
 
     @Test
-    @DisplayName("longitude -2.49 is east coast and fires; -2.50 and -2.51 do not")
+    @DisplayName("longitude gate: -2.49 qualifies; -2.50 and -2.51 do not")
     void longitudeGate() {
-        LocationEntity east = location(3L, "East edge", -2.49, Set.of(TideType.HIGH), false);
-        stubAhead(east, TODAY);
-
-        assertThat(detectOver(passing(east, TODAY))).hasSize(1);
-        assertThat(detectOver(passing(location(4L, "On the line", -2.5, Set.of(TideType.HIGH), false), TODAY)))
-                .isEmpty();
-        assertThat(detectOver(passing(location(5L, "West edge", -2.51, Set.of(TideType.HIGH), false), TODAY)))
-                .isEmpty();
+        SlotSignals east = passing(location(3L, "East edge", 55.0, -2.49, Set.of(TideType.HIGH), false), TODAY);
+        assertGate(east, passing(location(4L, "On the line", 55.0, -2.5, Set.of(TideType.HIGH), false), TODAY));
+        assertGate(east, passing(location(5L, "West edge", 55.0, -2.51, Set.of(TideType.HIGH), false), TODAY));
     }
 
     @Test
-    @DisplayName("a mist_prone site, and a site with no tide types, do not fire")
+    @DisplayName("latitude gate: 53.5 (the North Sea floor) qualifies; 53.49 does not, so the Channel coast is out")
+    void latitudeGate() {
+        SlotSignals floor = passing(location(8L, "Floor", 53.5, -1.0, Set.of(TideType.HIGH), false), TODAY);
+        assertGate(floor, passing(location(9L, "Below", 53.49, -1.0, Set.of(TideType.HIGH), false), TODAY));
+        assertThat(strategy.qualifies(
+                passing(location(10L, "Brighton", 50.82, -0.14, Set.of(TideType.HIGH), false), TODAY))).isFalse();
+    }
+
+    @Test
+    @DisplayName("coastal predicate gate: a mist_prone site and a site with no tide types do not qualify")
     void coastalPredicateGate() {
-        assertThat(detectOver(passing(location(6L, "Prone", -1.5, Set.of(TideType.HIGH), true), TODAY))).isEmpty();
-        assertThat(detectOver(passing(location(7L, "Inland", -1.5, Set.of(), false), TODAY))).isEmpty();
+        SlotSignals coastal = passing(boulmer(), TODAY);
+        assertGate(coastal, passing(location(6L, "Prone", 55.0, -1.5, Set.of(TideType.HIGH), true), TODAY));
+        assertGate(coastal, passing(location(7L, "Inland", 55.0, -1.5, Set.of(), false), TODAY));
     }
 
     @Test
-    @DisplayName("low cloud 49 fires and 50 does not; a missing reading does not")
+    @DisplayName("low cloud gate: 49 qualifies; 50 and a missing reading do not")
     void lowCloudGate() {
         LocationEntity site = boulmer();
-        stubAhead(site, TODAY);
-
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 49, 0.0)))
-                .hasSize(1);
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 50, 0.0)))
-                .isEmpty();
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, null, 0.0)))
-                .isEmpty();
+        SlotSignals at49 = row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 49, 0.0);
+        assertGate(at49, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 50, 0.0));
+        assertGate(at49, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, null, 0.0));
     }
 
     @Test
-    @DisplayName("any precipitation, or a missing reading, does not fire")
+    @DisplayName("precipitation gate: 0.0 qualifies; 0.1 and a missing reading do not")
     void precipitationGate() {
         LocationEntity site = boulmer();
+        SlotSignals dry = row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 30, 0.0);
+        assertGate(dry, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 30, 0.1));
+        assertGate(dry, row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 30, null));
+    }
 
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 30, 0.1)))
-                .isEmpty();
-        assertThat(detectOver(row(site, TODAY, TargetType.SUNRISE, CoastalMistBand.LIGHT, true, 30, null)))
-                .isEmpty();
+    @Test
+    @DisplayName("readings absent altogether (the EMPTY surface) do not qualify")
+    void emptyReadingsDoNotQualify() {
+        LocationEntity site = boulmer();
+        SlotSignals empty = new SlotSignals(site, TODAY, TargetType.SUNRISE, SlotSignals.Scores.EMPTY,
+                SlotSignals.Readings.EMPTY);
+
+        assertGate(passing(site, TODAY), empty);
     }
 
     @Test
@@ -233,15 +245,7 @@ class SeaMistHotTopicStrategyTest {
         LocationEntity site = boulmer();
         when(freshness.isAhead(site, TODAY, TargetType.SUNRISE)).thenReturn(false);
 
+        assertThat(strategy.qualifies(passing(site, TODAY))).isTrue();
         assertThat(detectOver(passing(site, TODAY))).isEmpty();
-    }
-
-    @Test
-    @DisplayName("readings absent altogether (the EMPTY surface) do not fire")
-    void emptyReadingsDoNotFire() {
-        SlotSignals empty = new SlotSignals(boulmer(), TODAY, TargetType.SUNRISE, SlotSignals.Scores.EMPTY,
-                SlotSignals.Readings.EMPTY);
-
-        assertThat(detectOver(empty)).isEmpty();
     }
 }

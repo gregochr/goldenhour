@@ -117,3 +117,45 @@ describe('chipName — the Coming up day tile\'s phone name (coming-up-glance-pl
     expect(topicStyle('LUNAR_ECLIPSE').shortName).toBe('Lunar ecl.');
   });
 });
+
+// --- Colour-vision check: the Map's rings are colour-only, so SEA_MIST must stay apart under deficiency. ---
+const toLinear = (c) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+const hexToLinear = (hex) => [1, 3, 5].map((i) => toLinear(parseInt(hex.slice(i, i + 2), 16)));
+// Machado 2009 (severity 1.0) matrices, applied in linear RGB.
+const CVD = {
+  deuteranopia: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.01182, 0.04294, 0.968881]],
+  protanopia: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+};
+const toLab = (hex, matrix) => {
+  const lin = hexToLinear(hex);
+  const [r, g, b] = matrix.map((row) => row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2]);
+  const X = 0.4124 * r + 0.3576 * g + 0.1805 * b;
+  const Y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const Z = 0.0193 * r + 0.1192 * g + 0.9505 * b;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const [fx, fy, fz] = [f(X / 0.95047), f(Y), f(Z / 1.08883)];
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+};
+const deltaE76 = (a, b, matrix) => {
+  const [la, lb] = [toLab(a, matrix), toLab(b, matrix)];
+  return Math.hypot(la[0] - lb[0], la[1] - lb[1], la[2] - lb[2]);
+};
+const luminance = (hex) => { const [r, g, b] = hexToLinear(hex); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+
+describe('SEA_MIST swatch', () => {
+  const NEIGHBOURS = { BIG_SEAS: '#8FC0C7', MIST: '#8FA3B8', TIDE_TEAL: '#6FA8B0', PLEX_DAWN: '#8FA8C4' };
+
+  it.each(Object.entries(NEIGHBOURS))('stays at least 10 delta-E from %s under deuteranopia and protanopia', (name, hex) => {
+    for (const [vision, matrix] of Object.entries(CVD)) {
+      expect(deltaE76(SWATCH_COLOR.SEA_MIST, hex, matrix), `${name} ${vision}`).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it('reads on the dark background at 4.5:1 or better', () => {
+    expect(contrast(SWATCH_COLOR.SEA_MIST, '#181210')).toBeGreaterThanOrEqual(4.5);
+  });
+});

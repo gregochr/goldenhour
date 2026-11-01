@@ -1013,6 +1013,8 @@ describe('badgeChannel', () => {
     ['SNOW_FRESH', 'snow'],
     ['SNOW_TOPS', 'snow'],
     ['FROST', 'snow'],
+    ['SEA_MIST', 'plain'],
+    ['MIST', 'plain'],
   ])('routes %s to the %s channel', (type, channel) => {
     expect(badgeChannel(type)).toBe(channel);
   });

@@ -147,6 +147,7 @@ class HotTopicInputsEquivalenceTest {
                             new SeasonalWindow(MonthDay.of(1, 1), MonthDay.of(12, 31), "test"), freshness),
                     new StormSurgeHotTopicStrategy(reader, surgeFacts),
                     new MistHotTopicStrategy(reader, freshness),
+                    new SeaMistHotTopicStrategy(reader, freshness, clock),
                     new DustHotTopicStrategy(reader, freshness, new DustFactsBuilder(solar)),
                     new InversionHotTopicStrategy(reader, freshness),
                     new SnowFreshHotTopicStrategy(reader, freshness),
