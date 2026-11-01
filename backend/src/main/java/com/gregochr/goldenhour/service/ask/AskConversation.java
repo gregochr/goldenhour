@@ -127,7 +127,14 @@ final class AskConversation {
         // One lookup of the enabled locations, shared by nearHome's coordinates and the thread's names:
         // however many readers ask, the conversation pays for one query.
         AskLocationNames places = AskLocationNames.memoised(deps.names());
-        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper(), places);
+        // A Ready pick question may only pick from its offer's windows, so rank_spots is confined to them
+        // (the set ReadyRelevance.admitsPick checks). Night and events questions stay unbounded: their
+        // offers carry a night id or none, which would empty the ranking.
+        AskAnswerValidator.ReadyBasis basis = opts.readyBasis();
+        List<String> windowBound = basis != null && basis.question().picks() && !basis.question().nightBound()
+                ? basis.offer().windowIds() : null;
+        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper(), places,
+                windowBound);
         ReadyQuestion eventsQuestion = ReadyIntentRules.eventsQuestion(question).orElse(null);
         // The thread's earlier picks and events are reconciled with the live forecast once, here: what
         // is still there is offered to the validator beside what the tools return.
