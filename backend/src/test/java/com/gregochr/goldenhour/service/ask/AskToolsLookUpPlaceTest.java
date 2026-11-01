@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.service.ask.AskTools.PlaceDetail;
 import com.gregochr.goldenhour.service.ask.AskTools.PlaceInfo;
 import com.gregochr.goldenhour.service.ask.AskTools.PlaceStatus;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
+import com.gregochr.goldenhour.util.PlaceNames;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -872,6 +873,297 @@ class AskToolsLookUpPlaceTest {
         assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
         assertThat(payload.places()).extracting(PlaceInfo::matchedAlias).containsOnly(alias);
         System.out.println("[look_up_place] detail alias worst-case payload chars: " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    // -- closest spelling (ask-place-explain plan E2) ---------------------------------------
+
+    private static final String NORTHUMBERLAND = "Northumberland";
+
+    private static BriefingRegion northumberland() {
+        return AskFixtures.region(NORTHUMBERLAND, true,
+                AskFixtures.slot(1L, "Bamburgh", 4), AskFixtures.slot(2L, "Bamburgh Beach", 4),
+                AskFixtures.slot(3L, "Bamburgh Castle", 4), AskFixtures.slot(4L, "Alnmouth", 4),
+                AskFixtures.slot(5L, "Alnmouth Estuary", 3), AskFixtures.slot(6L, "Grey Moor", 3),
+                AskFixtures.slot(17L, "Steel Rigg", 4));
+    }
+
+    private static BriefingRegion yorkshire() {
+        return AskFixtures.region("Yorkshire Coast", true,
+                AskFixtures.slot(7L, "Flamborough Head", 4), AskFixtures.slot(8L, "Scarborough", 3),
+                AskFixtures.slot(9L, "Whitby Abbey", 4), AskFixtures.slot(10L, "Whitby Piers", 4),
+                AskFixtures.slot(11L, "Whitby West Cliff", 3), AskFixtures.slot(12L, "Saltwick Bay", 3));
+    }
+
+    private static BriefingRegion durham() {
+        return AskFixtures.region("Durham", true,
+                AskFixtures.slot(13L, "Seaham", 3), AskFixtures.slot(15L, "Hartlepool Headland", 4),
+                AskFixtures.slot(16L, "Stanley Gill Force", 3));
+    }
+
+    private static BriefingRegion lakes() {
+        return AskFixtures.region("Lakes", true, AskFixtures.slot(14L, "Orrest Head", 4));
+    }
+
+    /** The realistic name fixture (plan §5.4): similar names, decoys, an alias and the area Hadrian's Wall. */
+    private static AskSnapshot realistic() {
+        return snapshotOf(northumberland(), yorkshire(), durham(), lakes()).withNames(
+                List.of(new AskSnapshot.Area("Hadrian's Wall", List.of(), java.util.Set.of(17L))),
+                Map.of(15L, List.of("Heugh Lighthouse")));
+    }
+
+    @Test
+    @DisplayName("'Bamborough' finds all three Bamburgh places, says what it was read as, and never Flamborough")
+    void misspeltNameFindsEveryPlaceCarryingTheCorrection() {
+        AskTools tools = tools(realistic());
+
+        LookUpPlaceResult result = ok(tools.lookUpPlace(name("Bamborough")));
+
+        assertThat(names(result)).containsExactly("Bamburgh", "Bamburgh Beach", "Bamburgh Castle");
+        assertThat(result.closestTo()).isEqualTo("Bamborough");
+        assertThat(result.suggestions()).isNull();
+        assertThat(names(result)).doesNotContain("Flamborough Head");
+        assertThat(tools.evidence().pairs()).isEmpty();
+        assertThat(tools.evidence().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("'Witby' finds all three Whitby rows (a shared name is not a tie)")
+    void misspeltSharedNameFindsAllOfThem() {
+        LookUpPlaceResult result = ok(tools(realistic()).lookUpPlace(name("Witby")));
+
+        assertThat(names(result)).containsExactly("Whitby Abbey", "Whitby Piers", "Whitby West Cliff");
+        assertThat(result.closestTo()).isEqualTo("Witby");
+        assertThat(result.places()).extracting(PlaceInfo::detail).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("a correct spelling carries no closestTo")
+    void exactSpellingHasNoClosestTo() {
+        LookUpPlaceResult result = ok(tools(realistic()).lookUpPlace(name("Whitby")));
+
+        assertThat(names(result)).hasSize(3);
+        assertThat(result.closestTo()).isNull();
+        assertThat(result.suggestions()).isNull();
+    }
+
+    @Test
+    @DisplayName("'moors', 'Newcastle', 'Alnwick' and 'Hexham' match no real location, even fuzzily")
+    void everydayWordsAreNotCorrectedIntoPlaces() {
+        AskTools tools = tools(realistic());
+
+        for (String query : List.of("moors", "Newcastle", "Alnwick", "Hexham")) {
+            LookUpPlaceResult result = ok(tools.lookUpPlace(name(query)));
+            assertThat(result.places()).as(query).isEmpty();
+            assertThat(result.note()).as(query).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+            assertThat(result.closestTo()).as(query).isNull();
+            assertThat(result.suggestions()).as(query).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("a name that exists in an unrequested window is never corrected into another place")
+    void existingNameInAnotherWindowIsNotCorrected() {
+        BriefingRegion today = AskFixtures.region(NORTHUMBERLAND, true, AskFixtures.slot(1L, "Almouth Bay", 4));
+        BriefingRegion tomorrow = AskFixtures.region(NORTHUMBERLAND, true, AskFixtures.slot(2L, "Alnmouth", 4));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, null, today),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrow)), List.of()));
+
+        LookUpPlaceResult result = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs("Alnmouth",
+                List.of(TODAY_SUNSET))));
+
+        assertThat(result.places()).isEmpty();
+        assertThat(result.note()).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+        assertThat(result.closestTo()).isNull();
+    }
+
+    @Test
+    @DisplayName("a correction whose place is in another window says so: closestTo, no places, 'not in these windows'")
+    void correctedPlaceInAnotherWindow() {
+        BriefingRegion today = AskFixtures.region(NORTHUMBERLAND, true, AskFixtures.slot(1L, "Bamburgh", 4));
+        BriefingRegion tomorrow = AskFixtures.region("Yorkshire Coast", true, AskFixtures.slot(2L, "Whitby Abbey", 4));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, null, today),
+                AskFixtures.sunsetDay(TODAY.plusDays(1), null, tomorrow)), List.of()));
+
+        LookUpPlaceResult result = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs("Witby",
+                List.of(TODAY_SUNSET))));
+
+        assertThat(result.places()).isEmpty();
+        assertThat(result.note()).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+        assertThat(result.closestTo()).isEqualTo("Witby");
+    }
+
+    @Test
+    @DisplayName("two names as near as each other: no places, the in-scope names as suggestions, and the tie note")
+    void tieGivesSuggestions() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Seaton", 4), AskFixtures.slot(2L, "Seaham", 4),
+                AskFixtures.slot(3L, "Seaham Hall", 4));
+
+        AskTools tools = tools(snapshotOf(coast));
+        LookUpPlaceResult result = ok(tools.lookUpPlace(name("Seaxom")));
+
+        assertThat(result.places()).isEmpty();
+        assertThat(result.closestTo()).isNull();
+        assertThat(result.suggestions()).containsExactly("Seaham", "Seaham Hall", "Seaton");
+        assertThat(result.note()).isEqualTo("No place has that spelling; closest names are in suggestions.");
+        assertThat(tools.evidence().pairs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("suggestions are cut at three, nearest first and then alphabetical")
+    void suggestionsAreCappedAtThree() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Seaton", 4), AskFixtures.slot(2L, "Seaham", 4),
+                AskFixtures.slot(3L, "Seabum", 4), AskFixtures.slot(4L, "Seayon", 4));
+
+        LookUpPlaceResult result = ok(tools(snapshotOf(coast)).lookUpPlace(name("Seaxom")));
+
+        assertThat(result.suggestions()).containsExactly("Seabum", "Seaham", "Seaton");
+    }
+
+    @Test
+    @DisplayName("two edits is not a clear win while another name is three away; one name alone wins at two")
+    void marginRuleAtTwoEdits() {
+        String query = "lindisfarnexe";
+        assertThat(PlaceNames.prefixDistance(PlaceNames.words("Lindisfarne"), PlaceNames.words(query))).isEqualTo(2);
+        assertThat(PlaceNames.prefixDistance(PlaceNames.words("Lindisfarn Priory"), PlaceNames.words(query)))
+                .isEqualTo(3);
+        BriefingRegion both = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Lindisfarne", 4), AskFixtures.slot(2L, "Lindisfarn Priory", 4));
+        BriefingRegion alone = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Lindisfarne", 4));
+
+        LookUpPlaceResult tie = ok(tools(snapshotOf(both)).lookUpPlace(name(query)));
+        LookUpPlaceResult win = ok(tools(snapshotOf(alone)).lookUpPlace(name(query)));
+
+        assertThat(tie.places()).isEmpty();
+        assertThat(tie.suggestions()).containsExactly("Lindisfarne", "Lindisfarn Priory");
+        assertThat(names(win)).containsExactly("Lindisfarne");
+        assertThat(win.closestTo()).isEqualTo(query);
+    }
+
+    @Test
+    @DisplayName("a three-letter query is never fuzzy")
+    void threeLettersAreNeverFuzzy() {
+        // "alm" is one edit from the start of "alnmouth", and the name is a whole word away: still nothing.
+        LookUpPlaceResult result = ok(tools(snapshotOf(AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Aln", 4)))).lookUpPlace(name("Alm")));
+
+        assertThat(result.places()).isEmpty();
+        assertThat(result.note()).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+        assertThat(result.closestTo()).isNull();
+        assertThat(result.suggestions()).isNull();
+    }
+
+    @Test
+    @DisplayName("a misspelling of an out-of-scope place gives the scope note, no closestTo and no name anywhere")
+    void outOfScopeMisspellingLeaksNothing() {
+        AskToolResult<LookUpPlaceResult> raw = tools(realistic(), TestScopes.of(NORTHUMBERLAND))
+                .lookUpPlace(name("Witby"));
+        LookUpPlaceResult result = ok(raw);
+
+        assertThat(result.places()).isEmpty();
+        assertThat(result.note()).isEqualTo(AskTools.PLACE_OUT_OF_SCOPE_NOTE);
+        assertThat(result.closestTo()).isNull();
+        assertThat(result.suggestions()).isNull();
+        assertThat(raw.content()).doesNotContainIgnoringCase("whitby");
+    }
+
+    @Test
+    @DisplayName("a tie among out-of-scope names suggests none of them and gives the scope note")
+    void outOfScopeTieSuggestsNothing() {
+        BriefingRegion elsewhere = AskFixtures.region("Elsewhere", true,
+                AskFixtures.slot(1L, "Seaton", 4), AskFixtures.slot(2L, "Seaham", 4));
+        BriefingRegion here = AskFixtures.region(NORTHUMBERLAND, true, AskFixtures.slot(3L, "Bamburgh", 4));
+
+        AskToolResult<LookUpPlaceResult> raw = tools(snapshotOf(elsewhere, here), TestScopes.of(NORTHUMBERLAND))
+                .lookUpPlace(name("Seaxom"));
+
+        assertThat(ok(raw).suggestions()).isNull();
+        assertThat(ok(raw).note()).isEqualTo(AskTools.PLACE_OUT_OF_SCOPE_NOTE);
+        assertThat(raw.content()).doesNotContainIgnoringCase("seaton").doesNotContainIgnoringCase("seaham");
+    }
+
+    @Test
+    @DisplayName("'Hadrians Wal' takes the named-area branch, with closestTo")
+    void misspeltAreaReachesTheAreaBranch() {
+        LookUpPlaceResult result = ok(tools(realistic()).lookUpPlace(name("Hadrians Wal")));
+
+        assertThat(result.area()).isNotNull();
+        assertThat(result.area().name()).isEqualTo("Hadrian's Wall");
+        assertThat(result.closestTo()).isEqualTo("Hadrians Wal");
+        assertThat(result.places()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("'Gil Force' is not read as Stanley Gill Force: a misspelling is compared from the start of a name")
+    void leadingRunsOnly() {
+        LookUpPlaceResult misspelt = ok(tools(realistic()).lookUpPlace(name("Gil Force")));
+        LookUpPlaceResult exact = ok(tools(realistic()).lookUpPlace(name("Gill Force")));
+
+        assertThat(misspelt.places()).isEmpty();
+        assertThat(misspelt.note()).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+        assertThat(misspelt.closestTo()).isNull();
+        // The exact pass is unchanged: a correct run inside a name still finds it.
+        assertThat(names(exact)).containsExactly("Stanley Gill Force");
+    }
+
+    @Test
+    @DisplayName("a misspelt alias is corrected and reports the alias it matched")
+    void misspeltAliasSetsMatchedAlias() {
+        LookUpPlaceResult result = ok(tools(realistic()).lookUpPlace(name("Heuh")));
+
+        assertThat(names(result)).containsExactly("Hartlepool Headland");
+        assertThat(only(result).matchedAlias()).isEqualTo("Heugh Lighthouse");
+        assertThat(result.closestTo()).isEqualTo("Heuh");
+    }
+
+    @Test
+    @DisplayName("a transposed and a split spelling are both read: 'Bmaburgh' and 'Bamburg h'")
+    void transposedAndSplitSpellings() {
+        LookUpPlaceResult transposed = ok(tools(realistic()).lookUpPlace(name("Bmaburgh")));
+        LookUpPlaceResult split = ok(tools(realistic()).lookUpPlace(name("Bamburg h")));
+
+        assertThat(names(transposed)).contains("Bamburgh");
+        assertThat(names(split)).contains("Bamburgh");
+        assertThat(split.closestTo()).isEqualTo("Bamburg h");
+    }
+
+    @Test
+    @DisplayName("closestTo echoes the reader's spelling with quotes swapped and at most the cap")
+    void closestToIsBoundedAndQuoteSafe() {
+        LookUpPlaceResult result = ok(tools(realistic()).lookUpPlace(name("\"Bamborough\\")));
+
+        assertThat(result.closestTo()).isEqualTo("'Bamborough");
+        assertThat(result.closestTo().length()).isLessThanOrEqualTo(AskTools.CLOSEST_TO_CAP);
+    }
+
+    @Test
+    @DisplayName("the older result constructors stay, and a result with neither field omits both keys")
+    void resultOmitsTheNewKeysWhenNull() throws Exception {
+        LookUpPlaceResult plain = new LookUpPlaceResult(List.of(), "a note");
+
+        assertThat(plain.closestTo()).isNull();
+        assertThat(plain.suggestions()).isNull();
+        assertThat(mapper.writeValueAsString(plain)).doesNotContain("closestTo").doesNotContain("suggestions");
+        assertThat(new LookUpPlaceResult(List.of(), null, "n", null).suggestions()).isNull();
+    }
+
+    @Test
+    @DisplayName("worst case through the correction path: six windows of a long name still fit 4,500 characters")
+    void correctionWorstCaseFitsHalfTheCap() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        AskSnapshot snapshot = daysOf(6, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                worstExplained(1L, place)));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmoth estuary"));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.closestTo()).isEqualTo("alnmoth estuary");
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        System.out.println("[look_up_place] correction worst-case payload chars: " + result.content().length());
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
 }

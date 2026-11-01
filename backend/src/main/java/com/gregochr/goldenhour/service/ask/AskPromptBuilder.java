@@ -56,7 +56,8 @@ public class AskPromptBuilder {
             in one clause why PhotoCast is not suggesting the place, using the reason given for its \
             status. Never give it as a pick. If the reader also wants somewhere to go, call \
             rank_spots. \
-            If look_up_place returns no places and no named area, read its note and answer answerable false: when the \
+            If look_up_place returns no places, no named area, no closestTo and no suggestions, read its note \
+            and answer answerable false: when the \
             note says the place is outside the regions this question is about, say exactly that, never \
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \
@@ -64,7 +65,11 @@ public class AskPromptBuilder {
             suggest places in a named area, call rank_spots with areaName. Each call covers one named \
             area: when the question names several ("Swaledale or Wensleydale"), call once per area; \
             a result's "Also matched areas" note lists the ones it did not answer. A place may also be found by \
-            another name ("the Heugh"); call it by its listed name, adding the name the reader used.
+            another name ("the Heugh"); call it by its listed name, adding the name the reader used. \
+            If the result has closestTo, the reader's spelling matched no place and the result is for \
+            the closest name: start the answer "Assuming you mean <name>,". If it has suggestions, call \
+            look_up_place again with the one the reader plainly meant and start the answer the same way. \
+            If none fits, answer answerable false and name the suggestions as the places they may mean.
             """;
 
     /** The rules every conversation runs under. */

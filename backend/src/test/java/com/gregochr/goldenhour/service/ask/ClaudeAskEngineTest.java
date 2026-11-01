@@ -726,6 +726,45 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("a spelling tie costs a turn: list_windows, look_up_place (suggestions), look_up_place again and "
+            + "submit_answer finish inside the four-turn budget, with no pick evidence")
+    void spellingTieThenRecallFitsTheTurnBudget() {
+        AskSnapshot tied = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Durham", true, AskFixtures.slot(13L, "Seaham", 3),
+                        AskFixtures.slot(14L, "Seaton", 4)))), List.of()));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("first", "look_up_place", Map.of("name", "Seaxom"))),
+                toolTurn(tool("second", "look_up_place", Map.of("name", "Seaham"))),
+                submit(Map.of("answerable", true, "summary", "Assuming you mean Seaham, it is rated 3.")));
+
+        AskRun run = engine.run(question("Is Seaxom any good tonight?"), tied, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(4);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
+                .containsExactly("list_windows", "look_up_place", "look_up_place", "submit_answer");
+        assertThat(run.outcome().answer().picks()).isEmpty();
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(4);
+        // Turn 3 carries the tie: the first lookup's result, with suggestions and no guess.
+        assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "first");
+        assertThat(resultFor(sent.get(2), "first")).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]")
+                .doesNotContain("closestTo").contains("\"places\":[]");
+        // Turn 4 carries the re-call's own result: the corrected place's row, not suggestions.
+        assertThat(toolResultsIn(sent.get(3))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "first", "second");
+        assertThat(resultFor(sent.get(3), "second")).contains("\"name\":\"Seaham\"")
+                .doesNotContain("suggestions").doesNotContain("Seaton");
+    }
+
+    private String resultFor(MessageCreateParams params, String toolUseId) {
+        return toolResultsIn(params).stream().filter(r -> r.toolUseId().equals(toolUseId)).findFirst()
+                .orElseThrow().content().orElseThrow().string().orElseThrow();
+    }
+
+    @Test
     @DisplayName("a pick built from a looked-up place is dropped: look_up_place is not rank_spots")
     void pickFromALookupIsDropped() {
         AskRun run = run(USER,

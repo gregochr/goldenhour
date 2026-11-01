@@ -273,6 +273,29 @@ with detail 3,942; the existing no-detail cases are untouched (3,785, 2,503, 4,1
 /api/ask` is `AskAdmissionTest.liteIsRefusedBeforeTheLimiterCounts`. Mutation check: forcing "about one place" to
 true fails `twoNonExactPlacesGetNoDetail`.
 
+**E2 (built 2026-11-01).** As specified in §5, with these particulars:
+
+- `PlaceNames` gained `prefixDistance`, `allowedEdits` and a public `PrefixMatch(distance, words)` record with
+  `prefixMatch` (the leading-run length that gave the distance, shortest on a tie), which the spelling text
+  needs. `words` and `containsRun` are untouched.
+- `lookUpPlace` is split: `attempt` (the exact and area passes, over given words and windows) and
+  `closestSpelling` (X9 check, scoring, winner or tie, one re-entry). The X9 "same check for area names" needs
+  no extra code: the area pass already ran over every area before the fallback.
+- A named-area result reached through a correction carries `closestTo` too (`LookUpPlaceResult` is the record
+  that holds it).
+- `closestTo` is the reader's text with surrounding space stripped, `"` swapped for `'`, `\` dropped and cut at
+  `CLOSEST_TO_CAP` 60, so JSON escaping cannot grow it.
+- A tie's suggestions come only from place names (not area names); a tie among area names or out-of-scope
+  places alone returns `PLACE_OUT_OF_SCOPE_NOTE`.
+- "Gill Force no longer matches Stanley Gill Force" cannot hold for the exact pass, which still finds it (a run
+  inside a name; unchanged by design). The leading-run choice is pinned by "Gil Force" finding nothing.
+- Worst-case payloads (limit 4,500, unchanged): correction of a six-window long name with detail 3,696; the
+  earlier cases are unchanged (3,785, 2,503, 4,199, 3,666, 3,942).
+- The turn-budget test is `ClaudeAskEngineTest.spellingTieThenRecallFitsTheTurnBudget`.
+- Mutation check: dropping the first-letter rule fails `misspeltNameFindsEveryPlaceCarryingTheCorrection`
+  (Flamborough Head joined the Bamburgh places), `everydayWordsAreNotCorrectedIntoPlaces` ("Alnwick") and
+  `prefixDistance_firstLetter`.
+
 ## §9 Review record (2026-11-01)
 
 - **Code facts**:

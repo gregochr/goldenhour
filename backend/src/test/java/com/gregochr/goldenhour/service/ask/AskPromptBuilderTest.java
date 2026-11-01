@@ -110,9 +110,9 @@ class AskPromptBuilderTest {
                         + "not suggesting the place, using the reason given for its status. Never give it as a "
                         + "pick.")
                 .contains("If the reader also wants somewhere to go, call rank_spots.")
-                .contains("If look_up_place returns no places and no named area, read its note and answer "
-                        + "answerable false: when the note says the place is outside the regions this question "
-                        + "is about, say exactly that, never that it is not in the forecast; "
+                .contains("If look_up_place returns no places, no named area, no closestTo and no suggestions, "
+                        + "read its note and answer answerable false: when the note says the place is outside "
+                        + "the regions this question is about, say exactly that, never that it is not in the forecast; "
                         + "otherwise the place is not in the forecast.")
                 .contains(AskTools.PLACE_OUT_OF_SCOPE_NOTE.replace(".", "").replace("That place", "the place"));
         assertThat(typed.indexOf("When the question is about one named place"))
@@ -143,14 +143,31 @@ class AskPromptBuilderTest {
     }
 
     @Test
-    @DisplayName("a typed prompt knows named areas: 'no places and no named area' is the answerable-false trigger, "
+    @DisplayName("a typed prompt tells the model what to say for a closest-spelling result; the Ready prompt "
+            + "has none of it")
+    void typedPromptCarriesTheClosestSpellingRule() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
+
+        assertThat(typed)
+                .contains("If the result has closestTo, the reader's spelling matched no place and the result "
+                        + "is for the closest name: start the answer \"Assuming you mean <name>,\". If it has "
+                        + "suggestions, call look_up_place again with the one the reader plainly meant and "
+                        + "start the answer the same way. If none fits, answer answerable false and name the "
+                        + "suggestions as the places they may mean.");
+        assertThat(ready).doesNotContain("closestTo").doesNotContain("Assuming you mean");
+    }
+
+    @Test
+    @DisplayName("a typed prompt knows named areas: 'no places, no named area ...' is the answerable-false trigger, "
             + "and areaName and other names are explained; the Ready prompt has none of it")
     void typedPromptCarriesTheNamedAreaRule() {
         String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
         String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
 
         assertThat(typed)
-                .contains("returns no places and no named area, read its note and answer answerable false")
+                .contains("returns no places, no named area, no closestTo and no suggestions, read its note "
+                        + "and answer answerable false")
                 .doesNotContain("returns no places, read its note")
                 .contains("The name may be a named area, a group of places such as a landmark (\"Hadrian's "
                         + "Wall\"): look_up_place then returns how its places rate in each window; answer from "
