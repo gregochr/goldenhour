@@ -21,10 +21,21 @@ import com.gregochr.goldenhour.entity.TargetType;
  *   <tr><td>T+0 sunset</td><td>include</td>
  *       <td>this afternoon is the last look before tonight</td></tr>
  *   <tr><td>T+1 sunrise</td><td>include</td>
- *       <td>its only later run is the next morning's cycle, which lands while the reader sleeps</td></tr>
+ *       <td>this policy includes it; see the evening-refresh note below for when the cycle leaves it alone</td></tr>
  *   <tr><td>T+1 sunset</td><td>skip</td>
  *       <td>two further looks are guaranteed before it</td></tr>
  * </table>
+ *
+ * <p><b>Tomorrow's sunrise and the evening refresh.</b> The 21:00 evening refresh
+ * ({@link EveningEligibilityPolicy}) re-rates every T+1 sunrise at every stability, so the afternoon
+ * look at it adds little (30 days of same-day re-ratings repeated the earlier stars about half the time
+ * and moved two stars or more about 5% of the time). When tonight's evening refresh is due, the
+ * orchestrator builds the cycle's {@link IntradayCandidateCollectionStrategy} with that fact and the
+ * collector skips a T+1 sunrise that already holds a stored rating (any stability,
+ * {@code SKIPPED_NO_REFRESH_NEEDED}), while one with no rating is still rated. That decision is made
+ * where the region cache is read, not here: this policy stays stateless and unchanged, and still
+ * answers "include" for T+1 sunrise. The accepted risk is that an evening run that fails leaves the
+ * overnight rating (up to about 20 hours old) serving until the next overnight run.
  *
  * <p><b>This policy used to skip SETTLED everywhere, and that was wrong.</b> The
  * old rationale was that "the synoptic pattern has not moved since the morning,
@@ -81,8 +92,9 @@ public final class IntradayEligibilityPolicy implements EligibilityPolicy {
      * reason a SETTLED candidate is worth skipping.
      *
      * <p>True for exactly one slot in the intraday window: tomorrow's sunset. Tonight's sunset has
-     * no later run at all, and tomorrow's sunrise has only the next morning's one, whose output lands
-     * while the reader is asleep — freshness with no chance to act on it.
+     * no later run at all. Tomorrow's sunrise is not skipped by this policy either, though the cycle
+     * may still leave an already-rated one to tonight's evening refresh when that is due (decided in
+     * the candidate collection, not here; see the class note).
      *
      * <p>{@link TargetType#HOURLY} cannot reach here — {@code BriefingHierarchyBuilder} emits only
      * SUNRISE and SUNSET, and the candidate strategy rejects anything else — but it falls to

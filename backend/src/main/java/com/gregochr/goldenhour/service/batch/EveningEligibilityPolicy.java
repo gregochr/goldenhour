@@ -12,10 +12,11 @@ import com.gregochr.goldenhour.entity.TargetType;
  * {@code evaluation_delta_log}, a SETTLED slot re-evaluated after a day moved by a full star 63% of
  * the time, so skipping it would withhold the very look the cycle is for.
  *
- * <p><b>Why this is not {@link IntradayEligibilityPolicy}.</b> That policy happens to give the same
- * answer for tomorrow's sunrise, but its rationale ("tomorrow's sunrise has only the next morning's
- * look, which lands while the reader sleeps") is exactly what the evening makes false: the evening
- * is the look the reader can act on. A change to the intraday gate must not silently change this one.
+ * <p><b>Why this is not {@link IntradayEligibilityPolicy}.</b> The intraday cycle now leaves an
+ * already-rated tomorrow's sunrise to this cycle when this one is due tonight, so the two no longer
+ * share a rule for that slot: the afternoon look at it is skipped precisely because this one re-rates
+ * it. The evening is the look the reader can act on at bedtime. A change to the intraday gate must not
+ * silently change this one, and this policy must never learn to skip.
  *
  * <p>Both model tiers are passed for interface symmetry; only the near-term one is used.
  *

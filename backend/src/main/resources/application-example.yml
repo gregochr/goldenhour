@@ -387,7 +387,9 @@ photocast:
                                    # cycles. Clearing the FRESHNESS gate is not the same as being
                                    # re-evaluated: a SETTLED T+1 *sunset* is then skipped by
                                    # IntradayEligibilityPolicy, because two further looks are
-                                   # guaranteed before it. T+1 sunrise and T+0 sunset are not.
+                                   # guaranteed before it. T+0 sunset is not. T+1 sunrise is
+                                   # re-evaluated at any stability, except that when tonight's
+                                   # evening refresh is due an already-rated one is left for it.
                                    # T+2 and beyond are uncapped; stability alone governs.
   forecast-score:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score

@@ -391,6 +391,101 @@ class DynamicSchedulerServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // firesLaterTodayUk
+    // -------------------------------------------------------------------------
+
+    /** 2026-05-29 14:00 UTC, i.e. 15:00 BST: the afternoon of 29 May in the UK. */
+    private DynamicSchedulerService afternoonService() {
+        return new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
+                solarTriggers, solarCatchUp,
+                java.time.Clock.fixed(Instant.parse("2026-05-29T14:00:00Z"), java.time.ZoneOffset.UTC));
+    }
+
+    private SchedulerJobConfigEntity londonCron(String cron, SchedulerJobStatus status) {
+        return SchedulerJobConfigEntity.builder()
+                .id(1L)
+                .jobKey("evening_sunrise_refresh")
+                .displayName("evening")
+                .scheduleType(ScheduleType.CRON)
+                .cronExpression(cron)
+                .timeZone("Europe/London")
+                .status(status)
+                .build();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is true for an ACTIVE job whose next fire is 21:00 UK tonight")
+    void firesLaterTodayUk_activeTonight() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(londonCron("0 0 21 * * *", SchedulerJobStatus.ACTIVE)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isTrue();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is true at exactly 23:59 UK")
+    void firesLaterTodayUk_atBedtimeBoundary() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(londonCron("0 59 23 * * *", SchedulerJobStatus.ACTIVE)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isTrue();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false when the next fire is after 23:59 UK today")
+    void firesLaterTodayUk_afterBedtime() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(londonCron("30 59 23 * * *", SchedulerJobStatus.ACTIVE)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false when the next fire is tomorrow (this morning's slot has gone)")
+    void firesLaterTodayUk_nextFireTomorrow() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(londonCron("0 0 9 * * *", SchedulerJobStatus.ACTIVE)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false for a PAUSED job")
+    void firesLaterTodayUk_paused() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(londonCron("0 0 21 * * *", SchedulerJobStatus.PAUSED)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false for a DISABLED_BY_CONFIG job")
+    void firesLaterTodayUk_disabledByConfig() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenReturn(Optional.of(
+                        londonCron("0 0 21 * * *", SchedulerJobStatus.DISABLED_BY_CONFIG)));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false when the row is missing")
+    void firesLaterTodayUk_missingRow() {
+        when(repository.findByJobKey("evening_sunrise_refresh")).thenReturn(Optional.empty());
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    @Test
+    @DisplayName("firesLaterTodayUk is false, not thrown, when reading the row fails")
+    void firesLaterTodayUk_repositoryThrows() {
+        when(repository.findByJobKey("evening_sunrise_refresh"))
+                .thenThrow(new IllegalStateException("db down"));
+
+        assertThat(afternoonService().firesLaterTodayUk("evening_sunrise_refresh")).isFalse();
+    }
+
+    // -------------------------------------------------------------------------
     // calculateNextFireTime
     // -------------------------------------------------------------------------
 

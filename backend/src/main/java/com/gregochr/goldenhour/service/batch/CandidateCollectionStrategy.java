@@ -45,4 +45,19 @@ public interface CandidateCollectionStrategy {
     default boolean bypassesCacheGate() {
         return false;
     }
+
+    /**
+     * Whether a slot this cycle would otherwise re-rate is deliberately left to a later, already
+     * scheduled run, provided the location already holds a stored rating for it. The collector asks
+     * this only after {@link #includes} said yes and only for a location that has such a rating; a
+     * {@code true} answer records a no-refresh skip rather than a candidate.
+     *
+     * @param date       the slot's date
+     * @param targetType the slot's event type
+     * @return {@code true} to leave an already-rated slot alone this cycle; {@code false} (the
+     *         default) to rate it as usual
+     */
+    default boolean defersRatedSlot(LocalDate date, TargetType targetType) {
+        return false;
+    }
 }

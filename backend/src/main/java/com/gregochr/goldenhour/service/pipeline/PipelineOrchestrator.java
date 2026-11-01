@@ -468,6 +468,9 @@ public class PipelineOrchestrator {
      *   <li>{@link IntradayEligibilityPolicy} — the skip-settled cost-gate.</li>
      * </ul>
      *
+     * <p>Whether tonight's evening refresh is due is resolved once here; if it is, an already-rated
+     * T+1 sunrise is left for it (see {@link IntradayCandidateCollectionStrategy#defersRatedSlot}).
+     *
      * <p>Bound to the {@code intraday_forecast_refresh} schedule (14:00 UTC by default) via
      * {@link #registerJobTarget()}. Because it goes through {@code runCycle} with
      * {@link CycleType#INTRADAY}, the submit phase runs ephemerally (the morning
@@ -476,8 +479,10 @@ public class PipelineOrchestrator {
      * are identical to nightly.
      */
     public void runIntradayCycle() {
+        boolean eveningDue = dynamicSchedulerService != null
+                && dynamicSchedulerService.firesLaterTodayUk(ForecastCycleJobs.EVENING_JOB);
         runCycle(CycleType.INTRADAY,
-                new IntradayCandidateCollectionStrategy(clock),
+                new IntradayCandidateCollectionStrategy(clock, eveningDue),
                 IntradayEligibilityPolicy.INSTANCE);
     }
 
