@@ -320,11 +320,15 @@ class BatchWeatherPrefetcherTest {
                 .thenReturn(new ArrayList<>(fivePoints(55.0)));
         PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
                 "batch-prefetch cloud points (5)", 5, 5, NOW, 80L, 200, true, null, 1);
-        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any())).thenAnswer(invocation -> {
-            Consumer<PrefetchCall> sink = invocation.getArgument(2);
-            sink.accept(call);
-            return new CloudPointCache(Map.of());
-        });
+        // The five directional points of the one candidate, and its one far-solar point (index 4 of them).
+        when(openMeteoService.prefetchCloudBatch(
+                argThat(points -> points.size() == 5 && points.get(0)[0] == 55.0),
+                argThat(far -> far.size() == 1 && far.get(0)[0] == 57.0),
+                any())).thenAnswer(invocation -> {
+                    Consumer<PrefetchCall> sink = invocation.getArgument(2);
+                    sink.accept(call);
+                    return new CloudPointCache(Map.of());
+                });
         List<PrefetchCall> sunk = new ArrayList<>();
 
         prefetcher.prefetchBatchCloudPoints(

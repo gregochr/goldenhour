@@ -62,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -466,17 +467,30 @@ class ForecastTaskCollectorTest {
             LocalDateTime.of(2026, 10, 31, 21, 5, 2), 90L, 200, true, null, 1);
 
     /** Stubs the weather pre-fetch to emit {@link #FORECAST_CALL} and return {@code result}. */
-    private void stubPrefetchEmittingCall(Map<String, WeatherExtractionResult> result) {
-        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenAnswer(invocation -> {
-            Consumer<PrefetchCall> sink = invocation.getArgument(1);
-            sink.accept(FORECAST_CALL);
-            return result;
-        });
+    private void stubPrefetchEmittingCall(List<LocationEntity> expected,
+            Map<String, WeatherExtractionResult> result) {
+        // The coordinates are pinned to the locations the collector should ask for, in order, so a collector
+        // that sent none or the wrong ones would not receive the fixture. Only the sink is left as any().
+        when(openMeteoService.prefetchWeatherBatchResilient(argThat(coordsOf(expected)), any()))
+                .thenAnswer(invocation -> {
+                    Consumer<PrefetchCall> sink = invocation.getArgument(1);
+                    sink.accept(FORECAST_CALL);
+                    return result;
+                });
     }
 
-    /** Stubs the cloud pre-fetch to emit {@link #CLOUD_CALL}. */
+    private static ArgumentMatcher<List<double[]>> coordsOf(List<LocationEntity> locations) {
+        return points -> points != null && points.size() == locations.size()
+                && IntStream.range(0, points.size()).allMatch(i -> Arrays.equals(points.get(i),
+                        new double[]{locations.get(i).getLat(), locations.get(i).getLon()}));
+    }
+
+    /**
+     * Stubs the cloud pre-fetch to emit {@link #CLOUD_CALL}. These tests' mocked solar geometry yields no sample
+     * points, so the collector must ask for no cloud points and no far points.
+     */
     private void stubCloudPrefetchEmittingCall() {
-        when(openMeteoService.prefetchCloudBatch(any(), any(), any())).thenAnswer(invocation -> {
+        when(openMeteoService.prefetchCloudBatch(eq(List.of()), eq(List.of()), any())).thenAnswer(invocation -> {
             Consumer<PrefetchCall> sink = invocation.getArgument(2);
             sink.accept(CLOUD_CALL);
             // null, as an unstubbed mock returns: the triage stubs in these tests match a null cache
@@ -487,9 +501,9 @@ class ForecastTaskCollectorTest {
     @Test
     @DisplayName("collectScheduledBatches: zero prefetch → report carries the calls and 0/N abort reason")
     void collectScheduledBatches_zeroPrefetch_reportCarriesCallsAndAbortReason() {
-        stubGoBriefingWithLocation("Durham UK");
+        LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         stubModels();
-        stubPrefetchEmittingCall(Map.of());
+        stubPrefetchEmittingCall(List.of(loc), Map.of());
 
         ScheduledBatchTasks result = collectNightly(collector);
 
@@ -511,7 +525,7 @@ class ForecastTaskCollectorTest {
                 loc1.getName(), loc2.getName(), loc3.getName()));
         stubModels();
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
-        stubPrefetchEmittingCall(Map.of(
+        stubPrefetchEmittingCall(List.of(loc1, loc2, loc3), Map.of(
                 OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon()), dummyExtraction()));
 
         ScheduledBatchTasks result = collectNightly(collector);
@@ -533,7 +547,7 @@ class ForecastTaskCollectorTest {
                 loc1.getName(), loc2.getName()));
         stubModels();
         when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
-        stubPrefetchEmittingCall(Map.of(
+        stubPrefetchEmittingCall(List.of(loc1, loc2), Map.of(
                 OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon()), dummyExtraction()));
         stubCloudPrefetchEmittingCall();
         when(CollectorTriageStubs.triageOfAny(forecastService, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET))
@@ -556,7 +570,7 @@ class ForecastTaskCollectorTest {
     void collectScheduledBatches_normalReturn_reportCarriesCalls() {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
         stubModels();
-        stubPrefetchEmittingCall(Map.of(
+        stubPrefetchEmittingCall(List.of(loc), Map.of(
                 OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
         stubCloudPrefetchEmittingCall();
         when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY.plusDays(1), TargetType.SUNRISE,
@@ -577,9 +591,9 @@ class ForecastTaskCollectorTest {
     void collectScheduledBatches_cloudPrefetchThrows_callsRecordedBeforeItSurvive() {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
         stubModels();
-        stubPrefetchEmittingCall(Map.of(
+        stubPrefetchEmittingCall(List.of(loc), Map.of(
                 OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
-        when(openMeteoService.prefetchCloudBatch(any(), any(), any())).thenAnswer(invocation -> {
+        when(openMeteoService.prefetchCloudBatch(eq(List.of()), eq(List.of()), any())).thenAnswer(invocation -> {
             Consumer<PrefetchCall> sink = invocation.getArgument(2);
             sink.accept(CLOUD_CALL);
             throw new IllegalStateException("cloud blew up");
@@ -596,10 +610,10 @@ class ForecastTaskCollectorTest {
     @Test
     @DisplayName("collectRegionFilteredBatches: zero prefetch → aborted result carrying the report")
     void collectRegionFilteredBatches_zeroPrefetch_abortedWithReport() {
-        stubGoBriefingWithLocation("Durham UK");
+        LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        stubPrefetchEmittingCall(Map.of());
+        stubPrefetchEmittingCall(List.of(loc), Map.of());
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
 
@@ -615,7 +629,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation(TODAY, "Durham UK");
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        stubPrefetchEmittingCall(Map.of(
+        stubPrefetchEmittingCall(List.of(loc), Map.of(
                 OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
         stubCloudPrefetchEmittingCall();
         when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY, TargetType.SUNRISE, EvaluationModel.HAIKU))
