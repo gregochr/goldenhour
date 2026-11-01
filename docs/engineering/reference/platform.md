@@ -73,3 +73,13 @@ No other path re-enables a location (`LocationFailureService` only switches plac
 rename or base save cannot write a stale value back over a concurrent turn-on; `setEnabled` to the state a region is already in
 is a no-op, never a 409. No migration (`updatable = false` is a JPA mapping only):
 existing half-off data is left as is. The checks are check-then-write, not atomic against a concurrent toggle.
+
+## Operations → Runs → Start a run (runs-redesign-plan.md §5.3, R3)
+
+`components/runs/StartRunPanel.jsx` at `#manage/runs/start` (ADMIN only; the `isAdmin` guard stays) is a choice of runs, not a card of buttons.
+
+- **Options**: one `role="radiogroup"` ("Run to start") holding two `role="group"` sections (Forecast: Scheduled batch, JFDI batch, Briefing, Aurora forecast; Data refresh: Tide data, Tide history, Light pollution), copy in `utils/startRunOptions.js`. Arrow keys, Home and End move the choice and the focus (wrapping); the one tab stop is the chosen option. The Testing group is the Aurora simulation row (On/Off from `useAuroraStatus`, **Simulate…** opens `AuroraSimulateModal`), not an option.
+- **Inline scope** (`StartRunScope.jsx`): the chosen batch option shows the region checklist ("All regions" with the total, each region with its count). `selectedIds === null` means every region and goes on the wire as `null`; an explicit empty selection disables Start and is never sent (the API reads `[]` as all). Tide data and Tide history show `LocationSummary`, the coastal (seascape for history) locations grouped by region. Aurora forecast has no scope: Start opens `AuroraForecastModal`.
+- **Footer**: the scope ("{n} of {m} regions · {k} locations" for a batch, "{k} locations" for tide, nothing otherwise), Cancel, "Start {option}".
+- **Outcome**: a 409 from any option shows "A run is already in progress. Wait for it to finish." in the panel. A response with a `jobRunId` calls `RunsView.handleRunStarted` (sets `activeRunId` in ManageView, reloads the list head, and opens `#manage/runs/job/{id}` only if the Start panel is still the open one). A response without one (and the aurora forecast modal finishing) calls `handleStartFinished`: reload, close the panel if still open, and toast the server's `status` or "Started." (`SubRegionToast`).
+- **In flight**: the six running flags and the status line live in `RunsView` (`useStartRunState`), so every option, the checklist and Start stay disabled across a close and reopen. The panel is never `role="dialog"`; Esc defers to the aurora modals via `usePanelEscape`.

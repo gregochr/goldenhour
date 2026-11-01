@@ -20,6 +20,9 @@ vi.mock('../api/auroraApi', () => ({ enrichBortle: vi.fn() }));
 vi.mock('../api/briefingApi.js', () => ({ runBriefing: vi.fn() }));
 vi.mock('../api/runProgressApi', () => ({ subscribeToRunProgress: vi.fn(() => () => {}) }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ isAdmin: true, role: 'ADMIN' }) }));
+vi.mock('../components/AuroraForecastModal', () => ({
+  default: ({ onClose }) => <div role="dialog" aria-label="Aurora forecast"><button type="button" onClick={onClose}>close</button></div>,
+}));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null, loading: false }) }));
 // jsdom has no layout: the split breakpoint (1000px) is decided here, wide unless a test says otherwise.
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
@@ -31,6 +34,10 @@ import { getRegions } from '../api/batchApi';
 import { enrichBortle } from '../api/auroraApi';
 import { runBriefing } from '../api/briefingApi.js';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
+import { subscribeToRunProgress } from '../api/runProgressApi';
+import {
+  TWO_FAILURES, NO_FAILURES, completeEvent, createFeeds,
+} from './runProgressFixtures.js';
 import { mergeHead } from '../hooks/useRunsList.js';
 import { fetchLocations } from '../api/forecastApi';
 
@@ -715,7 +722,7 @@ describe('Runs: Start a run', () => {
     fireEvent.click(screen.getByTestId('start-run-btn'));
     expect(window.location.hash).toBe('#manage/runs/start');
     expect(await screen.findByTestId('start-run-panel-title')).toHaveTextContent('Start a run');
-    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('start-option-scheduled-batch')).toBeInTheDocument();
   });
 
   it('opens it straight from the hash (the aurora banner\'s door)', async () => {
@@ -725,15 +732,20 @@ describe('Runs: Start a run', () => {
     expect(screen.getByTestId('aurora-simulate-btn')).toBeInTheDocument();
   });
 
-  it('closes on Escape, but not while a confirm dialog is open over it', async () => {
+  it('closes on Escape, but not while a modal (the aurora forecast\'s) is open over it', async () => {
     window.location.hash = '#manage/runs/start';
     renderView();
-    fireEvent.click(await screen.findByTestId('run-scheduled-batch-btn'));
+    fireEvent.click(await screen.findByTestId('start-option-aurora-forecast'));
+    fireEvent.click(screen.getByTestId('start-run-submit'));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-
     expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'close' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs');
   });
 
   it('does not close on Escape typed in a text field outside the panel\'s own form', async () => {
@@ -757,16 +769,29 @@ describe('Runs: Start a run', () => {
     expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
   });
 
-  it('reloads the list head when a start adds a run', async () => {
+  it('reloads the list head when a start adds a run, closes the panel and toasts the server\'s line', async () => {
     window.location.hash = '#manage/runs/start';
     runBriefing.mockResolvedValue({ status: 'Briefing refreshed.' });
     renderView();
     await screen.findByTestId('runs-row-cycle-412');
     const before = fetchRuns.mock.calls.length;
 
-    await act(async () => { fireEvent.click(screen.getByTestId('run-briefing-btn')); });
+    fireEvent.click(screen.getByTestId('start-option-briefing'));
+    await act(async () => { fireEvent.click(screen.getByTestId('start-run-submit')); });
 
     await waitFor(() => expect(fetchRuns.mock.calls.length).toBe(before + 1));
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs');
+    expect(screen.getByTestId('sub-region-toast')).toHaveTextContent('Briefing refreshed.');
+  });
+
+  it('toasts "Started." when the server\'s response carries no status', async () => {
+    window.location.hash = '#manage/runs/start';
+    runBriefing.mockResolvedValue({});
+    renderView();
+    fireEvent.click(await screen.findByTestId('start-option-briefing'));
+    await act(async () => { fireEvent.click(screen.getByTestId('start-run-submit')); });
+    expect(screen.getByTestId('sub-region-toast')).toHaveTextContent('Started.');
   });
 });
 
@@ -1076,89 +1101,149 @@ describe('Runs: an older head answer never lands after a newer one', () => {
   });
 });
 
-describe('Runs: a start below 1000px', () => {
+/** Chooses a Start a run option and presses Start. */
+async function chooseAndStart(key) {
+  fireEvent.click(await screen.findByTestId(`start-option-${key}`));
+  await act(async () => { fireEvent.click(screen.getByTestId('start-run-submit')); });
+}
+
+describe('Runs: a start that returns a run id', () => {
   beforeEach(() => {
     window.location.hash = '#manage/runs/start';
     enrichBortle.mockResolvedValue({ jobRunId: 77 });
+    fetchJobRun.mockResolvedValue(jobDetail({ id: 77 }));
   });
 
-  it('closes the Start panel so the list and its progress are visible, and hands over the run id', async () => {
-    useIsSplitLayout.mockReturnValue(false);
-    const onActiveRunChange = vi.fn();
-    renderView({ onActiveRunChange });
+  it.each([['at 1000px and up', true], ['below 1000px', false]])(
+    'hands the run id over and opens that run\'s panel, replacing the Start panel, %s',
+    async (_label, split) => {
+      useIsSplitLayout.mockReturnValue(split);
+      const onActiveRunChange = vi.fn();
+      renderView({ onActiveRunChange });
 
-    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
+      await chooseAndStart('light-pollution');
 
-    expect(onActiveRunChange).toHaveBeenCalledWith(77);
-    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
-    expect(window.location.hash).toBe('#manage/runs');
-  });
+      expect(onActiveRunChange).toHaveBeenCalledWith(77);
+      expect(await screen.findByTestId('job-run-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(window.location.hash).toBe('#manage/runs/job/77');
+      expect(fetchJobRun).toHaveBeenCalledWith(77);
+    },
+  );
 
-  it('keeps the Start panel open at 1000px and up, where the list is beside it', async () => {
-    useIsSplitLayout.mockReturnValue(true);
-    renderView({ onActiveRunChange: vi.fn() });
-
-    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
-
-    expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
-  });
-
-  it('keeps one progress panel mounted across the close', async () => {
+  it('keeps one progress panel mounted across the switch', async () => {
     useIsSplitLayout.mockReturnValue(false);
     const { rerender } = render(<RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} />);
-    await act(async () => { fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn')); });
+    await chooseAndStart('light-pollution');
     rerender(<RunsView activeRunId={77} onActiveRunChange={noop} onActiveRunClear={noop} />);
     expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
   });
 
-  it('reloads the list after handing the run over, for a tide refresh that returns a run id', async () => {
+  it('reloads the list after handing the run over, for a batch that returns a run id', async () => {
     useIsSplitLayout.mockReturnValue(false);
-    const { refreshTideData } = await import('../api/forecastApi');
-    refreshTideData.mockResolvedValue({ jobRunId: 88, status: 'Started' });
+    const { submitScheduledBatch } = await import('../api/batchApi');
+    submitScheduledBatch.mockResolvedValue({ jobRunId: 88 });
+    fetchJobRun.mockResolvedValue(jobDetail({ id: 88 }));
     const calls = [];
     const onActiveRunChange = vi.fn(() => calls.push('active'));
     renderView({ onActiveRunChange });
-    await screen.findByTestId('refresh-tide-btn');
+    await screen.findByTestId('start-option-scheduled-batch');
     fetchRuns.mockImplementation(() => { calls.push('reload'); return Promise.resolve(runsPage(FIRST_PAGE)); });
 
-    fireEvent.click(screen.getByTestId('refresh-tide-btn'));
-    await act(async () => { fireEvent.click(await screen.findByTestId('confirm-dialog-confirm')); });
+    await chooseAndStart('scheduled-batch');
 
     await waitFor(() => expect(calls).toContain('reload'));
     expect(calls.indexOf('active')).toBeLessThan(calls.indexOf('reload'));
     expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs/job/88');
+  });
+
+  it('does not pull the reader off another panel they opened while the start was in flight', async () => {
+    let finish;
+    enrichBortle.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const onActiveRunChange = vi.fn();
+    renderView({ onActiveRunChange });
+    await chooseAndStart('light-pollution');
+
+    fireEvent.click(await screen.findByTestId('runs-row-job-9001'));
+    expect(await screen.findByTestId('job-run-panel')).toBeInTheDocument();
+    await act(async () => { finish({ jobRunId: 77 }); });
+
+    expect(onActiveRunChange).toHaveBeenCalledWith(77);
+    expect(window.location.hash).toBe('#manage/runs/job/9001');
+  });
+
+  it('opens no panel when the reader closed the Start panel and the run id arrives afterwards', async () => {
+    let finish;
+    enrichBortle.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const onActiveRunChange = vi.fn();
+    renderView({ onActiveRunChange });
+    await chooseAndStart('light-pollution');
+
+    fireEvent.click(screen.getByTestId('start-run-panel-close'));
+    expect(window.location.hash).toBe('#manage/runs');
+    await act(async () => { finish({ jobRunId: 77 }); });
+
+    expect(onActiveRunChange).toHaveBeenCalledWith(77);
+    expect(screen.queryByTestId('job-run-panel')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs');
+  });
+
+  it('shows no finish toast while the Operations pane is hidden', async () => {
+    runBriefing.mockResolvedValue({ status: 'Briefing refreshed.' });
+    render(<div hidden><RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} /></div>);
+    await chooseAndStart('briefing');
+    expect(screen.queryByTestId('sub-region-toast')).toBeNull();
+  });
+
+  it('does not close a panel the reader opened while a start with no id was in flight', async () => {
+    let finish;
+    runBriefing.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderView();
+    await chooseAndStart('briefing');
+
+    fireEvent.click(await screen.findByTestId('runs-row-job-9001'));
+    await screen.findByTestId('job-run-panel');
+    await act(async () => { finish({ status: 'Briefing refreshed.' }); });
+
+    expect(screen.getByTestId('job-run-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('sub-region-toast')).toHaveTextContent('Briefing refreshed.');
   });
 });
 
 describe('Runs: Start a run keeps its guard and message when closed mid-request', () => {
-  it('keeps every start disabled, then shows the message, after closing and reopening', async () => {
+  it('keeps every start disabled after closing and reopening, then enables them and toasts when it finishes', async () => {
     window.location.hash = '#manage/runs/start';
     let finish;
     runBriefing.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
     renderView();
-    fireEvent.click(await screen.findByTestId('run-briefing-btn'));
+    await chooseAndStart('briefing');
 
     fireEvent.click(screen.getByTestId('start-run-panel-close'));
     expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
     fireEvent.click(screen.getByTestId('start-run-btn'));
 
     expect(await screen.findByTestId('start-run-panel-title')).toBeInTheDocument();
-    expect(screen.getByTestId('run-briefing-btn')).toBeDisabled();
-    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeDisabled();
+    expect(screen.getByTestId('start-option-briefing')).toBeDisabled();
+    expect(screen.getByTestId('start-option-scheduled-batch')).toBeDisabled();
+    expect(screen.getByTestId('start-run-submit')).toHaveAttribute('aria-disabled', 'true');
 
     await act(async () => { finish({ status: 'Briefing refreshed.' }); });
-    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeEnabled();
-    expect(screen.getByTestId('start-run-status')).toHaveTextContent('Briefing refreshed.');
+    // The reader reopened the panel while the briefing ran, so its finish closes it (it is the open panel again).
+    expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs');
+    expect(screen.getByTestId('sub-region-toast')).toHaveTextContent('Briefing refreshed.');
   });
 
-  it('keeps a failure message through a close and reopen', async () => {
+  it('keeps the guard and a failure message through a close and reopen', async () => {
     window.location.hash = '#manage/runs/start';
     runBriefing.mockRejectedValue({ response: { status: 409 } });
     renderView();
-    await act(async () => { fireEvent.click(await screen.findByTestId('run-briefing-btn')); });
+    await chooseAndStart('briefing');
     fireEvent.click(screen.getByTestId('start-run-panel-close'));
     fireEvent.click(screen.getByTestId('start-run-btn'));
-    expect(await screen.findByTestId('start-run-status')).toHaveTextContent('already in progress');
+    expect(await screen.findByTestId('start-run-status')).toHaveTextContent('A run is already in progress. Wait for it to finish.');
+    expect(screen.getByTestId('start-option-briefing')).toBeEnabled();
   });
 });
 
@@ -1212,5 +1297,97 @@ describe('Runs: status words, header and loading line', () => {
     expect(label).toContain('Afternoon refresh cycle');
     expect(label).toContain('2h 0m');
     expect(label).toContain('£0.7900');
+  });
+});
+
+
+describe('Runs: where the live progress sits for the run that is open', () => {
+  const progressCalls = () => screen.queryAllByTestId('run-progress-panel');
+
+  beforeEach(() => {
+    window.location.hash = '#manage/runs/job/77';
+    fetchJobRun.mockResolvedValue(jobDetail({ id: 77 }));
+  });
+
+  it('below 1000px sits inside the job-run panel, once, under "Following this run live below."', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    renderView({ activeRunId: 77 });
+
+    const note = await screen.findByTestId('job-run-progress-note');
+    expect(note).toHaveTextContent('Following this run live below.');
+    expect(note).toContainElement(screen.getByTestId('run-progress-panel'));
+    expect(progressCalls()).toHaveLength(1);
+    expect(screen.getByTestId('runs-list-pane')).not.toContainElement(screen.getByTestId('run-progress-panel'));
+  });
+
+  it('at 1000px and up stays above the list, once, and the panel points at it', async () => {
+    useIsSplitLayout.mockReturnValue(true);
+    renderView({ activeRunId: 77 });
+
+    const note = await screen.findByTestId('job-run-progress-note');
+    expect(note).toHaveTextContent('Following this run live in the progress panel on the Runs list.');
+    expect(note).not.toContainElement(screen.getByTestId('run-progress-panel'));
+    expect(screen.getByTestId('runs-list-pane')).toContainElement(screen.getByTestId('run-progress-panel'));
+    expect(progressCalls()).toHaveLength(1);
+  });
+
+  it('below 1000px keeps the progress on the list when another run\'s panel is open', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    window.location.hash = '#manage/runs/job/9001';
+    renderView({ activeRunId: 77 });
+    await screen.findByTestId('job-run-panel');
+    expect(screen.getByTestId('runs-list-pane')).toContainElement(screen.getByTestId('run-progress-panel'));
+    expect(progressCalls()).toHaveLength(1);
+  });
+
+  it('below 1000px, a run that needs attention keeps its Dismiss inside the panel, and Dismiss clears it', async () => {
+    useIsSplitLayout.mockReturnValue(false);
+    const feed = createFeeds();
+    subscribeToRunProgress.mockImplementation(feed.subscribe);
+    const onActiveRunClear = vi.fn();
+    renderView({ activeRunId: 77, onActiveRunClear });
+    await screen.findByTestId('run-progress-panel');
+
+    await act(async () => {
+      TWO_FAILURES.forEach((t) => feed.feeds[77].onTask(t));
+      feed.feeds[77].onComplete(completeEvent(77, TWO_FAILURES));
+    });
+    const dismiss = await screen.findByRole('button', { name: 'Dismiss run progress' });
+    expect(screen.getByTestId('job-run-progress-note')).toContainElement(dismiss);
+    fireEvent.click(dismiss);
+    expect(onActiveRunClear).toHaveBeenCalledTimes(1);
+    expect(feed.subscriptions).toEqual([77]);
+  });
+
+  it('at 1000px and up, Dismiss works from above the list too', async () => {
+    useIsSplitLayout.mockReturnValue(true);
+    const feed = createFeeds();
+    subscribeToRunProgress.mockImplementation(feed.subscribe);
+    const onActiveRunClear = vi.fn();
+    renderView({ activeRunId: 77, onActiveRunClear });
+    await screen.findByTestId('run-progress-panel');
+
+    await act(async () => {
+      TWO_FAILURES.forEach((t) => feed.feeds[77].onTask(t));
+      feed.feeds[77].onComplete(completeEvent(77, TWO_FAILURES));
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss run progress' }));
+    expect(onActiveRunClear).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([['below 1000px', false], ['at 1000px and up', true]])('auto-clears a clean finish %s', async (_label, split) => {
+    useIsSplitLayout.mockReturnValue(split);
+    const feed = createFeeds();
+    subscribeToRunProgress.mockImplementation(feed.subscribe);
+    const onActiveRunClear = vi.fn();
+    renderView({ activeRunId: 77, onActiveRunClear });
+    await screen.findByTestId('run-progress-panel');
+
+    await act(async () => {
+      NO_FAILURES.forEach((t) => feed.feeds[77].onTask(t));
+      feed.feeds[77].onComplete(completeEvent(77, NO_FAILURES));
+    });
+
+    expect(onActiveRunClear).toHaveBeenCalledTimes(1);
   });
 });

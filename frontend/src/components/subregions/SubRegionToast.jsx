@@ -16,15 +16,16 @@ const TOAST_MS = 5000;
  * @param {object} props
  * @param {string|null} props.message the line to show
  * @param {() => void} props.onDone called when it times out
+ * @param {number} [props.nonce] changes when the same line is shown again, restarting the timer
  */
-export default function SubRegionToast({ message, onDone }) {
+export default function SubRegionToast({ message, onDone, nonce = undefined }) {
   // On a phone the top of the screen is the dialog's title; the toast goes to the foot, above the safe area.
   const isMobile = useIsMobile();
   useEffect(() => {
     if (!message) return undefined;
     const timer = setTimeout(onDone, TOAST_MS);
     return () => clearTimeout(timer);
-  }, [message, onDone]);
+  }, [message, onDone, nonce]);
 
   return createPortal(
     <div
@@ -43,4 +44,5 @@ export default function SubRegionToast({ message, onDone }) {
 SubRegionToast.propTypes = {
   message: PropTypes.string,
   onDone: PropTypes.func.isRequired,
+  nonce: PropTypes.number,
 };

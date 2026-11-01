@@ -6,8 +6,9 @@ import RunsListPane from './RunsListPane.jsx';
 import JobRunPanel from './JobRunPanel.jsx';
 import CyclePanel from './CyclePanel.jsx';
 import RunsLiveStrip from './RunsLiveStrip.jsx';
-import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
 import { useIsSplitLayout } from '../../hooks/useIsSplitLayout.js';
+import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
+import SubRegionToast from '../subregions/SubRegionToast.jsx';
 import useCloseWhenFilteredOut from '../../hooks/useCloseWhenFilteredOut.js';
 import useHashSelection from '../../hooks/useHashSelection.js';
 import useCycleDetail from '../../hooks/useCycleDetail.js';
@@ -88,7 +89,8 @@ const itemId = (item) => item.id;
  * ({@code #manage/runs/cycle/{id}}), whose batch rows open the job-run panel nested under it
  * ({@code .../cycle/{id}/job/{jobRunId}}). While the server names a running cycle a live strip sits above the summary;
  * it and the open cycle panel share one fetch ({@code useCycleDetail}). Start a run opens {@code #manage/runs/start},
- * today's trigger card lifted as it stands (R-D4).
+ * (R3: a choice of runs with inline scope). A start with a job run id opens that run's panel; one without closes
+ * the Start panel and toasts the server's line.
  *
  * <p>The run {@code RunProgressPanel} follows ({@code activeRunId}, kept in ManageView so it survives leaving the tab)
  * draws above the list rather than inside the Start panel, so closing that panel never drops it. Every clock read in
@@ -105,11 +107,11 @@ export default function RunsView({
   activeRunId = null, onActiveRunChange, onActiveRunClear, onLiveCountChange = undefined,
 }) {
   const [filters, setFilters] = useState(filtersFromHash);
+  const isSplit = useIsSplitLayout();
   const rootRef = useRef(null);
   // The Operations pane stays mounted, hidden, while the reader is on the Map or Plan tab: no polling then.
   const isPaused = useCallback(() => rootRef.current?.closest('[hidden]') != null, []);
   const list = useRunsList(filters, { isPaused });
-  const isSplit = useIsSplitLayout();
   // The Start a run panel's in-flight flags and message live here, so closing it mid-request keeps both.
   const startState = useStartRunState();
   const hashOptions = useMemo(() => ({ parse: parseRunsHash, format: formatRunsHash, keepQuery: true }), []);
@@ -233,11 +235,35 @@ export default function RunsView({
     };
   }, []);
 
-  // A run started from the Start panel is followed by the progress panel on the list. Below 1000px the panel covers
-  // the list (overlay or a full page), so it closes and the progress is in view. One RunProgressPanel mount only.
-  const handleActiveRunChange = (jobRunId) => {
+  // What the Start a run panel's handlers may do after the panel has gone: a start the reader closed the panel on, or
+  // moved on from, must not close or replace whatever panel is open now.
+  const startingRef = useRef(false);
+  useEffect(() => {
+    startingRef.current = starting;
+  }, [starting]);
+  const [toast, setToast] = useState(null);
+  const clearToast = useCallback(() => setToast(null), []);
+  const toastCount = useRef(0);
+
+  // A start that returned a job run id: the progress panel on the list follows it (ManageView keeps the id), the
+  // list's head reloads, and, while the Start panel is still the open one, the new run's own panel replaces it.
+  const handleRunStarted = (jobRunId) => {
     onActiveRunChange(jobRunId);
-    if (!isSplit) closePanel();
+    list.refresh();
+    if (startingRef.current) select({ type: 'job', id: jobRunId });
+  };
+
+  // A start with no id (and the aurora forecast, once its modal finishes): reload the head, toast the line, and close
+  // the Start panel if it is still the open one.
+  const handleStartFinished = (message) => {
+    list.refresh();
+    // Not while the Operations pane is hidden (the reader is on the Map or Plan tab): the line would float over it.
+    // The counter restarts the toast's timer when the same line comes round again.
+    if (rootRef.current?.closest('[hidden]') == null) {
+      toastCount.current += 1;
+      setToast({ text: message, count: toastCount.current });
+    }
+    if (startingRef.current) closePanel();
   };
 
   // Closing Start a run puts focus back on the button that opened it, unless focus is already somewhere the reader
@@ -260,12 +286,28 @@ export default function RunsView({
     select({ type: 'job', id: item.id });
   }
 
+  const progress = activeRunId ? (
+    <RunProgressPanel
+      // key: starting another run while a finished one is kept must replace the panel, not hand a new run id to a
+      // panel still holding the old run's tasks, summary and failure line.
+      key={activeRunId}
+      jobRunId={activeRunId}
+      onComplete={list.refresh}
+      onAutoClear={onActiveRunClear}
+      onDismiss={handleDismissRun}
+    />
+  ) : null;
+  // Below 1000px the open job-run panel covers the list, so the run it names carries its own live progress inside it.
+  // Moved, never duplicated: one mount, hence one subscription, wherever it sits.
+  // Not while the panel is still loading or failed (it shows no progress then, and a move would re-open the stream).
+  const progressInPanel = !isSplit && jobId != null && jobId === activeRunId && !job.error && !job.notFound;
+
   let panel = null;
   if (starting) {
     panel = (
       <StartRunPanel
-        onActiveRunChange={handleActiveRunChange}
-        onStarted={list.refresh}
+        onRunStarted={handleRunStarted}
+        onFinished={handleStartFinished}
         onClose={closePanel}
         runState={startState}
       />
@@ -298,6 +340,7 @@ export default function RunsView({
         onClose={closePanel}
         backLabel={isBatch ? `Cycle #${cycleId}` : undefined}
         onBack={isBatch ? backToCycle : undefined}
+        progress={progressInPanel ? progress : null}
       />
     );
   }
@@ -333,17 +376,6 @@ export default function RunsView({
     </button>
   ) : null;
 
-  const progress = activeRunId ? (
-    <RunProgressPanel
-      // key: starting another run while a finished one is kept must replace the panel, not hand a new run id to a
-      // panel still holding the old run's tasks, summary and failure line.
-      key={activeRunId}
-      jobRunId={activeRunId}
-      onComplete={list.refresh}
-      onAutoClear={onActiveRunClear}
-      onDismiss={handleDismissRun}
-    />
-  ) : null;
 
   return (
     <div
@@ -370,7 +402,7 @@ export default function RunsView({
             onLoadMore={list.loadMore}
             onRefresh={list.refresh}
             onStart={() => select({ type: 'start' })}
-            progress={progress}
+            progress={progressInPanel ? null : progress}
             liveStrip={liveStrip}
           />
         )}
@@ -386,6 +418,7 @@ export default function RunsView({
         rowTestIdPrefix="runs"
         testId="runs-split"
       />
+      <SubRegionToast message={toast?.text ?? null} nonce={toast?.count} onDone={clearToast} />
     </div>
   );
 }
