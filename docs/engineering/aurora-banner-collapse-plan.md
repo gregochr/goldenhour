@@ -23,7 +23,9 @@ dismisses at the current level (`dismissedLevel`, in memory, re-shown on escalat
 4. **STRONG opens expanded, MODERATE collapsed.** (`ALERT_WORTHY` is `{MODERATE, STRONG}`,
    `utils/auroraBannerScores.js`, so SEVERE/EXTREME never render; no branches or tests for them.)
    A reader's toggle is a one-off **override** of that default, held in state as
-   `{ key, expanded }` where `key` is the alert's identity: `level + simulated + triggerType`.
+   `{ key, expanded }` where `key` is the alert's identity: `level + simulated`. The trigger is
+   not part of it: a forecast alert later re-triggered in real time at the same level keeps the
+   reader's choice.
    The override applies only while `key` matches the current alert. It is **cleared** on any change
    of key (track the previous key; an escalation and a de-escalation both return to the new level's
    default) and whenever the banner stops rendering (status null, not alert-worthy, dismissed,
@@ -37,7 +39,10 @@ dismisses at the current level (`dismissedLevel`, in memory, re-shown on escalat
 6. **Focus follows the toggle.** Toggling swaps the whole root, so the pressed button unmounts.
    In the click handler, record whether `document.activeElement` is the toggle (Safari does not focus
    a button on mouse click). If it was, move focus to the counterpart toggle in a `useLayoutEffect`
-   keyed on a "focus pending" flag. The automatic level-driven change in 4 never moves focus.
+   keyed on a "focus pending" flag. An automatic level-driven change in 4 never moves focus
+   onto the toggle, but it must not lose it: the layout effect tracks (focus/blur) whether the toggle
+   or the ✕ held focus and, if focus has fallen to the body after the swap, refocuses the
+   counterpart toggle or ✕.
 7. **No thumbnail work while collapsed.** `viewlineEnabled` gains `&& expanded`. `useAuroraScores`
    stays as is: the strip shows the best site. Accepted costs: each expand refetches the viewline
    (the poll clears when disabled, `useViewlinePoll.js`), and the first expand loads the lazy
@@ -45,7 +50,8 @@ dismisses at the current level (`dismissedLevel`, in memory, re-shown on escalat
    `false` on unmount.
 8. **`role="alert"` stays as it is.** A toggle swaps the root and is announced once more. That
    matches the precedent `aurora-banner-plan.md` §5 already accepts (pending → ready swap), and
-   leaves the owner-held `role="alert"` item there untouched.
+   leaves the owner-held `role="alert"` item there untouched. A MODERATE → STRONG
+   escalation also re-inserts the alert, which is wanted: an escalation should be announced.
 9. **Strip at desktop width.** The strip was drawn for a phone. Check it at 640, 1024 and 1400px:
    it should span the banner block's width like the card does, text left, CTA/toggle/✕ right, the
    name ellipsising rather than wrapping. Any CSS added for wide strips goes in a

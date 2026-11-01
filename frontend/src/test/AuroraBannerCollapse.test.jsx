@@ -176,11 +176,11 @@ describe('AuroraBanner collapse (640px and up)', () => {
       expect(layout()).toBe('strip');
     });
 
-    it('forgets the choice when the trigger changes at the same level', () => {
+    it('keeps the choice when a forecast alert is re-triggered in real time at the same level', () => {
       const { show } = mountBanner(MODERATE);
       fireEvent.click(toggle());
       show({ ...MODERATE, triggerType: 'realtime' });
-      expect(layout()).toBe('strip');
+      expect(layout()).toBe('card');
     });
 
     it('keeps the choice across a refresh of the same alert', () => {
@@ -214,7 +214,40 @@ describe('AuroraBanner collapse (640px and up)', () => {
       expect(document.activeElement).not.toBe(toggle());
     });
 
-    it('is not moved by an automatic escalation', () => {
+    it('keeps focus on the toggle across an automatic escalation and de-escalation', () => {
+      const { show } = mountBanner(MODERATE);
+      toggle().focus();
+      show(STRONG);
+      expect(layout()).toBe('card');
+      expect(document.activeElement).toBe(toggle());
+      show(MODERATE);
+      expect(layout()).toBe('strip');
+      expect(document.activeElement).toBe(toggle());
+    });
+
+    it('keeps focus on the dismiss button across an automatic escalation and de-escalation', () => {
+      const { show } = mountBanner(MODERATE);
+      screen.getByTestId('aurora-banner-dismiss').focus();
+      show(STRONG);
+      expect(layout()).toBe('card');
+      expect(document.activeElement).toBe(screen.getByTestId('aurora-banner-dismiss'));
+      show(MODERATE);
+      expect(layout()).toBe('strip');
+      expect(document.activeElement).toBe(screen.getByTestId('aurora-banner-dismiss'));
+    });
+
+    it('does not steal focus from elsewhere when the level changes', () => {
+      const { show } = mountBanner(MODERATE);
+      const other = document.createElement('button');
+      document.body.appendChild(other);
+      toggle().focus();
+      other.focus();
+      show(STRONG);
+      expect(document.activeElement).toBe(other);
+      other.remove();
+    });
+
+    it('does not move focus onto the toggle when an escalation finds it elsewhere', () => {
       const { show } = mountBanner(MODERATE);
       screen.getByTestId('aurora-banner-dismiss').focus();
       show(STRONG);

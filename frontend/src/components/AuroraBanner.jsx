@@ -1,5 +1,5 @@
 import React, {
-  Component, Suspense, lazy, useLayoutEffect, useMemo, useRef, useState,
+  Component, Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
@@ -426,15 +426,17 @@ function activates(e) {
  * @param {boolean} props.expanded whether the card is showing
  * @param {function} props.onToggle the click handler (it calls `stopPropagation`)
  * @param {object} props.toggleRef the ref the banner moves focus with after a swap
+* @param {function} [props.hold] the banner's focus tracker: `hold(name)` gives the focus handlers
  * @param {string} [props.className] extra class, for the strip's placement
  */
 function AuroraToggle({
-  expanded, onToggle, toggleRef, className = '',
+  expanded, onToggle, toggleRef, hold = null, className = '',
 }) {
   return (
     <button
       type="button"
       ref={toggleRef}
+      {...(hold ? hold('toggle') : {})}
       onClick={onToggle}
       aria-expanded={expanded}
       aria-label={expanded ? 'Hide aurora details' : 'Show aurora details'}
@@ -447,6 +449,7 @@ function AuroraToggle({
 }
 
 AuroraToggle.propTypes = {
+  hold: PropTypes.func,
   expanded: PropTypes.bool.isRequired,
   onToggle: PropTypes.func.isRequired,
   toggleRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
@@ -472,7 +475,7 @@ AuroraToggle.propTypes = {
  */
 function AuroraCard({
   m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate = null, onDismiss,
-  onToggle, toggleRef,
+  onToggle, toggleRef, dismissRef, hold,
 }) {
   const parts = [];
   if (m.best) {
@@ -576,10 +579,12 @@ function AuroraCard({
           {cta && <span className="wf-aurora-cta" data-testid="aurora-banner-cta">{cta}</span>}
         </div>
         <div className="wf-aurora-actions">
-          <AuroraToggle expanded onToggle={onToggle} toggleRef={toggleRef} />
+          <AuroraToggle expanded onToggle={onToggle} toggleRef={toggleRef} hold={hold} />
           <button
             type="button"
             onClick={onDismiss}
+            ref={dismissRef}
+            {...hold('dismiss')}
             aria-label="Dismiss aurora banner"
             data-testid="aurora-banner-dismiss"
             className="wf-aurora-x"
@@ -602,6 +607,8 @@ AuroraCard.propTypes = {
   onDismiss: PropTypes.func.isRequired,
   onToggle: PropTypes.func.isRequired,
   toggleRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  dismissRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
+  hold: PropTypes.func.isRequired,
 };
 
 /**
@@ -614,9 +621,11 @@ AuroraCard.propTypes = {
  * @param {function} props.onDismiss dismisses the banner at its current level
  * @param {function} [props.onToggle] expands to the card; null on a phone, which has no toggle
  * @param {object} [props.toggleRef] the expand toggle's ref, for focus
+* @param {object} [props.dismissRef] the dismiss button's ref, for focus
+ * @param {function} [props.hold] the banner's focus tracker (see {@link AuroraToggle})
  */
 function AuroraStrip({
-  m, onActivate = null, onDismiss, onToggle = null, toggleRef = null,
+  m, onActivate = null, onDismiss, onToggle = null, toggleRef = null, dismissRef = null, hold = null,
 }) {
   // The best site gets its own markup (a name that ellipsises and a rating that never does); every
   // other form is one text run.
@@ -685,11 +694,13 @@ function AuroraStrip({
         </div>
         {cta && <span className="wf-aurora-strip-cta" data-testid="aurora-banner-cta">{cta}</span>}
         {onToggle && (
-          <AuroraToggle expanded={false} onToggle={onToggle} toggleRef={toggleRef} className="wf-aurora-tog-strip" />
+          <AuroraToggle expanded={false} onToggle={onToggle} toggleRef={toggleRef} hold={hold} className="wf-aurora-tog-strip" />
         )}
         <button
           type="button"
           onClick={onDismiss}
+          ref={dismissRef}
+          {...(hold ? hold('dismiss') : {})}
           aria-label="Dismiss aurora banner"
           data-testid="aurora-banner-dismiss"
           className="wf-aurora-x wf-aurora-x-strip"
@@ -707,6 +718,8 @@ AuroraStrip.propTypes = {
   onDismiss: PropTypes.func.isRequired,
   onToggle: PropTypes.func,
   toggleRef: PropTypes.shape({ current: PropTypes.any }),
+  dismissRef: PropTypes.shape({ current: PropTypes.any }),
+  hold: PropTypes.func,
 };
 
 /**
@@ -749,6 +762,14 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
   const [override, setOverride] = useState(null);
   const focusPending = useRef(false);
   const toggleRef = useRef(null);
+  const dismissRef = useRef(null);
+  // Which of the two buttons that survive a swap ('toggle' or 'dismiss') holds focus, kept by their
+  // focus/blur handlers; a blur that is only the button leaving the DOM does not clear it.
+  const heldFocus = useRef(null);
+  const hold = useCallback((name) => ({
+    onFocus: () => { heldFocus.current = name; },
+    onBlur: (e) => { if (e.currentTarget.isConnected) heldFocus.current = null; },
+  }), []);
 
   // Tonight's per-location ratings, restricted to the reader's planning area (plan §4 D8). The hooks
   // run before the early returns below: nothing is asked for a status that is null, not alert-worthy
@@ -773,7 +794,7 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
   // A collapsed banner is the strip, which has no thumbnail either, so it asks for no line.
   const rendering = Boolean(status) && ALERT_WORTHY.has(status.level) && !dismissed
     && !hiddenByOvercast(status);
-  const alertKey = rendering ? `${status.level}|${status.simulated === true}|${status.triggerType}` : null;
+  const alertKey = rendering ? `${status.level}|${status.simulated === true}` : null;
   // Cleared in render, so a stale choice is never used for even one frame: any change of identity
   // (an escalation or a de-escalation) or the banner not rendering drops it.
   if (override && override.key !== alertKey) setOverride(null);
@@ -781,12 +802,19 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
     && (override && override.key === alertKey ? override.expanded : status.level === 'STRONG');
   const viewlineEnabled = isRealAlert(status) && !dismissed && !isMobile && field !== null
     && !hiddenByOvercast(status) && expanded;
-  // Toggling swaps the whole root, so the pressed button unmounts: focus moves to its counterpart.
+  // A swap replaces the whole root, so a focused toggle or dismiss button unmounts and focus falls to
+  // the body: it moves to the counterpart button. A reader's press (`focusPending`) always lands on the
+  // toggle; an automatic level change restores whichever button held focus, and only if focus was lost.
   useLayoutEffect(() => {
-    if (!focusPending.current) return;
-    focusPending.current = false;
-    toggleRef.current?.focus();
-  }, [expanded]);
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (focusPending.current) {
+      focusPending.current = false;
+      toggleRef.current?.focus();
+    } else if (rendering && lost && heldFocus.current) {
+      (heldFocus.current === 'toggle' ? toggleRef : dismissRef).current?.focus();
+    }
+    if (!rendering) heldFocus.current = null;
+  }, [expanded, rendering]);
   const { viewline } = useAuroraViewline(viewlineEnabled);
 
   // Not eligible (free-tier, 403) or not yet loaded
@@ -859,6 +887,8 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
         onDismiss={handleDismiss}
         onToggle={handleToggle}
         toggleRef={toggleRef}
+        dismissRef={dismissRef}
+        hold={hold}
       />
     )
     : (
@@ -868,6 +898,8 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
         onDismiss={handleDismiss}
         onToggle={handleToggle}
         toggleRef={toggleRef}
+        dismissRef={dismissRef}
+        hold={hold}
       />
     );
 }

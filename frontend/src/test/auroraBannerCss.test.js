@@ -273,7 +273,8 @@ describe('the aurora banner stylesheet', () => {
     });
 
     it('widens the strip only inside a 640px-and-up media query, so the phone strip is unchanged', () => {
-      const wide = /@media \(min-width: 640px\)\s*\{\s*\.wf-aurora-strip\s*\{([^{}]*)\}\s*\}/.exec(block);
+      const wide = /@media \(min-width: 640px\)\s*\{\s*\.wf-aurora-strip:not\(\.wf-aurora-strip--lite\)\s*\{([^{}]*)\}\s*\}/.exec(block);
+      // Not the Lite banner's strip, which is out of scope for the collapse.
       expect(wide).not.toBeNull();
       expect(declares(wide[1], 'padding', '0 8px 0 16px')).toBe(true);
       // The base rule keeps the phone's padding.

@@ -13525,7 +13525,7 @@ button.wf-mchip:hover {
   overflow: hidden;
 }
 @media (min-width: 640px) {
-  .wf-aurora-strip {
+  .wf-aurora-strip:not(.wf-aurora-strip--lite) {
     gap: 14px;
     padding: 0 8px 0 16px;
   }
