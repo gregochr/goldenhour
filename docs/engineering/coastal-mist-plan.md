@@ -75,7 +75,7 @@ Evidence: `coastal-mist-data/` (1,000 Boulmer sunrise mornings against the forec
 | **event slot** | **56 % (n = 75)** | **12.0, 67 %** | 31/38 | **91.3 %** |
 | window minimum | 36 % (n = 95) | 13.7, 54 % | 32/38 | 84.1 % |
 
-This used the full hourly series already fetched, so no new requests were needed. The evidence README has
+This used the full hourly series already fetched, so no new requests were needed. (Phase 1 pins its matrix from the committed CSV, whose model values are rounded to 0.1, so one CLEAR and one MIST row move NONE→LIGHT: LIGHT n = 77, clear→NONE 91.1 %.) The evidence README has
 been corrected.
 
 Original task:
