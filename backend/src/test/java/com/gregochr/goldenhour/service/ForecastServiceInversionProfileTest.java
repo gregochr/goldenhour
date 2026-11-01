@@ -140,7 +140,8 @@ class ForecastServiceInversionProfileTest {
         when(augmentor.augmentWithBluebellConditions(any(), eq(ELIGIBLE.getLocationType()),
                 eq(ELIGIBLE.getBluebellExposure()), eq(date))).then(returnsFirstArg());
         when(augmentor.augmentWithValleyMist(any(), eq(false))).then(returnsFirstArg());
-        when(augmentor.augmentWithCoastalMist(any(), any(), eq(date))).then(returnsFirstArg());
+        when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), any(LocationEntity.class), eq(date)))
+                .then(returnsFirstArg());
     }
 
     /** A whole-day profile of the valley cell on {@link #DATE}, 80 m floor. */

@@ -8,18 +8,24 @@ import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.CoastalMistProperties;
 import com.gregochr.goldenhour.config.InversionProperties;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CoastalMistBand;
 import com.gregochr.goldenhour.model.SeasonalWindow;
+import com.gregochr.goldenhour.model.TideSnapshot;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.MonthDay;
 import java.util.Set;
 
@@ -101,7 +107,12 @@ class ForecastDataAugmentorCoastalMistTest {
     @Test
     @DisplayName("a site with no tide types is returned untouched even when it has a tide snapshot")
     void inlandSiteIsNotBanded() {
-        AtmosphericData base = lightMist();
+        TideSnapshot snapshot = new TideSnapshot(TideState.HIGH, LocalDateTime.of(2026, 11, 2, 7, 40),
+                new BigDecimal("4.60"), LocalDateTime.of(2026, 11, 2, 13, 55), new BigDecimal("1.40"), true,
+                LocalDateTime.of(2026, 11, 2, 7, 40), null, LunarTideType.REGULAR_TIDE, null, false,
+                TideStatisticalSize.EXTRA_HIGH);
+        AtmosphericData base = lightMist().withTide(snapshot);
+        assertThat(base.tide()).as("the data really carries a tide snapshot").isSameAs(snapshot);
 
         AtmosphericData result = augmentor.augmentWithCoastalMist(base, location(false, false), DATE);
 

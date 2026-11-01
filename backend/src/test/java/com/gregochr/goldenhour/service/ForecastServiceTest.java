@@ -144,7 +144,8 @@ class ForecastServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithCoastalMist(any(), any(), any()))
+        lenient().when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), any(LocationEntity.class),
+                any(LocalDate.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -421,8 +422,9 @@ class ForecastServiceTest {
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
-        when(augmentor.augmentWithCoastalMist(any(), eq(coastal), eq(date))).thenReturn(banded);
-        when(augmentor.augmentWithBluebellConditions(eq(banded), any(), any(), any())).thenReturn(banded);
+        when(augmentor.augmentWithCoastalMist(eq(data), eq(coastal), eq(date))).thenReturn(banded);
+        when(augmentor.augmentWithBluebellConditions(eq(banded), eq(coastal.getLocationType()),
+                eq(coastal.getBluebellExposure()), eq(date))).thenReturn(banded);
         when(weatherTriageEvaluator.evaluate(banded)).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
@@ -431,7 +433,7 @@ class ForecastServiceTest {
 
         assertThat(result.triaged()).isFalse();
         assertThat(result.atmosphericData().coastalMist().band()).isEqualTo(CoastalMistBand.LIGHT);
-        verify(augmentor).augmentWithCoastalMist(any(), eq(coastal), eq(date));
+        verify(augmentor).augmentWithCoastalMist(eq(data), eq(coastal), eq(date));
         verify(slotAtmosphereWriter, times(1)).write(coastal, date, TargetType.SUNRISE, banded);
     }
 
