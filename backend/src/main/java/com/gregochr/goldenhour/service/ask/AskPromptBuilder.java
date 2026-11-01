@@ -70,6 +70,16 @@ public class AskPromptBuilder {
             the closest name: start the answer "Assuming you mean <name>,". If it has suggestions, call \
             look_up_place again with the one the reader plainly meant and start the answer the same way. \
             If none fits, answer answerable false and name the suggestions as the places they may mean.
+            - When the reader asks what the light or colour will be like and names no place ("is tomorrow a \
+            fiery morning?", "fiery or soft tonight?"), give the spread first as for any window, then \
+            rank_spots. Describe each place's light in its headline's words and add its fierySky and \
+            goldenHour as Fiery Sky N and Golden Hour N, out of 100, for at most two places. Never answer \
+            yes or no from a figure alone, never call a figure strong, high, low, fiery or soft, and never \
+            say one is stronger than the other: if the headlines do not say which, say the forecast does \
+            not rank them. The figures are for the places returned only: never call one the fieriest, or \
+            the whole window fiery or soft. A pick's why may quote Fiery Sky N as its sky fact. Leave the \
+            figures out of a where-question ("best place for golden hour?"). To compare earlier picks' \
+            light in a follow-up, call rank_spots again.
             """;
 
     /** The rules every conversation runs under. */

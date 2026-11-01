@@ -122,6 +122,14 @@ final class AskFixtures {
                 headline, base.canopy(), null);
     }
 
+    /** The slot with the served Fiery Sky and Golden Hour potentials set, everything else as it was. */
+    static BriefingSlot withPotentials(BriefingSlot base, Integer fiery, Integer golden) {
+        return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
+                base.verdict(), base.weather(), base.tide(), base.flags(), base.claudeRating(), base.skyRating(),
+                fiery, golden, base.claudeSummary(), base.displayVerdict(),
+                base.claudeHeadline(), base.canopy(), base.eclipse(), base.neighbourOutlier());
+    }
+
     private static BriefingSlot slotWith(Long id, String name, Integer rating, boolean canopy,
             BriefingSlot.TideInfo tide, String headline) {
         return new BriefingSlot(id, name, NOW.plusHours(6), Verdict.GO, null, tide, List.of(), rating, rating, null,

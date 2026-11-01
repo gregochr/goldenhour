@@ -817,7 +817,8 @@ class AskToolsLookUpPlaceTest {
     }
 
     @Test
-    @DisplayName("rank_spots is byte-identical for a slot with and without the forecast's reason fields")
+    @DisplayName("rank_spots differs for a slot with and without the forecast's reason fields only by the served "
+            + "Fiery Sky and Golden Hour")
     void rankSpotsIgnoresTheReasonFields() {
         BriefingSlot plain = AskFixtures.coastal(1L, "Bamburgh", 4, "HIGH", true);
         BriefingSlot rich = explained(plain, 5, 60, 70, "Clear east.");
@@ -826,7 +827,10 @@ class AskToolsLookUpPlaceTest {
         String without = tools(snapshotOf(AskFixtures.region("Coast", true, plain))).rankSpots(args).content();
         String with = tools(snapshotOf(AskFixtures.region("Coast", true, rich))).rankSpots(args).content();
 
-        assertThat(with).isEqualTo(without).doesNotContain("detail").doesNotContain("Clear east");
+        // The typed result also carries the served Fiery Sky and Golden Hour (F1); nothing else differs.
+        assertThat(with.replace(",\"fierySky\":60,\"goldenHour\":70", "")).isEqualTo(without);
+        assertThat(with).contains("\"fierySky\":60").contains("\"goldenHour\":70")
+                .doesNotContain("detail").doesNotContain("Clear east");
     }
 
     /** A worst-case slot: long tide fit and headline, and a summary of quotes and backslashes at twice its cap. */

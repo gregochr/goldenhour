@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
@@ -1375,7 +1376,8 @@ class AskToolsTest {
 
         assertThat(direct).isEqualTo(new SpotInfo(viaTool.locationId(), viaTool.name(), viaTool.region(),
                 viaTool.windowId(), viaTool.rating(), viaTool.verdict(), viaTool.tideState(),
-                viaTool.tideAligned(), viaTool.tideFitPhrase(), viaTool.headline(), viaTool.pick(), 12));
+                viaTool.tideAligned(), viaTool.tideFitPhrase(), viaTool.headline(), viaTool.pick(), 12,
+                null, null));
         assertThat(AskTools.dayWord(TODAY, TODAY)).isEqualTo("Today");
         assertThat(AskTools.dayWord(TODAY.plusDays(1), TODAY)).isEqualTo("Tomorrow");
         assertThat(AskTools.dayWord(TODAY.plusDays(2), TODAY)).isEqualTo("Wednesday");
@@ -1509,6 +1511,115 @@ class AskToolsTest {
         assertThat(lookup.error()).as(lookup.content()).isFalse();
         assertThat(lookup.payload().places()).hasSize(AskTools.MAX_PLACE_ROWS);
         assertThat(lookup.payload().places()).extracting(AskTools.PlaceInfo::locationId).containsOnly(1L);
+        assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
+    }
+
+    // -- light character (F1) ---------------------------------------------------------------
+
+    private static BriefingRegion lightRegion(Integer fiery, Integer golden) {
+        return AskFixtures.region("Coast", true,
+                AskFixtures.withPotentials(AskFixtures.coastal(1L, "Bamburgh", 4, "HIGH", true), fiery, golden),
+                AskFixtures.withPotentials(AskFixtures.coastal(2L, "Whitby", 3, "MID", true),
+                        fiery == null ? null : 40, golden == null ? null : 55));
+    }
+
+    @Test
+    @DisplayName("a typed rank_spots carries each slot's served Fiery Sky and Golden Hour")
+    void rankSpots_typedCarriesBothScores() {
+        List<SpotInfo> found = spots(tools(snapshotOfRegions(lightRegion(78, 60)), USER, TestScopes.of())
+                .rankSpots(rank(8)));
+
+        assertThat(found).extracting(SpotInfo::name, SpotInfo::fierySky, SpotInfo::goldenHour)
+                .containsExactly(tuple("Bamburgh", 78, 60),
+                        tuple("Whitby", 40, 55));
+    }
+
+    @Test
+    @DisplayName("Ready: a slot with both scores set puts neither key in the user-less rank_spots content")
+    void rankSpots_userLessNeverCarriesTheScores() {
+        AskToolResult<RankSpotsResult> result = tools(snapshotOfRegions(lightRegion(78, 60))).rankSpots(rank(8));
+
+        assertThat(result.error()).isFalse();
+        assertThat(result.content()).doesNotContain("fierySky").doesNotContain("goldenHour");
+        assertThat(result.payload().spots()).allSatisfy(s -> {
+            assertThat(s.fierySky()).isNull();
+            assertThat(s.goldenHour()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("null scores mean no keys, typed or not")
+    void rankSpots_nullScoresMeanNoKeys() {
+        AskToolResult<RankSpotsResult> typed = tools(snapshotOfRegions(lightRegion(null, null)), USER,
+                TestScopes.of()).rankSpots(rank(8));
+
+        assertThat(typed.content()).doesNotContain("fierySky").doesNotContain("goldenHour");
+    }
+
+    @Test
+    @DisplayName("typed and user-less rank_spots return the same places in the same order with the same picks")
+    void rankSpots_orderingAndPicksIdenticalTypedAndUserLess() {
+        AskSnapshot snapshot = snapshotOfRegions(lightRegion(78, 60));
+
+        List<SpotInfo> typed = spots(tools(snapshot, USER, TestScopes.of()).rankSpots(rank(8)));
+        List<SpotInfo> userLess = spots(tools(snapshot).rankSpots(rank(8)));
+
+        assertThat(typed).extracting(SpotInfo::locationId, SpotInfo::windowId, SpotInfo::rating, SpotInfo::pick)
+                .isEqualTo(userLess.stream().map(s -> tuple(
+                        s.locationId(), s.windowId(), s.rating(), s.pick())).toList());
+    }
+
+    private static BriefingRegion worstCaseLightRegion(Integer fiery, Integer golden) {
+        List<BriefingSlot> slots = new ArrayList<>();
+        for (long i = 1; i <= 8; i++) {
+            slots.add(AskFixtures.withPotentials(AskFixtures.withHeadline(
+                    AskFixtures.coastal(i, "Place number " + i, 5, "HIGH", true), "H".repeat(120)), fiery, golden));
+        }
+        return AskFixtures.region("Coast", true, slots.toArray(new BriefingSlot[0]));
+    }
+
+    @Test
+    @DisplayName("budget: a typed 8-row rank_spots at 120-char headlines and both scores at 100 stays under "
+            + "half the cap and costs at most 8 x 32 characters more than the same call without scores")
+    void rankSpots_typedWorstCaseBudget() {
+        String with = tools(snapshotOfRegions(worstCaseLightRegion(100, 100)), USER, TestScopes.of())
+                .rankSpots(rank(8)).content();
+        String without = tools(snapshotOfRegions(worstCaseLightRegion(null, null)), USER, TestScopes.of())
+                .rankSpots(rank(8)).content();
+
+        System.out.println("F1 budget: typed rank_spots(8) with scores = " + with.length()
+                + " chars, without = " + without.length() + ", delta = " + (with.length() - without.length())
+                + ", cap/2 = " + AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(with.length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(with.length() - without.length()).isLessThanOrEqualTo(8 * 32);
+    }
+
+    @Test
+    @DisplayName("budget: a typed list_windows, rank_spots(8) and look_up_place with detail fit the conversation cap")
+    void typedConversationWithLightFiguresFitsTheCap() {
+        BriefingSlot detailed = new BriefingSlot(1L, "Place number 1", AskFixtures.NOW.plusHours(6),
+                Verdict.GO, null, BriefingSlot.TideInfo.NONE, List.of(), 5, 5,
+                100, 100, "S ".repeat(200), DisplayVerdict.resolve(5,
+                        Verdict.GO), "H".repeat(120), false);
+        List<BriefingSlot> slots = new ArrayList<>();
+        slots.add(detailed);
+        for (long i = 2; i <= 8; i++) {
+            slots.add(AskFixtures.withPotentials(AskFixtures.withHeadline(
+                    AskFixtures.coastal(i, "Place number " + i, 5, "HIGH", true), "H".repeat(120)), 100, 100));
+        }
+        AskTools tools = tools(snapshotOfRegions(AskFixtures.region("Coast", true,
+                slots.toArray(new BriefingSlot[0]))), USER, TestScopes.of());
+
+        AskToolResult listed = tools.listWindows();
+        AskToolResult ranked = tools.rankSpots(rank(8));
+        AskToolResult<AskTools.LookUpPlaceResult> looked = tools.lookUpPlace(
+                new AskTools.LookUpPlaceArgs("Place number 1", null));
+
+        System.out.println("F1 budget: typed list_windows + rank_spots(8) + look_up_place total = "
+                + tools.charsUsed() + " of " + AskTools.RESULT_CHAR_CAP);
+        assertThat(listed.error()).isFalse();
+        assertThat(ranked.error()).isFalse();
+        assertThat(looked.error()).as(looked.content()).isFalse();
         assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
     }
 
