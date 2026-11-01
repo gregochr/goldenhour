@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.InversionProfile;
@@ -492,6 +493,29 @@ public class ForecastTaskCollector {
                     }
                 }
 
+                // Evening-refresh deferral. Placed AFTER triage and eligibility on purpose: a slot
+                // that triage stands down must still record SKIPPED_TRIAGED (which retracts its
+                // stale stars), and the weather fetch, slot_atmosphere write and stability
+                // classification above all ran as usual. Only a slot that would otherwise be sent
+                // to Claude, in the sky lane, is left to tonight's evening refresh, and only when
+                // the location already holds a live rating for it.
+                if (!woodlandTask && !bluebellWoodInSeason
+                        && candidateStrategy.defersRatedSlot(candidate.date(), candidate.targetType())
+                        && hasStoredRating(candidate)) {
+                    LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=NO_REFRESH_NEEDED ({})",
+                            candidate.location().getName(), candidate.date(),
+                            candidate.targetType(),
+                            IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON);
+                    dispositions.add(new CandidateDisposition(
+                            candidate.location().getId(), candidate.location().getName(),
+                            candidate.date(), candidate.targetType(), daysAhead,
+                            DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
+                            IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON));
+                    agg.recordExcluded(daysAhead, stability);
+                    skippedStability++;
+                    continue;
+                }
+
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
 
                 if (woodlandTask) {
@@ -634,6 +658,21 @@ public class ForecastTaskCollector {
                 bluebell, woodland, List.copyOf(dispositions),
                 new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount,
                         prefetchedWeather.size(), null));
+    }
+
+    /**
+     * Whether the candidate's region cache holds a live rating (not a stand-down, failure or
+     * retraction) for its location and slot.
+     */
+    private boolean hasStoredRating(ForecastCandidate candidate) {
+        if (candidate.location().getRegion() == null) {
+            return false;
+        }
+        BriefingEvaluationResult stored = briefingEvaluationService
+                .getCachedScores(candidate.location().getRegion().getName(), candidate.date(),
+                        candidate.targetType())
+                .get(candidate.location().getName());
+        return stored != null && stored.rating() != null && !stored.retracted();
     }
 
     /**

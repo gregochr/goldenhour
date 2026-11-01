@@ -32,7 +32,8 @@ import com.gregochr.goldenhour.entity.TargetType;
  * and moved two stars or more about 5% of the time). When tonight's evening refresh is due, the
  * orchestrator builds the cycle's {@link IntradayCandidateCollectionStrategy} with that fact and the
  * collector skips a T+1 sunrise that already holds a stored rating (any stability,
- * {@code SKIPPED_NO_REFRESH_NEEDED}), while one with no rating is still rated. That decision is made
+ * {@code SKIPPED_NO_REFRESH_NEEDED}), after weather fetch and triage so that a triage stand-down still
+ * records {@code SKIPPED_TRIAGED}; one with no rating is still rated. That decision is made
  * where the region cache is read, not here: this policy stays stateless and unchanged, and still
  * answers "include" for T+1 sunrise. The accepted risk is that an evening run that fails leaves the
  * overnight rating (up to about 20 hours old) serving until the next overnight run.

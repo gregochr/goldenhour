@@ -5,7 +5,6 @@ import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
-import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -113,7 +112,6 @@ public final class BriefingCandidateCollector {
         int skippedUnknown = 0;
         int skippedPastDate = 0;
         int skippedTravelDay = 0;
-        int skippedDeferred = 0;
         int totalSlots = 0;
         Map<ForecastStability, int[]> cachedByStability = new HashMap<>();
         Map<ForecastStability, int[]> eligibleByStability = new HashMap<>();
@@ -241,16 +239,6 @@ public final class BriefingCandidateCollector {
                             skippedUnknown++;
                             continue;
                         }
-                        if (candidateStrategy.defersRatedSlot(date, targetType)
-                                && hasStoredRating(region.regionName(), date, targetType,
-                                        slot.locationName())) {
-                            dispositions.add(new CandidateDisposition(
-                                    location.getId(), location.getName(), date, targetType,
-                                    daysAhead, DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
-                                    IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON));
-                            skippedDeferred++;
-                            continue;
-                        }
                         candidates.add(new ForecastCandidate(location, date, targetType));
                     }
                 }
@@ -258,22 +246,11 @@ public final class BriefingCandidateCollector {
         }
 
         LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
-                        + "(pastDate={}, travelDay={}, cached={}, unknownLoc={}, deferred={})",
+                        + "(pastDate={}, travelDay={}, cached={}, unknownLoc={})",
                 candidates.size(), totalSlots, skippedPastDate, skippedTravelDay, skippedCache,
-                skippedUnknown, skippedDeferred);
+                skippedUnknown);
         logStabilityBreakdown(eligibleByStability, cachedByStability);
         return new Result(candidates, dispositions);
-    }
-
-    /**
-     * Whether the region's cached evaluation holds a live rating (not a triage stand-down, failure or
-     * retraction) for the location's slot.
-     */
-    private boolean hasStoredRating(String regionName, LocalDate date, TargetType targetType,
-            String locationName) {
-        BriefingEvaluationResult stored = briefingEvaluationService
-                .getCachedScores(regionName, date, targetType).get(locationName);
-        return stored != null && stored.rating() != null && !stored.retracted();
     }
 
     private LocationEntity findLocation(String name) {
