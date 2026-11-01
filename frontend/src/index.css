@@ -13276,14 +13276,16 @@ button.wf-mchip:hover {
 }
 .wf-aurora-card:focus-visible,
 .wf-aurora-strip:focus-visible,
-.wf-aurora-x:focus-visible {
+.wf-aurora-x:focus-visible,
+.wf-aurora-tog:focus-visible {
   outline: 2px solid var(--acc-ink);
   outline-offset: 2px;
 }
 @media (forced-colors: active) {
   .wf-aurora-card:focus-visible,
   .wf-aurora-strip:focus-visible,
-  .wf-aurora-x:focus-visible {
+  .wf-aurora-x:focus-visible,
+  .wf-aurora-tog:focus-visible {
     outline-color: Highlight;
   }
   /* Forced colours replaces backgrounds with the system palette, which would erase the dot and the
@@ -13493,7 +13495,8 @@ button.wf-mchip:hover {
 }
 
 /* Dismiss: a 44px target on both layouts; the card tucks it into its corner. */
-.wf-aurora-x {
+.wf-aurora-x,
+.wf-aurora-tog {
   flex: none;
   align-self: flex-start;
   width: 44px;
@@ -13510,12 +13513,26 @@ button.wf-mchip:hover {
   cursor: pointer;
   color: var(--color-plex-text-secondary);
 }
-.wf-aurora-x:hover {
+.wf-aurora-x:hover,
+.wf-aurora-tog:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--color-plex-text);
 }
-.wf-aurora-x.wf-aurora-x-strip {
+.wf-aurora-x.wf-aurora-x-strip,
+.wf-aurora-tog.wf-aurora-tog-strip {
   align-self: center;
+  margin: 0;
+}
+/* The desktop expand/collapse toggle (640px and up only; a phone renders none). In the card it shares
+   a wrapper with the dismiss, which takes the dismiss's corner placement. */
+.wf-aurora-actions {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  margin: -4px -8px 0 0;
+}
+.wf-aurora-actions .wf-aurora-x,
+.wf-aurora-actions .wf-aurora-tog {
   margin: 0;
 }
 
@@ -13527,6 +13544,12 @@ button.wf-mchip:hover {
   min-height: 56px;
   padding: 0 6px 0 12px;
   overflow: hidden;
+}
+@media (min-width: 640px) {
+  .wf-aurora-strip:not(.wf-aurora-strip--lite) {
+    gap: 14px;
+    padding: 0 8px 0 16px;
+  }
 }
 .wf-aurora-strip::after {
   content: '';

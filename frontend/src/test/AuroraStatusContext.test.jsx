@@ -58,6 +58,7 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
 import { focusPastGap } from './pollGap.js';
 import AuroraBanner from '../components/AuroraBanner.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
+import { expandBannerAsync } from './auroraBannerHarness.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { resolveAuroraNight } from '../utils/mapDates.js';
 import {
@@ -153,6 +154,7 @@ const tree = () => (
 /** Mounts the tree and lets the mount's own request — answered up front by each test — land. */
 async function mount() {
   await act(async () => { render(tree()); });
+  await expandBannerAsync();
 }
 
 /** The page regains focus: the provider asks for the status again. */
@@ -163,6 +165,12 @@ async function refocus() {
 /** The provider's five-minute poll comes round. */
 async function poll() {
   await act(async () => { vi.advanceTimersByTime(POLL_INTERVAL_MS); });
+}
+
+/** {@link land}, then opens the collapsed MODERATE banner an alert answer has just put up. */
+async function landAndOpen(settle) {
+  await land(settle);
+  await expandBannerAsync();
 }
 
 const banner = () => screen.queryByRole('alert');
@@ -227,13 +235,16 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     // The symptom the first test's banner check cannot see: the viewline endpoints do not check the
     // alert state, so a stale alert answer that re-enabled the request would fetch a line for an
     // ended alert. Per-location scores exist, so the thumbnail's field — the line's only home — is up.
+    // STRONG, not MODERATE: it opens as the card, so a stale answer that re-enabled the request lands
+    // on a banner that WOULD ask. A collapsed MODERATE banner asks for nothing, which would pass this
+    // test whether or not the ordering guard held.
     getAuroraLocations.mockImplementation(() => Promise.resolve([
       { location: { id: 1, name: 'Kielder', lat: 55.2, lon: -2.6 }, stars: 5 },
     ]));
     const pollAnswer = deferred();
     const focusAnswer = deferred();
     getAuroraStatus
-      .mockResolvedValueOnce({ ...ALERT })
+      .mockResolvedValueOnce({ ...ESCALATED })
       .mockReturnValueOnce(pollAnswer.promise)
       .mockReturnValueOnce(focusAnswer.promise);
 
@@ -253,7 +264,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
       // from here, once the all-clear has switched the hook off.
       const asked = getAuroraViewline.mock.calls.length;
 
-      await land(() => pollAnswer.resolve({ ...ALERT }));
+      await land(() => pollAnswer.resolve({ ...ESCALATED }));
 
       // Still down, and no new request: broken, the ended alert's status re-enabled the hook.
       expect(banner()).not.toBeInTheDocument();
@@ -281,7 +292,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     await refocus();
     expect(getAuroraStatus).toHaveBeenCalledTimes(3);
 
-    await land(() => later.resolve({ ...ALERT }));
+    await landAndOpen(() => later.resolve({ ...ALERT }));
     // Control: the newer answer, the alert, is applied — the banner goes up.
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
 
@@ -341,7 +352,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     await refocus();
     expect(getAuroraStatus).toHaveBeenCalledTimes(4);
 
-    await land(() => first.resolve({ ...ALERT }));
+    await landAndOpen(() => first.resolve({ ...ALERT }));
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
     expect(banner()).toHaveTextContent('Kp 5');
 
@@ -412,7 +423,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     // if the helper stops flushing.
     expect(banner()).not.toBeInTheDocument();
 
-    await land(() => earlier.resolve({ ...ALERT }));
+    await landAndOpen(() => earlier.resolve({ ...ALERT }));
 
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
   });
@@ -459,7 +470,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     // StrictMode really did run the effect twice — without that this test proves nothing.
     expect(getAuroraStatus).toHaveBeenCalledTimes(2);
 
-    await land(() => secondRun.resolve({ ...ALERT }));
+    await landAndOpen(() => secondRun.resolve({ ...ALERT }));
     // Control: the second run's answer is applied.
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
 

@@ -14,6 +14,7 @@ vi.mock('../utils/heatField.js', () => ({
 }));
 
 import AuroraBanner from '../components/AuroraBanner.jsx';
+import { expandBanner } from './auroraBannerHarness.js';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { drawGeo } from '../utils/heatField.js';
@@ -41,6 +42,7 @@ describe('AuroraBanner with the real field thumbnail', () => {
       spots: [{ id: 1, name: 'Kielder', lat: 55.2, lng: -2.6, rid: 'Kielder', stars: 5 }],
     });
     render(<AuroraBanner />);
+    expandBanner();
 
     const thumb = screen.getByTestId('aurora-banner-thumb');
     expect(within(thumb).getByTestId('aurora-banner-slot')).toBeInTheDocument();

@@ -244,6 +244,43 @@ describe('the aurora banner stylesheet', () => {
       }
     });
 
+    it('gives the expand toggle the dismiss button\'s focus ring, forced-colours ring and idiom', () => {
+      const focus = ruleBody('.wf-aurora-tog:focus-visible');
+      expect(focus).not.toBeNull();
+      expect(focus).toContain('outline: 2px solid var(--acc-ink)');
+      // The forced-colours list is the only rule block that names Highlight beside the dismiss.
+      const forced = /@media \(forced-colors: active\)\s*\{[^@]*?outline-color:\s*Highlight/.exec(block);
+      expect(forced).not.toBeNull();
+      expect(forced[0]).toContain('.wf-aurora-x:focus-visible');
+      expect(forced[0]).toContain('.wf-aurora-tog:focus-visible');
+      // A 44px target, shared with the dismiss, so the two never drift apart.
+      const body = ruleBody('.wf-aurora-tog');
+      expect(declares(body, 'width', '44px')).toBe(true);
+      expect(declares(body, 'height', '44px')).toBe(true);
+    });
+
+    it('seats the toggle in the strip and, beside the dismiss, in the card\'s corner', () => {
+      const strip = ruleBody('.wf-aurora-tog.wf-aurora-tog-strip');
+      expect(strip).not.toBeNull();
+      expect(declares(strip, 'align-self', 'center')).toBe(true);
+      const actions = ruleBody('.wf-aurora-actions');
+      expect(actions).not.toBeNull();
+      expect(declares(actions, 'align-self', 'flex-start')).toBe(true);
+      // The wrapper takes the dismiss's old corner offset; the two buttons inside carry none of their own.
+      expect(declares(actions, 'margin', '-4px -8px 0 0')).toBe(true);
+      expect(declares(ruleBody('.wf-aurora-actions .wf-aurora-x'), 'margin', '0')).toBe(true);
+      expect(declares(ruleBody('.wf-aurora-actions .wf-aurora-tog'), 'margin', '0')).toBe(true);
+    });
+
+    it('widens the strip only inside a 640px-and-up media query, so the phone strip is unchanged', () => {
+      const wide = /@media \(min-width: 640px\)\s*\{\s*\.wf-aurora-strip:not\(\.wf-aurora-strip--lite\)\s*\{([^{}]*)\}\s*\}/.exec(block);
+      // Not the Lite banner's strip, which is out of scope for the collapse.
+      expect(wide).not.toBeNull();
+      expect(declares(wide[1], 'padding', '0 8px 0 16px')).toBe(true);
+      // The base rule keeps the phone's padding.
+      expect(declares(ruleBody('.wf-aurora-strip'), 'padding', '0 6px 0 12px')).toBe(true);
+    });
+
     it('keeps the dot, the lit bars and the viewline label their own colour under forced colours', () => {
       const m = /@media \(forced-colors: active\)\s*\{[\s\S]*?forced-color-adjust:\s*none;/.exec(block);
       expect(m).not.toBeNull();

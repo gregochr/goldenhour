@@ -23,6 +23,7 @@ import { getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.j
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import AuroraBanner from '../components/AuroraBanner.jsx';
+import { expandBanner } from './auroraBannerHarness.js';
 import { AuroraViewlineProvider } from '../context/AuroraViewlineContext.jsx';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 
@@ -67,6 +68,7 @@ describe('the real banner and a map consumer share one poll (P3d)', () => {
         <MapSide />
       </AuroraViewlineProvider>,
     );
+    expandBanner();
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('thumb-stub')).toHaveAttribute('data-line', 'yes');
     expect(screen.getByTestId('map-side')).toHaveTextContent('line');
