@@ -369,6 +369,101 @@ class AskToolsTest {
         assertThat(found).extracting(SpotInfo::windowId).containsExactly("2026-10-06_sunrise");
     }
 
+    // -- a Ready pick question's window bound -----------------------------------------------
+
+    private static final String TODAY_SUNSET = "2026-10-05_sunset";
+    private static final String TOMORROW_SUNRISE = "2026-10-06_sunrise";
+
+    private AskTools boundedTools(AskSnapshot snapshot, List<String> bound) {
+        return new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), driveTimes, mapper,
+                AskLocationNames.NONE, bound);
+    }
+
+    /** Two solar windows, today's sunset and tomorrow's sunrise, each holding one slot. */
+    private static AskSnapshot twoWindowSnapshot(BriefingSlot todaySlot, BriefingSlot tomorrowSlot) {
+        BriefingWindow w1 = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null);
+        BriefingWindow w2 = AskFixtures.window(TOMORROW.atTime(5, 40), DisplayVerdict.WORTH_IT, 4, null);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, w1,
+                        AskFixtures.region("Coast", true, todaySlot))),
+                AskFixtures.day(TOMORROW, AskFixtures.summary(TargetType.SUNRISE, w2,
+                        AskFixtures.region("Coast", true, tomorrowSlot)))),
+                List.of()));
+    }
+
+    private static AskSnapshot twoWindowSnapshot() {
+        return twoWindowSnapshot(AskFixtures.slot(1L, "Today Spot", 4), AskFixtures.slot(2L, "Tomorrow Spot", 5));
+    }
+
+    @Test
+    @DisplayName("a bounded rank_spots with no windowIds ranks only the bound windows, though a better "
+            + "place sits in a window outside it")
+    void rankSpots_bounded_noWindowIds_ranksOnlyTheBound() {
+        List<SpotInfo> found = spots(boundedTools(twoWindowSnapshot(), List.of(TODAY_SUNSET)).rankSpots(rank(5)));
+
+        assertThat(found).extracting(SpotInfo::windowId).containsOnly(TODAY_SUNSET);
+        assertThat(found).extracting(SpotInfo::locationId).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("an unbounded rank_spots with no windowIds still ranks every window")
+    void rankSpots_unbounded_ranksEveryWindow() {
+        List<SpotInfo> found = spots(tools(twoWindowSnapshot()).rankSpots(rank(5)));
+
+        assertThat(found).extracting(SpotInfo::windowId).containsExactlyInAnyOrder(TODAY_SUNSET, TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("a bounded rank_spots intersects named windowIds with the bound: the out-of-bound id is "
+            + "dropped silently, with no error")
+    void rankSpots_bounded_mixedIds_ranksOnlyTheInBoundOnes() {
+        AskToolResult<RankSpotsResult> result = boundedTools(twoWindowSnapshot(), List.of(TODAY_SUNSET))
+                .rankSpots(new RankSpotsArgs(List.of(TODAY_SUNSET, TOMORROW_SUNRISE), null, null, null, null, 5));
+
+        assertThat(spots(result)).extracting(SpotInfo::windowId).containsOnly(TODAY_SUNSET);
+    }
+
+    @Test
+    @DisplayName("a bounded rank_spots naming only out-of-bound windows is an error that names the allowed ids")
+    void rankSpots_bounded_onlyOutOfBoundIds_isAnErrorNamingTheAllowedIds() {
+        AskTools tools = boundedTools(twoWindowSnapshot(), List.of(TODAY_SUNSET));
+
+        AskToolResult<RankSpotsResult> result = tools.rankSpots(
+                new RankSpotsArgs(List.of(TOMORROW_SUNRISE), null, null, null, null, 5));
+
+        assertThat(result.error()).isTrue();
+        assertThat(result.content()).contains("None of those windows has a place this question can pick")
+                .contains("Rank within: " + TODAY_SUNSET + ".");
+        assertThat(tools.evidence().pairs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a bounded rank_spots still reports an unknown window id with the unknown-id message")
+    void rankSpots_bounded_unknownId_keepsTheUnknownIdError() {
+        AskToolResult<RankSpotsResult> result = boundedTools(twoWindowSnapshot(), List.of(TODAY_SUNSET))
+                .rankSpots(new RankSpotsArgs(List.of("2026-10-09_sunset"), null, null, null, null, 5));
+
+        assertThat(result.error()).isTrue();
+        assertThat(result.content()).contains("Unknown window id '2026-10-09_sunset'");
+    }
+
+    @Test
+    @DisplayName("COASTAL_HIGH: passing every covered window id ranks only the high-water window and does "
+            + "not error, though the covered set is wider than the bound")
+    void rankSpots_coastalHigh_coveredIdsRankOnlyTheHighWaterWindow() {
+        AskSnapshot snapshot = twoWindowSnapshot(AskFixtures.coastal(1L, "Bamburgh", 4, "HIGH", true),
+                AskFixtures.coastal(2L, "Seahouses", 5, "LOW", false));
+        ReadyQuestion.Offer offer = ReadyQuestion.COASTAL_HIGH.offer(snapshot, AskScope.ALL).orElseThrow();
+        assertThat(offer.windowIds()).containsExactly(TODAY_SUNSET);
+        assertThat(offer.coveredWindowIds()).containsExactly(TODAY_SUNSET, TOMORROW_SUNRISE);
+
+        AskToolResult<RankSpotsResult> result = boundedTools(snapshot, offer.windowIds()).rankSpots(
+                new RankSpotsArgs(offer.coveredWindowIds(), null, null, null, null, 5));
+
+        assertThat(spots(result)).extracting(SpotInfo::windowId, SpotInfo::locationId)
+                .containsExactly(tuple(TODAY_SUNSET, 1L));
+    }
+
     @Test
     @DisplayName("an unknown region name, a region outside the scope and a bad tide state are error results")
     void rankSpots_badRegionAndTideArguments() {

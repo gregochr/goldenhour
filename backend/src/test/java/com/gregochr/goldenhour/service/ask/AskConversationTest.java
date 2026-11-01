@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Raw;
@@ -11,6 +13,7 @@ import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawPick;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -352,5 +355,71 @@ class AskConversationTest {
         assertThat(conversation.rejectSubmission("bad", 1, List.of()).outcome().personal()).isTrue();
         assertThat(conversation.submit(picks(99L), 1, List.of()).outcome().personal())
                 .as("a discarded answer").isTrue();
+    }
+
+    // -- a Ready pick question's rank_spots bound -------------------------------------------
+
+    private static final String TOMORROW_SUNRISE = "2026-10-06_sunrise";
+
+    /** Today's sunset holds a 4 star place and tomorrow's sunrise a better, 5 star one. */
+    private static AskSnapshot twoWindowSnapshot() {
+        LocalDate tomorrow = TODAY.plusDays(1);
+        BriefingWindow w1 = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null);
+        BriefingWindow w2 = AskFixtures.window(tomorrow.atTime(5, 40), DisplayVerdict.WORTH_IT, 5, null);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, w1,
+                        AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 4)))),
+                AskFixtures.day(tomorrow, AskFixtures.summary(TargetType.SUNRISE, w2,
+                        AskFixtures.region("Coast", true, AskFixtures.slot(2L, "Saltburn", 5))))),
+                List.of()));
+    }
+
+    private AskConversation readyConversation(ReadyQuestion question, ReadyQuestion.Offer offer) {
+        return open(question("ready question"), twoWindowSnapshot(), AskUserContext.userLess(),
+                new AskRunOptions(null, 99L, null, new AskAnswerValidator.ReadyBasis(question, offer)));
+    }
+
+    private static List<String> rankedWindows(AskConversation conversation) {
+        AskToolResult<AskTools.RankSpotsResult> result = conversation.tools()
+                .rankSpots(new AskTools.RankSpotsArgs(null, null, null, null, null, 5));
+        assertThat(result.error()).as(result.content()).isFalse();
+        return result.payload().spots().stream().map(AskTools.SpotInfo::windowId).toList();
+    }
+
+    @Test
+    @DisplayName("a Ready pick question bounds rank_spots to its offer's windows, so a better place in "
+            + "a later window is never put in front of the model")
+    void readyPickQuestion_boundsRankSpotsToTheOffersWindows() {
+        AskConversation conversation = readyConversation(ReadyQuestion.BEST_WEEKEND,
+                new ReadyQuestion.Offer("Best spot this weekend?", List.of(SUNSET_TODAY), null));
+
+        assertThat(rankedWindows(conversation)).containsOnly(SUNSET_TODAY);
+    }
+
+    @Test
+    @DisplayName("a Ready night question leaves rank_spots unbounded: its offer carries a night id, which "
+            + "would empty the ranking")
+    void readyNightQuestion_leavesRankSpotsUnbounded() {
+        AskConversation conversation = readyConversation(ReadyQuestion.NIGHT_SKY,
+                new ReadyQuestion.Offer("Anything for the night sky tonight?", List.of("2026-10-05_astro"), null));
+
+        assertThat(rankedWindows(conversation)).containsExactlyInAnyOrder(SUNSET_TODAY, TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("a Ready events question leaves rank_spots unbounded")
+    void readyEventsQuestion_leavesRankSpotsUnbounded() {
+        AskConversation conversation = readyConversation(ReadyQuestion.RARE_EVENTS,
+                new ReadyQuestion.Offer("Any rare events coming up?", List.of(), null));
+
+        assertThat(rankedWindows(conversation)).containsExactlyInAnyOrder(SUNSET_TODAY, TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("a typed conversation has no Ready basis and leaves rank_spots unbounded")
+    void typedConversation_leavesRankSpotsUnbounded() {
+        AskConversation conversation = open(question("best spot"), twoWindowSnapshot(), USER, null);
+
+        assertThat(rankedWindows(conversation)).containsExactlyInAnyOrder(SUNSET_TODAY, TOMORROW_SUNRISE);
     }
 }

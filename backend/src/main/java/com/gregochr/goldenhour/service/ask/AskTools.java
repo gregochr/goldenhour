@@ -173,6 +173,7 @@ public class AskTools {
     private final DriveTimeResolver driveTimes;
     private final ObjectMapper mapper;
     private final AskLocationNames places;
+    private final List<String> windowBound;
 
     private final Set<AskEvidence.Pair> pairs = new LinkedHashSet<>();
     private final Set<AskEvidence.EventFact> events = new LinkedHashSet<>();
@@ -212,6 +213,25 @@ public class AskTools {
      */
     AskTools(AskSnapshot snapshot, AskUserContext user, AskScope scope,
             DriveTimeResolver driveTimes, ObjectMapper mapper, AskLocationNames places) {
+        this(snapshot, user, scope, driveTimes, mapper, places, null);
+    }
+
+    /**
+     * Creates the tools for one conversation, with the windows {@code rank_spots} may rank within.
+     *
+     * @param snapshot    the served snapshot every tool reads
+     * @param user        who is asking
+     * @param scope       the regions the question is about
+     * @param driveTimes  the source of the asker's own drive times
+     * @param mapper      serialises results for the model
+     * @param places      the enabled locations' coordinates, read lazily and only for {@code nearHome}
+     * @param windowBound the window ids {@code rank_spots} is confined to (a Ready pick question's own
+     *                    offer windows), or null for every window
+     */
+    AskTools(AskSnapshot snapshot, AskUserContext user, AskScope scope,
+            DriveTimeResolver driveTimes, ObjectMapper mapper, AskLocationNames places,
+            List<String> windowBound) {
+        this.windowBound = windowBound == null ? null : List.copyOf(windowBound);
         this.snapshot = snapshot;
         this.user = user;
         this.scope = Objects.requireNonNull(scope, "scope");
@@ -744,7 +764,8 @@ public class AskTools {
         int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_SPOTS);
 
         List<AskSnapshot.Window> windows = snapshot.windows();
-        if (a.windowIds() != null && !a.windowIds().isEmpty()) {
+        boolean windowsNamed = a.windowIds() != null && !a.windowIds().isEmpty();
+        if (windowsNamed) {
             List<AskSnapshot.Window> picked = new ArrayList<>();
             for (String id : a.windowIds()) {
                 AskSnapshot.Window w = snapshot.window(id).orElse(null);
@@ -755,6 +776,18 @@ public class AskTools {
                 picked.add(w);
             }
             windows = picked;
+        }
+        if (windowBound != null) {
+            // A Ready pick question may only pick from its own offer's windows (ReadyRelevance.admitsPick),
+            // so the tool ranks only those. Ids outside the bound are dropped, not refused: the prompt
+            // names a superset of the bound, so a model passing the ids it was given must still be served.
+            List<AskSnapshot.Window> inBound = windows.stream()
+                    .filter(w -> windowBound.contains(w.id())).toList();
+            if (inBound.isEmpty() && windowsNamed) {
+                return fail("rank_spots", "None of those windows has a place this question can pick."
+                        + " Rank within: " + String.join(", ", windowBound) + ".");
+            }
+            windows = inBound;
         }
 
         Set<String> regionFilter = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
