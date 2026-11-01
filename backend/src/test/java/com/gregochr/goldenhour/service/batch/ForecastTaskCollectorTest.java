@@ -1331,11 +1331,14 @@ class ForecastTaskCollectorTest {
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         stubPrefetchSuccess(loc);
-        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET))
+        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY, TargetType.SUNRISE, EvaluationModel.HAIKU))
                 .thenReturn(inlandPreEval(loc, TODAY, 0));
 
-        collector.collectRegionFilteredBatches(List.of(1L));
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(List.of(1L));
 
+        // The candidate must really be assembled (the model stubbed is the one the region-filtered path
+        // uses), or a swallowed per-candidate failure would make the snapshot check below vacuous.
+        assertThat(result.inland()).hasSize(1);
         verify(stabilitySnapshotProvider, never()).update(any());
     }
 
