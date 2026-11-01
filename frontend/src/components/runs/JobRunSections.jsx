@@ -148,17 +148,19 @@ export function CallsSection({ apiCalls, batchSummary, rate = null, loading, err
     );
   }
   const stats = serviceStats(apiCalls);
-  const batchOnly = batchSummary != null && stats.length === 0;
-  // The batch's own estimate stands in when there are no per-call rows to add up.
+  // The batch row stands in for an ANTHROPIC group while the batch has logged no Anthropic calls (in flight, or
+  // failed first). It sits beside the other groups, such as the Open-Meteo pre-fetch rows a batch run now carries.
+  const showBatchRow = batchSummary != null && !stats.some((s) => s.service === 'ANTHROPIC');
+  // The batch's own estimate is the total when there is one (never added to per-call costs, so no double count).
   const total = batchSummary?.estimatedCostMicroDollars
     || stats.reduce((sum, s) => sum + s.costMicroDollars, 0);
   return (
     <PanelSection label="Calls" testId="job-run-calls">
-      {batchOnly && <BatchRow summary={batchSummary} rate={rate} />}
-      {!batchOnly && stats.length === 0 && (
+      {showBatchRow && <BatchRow summary={batchSummary} rate={rate} />}
+      {!showBatchRow && stats.length === 0 && (
         <p className="text-sm text-plex-text-muted">No API calls recorded</p>
       )}
-      {!batchOnly && stats.map((s) => <ServiceRow key={s.service} stats={s} rate={rate} />)}
+      {stats.map((s) => <ServiceRow key={s.service} stats={s} rate={rate} />)}
       {total > 0 && (
         <div className="mt-2.5 flex items-center justify-between border-t border-plex-border pt-2.5" data-testid="job-run-total-cost">
           <span className="text-[13px] font-medium text-plex-text">Total cost</span>

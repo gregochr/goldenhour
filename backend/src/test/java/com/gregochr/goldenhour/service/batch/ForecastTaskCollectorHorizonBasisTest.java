@@ -244,7 +244,7 @@ class ForecastTaskCollectorHorizonBasisTest {
                 .thenReturn(EvaluationModel.SONNET);
         lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(OpenMeteoService.coordKey(loc.getLat(), loc.getLon()),
                         new WeatherExtractionResult(null, new OpenMeteoForecastResponse(),
                                 new OpenMeteoAirQualityResponse())));

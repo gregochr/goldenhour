@@ -209,7 +209,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         String coordKey = OpenMeteoService.coordKey(DURHAM_LAT, DURHAM_LON);
         Map<String, WeatherExtractionResult> prefetched = Map.of(coordKey,
                 new WeatherExtractionResult(null, null));
-        lenient().when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        lenient().when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(prefetched);
         lenient().when(openMeteoService.getAtmosphericDataFromCache(any(), any(), any()))
                 .thenReturn(new WeatherExtractionResult(sharedWeatherData, null));

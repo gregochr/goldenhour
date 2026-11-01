@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.service.OpenMeteoService;
@@ -25,6 +27,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,7 +36,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -95,10 +97,10 @@ class BatchWeatherPrefetcherTest {
                 any(LocalDateTime.class), eq(eventTime))).thenReturn(upwindPoint);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> pointsCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), isNull()))
+        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), any()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
-        prefetcher.prefetchBatchCloudPoints(List.of(candidate), prefetchedWeather);
+        prefetcher.prefetchBatchCloudPoints(List.of(candidate), prefetchedWeather, call -> { });
 
         // The upwind branch executed: wind read from the prefetched Hourly and an upwind point added.
         verify(openMeteoService).computeUpwindPoint(eq(lat), eq(lon), eq(270), eq(5.0),
@@ -125,10 +127,10 @@ class BatchWeatherPrefetcherTest {
                 .thenReturn(new ArrayList<>(List.of(directionalPoint)));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> pointsCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), isNull()))
+        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), any()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
-        prefetcher.prefetchBatchCloudPoints(List.of(candidate), null);
+        prefetcher.prefetchBatchCloudPoints(List.of(candidate), null, call -> { });
 
         assertThat(pointsCaptor.getValue()).containsExactly(directionalPoint);
         verify(openMeteoService, org.mockito.Mockito.never())
@@ -158,12 +160,12 @@ class BatchWeatherPrefetcherTest {
         when(openMeteoService.computeDirectionalCloudPoints(54.8, -1.6, 251)).thenReturn(pointsB);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> farCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchCloudBatch(anyList(), farCaptor.capture(), isNull()))
+        when(openMeteoService.prefetchCloudBatch(anyList(), farCaptor.capture(), any()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
         prefetcher.prefetchBatchCloudPoints(List.of(
                 new ForecastCandidate(a, date, TargetType.SUNSET),
-                new ForecastCandidate(b, date, TargetType.SUNSET)), null);
+                new ForecastCandidate(b, date, TargetType.SUNSET)), null, call -> { });
 
         assertThat(farCaptor.getValue()).hasSize(2);
         assertThat(farCaptor.getValue().get(0))
@@ -218,9 +220,9 @@ class BatchWeatherPrefetcherTest {
         fetched.put(OpenMeteoService.coordKey(53.0, -3.0), own);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> coordsCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchWeatherBatchResilient(coordsCaptor.capture())).thenReturn(fetched);
+        when(openMeteoService.prefetchWeatherBatchResilient(coordsCaptor.capture(), any())).thenReturn(fetched);
 
-        Map<String, WeatherExtractionResult> result = prefetcher.prefetchBatchWeather(candidates);
+        Map<String, WeatherExtractionResult> result = prefetcher.prefetchBatchWeather(candidates, call -> { });
 
         // 2 distinct cells + 2 cell-less locations = 4 fetches (not 5 distinct coordinates)
         assertThat(coordsCaptor.getValue()).hasSize(4);
@@ -228,7 +230,7 @@ class BatchWeatherPrefetcherTest {
         assertThat(coordsCaptor.getValue().get(1)).containsExactly(54.0, -2.0);
         assertThat(coordsCaptor.getValue().get(2)).containsExactly(53.0, -3.0);
         assertThat(coordsCaptor.getValue().get(3)).containsExactly(53.5, -3.5);
-        verify(openMeteoService).prefetchWeatherBatchResilient(coordsCaptor.getValue());
+        verify(openMeteoService).prefetchWeatherBatchResilient(eq(coordsCaptor.getValue()), any());
         // every coordinate is served: the cell fans out, the cell-less ones keep their own result
         assertThat(result.get(OpenMeteoService.coordKey(55.0, -1.5))).isSameAs(cellA);
         assertThat(result.get(OpenMeteoService.coordKey(55.004, -1.502))).isSameAs(cellA);
@@ -242,10 +244,11 @@ class BatchWeatherPrefetcherTest {
     void prefetchBatchWeather_emptyFetch_returnsEmpty() {
         LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
         when(openMeteoService.prefetchWeatherBatchResilient(
-                argThat(BatchWeatherPrefetcherTest::isSingleCoord))).thenReturn(Map.of());
+                argThat(BatchWeatherPrefetcherTest::isSingleCoord), any())).thenReturn(Map.of());
 
         assertThat(prefetcher.prefetchBatchWeather(List.of(
-                new ForecastCandidate(a, LocalDate.of(2026, 6, 21), TargetType.SUNSET)))).isEmpty();
+                new ForecastCandidate(a, LocalDate.of(2026, 6, 21), TargetType.SUNSET)),
+                call -> { })).isEmpty();
     }
 
     @Test
@@ -258,9 +261,10 @@ class BatchWeatherPrefetcherTest {
                 new ForecastCandidate(a, date, TargetType.SUNSET),
                 new ForecastCandidate(b, date, TargetType.SUNSET));
         when(openMeteoService.prefetchWeatherBatchResilient(
-                argThat(BatchWeatherPrefetcherTest::isSingleCoord))).thenReturn(
+                argThat(BatchWeatherPrefetcherTest::isSingleCoord), any())).thenReturn(
                 Map.of(OpenMeteoService.coordKey(55.0, -1.5), windyResult()));
-        Map<String, WeatherExtractionResult> weather = prefetcher.prefetchBatchWeather(candidates);
+        Map<String, WeatherExtractionResult> weather =
+                prefetcher.prefetchBatchWeather(candidates, call -> { });
 
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 0);
         when(solarService.sunsetAzimuthDeg(55.0, -1.5, date)).thenReturn(250);
@@ -275,15 +279,62 @@ class BatchWeatherPrefetcherTest {
                 eq(NOW), eq(eventTime))).thenReturn(new double[]{55.3, -1.5});
         when(openMeteoService.computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
                 eq(NOW), eq(eventTime))).thenReturn(new double[]{55.4, -1.5});
-        when(openMeteoService.prefetchCloudBatch(argThat(l -> l.size() == 4), eq(List.of()), isNull()))
+        when(openMeteoService.prefetchCloudBatch(argThat(l -> l.size() == 4), eq(List.of()), any()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
-        prefetcher.prefetchBatchCloudPoints(candidates, weather);
+        prefetcher.prefetchBatchCloudPoints(candidates, weather, call -> { });
 
         verify(openMeteoService).computeUpwindPoint(eq(55.0), eq(-1.5), eq(270), eq(5.0),
                 eq(NOW), eq(eventTime));
         verify(openMeteoService).computeUpwindPoint(eq(55.004), eq(-1.502), eq(270), eq(5.0),
                 eq(NOW), eq(eventTime));
+    }
+
+    @Test
+    @DisplayName("prefetchBatchWeather hands the caller's sink to the service, so its calls reach the caller")
+    void prefetchBatchWeather_passesCallersSinkThrough() {
+        LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
+        PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                "batch-prefetch forecast chunk 1/1", 1, 1, NOW, 120L, 200, true, null, 1);
+        when(openMeteoService.prefetchWeatherBatchResilient(
+                argThat(BatchWeatherPrefetcherTest::isSingleCoord), any())).thenAnswer(invocation -> {
+                    Consumer<PrefetchCall> sink = invocation.getArgument(1);
+                    sink.accept(call);
+                    return Map.of();
+                });
+        List<PrefetchCall> sunk = new ArrayList<>();
+
+        prefetcher.prefetchBatchWeather(List.of(
+                new ForecastCandidate(a, LocalDate.of(2026, 6, 21), TargetType.SUNSET)), sunk::add);
+
+        assertThat(sunk).containsExactly(call);
+    }
+
+    @Test
+    @DisplayName("prefetchBatchCloudPoints hands the caller's sink to the cloud pre-fetch")
+    void prefetchBatchCloudPoints_passesCallersSinkThrough() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocationEntity a = located(1L, 55.0, -1.5, 55.01, -1.51);
+        when(solarService.sunsetAzimuthDeg(55.0, -1.5, date)).thenReturn(250);
+        when(openMeteoService.computeDirectionalCloudPoints(55.0, -1.5, 250))
+                .thenReturn(new ArrayList<>(fivePoints(55.0)));
+        PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                "batch-prefetch cloud points (5)", 5, 5, NOW, 80L, 200, true, null, 1);
+        // The five directional points of the one candidate, and its one far-solar point (index 4 of them).
+        when(openMeteoService.prefetchCloudBatch(
+                argThat(points -> points.size() == 5 && points.get(0)[0] == 55.0),
+                argThat(far -> far.size() == 1 && far.get(0)[0] == 57.0),
+                any())).thenAnswer(invocation -> {
+                    Consumer<PrefetchCall> sink = invocation.getArgument(2);
+                    sink.accept(call);
+                    return new CloudPointCache(Map.of());
+                });
+        List<PrefetchCall> sunk = new ArrayList<>();
+
+        prefetcher.prefetchBatchCloudPoints(
+                List.of(new ForecastCandidate(a, date, TargetType.SUNSET)), null, sunk::add);
+
+        assertThat(sunk).containsExactly(call);
     }
 
     private static boolean isSingleCoord(List<double[]> coords) {

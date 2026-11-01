@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -1329,6 +1330,146 @@ class JobRunServiceTest {
             Optional<ForecastBatchEntity> result = jobRunService.getBatchForJobRun(999L);
 
             assertThat(result).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("logPrefetchCalls() and the anchor-run note overload")
+    class LogPrefetchCallsTests {
+
+        private final LocalDateTime calledAt = LocalDateTime.of(2026, 10, 31, 21, 5, 0);
+
+        @SuppressWarnings("unchecked")
+        private List<ApiCallLogEntity> savedRows() {
+            ArgumentCaptor<List<ApiCallLogEntity>> captor = ArgumentCaptor.forClass(List.class);
+            verify(apiCallLogRepository).saveAll(captor.capture());
+            return captor.getValue();
+        }
+
+        @Test
+        @DisplayName("writes one row per call, stamped with the call's own time, status and flags")
+        void logPrefetchCalls_writesOneRowPerCall() {
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_AIR_QUALITY)).thenReturn(0L);
+            PrefetchCall ok = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                    "batch-prefetch forecast chunk 1/2", 20, 20, calledAt, 1500L, 200, true, null, 1);
+            PrefetchCall refused = new PrefetchCall(ServiceName.OPEN_METEO_AIR_QUALITY,
+                    "batch-prefetch air-quality chunk 2/2", 20, 0, calledAt.plusSeconds(4), 300L, 429, false,
+                    "429 Too Many Requests", 1);
+
+            jobRunService.logPrefetchCalls(77L, List.of(ok, refused));
+
+            List<ApiCallLogEntity> rows = savedRows();
+            assertThat(rows).hasSize(2);
+            ApiCallLogEntity first = rows.get(0);
+            assertThat(first.getJobRunId()).isEqualTo(77L);
+            assertThat(first.getService()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
+            assertThat(first.getCalledAt()).isEqualTo(calledAt);
+            assertThat(first.getCompletedAt()).isEqualTo(calledAt.plus(1500L, ChronoUnit.MILLIS));
+            assertThat(first.getDurationMs()).isEqualTo(1500L);
+            assertThat(first.getRequestMethod()).isEqualTo("GET");
+            assertThat(first.getRequestUrl()).isEqualTo("batch-prefetch forecast chunk 1/2");
+            assertThat(first.getStatusCode()).isEqualTo(200);
+            assertThat(first.getSucceeded()).isTrue();
+            assertThat(first.getIsBatch()).isFalse();
+            assertThat(first.getBatchId()).isNull();
+            assertThat(first.getCustomId()).isNull();
+            assertThat(first.getErrorMessage()).isNull();
+            assertThat(first.getCostMicroDollars()).isZero();
+            assertThat(first.getCreatedAt()).isNotNull();
+
+            ApiCallLogEntity second = rows.get(1);
+            assertThat(second.getService()).isEqualTo(ServiceName.OPEN_METEO_AIR_QUALITY);
+            assertThat(second.getCalledAt()).isEqualTo(calledAt.plusSeconds(4));
+            assertThat(second.getStatusCode()).isEqualTo(429);
+            assertThat(second.getSucceeded()).isFalse();
+            assertThat(second.getErrorMessage())
+                    .isEqualTo("2/2: 20 coords, 0 returned, 1 attempt — 429 Too Many Requests");
+        }
+
+        @Test
+        @DisplayName("takes the cost from the flat-rate calculator")
+        void logPrefetchCalls_costFromCalculator() {
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(250L);
+            PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                    "batch-prefetch cloud points (5)", 5, 5, calledAt, 90L, 200, true, null, 1);
+
+            jobRunService.logPrefetchCalls(77L, List.of(call));
+
+            assertThat(savedRows().get(0).getCostMicroDollars()).isEqualTo(250L);
+        }
+
+        @Test
+        @DisplayName("truncates an error message over 500 characters, and words a multi-attempt failure")
+        void logPrefetchCalls_longErrorTruncated() {
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
+            PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                    "batch-prefetch forecast chunk 3/5", 20, 0, calledAt, 6000L, null, false,
+                    "x".repeat(900), 3);
+
+            jobRunService.logPrefetchCalls(77L, List.of(call));
+
+            String error = savedRows().get(0).getErrorMessage();
+            assertThat(error).hasSize(500);
+            assertThat(error).startsWith("3/5: 20 coords, 0 returned, 3 attempts — xxx");
+        }
+
+        @Test
+        @DisplayName("a call-level row without a chunk in its label has no chunk prefix")
+        void logPrefetchCalls_callLevelLabelNoChunkPrefix() {
+            when(costCalculator.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).thenReturn(0L);
+            PrefetchCall call = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                    "batch-prefetch forecast", 42, 0, calledAt, 2L, null, false,
+                    "CircuitBreaker 'open-meteo-briefing' is OPEN", 1);
+
+            jobRunService.logPrefetchCalls(77L, List.of(call));
+
+            assertThat(savedRows().get(0).getErrorMessage()).isEqualTo(
+                    "42 coords, 0 returned, 1 attempt — CircuitBreaker 'open-meteo-briefing' is OPEN");
+        }
+
+        @Test
+        @DisplayName("null or empty calls write nothing")
+        void logPrefetchCalls_nothingToWrite() {
+            jobRunService.logPrefetchCalls(77L, List.of());
+            jobRunService.logPrefetchCalls(77L, null);
+
+            verifyNoInteractions(apiCallLogRepository);
+        }
+
+        @Test
+        @DisplayName("startDispositionAnchorRun(count, notes) uses the caller's note on a completed zero-cost run")
+        void startDispositionAnchorRun_withNotes_usesTheNote() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> {
+                JobRunEntity run = inv.getArgument(0);
+                run.setId(555L);
+                return run;
+            });
+
+            Long id = jobRunService.startDispositionAnchorRun(3, "Weather pre-fetch aborted — 0/3");
+
+            assertThat(id).isEqualTo(555L);
+            JobRunEntity saved = captor.getValue();
+            assertThat(saved.getNotes()).isEqualTo("Weather pre-fetch aborted — 0/3");
+            assertThat(saved.getRunType()).isEqualTo(RunType.SCHEDULED_BATCH);
+            assertThat(saved.getLocationsProcessed()).isEqualTo(3);
+            assertThat(saved.getCompletedAt()).isNotNull();
+            assertThat(saved.getTotalCostMicroDollars()).isZero();
+        }
+
+        @Test
+        @DisplayName("startDispositionAnchorRun(count) keeps its original all-cached note")
+        void startDispositionAnchorRun_oneArg_keepsOriginalNote() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startDispositionAnchorRun(2);
+
+            assertThat(captor.getValue().getNotes())
+                    .isEqualTo("Disposition-only cycle — no batch submitted (all candidates cached/skipped)");
         }
     }
 }

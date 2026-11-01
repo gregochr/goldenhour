@@ -737,6 +737,70 @@ describe('JobRunPanel: the batch summary row', () => {
     renderPanel(BATCH, { group: 'BATCHES' });
     expect(await screen.findByText('No API calls recorded')).toBeInTheDocument();
   });
+
+  describe('with the batch weather pre-fetch rows on the run', () => {
+    const FORECAST_ROW_429 = {
+      ...OPEN_METEO_CALL,
+      id: 31,
+      service: 'OPEN_METEO_FORECAST',
+      succeeded: false,
+      statusCode: 429,
+      errorMessage: 'chunk 2/3: 20 coords, 0 returned, 1 attempt — 429 Too Many Requests',
+    };
+    const summaryFor = (status) => ({ data: {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      estimatedCostMicroDollars: 0,
+      requestCount: 20,
+      succeededCount: 0,
+      erroredCount: 0,
+      status,
+    } });
+
+    it('shows the batch row and the Open-Meteo group with its 429 for a SUBMITTED batch', async () => {
+      getBatchSummary.mockResolvedValue(summaryFor('SUBMITTED'));
+      getApiCalls.mockResolvedValue({ data: [FORECAST_ROW_429] });
+      renderPanel(BATCH, { group: 'BATCHES' });
+      expect(await screen.findByTestId('job-run-batch-row')).toBeInTheDocument();
+      expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('Submitted');
+      expect(screen.getByTestId('job-run-service-OPEN_METEO_FORECAST')).toHaveTextContent('1 errors');
+      openDisclosure('failed');
+      expect(screen.getByText('OPEN_METEO_FORECAST · 429')).toBeInTheDocument();
+      expect(screen.getByText(/429 Too Many Requests/)).toBeInTheDocument();
+      expect(screen.queryByText('No API calls recorded')).not.toBeInTheDocument();
+    });
+
+    it('keeps the batch row and its failure text for a FAILED batch with Open-Meteo rows', async () => {
+      getBatchSummary.mockResolvedValue(summaryFor('FAILED'));
+      getApiCalls.mockResolvedValue({ data: [FORECAST_ROW_429] });
+      renderPanel(BATCH, { group: 'BATCHES' });
+      expect(await screen.findByTestId('job-run-batch-row')).toBeInTheDocument();
+      expect(screen.getByText(/No token data/)).toBeInTheDocument();
+      expect(screen.getByTestId('job-run-batch-row-status')).toHaveTextContent('Failed');
+      expect(screen.getByTestId('job-run-service-OPEN_METEO_FORECAST')).toBeInTheDocument();
+    });
+
+    it('drops the batch row once ANTHROPIC rows exist, without adding the batch cost to the rows', async () => {
+      getBatchSummary.mockResolvedValue({ data: { ...summaryFor('COMPLETED').data, estimatedCostMicroDollars: 75000 } });
+      getApiCalls.mockResolvedValue({ data: [{ ...ANTHROPIC_CALL, costMicroDollars: 75000 }, FORECAST_ROW_429] });
+      renderPanel({ ...BATCH, exchangeRateGbpPerUsd: 0.8 }, { group: 'BATCHES' });
+      expect(await screen.findByTestId('job-run-service-ANTHROPIC')).toBeInTheDocument();
+      expect(screen.queryByTestId('job-run-batch-row')).not.toBeInTheDocument();
+      expect(screen.getByTestId('job-run-total-cost')).toHaveTextContent('£0.0600');
+    });
+
+    it('does not show a non-batch note as an Anthropic batch id', async () => {
+      renderPanel({
+        ...BATCH,
+        notes: 'Weather pre-fetch aborted — 0/42 locations returned (Open-Meteo); no batch submitted',
+      }, { group: 'BATCHES' });
+      expect(await screen.findByText('No API calls recorded')).toBeInTheDocument();
+      expect(screen.queryByTestId('job-run-batch-id')).not.toBeInTheDocument();
+      expect(screen.getByTestId('job-run-notes')).toHaveTextContent('Weather pre-fetch aborted');
+    });
+  });
 });
 
 describe('JobRunPanel: fallback-parsed responses', () => {

@@ -207,6 +207,28 @@ class AdminRunsServiceTest {
     }
 
     @Test
+    @DisplayName("a weather-pre-fetch-abort anchor linked to its cycle shows under the cycle, not as a stray "
+            + "top-level run; the same run left unlinked would be a stray")
+    void abortAnchorLinkedToCycleIsNotTopLevel() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, Instant.parse("2026-10-31T01:00:00Z"),
+                PipelineRunStatus.COMPLETED);
+        String note = "Weather pre-fetch aborted — 0/42 locations returned (Open-Meteo); no batch submitted";
+        JobRunEntity linkedAnchor = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 5), true, 0, 0, 0L);
+        linkedAnchor.setNotes(note);
+        JobRunEntity strayAnchor = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 3, 0), true, 0, 0, 0L);
+        strayAnchor.setNotes(note);
+        em.flush();
+        pipelineRuns.recordDispositionJobRun(nightly.getId(), linkedAnchor.getId());
+        em.clear();
+
+        RunListResponse response = list(RunRange.TODAY, null, false);
+
+        assertThat(ids(response, RunKind.CYCLE)).containsExactly(nightly.getId());
+        assertThat(ids(response, RunKind.JOB)).containsExactly(strayAnchor.getId());
+        assertThat(ids(response, RunKind.JOB)).doesNotContain(linkedAnchor.getId());
+    }
+
+    @Test
     @DisplayName("an unlinked batch run is grouped and detailed from the batch its notes name")
     void unlinkedBatchRunUsesNotesForGroupAndDetail() {
         JobRunEntity aurora = doneJob(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 5, 0));

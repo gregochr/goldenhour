@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
@@ -18,12 +20,16 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
@@ -400,8 +406,43 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo-briefing")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoForecastResponse> fetchForecastBriefingBatch(List<double[]> coords) {
+        return fetchForecastBriefingBatchBody(coords, NO_SINK);
+    }
+
+    /**
+     * As {@link #fetchForecastBriefingBatch(List)}, additionally reporting one {@link PrefetchCall}
+     * per chunk (success or failure) to {@code sink}, for the batch weather pre-fetch to record on a
+     * job run. Behaviour, including the exception thrown for a failed single chunk, is unchanged.
+     *
+     * @param coords list of [lat, lon] pairs
+     * @param sink   receives one call per chunk
+     * @return list of length {@code coords.size()} — null where a chunk failed
+     */
+    @Retry(name = "open-meteo-briefing")
+    @CircuitBreaker(name = "open-meteo-briefing")
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoForecastResponse> fetchForecastBriefingBatch(List<double[]> coords,
+            Consumer<PrefetchCall> sink) {
+        return fetchForecastBriefingBatchBody(coords, sink);
+    }
+
+    private List<OpenMeteoForecastResponse> fetchForecastBriefingBatchBody(List<double[]> coords,
+            Consumer<PrefetchCall> sink) {
         if (coords.size() <= BATCH_COORD_LIMIT) {
-            return fetchBriefingChunkWithRetry(coords, 1, 1, new int[]{0});
+            long startMs = System.currentTimeMillis();
+            LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
+            int[] retries = {0};
+            try {
+                List<OpenMeteoForecastResponse> single =
+                        fetchBriefingChunkWithRetry(coords, 1, 1, retries);
+                recordChunk(sink, ServiceName.OPEN_METEO_FORECAST, "forecast", 1, 1, coords.size(),
+                        countNonNull(single), calledAt, startMs, retries[0] + 1, null);
+                return single;
+            } catch (RuntimeException e) {
+                recordChunk(sink, ServiceName.OPEN_METEO_FORECAST, "forecast", 1, 1, coords.size(),
+                        0, calledAt, startMs, retries[0] + 1, e);
+                throw e;
+            }
         }
 
         int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
@@ -424,8 +465,10 @@ public class OpenMeteoClient {
 
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
             List<double[]> chunk = coords.subList(i, end);
+            int[] retries = {0};
+            long chunkStartMs = System.currentTimeMillis();
+            LocalDateTime chunkCalledAt = LocalDateTime.now(ZoneOffset.UTC);
             try {
-                int[] retries = {0};
                 List<OpenMeteoForecastResponse> chunkResults =
                         fetchBriefingChunkWithRetry(chunk, chunkIndex, totalChunks, retries);
                 for (int j = 0; j < chunkResults.size(); j++) {
@@ -434,8 +477,13 @@ public class OpenMeteoClient {
                 succeededChunks++;
                 totalRetries += retries[0];
                 hitRateLimit = false;
+                recordChunk(sink, ServiceName.OPEN_METEO_FORECAST, "forecast", chunkIndex, totalChunks,
+                        chunk.size(), countNonNull(chunkResults), chunkCalledAt, chunkStartMs,
+                        retries[0] + 1, null);
             } catch (Exception e) {
                 failedChunks++;
+                recordChunk(sink, ServiceName.OPEN_METEO_FORECAST, "forecast", chunkIndex, totalChunks,
+                        chunk.size(), 0, chunkCalledAt, chunkStartMs, retries[0] + 1, e);
                 String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 LOG.warn("Open-Meteo briefing batch chunk {}/{} failed ({} coords): {}",
                         chunkIndex, totalChunks, chunk.size(), reason);
@@ -513,6 +561,49 @@ public class OpenMeteoClient {
                 + (CHUNK_MAX_RETRIES + 1) + " attempts", lastFailure);
     }
 
+    /** Sink used by the one-argument batch methods, which record nothing. */
+    private static final Consumer<PrefetchCall> NO_SINK = call -> { };
+
+    private static int countNonNull(List<?> list) {
+        return list == null ? 0 : (int) list.stream().filter(r -> r != null).count();
+    }
+
+    /**
+     * Reports one chunk of a batch pre-fetch to the sink. Never throws: a faulty sink must not
+     * change what the fetch returns or throws.
+     */
+    private void recordChunk(Consumer<PrefetchCall> sink, ServiceName service, String kind,
+            int chunkIndex, int totalChunks, int requested, int returned, LocalDateTime calledAt,
+            long startMs, int attempts, Exception failure) {
+        try {
+            String label = "batch-prefetch " + kind + " chunk " + chunkIndex + "/" + totalChunks;
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (failure == null) {
+                sink.accept(new PrefetchCall(service, label, requested, returned, calledAt,
+                        durationMs, 200, true, null, attempts));
+            } else {
+                String message = failure.getMessage() != null ? failure.getMessage()
+                        : failure.getClass().getSimpleName();
+                sink.accept(new PrefetchCall(service, label, requested, 0, calledAt, durationMs,
+                        chunkStatusCode(failure, message), false, message, attempts));
+            }
+        } catch (RuntimeException sinkFailure) {
+            LOG.warn("Open-Meteo pre-fetch call could not be recorded: {}", sinkFailure.getMessage());
+        }
+    }
+
+    /** HTTP status of a failed chunk: the response status in the cause chain, else 429 by message. */
+    private static Integer chunkStatusCode(Throwable failure, String message) {
+        Throwable t = failure;
+        for (int depth = 0; t != null && depth < 10; depth++) {
+            if (t instanceof RestClientResponseException rex) {
+                return rex.getStatusCode().value();
+            }
+            t = t.getCause();
+        }
+        return message.contains("429") ? 429 : null;
+    }
+
     /**
      * Classifies whether an exception represents a transient failure worth retrying.
      *
@@ -573,8 +664,42 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo-briefing")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoAirQualityResponse> fetchAirQualityBatchResilient(List<double[]> coords) {
+        return fetchAirQualityBatchResilientBody(coords, NO_SINK);
+    }
+
+    /**
+     * As {@link #fetchAirQualityBatchResilient(List)}, additionally reporting one
+     * {@link PrefetchCall} per chunk (success or failure) to {@code sink}. Behaviour is unchanged.
+     *
+     * @param coords list of [lat, lon] pairs
+     * @param sink   receives one call per chunk
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
+     */
+    @Retry(name = "open-meteo-briefing")
+    @CircuitBreaker(name = "open-meteo-briefing")
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoAirQualityResponse> fetchAirQualityBatchResilient(List<double[]> coords,
+            Consumer<PrefetchCall> sink) {
+        return fetchAirQualityBatchResilientBody(coords, sink);
+    }
+
+    private List<OpenMeteoAirQualityResponse> fetchAirQualityBatchResilientBody(
+            List<double[]> coords, Consumer<PrefetchCall> sink) {
         if (coords.size() <= BATCH_COORD_LIMIT) {
-            return fetchAirQualityChunkWithRetry(coords, 1, 1, new int[]{0});
+            long startMs = System.currentTimeMillis();
+            LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
+            int[] retries = {0};
+            try {
+                List<OpenMeteoAirQualityResponse> single =
+                        fetchAirQualityChunkWithRetry(coords, 1, 1, retries);
+                recordChunk(sink, ServiceName.OPEN_METEO_AIR_QUALITY, "air-quality", 1, 1,
+                        coords.size(), countNonNull(single), calledAt, startMs, retries[0] + 1, null);
+                return single;
+            } catch (RuntimeException e) {
+                recordChunk(sink, ServiceName.OPEN_METEO_AIR_QUALITY, "air-quality", 1, 1,
+                        coords.size(), 0, calledAt, startMs, retries[0] + 1, e);
+                throw e;
+            }
         }
 
         int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
@@ -596,8 +721,10 @@ public class OpenMeteoClient {
 
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
             List<double[]> chunk = coords.subList(i, end);
+            int[] retries = {0};
+            long chunkStartMs = System.currentTimeMillis();
+            LocalDateTime chunkCalledAt = LocalDateTime.now(ZoneOffset.UTC);
             try {
-                int[] retries = {0};
                 List<OpenMeteoAirQualityResponse> chunkResults =
                         fetchAirQualityChunkWithRetry(chunk, chunkIndex, totalChunks, retries);
                 for (int j = 0; j < chunkResults.size(); j++) {
@@ -606,8 +733,13 @@ public class OpenMeteoClient {
                 succeededChunks++;
                 totalRetries += retries[0];
                 hitRateLimit = false;
+                recordChunk(sink, ServiceName.OPEN_METEO_AIR_QUALITY, "air-quality", chunkIndex,
+                        totalChunks, chunk.size(), countNonNull(chunkResults), chunkCalledAt,
+                        chunkStartMs, retries[0] + 1, null);
             } catch (Exception e) {
                 failedChunks++;
+                recordChunk(sink, ServiceName.OPEN_METEO_AIR_QUALITY, "air-quality", chunkIndex,
+                        totalChunks, chunk.size(), 0, chunkCalledAt, chunkStartMs, retries[0] + 1, e);
                 String reason = e.getMessage() != null ? e.getMessage()
                         : e.getClass().getSimpleName();
                 LOG.warn("Open-Meteo air quality batch chunk {}/{} failed ({} coords): {}",

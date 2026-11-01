@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
@@ -686,6 +687,20 @@ public class JobRunService {
      * @return the id of the newly created, already-completed job run
      */
     public Long startDispositionAnchorRun(int candidateCount) {
+        return startDispositionAnchorRun(candidateCount,
+                "Disposition-only cycle — no batch submitted (all candidates cached/skipped)");
+    }
+
+    /**
+     * As {@link #startDispositionAnchorRun(int)}, with the run's note supplied by the caller. Used
+     * when the cycle submitted nothing for a reason other than "all cached/skipped", such as the
+     * Open-Meteo weather pre-fetch aborting it.
+     *
+     * @param candidateCount number of candidates considered this cycle (for display)
+     * @param notes          the run's note, saying why no batch was submitted
+     * @return the id of the newly created, already-completed job run
+     */
+    public Long startDispositionAnchorRun(int candidateCount, String notes) {
         Double exchangeRate = null;
         try {
             exchangeRate = exchangeRateService.getCurrentRate();
@@ -706,11 +721,54 @@ public class JobRunService {
                 .totalCostMicroDollars(0L)
                 .triggeredManually(false)
                 .exchangeRateGbpPerUsd(exchangeRate)
-                .notes("Disposition-only cycle — no batch submitted "
-                        + "(all candidates cached/skipped)")
+                .notes(notes)
                 .appVersion(appVersion)
                 .build();
         return jobRunRepository.save(jobRun).getId();
+    }
+
+    /**
+     * Records the Open-Meteo calls of a batch weather pre-fetch against a job run.
+     *
+     * <p>The calls were captured as values while the pre-fetch ran, before the run existed. Each
+     * becomes one {@code api_call_log} row stamped with its own start time and duration (not the
+     * time of writing), so the run's API Call Breakdown shows whether Open-Meteo answered, partly
+     * answered, or refused. A failed row's {@code errorMessage} carries the whole story, because the
+     * API call DTO does not expose the request URL.
+     *
+     * @param jobRunId the run the rows are written to
+     * @param calls    the pre-fetch calls, in order; null or empty writes nothing
+     */
+    public void logPrefetchCalls(Long jobRunId, List<PrefetchCall> calls) {
+        if (calls == null || calls.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        List<ApiCallLogEntity> rows = calls.stream().map(call -> ApiCallLogEntity.builder()
+                .jobRunId(jobRunId)
+                .service(call.service())
+                .calledAt(call.calledAt())
+                .completedAt(call.calledAt().plus(call.durationMs(), ChronoUnit.MILLIS))
+                .durationMs(call.durationMs())
+                .requestMethod("GET")
+                .requestUrl(call.label())
+                .statusCode(call.statusCode())
+                .succeeded(call.succeeded())
+                .isBatch(false)
+                .errorMessage(call.succeeded() ? null : truncate(prefetchFailureText(call), 500))
+                .createdAt(now)
+                .costMicroDollars(costCalculator.calculateFlatCostMicroDollars(call.service()))
+                .build()).toList();
+        apiCallLogRepository.saveAll(rows);
+    }
+
+    private static String prefetchFailureText(PrefetchCall call) {
+        String chunk = call.label().contains("chunk ")
+                ? call.label().substring(call.label().indexOf("chunk ") + "chunk ".length()) + ": "
+                : "";
+        String error = call.error() != null ? call.error() : "failed";
+        return chunk + call.coordsRequested() + " coords, " + call.coordsReturned() + " returned, "
+                + call.attempts() + (call.attempts() == 1 ? " attempt" : " attempts") + " — " + error;
     }
 
     /**

@@ -2,8 +2,10 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.OpenMeteoAirQualityApi;
 import com.gregochr.goldenhour.client.OpenMeteoForecastApi;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -423,6 +425,254 @@ class OpenMeteoClientTest {
 
         assertThat(results).hasSize(15);
         assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    // ── Pre-fetch call reporting (batch-weather-prefetch-logging-plan.md) ──────
+
+    @SuppressWarnings("unchecked")
+    private static void stubForecastBodies(RestClient client, Object... outcomes) {
+        var stubbing = when(client.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class));
+        for (Object outcome : outcomes) {
+            stubbing = outcome instanceof Throwable t
+                    ? stubbing.thenThrow(t) : stubbing.thenReturn((String) outcome);
+        }
+    }
+
+    private OpenMeteoClient clientWithNoDelays(RestClient forecastClient, RestClient airQualityClient) {
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(), forecastClient, airQualityClient);
+        client.interChunkDelayMs = 0;
+        client.rateLimitBackoffMs = 0;
+        client.chunkRetryBackoffMs = 0;
+        return client;
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): 45 coords with chunk 2 returning 429 reports exactly "
+            + "three rows, the middle one a failed 429")
+    void fetchForecastBriefingBatch_sink_middleChunk429_threeRows() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, buildJsonArray(20, 50.0),
+                new RuntimeException("429 Too Many Requests"), buildJsonArray(5, 52.0));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        List<OpenMeteoForecastResponse> results =
+                client.fetchForecastBriefingBatch(buildCoords(45), calls::add);
+
+        assertThat(results).hasSize(45);
+        assertThat(calls).hasSize(3);
+        assertThat(calls).extracting(PrefetchCall::label).containsExactly(
+                "batch-prefetch forecast chunk 1/3", "batch-prefetch forecast chunk 2/3",
+                "batch-prefetch forecast chunk 3/3");
+        assertThat(calls).extracting(PrefetchCall::service)
+                .containsOnly(ServiceName.OPEN_METEO_FORECAST);
+        assertThat(calls).extracting(PrefetchCall::coordsRequested).containsExactly(20, 20, 5);
+        assertThat(calls).extracting(PrefetchCall::coordsReturned).containsExactly(20, 0, 5);
+        assertThat(calls).extracting(PrefetchCall::succeeded).containsExactly(true, false, true);
+        PrefetchCall failed = calls.get(1);
+        assertThat(failed.statusCode()).isEqualTo(429);
+        assertThat(failed.error()).isEqualTo("429 Too Many Requests");
+        assertThat(failed.attempts()).isEqualTo(1);
+        assertThat(failed.calledAt()).isNotNull();
+        assertThat(failed.durationMs()).isGreaterThanOrEqualTo(0L);
+        assertThat(calls.get(0).statusCode()).isEqualTo(200);
+        assertThat(calls.get(0).error()).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): a single-chunk failure records one failed row and still throws")
+    void fetchForecastBriefingBatch_sink_singleChunkFailure_oneRowAndRethrows() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, new RuntimeException("429 Too Many Requests"));
+        List<PrefetchCall> calls = new ArrayList<>();
+        List<double[]> coords = buildCoords(10);
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords, calls::add))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("429 Too Many Requests");
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).label()).isEqualTo("batch-prefetch forecast chunk 1/1");
+        assertThat(calls.get(0).coordsRequested()).isEqualTo(10);
+        assertThat(calls.get(0).coordsReturned()).isZero();
+        assertThat(calls.get(0).succeeded()).isFalse();
+        assertThat(calls.get(0).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): a single chunk that succeeds reports one clean row")
+    void fetchForecastBriefingBatch_sink_singleChunkSuccess_oneRow() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, buildJsonArray(10, 50.0));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        client.fetchForecastBriefingBatch(buildCoords(10), calls::add);
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).coordsReturned()).isEqualTo(10);
+        assertThat(calls.get(0).succeeded()).isTrue();
+        assertThat(calls.get(0).attempts()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): a retry that succeeds records attempts 2")
+    void fetchForecastBriefingBatch_sink_retrySucceeds_attemptsTwo() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient,
+                new ResourceAccessException("I/O error: Read timed out", new IOException("Read timed out")),
+                buildJsonArray(15, 50.0));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        client.fetchForecastBriefingBatch(buildCoords(15), calls::add);
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).succeeded()).isTrue();
+        assertThat(calls.get(0).attempts()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): exhausted transient retries record attempts 3 and a null status")
+    void fetchForecastBriefingBatch_sink_retriesExhausted_attemptsThree() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        ResourceAccessException timeout =
+                new ResourceAccessException("I/O error: Read timed out", new IOException("Read timed out"));
+        stubForecastBodies(mockForecastClient, timeout, timeout, timeout);
+        List<PrefetchCall> calls = new ArrayList<>();
+        List<double[]> coords = buildCoords(15);
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords, calls::add))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).succeeded()).isFalse();
+        assertThat(calls.get(0).attempts()).isEqualTo(3);
+        assertThat(calls.get(0).statusCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): the status comes from a response exception in the cause chain")
+    void fetchForecastBriefingBatch_sink_statusFromCauseChain() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, new IllegalStateException("wrapped",
+                new org.springframework.web.client.HttpClientErrorException(
+                        org.springframework.http.HttpStatus.FORBIDDEN, "Forbidden")));
+        List<PrefetchCall> calls = new ArrayList<>();
+        List<double[]> coords = buildCoords(5);
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords, calls::add))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch: the one-argument method returns the same list and needs no sink")
+    void fetchForecastBriefingBatch_oneArg_unchanged() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, buildJsonArray(20, 50.0),
+                new RuntimeException("429 Too Many Requests"), buildJsonArray(5, 52.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNull());
+        assertThat(results.subList(40, 45)).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    @Test
+    @DisplayName("fetchForecastBriefingBatch(sink): a sink that throws changes neither the result nor the exception")
+    void fetchForecastBriefingBatch_sink_throwingSinkIgnored() {
+        RestClient mockForecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(mockForecastClient, null);
+        stubForecastBodies(mockForecastClient, buildJsonArray(20, 50.0),
+                new RuntimeException("429 Too Many Requests"));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(40), call -> {
+            throw new IllegalStateException("sink broke");
+        });
+
+        assertThat(results).hasSize(40);
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNull());
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatchResilient(sink): 45 coords with chunk 2 failing reports three air-quality rows")
+    void fetchAirQualityBatchResilient_sink_middleChunkFails_threeRows() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(null, mockAirClient);
+        when(mockAirClient.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenReturn(buildAirQualityJsonArray(20))
+                .thenThrow(new RuntimeException("429 Too Many Requests"))
+                .thenReturn(buildAirQualityJsonArray(5));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        List<OpenMeteoAirQualityResponse> results =
+                client.fetchAirQualityBatchResilient(buildCoords(45), calls::add);
+
+        assertThat(results).hasSize(45);
+        assertThat(calls).extracting(PrefetchCall::service)
+                .containsOnly(ServiceName.OPEN_METEO_AIR_QUALITY);
+        assertThat(calls).extracting(PrefetchCall::label).containsExactly(
+                "batch-prefetch air-quality chunk 1/3", "batch-prefetch air-quality chunk 2/3",
+                "batch-prefetch air-quality chunk 3/3");
+        assertThat(calls).extracting(PrefetchCall::coordsReturned).containsExactly(20, 0, 5);
+        assertThat(calls).extracting(PrefetchCall::succeeded).containsExactly(true, false, true);
+        assertThat(calls.get(1).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatchResilient(sink): a single-chunk failure records one failed row and still throws")
+    void fetchAirQualityBatchResilient_sink_singleChunkFailure_oneRowAndRethrows() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(null, mockAirClient);
+        when(mockAirClient.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenThrow(new RuntimeException("429 Too Many Requests"));
+        List<PrefetchCall> calls = new ArrayList<>();
+        List<double[]> coords = buildCoords(8);
+
+        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(coords, calls::add))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).label()).isEqualTo("batch-prefetch air-quality chunk 1/1");
+        assertThat(calls.get(0).succeeded()).isFalse();
+        assertThat(calls.get(0).statusCode()).isEqualTo(429);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatchResilient(sink): a single chunk that succeeds reports one clean row")
+    void fetchAirQualityBatchResilient_sink_singleChunkSuccess() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = clientWithNoDelays(null, mockAirClient);
+        when(mockAirClient.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class))
+                .thenReturn(buildAirQualityJsonArray(8))
+                .thenReturn(buildAirQualityJsonArray(8));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        client.fetchAirQualityBatchResilient(buildCoords(8), calls::add);
+        List<OpenMeteoAirQualityResponse> plain = client.fetchAirQualityBatchResilient(buildCoords(8));
+
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).coordsReturned()).isEqualTo(8);
+        assertThat(calls.get(0).succeeded()).isTrue();
+        assertThat(plain).hasSize(8);
     }
 
     // ── Requested hourly variables ────────────────────────────────────────────

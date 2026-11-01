@@ -10,10 +10,13 @@ import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.MistTrend;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,7 +27,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -36,6 +41,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -1467,24 +1473,27 @@ class OpenMeteoServiceTest {
     @Test
     @DisplayName("prefetchWeatherBatchResilient() returns empty map for empty coords without calling APIs")
     void prefetchWeatherBatchResilient_emptyCoords_returnsEmpty() {
-        var cache = openMeteoService.prefetchWeatherBatchResilient(List.of());
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(List.of(), calls::add);
 
         assertThat(cache).isEmpty();
-        verify(openMeteoClient, never()).fetchForecastBriefingBatch(anyList());
+        assertThat(calls).isEmpty();
+        verify(openMeteoClient, never()).fetchForecastBriefingBatch(anyList(), any());
     }
 
     @Test
     @DisplayName("prefetchWeatherBatchResilient() returns empty map when the forecast call fails entirely")
     void prefetchWeatherBatchResilient_forecastFailsEntirely_returnsEmpty() {
-        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any()))
                 .thenThrow(new RuntimeException("all chunks timed out"));
 
         var cache = openMeteoService.prefetchWeatherBatchResilient(
-                List.of(new double[]{55.0, -1.5}));
+                List.of(new double[]{55.0, -1.5}), call -> { });
 
         assertThat(cache).isEmpty();
         // A total forecast failure short-circuits — the AQ call must not be attempted
-        verify(openMeteoClient, never()).fetchAirQualityBatchResilient(anyList());
+        verify(openMeteoClient, never()).fetchAirQualityBatchResilient(anyList(), any());
     }
 
     @Test
@@ -1501,12 +1510,12 @@ class OpenMeteoServiceTest {
 
         List<double[]> coords = List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0});
         // Second forecast chunk failed and came back null — that location must be dropped
-        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any()))
                 .thenReturn(java.util.Arrays.asList(f1, null));
-        when(openMeteoClient.fetchAirQualityBatchResilient(anyList()))
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList(), any()))
                 .thenReturn(List.of(aq1, aq2));
 
-        var cache = openMeteoService.prefetchWeatherBatchResilient(coords);
+        var cache = openMeteoService.prefetchWeatherBatchResilient(coords, call -> { });
 
         assertThat(cache).hasSize(1);
         assertThat(cache).containsKey("55.0,-1.5");
@@ -1523,15 +1532,126 @@ class OpenMeteoServiceTest {
                 List.of(80), List.of(200.0), List.of(500.0));
 
         List<double[]> coords = List.of(new double[]{55.0, -1.5});
-        when(openMeteoClient.fetchForecastBriefingBatch(anyList())).thenReturn(List.of(f1));
-        when(openMeteoClient.fetchAirQualityBatchResilient(anyList()))
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any())).thenReturn(List.of(f1));
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList(), any()))
                 .thenThrow(new RuntimeException("AQ endpoint down"));
 
-        var cache = openMeteoService.prefetchWeatherBatchResilient(coords);
+        var cache = openMeteoService.prefetchWeatherBatchResilient(coords, call -> { });
 
         assertThat(cache).hasSize(1);
         assertThat(cache.get("55.0,-1.5").forecastResponse()).isSameAs(f1);
         assertThat(cache.get("55.0,-1.5").airQualityResponse()).isNull();
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() hands the client a sink whose calls reach the caller's sink")
+    void prefetchWeatherBatchResilient_clientCallsReachCallersSink() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        PrefetchCall forecastChunk = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                "batch-prefetch forecast chunk 1/1", 1, 1, LocalDateTime.of(2026, 6, 21, 6, 0),
+                100L, 200, true, null, 1);
+        PrefetchCall aqChunk = new PrefetchCall(ServiceName.OPEN_METEO_AIR_QUALITY,
+                "batch-prefetch air-quality chunk 1/1", 1, 1, LocalDateTime.of(2026, 6, 21, 6, 0, 1),
+                100L, 200, true, null, 1);
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(1);
+            sink.accept(forecastChunk);
+            return List.of(f1);
+        });
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(1);
+            sink.accept(aqChunk);
+            return java.util.Arrays.asList((OpenMeteoAirQualityResponse) null);
+        });
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        openMeteoService.prefetchWeatherBatchResilient(List.of(new double[]{55.0, -1.5}), calls::add);
+
+        assertThat(calls).containsExactly(forecastChunk, aqChunk);
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() records one call-level row when a breaker rejection "
+            + "fails the forecast call before any chunk ran")
+    void prefetchWeatherBatchResilient_forecastBreakerOpen_recordsCallLevelRow() {
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any()))
+                .thenThrow(CallNotPermittedException.createCallNotPermittedException(
+                        CircuitBreaker.ofDefaults("open-meteo-briefing")));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(
+                List.of(new double[]{55.0, -1.5}, new double[]{54.0, -2.0}), calls::add);
+
+        assertThat(cache).isEmpty();
+        assertThat(calls).hasSize(1);
+        PrefetchCall call = calls.get(0);
+        assertThat(call.service()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
+        assertThat(call.label()).isEqualTo("batch-prefetch forecast");
+        assertThat(call.coordsRequested()).isEqualTo(2);
+        assertThat(call.coordsReturned()).isZero();
+        assertThat(call.succeeded()).isFalse();
+        assertThat(call.attempts()).isEqualTo(1);
+        assertThat(call.error()).contains("open-meteo-briefing");
+        assertThat(call.calledAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() records a call-level air-quality row when the AQ "
+            + "call is rejected before any chunk ran, and keeps the forecast results")
+    void prefetchWeatherBatchResilient_aqRejected_recordsCallLevelRow() {
+        OpenMeteoForecastResponse f1 = buildForecastResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30),
+                List.of(10000.0), List.of(5.0), List.of(180), List.of(0.0), List.of(3),
+                List.of(80), List.of(200.0), List.of(500.0));
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any())).thenReturn(List.of(f1));
+        when(openMeteoClient.fetchAirQualityBatchResilient(anyList(), any()))
+                .thenThrow(new RuntimeException("RateLimiter 'open-meteo' does not permit further calls"));
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(
+                List.of(new double[]{55.0, -1.5}), calls::add);
+
+        assertThat(cache).hasSize(1);
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).service()).isEqualTo(ServiceName.OPEN_METEO_AIR_QUALITY);
+        assertThat(calls.get(0).label()).isEqualTo("batch-prefetch air-quality");
+        assertThat(calls.get(0).succeeded()).isFalse();
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() adds no duplicate row when the client already "
+            + "recorded a chunk row for the service before throwing")
+    void prefetchWeatherBatchResilient_clientAlreadyRecorded_noDuplicate() {
+        PrefetchCall chunkRow = new PrefetchCall(ServiceName.OPEN_METEO_FORECAST,
+                "batch-prefetch forecast chunk 1/1", 1, 0, LocalDateTime.of(2026, 6, 21, 6, 0),
+                100L, 429, false, "429 Too Many Requests", 1);
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(1);
+            sink.accept(chunkRow);
+            throw new RuntimeException("429 Too Many Requests");
+        });
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        openMeteoService.prefetchWeatherBatchResilient(List.of(new double[]{55.0, -1.5}), calls::add);
+
+        assertThat(calls).containsExactly(chunkRow);
+    }
+
+    @Test
+    @DisplayName("prefetchWeatherBatchResilient() still returns the forecast when the sink throws")
+    void prefetchWeatherBatchResilient_throwingSink_resultUnchanged() {
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList(), any()))
+                .thenThrow(new RuntimeException("forecast down"));
+
+        var cache = openMeteoService.prefetchWeatherBatchResilient(
+                List.of(new double[]{55.0, -1.5}), call -> {
+                    throw new IllegalStateException("sink broke");
+                });
+
+        assertThat(cache).isEmpty();
     }
 
     @Test
@@ -2120,44 +2240,133 @@ class OpenMeteoServiceTest {
         }
 
         @Test
-        @DisplayName("prefetchCloudBatch success logs cloud batch call with success=true")
-        void prefetchCloudBatch_success_logsApiCall() {
+        @DisplayName("prefetchCloudBatch success reports one cloud call with every point returned")
+        void prefetchCloudBatch_success_reportsCall() {
             when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                     .thenReturn(List.of(singleSlotCloud()));
+            List<PrefetchCall> calls = new ArrayList<>();
 
-            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), jobRun);
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), calls::add);
 
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+            assertThat(calls).hasSize(1);
+            PrefetchCall call = calls.get(0);
+            assertThat(call.service()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
+            assertThat(call.label()).isEqualTo("batch-prefetch cloud points (1)");
+            assertThat(call.coordsRequested()).isEqualTo(1);
+            assertThat(call.coordsReturned()).isEqualTo(1);
+            assertThat(call.succeeded()).isTrue();
+            assertThat(call.statusCode()).isEqualTo(200);
+            assertThat(call.error()).isNull();
+            verifyNoInteractions(jobRunService);
         }
 
         @Test
-        @DisplayName("prefetchCloudBatch failure logs cloud batch call with success=false")
-        void prefetchCloudBatch_failure_logsApiCallFailure() {
+        @DisplayName("prefetchCloudBatch reports a partial cloud answer as a failure with no status")
+        void prefetchCloudBatch_partial_reportsFailureWithCounts() {
+            // fetchForecastBatchInternal swallows chunk failures, leaving nulls in the list
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList(singleSlotCloud(), null));
+            List<PrefetchCall> calls = new ArrayList<>();
+
+            openMeteoService.prefetchCloudBatch(
+                    List.of(new double[]{55.0, -1.5}, new double[]{57.0, -3.5}), calls::add);
+
+            assertThat(calls).hasSize(1);
+            PrefetchCall call = calls.get(0);
+            assertThat(call.coordsRequested()).isEqualTo(2);
+            assertThat(call.coordsReturned()).isEqualTo(1);
+            assertThat(call.succeeded()).isFalse();
+            assertThat(call.statusCode()).isNull();
+            assertThat(call.error()).isEqualTo("cloud: 1/2 points returned");
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch reports an all-nulls cloud answer as 0 returned")
+        void prefetchCloudBatch_allFailed_reportsZeroReturned() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList(null, null));
+            List<PrefetchCall> calls = new ArrayList<>();
+
+            openMeteoService.prefetchCloudBatch(
+                    List.of(new double[]{55.0, -1.5}, new double[]{57.0, -3.5}), calls::add);
+
+            assertThat(calls).hasSize(1);
+            assertThat(calls.get(0).coordsReturned()).isZero();
+            assertThat(calls.get(0).succeeded()).isFalse();
+            assertThat(calls.get(0).error()).isEqualTo("cloud: 0/2 points returned");
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch failure reports one failed call and still returns an empty cache")
+        void prefetchCloudBatch_failure_reportsFailedCall() {
             when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                     .thenThrow(new RuntimeException("batch error"));
+            List<PrefetchCall> calls = new ArrayList<>();
 
-            // prefetchCloudBatch swallows the exception and returns an empty cache
-            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), jobRun);
+            var cache = openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), calls::add);
 
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+            assertThat(cache.size()).isZero();
+            assertThat(calls).hasSize(1);
+            PrefetchCall call = calls.get(0);
+            assertThat(call.succeeded()).isFalse();
+            assertThat(call.coordsReturned()).isZero();
+            assertThat(call.error()).isEqualTo("batch error");
+            assertThat(call.statusCode()).isNull();
         }
 
         @Test
-        @DisplayName("prefetchCloudBatch logs the pressure-level call under its own endpoint label")
-        void prefetchCloudBatch_levels_logsDistinctEndpoint() {
+        @DisplayName("prefetchCloudBatch failure with a 429 in the message reports status 429")
+        void prefetchCloudBatch_failure429_reportsStatus() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenThrow(new RuntimeException("429 Too Many Requests"));
+            List<PrefetchCall> calls = new ArrayList<>();
+
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), calls::add);
+
+            assertThat(calls).hasSize(1);
+            assertThat(calls.get(0).statusCode()).isEqualTo(429);
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch reports the pressure-level call under its own label")
+        void prefetchCloudBatch_levels_reportsDistinctCall() {
             when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                     .thenReturn(List.of(singleSlotCloud()));
             when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
                     .thenReturn(List.of(new OpenMeteoForecastResponse()));
+            List<PrefetchCall> calls = new ArrayList<>();
 
             openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
-                    List.of(new double[]{55.0, -1.5}), jobRun);
+                    List.of(new double[]{55.0, -1.5}), calls::add);
 
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    eq("GET"), eq("pressure-level-cloud-batch(1)"), any(), anyLong(), any(), any(),
-                    eq(true), any());
+            assertThat(calls).extracting(PrefetchCall::label).containsExactly(
+                    "batch-prefetch cloud points (1)", "batch-prefetch pressure levels (1)");
+            PrefetchCall levels = calls.get(1);
+            assertThat(levels.service()).isEqualTo(ServiceName.OPEN_METEO_FORECAST);
+            assertThat(levels.coordsRequested()).isEqualTo(1);
+            assertThat(levels.coordsReturned()).isEqualTo(1);
+            assertThat(levels.succeeded()).isTrue();
+            assertThat(levels.statusCode()).isEqualTo(200);
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch reports a partial pressure-level answer as a failure")
+        void prefetchCloudBatch_levelsPartial_reportsFailureWithCounts() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+            when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                    .thenReturn(java.util.Arrays.asList(new OpenMeteoForecastResponse(), null));
+            List<PrefetchCall> calls = new ArrayList<>();
+
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
+                    List.of(new double[]{55.0, -1.5}, new double[]{57.0, -3.5}), calls::add);
+
+            PrefetchCall levels = calls.get(1);
+            assertThat(levels.coordsRequested()).isEqualTo(2);
+            assertThat(levels.coordsReturned()).isEqualTo(1);
+            assertThat(levels.succeeded()).isFalse();
+            assertThat(levels.statusCode()).isNull();
+            assertThat(levels.error()).isEqualTo("pressure levels: 1/2 cells returned");
         }
 
         @Test
@@ -2200,19 +2409,37 @@ class OpenMeteoServiceTest {
         }
 
         @Test
-        @DisplayName("prefetchCloudBatch logs a failed pressure-level call with success=false")
-        void prefetchCloudBatch_levelsFail_logsFailure() {
+        @DisplayName("prefetchCloudBatch reports a failed pressure-level call and keeps the cloud map")
+        void prefetchCloudBatch_levelsFail_reportsFailure() {
             when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
                     .thenReturn(List.of(singleSlotCloud()));
             when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
                     .thenThrow(new RuntimeException("levels refused"));
+            List<PrefetchCall> calls = new ArrayList<>();
 
-            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
-                    List.of(new double[]{55.0, -1.5}), jobRun);
+            var cache = openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
+                    List.of(new double[]{55.0, -1.5}), calls::add);
 
-            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
-                    eq("GET"), eq("pressure-level-cloud-batch(1)"), any(), anyLong(), any(), any(),
-                    eq(false), eq("levels refused"));
+            assertThat(cache.size()).isEqualTo(1);
+            assertThat(calls).hasSize(2);
+            PrefetchCall levels = calls.get(1);
+            assertThat(levels.label()).isEqualTo("batch-prefetch pressure levels (1)");
+            assertThat(levels.succeeded()).isFalse();
+            assertThat(levels.error()).isEqualTo("levels refused");
+            assertThat(levels.coordsReturned()).isZero();
+        }
+
+        @Test
+        @DisplayName("a sink that throws never changes what prefetchCloudBatch returns")
+        void prefetchCloudBatch_throwingSink_resultUnchanged() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+
+            var cache = openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}), call -> {
+                throw new IllegalStateException("sink broke");
+            });
+
+            assertThat(cache.size()).isEqualTo(1);
         }
     }
 
