@@ -84,6 +84,23 @@ class AskToolSchemasTest {
     }
 
     @Test
+    @DisplayName("list_windows' typed description appends the laterWindows sentence; the user-less text is "
+            + "the unchanged original; look_up_place's windowIds says laterWindows are accepted")
+    void laterWindowsAreDescribedForTypedConversationsOnly() {
+        String userLess = tool(AskToolSchemas.tools(false), AskToolSchemas.LIST_WINDOWS).description().orElseThrow();
+        String typed = tool(AskToolSchemas.tools(true), AskToolSchemas.LIST_WINDOWS).description().orElseThrow();
+
+        assertThat(userLess).endsWith("Call this first for any question about when to go.")
+                .doesNotContain("laterWindows");
+        assertThat(typed).isEqualTo(userLess + " Then laterWindows: later sunrises and sunsets that are not rated, "
+                + "for tide questions only: pass their ids to look_up_place, never to rank_spots.");
+        Tool lookUp = tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.LOOK_UP_PLACE);
+        assertThat(property(lookUp, "windowIds").get("description").asText())
+                .isEqualTo("Only these window ids (from list_windows, including laterWindows). "
+                        + "Default: every rated window.");
+    }
+
+    @Test
     @DisplayName("rank_spots' description names Fiery Sky and Golden Hour for a typed conversation; the user-less "
             + "text is the unchanged original")
     void rankSpotsDescriptionNamesTheLightFiguresOnlyWithAUser() {

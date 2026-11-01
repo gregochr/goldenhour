@@ -57,6 +57,18 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     List<LocationEntity> findAllByEnabledTrueOrderByNameAsc();
 
     /**
+     * Returns every enabled location that has a region, with the region fetched.
+     *
+     * <p>Ask's later-window roster: the Ready precompute builds its snapshot outside any transaction, where a
+     * lazily-loaded region would be a {@code LazyInitializationException}. The inner join drops a location with no
+     * region, which the briefing never walks for Ask.
+     *
+     * @return enabled locations with their regions loaded
+     */
+    @Query("SELECT l FROM LocationEntity l JOIN FETCH l.region WHERE l.enabled = true")
+    List<LocationEntity> findEnabledFetchingRegion();
+
+    /**
      * Returns the id, coordinates and elevation of every enabled location, in no particular order.
      *
      * <p>The neighbour guard's read: a projection, so the serve path pays one narrow query (memoised

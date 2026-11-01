@@ -110,7 +110,8 @@ class AskPromptBuilderTest {
                         + "not suggesting the place, using the reason given for its status. Never give it as a "
                         + "pick.")
                 .contains("If the reader also wants somewhere to go, call rank_spots.")
-                .contains("If look_up_place returns no places, no named area, no closestTo and no suggestions, "
+                .contains("If look_up_place returns no places, no laterTides, no named area, no closestTo and no "
+                        + "suggestions, "
                         + "read its note and answer answerable false: when the note says the place is outside "
                         + "the regions this question is about, say exactly that, never that it is not in the forecast; "
                         + "otherwise the place is not in the forecast.")
@@ -189,7 +190,8 @@ class AskPromptBuilderTest {
         String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
 
         assertThat(typed)
-                .contains("returns no places, no named area, no closestTo and no suggestions, read its note "
+                .contains("returns no places, no laterTides, no named area, no closestTo and no suggestions, "
+                        + "read its note "
                         + "and answer answerable false")
                 .doesNotContain("returns no places, read its note")
                 .contains("The name may be a named area, a group of places such as a landmark (\"Hadrian's "
@@ -216,15 +218,19 @@ class AskPromptBuilderTest {
         String bullet = "For a tide question about a named place (is the tide right, aligned, correct, good, does "
                 + "it work), call look_up_place, then in the same turn get_hot_topics with types KING_TIDE and "
                 + "SPRING_TIDE and limit 2. Lead with whether the tide suits: it suits only when tideAligned is "
-                + "true. Then give the rating in one clause. In tideFitPhrase and nearestTide, HW and LW are high "
-                + "and low water, 40m and 1h43 are minutes and hours, and times are UK clock times: say \"high "
+                + "true. Then give the rating in one clause, for a rated window. In tideFitPhrase and nearestTide, "
+                + "HW and LW are high and low water, 40m and 1h43 are minutes and hours, and times are UK clock "
+                + "times: say \"high "
                 + "water 06:42, 40 minutes after sunrise\". In \"2.6 m of 4.3 m\", 4.3 m is that day's high "
                 + "water. nearestTide is the nearest high or low of either kind: never say the tide would suit "
                 + "then. Quote times and heights as given, never work out another, and call a tide big only from "
                 + "a king or spring topic whose date is that day and whose regions include the place's region or "
-                + "are empty. A row with no tide fields: the forecast has no tide for that place then. No row for "
-                + "the day asked: PhotoCast has not forecast that day yet; answer answerable false and give no "
-                + "tide. Crossing, a causeway, being cut off or when it is safe to walk out: answer answerable "
+                + "are empty. A row with no tide fields: the forecast has no tide for that place then. Call "
+                + "list_windows first. For each window of the day asked that is in laterWindows, pass its id to "
+                + "look_up_place (the same ids on a spelling re-call) and give its tide from laterTides as above, "
+                + "saying PhotoCast is not giving a sky rating for it; never pass a later id to rank_spots. A day "
+                + "in neither: PhotoCast has not forecast that day yet; answer answerable false and give no tide. "
+                + "Crossing, a causeway, being cut off or when it is safe to walk out: answer answerable "
                 + "false, missing tidal crossing times; never present a tide time as access or safety.";
 
         assertThat(typed).contains(bullet);
@@ -235,6 +241,31 @@ class AskPromptBuilderTest {
         assertThat(ready).doesNotContain("nearestTide").doesNotContain("KING_TIDE")
                 .doesNotContain("causeway").doesNotContain("look_up_place");
         assertThat(AskPromptBuilder.RULES).doesNotContain("nearestTide").doesNotContain("causeway");
+    }
+
+    @Test
+    @DisplayName("the typed and thread prompts name later windows and later tides, and the old 'not forecast' "
+            + "sentence is gone; the user-less prompt mentions neither")
+    void typedPromptCarriesTheLaterWindowRule() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String thread = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true, true));
+        String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
+        String rated = "Then give the rating in one clause, for a rated window.";
+        String later = "Call list_windows first. For each window of the day asked that is in laterWindows, pass "
+                + "its id to look_up_place (the same ids on a spelling re-call) and give its tide from "
+                + "laterTides as above, saying PhotoCast is not giving a sky rating for it; never pass a later "
+                + "id to rank_spots. A day in neither: PhotoCast has not forecast that day yet; answer "
+                + "answerable false and give no tide.";
+
+        assertThat(typed).contains(rated).contains(later);
+        assertThat(thread).contains(rated).contains(later);
+        String refusal = "If look_up_place returns no places, no laterTides, no named area, no closestTo and no "
+                + "suggestions, read its note and answer answerable false";
+        assertThat(typed).contains(refusal).doesNotContain("returns no places, no named area");
+        assertThat(thread).contains(refusal).doesNotContain("returns no places, no named area");
+        assertThat(typed).doesNotContain("No row for the day asked");
+        assertThat(ready).doesNotContain("laterWindows").doesNotContain("laterTides");
+        assertThat(AskPromptBuilder.RULES).doesNotContain("laterWindows").doesNotContain("laterTides");
     }
 
     @Test

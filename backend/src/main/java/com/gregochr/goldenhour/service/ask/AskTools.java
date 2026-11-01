@@ -134,6 +134,9 @@ public class AskTools {
      */
     static final int NEAREST_TIDE_CAP = 60;
 
+    /** The most later-window tides one {@code look_up_place} result carries (ask-place-tide plan T2-9). */
+    static final int MAX_LATER_TIDE_ROWS = 2;
+
     /** The most rows of the one place a {@code look_up_place} answer is about that carry {@link PlaceDetail}. */
     static final int MAX_DETAIL_ROWS = 4;
 
@@ -408,11 +411,26 @@ public class AskTools {
     }
 
     /**
+     * A later window as {@code list_windows} lists it: a sunrise or sunset that is not rated, whose tide
+     * {@code look_up_place} can give (ask-place-tide plan T2-4).
+     *
+     * @param id    the window id, for {@code look_up_place} only
+     * @param day   Today, Tomorrow or the weekday
+     * @param event sunrise or sunset
+     * @param time  the event's UK clock time
+     */
+    public record LaterWindowInfo(String id, String day, String event, String time) {
+    }
+
+    /**
      * The {@code list_windows} result.
      *
-     * @param windows the windows, chronological
+     * @param windows      the windows, chronological
+     * @param laterWindows later sunrises and sunsets that are not rated, for tide questions; typed
+     *                     conversations only, and omitted when empty so a user-less result keeps its bytes
      */
-    public record ListWindowsResult(List<WindowInfo> windows) {
+    public record ListWindowsResult(List<WindowInfo> windows,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<LaterWindowInfo> laterWindows) {
     }
 
     /**
@@ -728,10 +746,27 @@ public class AskTools {
      *                    otherwise
      * @param suggestions up to {@value AskTools#MAX_SPELLING_SUGGESTIONS} in-scope place names the reader's
      *                    spelling might mean, when no one name is clearly closest; null otherwise
+     * @param laterTides  the first place's tide at each requested later window (not rated), at most
+     *                    {@value AskTools#MAX_LATER_TIDE_ROWS}, chronological; null when none
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note,
-            AreaInfo area, String closestTo, List<String> suggestions) {
+            AreaInfo area, String closestTo, List<String> suggestions, List<LaterTideInfo> laterTides) {
+
+        /**
+         * A result with no later tides.
+         *
+         * @param places      the places
+         * @param reasons     our words for each status present, or null
+         * @param note        the note, or null
+         * @param area        the named area, or null
+         * @param closestTo   the reader's own spelling when this is a correction, or null
+         * @param suggestions the names the spelling might mean, or null
+         */
+        public LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note, AreaInfo area,
+                String closestTo, List<String> suggestions) {
+            this(places, reasons, note, area, closestTo, suggestions, null);
+        }
 
         /**
          * A result that is not a spelling correction.
@@ -765,6 +800,22 @@ public class AskTools {
         public LookUpPlaceResult(List<PlaceInfo> places, String note) {
             this(places, null, note, null, null, null);
         }
+    }
+
+    /**
+     * One place's tide at a later window as {@code look_up_place} returns it: the tide only, never a rating.
+     *
+     * @param windowId      the later window's id
+     * @param day           Today, Tomorrow or the weekday
+     * @param event         sunrise or sunset
+     * @param tideState     the served tide state at the event
+     * @param tideAligned   whether the location's own wanted water is the water at the event
+     * @param tideFitPhrase the served tide-fit sentence, or null
+     * @param nearestTide   the nearest high or low water and its offset from the light, only on a miss, or null
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record LaterTideInfo(String windowId, String day, String event, String tideState, boolean tideAligned,
+            String tideFitPhrase, String nearestTide) {
     }
 
     /**
@@ -832,7 +883,12 @@ public class AskTools {
         // it is never stored (as rank_night_spots'). Astro rows alone are public and leave it cacheable.
         boolean auroraListed = windows.stream()
                 .anyMatch(w -> AskWindowKind.AURORA.name().equalsIgnoreCase(w.event()));
-        return finish("list_windows", new ListWindowsResult(windows), () -> {
+        // Typed conversations only: the user-less (Ready) result never mentions a later window.
+        List<LaterWindowInfo> later = user.hasUser() ? snapshot.laterWindows().stream()
+                .map(w -> new LaterWindowInfo(w.id(), dayWord(w.date()),
+                        w.targetType().name().toLowerCase(Locale.ROOT), AskClock.londonHHmm(w.eventTime())))
+                .toList() : List.of();
+        return finish("list_windows", new ListWindowsResult(windows, later), () -> {
             if (auroraListed) {
                 uncacheable = true;
             }
@@ -892,6 +948,9 @@ public class AskTools {
             for (String id : a.windowIds()) {
                 AskSnapshot.Window w = snapshot.window(id).orElse(null);
                 if (w == null) {
+                    if (snapshot.laterWindow(id).isPresent()) {
+                        return fail("rank_spots", cap(id, 40) + " is not rated: use look_up_place for its tide.");
+                    }
                     return fail("rank_spots", "Unknown window id '" + id
                             + "'. Call list_windows for the valid ids.");
                 }
@@ -1075,26 +1134,34 @@ public class AskTools {
             return fail(LOOK_UP, "name is required.");
         }
         List<AskSnapshot.Window> windows = snapshot.windows();
+        List<AskSnapshot.LaterWindow> later = List.of();
         if (args.windowIds() != null && !args.windowIds().isEmpty()) {
             List<AskSnapshot.Window> picked = new ArrayList<>();
+            List<AskSnapshot.LaterWindow> pickedLater = new ArrayList<>();
             for (String id : args.windowIds()) {
                 AskSnapshot.Window w = snapshot.window(id).orElse(null);
-                if (w == null) {
+                AskSnapshot.LaterWindow l = w == null ? snapshot.laterWindow(id).orElse(null) : null;
+                if (w == null && l == null) {
                     return fail(LOOK_UP, "Unknown window id '" + cap(id, 40)
                             + "'. Call list_windows for the valid ids.");
                 }
-                if (!picked.contains(w)) {
+                if (w != null && !picked.contains(w)) {
                     picked.add(w);
+                }
+                if (l != null && !pickedLater.contains(l)) {
+                    pickedLater.add(l);
                 }
             }
             windows = picked;
+            later = pickedLater.stream().sorted(Comparator.comparing(AskSnapshot.LaterWindow::date)
+                    .thenComparing(AskSnapshot.LaterWindow::targetType)).toList();
         }
 
-        Attempt first = attempt(wanted, windows, null);
+        Attempt first = attempt(wanted, windows, later, null);
         if (first.result() != null) {
             return first.result();
         }
-        return closestSpelling(args.name(), wanted, windows);
+        return closestSpelling(args.name(), wanted, windows, later);
     }
 
     /** What one exact-and-area pass found: the result, or null when it found nothing in the question's scope. */
@@ -1105,7 +1172,8 @@ public class AskTools {
      * The exact pass then the area pass of {@code look_up_place} over the given windows (look-up plan §4.1).
      * {@code closestTo} is the reader's own spelling when the words are a correction of it, else null.
      */
-    private Attempt attempt(List<String> wanted, List<AskSnapshot.Window> windows, String closestTo) {
+    private Attempt attempt(List<String> wanted, List<AskSnapshot.Window> windows,
+            List<AskSnapshot.LaterWindow> later, String closestTo) {
         // Matches by location id, in first-seen order; the same place in several windows is one match.
         Map<Long, PlaceMatch> inScope = new LinkedHashMap<>();
         boolean outOfScope = false;
@@ -1130,6 +1198,26 @@ public class AskTools {
                     match.exact |= found.exact();
                     match.matchedAlias = found.matchedAlias();
                     match.rows.add(new PlaceRow(w, r, slot));
+                }
+            }
+        }
+        // The requested later windows' tides, merged by location id into the same match (ask-place-tide plan T2-7).
+        for (AskSnapshot.LaterWindow lw : later) {
+            for (AskSnapshot.LaterTide tide : lw.tides()) {
+                NameMatch found = matchPlace(tide.name(),
+                        snapshot.locationAliases().getOrDefault(tide.locationId(), List.of()), wanted);
+                if (found == null) {
+                    continue;
+                }
+                if (!scope.contains(tide.region())) {
+                    outOfScope = true;
+                    continue;
+                }
+                PlaceMatch match = inScope.computeIfAbsent(tide.locationId(), id -> new PlaceMatch(tide.name()));
+                match.exact |= found.exact();
+                match.matchedAlias = found.matchedAlias();
+                if (tide.tideState() != null) {
+                    match.laterRows.add(new LaterRow(lw, tide));
                 }
             }
         }
@@ -1184,7 +1272,11 @@ public class AskTools {
             }
             firstPlace = false;
         }
-        int rowCap = anyDetail ? MAX_PLACE_ROWS_WITH_DETAIL : MAX_PLACE_ROWS;
+        // The first place's later tides, chronological, at most MAX_LATER_TIDE_ROWS; they are kept first, so the
+        // rated rows are cut to leave room (ask-place-tide plan T2-9).
+        List<LaterTideInfo> laterTides = aboutOnePlace ? laterTideInfos(ordered.getFirst().getValue()) : List.of();
+        int rowCap = anyDetail || !laterTides.isEmpty() ? MAX_PLACE_ROWS_WITH_DETAIL : MAX_PLACE_ROWS;
+        rowCap -= laterTides.size();
         Map<String, String> reasons = new LinkedHashMap<>();
         for (int i = 0; i < Math.min(all.size(), rowCap); i++) {
             String reason = statusReason(statuses.get(i), regions.get(i));
@@ -1203,8 +1295,31 @@ public class AskTools {
                     + " place-windows; pass windowIds to narrow.");
         }
         // Deliberately nothing recorded as evidence: a looked-up place is explained, never offered as a pick.
+        // A later window becomes rated when its sunrise passes and the horizon shifts, so an answer built from a
+        // later tide is never stored (ask-place-tide plan T2-10).
         return new Attempt(finish(LOOK_UP, new LookUpPlaceResult(places, reasons.isEmpty() ? null : reasons, note,
-                null, closestTo, null), () -> { }), outOfScope);
+                null, closestTo, null, laterTides.isEmpty() ? null : laterTides), () -> {
+                    if (!laterTides.isEmpty()) {
+                        uncacheable = true;
+                    }
+                }), outOfScope);
+    }
+
+    /** The later tide rows of a matched place: at most {@value #MAX_LATER_TIDE_ROWS}, in window order. */
+    private List<LaterTideInfo> laterTideInfos(PlaceMatch match) {
+        List<LaterTideInfo> out = new ArrayList<>();
+        for (LaterRow row : match.laterRows) {
+            if (out.size() >= MAX_LATER_TIDE_ROWS) {
+                break;
+            }
+            AskSnapshot.LaterTide t = row.tide();
+            AskSnapshot.LaterWindow w = row.window();
+            String nearest = t.coastal() && !t.tideAligned() && t.nearestTide() != null
+                    && !t.nearestTide().isBlank() ? cap(t.nearestTide(), NEAREST_TIDE_CAP) : null;
+            out.add(new LaterTideInfo(w.id(), dayWord(w.date()), w.targetType().name().toLowerCase(Locale.ROOT),
+                    t.tideState(), t.tideAligned(), t.tideFitPhrase(), nearest));
+        }
+        return out;
     }
 
     /** Where a set of words matched a place anywhere in the snapshot. */
@@ -1214,9 +1329,21 @@ public class AskTools {
      * Whether the words match any place or alias in <em>any</em> window of the snapshot, requested or not, and
      * whether any such place is in the question's scope.
      */
-    private Reach reach(List<String> wanted) {
+    private Reach reach(List<String> wanted, List<AskSnapshot.LaterWindow> later) {
         Set<Long> seen = new HashSet<>();
         boolean outOfScope = false;
+        for (AskSnapshot.LaterWindow lw : later) {
+            for (AskSnapshot.LaterTide tide : lw.tides()) {
+                if (!seen.add(tide.locationId()) || matchPlace(tide.name(),
+                        snapshot.locationAliases().getOrDefault(tide.locationId(), List.of()), wanted) == null) {
+                    continue;
+                }
+                if (scope.contains(tide.region())) {
+                    return Reach.IN_SCOPE;
+                }
+                outOfScope = true;
+            }
+        }
         for (AskSnapshot.Window w : snapshot.windows()) {
             for (AskSnapshot.Region r : w.regions()) {
                 boolean visible = scope.contains(r.name());
@@ -1261,13 +1388,15 @@ public class AskTools {
      * the scope note and no name.
      */
     private AskToolResult<LookUpPlaceResult> closestSpelling(String given, List<String> wanted,
-            List<AskSnapshot.Window> windows) {
-        Reach exact = reach(wanted);
+            List<AskSnapshot.Window> windows, List<AskSnapshot.LaterWindow> later) {
+        // A later window's names are seen only when a later window was asked for, so a call without one is unchanged.
+        List<AskSnapshot.LaterWindow> seenLater = later.isEmpty() ? List.of() : snapshot.laterWindows();
+        Reach exact = reach(wanted, seenLater);
         if (exact != Reach.NONE) {
             return noPlace(exact == Reach.OUT_OF_SCOPE_ONLY ? PLACE_OUT_OF_SCOPE_NOTE : NO_SUCH_PLACE_NOTE);
         }
         int allowed = PlaceNames.allowedEdits(String.join("", wanted).length());
-        Map<String, Spelling> spellings = allowed == 0 ? Map.of() : nearSpellings(wanted, allowed);
+        Map<String, Spelling> spellings = allowed == 0 ? Map.of() : nearSpellings(wanted, allowed, seenLater);
         if (spellings.isEmpty()) {
             return noPlace(NO_SUCH_PLACE_NOTE);
         }
@@ -1279,12 +1408,12 @@ public class AskTools {
         if (contenders.size() == 1) {
             List<String> corrected = List.of(contenders.getFirst().getKey().split(" "));
             String closestTo = cap(given.strip().replace('"', '\'').replace("\\", ""), CLOSEST_TO_CAP);
-            Attempt again = attempt(corrected, windows, closestTo);
+            Attempt again = attempt(corrected, windows, later, closestTo);
             if (again.result() != null) {
                 return again.result();
             }
             // Found, but not in the windows asked about; a place found only out of scope is never confirmed.
-            Reach found = reach(corrected);
+            Reach found = reach(corrected, seenLater);
             if (found == Reach.IN_SCOPE) {
                 return finish(LOOK_UP, new LookUpPlaceResult(List.of(), null, NO_SUCH_PLACE_NOTE, null, closestTo,
                         null), () -> { });
@@ -1312,9 +1441,22 @@ public class AskTools {
      * Every distinct spelling in the snapshot (place names, aliases, area names and aliases, in scope or not)
      * within {@code allowed} edits of the query, keyed by its text: the matched leading run, joined with spaces.
      */
-    private Map<String, Spelling> nearSpellings(List<String> wanted, int allowed) {
+    private Map<String, Spelling> nearSpellings(List<String> wanted, int allowed,
+            List<AskSnapshot.LaterWindow> later) {
         Map<String, Spelling> out = new LinkedHashMap<>();
         Set<Long> seen = new HashSet<>();
+        for (AskSnapshot.LaterWindow lw : later) {
+            for (AskSnapshot.LaterTide tide : lw.tides()) {
+                if (!seen.add(tide.locationId())) {
+                    continue;
+                }
+                String suggestable = scope.contains(tide.region()) ? tide.name() : null;
+                addSpelling(out, tide.name(), wanted, allowed, suggestable);
+                for (String alias : snapshot.locationAliases().getOrDefault(tide.locationId(), List.of())) {
+                    addSpelling(out, alias, wanted, allowed, suggestable);
+                }
+            }
+        }
         for (AskSnapshot.Window w : snapshot.windows()) {
             for (AskSnapshot.Region r : w.regions()) {
                 boolean visible = scope.contains(r.name());
@@ -1360,6 +1502,7 @@ public class AskTools {
         private boolean exact;
         private String matchedAlias;
         private final List<PlaceRow> rows = new ArrayList<>();
+        private final List<LaterRow> laterRows = new ArrayList<>();
 
         PlaceMatch(String name) {
             this.name = name;
@@ -1367,6 +1510,10 @@ public class AskTools {
     }
 
     private record PlaceRow(AskSnapshot.Window window, AskSnapshot.Region region, AskSnapshot.Slot slot) {
+    }
+
+    /** One place's tide at one requested later window. */
+    private record LaterRow(AskSnapshot.LaterWindow window, AskSnapshot.LaterTide tide) {
     }
 
     /**

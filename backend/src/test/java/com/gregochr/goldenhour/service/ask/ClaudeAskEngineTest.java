@@ -853,6 +853,80 @@ class ClaudeAskEngineTest {
         assertThat(resultFor(sent.get(3), "topics")).contains("KING_TIDE");
     }
 
+    private static final String LATER_TIDE_QUESTION = "Is the tide right at Seaham on Sunday morning?";
+    private static final String MIXED_TIDE_QUESTION = "Is the tide right at Seaham on Monday?";
+    private static final String LATER_SUNRISE_ID = "2026-10-11_sunrise";
+
+    /** {@link #tideMissSnapshot()} plus a later sunrise on which Seaham is also a tide miss. */
+    private static AskSnapshot tideMissWithLaterSnapshot() {
+        return AskFixtures.withLater(tideMissSnapshot(), AskFixtures.laterWindow(TODAY.plusDays(6),
+                com.gregochr.goldenhour.entity.TargetType.SUNRISE, AskFixtures.laterTide(13L, "Seaham", "Durham",
+                        "MID", false, "wants low water · mid tide, rising at 06:12 · 2.6 m of 4.3 m",
+                        "HW 05:42 · 30m before sunrise")));
+    }
+
+    @Test
+    @DisplayName("a later-day tide question: list_windows names the later window, then look_up_place with the "
+            + "later id and get_hot_topics in one turn, then submit_answer; the answer is not cached")
+    void laterDayTideQuestionFitsTheTurnBudget() {
+        stubTideConversation(LATER_TIDE_QUESTION,
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("place", "look_up_place",
+                                Map.of("name", "Seaham", "windowIds", List.of(LATER_SUNRISE_ID))),
+                        tool("topics", "get_hot_topics",
+                                Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
+                submit(Map.of("answerable", true, "summary", "No: PhotoCast is not giving a sky rating then, "
+                        + "and the tide does not suit Seaham.")));
+
+        AskRun run = engine.run(question(LATER_TIDE_QUESTION), tideMissWithLaterSnapshot(), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(3);
+        assertThat(run.outcome().uncacheable()).isTrue();
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
+                .containsExactly("list_windows", "look_up_place", "get_hot_topics", "submit_answer");
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(3);
+        assertEveryRequestAsks(sent, LATER_TIDE_QUESTION);
+        assertThat(resultFor(sent.get(1), "w")).contains("\"laterWindows\":[{\"id\":\"" + LATER_SUNRISE_ID + "\"");
+        assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "place", "topics");
+        assertThat(resultFor(sent.get(2), "place")).contains("\"places\":[]")
+                .contains("\"laterTides\":[{\"windowId\":\"" + LATER_SUNRISE_ID + "\"")
+                .contains("\"nearestTide\":\"HW 05:42 · 30m before sunrise\"")
+                .doesNotContain("\"rating\"");
+        assertThat(resultFor(sent.get(2), "topics")).contains("KING_TIDE");
+        assertThat(systemText(sent.get(0))).contains("pass its id to look_up_place");
+    }
+
+    @Test
+    @DisplayName("a mixed day: look_up_place with a rated id and a later id returns both, in one call with "
+            + "get_hot_topics, and the answer is not cached")
+    void mixedDayTideQuestionFitsTheTurnBudget() {
+        stubTideConversation(MIXED_TIDE_QUESTION,
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("place", "look_up_place",
+                                Map.of("name", "Seaham", "windowIds", List.of(WINDOW, LATER_SUNRISE_ID))),
+                        tool("topics", "get_hot_topics",
+                                Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
+                submit(Map.of("answerable", true, "summary", "The tide does not suit Seaham at either.")));
+
+        AskRun run = engine.run(question(MIXED_TIDE_QUESTION), tideMissWithLaterSnapshot(), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(3);
+        assertThat(run.outcome().uncacheable()).isTrue();
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(3);
+        assertEveryRequestAsks(sent, MIXED_TIDE_QUESTION);
+        assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "place", "topics");
+        assertThat(resultFor(sent.get(2), "place")).contains("\"windowId\":\"" + WINDOW + "\"")
+                .contains("\"laterTides\":[{\"windowId\":\"" + LATER_SUNRISE_ID + "\"");
+    }
+
     private String resultFor(MessageCreateParams params, String toolUseId) {
         return toolResultsIn(params).stream().filter(r -> r.toolUseId().equals(toolUseId)).findFirst()
                 .orElseThrow().content().orElseThrow().string().orElseThrow();

@@ -4,6 +4,8 @@ import com.gregochr.goldenhour.config.RewindAwareClock;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -16,6 +18,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.AstroConditionsService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -718,6 +721,170 @@ class AskSnapshotBuilderTest {
 
         assertThat(builder.build().orElseThrow().areas()).isEmpty();
         assertThat(builderWith(nothing).build().orElseThrow().locationAliases()).isEmpty();
+    }
+
+    // -- later windows (ask-place-tide plan T2-1, T2-2) --------------------------------------------
+
+    private static final String HW_PHRASE = "HW 06:42 · 40m after sunrise";
+
+    private static LocationEntity place(long id, String name, String region, boolean enabled) {
+        return LocationEntity.builder().id(id).name(name).enabled(enabled)
+                .region(region == null ? null : RegionEntity.builder().name(region).build()).build();
+    }
+
+    private AskSnapshotBuilder builderWithRoster(LocationRepository roster) {
+        return new AskSnapshotBuilder(briefingService, travelDayService, almanacService, freshness, clock,
+                astroRepository, auroraRepository, astroService, nightSelector, auroraStateCache,
+                () -> AskAreas.Names.NONE, roster);
+    }
+
+    private static BriefingEventSummary blankedWithFacts(TargetType type, LocalDateTime eventTime,
+            LocationTideFact... facts) {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(eventTime, DisplayVerdict.WORTH_IT, 4, null), facts);
+        return AskFixtures.summary(type, window, AskFixtures.blankedRegion("Coast",
+                com.gregochr.goldenhour.model.CoverageReason.UNKNOWN));
+    }
+
+    private LocationRepository roster(LocationEntity... places) {
+        LocationRepository repository = org.mockito.Mockito.mock(LocationRepository.class);
+        when(repository.findEnabledFetchingRegion()).thenReturn(List.of(places));
+        return repository;
+    }
+
+    @Test
+    @DisplayName("an unrendered window whose slots are empty but whose facts are set becomes a later window, one "
+            + "tide per fact, with the region from the roster and the nearest tide; windows() is unchanged")
+    void build_laterWindowComesFromTheFacts() {
+        LocalDate later = TODAY.plusDays(3);
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        List<com.gregochr.goldenhour.model.BriefingDay> days = List.of(
+                AskFixtures.sunsetDay(TODAY, null, region),
+                AskFixtures.day(later, blankedWithFacts(TargetType.SUNSET, later.atTime(18, 0),
+                        AskFixtures.factNearest(3L, "Bamburgh", "MID", false, "wants low water", HW_PHRASE),
+                        AskFixtures.fact(4L, "Seahouses", "HIGH", true, "high water"),
+                        AskFixtures.fact(null, "No id", "HIGH", true, "skipped"),
+                        AskFixtures.fact(99L, "Unknown", "HIGH", true, "skipped"),
+                        AskFixtures.fact(5L, "Disabled", "HIGH", true, "skipped"),
+                        AskFixtures.fact(6L, "Regionless", "HIGH", true, "skipped"))));
+        stub(AskFixtures.briefing(days, List.of(), List.of(new PlanRenderedEvent(TODAY, TargetType.SUNSET))));
+        AskSnapshotBuilder withRoster = builderWithRoster(roster(place(3L, "Bamburgh", "Coast", true),
+                place(4L, "Seahouses", "Coast", true), place(5L, "Disabled", "Coast", false),
+                place(6L, "Regionless", null, true)));
+
+        AskSnapshot snapshot = withRoster.build().orElseThrow();
+
+        assertThat(snapshot.windows()).extracting(AskSnapshot.Window::id).containsExactly("2026-10-05_sunset");
+        assertThat(snapshot.laterWindows()).hasSize(1);
+        AskSnapshot.LaterWindow window = snapshot.laterWindows().getFirst();
+        assertThat(window.id()).isEqualTo("2026-10-08_sunset");
+        assertThat(window.date()).isEqualTo(later);
+        assertThat(window.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(window.tides()).containsExactly(
+                new AskSnapshot.LaterTide(3L, "Bamburgh", "Coast", "MID", true, false, "wants low water", HW_PHRASE),
+                new AskSnapshot.LaterTide(4L, "Seahouses", "Coast", "HIGH", true, true, "high water", null));
+        assertThat(snapshot.window("2026-10-08_sunset")).isEmpty();
+        assertThat(snapshot.laterWindow("2026-10-08_sunset")).contains(window);
+    }
+
+    @Test
+    @DisplayName("a travel day inside the rendered six becomes a later window and is still not in windows()")
+    void build_travelDayIsALaterWindow() {
+        BriefingEventSummary away = blankedWithFacts(TargetType.SUNRISE, TOMORROW.atTime(5, 40),
+                AskFixtures.fact(3L, "Bamburgh", "HIGH", true, "high water"));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TOMORROW, away)), List.of(),
+                List.of(new PlanRenderedEvent(TOMORROW, TargetType.SUNRISE))));
+        when(travelDayService.isTravelDay(TOMORROW)).thenReturn(true);
+
+        AskSnapshot snapshot = builderWithRoster(roster(place(3L, "Bamburgh", "Coast", true)))
+                .build().orElseThrow();
+
+        assertThat(snapshot.windows()).isEmpty();
+        assertThat(snapshot.laterWindows()).extracting(AskSnapshot.LaterWindow::id)
+                .containsExactly("2026-10-06_sunrise");
+        verify(travelDayService, times(1)).isTravelDay(TOMORROW);
+    }
+
+    @Test
+    @DisplayName("a passed window, a non-solar one and one with no tide facts give no later window")
+    void build_noLaterWindowForPassedNonSolarOrFactless() {
+        LocalDate later = TODAY.plusDays(2);
+        LocationTideFact fact = AskFixtures.fact(3L, "Bamburgh", "HIGH", true, "high water");
+        BriefingEventSummary passed = blankedWithFacts(TargetType.SUNRISE, NOW.minusHours(2), fact);
+        BriefingEventSummary hourly = blankedWithFacts(TargetType.HOURLY, later.atTime(12, 0), fact);
+        BriefingEventSummary noFacts = AskFixtures.summary(TargetType.SUNSET,
+                AskFixtures.window(later.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.blankedRegion("Coast", com.gregochr.goldenhour.model.CoverageReason.UNKNOWN));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY, passed), AskFixtures.day(later, hourly, noFacts)),
+                List.of(), List.of()));
+
+        AskSnapshot snapshot = builderWithRoster(roster(place(3L, "Bamburgh", "Coast", true)))
+                .build().orElseThrow();
+
+        assertThat(snapshot.laterWindows()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a window whose facts all fail the roster is no later window")
+    void build_noLaterWindowWhenNoFactResolves() {
+        LocalDate later = TODAY.plusDays(3);
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(later, blankedWithFacts(TargetType.SUNSET,
+                later.atTime(18, 0), AskFixtures.fact(null, "No id", "HIGH", true, "x"),
+                AskFixtures.fact(99L, "Unknown", "HIGH", true, "x")))), List.of(), List.of()));
+
+        assertThat(builderWithRoster(roster()).build().orElseThrow().laterWindows()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a roster read that throws gives a snapshot with no later windows, never no snapshot")
+    void build_rosterFailureIsFailSoft() {
+        LocalDate later = TODAY.plusDays(3);
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        stub(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null, region),
+                AskFixtures.day(later, blankedWithFacts(TargetType.SUNSET, later.atTime(18, 0),
+                        AskFixtures.fact(3L, "Bamburgh", "HIGH", true, "high water")))), List.of(),
+                List.of(new PlanRenderedEvent(TODAY, TargetType.SUNSET))));
+        LocationRepository broken = org.mockito.Mockito.mock(LocationRepository.class);
+        when(broken.findEnabledFetchingRegion()).thenThrow(new IllegalStateException("db down"));
+
+        AskSnapshot snapshot = builderWithRoster(broken).build().orElseThrow();
+
+        assertThat(snapshot.laterWindows()).isEmpty();
+        assertThat(snapshot.windows()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("the roster is read once per build, however many later windows there are")
+    void build_rosterIsReadOncePerBuild() {
+        LocalDate d3 = TODAY.plusDays(3);
+        LocalDate d4 = TODAY.plusDays(4);
+        LocationTideFact fact = AskFixtures.fact(3L, "Bamburgh", "HIGH", true, "high water");
+        stub(AskFixtures.briefing(List.of(
+                AskFixtures.day(d3, blankedWithFacts(TargetType.SUNRISE, d3.atTime(5, 40), fact),
+                        blankedWithFacts(TargetType.SUNSET, d3.atTime(18, 0), fact)),
+                AskFixtures.day(d4, blankedWithFacts(TargetType.SUNRISE, d4.atTime(5, 40), fact))),
+                List.of(), List.of()));
+        LocationRepository repository = roster(place(3L, "Bamburgh", "Coast", true));
+
+        AskSnapshot snapshot = builderWithRoster(repository).build().orElseThrow();
+
+        assertThat(snapshot.laterWindows()).extracting(AskSnapshot.LaterWindow::id)
+                .containsExactly("2026-10-08_sunrise", "2026-10-08_sunset", "2026-10-09_sunrise");
+        verify(repository, times(1)).findEnabledFetchingRegion();
+    }
+
+    @Test
+    @DisplayName("withNames carries the later windows through")
+    void withNamesKeepsTheLaterWindows() {
+        AskSnapshot.LaterWindow later = new AskSnapshot.LaterWindow("2026-10-08_sunset", TODAY.plusDays(3),
+                TargetType.SUNSET, TODAY.plusDays(3).atTime(18, 0), List.of());
+        AskSnapshot base = new AskSnapshot(null, null, TODAY, List.of(), List.of(), List.of(), false,
+                AskSnapshot.Nights.NONE, List.of(), Map.of(), List.of(later));
+
+        AskSnapshot renamed = base.withNames(List.of(), Map.of(1L, List.of("The Heugh")));
+
+        assertThat(renamed.laterWindows()).containsExactly(later);
+        assertThat(renamed.locationAliases()).containsKey(1L);
     }
 
     private void stub(DailyBriefingResponse briefing) {

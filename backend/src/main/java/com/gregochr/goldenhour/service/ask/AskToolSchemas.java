@@ -77,7 +77,7 @@ public final class AskToolSchemas {
      */
     public static List<Tool> tools(boolean withUser, boolean withThread, boolean withPlaceLookup) {
         List<Tool> tools = new ArrayList<>();
-        tools.add(listWindows());
+        tools.add(listWindows(withUser));
         tools.add(rankSpots(withUser, withPlaceLookup));
         if (withPlaceLookup) {
             tools.add(lookUpPlace());
@@ -89,16 +89,20 @@ public final class AskToolSchemas {
         return List.copyOf(tools);
     }
 
-    private static Tool listWindows() {
-        return tool(LIST_WINDOWS,
+    /** Appended to the typed {@code list_windows} description (ask-place-tide plan T2-4). */
+    static final String LATER_WINDOWS_SENTENCE = " Then laterWindows: later sunrises and sunsets that are not rated,"
+            + " for tide questions only: pass their ids to look_up_place, never to rank_spots.";
+
+    private static Tool listWindows(boolean withUser) {
+        String base =
                 "Lists the upcoming sunrise and sunset windows, with the forecast's verdict, best "
                         + "rating, the spread of its ratings (rated count, the count at each star, how "
                         + "many are game on, the regions holding a game-on place, and the regions "
                         + "stood down or not scored) and its own BEST BET / ALSO GOOD pick for each, "
                         + "then the night windows "
                         + "(tonight's and tomorrow night's astro, and aurora where the reader may see it). "
-                        + "Call this first for any question about when to go.",
-                m(), List.of());
+                        + "Call this first for any question about when to go.";
+        return tool(LIST_WINDOWS, withUser ? base + LATER_WINDOWS_SENTENCE : base, m(), List.of());
     }
 
     private static Tool rankSpots(boolean withUser, boolean withNamedAreas) {
@@ -136,7 +140,8 @@ public final class AskToolSchemas {
     private static Tool lookUpPlace() {
         Map<String, Object> props = new LinkedHashMap<>();
         props.put("name", m("type", "string", "description", "The place's name, or part of it."));
-        props.put("windowIds", array(string(), "Only these window ids (from list_windows). Default: every window."));
+        props.put("windowIds", array(string(), "Only these window ids (from list_windows, including laterWindows). "
+                + "Default: every rated window."));
         return tool(LOOK_UP_PLACE,
                 "Looks up one place by name and returns its served rating, verdict, headline, tide fit "
                         + "and whether PhotoCast recommends it (status), for each window, plus the forecast's own "

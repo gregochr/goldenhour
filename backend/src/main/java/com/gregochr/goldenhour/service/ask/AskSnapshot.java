@@ -54,10 +54,14 @@ import java.util.function.Predicate;
  *                    there are none or they could not be read
  * @param locationAliases other names for a location, by location id, each list in the deterministic order of
  *                    {@link AskAreas#sortAliases}; empty when there are none
+ * @param laterWindows solar windows the Plan tab does not render, or travel days, that have not passed and carry
+ *                    tide facts (ask-place-tide plan T2-1): served for tide questions only, never rated, never in
+ *                    {@link #windows}; chronological, empty when there are none
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
         List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
-        boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases) {
+        boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases,
+        List<LaterWindow> laterWindows) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
@@ -83,6 +87,73 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         nights = nights == null ? Nights.NONE : nights;
         areas = areas == null ? List.of() : List.copyOf(areas);
         locationAliases = locationAliases == null ? Map.of() : copyAliases(locationAliases);
+        laterWindows = laterWindows == null ? List.of() : List.copyOf(laterWindows);
+    }
+
+    /**
+     * A snapshot with no later windows.
+     *
+     * @param generatedAt     when the briefing was built (UTC), or null
+     * @param runLabel        {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today           today on the UK civil calendar
+     * @param windows         the window set
+     * @param hotTopics       the served hot topics
+     * @param comingUp        the almanac entries
+     * @param briefingStale   whether the served briefing is the last-known-good one
+     * @param nights          the night forecasts
+     * @param areas           the named areas
+     * @param locationAliases other names by location id
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+            boolean briefingStale, Nights nights, List<Area> areas, Map<Long, List<String>> locationAliases) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights, areas,
+                locationAliases, List.of());
+    }
+
+    /**
+     * A later window: a solar window Ask does not rate (outside the Plan tab's rendered six, or a travel day) whose
+     * place-level tide facts are still served. Only the tide: no rating, verdict, headline or summary exists on it.
+     *
+     * @param id         the window id ({@link AskWindowId})
+     * @param date       the date of the event
+     * @param targetType SUNRISE or SUNSET
+     * @param eventTime  the window's served event time (UTC), or null
+     * @param tides      one tide per location the window carries a tide fact for
+     */
+    public record LaterWindow(String id, LocalDate date, TargetType targetType, LocalDateTime eventTime,
+            List<LaterTide> tides) {
+
+        /** Canonical constructor: takes an immutable copy; null reads as empty. */
+        public LaterWindow {
+            tides = tides == null ? List.of() : List.copyOf(tides);
+        }
+    }
+
+    /**
+     * One place's tide at a later window, from the window's {@code LocationTideFact}, never from a slot.
+     *
+     * @param locationId   the location id
+     * @param name         the location name
+     * @param region       the location's region name
+     * @param tideState    the served tide state at the event
+     * @param coastal      whether the location is coastal (it carries a tide state)
+     * @param tideAligned  whether the location's own wanted water is the water at the event
+     * @param tideFitPhrase the served tide-fit sentence, or null
+     * @param nearestTide  the nearest high or low water and its offset from the light, or null
+     */
+    public record LaterTide(long locationId, String name, String region, String tideState, boolean coastal,
+            boolean tideAligned, String tideFitPhrase, String nearestTide) {
+    }
+
+    /**
+     * Finds a later window by id.
+     *
+     * @param windowId the id
+     * @return the later window, or empty when it is not one
+     */
+    public Optional<LaterWindow> laterWindow(String windowId) {
+        return laterWindows.stream().filter(w -> w.id().equals(windowId)).findFirst();
     }
 
     /**
@@ -113,7 +184,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      */
     public AskSnapshot withNames(List<Area> newAreas, Map<Long, List<String>> newAliases) {
         return new AskSnapshot(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, nights,
-                newAreas, newAliases);
+                newAreas, newAliases, laterWindows);
     }
 
     private static Map<Long, List<String>> copyAliases(Map<Long, List<String>> aliases) {

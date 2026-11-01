@@ -1658,4 +1658,75 @@ class AskToolsTest {
         assertThat(capped.evidence().listedWindows()).as("a result the model never saw is not carried").isEmpty();
         assertThat(tools(weekendSnapshot()).evidence().listedWindows()).as("not called").isEmpty();
     }
+
+    // -- later windows (ask-place-tide plan T2-4, T2-6) --------------------------------------
+
+    private static final String LATER_SUNRISE = "2026-10-09_sunrise";
+
+    private static AskSnapshot withLaterWindow() {
+        BriefingRegion coast = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
+        return AskFixtures.withLater(snapshotOfRegions(coast), AskFixtures.laterWindow(TODAY.plusDays(4),
+                TargetType.SUNRISE, AskFixtures.laterTide(3L, "Bamburgh", "Coast", "MID", false, "fit", null)));
+    }
+
+    @Test
+    @DisplayName("a typed list_windows carries laterWindows with the id, day, event and UK time")
+    void listWindows_typedCarriesLaterWindows() throws Exception {
+        AskToolResult<ListWindowsResult> result = tools(withLaterWindow(), USER, TestScopes.of()).listWindows();
+
+        assertThat(result.payload().laterWindows()).hasSize(1);
+        AskTools.LaterWindowInfo later = result.payload().laterWindows().getFirst();
+        assertThat(later.id()).isEqualTo(LATER_SUNRISE);
+        assertThat(later.event()).isEqualTo("sunrise");
+        assertThat(later.time()).isEqualTo("06:40");
+        JsonNode json = mapper.readTree(result.content());
+        assertThat(json.get("laterWindows")).hasSize(1);
+        assertThat(json.get("laterWindows").get(0).get("id").asText()).isEqualTo(LATER_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("a user-less list_windows built from a snapshot with later windows has no laterWindows key: "
+            + "the Ready bytes are those of a snapshot without them")
+    void listWindows_userLessHasNoLaterWindowsKey() {
+        AskSnapshot with = withLaterWindow();
+        AskSnapshot without = AskFixtures.withLater(with);
+
+        AskToolResult<ListWindowsResult> readyWith = tools(with).listWindows();
+
+        assertThat(readyWith.content()).doesNotContain("laterWindows");
+        assertThat(readyWith.content()).isEqualTo(tools(without).listWindows().content());
+    }
+
+    @Test
+    @DisplayName("a typed list_windows with no later windows has no laterWindows key at all")
+    void listWindows_typedEmptyLaterWindowsHasNoKey() {
+        AskSnapshot none = AskFixtures.withLater(withLaterWindow());
+
+        assertThat(tools(none, USER, TestScopes.of()).listWindows().content()).doesNotContain("laterWindows");
+    }
+
+    @Test
+    @DisplayName("rank_spots given a later window id says it is not rated and points to look_up_place")
+    void rankSpots_laterWindowIdPointsToLookUpPlace() {
+        AskTools tools = tools(withLaterWindow(), USER, TestScopes.of());
+
+        AskToolResult result = tools.rankSpots(new RankSpotsArgs(List.of(LATER_SUNRISE), null, null, null, null, 5));
+
+        assertThat(result.error()).isTrue();
+        assertThat(result.content()).contains(LATER_SUNRISE + " is not rated: use look_up_place for its tide.")
+                .doesNotContain("Unknown window id");
+        assertThat(tools.evidence().pairs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("rank_spots given a truly unknown id still says it is unknown")
+    void rankSpots_trulyUnknownIdKeepsTheOldError() {
+        AskTools tools = tools(withLaterWindow(), USER, TestScopes.of());
+
+        AskToolResult result = tools.rankSpots(new RankSpotsArgs(List.of("2030-01-01_sunrise"), null, null, null,
+                null, 5));
+
+        assertThat(result.error()).isTrue();
+        assertThat(result.content()).contains("Unknown window id '2030-01-01_sunrise'");
+    }
 }
