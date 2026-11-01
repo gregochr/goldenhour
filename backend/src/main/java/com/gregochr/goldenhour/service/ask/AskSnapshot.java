@@ -257,11 +257,40 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param skyRating      the sky's own component score, before the tide is combined in, or null
      * @param fierySky       the served Fiery Sky potential out of 100, or null
      * @param goldenHour     the served Golden Hour potential out of 100, or null
+     * @param nearestTide    the served nearest high or low water and its offset from the light
+     *                       ({@code LocationTideFact.nearestSolarOffsetPhrase}), or null; it is of
+     *                       either kind, so it never says when the tide would suit
      */
     public record Slot(Long locationId, String name, Integer rating, DisplayVerdict verdict,
             String headline, boolean canopy, String tideState, boolean tideAligned,
             String tideFitPhrase, boolean neighbourOutlier, String summary, Integer skyRating,
-            Integer fierySky, Integer goldenHour) {
+            Integer fierySky, Integer goldenHour, String nearestTide) {
+
+        /**
+         * A slot with no nearest-tide phrase.
+         *
+         * @param locationId       the location id, or null
+         * @param name             the location name
+         * @param rating           the served rating, or null
+         * @param verdict          the slot's served display verdict
+         * @param headline         the served headline, or null
+         * @param canopy           true when this is a wood
+         * @param tideState        the served tide state band, or null for an inland place
+         * @param tideAligned      the preference fact
+         * @param tideFitPhrase    the served tide-fit sentence, or null
+         * @param neighbourOutlier true when the neighbour guard marked this slot
+         * @param summary          the served prose reason, or null
+         * @param skyRating        the sky's own component score, or null
+         * @param fierySky         the served Fiery Sky potential, or null
+         * @param goldenHour       the served Golden Hour potential, or null
+         */
+        public Slot(Long locationId, String name, Integer rating, DisplayVerdict verdict,
+                String headline, boolean canopy, String tideState, boolean tideAligned,
+                String tideFitPhrase, boolean neighbourOutlier, String summary, Integer skyRating,
+                Integer fierySky, Integer goldenHour) {
+            this(locationId, name, rating, verdict, headline, canopy, tideState, tideAligned,
+                    tideFitPhrase, neighbourOutlier, summary, skyRating, fierySky, goldenHour, null);
+        }
 
         /**
          * A slot with no evaluation detail.

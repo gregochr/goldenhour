@@ -759,6 +759,73 @@ class ClaudeAskEngineTest {
                 .doesNotContain("suggestions").doesNotContain("Seaton");
     }
 
+    /** A one-place snapshot: Seaham is a tide miss serving its nearest water; Seaton is a second, plain place. */
+    private static AskSnapshot tideMissSnapshot() {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Durham", true,
+                        AskFixtures.coastalNearest(13L, "Seaham", 3, "MID", false,
+                                "wants low water \u00b7 mid tide, rising at 18:02 \u00b7 2.6 m of 4.3 m",
+                                "HW 17:42 \u00b7 20m before sunset"),
+                        AskFixtures.slot(14L, "Seaton", 4)))),
+                List.of(AskFixtures.topic("KING_TIDE", "King tide", "A big tide.", TODAY, List.of("Durham")))));
+    }
+
+    @Test
+    @DisplayName("a tide question: list_windows, then look_up_place and get_hot_topics in one turn, then "
+            + "submit_answer, in three turns; the lookup row carries nearestTide and the topic is served")
+    void tideQuestionFitsTheTurnBudget() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("place", "look_up_place", Map.of("name", "Seaham")),
+                        tool("topics", "get_hot_topics",
+                                Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
+                submit(Map.of("answerable", true, "summary", "No: the tide does not suit Seaham.")));
+
+        AskRun run = engine.run(question("Is the tide right at Seaham tonight?"), tideMissSnapshot(), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(3);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
+                .containsExactly("list_windows", "look_up_place", "get_hot_topics", "submit_answer");
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(3);
+        assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "place", "topics");
+        assertThat(resultFor(sent.get(2), "place")).contains("\"name\":\"Seaham\"")
+                .contains("\"nearestTide\":\"HW 17:42 \u00b7 20m before sunset\"");
+        assertThat(resultFor(sent.get(2), "topics")).contains("KING_TIDE");
+        assertThat(systemText(sent.get(0))).contains("then in the same turn get_hot_topics with types KING_TIDE");
+    }
+
+    @Test
+    @DisplayName("a tide question with a spelling tie: list_windows, look_up_place (suggestions), then the "
+            + "re-call and get_hot_topics in one turn, then submit_answer, in four turns")
+    void tideQuestionWithASpellingTieFitsTheTurnBudget() {
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("first", "look_up_place", Map.of("name", "Seaxom"))),
+                toolTurn(tool("second", "look_up_place", Map.of("name", "Seaham")),
+                        tool("topics", "get_hot_topics",
+                                Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
+                submit(Map.of("answerable", true, "summary", "Assuming you mean Seaham, the tide does not suit.")));
+
+        AskRun run = engine.run(question("Is the tide aligned at Seaxom tonight?"), tideMissSnapshot(), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(4);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("list_windows",
+                "look_up_place", "look_up_place", "get_hot_topics", "submit_answer");
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(4);
+        assertThat(resultFor(sent.get(2), "first")).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]");
+        assertThat(toolResultsIn(sent.get(3))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "first", "second", "topics");
+        assertThat(resultFor(sent.get(3), "second")).contains("\"nearestTide\":").doesNotContain("suggestions");
+        assertThat(resultFor(sent.get(3), "topics")).contains("KING_TIDE");
+    }
+
     private String resultFor(MessageCreateParams params, String toolUseId) {
         return toolResultsIn(params).stream().filter(r -> r.toolUseId().equals(toolUseId)).findFirst()
                 .orElseThrow().content().orElseThrow().string().orElseThrow();

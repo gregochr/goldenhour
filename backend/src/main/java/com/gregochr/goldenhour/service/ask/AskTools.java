@@ -123,10 +123,16 @@ public class AskTools {
     static final int MAX_PLACE_ROWS = 6;
 
     /**
-     * The row cap when any row carries {@link PlaceDetail}: a detail row costs about 300 characters, so six would
-     * not fit the 4,500-character bound.
+     * The row cap when any row carries {@link PlaceDetail} or a {@link PlaceInfo#nearestTide}: a detail row costs
+     * about 300 characters, so six would not fit the 4,500-character bound.
      */
     static final int MAX_PLACE_ROWS_WITH_DETAIL = 4;
+
+    /**
+     * The longest {@link PlaceInfo#nearestTide} phrase a row carries. Real phrases ("HW 06:42 · 40m after sunrise")
+     * are 30 characters or fewer.
+     */
+    static final int NEAREST_TIDE_CAP = 60;
 
     /** The most rows of the one place a {@code look_up_place} answer is about that carry {@link PlaceDetail}. */
     static final int MAX_DETAIL_ROWS = 4;
@@ -608,12 +614,43 @@ public class AskTools {
      * @param matchedAlias  the other name the reader's words matched when the place's own name did not, or null
      * @param detail        the forecast's own reason, only on the rows of the one place the answer is about; null
      *                      otherwise
+     * @param nearestTide   the nearest high or low water and its offset from the light (for example
+     *                      {@code HW 06:42 · 40m after sunrise}), only on a tide-miss row of the one place the
+     *                      answer is about, at most {@value AskTools#NEAREST_TIDE_CAP} characters; of either kind,
+     *                      so it never says when the tide would suit; null otherwise
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
             String event, Integer rating, String verdict, String headline, String tideState,
             Boolean tideAligned, String tideFitPhrase, String status, String matchedAlias,
-            PlaceDetail detail) {
+            PlaceDetail detail, String nearestTide) {
+
+        /**
+         * A place row with no nearest-tide phrase.
+         *
+         * @param locationId    the location id
+         * @param name          the location name
+         * @param region        the region name
+         * @param windowId      the window id
+         * @param day           Today, Tomorrow or the weekday
+         * @param event         sunrise or sunset
+         * @param rating        the served rating, or null
+         * @param verdict       the served verdict, or null
+         * @param headline      the served headline, or null
+         * @param tideState     the served tide state, or null
+         * @param tideAligned   whether the wanted water is the water at the event, or null
+         * @param tideFitPhrase the served tide-fit sentence, or null
+         * @param status        a {@link PlaceStatus} name
+         * @param matchedAlias  the other name the reader's words matched, or null
+         * @param detail        the forecast's own reason, or null
+         */
+        public PlaceInfo(long locationId, String name, String region, String windowId, String day,
+                String event, Integer rating, String verdict, String headline, String tideState,
+                Boolean tideAligned, String tideFitPhrase, String status, String matchedAlias,
+                PlaceDetail detail) {
+            this(locationId, name, region, windowId, day, event, rating, verdict, headline, tideState,
+                    tideAligned, tideFitPhrase, status, matchedAlias, detail, null);
+        }
 
         /**
          * A place row with no detail.
@@ -1126,6 +1163,7 @@ public class AskTools {
             for (PlaceRow row : entry.getValue().rows) {
                 PlaceStatus status = classify(row.region(), row.slot());
                 PlaceDetail detail = null;
+                String nearestTide = null;
                 if (firstPlace && aboutOnePlace && detailRows < MAX_DETAIL_ROWS) {
                     detail = detail(row.slot(), status);
                     if (detail != null) {
@@ -1133,7 +1171,14 @@ public class AskTools {
                         anyDetail = true;
                     }
                 }
-                all.add(placeInfo(entry.getKey(), row, status, entry.getValue().matchedAlias, detail));
+                // The nearest high or low water goes only on a tide miss of the one place the answer is about: a
+                // match's fit sentence already carries it (ask-place-tide plan T-2).
+                if (firstPlace && aboutOnePlace && row.slot().coastal() && !row.slot().tideAligned()
+                        && row.slot().nearestTide() != null && !row.slot().nearestTide().isBlank()) {
+                    nearestTide = cap(row.slot().nearestTide(), NEAREST_TIDE_CAP);
+                    anyDetail = true;
+                }
+                all.add(placeInfo(entry.getKey(), row, status, entry.getValue().matchedAlias, detail, nearestTide));
                 statuses.add(status);
                 regions.add(row.region());
             }
@@ -1348,14 +1393,14 @@ public class AskTools {
     }
 
     private PlaceInfo placeInfo(long locationId, PlaceRow row, PlaceStatus status, String matchedAlias,
-            PlaceDetail detail) {
+            PlaceDetail detail, String nearestTide) {
         AskSnapshot.Slot s = row.slot();
         Integer rating = status == PlaceStatus.UNRATED ? null : s.rating();
         return new PlaceInfo(locationId, s.name(), row.region().name(), row.window().id(),
                 dayWord(row.window().date()), row.window().targetType().name().toLowerCase(Locale.ROOT),
                 rating, s.verdict() == null ? null : s.verdict().name(), cap(s.headline(), HEADLINE_CAP),
                 s.tideState(), s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(), status.name(),
-                matchedAlias, detail);
+                matchedAlias, detail, nearestTide);
     }
 
     /** One named-area member at one window: what is listed, and the region its reason is read from. */

@@ -80,6 +80,19 @@ public class AskPromptBuilder {
             the whole window fiery or soft. A pick's why may quote Fiery Sky N as its sky fact. Leave the \
             figures out of a where-question ("best place for golden hour?"). To compare earlier picks' \
             light in a follow-up, call rank_spots again.
+            - For a tide question about a named place (is the tide right, aligned, correct, good, does it \
+            work), call look_up_place, then in the same turn get_hot_topics with types KING_TIDE and \
+            SPRING_TIDE and limit 2. Lead with whether the tide suits: it suits only when tideAligned is \
+            true. Then give the rating in one clause. In tideFitPhrase and nearestTide, HW and LW are high \
+            and low water, 40m and 1h43 are minutes and hours, and times are UK clock times: say "high \
+            water 06:42, 40 minutes after sunrise". In "2.6 m of 4.3 m", 4.3 m is that day's high water. \
+            nearestTide is the nearest high or low of either kind: never say the tide would suit then. \
+            Quote times and heights as given, never work out another, and call a tide big only from a \
+            king or spring topic whose date is that day and whose regions include the place's region or \
+            are empty. A row with no tide fields: the forecast has no tide for that place then. No row for \
+            the day asked: PhotoCast has not forecast that day yet; answer answerable false and give no \
+            tide. Crossing, a causeway, being cut off or when it is safe to walk out: answer answerable \
+            false, missing tidal crossing times; never present a tide time as access or safety.
             """;
 
     /** The rules every conversation runs under. */

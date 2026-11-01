@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -836,9 +837,10 @@ class AskToolsLookUpPlaceTest {
     /** A worst-case slot: long tide fit and headline, and a summary of quotes and backslashes at twice its cap. */
     private static BriefingSlot worstExplained(long id, String placeName) {
         String nasty = "\"\\".repeat(200);
+        // A tide MISS carrying a 60-character nearest-water phrase: the row shape that costs the most (T-10).
         return explained(AskFixtures.withHeadline(
-                AskFixtures.coastal(id, placeName, 4, "HIGH", true, "T".repeat(160)), "H".repeat(200)),
-                5, 100, 100, nasty + "abc".repeat(100));
+                AskFixtures.coastalNearest(id, placeName, 4, "HIGH", false, "T".repeat(160), "N".repeat(60)),
+                "H".repeat(200)), 5, 100, 100, nasty + "abc".repeat(100));
     }
 
     @Test
@@ -857,6 +859,8 @@ class AskToolsLookUpPlaceTest {
         assertThat(payload.places()).extracting(p -> p.detail().summary().length())
                 .containsOnly(AskTools.SUMMARY_CAP);
         assertThat(payload.note()).isEqualTo("Showing 4 of 6 place-windows; pass windowIds to narrow.");
+        assertThat(payload.places()).extracting(PlaceInfo::nearestTide)
+                .containsOnly("N".repeat(AskTools.NEAREST_TIDE_CAP));
         System.out.println("[look_up_place] detail worst-case payload chars (6 windows): "
                 + result.content().length());
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
@@ -876,6 +880,8 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
         assertThat(payload.places()).extracting(PlaceInfo::matchedAlias).containsOnly(alias);
+        assertThat(payload.places()).extracting(PlaceInfo::nearestTide)
+                .containsOnly("N".repeat(AskTools.NEAREST_TIDE_CAP));
         System.out.println("[look_up_place] detail alias worst-case payload chars: " + result.content().length());
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
@@ -1167,7 +1173,148 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(payload.closestTo()).isEqualTo("alnmoth estuary");
         assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(payload.places()).extracting(PlaceInfo::nearestTide)
+                .containsOnly("N".repeat(AskTools.NEAREST_TIDE_CAP));
         System.out.println("[look_up_place] correction worst-case payload chars: " + result.content().length());
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    // -- T1: the nearest high or low water on a tide miss (ask-place-tide plan 4) ------------------------
+
+    private static final String NEAREST_HW = "HW 06:42 \u00b7 40m after sunrise";
+    private static final String NEAREST_LW = "LW 18:03 \u00b7 at sunset";
+
+    private static BriefingSlot nearest(long id, String name, boolean aligned, String phrase) {
+        return AskFixtures.coastalNearest(id, name, 4, "MID", aligned,
+                aligned ? "high water, rising \u00b7 HW 06:42 \u00b7 40m after sunrise \u00b7 2.6 m"
+                        : "wants low water \u00b7 mid tide, rising at 05:42 \u00b7 2.6 m of 4.3 m", phrase);
+    }
+
+    @Test
+    @DisplayName("a miss row of the place asked about carries nearestTide verbatim, as HW or LW")
+    void missRowCarriesTheNearestTide() {
+        BriefingRegion hw = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", false, NEAREST_HW));
+        AskToolResult<LookUpPlaceResult> result = tools(snapshotOf(hw)).lookUpPlace(name("bamburgh"));
+
+        assertThat(only(ok(result)).nearestTide()).isEqualTo(NEAREST_HW);
+        assertThat(result.content()).contains("\"nearestTide\":");
+        BriefingRegion lw = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", false, NEAREST_LW));
+        assertThat(only(ok(tools(snapshotOf(lw)).lookUpPlace(name("bamburgh")))).nearestTide())
+                .isEqualTo(NEAREST_LW);
+    }
+
+    @Test
+    @DisplayName("a match row does not carry nearestTide: its fit sentence already has it, and it is not repeated")
+    void matchRowHasNoNearestTide() {
+        BriefingRegion coast = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", true, NEAREST_HW));
+        AskToolResult<LookUpPlaceResult> result = tools(snapshotOf(coast)).lookUpPlace(name("bamburgh"));
+
+        assertThat(only(ok(result)).nearestTide()).isNull();
+        assertThat(result.content()).doesNotContain("nearestTide");
+        assertThat(result.content().split(Pattern.quote("HW 06:42"), -1)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("a row with no tide state has no nearestTide")
+    void inlandRowHasNoNearestTide() {
+        BriefingRegion coast = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Bamburgh", 4));
+
+        assertThat(only(ok(tools(snapshotOf(coast)).lookUpPlace(name("bamburgh")))).nearestTide()).isNull();
+    }
+
+    @Test
+    @DisplayName("a miss row whose nearestTide is blank or absent carries none")
+    void blankNearestTideIsOmitted() {
+        BriefingRegion blank = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", false, "  "));
+        BriefingRegion absent = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", false, null));
+
+        assertThat(only(ok(tools(snapshotOf(blank)).lookUpPlace(name("bamburgh")))).nearestTide()).isNull();
+        assertThat(only(ok(tools(snapshotOf(absent)).lookUpPlace(name("bamburgh")))).nearestTide()).isNull();
+    }
+
+    @Test
+    @DisplayName("a second matched place's miss rows carry no nearestTide: the answer is about the first")
+    void secondPlaceHasNoNearestTide() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                nearest(1L, "Alnmouth", false, NEAREST_HW), nearest(2L, "Alnmouth Bay", false, NEAREST_LW));
+
+        LookUpPlaceResult result = ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth")));
+
+        assertThat(names(result)).containsExactly("Alnmouth", "Alnmouth Bay");
+        assertThat(result.places().get(0).nearestTide()).isEqualTo(NEAREST_HW);
+        assertThat(result.places().get(1).nearestTide()).isNull();
+    }
+
+    @Test
+    @DisplayName("two places and no exact name: neither carries nearestTide")
+    void twoNonExactPlacesGetNoNearestTide() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                nearest(1L, "Alnmouth Bay", false, NEAREST_HW), nearest(2L, "Alnmouth Cove", false, NEAREST_LW));
+
+        assertThat(ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth"))).places())
+                .extracting(PlaceInfo::nearestTide).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("a 70-character nearestTide is capped at 60")
+    void nearestTideIsCapped() {
+        BriefingRegion coast = AskFixtures.region("Coast", true, nearest(1L, "Bamburgh", false, "N".repeat(70)));
+
+        String got = only(ok(tools(snapshotOf(coast)).lookUpPlace(name("bamburgh")))).nearestTide();
+
+        assertThat(got).hasSize(AskTools.NEAREST_TIDE_CAP);
+        assertThat(AskTools.NEAREST_TIDE_CAP).isEqualTo(60);
+    }
+
+    @Test
+    @DisplayName("with only nearestTide present (no detail) the row cap is 4 and the note says so")
+    void nearestTideAloneSetsTheFourRowCap() {
+        LookUpPlaceResult result = ok(tools(daysOf(7, AskFixtures.region("Coast", true,
+                nearest(1L, "Bamburgh", false, NEAREST_HW)))).lookUpPlace(name("bamburgh")));
+
+        assertThat(result.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(result.note()).isEqualTo("Showing 4 of 7 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("worst case with only nearestTide, six windows: four rows, at most 4,500 characters")
+    void nearestTideWorstCaseWithoutDetailFits() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        AskSnapshot snapshot = daysOf(6, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                AskFixtures.withHeadline(AskFixtures.coastalNearest(1L, place, 4, "HIGH", false, "T".repeat(160),
+                        "N".repeat(60)), "H".repeat(200))));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmouth estuary"));
+
+        assertThat(ok(result).places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        System.out.println("[look_up_place] nearestTide-only worst-case payload chars: " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("a typed conversation of list_windows, the worst look_up_place and get_hot_topics at limit 2 "
+            + "fits RESULT_CHAR_CAP")
+    void tideConversationFitsTheCap() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        String region = "The North Yorkshire Moors And Coast Region";
+        BriefingRegion coast = AskFixtures.region(region, false, worstExplained(1L, place));
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        for (int d = 0; d < 6; d++) {
+            days.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, coast));
+        }
+        List<com.gregochr.goldenhour.model.HotTopic> topics = List.of(
+                AskFixtures.topic("KING_TIDE", "K".repeat(60), "D".repeat(300), TODAY, List.of(region)),
+                AskFixtures.topic("SPRING_TIDE", "S".repeat(60), "D".repeat(300), TODAY.plusDays(1), List.of(region)),
+                AskFixtures.topic("SPRING_TIDE", "S".repeat(60), "D".repeat(300), TODAY.plusDays(2), List.of(region)));
+        AskTools tools = tools(AskFixtures.snapshotOf(AskFixtures.briefing(days, topics)));
+
+        int windows = tools.listWindows().content().length();
+        int lookup = tools.lookUpPlace(name("alnmouth estuary")).content().length();
+        int hot = tools.getHotTopics(new AskTools.HotTopicsArgs(List.of("KING_TIDE", "SPRING_TIDE"), 2))
+                .content().length();
+
+        System.out.println("[tide conversation] list_windows=" + windows + " look_up_place=" + lookup
+                + " get_hot_topics=" + hot + " total=" + (windows + lookup + hot));
+        assertThat(windows + lookup + hot).isLessThanOrEqualTo(AskTools.RESULT_CHAR_CAP);
     }
 }

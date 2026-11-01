@@ -414,6 +414,29 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
+    @DisplayName("nearestTide is copied verbatim from the window's fact, by id and by the name fallback; "
+            + "a slot with no fact has none")
+    void build_nearestTideIsCopiedFromTheFact() {
+        BriefingWindow window = AskFixtures.withFacts(
+                AskFixtures.window(NOW.plusHours(6), DisplayVerdict.WORTH_IT, 4, null),
+                AskFixtures.factNearest(null, "Legacy", "MID", false, "by name", "LW 18:03 \u00b7 at sunset"),
+                AskFixtures.factNearest(8L, "Whitby", "LOW", false, "by id", "HW 06:42 \u00b7 40m after sunrise"));
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.withoutTide(AskFixtures.slot(null, "Legacy", 4)),
+                AskFixtures.withoutTide(AskFixtures.slot(8L, "Whitby", 4)),
+                AskFixtures.withoutTide(AskFixtures.slot(9L, "Inland", 4)));
+        stub(AskFixtures.briefing(List.of(AskFixtures.day(TODAY,
+                AskFixtures.summary(TargetType.SUNSET, window, region))), List.of()));
+
+        List<AskSnapshot.Slot> slots = builder.build().orElseThrow().windows().getFirst()
+                .regions().getFirst().slots();
+
+        assertThat(slots.get(0).nearestTide()).isEqualTo("LW 18:03 \u00b7 at sunset");
+        assertThat(slots.get(1).nearestTide()).isEqualTo("HW 06:42 \u00b7 40m after sunrise");
+        assertThat(slots.get(2).nearestTide()).isNull();
+    }
+
+    @Test
     @DisplayName("slots with no region are not offered: the region gate cannot apply to them")
     void build_unregionedSlotsAreIgnored() {
         BriefingEventSummary summary = new BriefingEventSummary(TargetType.SUNSET, List.of(),
