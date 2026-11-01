@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.10] - 2026-11-01
+
+### Changed — Travel days calendar: month view, drag to add
+
+Operations → Runs → Travel days now shows a calendar month at a time (always six weeks, paged with the header's arrows,
+with a Today button) instead of the fixed five-week strip. The days of one range join into a single bar along each week
+row, and a press on one opens the range. Dragging across free days drafts a range (any day can be drafted, past
+included): a bar under the grid reads the dates and length, flags an overlap with an existing range and adds it with
+one press; with the Add panel open, the drag fills its From and To instead. On a touch screen the draft is two taps,
+because a drag fights the page scroll. The calendar is one keyboard-operable grid (arrows, Page Up and Down, T, Home
+and End, Enter and Esc). Any range opened from the list, the address or a newly added range moves the calendar to its
+month. The range panel's Remove range is now a single row, the words on the left and the Remove button on the right.
+Frontend only; the server is unchanged.
+
+### Added — Coastal mist (Phase 2): the "Sea mist" hot topic
+
+A new "Sea mist" hot topic (`SEA_MIST`, a distinct type from valley mist) appears on the Plan, Map and Coming up for
+a light sea mist forecast at sunrise on the North Sea coast. It is raised only when the coastal mist band is LIGHT,
+the event is sunrise today or tomorrow (UK date), the site has tide types, is not a valley-mist site and sits east of
+longitude -2.5 and at or north of latitude 53.5 (the North Sea coast, not the Channel), low cloud at the event slot is under 50 % and nothing is falling. It is served to every role, reads
+stored data only (no Claude call, and a triage stand-down never silences it) and its wording is modest because about
+one such morning in three turns out clear. V211 stores the event-slot low cloud and precipitation the gate needs on
+`slot_atmosphere` (`coastal_mist_low_cloud_pct`, `coastal_mist_precip_mm`). Valley mist, the Phase 1 bands, the prompt
+and triage are unchanged.
+
+### Fixed — Ready "Best spot this weekend?" no longer discarded on a Sunday
+
+The Ready precompute's `rank_spots` tool ranked across every forecast window when the model passed no window ids, so on a Sunday, when the weekend offer covers only Sunday's windows, it put Monday and Tuesday places in front of the model, the model led with one, and the answer was discarded as not relevant to the question. For a Ready question that picks places, `rank_spots` is now confined to the question's own offer windows (the same set the relevance check admits picks from): with no window ids it ranks only those windows, with window ids it silently drops any outside them and fails, naming the allowed ids, only when nothing is left. Typed questions and the night and events questions are unchanged, and no prompt text changed.
+
+### Added — Ask explains a place's rating from the forecast's own reason
+
+Asking Ask PhotoCast about one named place ("why is Bamburgh 4 stars tonight?") now gives the reason the forecast itself wrote, not a paraphrase of its short headline. `look_up_place` returns, on the rows of the one place the question is about (at most four windows), the evaluation's summary of the sky, its sky score before the tide is combined in, and the Fiery Sky and Golden Hour potentials. The typed prompt tells the model to give the rating and its reason in plain words, to say the tide pulled a star down when the sky scored higher than the rating, and to mention Fiery Sky and Golden Hour only when the reader asks what kind of light to expect, never ranking one against the other. Rows with no sound reason carry none: unrated places, places held back as neighbour outliers, and the "not forecast" placeholder; a wood keeps its summary only. With detail on a row, the lookup returns at most four rows (six otherwise), so the payload stays under the same 4,500-character bound. No raw weather figures are added, Ready answers and `rank_spots` are unchanged, and Ask remains Pro and Admin only.
+
+### Added — Ask finds a place when its name is misspelt
+
+Asking Ask PhotoCast about "Bamborough", "Witby" or "Hadrians Wal" no longer answers "Not in the forecast". When the words match no place, alias or named area in any window, `look_up_place` compares them with the start of every name in the forecast (the first letter must match; 0 edits up to 3 letters, 1 for 4 to 5, 2 for 6 to 8, 3 from 9; a swap of two neighbouring letters counts as one) and, when one spelling is clearly the closest, runs the normal lookup again with it. A name shared by several places finds all of them, and the result carries `closestTo`, so the answer opens "Assuming you mean Bamburgh,". When two spellings are about as near, the result gives up to three in-scope place names as `suggestions` and the model asks again with the one the reader plainly meant (a list_windows, two lookups and the answer still fit the four-turn budget). A place outside the question's regions is never named, as a guess or a suggestion; a correctly spelt name is never "corrected" into another place. Nothing is added to the evidence, so a guessed place is explained and never offered as a pick. Ready answers and `rank_spots` are unchanged.
+
 ## [v2.35.9] - 2026-11-01
 
 ### Added — Coastal mist (Phase 1): a light sea mist band and one prompt line
