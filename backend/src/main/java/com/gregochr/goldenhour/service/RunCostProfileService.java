@@ -70,7 +70,7 @@ public class RunCostProfileService {
 
     private static final double MICRO = 1_000_000.0;
 
-    private record Snapshot(Map<String, RunCostProfile> profiles, Double gbpPerUsd) {
+    private record Snapshot(Map<String, RunCostProfile> profiles, Double gbpPerUsd, boolean ok) {
     }
 
     private record Memo(Instant computedAt, Snapshot snapshot) {
@@ -159,7 +159,8 @@ public class RunCostProfileService {
             }
         }
         Snapshot computed = compute();
-        if (!rewound) {
+        // A failed read is served empty but never remembered, so the next request tries again.
+        if (!rewound && computed.ok()) {
             memo.set(new Memo(now, computed));
         }
         return computed;
@@ -167,6 +168,7 @@ public class RunCostProfileService {
 
     private Snapshot compute() {
         Map<String, RunCostProfile> profiles = new LinkedHashMap<>();
+        boolean ok = true;
         try {
             LocalDate today = ForecastHorizon.today(clock);
             List<ApiCallCostRow> rows = apiCallLogRepository.findCostRowsSince(
@@ -179,6 +181,7 @@ public class RunCostProfileService {
         } catch (RuntimeException e) {
             LOG.warn("Run Config cost profiles could not be computed: {}", e.toString());
             profiles.clear();
+            ok = false;
         }
         Double rate = null;
         try {
@@ -186,8 +189,9 @@ public class RunCostProfileService {
                     .filter(r -> r != null && r > 0).findFirst().orElse(null);
         } catch (RuntimeException e) {
             LOG.warn("Run Config exchange rate could not be read: {}", e.toString());
+            ok = false;
         }
-        return new Snapshot(Map.copyOf(profiles), rate);
+        return new Snapshot(Map.copyOf(profiles), rate, ok);
     }
 
     private static boolean isBatchTab(RunType tab) {
@@ -219,11 +223,16 @@ public class RunCostProfileService {
         if (row.runType() == RunType.SCHEDULED_BATCH && customId.startsWith(AURORA_BATCH_PREFIX)) {
             return RunType.AURORA_EVALUATION;
         }
-        if (row.pipelineRunId() == null || row.targetDate() == null || row.jobRunStartedAt() == null
+        if (row.pipelineRunId() == null || row.targetDate() == null
+                || (row.cycleTriggerTime() == null && row.jobRunStartedAt() == null)
                 || FORECAST_BATCH_PREFIXES.stream().noneMatch(customId::startsWith)) {
             return null;
         }
-        LocalDate submitted = ForecastHorizon.civilDate(row.jobRunStartedAt().toInstant(ZoneOffset.UTC));
+        // The cycle's trigger time is the date days_ahead was computed from; a retry job run can start
+        // after UK midnight and would otherwise move a T+2 request into NEAR.
+        Instant reference = row.cycleTriggerTime() != null
+                ? row.cycleTriggerTime() : row.jobRunStartedAt().toInstant(ZoneOffset.UTC);
+        LocalDate submitted = ForecastHorizon.civilDate(reference);
         long daysAhead = row.targetDate().toEpochDay() - submitted.toEpochDay();
         return daysAhead >= FAR_TERM_FROM_DAYS_AHEAD ? RunType.BATCH_FAR_TERM : RunType.BATCH_NEAR_TERM;
     }
@@ -231,13 +240,11 @@ public class RunCostProfileService {
     private RunCostProfile profile(List<ApiCallCostRow> rows, boolean batchTab) {
         Set<Long> runs = new HashSet<>();
         Map<EvaluationModel, List<ApiCallCostRow>> byModel = new EnumMap<>(EvaluationModel.class);
-        Map<EvaluationModel, Long> spend = new EnumMap<>(EvaluationModel.class);
         for (ApiCallCostRow row : rows) {
             runs.add(batchTab ? row.pipelineRunId() : row.jobRunId());
             if (row.evaluationModel() == null) {
                 continue;
             }
-            spend.merge(row.evaluationModel(), nz(row.costMicroDollars()), Long::sum);
             if (Boolean.TRUE.equals(row.succeeded())) {
                 byModel.computeIfAbsent(row.evaluationModel(), m -> new ArrayList<>()).add(row);
             }
@@ -249,11 +256,14 @@ public class RunCostProfileService {
         double runsPerDay = runs.size() / (double) WINDOW_DAYS;
         double callsPerRun = succeeded / (double) runs.size();
 
+        // Per-day is per-call times the tab's calls a day, the basis estimates use, so a model that was
+        // only active for part of the window is comparable with one that ran throughout.
+        double callsPerDay = runsPerDay * callsPerRun;
         Map<String, ModelCost> measured = new LinkedHashMap<>();
         for (Map.Entry<EvaluationModel, List<ApiCallCostRow>> e : byModel.entrySet()) {
             long cost = e.getValue().stream().mapToLong(r -> nz(r.costMicroDollars())).sum();
-            measured.put(e.getKey().name(), new ModelCost(e.getValue().size(),
-                    cost / MICRO / e.getValue().size(), spend.get(e.getKey()) / MICRO / WINDOW_DAYS));
+            double perCall = cost / MICRO / e.getValue().size();
+            measured.put(e.getKey().name(), new ModelCost(e.getValue().size(), perCall, perCall * callsPerDay));
         }
         return new RunCostProfile(WINDOW_DAYS, runsPerDay, callsPerRun, measured,
                 estimate(byModel, runsPerDay * callsPerRun));

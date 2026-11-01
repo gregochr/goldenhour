@@ -140,8 +140,8 @@ class RunCostProfileServiceTest {
     }
 
     @Test
-    @DisplayName("failed calls count in per-day spend but not in the per-call average")
-    void failedCallsCountOnlyInPerDay() {
+    @DisplayName("failed calls are left out of the per-call average and of the per-day basis")
+    void failedCallsLeftOut() {
         rows(bestBet(1, "briefing-best-bet", true, 40_000),
                 bestBet(2, "briefing-best-bet", false, 20_000));
 
@@ -149,7 +149,32 @@ class RunCostProfileServiceTest {
 
         assertThat(m.calls()).isEqualTo(1);
         assertThat(m.usdPerCall()).isCloseTo(0.040, within(1e-9));
-        assertThat(m.usdPerDay()).isCloseTo(0.060 / 30, within(1e-9));
+        // 1 successful call over 2 runs in 30 days: 1/30 calls a day
+        assertThat(m.usdPerDay()).isCloseTo(0.040 / 30, within(1e-9));
+    }
+
+    @Test
+    @DisplayName("per-day is per-call times the tab's calls a day, so models each active for half the window "
+            + "compare equally")
+    void perDayComparableAcrossModels() {
+        List<ApiCallCostRow> list = new ArrayList<>();
+        for (int i = 0; i < 15; i++) {
+            list.add(modelRow(EvaluationModel.SONNET, 100L + i));
+            list.add(modelRow(EvaluationModel.OPUS, 200L + i));
+        }
+        rows(list.toArray(new ApiCallCostRow[0]));
+
+        RunCostProfile p = service.costProfiles().get("BRIEFING_BEST_BET");
+
+        assertThat(p.measured().get("SONNET").usdPerDay())
+                .isCloseTo(p.measured().get("OPUS").usdPerDay(), within(1e-12));
+        // 30 runs of 1 call over 30 days = 1 call a day at $0.04
+        assertThat(p.measured().get("SONNET").usdPerDay()).isCloseTo(0.040, within(1e-9));
+    }
+
+    private static ApiCallCostRow modelRow(EvaluationModel model, long jobRunId) {
+        return new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 10, 6, 0), "briefing-best-bet",
+                null, false, true, model, null, 9_500L, 726L, 0L, 0L, 40_000L, jobRunId, null);
     }
 
     @Test
@@ -415,6 +440,50 @@ class RunCostProfileServiceTest {
         service.costProfiles();
 
         verify(apiCallLogRepository, times(2)).findCostRowsSince(any());
+    }
+
+    @Test
+    @DisplayName("a failed cost-row read is served empty but not remembered; the next request retries")
+    void failedReadIsNotMemoised() {
+        when(apiCallLogRepository.findCostRowsSince(WINDOW_START))
+                .thenThrow(new IllegalStateException("db down"))
+                .thenReturn(List.of(bestBet(1, "briefing-best-bet", true, 40_000)));
+
+        assertThat(service.costProfiles()).isEmpty();
+        assertThat(service.costProfiles().get("BRIEFING_BEST_BET").measured()).containsKey("SONNET");
+        verify(apiCallLogRepository, times(2)).findCostRowsSince(WINDOW_START);
+    }
+
+    @Test
+    @DisplayName("a failed exchange-rate read is not remembered; the next request retries")
+    void failedRateReadIsNotMemoised() {
+        rows();
+        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class)))
+                .thenThrow(new IllegalStateException("db down"))
+                .thenReturn(List.of(0.77));
+
+        assertThat(service.gbpPerUsd()).isEmpty();
+        assertThat(service.gbpPerUsd()).contains(0.77);
+    }
+
+    @Test
+    @DisplayName("a retry job run that starts after UK midnight does not move a T+2 request into NEAR: "
+            + "the cycle's trigger time is the reference")
+    void retryAfterMidnightKeepsCycleDate() {
+        clock.instant = Instant.parse("2026-07-20T12:00:00Z");
+        // cycle triggered 22:00 BST on 14 Jul; its retry job run started 00:30 BST on 15 Jul
+        LocalDateTime retryStarted = LocalDateTime.of(2026, 7, 14, 23, 30);
+        Instant cycleTrigger = Instant.parse("2026-07-14T21:00:00Z");
+        ApiCallCostRow row = new ApiCallCostRow(RunType.SCHEDULED_BATCH, retryStarted, null,
+                "fc-1-2026-07-16-SUNSET", true, true, EvaluationModel.SONNET, LocalDate.of(2026, 7, 16), 1_000L,
+                200L, 5_000L, 0L, 2_000L, 777L, 10L, cycleTrigger);
+        when(apiCallLogRepository.findCostRowsSince(LocalDateTime.of(2026, 6, 20, 23, 0)))
+                .thenReturn(List.of(row));
+
+        Map<String, RunCostProfile> profiles = service.costProfiles();
+
+        assertThat(profiles.get("BATCH_FAR_TERM").measured()).containsOnlyKeys("SONNET");
+        assertThat(profiles.get("BATCH_NEAR_TERM").measured()).isEmpty();
     }
 
     @Test

@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
+import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
+import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.ApiCallCostRow;
@@ -41,11 +43,14 @@ class ApiCallLogCostRowsPersistenceTest {
     private JobRunRepository jobRunRepository;
     @Autowired
     private ForecastBatchRepository forecastBatchRepository;
+    @Autowired
+    private PipelineRunRepository pipelineRunRepository;
 
     @AfterEach
     void clean() {
         apiCallLogRepository.deleteAll();
         forecastBatchRepository.deleteAll();
+        pipelineRunRepository.deleteAll();
         jobRunRepository.deleteAll();
     }
 
@@ -70,7 +75,9 @@ class ApiCallLogCostRowsPersistenceTest {
         JobRunEntity job = run(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 30, 2, 0), null);
         ForecastBatchEntity cycleBatch = new ForecastBatchEntity("msgbatch_cycle",
                 ForecastBatchEntity.BatchType.FORECAST, 1, Instant.parse("2026-11-01T00:00:00Z"));
-        cycleBatch.setPipelineRunId(42L);
+        Instant trigger = Instant.parse("2026-10-30T01:00:00Z");
+        Long cycleId = pipelineRunRepository.save(new PipelineRunEntity(CycleType.NIGHTLY, trigger)).getId();
+        cycleBatch.setPipelineRunId(cycleId);
         forecastBatchRepository.save(cycleBatch);
         call(job.getId(), ServiceName.ANTHROPIC, SINCE.plusDays(1), null, "fc-1-2026-11-02-SUNRISE",
                 "msgbatch_cycle", true);
@@ -91,7 +98,8 @@ class ApiCallLogCostRowsPersistenceTest {
             assertThat(r.cacheReadTokens()).isZero();
             assertThat(r.costMicroDollars()).isEqualTo(2_800L);
             assertThat(r.jobRunId()).isEqualTo(job.getId());
-            assertThat(r.pipelineRunId()).isEqualTo(42L);
+            assertThat(r.pipelineRunId()).isNotNull();
+            assertThat(r.cycleTriggerTime()).isEqualTo(trigger);
         });
     }
 

@@ -521,7 +521,7 @@ describe('ModelSelectionView', () => {
     expect(button).toHaveTextContent('Switch to HAIKU_60');
     const card = button.closest('.card');
     expect(card).toHaveTextContent('HAIKU_60');
-    expect(card).toHaveTextContent('Cost per call: unknown');
+    expect(card).toHaveTextContent('Cost: unknown');
     expect(card).not.toHaveTextContent('Recommended');
     expect(card).not.toHaveTextContent('NaN');
 
@@ -550,7 +550,7 @@ describe('ModelSelectionView', () => {
   describe('modelInfoFor and batchDescriptionFor', () => {
     it('return the hand-written entry for a known model', () => {
       expect(modelInfoFor('HAIKU')).toEqual({ name: 'Haiku 4.5', speed: 'Fast' });
-      expect(batchDescriptionFor('OPUS')).toMatch(/Highest accuracy/);
+      expect(batchDescriptionFor('OPUS')).toBe('The highest-priced model per token.');
     });
 
     it('carry no price and no recommendation for any model', () => {
@@ -594,7 +594,7 @@ describe('ModelSelectionView', () => {
     });
 
     expect(screen.getByText(/Strong reasoning at low cost with batch pricing/)).toBeInTheDocument();
-    expect(screen.getByText('Highest accuracy for batch runs.')).toBeInTheDocument();
+    expect(screen.getByText('The highest-priced model per token.')).toBeInTheDocument();
 
     // Each description appears exactly once — not the same text repeated across all cards
     expect(screen.getAllByText(/Fast, cost-efficient model\./)).toHaveLength(1);
@@ -677,8 +677,8 @@ describe('ModelSelectionView', () => {
       render(<ModelSelectionView />);
       await screen.findByTestId('cost-table');
 
-      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost per call: ~£0.031 (measured)');
-      expect(screen.getByTestId('card-cost-HAIKU')).toHaveTextContent('Cost per call: ~£0.0098 (estimate)');
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost: ~£0.031 per call (measured)');
+      expect(screen.getByTestId('card-cost-HAIKU')).toHaveTextContent('Cost: ~£0.0098 per call (estimate)');
       expect(screen.getByTestId('card-cost-OPUS')).toHaveTextContent('(estimate)');
     });
 
@@ -708,7 +708,7 @@ describe('ModelSelectionView', () => {
       render(<ModelSelectionView />);
       await screen.findByTestId('cost-table');
 
-      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('~$0.040 (measured)');
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('~$0.040 per call (measured)');
       expect(screen.getByTestId('card-rates-SONNET')).toHaveTextContent('$3/MTok in, $15/MTok out');
       expect(screen.getByTestId('cost-table')).not.toHaveTextContent('£');
     });
@@ -722,7 +722,7 @@ describe('ModelSelectionView', () => {
 
       expect(await screen.findByText('Cost figures unavailable')).toBeInTheDocument();
       expect(screen.queryByTestId('cost-table')).not.toBeInTheDocument();
-      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost per call: unknown');
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost: unknown');
       fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS'));
       await waitFor(() => {
         expect(setActiveModel).toHaveBeenCalledWith('BRIEFING_BEST_BET', 'OPUS');
@@ -771,6 +771,97 @@ describe('ModelSelectionView', () => {
       expect(screen.getByTestId('cost-footnote')).toHaveTextContent(
         'Includes the Batch API discount and prompt caching. The cache-priming call is not logged',
       );
+    });
+  });
+
+  describe('per-tab guards', () => {
+    const BANNED = [
+      /Recommended/,
+      /Best reserved for key seasonal events/,
+      /for overnight batch runs/,
+      /not the recommended default/,
+      /Lower quality reasoning/,
+      /Highest accuracy/,
+    ];
+    const NOWHERE = ['12 calls', '10 000', '~£0.0002'];
+
+    it.each(['BATCH_NEAR_TERM', 'BATCH_FAR_TERM'])('%s carries none of the retired advice or rankings', async (tab) => {
+      getAvailableModels.mockResolvedValue({
+        ...MOCK_DATA,
+        available: ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'],
+      });
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId(`config-tab-${tab}`));
+      await screen.findByTestId('batch-info-panel');
+
+      const text = document.body.textContent;
+      BANNED.forEach((re) => expect(text).not.toMatch(re));
+    });
+
+    it.each(['BRIEFING_BEST_BET', 'AURORA_EVALUATION', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM'])(
+      '%s carries none of the retired figures',
+      async (tab) => {
+        render(<ModelSelectionView />);
+        fireEvent.click(await screen.findByTestId(`config-tab-${tab}`));
+        await screen.findByTestId('cost-table-card');
+
+        const text = document.body.textContent;
+        NOWHERE.forEach((needle) => expect(text).not.toContain(needle));
+      },
+    );
+
+    it('the STANDDOWN sentence stands alone', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+      const panel = await screen.findByTestId('batch-info-panel');
+
+      expect(panel).not.toHaveTextContent('This is expected');
+      expect(panel).not.toHaveTextContent('no spend on locations');
+    });
+
+    it('batch cards say per request, the other tabs per call', async () => {
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('per call (measured)');
+
+      fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('~£0.0022 per request (measured)');
+    });
+
+    it('a non-empty costProfiles missing the active tab says figures are unavailable, not "no calls"', async () => {
+      getAvailableModels.mockResolvedValue({
+        ...MOCK_DATA,
+        costProfiles: { AURORA_EVALUATION: MOCK_DATA.costProfiles.AURORA_EVALUATION },
+      });
+      render(<ModelSelectionView />);
+
+      expect(await screen.findByText('Cost figures unavailable')).toBeInTheDocument();
+      expect(screen.queryByText(/No calls in the last/)).not.toBeInTheDocument();
+    });
+
+    it('a model with no tokenRates entry shows unknown rates', async () => {
+      getAvailableModels.mockResolvedValue({
+        ...MOCK_DATA,
+        tokenRates: { SONNET: MOCK_DATA.tokenRates.SONNET },
+      });
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      expect(screen.getByTestId('card-rates-HAIKU')).toHaveTextContent('Token rates: unknown');
+      expect(screen.getByTestId('card-rates-SONNET')).toHaveTextContent('£2.34/MTok in');
+    });
+
+    it('a known model missing from costProfiles renders a dash and does not crash', async () => {
+      getAvailableModels.mockResolvedValue({
+        ...MOCK_DATA,
+        available: ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'],
+      });
+      render(<ModelSelectionView />);
+      const table = await screen.findByTestId('cost-table');
+
+      const row = within(table).getByText('Sonnet 5.5').closest('tr');
+      expect(row).toHaveTextContent('—');
+      expect(screen.getByTestId('card-cost-SONNET_55')).toHaveTextContent('Cost: unknown');
     });
   });
 

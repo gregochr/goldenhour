@@ -52,11 +52,11 @@ const TAB_DESCRIPTIONS = {
 
 /** Per-model descriptions for the batch tabs. */
 const BATCH_MODEL_DESCRIPTIONS = {
-  HAIKU: 'Fast, cost-efficient model. Lower quality reasoning on marginal conditions.',
+  HAIKU: 'Fast, cost-efficient model.',
   SONNET: 'Strong reasoning at low cost with batch pricing and prompt caching applied.',
   HAIKU_55: 'Selectable newer Haiku for scheduled batch runs, about a tenth of Haiku 4.5\'s price per token (its tokeniser counts about 30% more tokens).',
   SONNET_55: 'Selectable newer Sonnet for scheduled batch runs. Costs about the same as Sonnet 4.6 because its tokeniser counts more input tokens.',
-  OPUS: 'Highest accuracy for batch runs.',
+  OPUS: 'The highest-priced model per token.',
 };
 
 /**
@@ -140,10 +140,11 @@ function CostTable({ activeTab, costProfiles, gbpPerUsd, models, activeModel }) 
   const runWord = batch ? 'cycle' : 'run';
   const profile = costProfiles?.[activeTab];
   const hasProfiles = !!costProfiles && Object.keys(costProfiles).length > 0;
-  const empty = hasProfiles && (!profile || !(profile.runsPerDay > 0));
+  const unavailable = !hasProfiles || !profile;
+  const empty = !unavailable && !(profile.runsPerDay > 0);
 
   let body;
-  if (!hasProfiles) {
+  if (unavailable) {
     body = <p className="text-sm text-plex-text-secondary" data-testid="cost-table-unavailable">Cost figures unavailable</p>;
   } else if (empty) {
     body = (
@@ -439,10 +440,10 @@ export default function ModelSelectionView() {
 
               <div className="space-y-2 mb-4 text-sm text-plex-text-secondary">
                 <div data-testid={`card-cost-${model}`}>
-                  <span className="font-medium">Cost per call:</span>{' '}
+                  <span className="font-medium">Cost:</span>{' '}
                   {cost ? (
                     <span className="text-plex-text">
-                      ~{formatMoney(cost.usdPerCall, gbpPerUsd)}
+                      ~{formatMoney(cost.usdPerCall, gbpPerUsd)} per {isBatchTab(activeTab) ? 'request' : 'call'}
                       <span className="text-plex-text-muted font-normal"> ({cost.source})</span>
                     </span>
                   ) : (
@@ -586,8 +587,7 @@ export default function ModelSelectionView() {
             <p className="font-medium text-plex-text mb-1">Why a run might produce no results</p>
             <p>
               If every sky location is stood down by triage and no woodland or bluebell site is due, the
-              batch has zero requests and is not submitted. This is expected — no spend on locations the
-              weather has already ruled out.
+              batch has zero requests and is not submitted.
             </p>
           </div>
         </div>

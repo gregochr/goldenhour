@@ -144,9 +144,10 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "j.runType, j.startedAt, a.requestUrl, a.customId, a.isBatch, a.succeeded, "
             + "a.evaluationModel, a.targetDate, a.inputTokens, a.outputTokens, "
             + "a.cacheCreationInputTokens, a.cacheReadInputTokens, a.costMicroDollars, "
-            + "a.jobRunId, b.pipelineRunId) "
+            + "a.jobRunId, b.pipelineRunId, p.triggerTime) "
             + "FROM ApiCallLogEntity a JOIN JobRunEntity j ON j.id = a.jobRunId "
             + "LEFT JOIN ForecastBatchEntity b ON b.anthropicBatchId = a.batchId "
+            + "LEFT JOIN PipelineRunEntity p ON p.id = b.pipelineRunId "
             + "WHERE a.service = com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC "
             + "AND a.calledAt >= :since")
     List<ApiCallCostRow> findCostRowsSince(@Param("since") LocalDateTime since);
