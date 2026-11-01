@@ -1,3 +1,0 @@
-### Added — Ask answers whether the tide is right at a named place
-
-Asking "is the tide right at St Mary's Lighthouse tonight?" now gets the tide verdict first, from the forecast's own tide-aligned fact, and when the tide does not suit, the nearest high or low water quoted in words ("high water 06:42, 40 minutes after sunrise") without ever calling it the time the tide would suit. Spring and king tides are mentioned only when the forecast flags one for that day and region; a day PhotoCast has not forecast yet, and any question about a causeway or when it is safe to cross, are answered as not available. Typed questions only; Ready answers are unchanged. No frontend or migration change.
