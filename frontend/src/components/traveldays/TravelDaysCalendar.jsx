@@ -29,7 +29,7 @@ KeyItem.propTypes = { swatch: PropTypes.string.isRequired, children: PropTypes.n
  * @param {object} props
  * @param {Array<object>} props.ranges every served range, past included
  * @param {Date} props.now the real clock
- * @param {(range: object) => void} props.onOpenRange called when an away day is pressed
+ * @param {(range: object, iso: string) => void} props.onOpenRange called when an away day is pressed (with its date)
  * @param {(iso: string) => void} props.onAddFrom called when an empty day from today on is pressed
  */
 export default function TravelDaysCalendar({ ranges, now, onOpenRange, onAddFrom }) {
@@ -48,7 +48,7 @@ export default function TravelDaysCalendar({ ranges, now, onOpenRange, onAddFrom
           const range = rangeForDay(ranges, cell.iso);
           const inert = range == null && cell.isPast;
           let look = 'border-plex-border bg-plex-surface-light text-plex-text-secondary';
-          if (range) look = 'border-tide/60 bg-tide/55 text-plex-bg font-medium';
+          if (range) look = 'border-tide/60 bg-tide/55 text-plex-text font-medium';
           const ring = cell.isToday ? 'shadow-[inset_0_0_0_2px_var(--color-plex-text)]' : '';
           const dim = cell.isPast ? 'opacity-45' : '';
           const interaction = inert
@@ -59,9 +59,9 @@ export default function TravelDaysCalendar({ ranges, now, onOpenRange, onAddFrom
               key={cell.iso}
               type="button"
               disabled={inert}
-              aria-label={cellLabel(cell, range)}
+              aria-label={cellLabel(cell, range, now)}
               aria-current={cell.isToday ? 'date' : undefined}
-              onClick={() => (range ? onOpenRange(range) : onAddFrom(cell.iso))}
+              onClick={() => (range ? onOpenRange(range, cell.iso) : onAddFrom(cell.iso))}
               className={`${CELL} ${look} ${ring} ${dim} ${interaction}`}
               data-testid={`travel-cell-${cell.iso}`}
               data-away={range ? 'true' : 'false'}
@@ -72,8 +72,7 @@ export default function TravelDaysCalendar({ ranges, now, onOpenRange, onAddFrom
         })}
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-plex-text-muted" data-testid="travel-calendar-key">
-        <KeyItem swatch="bg-tide/55">Away</KeyItem>
-        <KeyItem swatch="border border-plex-border bg-plex-surface-light opacity-45">Past</KeyItem>
+        <KeyItem swatch="bg-tide/55">Away {'\u00b7'} no forecasts</KeyItem>
         <KeyItem swatch="border border-plex-border bg-plex-surface-light shadow-[inset_0_0_0_2px_var(--color-plex-text)]">
           Today
         </KeyItem>

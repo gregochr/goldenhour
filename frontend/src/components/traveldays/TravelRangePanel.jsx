@@ -16,11 +16,12 @@ import {
  * The panel while a range is being edited: the shared fields, saved with the PUT. A save closes the editor through
  * {@code onSaved}; a refusal shows under its field (or under the form when it names none).
  */
-function RangeEditPanel({ range, title, meta, onSaved, onCancel, onClose }) {
+function RangeEditPanel({ range, title, meta, onSaved, onCancel, onClose, onSavingChange }) {
   const { form, errors, formError, saving, set, submit } = useTravelRangeForm(
     { startDate: range.startDate, endDate: range.endDate, note: range.note ?? '' },
     async (payload) => { await updateTravelDay(range.id, payload); },
     'Failed to save travel range',
+    onSavingChange,
   );
   async function handleSave() {
     if (await submit()) onSaved();
@@ -31,9 +32,9 @@ function RangeEditPanel({ range, title, meta, onSaved, onCancel, onClose }) {
         Cancel
       </button>
       <button
-        type="button"
+        type="submit"
+        form="travel-edit-form"
         className="btn-primary max-[639px]:min-h-11"
-        onClick={handleSave}
         disabled={saving}
         data-testid="travel-edit-save"
       >
@@ -51,7 +52,7 @@ function RangeEditPanel({ range, title, meta, onSaved, onCancel, onClose }) {
       footer={footer}
     >
       <div className="flex flex-col gap-4 px-[18px] py-4 max-[639px]:px-4" {...{ [PANEL_EDIT_FORM_ATTR]: '' }}>
-        <TravelRangeForm idPrefix="travel-edit" form={form} errors={errors} onChange={set} disabled={saving} />
+        <TravelRangeForm idPrefix="travel-edit" form={form} errors={errors} onChange={set} onSubmit={handleSave} disabled={saving} />
         {formError && (
           <p className="text-xs text-plex-error" role="alert" data-testid="travel-edit-error">{formError}</p>
         )}
@@ -72,6 +73,7 @@ RangeEditPanel.propTypes = {
   onSaved: PropTypes.func.isRequired,
   onCancel: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
+  onSavingChange: PropTypes.func.isRequired,
 };
 
 /**
@@ -89,9 +91,10 @@ RangeEditPanel.propTypes = {
  * @param {() => void} props.onSaved called after a save, to reload the ranges and close the editor
  * @param {() => void} props.onRemoved called after the range was removed
  * @param {() => void} props.onClose closes the panel
+ * @param {(saving: boolean) => void} props.onSavingChange told when a save or a remove starts and ends
  */
 export default function TravelRangePanel({
-  range, now, editing, onEditStart, onEditCancel, onSaved, onRemoved, onClose,
+  range, now, editing, onEditStart, onEditCancel, onSaved, onRemoved, onClose, onSavingChange,
 }) {
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
@@ -101,6 +104,7 @@ export default function TravelRangePanel({
     if (removeInFlight.current) return;
     removeInFlight.current = true;
     setRemoving(true);
+    onSavingChange(true);
     setRemoveError('');
     try {
       await deleteTravelDay(range.id);
@@ -110,14 +114,23 @@ export default function TravelRangePanel({
     } finally {
       removeInFlight.current = false;
       setRemoving(false);
+      onSavingChange(false);
     }
   }
 
-  const title = rangeText(range);
+  const title = rangeText(range, now);
   const meta = `${lengthText(range.startDate, range.endDate)} · ${whenText(range, now)}`;
 
   if (editing) {
-    return <RangeEditPanel range={range} title={title} meta={meta} onSaved={onSaved} onCancel={onEditCancel} onClose={onClose} />;
+    return <RangeEditPanel
+        range={range}
+        title={title}
+        meta={meta}
+        onSaved={onSaved}
+        onCancel={onEditCancel}
+        onClose={onClose}
+        onSavingChange={onSavingChange}
+      />;
   }
 
   return (
@@ -143,8 +156,8 @@ export default function TravelRangePanel({
       >
         <KvList
           items={[
-            { label: 'From', value: formatDay(range.startDate), mono: true, testId: 'travel-panel-from' },
-            { label: 'To', value: formatDay(range.endDate), mono: true, testId: 'travel-panel-to' },
+            { label: 'From', value: formatDay(range.startDate, now), mono: true, testId: 'travel-panel-from' },
+            { label: 'To', value: formatDay(range.endDate, now), mono: true, testId: 'travel-panel-to' },
             { label: 'Note', value: range.note, testId: 'travel-panel-note' },
           ]}
         />
@@ -187,4 +200,5 @@ TravelRangePanel.propTypes = {
   onSaved: PropTypes.func.isRequired,
   onRemoved: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
+  onSavingChange: PropTypes.func.isRequired,
 };

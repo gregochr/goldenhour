@@ -17,6 +17,7 @@ export const CALENDAR_WEEKS = 5;
 
 const WEEKDAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short' });
 const DAY_MONTH = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+const YEAR = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', year: 'numeric' });
 const MONTH = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', month: 'short' });
 const MS_PER_DAY = 86_400_000;
 
@@ -31,23 +32,34 @@ function weekdayIndex(iso) {
 }
 
 /**
- * An ISO date as "Mon 2 Nov".
- *
- * @param {string} iso the date
- * @returns {string} the label
+ * The year to add after a date: " 2027" when the date is not in the current UK year, else nothing. With no
+ * {@code now} the year is never added (the plain form the calendar maths and its tests use).
  */
-export function formatDay(iso) {
-  return `${WEEKDAY.format(noon(iso))} ${DAY_MONTH.format(noon(iso))}`;
+function yearSuffix(iso, now) {
+  if (!now) return '';
+  return iso.slice(0, 4) === ukDateStr(now).slice(0, 4) ? '' : ` ${YEAR.format(noon(iso))}`;
 }
 
 /**
- * An ISO date as "2 Nov" (the day and month, no weekday).
+ * An ISO date as "Mon 2 Nov", with the year ("Mon 2 Nov 2027") when it is not in the current UK year.
  *
  * @param {string} iso the date
+ * @param {Date} [now] the real clock; when given, a date outside the current UK year carries its year
  * @returns {string} the label
  */
-export function formatDayMonth(iso) {
-  return DAY_MONTH.format(noon(iso));
+export function formatDay(iso, now = undefined) {
+  return `${WEEKDAY.format(noon(iso))} ${DAY_MONTH.format(noon(iso))}${yearSuffix(iso, now)}`;
+}
+
+/**
+ * An ISO date as "2 Nov" (the day and month, no weekday), with the year when it is not in the current UK year.
+ *
+ * @param {string} iso the date
+ * @param {Date} [now] the real clock
+ * @returns {string} the label
+ */
+export function formatDayMonth(iso, now = undefined) {
+  return `${DAY_MONTH.format(noon(iso))}${yearSuffix(iso, now)}`;
 }
 
 /**
@@ -77,12 +89,13 @@ export function lengthText(startIso, endIso) {
  * The Range column: "Mon 2 Nov → Wed 4 Nov", or one date for a single day.
  *
  * @param {{startDate: string, endDate: string}} range the range
+ * @param {Date} [now] the real clock; a date outside the current UK year carries its year
  * @returns {string} the text
  */
-export function rangeText(range) {
+export function rangeText(range, now = undefined) {
   return range.endDate === range.startDate
-    ? formatDay(range.startDate)
-    : `${formatDay(range.startDate)} → ${formatDay(range.endDate)}`;
+    ? formatDay(range.startDate, now)
+    : `${formatDay(range.startDate, now)} → ${formatDay(range.endDate, now)}`;
 }
 
 /**
@@ -105,7 +118,7 @@ export function isPastRange(range, now = new Date()) {
  */
 export function whenText(range, now = new Date()) {
   const today = ukDateStr(now);
-  if (range.endDate < today) return `Ended ${formatDayMonth(range.endDate)}`;
+  if (range.endDate < today) return `Ended ${formatDayMonth(range.endDate, now)}`;
   if (range.startDate <= today) return 'Now';
   const days = ukDayOffset(range.startDate, now);
   return days === 1 ? 'Tomorrow' : `In ${days} days`;
@@ -171,10 +184,11 @@ export function calendarCells(now = new Date()) {
  *
  * @param {{iso: string, isToday: boolean}} cell the cell
  * @param {object|null} range the range holding the day, or null
+ * @param {Date} [now] the real clock; a day outside the current UK year carries its year
  * @returns {string} the name
  */
-export function cellLabel(cell, range) {
-  const parts = [formatDay(cell.iso)];
+export function cellLabel(cell, range, now = undefined) {
+  const parts = [formatDay(cell.iso, now)];
   if (cell.isToday) parts.push('today');
   if (range) parts.push(range.note ? `away (${range.note})` : 'away');
   return parts.join(', ');

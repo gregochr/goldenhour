@@ -21,11 +21,19 @@ function openPicker(event) {
  * @param {{startDate: string, endDate: string, note: string}} props.form the values
  * @param {{startDate?: string, endDate?: string, note?: string}} props.errors the message under each field
  * @param {(field: string, value: string) => void} props.onChange called with the field and its new value
+ * @param {() => void} props.onSubmit called on Enter or the submit button (a button elsewhere points at the form's id,
+ *   {@code {idPrefix}-form}, with its {@code form} attribute)
  * @param {boolean} [props.disabled] true while a save is in flight
  */
-export default function TravelRangeForm({ idPrefix, form, errors, onChange, disabled = false }) {
+export default function TravelRangeForm({ idPrefix, form, errors, onChange, onSubmit, disabled = false }) {
   return (
-    <div className="flex flex-col gap-4" data-testid={`${idPrefix}-form`}>
+    <form
+      id={`${idPrefix}-form`}
+      noValidate
+      className="flex flex-col gap-4"
+      onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+      data-testid={`${idPrefix}-form`}
+    >
       <div className="grid grid-cols-2 gap-3">
         <Field label="From (inclusive)" htmlFor={`${idPrefix}-start`}>
           <input
@@ -71,7 +79,7 @@ export default function TravelRangeForm({ idPrefix, form, errors, onChange, disa
         />
         <FieldError message={errors.note} testId={`${idPrefix}-note-error`} />
       </Field>
-    </div>
+    </form>
   );
 }
 
@@ -88,5 +96,6 @@ TravelRangeForm.propTypes = {
     note: PropTypes.string,
   }).isRequired,
   onChange: PropTypes.func.isRequired,
+  onSubmit: PropTypes.func.isRequired,
   disabled: PropTypes.bool,
 };

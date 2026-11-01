@@ -34,6 +34,12 @@ export default function TravelDaysView() {
   const [groupOpen, setGroupOpen] = useState(INITIAL_GROUPS);
   const addCount = useRef(0);
   const panelRef = useRef(null);
+  // Read inside async callbacks, so they see the panel as it is when a request returns, not as it was when it began.
+  const savingRef = useRef(false);
+  const selectedIdRef = useRef(null);
+  const addKeyRef = useRef(null);
+  const originCell = useRef(null);
+  const wasOpen = useRef(false);
 
   const { selectedId, select, clear } = useHashSelection(TAB);
 
@@ -42,8 +48,10 @@ export default function TravelDaysView() {
       setRanges(await fetchTravelDays({ includePast: true }));
       setError(null);
       setLoaded(true);
+      return true;
     } catch {
       setError('Failed to load travel days');
+      return false;
     } finally {
       setLoading(false);
     }
@@ -78,30 +86,64 @@ export default function TravelDaysView() {
   const editing = selectedRange != null && editingId === selectedRange.id;
   const panelOpen = adding != null || selectedRange != null;
 
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+    addKeyRef.current = adding?.key ?? null;
+  }, [selectedId, adding]);
+
+  // A save or remove in flight is never interrupted: Esc, the ×, the scrim and Back do nothing until it ends.
+  const handleSavingChange = useCallback((saving) => { savingRef.current = saving; }, []);
+
   const closePanel = useCallback(() => {
+    if (savingRef.current) return;
     setAdding(null);
     setEditingId(null);
     clear();
   }, [clear]);
-  const cancelEdit = useCallback(() => setEditingId(null), []);
+  const cancelEdit = useCallback(() => {
+    if (savingRef.current) return;
+    setEditingId(null);
+  }, []);
   // Esc steps back from the editor first, then closes the panel.
   usePanelEscape({ active: panelOpen, panelRef, onEscape: editing ? cancelEdit : closePanel });
 
+  // Closing a panel that a calendar day opened puts focus back on that day (if it is still there).
+  useEffect(() => {
+    if (wasOpen.current && !panelOpen && originCell.current) {
+      document.querySelector(`[data-testid="travel-cell-${originCell.current}"]`)?.focus();
+      originCell.current = null;
+    }
+    wasOpen.current = panelOpen;
+  }, [panelOpen]);
+
   const openRange = useCallback((range) => {
+    originCell.current = null;
     setAdding(null);
     select(range.id);
   }, [select]);
 
-  const openAdd = useCallback((from = '') => {
+  const openFromCell = useCallback((range, iso) => {
+    originCell.current = iso;
+    setAdding(null);
+    select(range.id);
+  }, [select]);
+
+  const openAdd = useCallback((from = '', cellIso = null) => {
+    originCell.current = cellIso;
     addCount.current += 1;
     setEditingId(null);
     if (selectedId != null) clear();
     setAdding({ from, key: addCount.current });
   }, [selectedId, clear]);
 
-  const handleCreated = useCallback(async (created) => {
+  // The reload comes first, so the panel never closes during the round trip. Then the Add gives way to the new range,
+  // but only if that same Add is still the open panel: a reader who clicked elsewhere is not pulled away. If the
+  // reload failed, the created range is merged in, so it still opens rather than being cleared as an unknown id.
+  const handleCreated = useCallback(async (created, key) => {
+    const reloaded = await load();
+    if (!reloaded) setRanges((current) => (current.some((r) => r.id === created.id) ? current : [created, ...current]));
+    if (addKeyRef.current !== key) return;
     setAdding(null);
-    await load();
     select(created.id);
   }, [load, select]);
 
@@ -110,8 +152,9 @@ export default function TravelDaysView() {
     await load();
   }, [load]);
 
-  const handleRemoved = useCallback(async () => {
-    clear({ replace: true });
+  // Only the removed range's own panel is closed: if the reader has since opened another, it stays.
+  const handleRemoved = useCallback(async (removedId) => {
+    if (selectedIdRef.current === removedId) clear({ replace: true });
     await load();
   }, [clear, load]);
 
@@ -119,7 +162,16 @@ export default function TravelDaysView() {
 
   let panel = null;
   if (adding) {
-    panel = <TravelAddPanel key={`add-${adding.key}`} initialFrom={adding.from} onClose={closePanel} onCreated={handleCreated} />;
+    panel = (
+      <TravelAddPanel
+        key={`add-${adding.key}`}
+        initialFrom={adding.from}
+        now={new Date()}
+        onClose={closePanel}
+        onCreated={(created) => handleCreated(created, adding.key)}
+        onSavingChange={handleSavingChange}
+      />
+    );
   } else if (selectedRange) {
     panel = (
       <TravelRangePanel
@@ -130,8 +182,9 @@ export default function TravelDaysView() {
         onEditStart={() => setEditingId(selectedRange.id)}
         onEditCancel={cancelEdit}
         onSaved={handleSaved}
-        onRemoved={handleRemoved}
+        onRemoved={() => handleRemoved(selectedRange.id)}
         onClose={closePanel}
+        onSavingChange={handleSavingChange}
       />
     );
   }
@@ -153,14 +206,16 @@ export default function TravelDaysView() {
             groupOpen={groupOpen}
             onToggleGroup={toggleGroup}
             onSelect={openRange}
+            onOpenFromCell={openFromCell}
             onAdd={() => openAdd()}
-            onAddFrom={openAdd}
+            onAddFrom={(iso) => openAdd(iso, iso)}
           />
         )}
         panel={panel}
         onClose={closePanel}
-        panelLabel={adding ? 'Add travel days' : `${selectedRange ? rangeText(selectedRange) : 'Travel'} range`}
-        backLabel="Travel days"
+        panelLabel={adding ? 'Add travel days' : `${selectedRange ? rangeText(selectedRange, new Date()) : 'Travel'} range`}
+        backLabel={editing ? rangeText(selectedRange, new Date()) : 'Travel days'}
+        onBack={editing ? cancelEdit : closePanel}
         panelRef={panelRef}
         selectionKey={selectionKey}
         focusKey={`${selectionKey}-${editing ? 'edit' : 'view'}`}

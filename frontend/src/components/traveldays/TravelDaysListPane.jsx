@@ -16,7 +16,7 @@ function columns(now) {
       card: 'title',
       cell: (range) => (
         <>
-          <span className="block font-medium" data-testid={`travel-range-${range.id}`}>{rangeText(range)}</span>
+          <span className="block font-medium" data-testid={`travel-range-${range.id}`}>{rangeText(range, now)}</span>
           {range.note && (
             <span className="block truncate text-xs text-plex-text-secondary" title={range.note}>{range.note}</span>
           )}
@@ -58,7 +58,7 @@ function columns(now) {
 
 /** A row's accessible name, reading the whole row: "Mon 2 Nov → Wed 4 Nov, 3 days, In 2 days, London — work". */
 function rowLabel(range, now) {
-  return [rangeText(range), lengthText(range.startDate, range.endDate), whenText(range, now), range.note]
+  return [rangeText(range, now), lengthText(range.startDate, range.endDate), whenText(range, now), range.note]
     .filter(Boolean).join(', ');
 }
 
@@ -76,11 +76,13 @@ function rowLabel(range, now) {
  * @param {{upcoming: boolean, past: boolean}} props.groupOpen which groups are expanded (Past starts collapsed)
  * @param {(id: 'upcoming'|'past') => void} props.onToggleGroup expands or collapses a group
  * @param {(range: object) => void} props.onSelect called when a row (or an away day) is activated
+ * @param {(range: object, iso: string) => void} props.onOpenFromCell called when an away calendar day is activated
  * @param {() => void} props.onAdd opens the Add panel
  * @param {(iso: string) => void} props.onAddFrom opens the Add panel with From set to a calendar day
  */
 export default function TravelDaysListPane({
-  ranges, loading, error = null, now, selectedId = null, groupOpen, onToggleGroup, onSelect, onAdd, onAddFrom,
+  ranges, loading, error = null, now, selectedId = null, groupOpen, onToggleGroup, onSelect, onOpenFromCell, onAdd,
+  onAddFrom,
 }) {
   const { upcoming, past } = groupRanges(ranges, now);
   const rows = [];
@@ -104,6 +106,9 @@ export default function TravelDaysListPane({
     });
     if (groupOpen.past) rows.push(...past);
   }
+
+  // A failed first load says so in the banner and claims nothing else: no count, no calendar of "free" days.
+  const showFacts = !loading && !(ranges.length === 0 && error);
 
   let body;
   if (loading) {
@@ -146,7 +151,7 @@ export default function TravelDaysListPane({
           >
             Travel days
           </h2>
-          {!loading && (
+          {showFacts && (
             <span className="font-mono text-[11px] text-plex-text-muted" data-testid="travel-meta">
               {upcoming.length} upcoming
             </span>
@@ -168,7 +173,9 @@ export default function TravelDaysListPane({
 
       <ErrorBanner message={error} data-testid="travel-error" />
 
-      <TravelDaysCalendar ranges={ranges} now={now} onOpenRange={onSelect} onAddFrom={onAddFrom} />
+      {showFacts && (
+        <TravelDaysCalendar ranges={ranges} now={now} onOpenRange={onOpenFromCell} onAddFrom={onAddFrom} />
+      )}
 
       {body}
     </div>
@@ -184,6 +191,7 @@ TravelDaysListPane.propTypes = {
   groupOpen: PropTypes.shape({ upcoming: PropTypes.bool, past: PropTypes.bool }).isRequired,
   onToggleGroup: PropTypes.func.isRequired,
   onSelect: PropTypes.func.isRequired,
+  onOpenFromCell: PropTypes.func.isRequired,
   onAdd: PropTypes.func.isRequired,
   onAddFrom: PropTypes.func.isRequired,
 };

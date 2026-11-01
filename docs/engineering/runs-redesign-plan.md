@@ -1058,6 +1058,27 @@ Where the plan's text was ambiguous, or the code made a different call safer, R5
   repository method. `update` validates first, then looks the range up, so a bad body on a missing id is a 400, not a
   404.
 
+- **Review fixes (R5).**
+  - The phone back bar reads the range text while editing and steps back to the view; otherwise it reads "Travel days"
+    and closes.
+  - An Add reloads first, then hands over to the new range only if that same Add is still the open panel (and merges the
+    created range in if the reload fails).
+  - A Remove closes the panel only if the removed range is still the open one.
+  - The calendar and the "{n} upcoming" count are hidden after a failed first load.
+  - Away numerals use `text-plex-text`.
+  - While a save or remove is in flight, Esc, the ×, the scrim and Back are no-ops (the panels report it through
+    `onSavingChange`).
+  - Add and Edit are `<form>`s: Enter submits, and Add range and Save are `type="submit"` buttons tied to the form by its
+    id.
+  - A date outside the current UK year (real clock) carries its year ("Mon 29 Dec 2025") in rows, titles, meta and
+    From/To.
+  - Closing a panel opened from a calendar day returns focus to that day.
+- **The calendar key reads "Away · no forecasts" and "Today"**; the "Past" swatch is dropped (the handoff text was not to
+  hand, so this follows the coordinator's review).
+- **Rewind and the public list.** `list()` now reads `ForecastHorizon.today` on the injected `RewindAwareClock`, so an
+  admin's rewound `GET /api/travel-days` cuts off at the rewound date. Kept on purpose: it is the cross-cutting
+  invariant, and Plan and Map stay consistent with the rewound day. The admin screen's own clock reads stay real (R-D7).
+
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 
 - **Runs**

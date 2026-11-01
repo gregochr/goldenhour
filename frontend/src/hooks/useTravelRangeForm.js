@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { placeServerError, validateRange } from '../utils/travelDays.js';
 
 /**
@@ -13,15 +13,22 @@ import { placeServerError, validateRange } from '../utils/travelDays.js';
  * @param {(payload: {startDate: string, endDate: string, note: string|null}) => Promise<void>} save sends the range;
  *   rejects on failure
  * @param {string} failureText what to say when the server gave no usable sentence
+ * @param {(saving: boolean) => void} [onSavingChange] told when a save starts and ends (and false if the form unmounts
+ *   mid-save), so the view can refuse to close the panel on a save in flight
  * @returns {{form: object, errors: object, formError: string, saving: boolean,
  *   set: (field: string, value: string) => void, submit: () => Promise<boolean>}} the form
  */
-export default function useTravelRangeForm(initial, save, failureText) {
+export default function useTravelRangeForm(initial, save, failureText, onSavingChange = undefined) {
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const inFlight = useRef(false);
+
+  useEffect(() => {
+    onSavingChange?.(saving);
+    return () => onSavingChange?.(false);
+  }, [saving, onSavingChange]);
 
   const set = useCallback((field, value) => {
     setForm((current) => ({ ...current, [field]: value }));

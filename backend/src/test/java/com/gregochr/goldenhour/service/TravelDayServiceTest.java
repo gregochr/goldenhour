@@ -136,6 +136,23 @@ class TravelDayServiceTest {
     }
 
     @Test
+    @DisplayName("list follows the injected clock: a rewound clock still returns a range that has since ended")
+    void listFollowsARewoundClock() {
+        TravelDayEntity ended = TravelDayEntity.builder().id(1L)
+                .startDate(LocalDate.of(2026, 6, 20)).endDate(LocalDate.of(2026, 6, 22)).build();
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(any())).thenAnswer(inv -> {
+            LocalDate cutoff = inv.getArgument(0);
+            return List.of(ended).stream().filter(e -> !e.getEndDate().isBefore(cutoff)).toList();
+        });
+
+        assertThat(service.list()).isEmpty();
+
+        Clock rewound = Clock.fixed(Instant.parse("2026-06-21T09:00:00Z"), ZoneOffset.UTC);
+        TravelDayService rewoundService = new TravelDayService(repository, servedEpoch, rewound);
+        assertThat(rewoundService.list()).extracting(TravelDayResponse::id).containsExactly(1L);
+    }
+
+    @Test
     @DisplayName("listAll returns every range, past included, without the today filter")
     void listAllReturnsEverything() {
         TravelDayEntity past = TravelDayEntity.builder().id(1L)
