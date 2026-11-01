@@ -1,13 +1,13 @@
 import PropTypes from 'prop-types';
 
-/** The chip body. 44px tall (the touch-target rule) and never shrinking on a phone, where the row scrolls sideways. */
+/** The chip body. 44px tall (the touch-target rule) and never shrinking on a phone, where the row wraps instead. */
 const CHIP_BASE = 'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11 max-[639px]:shrink-0';
 const CHIP_ON = 'border-plex-gold bg-plex-gold/10 text-plex-text';
 const CHIP_OFF = 'border-plex-border text-plex-text-secondary hover:border-plex-border-light hover:text-plex-text';
 
 /**
- * The chip row: chips and their groups on one line, wrapping on a tablet or desktop and scrolling sideways on a
- * phone (639px and under).
+ * The chip row: chips and their groups on one line, wrapping onto further lines at every width, a phone (639px and
+ * under) included, so no chip is ever pushed off the screen edge.
  *
  * @param {object} props
  * @param {import('react').ReactNode} props.children {@link ChipGroup}s and {@link ChipDivider}s
@@ -16,7 +16,7 @@ const CHIP_OFF = 'border-plex-border text-plex-text-secondary hover:border-plex-
 export function ChipRow({ children, testId = undefined }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-2 max-[639px]:flex-nowrap max-[639px]:overflow-x-auto max-[639px]:pb-1"
+      className="flex flex-wrap items-center gap-2"
       data-testid={testId}
     >
       {children}
@@ -35,7 +35,7 @@ ChipRow.propTypes = { children: PropTypes.node.isRequired, testId: PropTypes.str
  */
 export function ChipGroup({ label, children }) {
   return (
-    <div className="flex items-center gap-1.5 max-[639px]:shrink-0" role="group" aria-label={label}>
+    <div className="flex items-center gap-1.5 max-[639px]:flex-wrap" role="group" aria-label={label}>
       {children}
     </div>
   );
@@ -43,9 +43,9 @@ export function ChipGroup({ label, children }) {
 
 ChipGroup.propTypes = { label: PropTypes.string.isRequired, children: PropTypes.node.isRequired };
 
-/** The 1px divider between chip groups. */
+/** The 1px divider between chip groups. Hidden on a phone: wrapped, it would strand at a line edge, and the gap suffices. */
 export function ChipDivider() {
-  return <span className="h-5 w-px shrink-0 bg-plex-border" aria-hidden="true" />;
+  return <span className="h-5 w-px shrink-0 bg-plex-border max-[639px]:hidden" aria-hidden="true" />;
 }
 
 /**
@@ -95,12 +95,12 @@ Chip.propTypes = {
  */
 export function ChipSelect({ label, value, options, onChange, on = false, testId }) {
   return (
-    <span className="relative inline-flex max-[639px]:shrink-0">
+    <span className="relative inline-flex max-[639px]:max-w-full max-[639px]:shrink-0 max-[639px]:self-start">
       <select
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`${CHIP_BASE} appearance-none pr-6 ${on ? CHIP_ON : CHIP_OFF} bg-transparent`}
+        className={`${CHIP_BASE} appearance-none pr-6 max-[639px]:max-w-full max-[639px]:truncate ${on ? CHIP_ON : CHIP_OFF} bg-transparent`}
         data-testid={testId}
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -135,7 +135,7 @@ ChipSelect.propTypes = {
  */
 export function SortChip({ options, sortKey, sortDir, onChange, testId }) {
   return (
-    <span className="relative hidden @max-[540px]:inline-flex max-[639px]:shrink-0">
+    <span className="relative hidden @max-[540px]:inline-flex max-[639px]:shrink-0 max-[639px]:self-start">
       <select
         aria-label="Sort by"
         value={`${sortKey}:${sortDir}`}

@@ -182,7 +182,7 @@ describe('Chips', () => {
     expect(screen.getByTestId('c').className).toContain('max-[639px]:shrink-0');
   });
 
-  it('groups chips, scrolls the row sideways on a phone and divides groups', () => {
+  it('groups chips, wraps the row on a phone rather than scrolling it, and divides groups', () => {
     render(
       <ChipRow testId="row">
         <ChipGroup label="Status"><Chip label="A" on={false} onClick={vi.fn()} testId="c" /></ChipGroup>
@@ -190,7 +190,25 @@ describe('Chips', () => {
       </ChipRow>,
     );
     expect(screen.getByRole('group', { name: 'Status' })).toBeInTheDocument();
-    expect(screen.getByTestId('row').className).toContain('max-[639px]:overflow-x-auto');
+    const row = screen.getByTestId('row');
+    expect(row).toHaveClass('flex-wrap');
+    expect(row.className).not.toContain('overflow-x-auto');
+    expect(row.className).not.toContain('flex-nowrap');
+    expect(screen.getByRole('group', { name: 'Status' })).toHaveClass('max-[639px]:flex-wrap');
+    expect(row.querySelector('[aria-hidden="true"]')).toHaveClass('max-[639px]:hidden');
+  });
+
+  it('keeps a long select inside the card on a phone: no wrapping column, truncated text, wrapper at its own width', () => {
+    render(
+      <DataTools testId="tools">
+        <ChipSelect label="Region" value="" options={[{ value: '', label: 'All regions' }]} onChange={vi.fn()} testId="sel" />
+        <SortChip options={[{ key: 'name', label: 'Name' }]} sortKey="name" sortDir="asc" onChange={vi.fn()} testId="sort" />
+      </DataTools>,
+    );
+    expect(screen.getByTestId('tools')).toHaveClass('max-[639px]:flex-nowrap');
+    expect(screen.getByTestId('sel')).toHaveClass('max-[639px]:truncate', 'max-[639px]:max-w-full');
+    expect(screen.getByTestId('sel').parentElement).toHaveClass('max-[639px]:self-start', 'max-[639px]:max-w-full');
+    expect(screen.getByTestId('sort').parentElement).toHaveClass('max-[639px]:self-start');
   });
 
   it('draws a select as a chip that reports the chosen value', () => {

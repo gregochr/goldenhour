@@ -217,7 +217,7 @@ export default function UserListPane({
             {users.length}
           </span>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-[639px]:flex-wrap">
           {headerActions}
           <button
             type="button"

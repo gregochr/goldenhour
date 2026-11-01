@@ -247,7 +247,7 @@ export default function RunsListPane({
             </span>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 max-[639px]:flex-wrap">
           <button
             type="button"
             className={textButtonClass}
