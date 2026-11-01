@@ -1,5 +1,0 @@
-### Added — Travel days is a list and a panel, with a calendar, past ranges and Edit
-
-The Travel days tab now sits on the same list-and-panel shell as Runs and the Scheduler. A five-week calendar from this week's Monday marks the days you are away (a day opens its range; an empty day from today on opens Add with From filled in), and the list below it groups the ranges as Upcoming and Past (collapsed), each row showing the range, its length and when it starts or ended. A row opens the range's panel (`#manage/traveldays/{id}`), which can now be edited as well as removed, with field errors under their fields; Remove needs no confirmation. Add range opens a panel with a summary of the days it covers.
-
-The server gains `GET /api/admin/travel-days?includePast=true` (every range, newest start first) and `PUT /api/admin/travel-days/{id}`, which shares add's validation: a note longer than 200 characters is now a 400 on add as well as update, not a 500. The public `/api/travel-days` is unchanged and still serves no past ranges. "Today" for the current-and-upcoming list is now the UK civil date from the injected clock.
