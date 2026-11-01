@@ -50,7 +50,8 @@ import static org.mockito.Mockito.when;
  * Unit tests for {@link ClaudeEvaluationStrategy}.
  *
  * <p>Tests the shared logic: Claude API call, response parsing, token extraction,
- * and dual-tier scoring. Prompt construction tests live in {@link PromptBuilderTest};
+ * and tolerance of old-shape replies that still carry {@code basic_*} keys. Prompt construction
+ * tests live in {@link PromptBuilderTest};
  * metrics logging tests live in {@code MetricsLoggingDecoratorTest}.
  */
 @ExtendWith(MockitoExtension.class)
@@ -256,8 +257,8 @@ class ClaudeEvaluationStrategyTest {
 
 
     @Test
-    @DisplayName("evaluate() parses dual-tier response with basic fields")
-    void evaluate_dualTierResponse_parsesBasicFields() {
+    @DisplayName("evaluate() parses an old-shape reply that still carries basic_* keys")
+    void evaluate_oldShapeReplyWithBasicKeys_parsesEveryOtherField() {
         AtmosphericData data = buildAtmosphericData();
         String json = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":78,"
                 + "\"summary\":\"Enhanced evaluation with directional data.\","
@@ -273,14 +274,11 @@ class ClaudeEvaluationStrategyTest {
         assertThat(result.fierySkyPotential()).isEqualTo(72);
         assertThat(result.goldenHourPotential()).isEqualTo(78);
         assertThat(result.summary()).isEqualTo("Enhanced evaluation with directional data.");
-        assertThat(result.basicFierySkyPotential()).isEqualTo(55);
-        assertThat(result.basicGoldenHourPotential()).isEqualTo(60);
-        assertThat(result.basicSummary()).isEqualTo("Moderate potential with some low cloud.");
     }
 
     @Test
-    @DisplayName("evaluate() returns null basic fields when not in response")
-    void evaluate_noBasicFields_returnsNullBasicFields() {
+    @DisplayName("evaluate() parses a current-shape reply with no basic_* keys")
+    void evaluate_noBasicFields_parsesCleanly() {
         AtmosphericData data = buildAtmosphericData();
         String json = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":75,"
                 + "\"summary\":\"Standard evaluation.\"}";
@@ -291,9 +289,7 @@ class ClaudeEvaluationStrategyTest {
         SunsetEvaluation result = strategy.evaluate(data);
 
         assertThat(result.fierySkyPotential()).isEqualTo(70);
-        assertThat(result.basicFierySkyPotential()).isNull();
-        assertThat(result.basicGoldenHourPotential()).isNull();
-        assertThat(result.basicSummary()).isNull();
+        assertThat(result.summary()).isEqualTo("Standard evaluation.");
     }
 
     @Test

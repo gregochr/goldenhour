@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * API response DTO for forecast evaluations.
  *
  * <p>Decouples the REST API contract from the JPA persistence model. Role-based score
- * selection (LITE users get basic scores, PRO/ADMIN get enhanced directional scores)
+ * selection (LITE users get no Fiery Sky or Golden Hour scores since the Pro gate; there is no basic tier)
  * is handled by {@link ForecastDtoMapper} at mapping time — the {@code basic_*} columns
  * never appear in this DTO.
  *

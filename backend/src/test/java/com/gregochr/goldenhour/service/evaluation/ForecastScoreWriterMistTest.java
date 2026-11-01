@@ -60,7 +60,7 @@ class ForecastScoreWriterMistTest {
     }
 
     private static SunsetEvaluation eval(String mistPotential) {
-        return new SunsetEvaluation(4, 20, 70, "Thin mist over the river.", null, null, null, null, null,
+        return new SunsetEvaluation(4, 20, 70, "Thin mist over the river.", null, null,
                 null, mistPotential);
     }
 

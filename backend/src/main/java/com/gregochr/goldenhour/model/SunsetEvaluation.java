@@ -5,37 +5,31 @@ package com.gregochr.goldenhour.model;
  *
  * <p>Returned by {@code EvaluationService} after calling the Anthropic API.
  * All strategies (Haiku, Sonnet, Opus) use the same prompt and return all
- * three scores plus a summary. When directional cloud data is available,
- * Claude also returns "basic" scores representing what the evaluation would
- * be without directional information — these are served to LITE users.
+ * three scores plus a summary, scored with directional cloud only. The older
+ * "basic" (observer-point) tier is no longer requested
+ * ({@code docs/engineering/basic-tier-removal-plan.md}).
  *
  * <p>Bluebell is no longer a field here: Pass 3 extracted it into its own prompt
  * ({@code BluebellEvaluation} / {@code BluebellVisitor}), so the colour evaluation
  * carries no bluebell score.
  *
- * @param rating                   1-5 rating (overall potential, enhanced when directional data available)
- * @param fierySkyPotential        dramatic colour potential (0-100, enhanced)
- * @param goldenHourPotential      overall light quality (0-100, enhanced)
- * @param summary                  Claude's plain English explanation (enhanced)
- * @param basicFierySkyPotential   dramatic colour potential without directional data (0-100), or null
- * @param basicGoldenHourPotential overall light quality without directional data (0-100), or null
- * @param basicSummary             explanation without directional data, or null
- * @param inversionScore           cloud inversion score (0-10), or null if not applicable
- * @param inversionPotential       inversion classification (NONE, MODERATE, STRONG), or null
- * @param headline                 4-9 word Claude-authored card header (Gate 2 redesign), or null
- *                                 when Claude omitted the field (legacy responses)
- * @param mistPotential            Claude's own reading of valley mist at a {@code mist_prone} site
- *                                 (a {@link MistPotential} name), or null when absent or unrecognised
- *                                 (valley-mist-plan M2)
+ * @param rating              1-5 rating (overall potential)
+ * @param fierySkyPotential   dramatic colour potential (0-100)
+ * @param goldenHourPotential overall light quality (0-100)
+ * @param summary             Claude's plain English explanation
+ * @param inversionScore      cloud inversion score (0-10), or null if not applicable
+ * @param inversionPotential  inversion classification (NONE, MODERATE, STRONG), or null
+ * @param headline            4-9 word Claude-authored card header (Gate 2 redesign), or null
+ *                            when Claude omitted the field (legacy responses)
+ * @param mistPotential       Claude's own reading of valley mist at a {@code mist_prone} site
+ *                            (a {@link MistPotential} name), or null when absent or unrecognised
+ *                            (valley-mist-plan M2)
  */
 public record SunsetEvaluation(
         Integer rating,
         Integer fierySkyPotential,
         Integer goldenHourPotential,
         String summary,
-        Integer basicFierySkyPotential,
-        Integer basicGoldenHourPotential,
-        String basicSummary,
         Integer inversionScore,
         String inversionPotential,
         String headline,
@@ -43,32 +37,7 @@ public record SunsetEvaluation(
 ) {
 
     /**
-     * Constructs an evaluation with every field but Claude's valley mist reading (the shape
-     * before valley-mist-plan M2).
-     *
-     * @param rating                   1-5 rating
-     * @param fierySkyPotential        dramatic colour potential (0-100)
-     * @param goldenHourPotential      overall light quality (0-100)
-     * @param summary                  Claude's explanation
-     * @param basicFierySkyPotential   basic fiery sky score, or null
-     * @param basicGoldenHourPotential basic golden hour score, or null
-     * @param basicSummary             basic summary, or null
-     * @param inversionScore           inversion score (0-10), or null
-     * @param inversionPotential       inversion classification string, or null
-     * @param headline                 card header, or null
-     */
-    public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
-            Integer goldenHourPotential, String summary,
-            Integer basicFierySkyPotential, Integer basicGoldenHourPotential,
-            String basicSummary, Integer inversionScore, String inversionPotential,
-            String headline) {
-        this(rating, fierySkyPotential, goldenHourPotential, summary,
-                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
-                inversionScore, inversionPotential, headline, null);
-    }
-
-    /**
-     * Constructs an evaluation without basic-tier or inversion fields.
+     * Constructs an evaluation without inversion, headline or mist fields.
      *
      * @param rating              1-5 rating
      * @param fierySkyPotential   dramatic colour potential (0-100)
@@ -78,48 +47,7 @@ public record SunsetEvaluation(
     public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
             Integer goldenHourPotential, String summary) {
         this(rating, fierySkyPotential, goldenHourPotential, summary,
-                null, null, null, null, null, null);
-    }
-
-    /**
-     * Constructs an evaluation with basic-tier fields but no inversion data.
-     *
-     * @param rating                   1-5 rating
-     * @param fierySkyPotential        dramatic colour potential (0-100)
-     * @param goldenHourPotential      overall light quality (0-100)
-     * @param summary                  Claude's explanation
-     * @param basicFierySkyPotential   basic fiery sky score, or null
-     * @param basicGoldenHourPotential basic golden hour score, or null
-     * @param basicSummary             basic summary, or null
-     */
-    public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
-            Integer goldenHourPotential, String summary,
-            Integer basicFierySkyPotential, Integer basicGoldenHourPotential,
-            String basicSummary) {
-        this(rating, fierySkyPotential, goldenHourPotential, summary,
-                basicFierySkyPotential, basicGoldenHourPotential, basicSummary, null, null, null);
-    }
-
-    /**
-     * Constructs an evaluation with basic-tier and inversion fields but no headline.
-     *
-     * @param rating                   1-5 rating
-     * @param fierySkyPotential        dramatic colour potential (0-100)
-     * @param goldenHourPotential      overall light quality (0-100)
-     * @param summary                  Claude's explanation
-     * @param basicFierySkyPotential   basic fiery sky score, or null
-     * @param basicGoldenHourPotential basic golden hour score, or null
-     * @param basicSummary             basic summary, or null
-     * @param inversionScore           inversion score (0-10), or null
-     * @param inversionPotential       inversion classification string, or null
-     */
-    public SunsetEvaluation(Integer rating, Integer fierySkyPotential,
-            Integer goldenHourPotential, String summary,
-            Integer basicFierySkyPotential, Integer basicGoldenHourPotential,
-            String basicSummary, Integer inversionScore, String inversionPotential) {
-        this(rating, fierySkyPotential, goldenHourPotential, summary,
-                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
-                inversionScore, inversionPotential, null);
+                null, null, null, null);
     }
 
     /**
@@ -136,7 +64,6 @@ public record SunsetEvaluation(
      */
     public SunsetEvaluation withRating(Integer newRating) {
         return new SunsetEvaluation(newRating, fierySkyPotential, goldenHourPotential, summary,
-                basicFierySkyPotential, basicGoldenHourPotential, basicSummary,
                 inversionScore, inversionPotential, headline, mistPotential);
     }
 }

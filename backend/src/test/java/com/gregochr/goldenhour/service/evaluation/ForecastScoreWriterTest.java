@@ -171,9 +171,9 @@ class ForecastScoreWriterTest {
                 .thenReturn(Optional.empty());
         ForecastScoreWriter writer = writer(true);
 
-        // 9-arg ctor: basic-tier nulls + inversion score/potential (an eligible location Claude scored).
+        // Inversion score/potential only (an eligible location Claude scored).
         SunsetEvaluation withInversion = new SunsetEvaluation(
-                4, 80, 75, "Sea of cloud below the fell", null, null, null, 9, "STRONG");
+                4, 80, 75, "Sea of cloud below the fell", 9, "STRONG", null, null);
 
         writer.write(location(), DATE, SUNSET, withInversion,
                 List.of(new ComponentScore(ForecastType.SKY, 4, "Settled and still")),

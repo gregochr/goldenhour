@@ -209,31 +209,46 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("parseEvaluation() extracts basic-tier fields when present")
-    void parseEvaluation_withBasicTierFields_extractsBasicScores() {
-        String json = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+    @DisplayName("parseEvaluation() ignores basic_* keys from an old-shape reply (strict JSON): "
+            + "every other field parses identically")
+    void parseEvaluation_oldShapeReplyWithBasicKeys_strictJson_parsesSameAsWithout() {
+        String tail = "\"headline\":\"Fire over the fells\","
+                + "\"inversion_score\":6,\"inversion_potential\":\"MODERATE\","
+                + "\"mist_potential\":\"LIKELY\"}";
+        String withBasic = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
                 + "\"summary\":\"Good conditions.\","
                 + "\"basic_fiery_sky\":60,\"basic_golden_hour\":55,"
-                + "\"basic_summary\":\"Decent conditions.\"}";
+                + "\"basic_summary\":\"Decent conditions.\"," + tail;
+        String withoutBasic = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Good conditions.\"," + tail;
 
-        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+        SunsetEvaluation result = parser.parseEvaluation(withBasic, new ObjectMapper());
 
-        assertThat(result.basicFierySkyPotential()).isEqualTo(60);
-        assertThat(result.basicGoldenHourPotential()).isEqualTo(55);
-        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
+        assertThat(result).isEqualTo(parser.parseEvaluation(withoutBasic, new ObjectMapper()));
+        assertThat(result).isEqualTo(new SunsetEvaluation(4, 75, 70, "Good conditions.",
+                6, "MODERATE", "Fire over the fells", "LIKELY"));
     }
 
     @Test
-    @DisplayName("parseEvaluation() returns null basic-tier fields when not present")
-    void parseEvaluation_noBasicTierFields_returnsNull() {
-        String json = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":60,"
-                + "\"summary\":\"Average.\"}";
+    @DisplayName("parseEvaluation() ignores basic_* keys from an old-shape reply (regex fallback): "
+            + "every other field parses identically")
+    void parseEvaluation_oldShapeReplyWithBasicKeys_regexFallback_parsesSameAsWithout() {
+        // The trailing comma makes the JSON invalid, forcing the regex fallback path.
+        String tail = "\"headline\":\"Fire over the fells\","
+                + "\"inversion_score\":6,\"inversion_potential\":\"MODERATE\","
+                + "\"mist_potential\":\"LIKELY\",}";
+        String withBasic = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Good conditions.\","
+                + "\"basic_fiery_sky\":60,\"basic_golden_hour\":55,"
+                + "\"basic_summary\":\"Decent conditions.\"," + tail;
+        String withoutBasic = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Good conditions.\"," + tail;
 
-        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+        SunsetEvaluation result = parser.parseEvaluation(withBasic, new ObjectMapper());
 
-        assertThat(result.basicFierySkyPotential()).isNull();
-        assertThat(result.basicGoldenHourPotential()).isNull();
-        assertThat(result.basicSummary()).isNull();
+        assertThat(result).isEqualTo(parser.parseEvaluation(withoutBasic, new ObjectMapper()));
+        assertThat(result).isEqualTo(new SunsetEvaluation(4, 75, 70, "Good conditions.",
+                6, "MODERATE", "Fire over the fells", "LIKELY"));
     }
 
     @Test
@@ -301,16 +316,16 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("Bug B: basic_summary is also bounded against over-capture")
-    void parseEvaluation_overCapture_basicSummaryNotPolluted() {
+    @DisplayName("Bug B: an old-shape basic_summary key does not pollute the summary or headline")
+    void parseEvaluation_overCapture_oldShapeBasicSummaryDoesNotPollute() {
         String text = "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,"
                 + "\"summary\":\"Clear horizon.\",\"basic_summary\":\"Looks clear.\","
                 + "\"headline\":\"Clear\",}";
 
         SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
 
-        assertThat(result.basicSummary()).isEqualTo("Looks clear.");
-        assertThat(result.basicSummary()).doesNotContain("headline");
+        assertThat(result.summary()).isEqualTo("Clear horizon.");
+        assertThat(result.headline()).isEqualTo("Clear");
         assertThat(result.rating()).isEqualTo(4);
     }
 
@@ -368,7 +383,7 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("parseEvaluation() handles rating-only response (no basic or inversion fields)")
+    @DisplayName("parseEvaluation() handles rating-only response (no inversion fields)")
     void parseEvaluation_ratingOnly_minimalResponse() {
         String json = "{\"rating\":2,\"fiery_sky\":25,\"golden_hour\":30,"
                 + "\"summary\":\"Cloudy with little colour.\"}";
@@ -379,9 +394,6 @@ class SunsetEvaluationParserTest {
         assertThat(result.fierySkyPotential()).isEqualTo(25);
         assertThat(result.goldenHourPotential()).isEqualTo(30);
         assertThat(result.summary()).isEqualTo("Cloudy with little colour.");
-        assertThat(result.basicFierySkyPotential()).isNull();
-        assertThat(result.basicGoldenHourPotential()).isNull();
-        assertThat(result.basicSummary()).isNull();
         assertThat(result.inversionScore()).isNull();
         assertThat(result.inversionPotential()).isNull();
     }
@@ -441,7 +453,8 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("parseEvaluation() extracts all fields when response contains everything")
+    @DisplayName("parseEvaluation() extracts every field when an old-shape response also carries "
+            + "basic_* keys")
     void parseEvaluation_allFieldsPresent_extractsEveryField() {
         String json = "{\"rating\":5,\"fiery_sky\":92,\"golden_hour\":88,"
                 + "\"summary\":\"Spectacular conditions.\","
@@ -455,9 +468,6 @@ class SunsetEvaluationParserTest {
         assertThat(result.fierySkyPotential()).isEqualTo(92);
         assertThat(result.goldenHourPotential()).isEqualTo(88);
         assertThat(result.summary()).isEqualTo("Spectacular conditions.");
-        assertThat(result.basicFierySkyPotential()).isEqualTo(65);
-        assertThat(result.basicGoldenHourPotential()).isEqualTo(60);
-        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
         assertThat(result.inversionScore()).isEqualTo(9);
         assertThat(result.inversionPotential()).isEqualTo("STRONG");
     }
@@ -489,8 +499,9 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("regex fallback extracts basic-tier fields from malformed JSON")
-    void parseEvaluation_regexFallback_extractsBasicFields() {
+    @DisplayName("regex fallback extracts the live fields from malformed old-shape JSON "
+            + "carrying basic_* keys")
+    void parseEvaluation_regexFallback_oldShapeBasicKeysIgnored() {
         // Invalid JSON (unescaped quote) but regex can extract all fields
         String text = "{\"rating\":4,\"fiery_sky\":72,\"golden_hour\":65,"
                 + "\"summary\":\"Beautiful \"glow\" at sunset.\","
@@ -501,8 +512,8 @@ class SunsetEvaluationParserTest {
 
         assertThat(result.rating()).isEqualTo(4);
         assertThat(result.fierySkyPotential()).isEqualTo(72);
-        assertThat(result.basicFierySkyPotential()).isEqualTo(55);
-        assertThat(result.basicGoldenHourPotential()).isEqualTo(50);
+        assertThat(result.goldenHourPotential()).isEqualTo(65);
+        assertThat(result.summary()).startsWith("Beautiful \"glow\" at sunset.");
     }
 
     @Test
@@ -611,9 +622,8 @@ class SunsetEvaluationParserTest {
     }
 
     @Test
-    @DisplayName("parseEvaluation() rejects out-of-range basic-tier scores via RatingValidator "
-            + "(strict JSON)")
-    void parseEvaluation_outOfRangeBasicTierScores_strictJson_rejectedAsNull() {
+    @DisplayName("parseEvaluation() ignores out-of-range old-shape basic_* values (strict JSON)")
+    void parseEvaluation_outOfRangeBasicTierScores_strictJson_ignored() {
         String json = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
                 + "\"summary\":\"Good conditions.\","
                 + "\"basic_fiery_sky\":150,\"basic_golden_hour\":-5,"
@@ -621,15 +631,15 @@ class SunsetEvaluationParserTest {
 
         SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
 
-        assertThat(result.basicFierySkyPotential()).isNull();
-        assertThat(result.basicGoldenHourPotential()).isNull();
-        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(75);
+        assertThat(result.goldenHourPotential()).isEqualTo(70);
+        assertThat(result.summary()).isEqualTo("Good conditions.");
     }
 
     @Test
-    @DisplayName("parseEvaluation() rejects out-of-range basic-tier scores via RatingValidator "
-            + "(regex fallback)")
-    void parseEvaluation_outOfRangeBasicTierScores_regexFallback_rejectedAsNull() {
+    @DisplayName("parseEvaluation() ignores out-of-range old-shape basic_* values (regex fallback)")
+    void parseEvaluation_outOfRangeBasicTierScores_regexFallback_ignored() {
         String text = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
                 + "\"summary\":\"Beautiful \"orange\" sky.\","
                 + "\"basic_fiery_sky\":150,\"basic_golden_hour\":200,"
@@ -637,8 +647,10 @@ class SunsetEvaluationParserTest {
 
         SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
 
-        assertThat(result.basicFierySkyPotential()).isNull();
-        assertThat(result.basicGoldenHourPotential()).isNull();
+        assertThat(result.rating()).isEqualTo(4);
+        assertThat(result.fierySkyPotential()).isEqualTo(75);
+        assertThat(result.goldenHourPotential()).isEqualTo(70);
+        assertThat(result.summary()).startsWith("Beautiful \"orange\" sky.");
     }
 
     @Test
