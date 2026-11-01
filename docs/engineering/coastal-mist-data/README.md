@@ -6,7 +6,15 @@ Analysis behind `../coastal-mist-plan.md`.
 - **Columns:** what RAF Boulmer (EGQM, Northumberland coast, about 25 km south of Bamburgh) observed in the
   hour either side of sunrise, beside the forecast model's values for Bamburgh (55.609, −1.709) at the
   sunrise hour.
-- **Excluded:** mornings classed "other" (rain, drizzle, no visibility report) are left out.
+- **Excluded:** only mornings classed "other", which have visibility under 8 km with no BR/HZ/FG code and no
+  clear class.
+- **Rain is not excluded.** 103 rows carry RA or DZ in `metar_wx`.
+
+**Known quirks, kept as observed:**
+- Two FOG rows (2023-12-12 and 2024-05-26) are rain-reduced visibility, with no FG or BR code.
+- One FOG-on row (2024-05-12) has a minimum visibility of 4.4 km. It is classed FOG because of an FG code.
+- 33 CLEAR rows carry BR.
+- One row is `MIST-calm` (calm wind, so neither onshore nor offshore).
 
 **Sources:**
 - *Observations:* METAR reports from the Iowa Environmental Mesonet ASOS/METAR archive

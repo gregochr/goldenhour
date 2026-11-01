@@ -1,6 +1,6 @@
 # Coastal mist: light sea mist is the shot, sea fret is not (2026-11-01)
 
-**Status:** plan, revised after two reviews (data and meteorology; code integration). Nothing is built.
+**Status:** plan, revised after two reviews; owner confirmed the three review changes (2026-11-01); Phase 1a done; Phase 1 building.
 - *Owner decisions (2026-11-01):* every coastal non-mist-prone site gets the prompt line; it goes live with
   a switch; **yes to the hot topic**.
 - *Changed since then:* the review moved the bands and narrowed the topic (§4). The owner should confirm
@@ -66,7 +66,19 @@ Evidence: `coastal-mist-data/` (1,000 Boulmer sunrise mornings against the forec
 
 ## 4. Phases
 
-### Phase 1a: measurement (planner, before the build)
+### Phase 1a: measurement (planner, before the build) — DONE 2026-11-01
+
+**Result: keep the event slot.** The minimum visibility over sunrise ±1 h is clearly worse:
+
+| Rule | LIGHT precision | Topic gate (per year, precision) | Fog → THICK | Clear → NONE |
+|---|---|---|---|---|
+| **event slot** | **56 % (n = 75)** | **12.0, 67 %** | 31/38 | **91.3 %** |
+| window minimum | 36 % (n = 95) | 13.7, 54 % | 32/38 | 84.1 % |
+
+This used the full hourly series already fetched, so no new requests were needed. The evidence README has
+been corrected.
+
+Original task:
 - Re-pull the model at sunrise −1 h and +1 h for the same 1,000 mornings, from the historical-forecast API
   within the daily limit.
 - Compare the rule on the event slot alone against the rule on the window's minimum visibility. Adopt the
