@@ -426,7 +426,7 @@ function activates(e) {
  * @param {boolean} props.expanded whether the card is showing
  * @param {function} props.onToggle the click handler (it calls `stopPropagation`)
  * @param {object} props.toggleRef the ref the banner moves focus with after a swap
-* @param {function} [props.hold] the banner's focus tracker: `hold(name)` gives the focus handlers
+ * @param {function} [props.hold] the banner's focus tracker: `hold(name)` gives the focus handlers
  * @param {string} [props.className] extra class, for the strip's placement
  */
 function AuroraToggle({
@@ -621,7 +621,7 @@ AuroraCard.propTypes = {
  * @param {function} props.onDismiss dismisses the banner at its current level
  * @param {function} [props.onToggle] expands to the card; null on a phone, which has no toggle
  * @param {object} [props.toggleRef] the expand toggle's ref, for focus
-* @param {object} [props.dismissRef] the dismiss button's ref, for focus
+ * @param {object} [props.dismissRef] the dismiss button's ref, for focus
  * @param {function} [props.hold] the banner's focus tracker (see {@link AuroraToggle})
  */
 function AuroraStrip({
