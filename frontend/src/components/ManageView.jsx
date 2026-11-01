@@ -1,7 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { getWaitlist } from '../api/waitlistApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
+import { fetchRuns } from '../api/runsApi.js';
 import UserManagementView from './UserManagementView.jsx';
 import LocationManagementView from './LocationManagementView.jsx';
 import RegionManagementView from './RegionManagementView.jsx';
@@ -11,13 +12,13 @@ import ModelSelectionView from './ModelSelectionView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
-import PipelineRunsView from './PipelineRunsView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
 import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useIsWide } from '../hooks/useIsWide.js';
+import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import { needsAttention } from '../utils/locationAdmin.js';
 
 const GROUPS = [
@@ -26,7 +27,6 @@ const GROUPS = [
     label: 'Runs',
     tabs: [
       { value: 'runs', label: 'Runs' },
-      { value: 'pipelineruns', label: 'Pipeline Runs' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
     ],
@@ -74,17 +74,31 @@ const WAITLIST_BADGE_CLASSES =
 const ATTENTION_BADGE_CLASSES =
   'ml-1.5 text-[11px] font-semibold text-verdict-marginal';
 
+/** The live count beside Runs: tide text after the label, not a pill (the same shape as the Locations count). */
+const LIVE_COUNT_CLASSES = 'ml-1.5 text-[11px] font-semibold text-tide';
+
+/** How often ManageView asks the server how many runs are in flight, so the count shows before Runs is opened. */
+const LIVE_COUNT_POLL_MS = 60 * 1000;
+
 /**
  * Rewrites an old Runs hash to its new home, in place and without a history entry (runs-redesign-plan.md §4):
- * {@code #manage/metrics[/…][?…]} is now {@code #manage/runs[/…][?…]} (the Job Runs tab became Runs). It lives in
+ * {@code #manage/metrics[/…][?…]} is now {@code #manage/runs[/…][?…]} (the Job Runs tab became Runs), and
+ * {@code #manage/pipelineruns[/{id}][?…]} is now {@code #manage/runs[/cycle/{id}][?…]} (Pipeline Runs folded into
+ * it; a non-numeric id names no cycle). It lives in
  * {@link manageTabFromHash} so mount and {@code hashchange} both see it, and runs before any child reads the hash.
  * {@code replaceState} fires no {@code hashchange}, so callers set their state directly.
  */
 function redirectOldRunsHash() {
   const hash = window.location.hash;
-  const match = /^#manage\/metrics(?=$|[/?])(.*)$/.exec(hash);
-  if (!match) return false;
-  window.history.replaceState(window.history.state, '', `#manage/runs${match[1]}`);
+  const metrics = /^#manage\/metrics(?=$|[/?])(.*)$/.exec(hash);
+  if (metrics) {
+    window.history.replaceState(window.history.state, '', `#manage/runs${metrics[1]}`);
+    return true;
+  }
+  const pipeline = /^#manage\/pipelineruns(?=$|[/?])([^?]*)(\?.*)?$/.exec(hash);
+  if (!pipeline) return false;
+  const id = /^\/(\d+)\/?$/.exec(pipeline[1])?.[1];
+  window.history.replaceState(window.history.state, '', `#manage/runs${id ? `/cycle/${id}` : ''}${pipeline[2] ?? ''}`);
   return true;
 }
 
@@ -109,16 +123,6 @@ function parseHash() {
 }
 
 /**
- * The Pipeline Runs cycle a {@code #manage/pipelineruns/{id}} hash names (the Runs list's cycle rows open it until the
- * cycle panel is built), or null. Pipeline Runs keeps no hash of its own, so ManageView reads it.
- */
-function pipelineRunIdFromHash() {
-  const [path] = window.location.hash.replace('#', '').split('?');
-  const [area, tab, id] = path.split('/');
-  return area === 'manage' && tab === 'pipelineruns' && /^\d+$/.test(id ?? '') ? Number(id) : null;
-}
-
-/**
  * Management screen shell — routes to the active tab component. Exactly one navigation is
  * rendered: a section menu on phones, a left sidebar from 1280px, and the two-level tab bar
  * (group + sub-tab) in between. The content slot keeps one position in the tree in all three
@@ -133,25 +137,27 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
-  const [activePipelineRunId, setActivePipelineRunId] = useState(pipelineRunIdFromHash);
-  // Picking a cycle inside Pipeline Runs rewrites the address (in place, no history entry), so a reload does not
-  // reopen whichever cycle the hash named before.
-  const selectPipelineRun = useCallback((id) => {
-    setActivePipelineRunId(id);
-    if (pipelineRunIdFromHash() != null) {
-      window.history.replaceState(window.history.state, '', `#manage/pipelineruns/${id}`);
-    }
-  }, []);
-  const clearActivePipelineRun = useCallback(() => {
-    setActivePipelineRunId(null);
-    // The hash named this cycle; leave the bare tab address, replacing the entry so Back does not land on it again.
-    if (pipelineRunIdFromHash() != null) {
-      window.history.replaceState(window.history.state, '', '#manage/pipelineruns');
-    }
-  }, []);
   const isMobile = useIsMobile();
   const isWide = useIsWide();
+  const rootRef = useRef(null);
   const [waitlistCount, setWaitlistCount] = useState(null);
+  // How many runs are in flight (the server's runningCount, which follows no range or kind), for the Runs sub-tab.
+  // Read here on a minute poll so the count shows before the tab is opened; the Runs view reports it on each of its
+  // own refreshes while it is open.
+  const [runningCount, setRunningCount] = useState(0);
+  const handleLiveCount = useCallback((count) => setRunningCount(count), []);
+  const liveCountLoaded = useRef(false);
+  const pollLiveCount = useCallback(() => {
+    // The pane stays mounted, hidden, on the Map and Plan tabs: no polling there once a count is in hand.
+    if (liveCountLoaded.current && rootRef.current?.closest('[hidden]')) return;
+    fetchRuns({ size: 1 })
+      .then((page) => {
+        liveCountLoaded.current = true;
+        setRunningCount(page?.runningCount ?? 0);
+      })
+      .catch(() => { /* the count stays as it was */ });
+  }, []);
+  useVisiblePoll(pollLiveCount, LIVE_COUNT_POLL_MS);
   const handleWaitlistCount = useCallback((count) => setWaitlistCount(count), []);
   // How many locations need attention (failing, or turned off by the failure tracking), for the Locations sub-tab.
   // Read once here so the count shows before the tab is opened; the Locations view keeps it current while it is open.
@@ -183,11 +189,8 @@ export default function ManageView({ onComplete }) {
       if (!target) return;
       setActiveGroup(target.group);
       setActiveTabState(target.tab);
-      // Only a hash that names a cycle sets one: arriving on Pipeline Runs without an id keeps what was open.
-      const cycleId = pipelineRunIdFromHash();
-      if (cycleId != null) setActivePipelineRunId(cycleId);
       // `replaceState` fires no hashchange, and the Runs view (listening before this handler) has just read the old
-      // `#manage/metrics/…` address as no selection. Tell it the address it now has.
+      // old address as no selection. Tell it the address it now has.
       if (redirected) window.dispatchEvent(new HashChangeEvent('hashchange'));
     };
     window.addEventListener('hashchange', onHashChange);
@@ -220,11 +223,13 @@ export default function ManageView({ onComplete }) {
 
   const waitlistShown = waitlistCount != null && waitlistCount > 0;
   const attentionShown = attentionCount != null && attentionCount > 0;
+  const liveShown = runningCount > 0;
 
   /** A tab's name with its count in brackets, for the phone menu's options. */
   function tabLabelWithCount(tab) {
     if (tab.value === 'waitlist' && waitlistShown) return `${tab.label} (${waitlistCount})`;
     if (tab.value === 'locations' && attentionShown) return `${tab.label} (${attentionCount})`;
+    if (tab.value === 'runs' && liveShown) return `${tab.label} (${runningCount})`;
     return tab.label;
   }
 
@@ -294,6 +299,11 @@ export default function ManageView({ onComplete }) {
                   {attentionCount}
                 </span>
               )}
+              {tab.value === 'runs' && liveShown && (
+                <span className={LIVE_COUNT_CLASSES} data-testid="runs-live-count">
+                  {runningCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -354,6 +364,11 @@ export default function ManageView({ onComplete }) {
                 {attentionCount}
               </span>
             )}
+            {tab.value === 'runs' && liveShown && (
+              <span className={LIVE_COUNT_CLASSES} data-testid="runs-live-count">
+                {runningCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -365,7 +380,7 @@ export default function ManageView({ onComplete }) {
   else if (isWide) navigation = sidebar;
 
   return (
-    <div className={isWide && !isMobile ? 'flex items-start gap-6' : 'flex flex-col gap-4'}>
+    <div ref={rootRef} className={isWide && !isMobile ? 'flex items-start gap-6' : 'flex flex-col gap-4'}>
       {navigation}
 
       {/* Tab content — keyed wrapper replays fade-in on every tab switch */}
@@ -408,22 +423,13 @@ export default function ManageView({ onComplete }) {
           </div>
         )}
 
-        {activeTab === 'pipelineruns' && (
-          <div className="card flex flex-col gap-4">
-            <PipelineRunsView
-              activeRunId={activePipelineRunId}
-              onSelectRun={selectPipelineRun}
-              onCloseDetail={clearActivePipelineRun}
-            />
-          </div>
-        )}
-
         {activeTab === 'runs' && (
           <div className="card">
             <RunsView
               activeRunId={activeRunId}
               onActiveRunChange={setActiveRunId}
               onActiveRunClear={clearActiveRun}
+              onLiveCountChange={handleLiveCount}
             />
           </div>
         )}

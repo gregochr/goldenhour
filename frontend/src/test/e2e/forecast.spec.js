@@ -134,7 +134,7 @@ test.describe('Operations view — ADMIN', () => {
     // every group is visible at once, and there are no manage-group-* buttons.
     await expect(page.getByTestId('manage-sidebar')).toBeVisible({ timeout: 5000 });
     await expect(page.getByTestId('manage-group-runs')).toHaveCount(0);
-    for (const tab of ['runs', 'pipelineruns', 'models', 'skyeval', 'locations', 'users', 'hottopics']) {
+    for (const tab of ['runs', 'scheduler', 'models', 'skyeval', 'locations', 'users', 'hottopics']) {
       await expect(page.getByTestId(`manage-tab-${tab}`)).toBeVisible();
     }
 

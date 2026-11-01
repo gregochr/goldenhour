@@ -7,6 +7,7 @@ import StatusDot from '../data/StatusDot.jsx';
 import DispositionBreakdown from '../DispositionBreakdown.jsx';
 import { CallsSection, DiagnosticsSection, EvaluationsSection } from './JobRunSections.jsx';
 import useJobRunCalls from '../../hooks/useJobRunCalls.js';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 import { evaluationRows, scopeItems } from '../../utils/jobRunPanel.js';
 import { batchStatusView, noteToneClass, runStatusView } from '../../utils/runStatus.js';
 import { anthropicBatchId, formatClockUk, groupLabel, midTruncate } from '../../utils/runsView.js';
@@ -40,10 +41,26 @@ function metaLine(detail) {
  * @param {boolean} props.notFound true when the server has no such job run
  * @param {boolean} props.isActiveRun true when the live progress panel is following this run
  * @param {() => void} props.onClose closes the panel
+ * @param {string} [props.backLabel] a batch opened from its cycle: the cycle's name ("Cycle #412") for the "‹" row
+ * @param {() => void} [props.onBack] returns to that cycle; with {@code backLabel} draws the row above the title on
+ *   split and overlay (on a phone the layout's own back bar carries the same label, so no second back row is drawn)
  */
 export default function JobRunPanel({
-  detail = null, loading, error = null, notFound = false, isActiveRun = false, onClose,
+  detail = null, loading, error = null, notFound = false, isActiveRun = false, onClose, backLabel = undefined,
+  onBack = undefined,
 }) {
+  const isMobile = useIsMobile();
+  const backRow = onBack && backLabel && !isMobile ? (
+    <button
+      type="button"
+      className="flex min-h-9 shrink-0 items-center gap-1 border-b border-plex-border px-[18px] text-left text-[13px] font-medium text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+      onClick={onBack}
+      data-testid="job-run-back"
+    >
+      <span aria-hidden="true">&lsaquo;</span>
+      {backLabel}
+    </button>
+  ) : null;
   const run = detail?.run ?? null;
   // The calls reload quietly when the run's own figures move (a running run finishing, a batch landing).
   const reloadKey = run ? `${detail.status}|${run.completedAt}|${run.succeeded}|${run.failed}` : '';
@@ -55,6 +72,8 @@ export default function JobRunPanel({
     if (notFound) message = 'This job run no longer exists.';
     else if (error) message = error;
     return (
+      <>
+      {backRow}
       <PanelShell title="Job run" onClose={onClose} testIdPrefix="job-run-panel">
         <p
           className={`px-[18px] py-4 text-sm ${error && !loading ? 'text-plex-coral' : 'text-plex-text-muted'}`}
@@ -63,6 +82,7 @@ export default function JobRunPanel({
           {message}
         </p>
       </PanelShell>
+      </>
     );
   }
 
@@ -102,6 +122,8 @@ export default function JobRunPanel({
     && calls.batchSummary == null && dispositionCount === 0 && !isActiveRun;
 
   return (
+    <>
+    {backRow}
     <PanelShell
       title={title}
       titleClassName={isBatch ? BATCH_TITLE_CLASS : undefined}
@@ -155,6 +177,7 @@ export default function JobRunPanel({
         </p>
       )}
     </PanelShell>
+    </>
   );
 }
 
@@ -178,4 +201,6 @@ JobRunPanel.propTypes = {
   notFound: PropTypes.bool,
   isActiveRun: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
+  backLabel: PropTypes.string,
+  onBack: PropTypes.func,
 };

@@ -3,13 +3,14 @@ import { render, screen, fireEvent, act, waitFor, within } from '@testing-librar
 import RunsView from '../components/runs/RunsView.jsx';
 import { setRewind } from '../utils/rewind.js';
 import {
-  batchInfo, cycleItem, jobDetail, jobItem, runsPage, summary,
+  batchInfo, cycleDetail, cycleItem, jobDetail, jobItem, runsPage, summary,
 } from './runsFixtures.js';
 
 // The Runs tab end to end below ManageView: the served merge, the chips and summary, paging and polling, the panel by
 // hash, and the rules that keep an open panel and the real clock honest. The network is mocked at the API modules.
 
 vi.mock('../api/runsApi.js', () => ({ fetchRuns: vi.fn(), fetchJobRun: vi.fn() }));
+vi.mock('../api/pipelineRunApi.js', () => ({ fetchPipelineRunDetail: vi.fn() }));
 vi.mock('../api/metricsApi', () => ({
   getApiCalls: vi.fn(), getBatchSummary: vi.fn(), getDispositionBreakdown: vi.fn(),
 }));
@@ -24,6 +25,7 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { fetchRuns, fetchJobRun } from '../api/runsApi.js';
+import { fetchPipelineRunDetail } from '../api/pipelineRunApi.js';
 import { getApiCalls, getBatchSummary, getDispositionBreakdown } from '../api/metricsApi';
 import { getRegions } from '../api/batchApi';
 import { enrichBortle } from '../api/auroraApi';
@@ -88,6 +90,7 @@ beforeEach(() => {
   captureIntervals();
   fetchRuns.mockResolvedValue(runsPage(FIRST_PAGE));
   fetchJobRun.mockResolvedValue(jobDetail({ id: 9001 }));
+  fetchPipelineRunDetail.mockResolvedValue(cycleDetail());
   getApiCalls.mockResolvedValue({ data: [] });
   getBatchSummary.mockRejectedValue(new Error('not a batch'));
   getDispositionBreakdown.mockResolvedValue({ data: { jobRunId: 0, totalCount: 0, countsByDisposition: {}, entries: [] } });
@@ -614,10 +617,12 @@ describe('Runs: opening a run', () => {
     expect(fetchJobRun).toHaveBeenCalledWith(4444);
   });
 
-  it('opens a cycle on the Pipeline Runs tab until the cycle panel exists', async () => {
+  it('opens a cycle row in the cycle panel, not as a job run', async () => {
     renderView();
     fireEvent.click(await screen.findByTestId('runs-row-cycle-412'));
-    expect(window.location.hash).toBe('#manage/pipelineruns/412');
+    expect(window.location.hash).toBe('#manage/runs/cycle/412');
+    expect(await screen.findByTestId('cycle-panel-title')).toHaveTextContent('Afternoon refresh');
+    expect(fetchPipelineRunDetail).toHaveBeenCalledWith(412);
     expect(fetchJobRun).not.toHaveBeenCalled();
   });
 

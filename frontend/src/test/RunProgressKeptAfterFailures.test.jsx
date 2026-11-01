@@ -26,7 +26,6 @@ vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
 vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
-vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 
 vi.mock('../api/batchApi', () => ({

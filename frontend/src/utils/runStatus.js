@@ -82,3 +82,14 @@ const NOTE_TONE_CLASS = {
 export function noteToneClass(tone) {
   return NOTE_TONE_CLASS[tone] ?? 'text-plex-text-secondary';
 }
+
+/**
+ * The look of a pipeline run's own status ({@code PipelineRunStatus}: RUNNING, COMPLETED, FAILED, DEGRADED). The
+ * cycle detail serves these rather than {@code RunListStatus}; COMPLETED reads as Done, the rest as the list says.
+ *
+ * @param {string|null|undefined} status the cycle detail's {@code run.status}
+ * @returns {{label: string, tone: string, halo: boolean}}
+ */
+export function cycleStatusView(status) {
+  return runStatusView(status === 'COMPLETED' ? 'DONE' : status);
+}
