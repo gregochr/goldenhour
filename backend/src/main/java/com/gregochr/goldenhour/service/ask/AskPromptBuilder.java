@@ -56,8 +56,8 @@ public class AskPromptBuilder {
             in one clause why PhotoCast is not suggesting the place, using the reason given for its \
             status. Never give it as a pick. If the reader also wants somewhere to go, call \
             rank_spots. \
-            If look_up_place returns no places, no named area, no closestTo and no suggestions, read its note \
-            and answer answerable false: when the \
+            If look_up_place returns no places, no laterTides, no named area, no closestTo and no suggestions, read \
+            its note and answer answerable false: when the \
             note says the place is outside the regions this question is about, say exactly that, never \
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \

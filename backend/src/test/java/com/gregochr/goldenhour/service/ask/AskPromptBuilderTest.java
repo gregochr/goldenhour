@@ -110,7 +110,8 @@ class AskPromptBuilderTest {
                         + "not suggesting the place, using the reason given for its status. Never give it as a "
                         + "pick.")
                 .contains("If the reader also wants somewhere to go, call rank_spots.")
-                .contains("If look_up_place returns no places, no named area, no closestTo and no suggestions, "
+                .contains("If look_up_place returns no places, no laterTides, no named area, no closestTo and no "
+                        + "suggestions, "
                         + "read its note and answer answerable false: when the note says the place is outside "
                         + "the regions this question is about, say exactly that, never that it is not in the forecast; "
                         + "otherwise the place is not in the forecast.")
@@ -189,7 +190,8 @@ class AskPromptBuilderTest {
         String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
 
         assertThat(typed)
-                .contains("returns no places, no named area, no closestTo and no suggestions, read its note "
+                .contains("returns no places, no laterTides, no named area, no closestTo and no suggestions, "
+                        + "read its note "
                         + "and answer answerable false")
                 .doesNotContain("returns no places, read its note")
                 .contains("The name may be a named area, a group of places such as a landmark (\"Hadrian's "
@@ -257,6 +259,10 @@ class AskPromptBuilderTest {
 
         assertThat(typed).contains(rated).contains(later);
         assertThat(thread).contains(rated).contains(later);
+        String refusal = "If look_up_place returns no places, no laterTides, no named area, no closestTo and no "
+                + "suggestions, read its note and answer answerable false";
+        assertThat(typed).contains(refusal).doesNotContain("returns no places, no named area");
+        assertThat(thread).contains(refusal).doesNotContain("returns no places, no named area");
         assertThat(typed).doesNotContain("No row for the day asked");
         assertThat(ready).doesNotContain("laterWindows").doesNotContain("laterTides");
         assertThat(AskPromptBuilder.RULES).doesNotContain("laterWindows").doesNotContain("laterTides");
