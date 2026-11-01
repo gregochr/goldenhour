@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import TravelRangeForm from './TravelRangeForm.jsx';
@@ -13,20 +14,34 @@ import { formatDay, lengthText } from '../../utils/travelDays.js';
  * (both dates; end not before start); a refusal from the server shows under its field.
  *
  * @param {object} props
- * @param {string} [props.initialFrom] the From date to start with (a calendar day that was pressed), or ''
+ * @param {string} [props.initialFrom] the From date to open with (a draft that was dragged first), or ''
+ * @param {string} [props.initialTo] the To date to open with, or ''
+ * @param {number} [props.fillSeq] the count of fills from the calendar's draft; the panel applies a fill only when
+ *   this differs from the value it mounted with, so a fill made for an earlier panel never lands here
+ * @param {string} [props.fillStart] the From date of the latest fill
+ * @param {string} [props.fillEnd] the To date of the latest fill
  * @param {Date} props.now the real clock, for the year on a date outside this one
  * @param {() => void} props.onClose closes the panel
  * @param {(created: object) => (void|Promise<void>)} props.onCreated told the created range once the server has made it; the
  *   save counts as in flight until it settles (the view reloads in it)
  * @param {(saving: boolean) => void} props.onSavingChange told when a save starts and ends
  */
-export default function TravelAddPanel({ initialFrom = '', now, onClose, onCreated, onSavingChange }) {
+export default function TravelAddPanel({
+  initialFrom = '', initialTo = '', fillSeq = 0, fillStart = '', fillEnd = '', now, onClose, onCreated, onSavingChange,
+}) {
   const { form, errors, formError, saving, set, submit } = useTravelRangeForm(
-    { startDate: initialFrom, endDate: '', note: '' },
+    { startDate: initialFrom, endDate: initialTo, note: '' },
     async (payload) => { await onCreated(await addTravelDay(payload)); },
     'Failed to add travel range',
     onSavingChange,
   );
+  // A later fill from the calendar (state adjusted while rendering): the dates change, the typed note stays.
+  const [seenSeq, setSeenSeq] = useState(fillSeq);
+  if (fillSeq !== seenSeq) {
+    setSeenSeq(fillSeq);
+    set('startDate', fillStart);
+    set('endDate', fillEnd);
+  }
   const valid = form.startDate !== '' && form.endDate !== '' && form.endDate >= form.startDate;
 
   const footer = (
@@ -78,6 +93,10 @@ export default function TravelAddPanel({ initialFrom = '', now, onClose, onCreat
 
 TravelAddPanel.propTypes = {
   initialFrom: PropTypes.string,
+  initialTo: PropTypes.string,
+  fillSeq: PropTypes.number,
+  fillStart: PropTypes.string,
+  fillEnd: PropTypes.string,
   now: PropTypes.instanceOf(Date).isRequired,
   onClose: PropTypes.func.isRequired,
   onCreated: PropTypes.func.isRequired,

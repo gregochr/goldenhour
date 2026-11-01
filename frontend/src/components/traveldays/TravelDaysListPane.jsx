@@ -64,7 +64,7 @@ function rowLabel(range, now) {
 
 /**
  * The Travel days list pane (runs-redesign-plan.md §5.6): the header ("Travel days", "{n} upcoming", Add range), the
- * intro, the five-week calendar and the ranges as a grid with a group row "Upcoming · {n}" (open) and "Past · {n}"
+ * intro, the month calendar and the ranges as a grid with a group row "Upcoming · {n}" (open) and "Past · {n}"
  * (collapsed until pressed). Rows hold no controls; a row opens its range panel.
  *
  * @param {object} props
@@ -76,13 +76,12 @@ function rowLabel(range, now) {
  * @param {{upcoming: boolean, past: boolean}} props.groupOpen which groups are expanded (Past starts collapsed)
  * @param {(id: 'upcoming'|'past') => void} props.onToggleGroup expands or collapses a group
  * @param {(range: object) => void} props.onSelect called when a row (or an away day) is activated
- * @param {(range: object, iso: string) => void} props.onOpenFromCell called when an away calendar day is activated
  * @param {() => void} props.onAdd opens the Add panel
- * @param {(iso: string) => void} props.onAddFrom opens the Add panel with From set to a calendar day
+ * @param {object} props.calendar the calendar's own props (see {@link TravelDaysCalendar}), less the ranges, the
+ *   clock and the selection this pane already holds
  */
 export default function TravelDaysListPane({
-  ranges, loading, error = null, now, selectedId = null, groupOpen, onToggleGroup, onSelect, onOpenFromCell, onAdd,
-  onAddFrom,
+  ranges, loading, error = null, now, selectedId = null, groupOpen, onToggleGroup, onSelect, onAdd, calendar,
 }) {
   const { upcoming, past } = groupRanges(ranges, now);
   const rows = [];
@@ -174,7 +173,7 @@ export default function TravelDaysListPane({
       <ErrorBanner message={error} data-testid="travel-error" />
 
       {showFacts && (
-        <TravelDaysCalendar ranges={ranges} now={now} onOpenRange={onOpenFromCell} onAddFrom={onAddFrom} />
+        <TravelDaysCalendar ranges={ranges} now={now} selectedId={selectedId} {...calendar} />
       )}
 
       {body}
@@ -191,7 +190,17 @@ TravelDaysListPane.propTypes = {
   groupOpen: PropTypes.shape({ upcoming: PropTypes.bool, past: PropTypes.bool }).isRequired,
   onToggleGroup: PropTypes.func.isRequired,
   onSelect: PropTypes.func.isRequired,
-  onOpenFromCell: PropTypes.func.isRequired,
   onAdd: PropTypes.func.isRequired,
-  onAddFrom: PropTypes.func.isRequired,
+  calendar: PropTypes.shape({
+    viewMonth: PropTypes.shape({ year: PropTypes.number, month0: PropTypes.number }).isRequired,
+    onViewMonthChange: PropTypes.func.isRequired,
+    draft: PropTypes.shape({ start: PropTypes.string, end: PropTypes.string }),
+    onDraftChange: PropTypes.func.isRequired,
+    addOpen: PropTypes.bool.isRequired,
+    onSelectRange: PropTypes.func.isRequired,
+    onAddDraft: PropTypes.func.isRequired,
+    draftSaving: PropTypes.bool,
+    draftError: PropTypes.string,
+    focusRequest: PropTypes.shape({ iso: PropTypes.string, seq: PropTypes.number }),
+  }).isRequired,
 };

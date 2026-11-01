@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import PanelSection from '../data/PanelSection.jsx';
@@ -78,7 +78,7 @@ RangeEditPanel.propTypes = {
 
 /**
  * The Travel days range panel (runs-redesign-plan.md §5.6): the range as its title, "{n} days · {when}" as its meta,
- * then Range (From, To, Note, with Edit), Effect, and Remove range. Edit swaps the Range values for the shared form
+ * then Range (From, To, Note, with Edit), Effect, and a Remove range row (the words left, the coral Remove right). Edit swaps the Range values for the shared form
  * and a Cancel / Save footer; Remove needs no confirmation (the handoff's call) and is guarded against a double
  * press.
  *
@@ -99,6 +99,7 @@ export default function TravelRangePanel({
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
   const removeInFlight = useRef(false);
+  const removeHeadingId = useId();
 
   async function handleRemove() {
     if (removeInFlight.current) return;
@@ -167,21 +168,32 @@ export default function TravelRangePanel({
           The Plan tab shows these as Away. No forecast is generated for them, so nothing is rated.
         </p>
       </PanelSection>
-      <PanelSection label="Remove range" testId="travel-panel-remove-section">
-        <p className="mb-3 text-[13px] text-plex-text-secondary">These days are forecast again from the next run.</p>
-        <button
-          type="button"
-          className="rounded-lg border border-plex-coral px-3 py-1.5 text-sm font-medium text-plex-coral transition-colors hover:bg-plex-coral/10 focus-visible:outline-2 focus-visible:outline-plex-coral aria-disabled:opacity-40 max-[639px]:min-h-11"
-          aria-disabled={removing ? 'true' : undefined}
-          onClick={handleRemove}
-          data-testid={`travel-day-delete-${range.id}`}
-        >
-          {removing ? 'Removing…' : 'Remove'}
-        </button>
+      {/* One row, as the design draws it (no mono section label over the same words): the words on the left, the
+          coral Remove on the right, stacking when the panel is narrow. */}
+      <section
+        aria-labelledby={removeHeadingId}
+        className="px-[18px] py-[14px] max-[639px]:px-4"
+        data-testid="travel-panel-remove-section"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+          <div className="min-w-0">
+            <p id={removeHeadingId} className="text-[13px] text-plex-text">Remove range</p>
+            <p className="mt-0.5 text-[12px] text-plex-text-secondary">These days are forecast again from the next run.</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg border border-plex-coral px-3 py-1.5 text-sm font-medium text-plex-coral transition-colors hover:bg-plex-coral/10 focus-visible:outline-2 focus-visible:outline-plex-coral aria-disabled:opacity-40 max-[639px]:min-h-11"
+            aria-disabled={removing ? 'true' : undefined}
+            onClick={handleRemove}
+            data-testid={`travel-day-delete-${range.id}`}
+          >
+            {removing ? 'Removing…' : 'Remove'}
+          </button>
+        </div>
         {removeError && (
           <p className="mt-2 text-xs text-plex-coral" role="alert" data-testid="travel-remove-error">{removeError}</p>
         )}
-      </PanelSection>
+      </section>
     </PanelShell>
   );
 }
