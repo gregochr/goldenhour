@@ -243,6 +243,14 @@ describe('the calendar key', () => {
     expect(key).toHaveTextContent('Today');
     expect(key).not.toHaveTextContent('Past');
   });
+
+  it('carries both hints (CSS picks by pointer type) and the grid is described by them', async () => {
+    mount();
+    const hint = await screen.findByTestId('travel-calendar-hint');
+    expect(hint).toHaveTextContent('Drag across days to add a range');
+    expect(hint).toHaveTextContent('Tap two days to add a range');
+    expect(screen.getByRole('grid')).toHaveAttribute('aria-describedby', hint.id);
+  });
 });
 
 describe('the year', () => {
@@ -289,19 +297,175 @@ describe('Back and Forward', () => {
 });
 
 describe('focus', () => {
-  it('returns to the calendar day that opened the panel when it closes', async () => {
+  /** A mouse press on a day (down, up, click). */
+  function press(iso) {
+    const cell = screen.getByTestId(`travel-cell-${iso}`);
+    fireEvent.pointerDown(cell, { button: 0, pointerType: 'mouse' });
+    fireEvent.pointerUp(cell, { button: 0, pointerType: 'mouse' });
+    fireEvent.click(cell);
+  }
+
+  it('returns to the grid, with the cursor on the day that opened the panel, when the panel closes', async () => {
     mount();
-    fireEvent.click(await screen.findByTestId('travel-cell-2026-11-05'));
+    await screen.findByTestId('travel-days-row-1');
+    press('2026-11-05');
     await screen.findByTestId('travel-panel');
     fireEvent.click(screen.getByTestId('travel-panel-close'));
-    await waitFor(() => expect(screen.getByTestId('travel-cell-2026-11-05')).toHaveFocus());
+    const grid = screen.getByRole('grid');
+    await waitFor(() => expect(grid).toHaveFocus());
+    expect(grid).toHaveAttribute('aria-activedescendant', screen.getByTestId('travel-cell-2026-11-05').id);
   });
 
-  it('returns to the empty day that opened Add when Add is cancelled', async () => {
+  it('does not steal focus when a panel a row opened closes', async () => {
     mount();
-    fireEvent.click(await screen.findByTestId('travel-cell-2026-11-12'));
-    await screen.findByTestId('travel-add-panel');
-    fireEvent.click(screen.getByTestId('travel-add-cancel'));
-    await waitFor(() => expect(screen.getByTestId('travel-cell-2026-11-12')).toHaveFocus());
+    await openPanel(1);
+    fireEvent.click(screen.getByTestId('travel-panel-close'));
+    expect(screen.getByRole('grid')).not.toHaveFocus();
+  });
+});
+
+describe('the calendar keyboard', () => {
+  async function focusGrid() {
+    await screen.findByTestId('travel-days-row-1');
+    const grid = screen.getByRole('grid');
+    act(() => { grid.focus(); });
+    return grid;
+  }
+
+  const cellId = (iso) => screen.getByTestId(`travel-cell-${iso}`).id;
+
+  it('puts the cursor on today when the grid is tabbed into, then moves it with the arrows', async () => {
+    mount();
+    const grid = await focusGrid();
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-02'));
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-03'));
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-10'));
+    fireEvent.keyDown(grid, { key: 'ArrowLeft' });
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-02'));
+  });
+
+  it('starts on the 1st when today is not in the month shown', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    const grid = screen.getByRole('grid');
+    act(() => { grid.focus(); });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-12-01'));
+  });
+
+  it('moves the month when the cursor leaves it, and Home and End go to the ends of the week row', async () => {
+    mount();
+    const grid = await focusGrid();
+    fireEvent.keyDown(grid, { key: 'ArrowUp' });
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('October 2026');
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-10-26'));
+    fireEvent.keyDown(grid, { key: 'End' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-01'));
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    fireEvent.keyDown(grid, { key: 'Home' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-02'));
+  });
+
+  it('pages a month with PageDown and PageUp keeping the day, and T returns to today', async () => {
+    mount();
+    const grid = await focusGrid();
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'PageDown' });
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('December 2026');
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-12-03'));
+    fireEvent.keyDown(grid, { key: 'PageUp' });
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-03'));
+    fireEvent.keyDown(grid, { key: 'PageDown' });
+    fireEvent.keyDown(grid, { key: 't' });
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    expect(grid).toHaveAttribute('aria-activedescendant', cellId('2026-11-02'));
+  });
+
+  it('selects the range on Enter over an away day', async () => {
+    mount();
+    const grid = await focusGrid();
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Wed 4 Nov → Fri 6 Nov');
+    expect(window.location.hash).toBe('#manage/traveldays/1');
+  });
+
+  it('drafts with Enter on two free days, normalising the order, and Esc clears it', async () => {
+    mount();
+    const grid = await focusGrid();
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowRight' });
+    fireEvent.keyDown(grid, { key: ' ' });
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('From Tue 17 Nov · pick an end date');
+    expect(screen.queryByTestId('travel-draft-add')).not.toBeInTheDocument();
+    fireEvent.keyDown(grid, { key: 'ArrowLeft' });
+    fireEvent.keyDown(grid, { key: 'ArrowLeft' });
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('Sun 15 Nov → Tue 17 Nov · 3 days');
+
+    fireEvent.keyDown(grid, { key: 'Escape' });
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+  });
+
+  it('keeps focus on the grid through every re-render', async () => {
+    mount();
+    const grid = await focusGrid();
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'Enter' });
+    fireEvent.keyDown(grid, { key: 'PageDown' });
+    expect(grid).toHaveFocus();
+    expect(screen.getByRole('grid')).toBe(grid);
+  });
+});
+
+describe('the calendar on a touch screen', () => {
+  function tap(iso) {
+    const cell = screen.getByTestId(`travel-cell-${iso}`);
+    fireEvent.pointerDown(cell, { button: 0, pointerType: 'touch' });
+    fireEvent.pointerUp(cell, { button: 0, pointerType: 'touch' });
+    fireEvent.click(cell);
+  }
+
+  it('shows "pick an end date" after one tap and a range after two', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    tap('2026-11-18');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('From Wed 18 Nov · pick an end date');
+    tap('2026-11-20');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('Wed 18 Nov → Fri 20 Nov · 3 days');
+    expect(screen.getByTestId('travel-draft-add')).toBeEnabled();
+  });
+
+  it('does not start a draft on touch pointerdown alone (a swipe scrolls the page)', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    fireEvent.pointerDown(screen.getByTestId('travel-cell-2026-11-18'), { button: 0, pointerType: 'touch' });
+    fireEvent.pointerUp(screen.getByTestId('travel-cell-2026-11-18'), { button: 0, pointerType: 'touch' });
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+  });
+
+  it('opens a range from a tap on an away day', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    tap('2026-11-05');
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Wed 4 Nov → Fri 6 Nov');
+  });
+});
+
+describe('the Remove range row', () => {
+  it('reads once, as one row with its words and the Remove button', async () => {
+    mount();
+    await openPanel(1);
+    const section = screen.getByRole('region', { name: 'Remove range' });
+    expect(section).toBe(screen.getByTestId('travel-panel-remove-section'));
+    expect(screen.getAllByText('Remove range')).toHaveLength(1);
+    expect(section).toHaveTextContent('These days are forecast again from the next run.');
+    expect(section).toContainElement(screen.getByTestId('travel-day-delete-1'));
   });
 });

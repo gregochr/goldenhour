@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import TravelDaysView from '../components/TravelDaysView.jsx';
 import { setRewind } from '../utils/rewind.js';
 
@@ -124,20 +124,45 @@ describe('TravelDaysView: the list', () => {
   });
 });
 
+/** A calendar day's cell. */
+function cellFor(iso) {
+  return screen.getByTestId(`travel-cell-${iso}`);
+}
+
+/** A mouse drag from one day to another, the way the browser delivers it (down, move, up, then the click). */
+function dragDays(fromIso, toIso) {
+  fireEvent.pointerDown(cellFor(fromIso), { button: 0, pointerType: 'mouse' });
+  fireEvent.pointerMove(cellFor(toIso), { pointerType: 'mouse' });
+  fireEvent.pointerUp(cellFor(toIso), { button: 0, pointerType: 'mouse' });
+  fireEvent.click(cellFor(toIso));
+}
+
+/** A mouse press on an away day. */
+function pressDay(iso) {
+  fireEvent.pointerDown(cellFor(iso), { button: 0, pointerType: 'mouse' });
+  fireEvent.pointerUp(cellFor(iso), { button: 0, pointerType: 'mouse' });
+  fireEvent.click(cellFor(iso));
+}
+
 describe('TravelDaysView: the calendar', () => {
-  it('draws five weeks from this week\'s Monday with labelled cells', async () => {
+  it('draws the month, always six weeks, with labelled gridcells in rows', async () => {
     mount();
     await screen.findByTestId('travel-days-row-1');
-    expect(screen.getAllByTestId(/^travel-cell-/)).toHaveLength(35);
-    expect(screen.getByTestId('travel-cell-2026-11-02')).toHaveAttribute('aria-label', 'Mon 2 Nov, today, away (Today only)');
-    expect(screen.getByTestId('travel-cell-2026-11-02')).toHaveAttribute('aria-current', 'date');
-    expect(screen.getByTestId('travel-cell-2026-11-05')).toHaveAttribute('aria-label', 'Thu 5 Nov, away (London — work)');
-    expect(screen.getByTestId('travel-cell-2026-11-05')).toHaveAttribute('data-away', 'true');
-    expect(screen.getByTestId('travel-cell-2026-11-03')).toHaveAttribute('aria-label', 'Tue 3 Nov');
-    expect(screen.getByTestId('travel-cell-2026-12-01')).toHaveTextContent('1 Dec');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    expect(screen.getByRole('grid', { name: 'November 2026' })).toHaveAttribute('aria-multiselectable', 'true');
+    expect(screen.getAllByRole('row')).toHaveLength(6);
+    expect(screen.getAllByTestId(/^travel-cell-/)).toHaveLength(42);
+    expect(cellFor('2026-10-26')).toBeInTheDocument();
+    expect(cellFor('2026-12-06')).toBeInTheDocument();
+    expect(cellFor('2026-11-02')).toHaveAttribute('aria-label', 'Mon 2 Nov, today, away (Today only)');
+    expect(cellFor('2026-11-02')).toHaveAttribute('aria-current', 'date');
+    expect(cellFor('2026-11-05')).toHaveAttribute('aria-label', 'Thu 5 Nov, away (London — work)');
+    expect(cellFor('2026-11-05')).toHaveAttribute('data-away', 'true');
+    expect(cellFor('2026-11-03')).toHaveAttribute('aria-label', 'Tue 3 Nov');
+    expect(cellFor('2026-12-01')).toHaveTextContent(/^1$/);
   });
 
-  it('marks away days across a month boundary', async () => {
+  it('marks away days across a month boundary within the six weeks shown', async () => {
     mount([{ id: 7, startDate: '2026-11-29', endDate: '2026-12-02', note: null }]);
     await screen.findByTestId('travel-days-row-7');
     const away = screen.getAllByTestId(/^travel-cell-/)
@@ -147,49 +172,289 @@ describe('TravelDaysView: the calendar', () => {
     ]);
   });
 
-  it('opens a range from an away day (also one in the past) and sets the hash', async () => {
+  it('joins the days of one range into a bar, but not across two touching ranges or the Sunday break', async () => {
+    // London is Wed 4 to Fri 6 Nov; the next range touches it (Sat 7 to Mon 9), crossing Sunday 8.
+    mount([LONDON, { id: 12, startDate: '2026-11-07', endDate: '2026-11-09', note: null }]);
+    await screen.findByTestId('travel-days-row-12');
+    const cls = (iso) => cellFor(iso).className.split(' ');
+    expect(cls('2026-11-04')).toContain('rounded-r-none');
+    expect(cls('2026-11-04')).toContain('rounded-l-[5px]');
+    expect(cls('2026-11-05')).toEqual(expect.arrayContaining(['rounded-l-none', 'rounded-r-none', '-ml-[3px]']));
+    // Fri 6 and Sat 7 are different ranges: no join between them.
+    expect(cls('2026-11-06')).toContain('rounded-l-none');
+    expect(cls('2026-11-06')).toContain('rounded-r-[5px]');
+    expect(cls('2026-11-07')).toContain('rounded-l-[5px]');
+    // Sun 8 ends its week row: it does not join Mon 9, which starts a new row.
+    expect(cls('2026-11-08')).toContain('rounded-r-[5px]');
+    expect(cls('2026-11-09')).toContain('rounded-l-[5px]');
+  });
+
+  it('disables Today on the current month, and ‹ › page the grid', async () => {
     mount();
-    fireEvent.click(await screen.findByTestId('travel-cell-2026-11-05'));
+    await screen.findByTestId('travel-days-row-1');
+    expect(screen.getByTestId('travel-calendar-today')).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('December 2026');
+    expect(screen.getByRole('grid', { name: 'December 2026' })).toBeInTheDocument();
+    expect(screen.getByTestId('travel-calendar-today')).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('October 2026');
+
+    fireEvent.click(screen.getByTestId('travel-calendar-today'));
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    expect(screen.getByTestId('travel-calendar-today')).toBeDisabled();
+  });
+
+  it('opens a range from an away day, marks its cells and its row, and sets the hash', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    pressDay('2026-11-05');
     expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Wed 4 Nov → Fri 6 Nov');
     expect(window.location.hash).toBe('#manage/traveldays/1');
+    for (const iso of ['2026-11-04', '2026-11-05', '2026-11-06']) {
+      expect(cellFor(iso)).toHaveAttribute('aria-selected', 'true');
+      expect(cellFor(iso)).toHaveAttribute('data-selected', 'true');
+    }
+    expect(cellFor('2026-11-05')).toHaveAttribute('aria-label', 'Thu 5 Nov, away (London — work), selected');
+    expect(cellFor('2026-11-03')).toHaveAttribute('aria-selected', 'false');
+    expect(within(screen.getByTestId('travel-split-list')).getByTestId('travel-days-row-1'))
+      .toHaveAttribute('aria-current', 'true');
   });
 
-  it('opens a past range from its away day, though its row is collapsed', async () => {
-    // Thu 5 Nov: the grid begins on Mon 2 Nov, so Mon to Wed are past days.
-    vi.setSystemTime(new Date('2026-11-05T10:00:00Z'));
-    mount([{ id: 3, startDate: '2026-11-02', endDate: '2026-11-03', note: 'Leeds' }]);
-    const cell = await screen.findByTestId('travel-cell-2026-11-02');
-    expect(cell).toBeEnabled();
-    expect(cell).toHaveAttribute('aria-label', 'Mon 2 Nov, away (Leeds)');
-    fireEvent.click(cell);
-    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Mon 2 Nov → Tue 3 Nov');
-  });
-
-  it('opens Add with From set when an empty day from today on is pressed', async () => {
+  it('opens a past range from its away day and expands the collapsed Past group', async () => {
     mount();
-    fireEvent.click(await screen.findByTestId('travel-cell-2026-11-12'));
-    expect(await screen.findByTestId('travel-add-panel')).toBeInTheDocument();
-    expect(screen.getByTestId('travel-day-start')).toHaveValue('2026-11-12');
-    expect(screen.getByTestId('travel-day-end')).toHaveValue('');
+    await screen.findByTestId('travel-days-row-1');
+    expect(screen.queryByTestId('travel-days-row-3')).not.toBeInTheDocument();
+    pressDay('2026-10-27');
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Mon 26 Oct → Wed 28 Oct');
+    expect(screen.getByTestId('travel-days-row-3')).toHaveAttribute('aria-current', 'true');
+    expect(window.location.hash).toBe('#manage/traveldays/3');
   });
 
-  it('leaves a past empty day inert', async () => {
-    vi.setSystemTime(new Date('2026-11-05T10:00:00Z'));
+  it('keeps the shown month when a trailing next-month away day is pressed', async () => {
+    // Sat 31 Oct: October shows, with Sun 1 Nov as a trailing day of a November range.
+    vi.setSystemTime(new Date('2026-10-31T10:00:00Z'));
+    mount([{ id: 8, startDate: '2026-11-01', endDate: '2026-11-03', note: null }]);
+    await screen.findByTestId('travel-days-row-8');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('October 2026');
+    pressDay('2026-11-02');
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Sun 1 Nov → Tue 3 Nov');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('October 2026');
+  });
+
+  it('moves the calendar to the range\'s month when its list row is pressed', async () => {
+    mount([...RANGES, { id: 11, startDate: '2026-12-20', endDate: '2026-12-22', note: 'Xmas' }]);
+    await screen.findByTestId('travel-days-row-11');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    fireEvent.click(screen.getByTestId('travel-days-row-11'));
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('December 2026');
+    expect(cellFor('2026-12-21')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('draws a draft on a past day at full opacity, as the design does', async () => {
     mount();
-    const cell = await screen.findByTestId('travel-cell-2026-11-03');
-    expect(cell).toBeDisabled();
-    fireEvent.click(cell);
-    expect(screen.queryByTestId('travel-add-panel')).not.toBeInTheDocument();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-01', '2026-11-01');
+    expect(cellFor('2026-11-01').className).toContain('opacity-100');
+    expect(cellFor('2026-11-01').className).not.toContain('opacity-45');
   });
 
   it('keeps the real day when a rewind is set (R-D7)', async () => {
     setRewind('2026-01-15T09:00:00Z');
     mount();
     await screen.findByTestId('travel-days-row-1');
-    expect(screen.getByTestId('travel-cell-2026-11-02')).toHaveAttribute('aria-current', 'date');
-    expect(screen.getByTestId('travel-cell-2026-11-02')).toHaveTextContent('2');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('November 2026');
+    expect(cellFor('2026-11-02')).toHaveAttribute('aria-current', 'date');
     expect(screen.getByTestId('travel-when-1')).toHaveTextContent('In 2 days');
     expect(screen.queryByTestId('travel-cell-2026-01-15')).not.toBeInTheDocument();
+  });
+});
+
+describe('TravelDaysView: drafting a range', () => {
+  it('drafts right to left as an ordered range and writes it in the bar', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-16');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('Mon 16 Nov → Wed 18 Nov · 3 days');
+    for (const iso of ['2026-11-16', '2026-11-17', '2026-11-18']) {
+      expect(cellFor(iso)).toHaveAttribute('data-draft', 'true');
+      expect(cellFor(iso)).toHaveAttribute('aria-label', expect.stringContaining('in draft'));
+    }
+    expect(cellFor('2026-11-19')).toHaveAttribute('data-draft', 'false');
+    expect(screen.getByTestId('travel-calendar-live')).toHaveTextContent('Draft Mon 16 Nov → Wed 18 Nov, 3 days');
+  });
+
+  it('paints the drag as it moves, before the pointer is released', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    fireEvent.pointerDown(cellFor('2026-11-17'), { button: 0, pointerType: 'mouse' });
+    fireEvent.pointerMove(cellFor('2026-11-19'), { pointerType: 'mouse' });
+    expect(cellFor('2026-11-18')).toHaveAttribute('data-draft', 'true');
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+  });
+
+  it('makes a plain click on a free day a one-day draft', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-18');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent(/^Wed 18 Nov · 1 day$/);
+  });
+
+  it('clears a draft with Clear', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-19');
+    fireEvent.click(screen.getByTestId('travel-draft-clear'));
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+    expect(cellFor('2026-11-18')).toHaveAttribute('data-draft', 'false');
+  });
+
+  it('clears a draft with Esc on the grid, and the Esc does not also close an open range panel', async () => {
+    mount();
+    await openPanel(1);
+    dragDays('2026-11-18', '2026-11-19');
+    expect(screen.getByTestId('travel-draft-bar')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('grid'), { key: 'Escape' });
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+    expect(screen.getByTestId('travel-panel')).toBeInTheDocument();
+
+    // With no draft, the same Esc is the panel's.
+    fireEvent.keyDown(screen.getByRole('grid'), { key: 'Escape' });
+    expect(screen.queryByTestId('travel-panel')).not.toBeInTheDocument();
+  });
+
+  it('flags a draft over an existing range and refuses to add it', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-03', '2026-11-05');
+    expect(screen.getByTestId('travel-draft-overlap')).toHaveTextContent('overlaps an existing range');
+    expect(screen.getByTestId('travel-draft-add')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('travel-draft-add'));
+    expect(addTravelDay).not.toHaveBeenCalled();
+  });
+
+  it('adds the draft with a null note, reloads, opens the new range and moves to its month', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    dragDays('2026-12-07', '2026-12-09');
+    addTravelDay.mockResolvedValue({ id: 9, startDate: '2026-12-07', endDate: '2026-12-09', note: null });
+    fetchTravelDays.mockResolvedValue([...RANGES, { id: 9, startDate: '2026-12-07', endDate: '2026-12-09', note: null }]);
+    fireEvent.click(screen.getByTestId('travel-draft-add'));
+
+    await waitFor(() => expect(addTravelDay).toHaveBeenCalledWith({
+      startDate: '2026-12-07', endDate: '2026-12-09', note: null,
+    }));
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Mon 7 Dec → Wed 9 Dec');
+    expect(window.location.hash).toBe('#manage/traveldays/9');
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('December 2026');
+    expect(cellFor('2026-12-08')).toHaveAttribute('aria-selected', 'true');
+    expect(fetchTravelDays).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the server\'s sentence and keeps the draft when the add is refused', async () => {
+    addTravelDay.mockRejectedValue({ response: { status: 400, data: { error: 'endDate must not be before startDate' } } });
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-19');
+    fireEvent.click(screen.getByTestId('travel-draft-add'));
+    expect(await screen.findByTestId('travel-draft-error')).toHaveTextContent('endDate must not be before startDate');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('Wed 18 Nov → Thu 19 Nov');
+    expect(screen.getByTestId('travel-draft-add')).toBeEnabled();
+  });
+
+  it('posts once for a double press', async () => {
+    let finish;
+    addTravelDay.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-19');
+    const add = screen.getByTestId('travel-draft-add');
+    fireEvent.click(add);
+    fireEvent.click(add);
+    expect(addTravelDay).toHaveBeenCalledTimes(1);
+    expect(add).toHaveTextContent('Adding…');
+    await act(async () => { finish({ id: 9, startDate: '2026-11-18', endDate: '2026-11-19', note: null }); });
+  });
+
+  it('does not wipe a newer draft when the earlier one finishes saving', async () => {
+    let finish;
+    addTravelDay.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-19');
+    fireEvent.click(screen.getByTestId('travel-draft-add'));
+    // A drag while the post is in flight is ignored, so the posted draft is the one cleared.
+    dragDays('2026-11-24', '2026-11-25');
+    expect(screen.getByTestId('travel-draft-text')).toHaveTextContent('Wed 18 Nov → Thu 19 Nov');
+    await act(async () => { finish({ id: 9, startDate: '2026-11-18', endDate: '2026-11-19', note: null }); });
+    await waitFor(() => expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument());
+  });
+});
+
+describe('TravelDaysView: drafting with the Add panel', () => {
+  async function openAdd() {
+    fireEvent.click(await screen.findByTestId('travel-day-add-open'));
+    return screen.findByTestId('travel-add-panel');
+  }
+
+  it('fills From and To from a drag, keeps a typed note, summarises and shows no bar', async () => {
+    mount();
+    await openAdd();
+    fireEvent.change(screen.getByTestId('travel-day-note'), { target: { value: 'Alps' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    dragDays('2026-11-30', '2026-12-02');
+    expect(screen.getByTestId('travel-day-start')).toHaveValue('2026-11-30');
+    expect(screen.getByTestId('travel-day-end')).toHaveValue('2026-12-02');
+    expect(screen.getByTestId('travel-day-note')).toHaveValue('Alps');
+    expect(screen.getByTestId('travel-add-summary')).toHaveTextContent('3 days');
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+  });
+
+  it('fills again on a second drag while the panel stays open', async () => {
+    mount();
+    await openAdd();
+    dragDays('2026-11-16', '2026-11-17');
+    dragDays('2026-11-23', '2026-11-26');
+    expect(screen.getByTestId('travel-day-start')).toHaveValue('2026-11-23');
+    expect(screen.getByTestId('travel-day-end')).toHaveValue('2026-11-26');
+  });
+
+  it('seeds From and To from a completed draft when the header Add range is pressed', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    dragDays('2026-11-18', '2026-11-20');
+    await openAdd();
+    expect(screen.getByTestId('travel-day-start')).toHaveValue('2026-11-18');
+    expect(screen.getByTestId('travel-day-end')).toHaveValue('2026-11-20');
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+  });
+
+  it('seeds only From from a start-only draft', async () => {
+    mount();
+    await screen.findByTestId('travel-days-row-1');
+    fireEvent.pointerDown(cellFor('2026-11-18'), { button: 0, pointerType: 'touch' });
+    fireEvent.click(cellFor('2026-11-18'));
+    await openAdd();
+    expect(screen.getByTestId('travel-day-start')).toHaveValue('2026-11-18');
+    expect(screen.getByTestId('travel-day-end')).toHaveValue('');
+  });
+
+  it('does not bring an old fill into the next Add panel, and drops the draft when Add closes', async () => {
+    mount();
+    await openAdd();
+    dragDays('2026-11-16', '2026-11-17');
+    fireEvent.click(screen.getByTestId('travel-add-cancel'));
+    expect(screen.queryByTestId('travel-draft-bar')).not.toBeInTheDocument();
+    await openAdd();
+    expect(screen.getByTestId('travel-day-start')).toHaveValue('');
+    expect(screen.getByTestId('travel-day-end')).toHaveValue('');
   });
 });
 
@@ -198,6 +463,14 @@ describe('TravelDaysView: the hash', () => {
     window.location.hash = '#manage/traveldays/1';
     mount();
     expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Wed 4 Nov → Fri 6 Nov');
+  });
+
+  it('lands the calendar on the deep-linked range\'s month once the ranges have loaded', async () => {
+    window.location.hash = '#manage/traveldays/11';
+    mount([...RANGES, { id: 11, startDate: '2027-01-12', endDate: '2027-01-14', note: null }]);
+    expect(await screen.findByTestId('travel-panel-title')).toHaveTextContent('Tue 12 Jan 2027 → Thu 14 Jan 2027');
+    expect(screen.getByTestId('travel-calendar-month')).toHaveTextContent('January 2027');
+    expect(cellFor('2027-01-13')).toHaveAttribute('aria-selected', 'true');
   });
 
   it('writes the id when a row opens, and the bare tab when the panel closes', async () => {

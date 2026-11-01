@@ -682,6 +682,9 @@ These are in §5.5 and §5.6.
 **Frontend:** `components/traveldays/` with `TravelDaysCalendar`, `TravelDaysListPane`, `TravelRangePanel` and
 `TravelRangeForm`. `TravelDaysView` is rewritten.
 
+> The five-week calendar described below is superseded by `travel-days-calendar-plan.md` (month view, ranges as bars,
+> drag to draft).
+
 **Header and intro:**
 
 - **Header:** "Travel days", then "{n} upcoming", then **Add range** (`btn-secondary`). The invisible `bg-plex-accent`
