@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
+import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
@@ -775,7 +776,7 @@ public class DynamicSchedulerService {
 
     private void rejectIfDisabledByConfig(SchedulerJobConfigEntity config) {
         if (config.getStatus() == SchedulerJobStatus.DISABLED_BY_CONFIG) {
-            throw new IllegalStateException(
+            throw new JobDisabledByConfigException(
                     "Job '" + config.getJobKey() + "' is disabled by config ("
                             + config.getConfigSource() + ")");
         }

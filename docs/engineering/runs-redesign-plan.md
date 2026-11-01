@@ -4,8 +4,9 @@
 (2026-10-31, the two endpoints; see "Built departures (R1)" under §9). **R2a is built** (2026-10-31, the Runs tab, the
 job-run panel and Start a run; see "Built departures (R2a)" under §9). **R2b is built** (2026-11-01, the cycle panel, the live
 strip, the nested batch hash, the live count and the `pipelineruns` fold; see "Built departures (R2b)" under §9). **R3 is
-built** (2026-11-01, Start a run as a choice of runs with inline scope; see "Built departures (R3)" under §9). R4 and R5
-are not yet built.
+built** (2026-11-01, Start a run as a choice of runs with inline scope; see "Built departures (R3)" under §9). **R4 is
+built** (2026-11-01, the Scheduler on the list-and-panel shell with each job's last and recent runs; see "Built
+departures (R4)" under §9). R5 is not yet built.
 
 **Source:** the owner's Claude Design export "PhotoCast Runs" (`design_handoff_runs`: `README.md`, `Runs Redesign.html`,
 `runs-redesign.js`, 14 frames). It lives with the owner, not in the repo. For the life of the planning session it is
@@ -954,6 +955,52 @@ Where the plan's text was ambiguous, or the code made a different call safer, R3
 - **Deleted with the legacy body:** the tide `ConfirmDialog` usage and the batch region `ConfirmDialog` (both inline in `StartRunPanel`; `ConfirmDialog` and `useConfirmDialog` stay, others use them), the `anyRunning`-gated button rows, the emoji labels, and the `indigo-*`, `amber-*`, `green-400` and `red-400` colours (token colours now).
 - **`StartRunPanel`'s props are `onRunStarted(jobRunId)` and `onFinished(message)`** (were `onActiveRunChange` and `onStarted`); `useStartRunState` is unchanged.
 - **Tests deleted** (their subject is gone): the batch dialog's "Submit (n regions)" confirm button text, "n of m regions selected" line and the dialog's own title and description (the option and footer carry them), the tide `ConfirmDialog`'s "Refresh" confirm click, and the "closes on cancel" dialog test (Cancel is now the footer's, which closes the panel). Every other assertion moved to `StartRunPanel.test.jsx`, `RunsView.test.jsx` or `RunProgressKeptAfterFailures.test.jsx`.
+
+### Built departures (R4)
+
+Where the plan's text was ambiguous, or the code made a different call safer, R4 follows these:
+
+- **The jobs list also serves `runGroup`** (`CYCLES`, `TIDE`, `AURORA` or null), beside `lastRun`. A mapped job with no
+  runs yet has a null `lastRun`, so the panel could not tell "no runs yet" from "never attributable" without it; it is
+  also what "All in Runs" filters by (`#manage/runs?kind={runGroup lower}`). `lastRun` is on the list only; the pause,
+  resume and schedule responses carry `runGroup` but no `lastRun`.
+- **`DISABLED_BY_CONFIG` is a 409 for pause and resume as well as trigger.** `rejectIfDisabledByConfig` now throws a
+  `JobDisabledByConfigException` (an `IllegalStateException`, so existing catches still hold), which
+  `GlobalExceptionHandler` maps to 409. An `IllegalStateException` for any other reason (no registered target) stays 500.
+- **The runs are read by `SchedulerRunsService`**, which maps the five jobs once and hands the rows to
+  `AdminRunsService.cycleItems` / `jobItems` (new public methods over the Runs list's own private mapping, so a status
+  reads the same in both places). The jobs list asks for the newest run of each attributable job (up to five queries
+  in all, never one per job in the list); the runs endpoint asks for `limit` of one job's. The batch scope
+  (`batchSummary`) is not derived for these items: the Scheduler never shows it.
+- **`aurora_batch_evaluation` matches by notes as well as by link.** A `SCHEDULED_BATCH` run whose
+  `forecast_batch.job_run_id` was never written is found through its `Anthropic batch: {id}` notes, as the Runs list's
+  own fallback does.
+- **`limit` below 1 or not a number is 400; above 10 is clamped to 10** (the Runs list's `size` rule).
+- **Recent runs read "{started} · {duration}" beside the status dot**, each row an anchor to its Runs panel (a plain
+  link, so it works with the keyboard and a middle click); a running run reads "running" where a duration would be.
+- **The reference point sits in Schedule for a sun-relative job and in Next fires for a cycle job still on cron**, so it
+  is named once. Its sentence (with "Computed {time}") is the old card's.
+- **Next fires shows for the two sun-capable cycle jobs only** (and any job that is sun-relative); the evening refresh,
+  not being sun-capable, has none, but it has the "How sun-relative timing works" disclosure, which is on all three
+  cycle jobs. The fourth note's "(shown above)" and "the job's card" are kept verbatim.
+- **Status chips are a single-select-or-none group** (Paused, Off in config), ANDed with the type chips. A pasted
+  `#manage/scheduler/{key}` is not a filter, so the chips are local state and never written to the hash.
+- **The Next column sorts, and so does Job** (a header press; a sort chip does it in card mode). Paused, off and
+  next-less jobs stay last whichever way Next is sorted.
+- **A failed pause, resume or trigger shows inside the panel** (Job actions), not in the list's banner, which is hidden
+  behind the panel on a phone. A failed first load of the jobs still shows the banner on the list.
+- **Run now's button reads "Run now", then "Started ✓"** for the 2 s (was "Run Now" / "Triggered ✓"); the line under
+  it swaps to "Started. It'll appear in Runs in a moment." for the same 2 s. It is disabled while the job is off in
+  config, in flight or confirmed.
+- **The page-level `<p>Scheduler</p>` title in `ManageView` is gone**: the list pane carries the heading.
+- **`SolarSchedulePanel.jsx` is deleted**, its content moved to `JobSchedule` and `JobNextFires`. The three tests files
+  that pinned the old cards (`SchedulerView.test.jsx`, `SchedulerViewSolar.test.jsx`,
+  `SchedulerViewSolarReview.test.jsx`) were rewritten for the new screen; every assertion about behaviour that survives
+  moved with the same values, and only the test ids and the changed copy differ ("Triggered ✓" to "Started ✓", "Disabled
+  by Config" to "Off in config", "Switch back to fixed time..." to "Switch back to a fixed time…", "Last run: 3 min ago"
+  to "fired · 3 min ago", "Requires:" to "Requires"). Dropped with their subject: the old card layout test ids
+  (`scheduler-job-{key}`, `status-pill-{key}`), the always-on notes list (now a disclosure), and the page-level
+  "Sun-relative forecast cycles" card with its heading and "Read-only" line.
 
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 

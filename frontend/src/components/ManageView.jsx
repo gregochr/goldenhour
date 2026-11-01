@@ -454,8 +454,7 @@ export default function ManageView({ onComplete }) {
         )}
 
         {activeTab === 'scheduler' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Scheduler</p>
+          <div className="card">
             <SchedulerView />
           </div>
         )}

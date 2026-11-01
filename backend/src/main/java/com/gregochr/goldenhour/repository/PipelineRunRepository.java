@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -28,6 +29,16 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
      * @return matching runs ordered by trigger time descending
      */
     List<PipelineRunEntity> findByStatusOrderByTriggerTimeDesc(PipelineRunStatus status);
+
+    /**
+     * The newest runs of one cycle type, newest first, ties by id descending. Backs the Scheduler's recent
+     * runs for the three cycle jobs.
+     *
+     * @param cycleType the cycle type
+     * @param pageable  the page (used as a row cap)
+     * @return the runs, newest trigger first
+     */
+    List<PipelineRunEntity> findByCycleTypeOrderByTriggerTimeDescIdDesc(CycleType cycleType, Pageable pageable);
 
     /**
      * Returns the most recent N pipeline runs regardless of status.

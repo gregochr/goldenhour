@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.repository;
 
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import org.springframework.data.domain.Pageable;
@@ -128,4 +129,36 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
      * @return the open runs
      */
     List<JobRunEntity> findByCompletedAtIsNullAndStartedAtGreaterThanEqual(LocalDateTime since);
+
+    /**
+     * The newest runs of a type started by the scheduler or by a person, newest first. Backs the
+     * Scheduler's recent runs for {@code tide_refresh} (scheduled TIDE runs only).
+     *
+     * @param runType           the run type
+     * @param triggeredManually true for runs a person started, false for scheduled ones
+     * @param pageable          the page (used as a row cap)
+     * @return the runs, newest first, ties by id descending
+     */
+    List<JobRunEntity> findByRunTypeAndTriggeredManuallyOrderByStartedAtDescIdDesc(RunType runType,
+            Boolean triggeredManually, Pageable pageable);
+
+    /**
+     * The newest runs of a type whose Anthropic batch is of the given type, newest first. A run is matched
+     * through {@code forecast_batch.job_run_id}, or, when that link was never written, through the
+     * {@code "Anthropic batch: {id}"} its {@code notes} carry. Backs the Scheduler's recent runs for
+     * {@code aurora_batch_evaluation}, whose runs are {@code SCHEDULED_BATCH} like the forecast batches'.
+     *
+     * @param runType   the run type (SCHEDULED_BATCH)
+     * @param batchType the batch type (AURORA)
+     * @param pageable  the page (used as a row cap)
+     * @return the runs, newest first, ties by id descending
+     */
+    @Query("SELECT j FROM JobRunEntity j WHERE j.runType = :runType AND ("
+            + "j.id IN (SELECT b.jobRunId FROM ForecastBatchEntity b "
+            + "WHERE b.batchType = :batchType AND b.jobRunId IS NOT NULL) "
+            + "OR j.notes IN (SELECT CONCAT('Anthropic batch: ', b2.anthropicBatchId) FROM ForecastBatchEntity b2 "
+            + "WHERE b2.batchType = :batchType AND b2.jobRunId IS NULL)) "
+            + "ORDER BY j.startedAt DESC, j.id DESC")
+    List<JobRunEntity> findByRunTypeAndBatchType(@Param("runType") RunType runType,
+            @Param("batchType") ForecastBatchEntity.BatchType batchType, Pageable pageable);
 }

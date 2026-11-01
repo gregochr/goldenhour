@@ -1,9 +1,16 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
+import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
+import com.gregochr.goldenhour.model.runs.NoteTone;
+import com.gregochr.goldenhour.model.runs.RunGroup;
+import com.gregochr.goldenhour.model.runs.RunKind;
+import com.gregochr.goldenhour.model.runs.RunListItem;
+import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,13 +19,19 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -395,6 +408,119 @@ class SchedulerControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].solarOffsetMinutes").value(240))
                 .andExpect(jsonPath("$[1].solarEvent").value(""))
                 .andExpect(jsonPath("$[1].solarOffsetMinutes").value(0));
+    }
+
+    // -------------------------------------------------------------------------
+    // Runs redesign R4: lastRun, runGroup, recent runs, 409 on a job switched off in config
+    // -------------------------------------------------------------------------
+
+    private static RunListItem runItem(long id) {
+        return new RunListItem(RunKind.CYCLE, id, RunGroup.CYCLES, "Overnight cycle",
+                Instant.parse("2026-11-01T01:12:00Z"), Instant.parse("2026-11-01T03:30:00Z"), 8280L,
+                RunListStatus.DEGRADED, "Briefing skipped", NoteTone.WARN, 1_000_000L, 0.79, 3, 3, null, null, null,
+                CycleType.NIGHTLY, 3, null, null, null);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs carries lastRun and runGroup: set for a mapped job, null (never absent) for the rest")
+    void listJobs_carriesLastRunAndRunGroup() throws Exception {
+        SchedulerJobConfigEntity nightly = buildConfig("near_term_batch_evaluation", ScheduleType.CRON,
+                "0 0 1 * * *", null, SchedulerJobStatus.ACTIVE);
+        SchedulerJobConfigEntity polling = buildConfig("aurora_polling", ScheduleType.FIXED_DELAY,
+                null, 300000L, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.getAll()).thenReturn(List.of(nightly, polling));
+        when(schedulerRunsService.lastRuns(List.of("near_term_batch_evaluation", "aurora_polling")))
+                .thenReturn(Map.of("near_term_batch_evaluation", runItem(412L)));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].runGroup").value("CYCLES"))
+                .andExpect(jsonPath("$[0].lastRun.id").value(412))
+                .andExpect(jsonPath("$[0].lastRun.kind").value("CYCLE"))
+                .andExpect(jsonPath("$[0].lastRun.status").value("DEGRADED"))
+                .andExpect(jsonPath("$[1].runGroup").value(nullValue()))
+                .andExpect(jsonPath("$[1].lastRun").value(nullValue()))
+                .andExpect(jsonPath("$[1]", hasKey("lastRun")))
+                .andExpect(jsonPath("$[1]", hasKey("runGroup")));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/runs serves the service's runs, three by default")
+    void jobRuns_defaultsToThree() throws Exception {
+        when(schedulerRunsService.recentRunsForJob("tide_refresh", 3))
+                .thenReturn(Optional.of(List.of(runItem(7L), runItem(6L))));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].id").value(7))
+                .andExpect(jsonPath("$[1].id").value(6));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/runs honours a limit up to 10 and clamps anything larger to 10")
+    void jobRuns_limitIsClampedToTheMaximum() throws Exception {
+        when(schedulerRunsService.recentRunsForJob("tide_refresh", 5)).thenReturn(Optional.of(List.of()));
+        when(schedulerRunsService.recentRunsForJob("tide_refresh", 10)).thenReturn(Optional.of(List.of()));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=5")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=10")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=500")).andExpect(status().isOk());
+
+        verify(schedulerRunsService).recentRunsForJob("tide_refresh", 5);
+        verify(schedulerRunsService, times(2)).recentRunsForJob("tide_refresh", 10);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/runs refuses a limit below 1 or not a number with 400")
+    void jobRuns_badLimitIs400() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=-2"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs?limit=abc"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/runs answers 404 for a job the scheduler does not know")
+    void jobRuns_unknownJobIs404() throws Exception {
+        when(schedulerRunsService.recentRunsForJob("nonexistent", 3)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/nonexistent/runs"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET jobs/{key}/runs is forbidden to a non-admin")
+    void jobRuns_forbiddenForNonAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/runs"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST trigger answers 409, not 500, for a job switched off in config; pause and resume likewise")
+    void disabledByConfigIs409() throws Exception {
+        JobDisabledByConfigException off = new JobDisabledByConfigException(
+                "Job 'aurora_polling' is disabled by config (photocast.aurora.enabled)");
+        doThrow(off).when(schedulerService).triggerNow("aurora_polling");
+        when(schedulerService.pause("aurora_polling")).thenThrow(off);
+        when(schedulerService.resume("aurora_polling")).thenThrow(off);
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/aurora_polling/trigger"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(off.getMessage()));
+        mockMvc.perform(post("/api/admin/scheduler/jobs/aurora_polling/pause"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/admin/scheduler/jobs/aurora_polling/resume"))
+                .andExpect(status().isConflict());
     }
 
     private static SchedulerJobConfigEntity buildConfig(String jobKey, ScheduleType type,
