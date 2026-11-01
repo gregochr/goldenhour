@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.model.TravelDayRequest;
 import com.gregochr.goldenhour.model.TravelDayResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,8 +13,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -52,7 +51,8 @@ class TravelDayControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/admin/travel-days returns 201 for ADMIN")
     void add_returns201ForAdmin() throws Exception {
-        when(travelDayService.add(any())).thenReturn(new TravelDayResponse(
+        when(travelDayService.add(new TravelDayRequest(
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 3), "London"))).thenReturn(new TravelDayResponse(
                 5L, LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 3), "London"));
 
         mockMvc.perform(post("/api/admin/travel-days")
@@ -61,13 +61,16 @@ class TravelDayControllerTest extends AbstractControllerTest {
                                 + "\"note\":\"London\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(5));
+        verify(travelDayService).add(new TravelDayRequest(
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 3), "London"));
     }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/admin/travel-days returns 400 for an inverted range")
     void add_returns400ForInvalidRange() throws Exception {
-        when(travelDayService.add(any()))
+        when(travelDayService.add(new TravelDayRequest(
+                LocalDate.of(2026, 7, 3), LocalDate.of(2026, 7, 1), null)))
                 .thenThrow(new IllegalArgumentException("endDate must not be before startDate"));
 
         mockMvc.perform(post("/api/admin/travel-days")
@@ -138,7 +141,8 @@ class TravelDayControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST returns 400 for a 201-character note")
     void add_returns400ForLongNote() throws Exception {
-        when(travelDayService.add(any()))
+        when(travelDayService.add(new TravelDayRequest(
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 3), "x".repeat(201))))
                 .thenThrow(new IllegalArgumentException("note must be at most 200 characters"));
 
         mockMvc.perform(post("/api/admin/travel-days")
@@ -153,7 +157,8 @@ class TravelDayControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("PUT returns 200 with the updated range")
     void update_returns200() throws Exception {
-        when(travelDayService.update(eq(5L), any())).thenReturn(new TravelDayResponse(
+        when(travelDayService.update(5L, new TravelDayRequest(
+                LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), "Leeds"))).thenReturn(new TravelDayResponse(
                 5L, LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), "Leeds"));
 
         mockMvc.perform(put("/api/admin/travel-days/5")
@@ -161,13 +166,16 @@ class TravelDayControllerTest extends AbstractControllerTest {
                         .content("{\"startDate\":\"2026-07-02\",\"endDate\":\"2026-07-04\",\"note\":\"Leeds\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.note").value("Leeds"));
+        verify(travelDayService).update(5L, new TravelDayRequest(
+                LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), "Leeds"));
     }
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("PUT returns 400 for a 201-character note")
     void update_returns400() throws Exception {
-        when(travelDayService.update(eq(5L), any()))
+        when(travelDayService.update(5L, new TravelDayRequest(
+                LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), "x".repeat(201))))
                 .thenThrow(new IllegalArgumentException("note must be at most 200 characters"));
 
         mockMvc.perform(put("/api/admin/travel-days/5")
@@ -182,7 +190,9 @@ class TravelDayControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("PUT returns 404 when the range is missing")
     void update_returns404WhenMissing() throws Exception {
-        when(travelDayService.update(eq(99L), any())).thenThrow(new NoSuchElementException("none"));
+        when(travelDayService.update(99L, new TravelDayRequest(
+                LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), null)))
+                .thenThrow(new NoSuchElementException("none"));
 
         mockMvc.perform(put("/api/admin/travel-days/99")
                         .contentType(MediaType.APPLICATION_JSON)

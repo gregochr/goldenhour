@@ -174,7 +174,10 @@ class TravelDayServiceTest {
 
         when(repository.save(any(TravelDayEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         service.add(new TravelDayRequest(d, d, "x".repeat(200)));
-        verify(repository).save(any(TravelDayEntity.class));
+        ArgumentCaptor<TravelDayEntity> saved = ArgumentCaptor.forClass(TravelDayEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getNote()).isEqualTo("x".repeat(200));
+        assertThat(saved.getValue().getStartDate()).isEqualTo(d);
         verify(servedEpoch).bump();
     }
 
