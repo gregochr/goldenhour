@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.config.CoastalMistProperties;
 import com.gregochr.goldenhour.config.InversionProperties;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -13,6 +14,8 @@ import com.gregochr.goldenhour.model.BluebellConditionScore;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.SeasonalWindow;
 import com.gregochr.goldenhour.model.CloudPointCache;
+import com.gregochr.goldenhour.model.CoastalMistBand;
+import com.gregochr.goldenhour.model.CoastalMistResult;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.model.MistPotential;
@@ -69,6 +72,7 @@ public class ForecastDataAugmentor {
     private final BluebellConditionService bluebellConditionService;
     private final SeasonalWindow bluebellSeason;
     private final InversionProperties inversionProperties;
+    private final CoastalMistProperties coastalMistProperties;
 
     /**
      * Constructs a {@code ForecastDataAugmentor} with the services needed for data enrichment, with the v2
@@ -91,11 +95,13 @@ public class ForecastDataAugmentor {
             BluebellConditionService bluebellConditionService,
             SeasonalWindow bluebellSeason) {
         this(openMeteoService, solarService, tideService, tideFactDeriver, weatherAugmentedTideService,
-                surgeCalibrationLogger, bluebellConditionService, bluebellSeason, new InversionProperties());
+                surgeCalibrationLogger, bluebellConditionService, bluebellSeason, new InversionProperties(),
+                new CoastalMistProperties());
     }
 
     /**
-     * Constructs a {@code ForecastDataAugmentor} with the v2 inversion switches supplied.
+     * Constructs a {@code ForecastDataAugmentor} with the v2 inversion switches supplied and the coastal mist
+     * switch at its default (on).
      *
      * @param openMeteoService             retrieves directional cloud data from Open-Meteo
      * @param solarService                 calculates solar event times and golden/blue windows
@@ -107,7 +113,6 @@ public class ForecastDataAugmentor {
      * @param bluebellSeason               the configured bluebell season window
      * @param inversionProperties          the v2 inversion switches ({@code photocast.inversion})
      */
-    @Autowired
     public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
             TideService tideService,
             TideFactDeriver tideFactDeriver,
@@ -116,6 +121,35 @@ public class ForecastDataAugmentor {
             BluebellConditionService bluebellConditionService,
             SeasonalWindow bluebellSeason,
             InversionProperties inversionProperties) {
+        this(openMeteoService, solarService, tideService, tideFactDeriver, weatherAugmentedTideService,
+                surgeCalibrationLogger, bluebellConditionService, bluebellSeason, inversionProperties,
+                new CoastalMistProperties());
+    }
+
+    /**
+     * Constructs a {@code ForecastDataAugmentor} with the v2 inversion and coastal mist switches supplied.
+     *
+     * @param openMeteoService             retrieves directional cloud data from Open-Meteo
+     * @param solarService                 calculates solar event times and golden/blue windows
+     * @param tideService                  fetches tide data for coastal locations
+     * @param tideFactDeriver              the single seam for deriving tide facts (snapshot)
+     * @param weatherAugmentedTideService  storm surge calculation service
+     * @param surgeCalibrationLogger       structured logging for surge calibration
+     * @param bluebellConditionService     scores bluebell photography conditions
+     * @param bluebellSeason               the configured bluebell season window
+     * @param inversionProperties          the v2 inversion switches ({@code photocast.inversion})
+     * @param coastalMistProperties        the coastal mist switch ({@code photocast.coastal-mist})
+     */
+    @Autowired
+    public ForecastDataAugmentor(OpenMeteoService openMeteoService, SolarService solarService,
+            TideService tideService,
+            TideFactDeriver tideFactDeriver,
+            WeatherAugmentedTideService weatherAugmentedTideService,
+            SurgeCalibrationLogger surgeCalibrationLogger,
+            BluebellConditionService bluebellConditionService,
+            SeasonalWindow bluebellSeason,
+            InversionProperties inversionProperties,
+            CoastalMistProperties coastalMistProperties) {
         this.openMeteoService = openMeteoService;
         this.solarService = solarService;
         this.tideService = tideService;
@@ -125,6 +159,7 @@ public class ForecastDataAugmentor {
         this.bluebellConditionService = bluebellConditionService;
         this.bluebellSeason = bluebellSeason;
         this.inversionProperties = inversionProperties;
+        this.coastalMistProperties = coastalMistProperties;
     }
 
     /**
@@ -594,6 +629,38 @@ public class ForecastDataAugmentor {
         MistPotential potential = ValleyMistCalculator.classify(base, score);
         LOG.debug("Valley mist score for {}: {}/10 ({})", base.locationName(), score, potential);
         return base.withValleyMist(score, potential);
+    }
+
+    /**
+     * Bands the event slot for a light sea mist at a coastal site (coastal-mist-plan Phase 1) and attaches the
+     * carrier. Runs only where {@link CoastalMistCalculator#appliesTo} holds (the location has tide types and
+     * is not {@code mist_prone}) and {@code photocast.coastal-mist.enabled} is true; otherwise {@code base} is
+     * returned unchanged with a null carrier, so the writer stores a null band and {@code coastal_mist_scored
+     * = false}. Never reads {@code base.tide()}: a failed tide fetch must not drop the band.
+     *
+     * <p>Logs one {@code [COASTAL MIST]} line per slot: INFO when the band is not NONE, DEBUG for NONE.
+     *
+     * @param base     atmospheric data to augment
+     * @param location the location being forecast
+     * @param date     the forecast date (for the log line)
+     * @return a new {@link AtmosphericData} carrying the coastal mist result, or {@code base} unchanged
+     */
+    public AtmosphericData augmentWithCoastalMist(AtmosphericData base, LocationEntity location,
+            LocalDate date) {
+        if (!coastalMistProperties.isEnabled() || !CoastalMistCalculator.appliesTo(location)) {
+            return base;
+        }
+        CoastalMistResult result = CoastalMistCalculator.calculate(base);
+        if (result.band() == CoastalMistBand.NONE) {
+            LOG.debug("[COASTAL MIST] {} {} {} vis={} gap={} low={} band={}", base.locationName(), date,
+                    base.targetType(), result.visibilityMetres(), result.gapC(), result.lowCloudPct(),
+                    result.band());
+        } else {
+            LOG.info("[COASTAL MIST] {} {} {} vis={} gap={} low={} band={}", base.locationName(), date,
+                    base.targetType(), result.visibilityMetres(), result.gapC(), result.lowCloudPct(),
+                    result.band());
+        }
+        return base.withCoastalMist(result);
     }
 
     /**

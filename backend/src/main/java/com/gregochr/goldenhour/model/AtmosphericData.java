@@ -37,6 +37,9 @@ import java.time.LocalDateTime;
  * @param inversionV2             the v2 inversion carrier (valley profile and, once scored, its result), or
  *                                null for a site with no valley floor or no profile; read by the inversion
  *                                path only, never by valley mist
+ * @param coastalMist             the coastal mist carrier (band and the readings it came from), or null when
+ *                                the check did not run (switch off, inland, or a {@code mist_prone} site);
+ *                                appended last, read by the coastal mist path only, never by valley mist
  */
 public record AtmosphericData(
         String locationName,
@@ -61,7 +64,51 @@ public record AtmosphericData(
         PressureTrend pressureTrend,
         Double mistScore,
         MistPotential mistPotential,
-        InversionV2Result inversionV2) {
+        InversionV2Result inversionV2,
+        CoastalMistResult coastalMist) {
+
+    /**
+     * Backward-compatible constructor at the arity that predates the coastal mist carrier: it reads as absent.
+     *
+     * @param locationName            human-readable location name
+     * @param solarEventTime          UTC time of the solar event
+     * @param targetType              SUNRISE or SUNSET
+     * @param cloud                   observer-point cloud cover
+     * @param weather                 core weather observations
+     * @param aerosol                 aerosol measurements
+     * @param comfort                 comfort metrics
+     * @param directionalCloud        directional cloud data, or null
+     * @param tide                    tide snapshot, or null
+     * @param cloudApproach           cloud approach data, or null
+     * @param mistTrend               mist trend, or null
+     * @param locationOrientation     orientation hint, or null
+     * @param surge                   storm surge breakdown, or null
+     * @param adjustedRangeMetres     surge-adjusted tidal range, or null
+     * @param astronomicalRangeMetres astronomical tidal range, or null
+     * @param inversionScore          cloud inversion score, or null
+     * @param bluebellConditionScore  bluebell condition score, or null
+     * @param stability               forecast stability, or null
+     * @param stabilityReason         stability signal summary, or null
+     * @param pressureTrend           pressure trend, or null
+     * @param mistScore               valley mist score, or null
+     * @param mistPotential           valley mist band, or null
+     * @param inversionV2             the v2 inversion carrier, or null
+     */
+    public AtmosphericData(
+            String locationName, LocalDateTime solarEventTime, TargetType targetType,
+            CloudData cloud, WeatherData weather, AerosolData aerosol, ComfortData comfort,
+            DirectionalCloudData directionalCloud, TideSnapshot tide,
+            CloudApproachData cloudApproach, MistTrend mistTrend, String locationOrientation,
+            StormSurgeBreakdown surge, Double adjustedRangeMetres, Double astronomicalRangeMetres,
+            Double inversionScore, BluebellConditionScore bluebellConditionScore,
+            ForecastStability stability, String stabilityReason, PressureTrend pressureTrend,
+            Double mistScore, MistPotential mistPotential, InversionV2Result inversionV2) {
+        this(locationName, solarEventTime, targetType, cloud, weather, aerosol, comfort,
+                directionalCloud, tide, cloudApproach, mistTrend, locationOrientation, surge,
+                adjustedRangeMetres, astronomicalRangeMetres, inversionScore,
+                bluebellConditionScore, stability, stabilityReason, pressureTrend, mistScore,
+                mistPotential, inversionV2, null);
+    }
 
     /**
      * Backward-compatible constructor at the arity that predates the v2 inversion carrier: it reads as absent.
@@ -102,7 +149,7 @@ public record AtmosphericData(
                 directionalCloud, tide, cloudApproach, mistTrend, locationOrientation, surge,
                 adjustedRangeMetres, astronomicalRangeMetres, inversionScore,
                 bluebellConditionScore, stability, stabilityReason, pressureTrend, mistScore,
-                mistPotential, null);
+                mistPotential, null, null);
     }
 
     /**
@@ -209,7 +256,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, dc, tide, cloudApproach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
                 inversionScore, bluebellConditionScore, stability, stabilityReason,
-                pressureTrend, mistScore, mistPotential, inversionV2);
+                pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -223,7 +270,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tideSnapshot, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, inversionScore, bluebellConditionScore,
-                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2);
+                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -237,7 +284,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, approach, mistTrend,
                 locationOrientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
                 inversionScore, bluebellConditionScore, stability, stabilityReason,
-                pressureTrend, mistScore, mistPotential, inversionV2);
+                pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -251,7 +298,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, orientation, surge, adjustedRangeMetres, astronomicalRangeMetres,
                 inversionScore, bluebellConditionScore, stability, stabilityReason,
-                pressureTrend, mistScore, mistPotential, inversionV2);
+                pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -268,7 +315,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surgeBreakdown, adjustedRange, astronomicalRange,
                 inversionScore, bluebellConditionScore, stability, stabilityReason,
-                pressureTrend, mistScore, mistPotential, inversionV2);
+                pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -282,7 +329,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, score, bluebellConditionScore,
-                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2);
+                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -296,7 +343,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, inversionScore, score,
-                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2);
+                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -311,7 +358,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, inversionScore, bluebellConditionScore,
-                forecastStability, reason, pressureTrend, mistScore, mistPotential, inversionV2);
+                forecastStability, reason, pressureTrend, mistScore, mistPotential, inversionV2, coastalMist);
     }
 
     /**
@@ -326,7 +373,7 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, inversionScore, bluebellConditionScore,
-                stability, stabilityReason, pressureTrend, score, potential, inversionV2);
+                stability, stabilityReason, pressureTrend, score, potential, inversionV2, coastalMist);
     }
 
     /**
@@ -340,6 +387,20 @@ public record AtmosphericData(
                 cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
                 mistTrend, locationOrientation, surge, adjustedRangeMetres,
                 astronomicalRangeMetres, inversionScore, bluebellConditionScore,
-                stability, stabilityReason, pressureTrend, mistScore, mistPotential, v2);
+                stability, stabilityReason, pressureTrend, mistScore, mistPotential, v2, coastalMist);
+    }
+
+    /**
+     * Returns a copy with the coastal mist carrier set.
+     *
+     * @param result the carrier, or null
+     * @return a new instance with the carrier populated
+     */
+    public AtmosphericData withCoastalMist(CoastalMistResult result) {
+        return new AtmosphericData(locationName, solarEventTime, targetType,
+                cloud, weather, aerosol, comfort, directionalCloud, tide, cloudApproach,
+                mistTrend, locationOrientation, surge, adjustedRangeMetres,
+                astronomicalRangeMetres, inversionScore, bluebellConditionScore,
+                stability, stabilityReason, pressureTrend, mistScore, mistPotential, inversionV2, result);
     }
 }

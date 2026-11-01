@@ -187,6 +187,24 @@ public class SlotAtmosphereEntity {
     @Column(name = "mist_potential", length = 10)
     private String mistPotential;
 
+    /**
+     * The coastal mist band's enum NAME ({@code NONE}/{@code LIGHT}/{@code THICK}, coastal-mist-plan Phase 1),
+     * or null when the check did not run for this write (switch off, an inland site, a {@code mist_prone}
+     * site). Written on every write. A plain string, as {@link #mistPotential} is: no {@code @Enumerated}, so
+     * no {@code LocalH2EnumWidener} entry. Always paired with {@link #coastalMistScored}.
+     */
+    @Column(name = "coastal_mist_band", length = 10)
+    private String coastalMistBand;
+
+    /**
+     * True when THIS row was produced by a write that ran the coastal mist check this cycle, whatever the
+     * band; false for a row written before the column and for a write where the check did not run (the
+     * {@link #mistScored} pattern, except that here a skipped check is false rather than an authoritative
+     * null). When true, {@link #coastalMistBand} is never null.
+     */
+    @Column(name = "coastal_mist_scored", nullable = false)
+    private boolean coastalMistScored;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

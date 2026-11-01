@@ -7,6 +7,9 @@ import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.CoastalMistBand;
+import com.gregochr.goldenhour.model.CoastalMistResult;
+import com.gregochr.goldenhour.service.CoastalMistCalculator;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.model.InversionClearance;
@@ -679,6 +682,13 @@ public class PromptBuilder {
             appendValleyMistConditions(sb, data);
         }
 
+        // Coastal mist (coastal-mist-plan Phase 1): one hedged line, only for a LIGHT band at a coastal,
+        // non-mist_prone site (data.coastalMist() is null for every other site and whenever the switch is
+        // off, and THICK/NONE say nothing), so every other prompt is byte-identical. Placed in the user
+        // message, never the system prompt or the coastal suffix, which are cache prefixes. It never asks
+        // Claude for mist_potential and never uses the valley mist wording.
+        appendCoastalMistLine(sb, data.coastalMist());
+
         // Bluebell left the standard prompt in Pass 3 — it has its own prompt
         // (BluebellPromptBuilder) and visitor. The standard prompt scores the sky alone.
 
@@ -933,6 +943,31 @@ public class PromptBuilder {
         return hoursRelativeToEvent < 0
                 ? "T" + hoursRelativeToEvent + "h"
                 : "T+" + hoursRelativeToEvent + "h";
+    }
+
+    /**
+     * Appends the coastal mist line when the band is {@link CoastalMistBand#LIGHT}, and nothing otherwise.
+     *
+     * <p>Visibility is floored (not rounded) to 0.1 km in integer arithmetic, so 5,960 m reads "about 5.9 km"
+     * and never rounds up across a band edge. With low cloud of
+     * {@value CoastalMistCalculator#GREY_LID_LOW_CLOUD_PERCENT} % or more, " under a grey lid" follows
+     * "is likely".
+     *
+     * @param sb      the prompt under construction
+     * @param coastal the coastal mist carrier, or null
+     */
+    private static void appendCoastalMistLine(StringBuilder sb, CoastalMistResult coastal) {
+        if (coastal == null || coastal.band() != CoastalMistBand.LIGHT || coastal.visibilityMetres() == null) {
+            return;
+        }
+        int tenthsOfKm = coastal.visibilityMetres() / 100;
+        boolean greyLid = coastal.lowCloudPct() != null
+                && coastal.lowCloudPct() >= CoastalMistCalculator.GREY_LID_LOW_CLOUD_PERCENT;
+        sb.append(String.format(
+                "%nCoastal mist: the model shows about %d.%d km visibility with near-saturated air, so a light "
+                + "sea mist is likely%s, softening the light and adding depth. It can be the shot here; the "
+                + "model sometimes misses thicker fret.",
+                tenthsOfKm / 10, tenthsOfKm % 10, greyLid ? " under a grey lid" : ""));
     }
 
     /**

@@ -169,10 +169,14 @@ class ScheduledForecastServiceTest {
         TideSourceChange saltburnChange = new TideSourceChange("Saltburn", "atlas FES2022 -> FES2024", List.of());
         when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(staithesChange);
         when(tideService.fetchAndStoreTideExtremes(saltburn, null)).thenReturn(saltburnChange);
+        // The unchanged location returns no change: stubbed explicitly so its call is not a strict-stubs
+        // argument mismatch that the refresh's per-location catch would swallow and count as a failure.
+        when(tideService.fetchAndStoreTideExtremes(clean, null)).thenReturn(null);
 
         scheduledForecastService.refreshTideExtremes();
 
         verify(adminAlertService, times(1)).sendTideSourceChangeAlert(List.of(staithesChange, saltburnChange));
+        verify(jobRunService).completeRun(null, 3, 0);
     }
 
     @Test

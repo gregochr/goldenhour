@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.CoastalMistBand;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
@@ -205,7 +206,9 @@ public class SlotSignalReader {
                             readings.getTemperatureCelsius(), readings.getInversionScore(),
                             readings.isInversionScored(),
                             readings.getMistScore(), readings.isMistScored(),
-                            SlotSignals.Readings.parsePotential(readings.getMistPotential()));
+                            SlotSignals.Readings.parsePotential(readings.getMistPotential()),
+                            CoastalMistBand.parse(readings.getCoastalMistBand()),
+                            readings.isCoastalMistScored());
             return new SlotSignals(location, date, eventType, scores, r);
         }
     }

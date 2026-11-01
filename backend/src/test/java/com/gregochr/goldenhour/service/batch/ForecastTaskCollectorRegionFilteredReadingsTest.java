@@ -59,6 +59,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -219,6 +220,15 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 .thenReturn(LocalDateTime.of(2026, 1, 1, 5, 30));
     }
 
+    /**
+     * Stubs the coastal mist step for the one test that reaches it: the shared weather data, this test's
+     * location and date, passed straight through. Strict stubs fail a test that never reaches the step.
+     */
+    private void passCoastalMist(LocationEntity location, LocalDate date) {
+        when(augmentor.augmentWithCoastalMist(eq(sharedWeatherData), eq(location), eq(date)))
+                .thenReturn(sharedWeatherData);
+    }
+
     @Test
     @DisplayName("a slot triaged out in collectRegionFilteredBatches still gets its atmospheric "
             + "readings written")
@@ -227,6 +237,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, today);
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(forecastEvaluationRepository.save(any()))
@@ -252,6 +263,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate farOut = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK).plusDays(4);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(farOut, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, farOut);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         RegionFilteredBatchTasks result =
@@ -275,6 +287,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing())
                 .thenReturn(briefingWithSlot(today, "Houghall Woods"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, today);
         // Clear day — colour triage would pass this candidate through if it were ever asked.
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
@@ -298,6 +311,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing())
                 .thenReturn(briefingWithSlot(today, "Houghall Woods"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, today);
         // Overcast — the colour triage stands this down. The scheduled loop's own woodland lane
         // ignores this verdict entirely (a wood wants exactly this weather); this path must
         // reach the identical outcome: excluded from the sky bucket regardless of what colour
@@ -322,6 +336,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, today);
         when(weatherTriageEvaluator.evaluate(sharedWeatherData))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today))).thenReturn(tideSnapshot);
@@ -343,6 +358,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.today(CLOCK);
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
+        passCoastalMist(location, today);
         when(weatherTriageEvaluator.evaluate(sharedWeatherData))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today)))
