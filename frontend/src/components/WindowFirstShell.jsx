@@ -2,7 +2,7 @@ import React, {
   lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
-import { askEntryPrompt } from '../utils/askEntryPrompt.js';
+import { ASK_PROMPT } from '../utils/askModel.js';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import MastheadTickLine from './MastheadTickLine.jsx';
@@ -438,7 +438,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
-    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked, upcomingEvents, travelDayDates,
+    comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked,
     allowedLocationIds,
   } = useWindowFirstBriefing();
   const { openSubRegions } = useSubRegionStatus();
@@ -640,11 +640,6 @@ export default function WindowFirstShell({
    * {@code activeTab} is still {@code null}.
    */
   const effectiveTab = tabs.some((t) => t.id === requestedTab) ? requestedTab : tabs[0].id;
-  // The Ask bar's prompt, by tab (design README, "Where Ask lives"): Plan's follows the matrix's windows.
-  const askEntryText = useMemo(
-    () => askEntryPrompt(effectiveTab, upcomingEvents, travelDayDates),
-    [effectiveTab, upcomingEvents, travelDayDates],
-  );
   /**
    * The shell→App channel the full-frame Map tab needs (map-tab-v2-plan.md §3 P7's first owner).
    * `App` recasts its whole page as a flex column on the map tab (dropping `<main>`'s own padding
@@ -2603,7 +2598,7 @@ export default function WindowFirstShell({
       {askEntry === 'field' && (
         <AskField
           width={260}
-          prompt={askEntryText}
+          prompt={ASK_PROMPT}
           disabled={askBlocked}
           locked={askLocked}
           expanded={askSheetShown}
@@ -2622,7 +2617,7 @@ export default function WindowFirstShell({
           width={askFieldWidth}
           showKeyHint={askSurface === 'wide'}
           keyShortcut
-          prompt={askEntryText}
+          prompt={ASK_PROMPT}
           disabled={askBlocked}
           locked={askLocked}
           expanded={askDockShown}
@@ -3006,7 +3001,7 @@ export default function WindowFirstShell({
           where `askEntry` says (plan §2.6). */}
       {askEntry === 'bar' && (
         <AskBar
-          prompt={askEntryText}
+          prompt={ASK_PROMPT}
           disabled={askBlocked}
           locked={askLocked}
           expanded={askSheetShown}

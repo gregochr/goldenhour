@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import { refShape } from './askShapes.js';
+import { ASK_PROMPT } from '../../utils/askModel.js';
 
 /**
  * The Ask field at the right end of the tab row (design README, "Where Ask lives": the 340 × 34 px
@@ -56,7 +57,7 @@ import { refShape } from './askShapes.js';
  */
 export default function AskField({
   onOpen, width = 260, showKeyHint = false, keyShortcut = false, disabled = false, locked = false, expanded = false,
-  prompt = 'Ask about the forecasts…', buttonRef = undefined, controls = undefined,
+  prompt = ASK_PROMPT, buttonRef = undefined, controls = undefined,
   upsellOpen = false, upsellId = undefined, onKeyDown = undefined,
 }) {
   let popup;

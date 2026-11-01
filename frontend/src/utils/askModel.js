@@ -35,6 +35,9 @@ import { windowKey } from './windowKeys.js';
  * <p>No module-level state: a logout must not carry an answer to the next reader.
  */
 
+/** The one prompt every Ask entry (bar, field, peek row) and the input's placeholder read. */
+export const ASK_PROMPT = 'Ask PhotoCast…';
+
 /** The input's placeholder once typed questions are off for the day (design State 7). */
 export const READY_ONLY_PLACEHOLDER = 'Ready questions only today';
 

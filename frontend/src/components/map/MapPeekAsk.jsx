@@ -3,7 +3,7 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
-import { SETTLED_PHASES } from '../../utils/askModel.js';
+import { ASK_PROMPT, SETTLED_PHASES } from '../../utils/askModel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { NEW_CONVERSATION_HINT, NEW_CONVERSATION_LABEL } from '../ask/AskClearAnswer.jsx';
 import { AskUpsellContent } from '../ask/AskUpsell.jsx';
@@ -11,8 +11,8 @@ import AskConversation from '../ask/AskConversation.jsx';
 import AskInputRow from '../ask/AskInputRow.jsx';
 import { objectRefShape, planActionsShape } from '../ask/askShapes.js';
 
-/** The collapsed row's prompt (design `Map Ask in Peek.html`: "Ask about what’s on the map…"). */
-export const PEEK_ASK_PROMPT = 'Ask about what’s on the map…';
+/** The collapsed row's prompt: the one Ask prompt, same as every other entry. */
+export const PEEK_ASK_PROMPT = ASK_PROMPT;
 
 /** The view chip's words before the Map pane has published a context (no briefing yet). */
 const FALLBACK_VIEW_LABEL = 'Map · all regions';
@@ -29,8 +29,7 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * (the one gate, {@code openMapMenu}) and tells this component the {@code mode} the sheet is in
  * ({@code utils/askPeek.js}); this component draws that mode and reports the reader's presses.
  * <ul>
- *   <li><b>collapsed / section / minimised</b> — the row is a BUTTON, "ASK · Ask about what’s on the
- *       map… ↑", that opens the Ask section. A refusal's sentence ({@code inputError}) that arrived while
+ *   <li><b>collapsed / section / minimised</b> — the row is a BUTTON, "ASK · Ask PhotoCast… ↑", that opens the Ask section. A refusal's sentence ({@code inputError}) that arrived while
  *       the section was closed and has not been seen is shown in its place: the conversation is not
  *       mounted then ({@code AskConversation} renders the sentence itself while it is open, so the
  *       field never does). Minimised adds the one line under it.</li>

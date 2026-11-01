@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import useAskRequestContext from '../../hooks/useAskRequestContext.js';
 import { refShape } from './askShapes.js';
-import { READY_ONLY_PLACEHOLDER } from '../../utils/askModel.js';
+import { ASK_PROMPT, READY_ONLY_PLACEHOLDER } from '../../utils/askModel.js';
 
 /** The server's own length limit (`POST /api/ask` answers 400 `INVALID` beyond it). */
 const MAX_QUESTION_LENGTH = 200;
@@ -128,9 +128,9 @@ export default function AskInputRow({ inputRef, view, viewLabel = undefined }) {
           type="text"
           className="wf-ask-in-field"
           data-testid="ask-input"
-          aria-label="Ask about the forecasts"
+          aria-label={ASK_PROMPT.replace('…', '')}
           aria-describedby={readyOnly ? reasonId : undefined}
-          placeholder={readyOnly ? READY_ONLY_PLACEHOLDER : 'Ask about the forecasts…'}
+          placeholder={readyOnly ? READY_ONLY_PLACEHOLDER : ASK_PROMPT}
           value={readyOnly ? '' : text}
           readOnly={readyOnly}
           aria-disabled={readyOnly || undefined}
