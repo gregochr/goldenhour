@@ -136,7 +136,7 @@ class ServedBriefingEpochSourcesTest {
                 && LocalDate.of(2026, 11, 3).equals(e.getEndDate()))))
                 .thenAnswer(inv -> inv.getArgument(0));
         when(repository.existsById(1L)).thenReturn(true);
-        TravelDayService travel = new TravelDayService(repository, epoch);
+        TravelDayService travel = new TravelDayService(repository, epoch, java.time.Clock.systemUTC());
         long before = epoch.current();
 
         travel.add(new TravelDayRequest(LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 3), "away"));

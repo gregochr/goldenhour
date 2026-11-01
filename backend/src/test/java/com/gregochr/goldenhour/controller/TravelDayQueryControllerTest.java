@@ -10,6 +10,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -35,6 +37,20 @@ class TravelDayQueryControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].startDate").value("2026-07-01"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/travel-days ignores includePast and never serves past ranges")
+    void list_ignoresIncludePast() throws Exception {
+        when(travelDayService.list()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/travel-days?includePast=true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        verify(travelDayService).list();
+        verify(travelDayService, never()).listAll();
     }
 
     @Test

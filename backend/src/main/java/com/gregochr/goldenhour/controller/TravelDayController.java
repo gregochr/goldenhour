@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -36,14 +38,17 @@ public class TravelDayController {
     }
 
     /**
-     * Lists all travel ranges, soonest first.
+     * Lists travel ranges. By default only current and upcoming ranges, furthest-future first; with
+     * {@code includePast=true} every range, newest start first.
      *
+     * @param includePast whether to include ranges that have already ended
      * @return the ranges
      */
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<TravelDayResponse>> list() {
-        return ResponseEntity.ok(travelDayService.list());
+    public ResponseEntity<List<TravelDayResponse>> list(
+            @RequestParam(name = "includePast", defaultValue = "false") boolean includePast) {
+        return ResponseEntity.ok(includePast ? travelDayService.listAll() : travelDayService.list());
     }
 
     /**
@@ -57,6 +62,19 @@ public class TravelDayController {
     public ResponseEntity<TravelDayResponse> add(@RequestBody TravelDayRequest request) {
         TravelDayResponse created = travelDayService.add(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /**
+     * Replaces an existing travel range.
+     *
+     * @param id      the range id
+     * @param request the new values
+     * @return the updated range
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<TravelDayResponse> update(@PathVariable Long id, @RequestBody TravelDayRequest request) {
+        return ResponseEntity.ok(travelDayService.update(id, request));
     }
 
     /**

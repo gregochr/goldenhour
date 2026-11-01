@@ -1,48 +1,47 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  fetchTravelDays,
-  addTravelDay,
-  deleteTravelDay,
-} from '../api/travelDayApi.js';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fetchTravelDays } from '../api/travelDayApi.js';
+import DataSplitLayout from './data/DataSplitLayout.jsx';
+import TravelDaysListPane from './traveldays/TravelDaysListPane.jsx';
+import TravelRangePanel from './traveldays/TravelRangePanel.jsx';
+import TravelAddPanel from './traveldays/TravelAddPanel.jsx';
+import useHashSelection from '../hooks/useHashSelection.js';
+import usePanelEscape from '../hooks/usePanelEscape.js';
+import { rangeText } from '../utils/travelDays.js';
+
+/** The Manage tab key; the hash adds the open range's numeric id ({@code #manage/traveldays/12}). */
+const TAB = 'traveldays';
+
+/** Past starts collapsed; Upcoming open. */
+const INITIAL_GROUPS = { upcoming: true, past: false };
 
 /**
- * Formats an ISO date (YYYY-MM-DD) for display, e.g. "Wed 1 Jul 2026".
+ * Operations → Travel days (runs-redesign-plan.md §5.6, R5): the ranges the overnight batch skips, on the shared Data
+ * list-and-panel shell. The list pane carries the header, the five-week calendar and the ranges (Upcoming open, Past
+ * collapsed); a row, or an away day on the calendar, opens that range's panel ({@code #manage/traveldays/{id}}) for
+ * Edit and Remove; Add range, or an empty day on the calendar, opens the Add panel.
  *
- * @param {string} iso - ISO date string
- * @returns {string} a human-readable date
- */
-function formatDate(iso) {
-  const d = new Date(`${iso}T00:00:00`);
-  return d.toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-/**
- * Admin panel for managing travel-day ranges. On a travel day the operator is
- * away (typically in London) and cannot shoot, so the overnight forecast batch
- * skips any forecast whose target date falls inside a declared range — saving
- * Claude spend on forecasts that will never be acted on.
- *
- * Lives under the Operations tab's Operations group, Travel Days sub-tab.
+ * <p>The list is the admin one with {@code includePast=true}, newest start first; the public endpoint the Plan, Map
+ * and Ask read is untouched. Every clock read in this view is the real clock (R-D7): Operations does not follow
+ * Rewind. A failed reload keeps the ranges already shown and says so in a banner.
  */
 export default function TravelDaysView() {
   const [ranges, setRanges] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [groupOpen, setGroupOpen] = useState(INITIAL_GROUPS);
+  const addCount = useRef(0);
+  const panelRef = useRef(null);
+
+  const { selectedId, select, clear } = useHashSelection(TAB);
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchTravelDays();
-      setRanges(data);
+      setRanges(await fetchTravelDays({ includePast: true }));
       setError(null);
+      setLoaded(true);
     } catch {
       setError('Failed to load travel days');
     } finally {
@@ -56,154 +55,118 @@ export default function TravelDaysView() {
     })();
   }, [load]);
 
-  // Open the native date calendar when the field is clicked anywhere (not just the
-  // small indicator icon). showPicker requires a user gesture; the click provides it.
-  const openPicker = (e) => {
-    try {
-      e.currentTarget.showPicker?.();
-    } catch {
-      // showPicker is unsupported on this browser, or the picker is already open.
-    }
-  };
+  const selectedRange = useMemo(
+    () => (selectedId == null ? null : ranges.find((range) => range.id === selectedId) ?? null),
+    [ranges, selectedId],
+  );
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (!startDate || !endDate) {
-      setError('Both a start and end date are required');
-      return;
-    }
-    if (endDate < startDate) {
-      setError('End date must not be before start date');
-      return;
-    }
-    setSaving(true);
-    try {
-      await addTravelDay({ startDate, endDate, note: note.trim() || null });
-      setStartDate('');
-      setEndDate('');
-      setNote('');
-      setError(null);
-      await load();
-    } catch {
-      setError('Failed to add travel range');
-    } finally {
-      setSaving(false);
-    }
-  };
+  // A hash naming no range (a pasted id that is gone) leaves the bare tab address, replacing the entry. Only once the
+  // ranges have loaded: a failed first load says nothing about what exists.
+  useEffect(() => {
+    if (loaded && selectedId != null && selectedRange == null) clear({ replace: true });
+  }, [loaded, selectedId, selectedRange, clear]);
 
-  const handleDelete = async (id) => {
-    try {
-      await deleteTravelDay(id);
-      await load();
-    } catch {
-      setError('Failed to delete travel range');
-    }
-  };
-
-  if (loading) {
-    return <p className="text-sm text-plex-text-muted">Loading travel days...</p>;
+  // A different panel starts with no editor open (state adjusted while rendering, the pattern React documents).
+  const [panelKey, setPanelKey] = useState(selectedId);
+  if (panelKey !== selectedId) {
+    setPanelKey(selectedId);
+    setEditingId(null);
+    // A range opened by Back, Forward or a pasted link takes the panel from an Add form that was open.
+    if (selectedId != null) setAdding(null);
   }
 
+  const editing = selectedRange != null && editingId === selectedRange.id;
+  const panelOpen = adding != null || selectedRange != null;
+
+  const closePanel = useCallback(() => {
+    setAdding(null);
+    setEditingId(null);
+    clear();
+  }, [clear]);
+  const cancelEdit = useCallback(() => setEditingId(null), []);
+  // Esc steps back from the editor first, then closes the panel.
+  usePanelEscape({ active: panelOpen, panelRef, onEscape: editing ? cancelEdit : closePanel });
+
+  const openRange = useCallback((range) => {
+    setAdding(null);
+    select(range.id);
+  }, [select]);
+
+  const openAdd = useCallback((from = '') => {
+    addCount.current += 1;
+    setEditingId(null);
+    if (selectedId != null) clear();
+    setAdding({ from, key: addCount.current });
+  }, [selectedId, clear]);
+
+  const handleCreated = useCallback(async (created) => {
+    setAdding(null);
+    await load();
+    select(created.id);
+  }, [load, select]);
+
+  const handleSaved = useCallback(async () => {
+    setEditingId(null);
+    await load();
+  }, [load]);
+
+  const handleRemoved = useCallback(async () => {
+    clear({ replace: true });
+    await load();
+  }, [clear, load]);
+
+  const toggleGroup = useCallback((id) => setGroupOpen((open) => ({ ...open, [id]: !open[id] })), []);
+
+  let panel = null;
+  if (adding) {
+    panel = <TravelAddPanel key={`add-${adding.key}`} initialFrom={adding.from} onClose={closePanel} onCreated={handleCreated} />;
+  } else if (selectedRange) {
+    panel = (
+      <TravelRangePanel
+        key={selectedRange.id}
+        range={selectedRange}
+        now={new Date()}
+        editing={editing}
+        onEditStart={() => setEditingId(selectedRange.id)}
+        onEditCancel={cancelEdit}
+        onSaved={handleSaved}
+        onRemoved={handleRemoved}
+        onClose={closePanel}
+      />
+    );
+  }
+
+  let selectionKey = null;
+  if (adding) selectionKey = `add-${adding.key}`;
+  else if (selectedRange) selectionKey = selectedRange.id;
+
   return (
-    <div className="flex flex-col gap-4" data-testid="travel-days-view">
-      <p className="text-xs text-plex-text-muted">
-        On a travel day you&apos;re away and can&apos;t shoot, so the overnight batch
-        skips any forecast whose target date falls inside a range — no Claude spend
-        on days you can&apos;t use. Travel changes weekly; add and remove ranges as
-        your roster changes. Both the start and end date are included.
-      </p>
-
-      {error && (
-        <div className="text-sm text-red-400 bg-red-900/20 px-3 py-2 rounded">
-          {error}
-        </div>
-      )}
-
-      <form
-        onSubmit={handleAdd}
-        className="flex flex-wrap items-end gap-3 border border-plex-border rounded-lg p-4"
-        data-testid="travel-day-form"
-      >
-        <label className="flex flex-col gap-1 text-xs text-plex-text-muted">
-          From <span className="text-plex-text-muted/70">(inclusive)</span>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            onClick={openPicker}
-            className="date-field bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text cursor-pointer"
-            data-testid="travel-day-start"
+    <div className="-m-4 overflow-clip rounded-xl max-[639px]:m-0 max-[639px]:overflow-visible" data-testid="travel-days-view">
+      <DataSplitLayout
+        list={(
+          <TravelDaysListPane
+            ranges={ranges}
+            loading={loading}
+            error={error}
+            now={new Date()}
+            selectedId={selectedRange?.id ?? null}
+            groupOpen={groupOpen}
+            onToggleGroup={toggleGroup}
+            onSelect={openRange}
+            onAdd={() => openAdd()}
+            onAddFrom={openAdd}
           />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-plex-text-muted">
-          To <span className="text-plex-text-muted/70">(inclusive)</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            onClick={openPicker}
-            className="date-field bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text cursor-pointer"
-            data-testid="travel-day-end"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-plex-text-muted flex-1 min-w-[8rem]">
-          Note (optional)
-          <input
-            type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="London — work"
-            className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-sm text-plex-text"
-            data-testid="travel-day-note"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={saving}
-          // `bg-plex-accent` named a token that has never existed, so Tailwind emitted no rule at
-          // all and this rendered as black text on no background — an invisible button, not a
-          // mis-tinted one. `plex-gold` is the palette's actual interactive accent and is what
-          // `.btn-primary` already pairs with dark text.
-          className="bg-plex-gold hover:bg-plex-gold-light text-gray-900 text-sm font-semibold px-4 py-1.5 rounded transition-colors disabled:opacity-50"
-          data-testid="travel-day-add"
-        >
-          {saving ? 'Adding…' : 'Add range'}
-        </button>
-      </form>
-
-      {ranges.length === 0 ? (
-        <p className="text-sm text-plex-text-muted" data-testid="travel-day-empty">
-          No travel days set — every date is treated as workable.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {ranges.map((r) => (
-            <li
-              key={r.id}
-              className="flex items-center justify-between border border-plex-border rounded-lg px-4 py-2"
-              data-testid={`travel-day-${r.id}`}
-            >
-              <div>
-                <span className="text-sm text-plex-text">
-                  {formatDate(r.startDate)}
-                  {r.endDate !== r.startDate && ` → ${formatDate(r.endDate)}`}
-                </span>
-                {r.note && (
-                  <p className="text-xs text-plex-text-muted mt-0.5">{r.note}</p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(r.id)}
-                className="text-xs text-red-400 hover:text-red-300"
-                data-testid={`travel-day-delete-${r.id}`}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+        )}
+        panel={panel}
+        onClose={closePanel}
+        panelLabel={adding ? 'Add travel days' : `${selectedRange ? rangeText(selectedRange) : 'Travel'} range`}
+        backLabel="Travel days"
+        panelRef={panelRef}
+        selectionKey={selectionKey}
+        focusKey={`${selectionKey}-${editing ? 'edit' : 'view'}`}
+        rowTestIdPrefix="travel-days"
+        testId="travel-split"
+      />
     </div>
   );
 }

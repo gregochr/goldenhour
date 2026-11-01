@@ -13,13 +13,16 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -105,8 +108,86 @@ class TravelDayControllerTest extends AbstractControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"startDate\":\"2026-07-01\",\"endDate\":\"2026-07-03\"}"))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/admin/travel-days/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-07-01\",\"endDate\":\"2026-07-03\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/travel-days?includePast=true"))
+                .andExpect(status().isForbidden());
         mockMvc.perform(delete("/api/admin/travel-days/1"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET ?includePast=true lists every range via listAll; the default keeps list()")
+    void list_includePastUsesListAll() throws Exception {
+        when(travelDayService.listAll()).thenReturn(List.of(new TravelDayResponse(
+                2L, LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 2), null)));
+
+        mockMvc.perform(get("/api/admin/travel-days?includePast=true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(2));
+        verify(travelDayService, never()).list();
+
+        mockMvc.perform(get("/api/admin/travel-days")).andExpect(status().isOk());
+        verify(travelDayService).list();
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST returns 400 for a 201-character note")
+    void add_returns400ForLongNote() throws Exception {
+        when(travelDayService.add(any()))
+                .thenThrow(new IllegalArgumentException("note must be at most 200 characters"));
+
+        mockMvc.perform(post("/api/admin/travel-days")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-07-01\",\"endDate\":\"2026-07-03\",\"note\":\""
+                                + "x".repeat(201) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("note must be at most 200 characters"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT returns 200 with the updated range")
+    void update_returns200() throws Exception {
+        when(travelDayService.update(eq(5L), any())).thenReturn(new TravelDayResponse(
+                5L, LocalDate.of(2026, 7, 2), LocalDate.of(2026, 7, 4), "Leeds"));
+
+        mockMvc.perform(put("/api/admin/travel-days/5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-07-02\",\"endDate\":\"2026-07-04\",\"note\":\"Leeds\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.note").value("Leeds"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT returns 400 for a 201-character note")
+    void update_returns400() throws Exception {
+        when(travelDayService.update(eq(5L), any()))
+                .thenThrow(new IllegalArgumentException("note must be at most 200 characters"));
+
+        mockMvc.perform(put("/api/admin/travel-days/5")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-07-02\",\"endDate\":\"2026-07-04\",\"note\":\""
+                                + "x".repeat(201) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("note must be at most 200 characters"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT returns 404 when the range is missing")
+    void update_returns404WhenMissing() throws Exception {
+        when(travelDayService.update(eq(99L), any())).thenThrow(new NoSuchElementException("none"));
+
+        mockMvc.perform(put("/api/admin/travel-days/99")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startDate\":\"2026-07-02\",\"endDate\":\"2026-07-04\"}"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
