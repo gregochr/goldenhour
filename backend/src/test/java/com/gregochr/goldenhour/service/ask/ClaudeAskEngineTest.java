@@ -726,6 +726,32 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("a spelling tie costs a turn: list_windows, look_up_place (suggestions), look_up_place again and "
+            + "submit_answer finish inside the four-turn budget, with no pick evidence")
+    void spellingTieThenRecallFitsTheTurnBudget() {
+        AskSnapshot tied = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Durham", true, AskFixtures.slot(13L, "Seaham", 3),
+                        AskFixtures.slot(14L, "Seaton", 4)))), List.of()));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("w", "list_windows", Map.of())),
+                toolTurn(tool("first", "look_up_place", Map.of("name", "Seaxom"))),
+                toolTurn(tool("second", "look_up_place", Map.of("name", "Seaham"))),
+                submit(Map.of("answerable", true, "summary", "Assuming you mean Seaham, it is rated 3.")));
+
+        AskRun run = engine.run(question("Is Seaxom any good tonight?"), tied, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(4);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
+                .containsExactly("list_windows", "look_up_place", "look_up_place", "submit_answer");
+        assertThat(run.outcome().answer().picks()).isEmpty();
+        String firstLookup = toolResultsIn(sentParams().get(2)).stream()
+                .map(r -> r.content().orElseThrow().string().orElseThrow())
+                .filter(c -> c.contains("suggestions")).findFirst().orElseThrow();
+        assertThat(firstLookup).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]").doesNotContain("closestTo");
+    }
+
+    @Test
     @DisplayName("a pick built from a looked-up place is dropped: look_up_place is not rank_spots")
     void pickFromALookupIsDropped() {
         AskRun run = run(USER,

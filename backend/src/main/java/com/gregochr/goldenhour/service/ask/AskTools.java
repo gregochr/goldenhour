@@ -18,6 +18,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -170,6 +171,15 @@ public class AskTools {
 
     /** What {@code look_up_place} notes when the name matches only places outside the question's regions. */
     static final String PLACE_OUT_OF_SCOPE_NOTE = "That place is outside the regions this question is about.";
+
+    /** The most place names {@code look_up_place} suggests when a misspelling is as near to several names. */
+    static final int MAX_SPELLING_SUGGESTIONS = 3;
+
+    /** The longest reader spelling {@code closestTo} echoes back. */
+    static final int CLOSEST_TO_CAP = 60;
+
+    /** What {@code look_up_place} notes when a misspelling is as near to several names as to one. */
+    static final String SPELLING_TIE_NOTE = "No place has that spelling; closest names are in suggestions.";
 
     private static final String LOOK_UP = AskToolSchemas.LOOK_UP_PLACE;
 
@@ -672,10 +682,26 @@ public class AskTools {
      * @param note    why the list is empty, or what was left out, or null
      * @param area    the named area the name matched, listing its places for each window; null unless a named
      *                area won (an exact place match always beats one)
+     * @param closestTo   the reader's own spelling when the result is for the closest name to it (E2); null
+     *                    otherwise
+     * @param suggestions up to {@value AskTools#MAX_SPELLING_SUGGESTIONS} in-scope place names the reader's
+     *                    spelling might mean, when no one name is clearly closest; null otherwise
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note,
-            AreaInfo area) {
+            AreaInfo area, String closestTo, List<String> suggestions) {
+
+        /**
+         * A result that is not a spelling correction.
+         *
+         * @param places  the places
+         * @param reasons our words for each status present, or null
+         * @param note    the note, or null
+         * @param area    the named area, or null
+         */
+        public LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note, AreaInfo area) {
+            this(places, reasons, note, area, null, null);
+        }
 
         /**
          * A result with no named area.
@@ -685,7 +711,7 @@ public class AskTools {
          * @param note    the note, or null
          */
         public LookUpPlaceResult(List<PlaceInfo> places, Map<String, String> reasons, String note) {
-            this(places, reasons, note, null);
+            this(places, reasons, note, null, null, null);
         }
 
         /**
@@ -695,7 +721,7 @@ public class AskTools {
          * @param note   the note, or null
          */
         public LookUpPlaceResult(List<PlaceInfo> places, String note) {
-            this(places, null, note, null);
+            this(places, null, note, null, null, null);
         }
     }
 
@@ -1022,6 +1048,22 @@ public class AskTools {
             windows = picked;
         }
 
+        Attempt first = attempt(wanted, windows, null);
+        if (first.result() != null) {
+            return first.result();
+        }
+        return closestSpelling(args.name(), wanted, windows);
+    }
+
+    /** What one exact-and-area pass found: the result, or null when it found nothing in the question's scope. */
+    private record Attempt(AskToolResult<LookUpPlaceResult> result, boolean outOfScope) {
+    }
+
+    /**
+     * The exact pass then the area pass of {@code look_up_place} over the given windows (look-up plan §4.1).
+     * {@code closestTo} is the reader's own spelling when the words are a correction of it, else null.
+     */
+    private Attempt attempt(List<String> wanted, List<AskSnapshot.Window> windows, String closestTo) {
         // Matches by location id, in first-seen order; the same place in several windows is one match.
         Map<Long, PlaceMatch> inScope = new LinkedHashMap<>();
         boolean outOfScope = false;
@@ -1053,12 +1095,11 @@ public class AskTools {
         boolean exactPlace = inScope.values().stream().anyMatch(m -> m.exact);
         List<AskSnapshot.Area> matchedAreas = exactPlace ? List.of() : matchingAreas(snapshot.areas(), wanted);
         if (!matchedAreas.isEmpty()) {
-            return namedAreaResult(matchedAreas.getFirst(), matchedAreas.subList(1, matchedAreas.size()), windows,
-                    inScope);
+            return new Attempt(namedAreaResult(matchedAreas.getFirst(), matchedAreas.subList(1, matchedAreas.size()),
+                    windows, inScope, closestTo), outOfScope);
         }
         if (inScope.isEmpty()) {
-            return finish(LOOK_UP, new LookUpPlaceResult(List.of(),
-                    outOfScope ? PLACE_OUT_OF_SCOPE_NOTE : NO_SUCH_PLACE_NOTE), () -> { });
+            return new Attempt(null, outOfScope);
         }
 
         List<Map.Entry<Long, PlaceMatch>> ordered = inScope.entrySet().stream()
@@ -1112,8 +1153,155 @@ public class AskTools {
                     + " place-windows; pass windowIds to narrow.");
         }
         // Deliberately nothing recorded as evidence: a looked-up place is explained, never offered as a pick.
-        return finish(LOOK_UP, new LookUpPlaceResult(places, reasons.isEmpty() ? null : reasons, note),
+        return new Attempt(finish(LOOK_UP, new LookUpPlaceResult(places, reasons.isEmpty() ? null : reasons, note,
+                null, closestTo, null), () -> { }), outOfScope);
+    }
+
+    /** Where a set of words matched a place anywhere in the snapshot. */
+    private enum Reach { NONE, OUT_OF_SCOPE_ONLY, IN_SCOPE }
+
+    /**
+     * Whether the words match any place or alias in <em>any</em> window of the snapshot, requested or not, and
+     * whether any such place is in the question's scope.
+     */
+    private Reach reach(List<String> wanted) {
+        Set<Long> seen = new HashSet<>();
+        boolean outOfScope = false;
+        for (AskSnapshot.Window w : snapshot.windows()) {
+            for (AskSnapshot.Region r : w.regions()) {
+                boolean visible = scope.contains(r.name());
+                for (AskSnapshot.Slot slot : r.slots()) {
+                    if (slot.locationId() == null || slot.name() == null || !seen.add(slot.locationId())
+                            || matchPlace(slot.name(), snapshot.locationAliases()
+                                    .getOrDefault(slot.locationId(), List.of()), wanted) == null) {
+                        continue;
+                    }
+                    if (visible) {
+                        return Reach.IN_SCOPE;
+                    }
+                    outOfScope = true;
+                }
+            }
+        }
+        return outOfScope ? Reach.OUT_OF_SCOPE_ONLY : Reach.NONE;
+    }
+
+    /** A result with no place, only a note. */
+    private AskToolResult<LookUpPlaceResult> noPlace(String note) {
+        return finish(LOOK_UP, new LookUpPlaceResult(List.of(), note), () -> { });
+    }
+
+    /** One spelling in the snapshot near the reader's: its distance, and the in-scope places that carry it. */
+    private static final class Spelling {
+        private final int distance;
+        private final Set<String> placeNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+
+        Spelling(int distance) {
+            this.distance = distance;
+        }
+    }
+
+    /**
+     * The fallback when the words matched nothing exactly (ask-place-explain plan §5.2, E2): a name the reader
+     * misspelt is corrected and looked up again, once, with the corrected words.
+     *
+     * <p>Runs only when no place or alias anywhere in the snapshot carries the words (X9), so a correct spelling is
+     * never "corrected" into a different place. A clear winner is looked up with its words and the result carries
+     * {@code closestTo}; a tie returns the in-scope names as {@code suggestions}; an out-of-scope winner returns
+     * the scope note and no name.
+     */
+    private AskToolResult<LookUpPlaceResult> closestSpelling(String given, List<String> wanted,
+            List<AskSnapshot.Window> windows) {
+        Reach exact = reach(wanted);
+        if (exact != Reach.NONE) {
+            return noPlace(exact == Reach.OUT_OF_SCOPE_ONLY ? PLACE_OUT_OF_SCOPE_NOTE : NO_SUCH_PLACE_NOTE);
+        }
+        int allowed = PlaceNames.allowedEdits(String.join("", wanted).length());
+        Map<String, Spelling> spellings = allowed == 0 ? Map.of() : nearSpellings(wanted, allowed);
+        if (spellings.isEmpty()) {
+            return noPlace(NO_SUCH_PLACE_NOTE);
+        }
+        int least = spellings.values().stream().mapToInt(s -> s.distance).min().orElseThrow();
+        // Two edits or more are common enough that a near neighbour is a real doubt; one edit is not.
+        int doubtUpTo = least >= 2 ? least + 1 : least;
+        List<Map.Entry<String, Spelling>> contenders = spellings.entrySet().stream()
+                .filter(e -> e.getValue().distance <= doubtUpTo).toList();
+        if (contenders.size() == 1) {
+            List<String> corrected = List.of(contenders.getFirst().getKey().split(" "));
+            String closestTo = cap(given.strip().replace('"', '\'').replace("\\", ""), CLOSEST_TO_CAP);
+            Attempt again = attempt(corrected, windows, closestTo);
+            if (again.result() != null) {
+                return again.result();
+            }
+            // Found, but not in the windows asked about; a place found only out of scope is never confirmed.
+            Reach found = reach(corrected);
+            if (found == Reach.IN_SCOPE) {
+                return finish(LOOK_UP, new LookUpPlaceResult(List.of(), null, NO_SUCH_PLACE_NOTE, null, closestTo,
+                        null), () -> { });
+            }
+            return noPlace(found == Reach.OUT_OF_SCOPE_ONLY ? PLACE_OUT_OF_SCOPE_NOTE : NO_SUCH_PLACE_NOTE);
+        }
+        Map<String, Integer> nearest = new HashMap<>();
+        for (Map.Entry<String, Spelling> contender : contenders) {
+            for (String place : contender.getValue().placeNames) {
+                nearest.merge(place, contender.getValue().distance, Math::min);
+            }
+        }
+        List<String> suggestions = nearest.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue()
+                        .thenComparing(Map.Entry.comparingByKey(String.CASE_INSENSITIVE_ORDER)))
+                .map(Map.Entry::getKey).limit(MAX_SPELLING_SUGGESTIONS).toList();
+        if (suggestions.isEmpty()) {
+            return noPlace(PLACE_OUT_OF_SCOPE_NOTE);
+        }
+        return finish(LOOK_UP, new LookUpPlaceResult(List.of(), null, SPELLING_TIE_NOTE, null, null, suggestions),
                 () -> { });
+    }
+
+    /**
+     * Every distinct spelling in the snapshot (place names, aliases, area names and aliases, in scope or not)
+     * within {@code allowed} edits of the query, keyed by its text: the matched leading run, joined with spaces.
+     */
+    private Map<String, Spelling> nearSpellings(List<String> wanted, int allowed) {
+        Map<String, Spelling> out = new LinkedHashMap<>();
+        Set<Long> seen = new HashSet<>();
+        for (AskSnapshot.Window w : snapshot.windows()) {
+            for (AskSnapshot.Region r : w.regions()) {
+                boolean visible = scope.contains(r.name());
+                for (AskSnapshot.Slot slot : r.slots()) {
+                    if (slot.locationId() == null || slot.name() == null || !seen.add(slot.locationId())) {
+                        continue;
+                    }
+                    String suggestable = visible ? slot.name() : null;
+                    addSpelling(out, slot.name(), wanted, allowed, suggestable);
+                    for (String alias : snapshot.locationAliases().getOrDefault(slot.locationId(), List.of())) {
+                        addSpelling(out, alias, wanted, allowed, suggestable);
+                    }
+                }
+            }
+        }
+        for (AskSnapshot.Area area : snapshot.areas()) {
+            addSpelling(out, area.name(), wanted, allowed, null);
+            for (String alias : area.aliases()) {
+                addSpelling(out, alias, wanted, allowed, null);
+            }
+        }
+        return out;
+    }
+
+    /** Records {@code name}'s closest leading run when it is within {@code allowed} edits of the query. */
+    private static void addSpelling(Map<String, Spelling> out, String name, List<String> wanted, int allowed,
+            String placeName) {
+        List<String> words = placeWords(name);
+        PlaceNames.PrefixMatch match = PlaceNames.prefixMatch(words, wanted);
+        if (match.distance() > allowed) {
+            return;
+        }
+        Spelling spelling = out.computeIfAbsent(String.join(" ", words.subList(0, match.words())),
+                text -> new Spelling(match.distance()));
+        if (placeName != null) {
+            spelling.placeNames.add(placeName);
+        }
     }
 
     /** The places one name matched: whether any spelling was exact, and each (window, region, slot) it sits in. */
@@ -1177,7 +1365,7 @@ public class AskTools {
      */
     private AskToolResult<LookUpPlaceResult> namedAreaResult(AskSnapshot.Area area,
             List<AskSnapshot.Area> otherAreas, List<AskSnapshot.Window> requested,
-            Map<Long, PlaceMatch> partialPlaces) {
+            Map<Long, PlaceMatch> partialPlaces, String closestTo) {
         List<AskSnapshot.Window> shown = requested.stream().limit(MAX_AREA_WINDOWS).toList();
         List<AreaWindow> windows = new ArrayList<>();
         Map<String, String> reasons = new LinkedHashMap<>();
@@ -1253,8 +1441,8 @@ public class AskTools {
         note = joinNotes(note, AREA_SUGGEST_NOTE);
         AreaInfo info = new AreaInfo(area.name(), inScopeMembers.size(), windows);
         // Deliberately nothing recorded as evidence: a named area is explained, never offered as a pick.
-        return finish(LOOK_UP, new LookUpPlaceResult(List.of(), reasons.isEmpty() ? null : reasons, note, info),
-                () -> { });
+        return finish(LOOK_UP, new LookUpPlaceResult(List.of(), reasons.isEmpty() ? null : reasons, note, info,
+                closestTo, null), () -> { });
     }
 
     /**

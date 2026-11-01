@@ -38,4 +38,65 @@ class PlaceNamesTest {
         assertThat(PlaceNames.containsRun(words, List.of("rig"))).isFalse();
         assertThat(PlaceNames.containsRun(words, List.of())).isFalse();
     }
+
+    private static int distance(String name, String query) {
+        return PlaceNames.prefixDistance(PlaceNames.words(name), PlaceNames.words(query));
+    }
+
+    @Test
+    @DisplayName("prefixDistance() counts edits to the closest leading run of the name")
+    void prefixDistance_leadingRuns() {
+        assertThat(distance("Bamburgh", "bamborough")).isEqualTo(3);
+        assertThat(distance("Bamburgh Castle", "bamburgh")).isZero();
+        assertThat(distance("Whitby Abbey", "witby")).isEqualTo(1);
+        assertThat(distance("Stanley Gill Force", "stanley gil force")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("prefixDistance() joins words, so a split or a joined name is the same name")
+    void prefixDistance_splitAndJoined() {
+        assertThat(distance("Dunstanburgh", "dunstan burgh")).isZero();
+        assertThat(distance("Dunstan Burgh Castle", "dunstanburgh")).isZero();
+    }
+
+    @Test
+    @DisplayName("prefixDistance() counts an adjacent swap as one edit")
+    void prefixDistance_transposition() {
+        assertThat(distance("Bamburgh", "bmaburgh")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("prefixDistance() needs the first letters to match, so 'bamborough' is not near Flamborough Head")
+    void prefixDistance_firstLetter() {
+        assertThat(distance("Flamborough Head", "bamborough")).isEqualTo(Integer.MAX_VALUE);
+        assertThat(distance("Gill Force", "stanley gill force")).isEqualTo(Integer.MAX_VALUE);
+    }
+
+    @Test
+    @DisplayName("prefixDistance() of an empty query or name is never a match")
+    void prefixDistance_empty() {
+        assertThat(PlaceNames.prefixDistance(List.of("bamburgh"), List.of())).isEqualTo(Integer.MAX_VALUE);
+        assertThat(PlaceNames.prefixDistance(List.of(), List.of("bamburgh"))).isEqualTo(Integer.MAX_VALUE);
+    }
+
+    @Test
+    @DisplayName("prefixMatch() reports how many leading words gave the distance, the shortest on a tie")
+    void prefixMatch_words() {
+        assertThat(PlaceNames.prefixMatch(PlaceNames.words("Bamburgh Castle"), PlaceNames.words("bamborough")))
+                .isEqualTo(new PlaceNames.PrefixMatch(3, 1));
+        assertThat(PlaceNames.prefixMatch(PlaceNames.words("Dunstan Burgh Castle"),
+                PlaceNames.words("dunstanburgh"))).isEqualTo(new PlaceNames.PrefixMatch(0, 2));
+    }
+
+    @Test
+    @DisplayName("allowedEdits() steps up at 4, 6 and 9 letters")
+    void allowedEdits_boundaries() {
+        assertThat(PlaceNames.allowedEdits(3)).isZero();
+        assertThat(PlaceNames.allowedEdits(4)).isEqualTo(1);
+        assertThat(PlaceNames.allowedEdits(5)).isEqualTo(1);
+        assertThat(PlaceNames.allowedEdits(6)).isEqualTo(2);
+        assertThat(PlaceNames.allowedEdits(8)).isEqualTo(2);
+        assertThat(PlaceNames.allowedEdits(9)).isEqualTo(3);
+        assertThat(PlaceNames.allowedEdits(0)).isZero();
+    }
 }
