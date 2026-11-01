@@ -144,9 +144,15 @@ class ForecastServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), any(LocationEntity.class),
-                any(LocalDate.class)))
-                .thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    /**
+     * Stubs the coastal mist step for the one test that reaches it: exactly this data, location and date,
+     * passed straight through. Strict stubs then fail a test that never reaches the step, or reaches it with
+     * anything else.
+     */
+    private void passCoastalMist(AtmosphericData in, LocationEntity location, LocalDate date) {
+        when(augmentor.augmentWithCoastalMist(eq(in), eq(location), eq(date))).thenReturn(in);
     }
 
     // --- fetchWeatherAndTriage tests ---
@@ -163,6 +169,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, resp));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
@@ -191,6 +198,7 @@ class ForecastServiceTest {
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(repository.save(any())).thenReturn(savedEntity);
@@ -336,6 +344,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -360,6 +369,7 @@ class ForecastServiceTest {
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(repository.save(any())).thenReturn(savedEntity);
@@ -390,6 +400,7 @@ class ForecastServiceTest {
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
         when(augmentor.augmentWithValleyMist(any(), eq(true))).thenReturn(scored);
+        passCoastalMist(scored, mistProne, date);
         when(augmentor.augmentWithBluebellConditions(eq(scored), any(), any(), any())).thenReturn(scored);
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
@@ -448,6 +459,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -469,6 +481,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
         doThrow(new RuntimeException("DB unavailable"))
                 .when(slotAtmosphereWriter).write(any(), any(), any(), any());
@@ -504,6 +517,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         serviceWithFlagOff.fetchWeatherAndTriage(
@@ -526,6 +540,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -558,9 +573,10 @@ class ForecastServiceTest {
         LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
-                .thenReturn(new WeatherExtractionResult(
-                        buildAtmosphericData(sunrise, TargetType.SUNRISE), null));
+                .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any()))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -627,6 +643,7 @@ class ForecastServiceTest {
         when(openMeteoService.getAtmosphericDataFromCache(
                 eq(expectedRequest), eq(sunset), eq(prefetched)))
                 .thenReturn(cached);
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(java.util.Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -649,6 +666,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(java.util.Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -692,6 +710,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         // Simulate SSE emitter closed — publishEvent throws on every call
@@ -720,6 +739,7 @@ class ForecastServiceTest {
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         forecastService.fetchWeatherAndTriage(
@@ -750,6 +770,7 @@ class ForecastServiceTest {
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(52);
         when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
                 .thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
         when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
         ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
@@ -830,6 +851,7 @@ class ForecastServiceTest {
             when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(300);
             when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
                     .thenReturn(new WeatherExtractionResult(data, null));
+            passCoastalMist(data, DURHAM_LOCATION, date);
             when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
             forecastService.fetchWeatherAndTriage(
@@ -855,6 +877,7 @@ class ForecastServiceTest {
             when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(300);
             when(openMeteoService.getAtmosphericDataWithResponse(any(), any(), any()))
                     .thenReturn(new WeatherExtractionResult(data, null));
+            passCoastalMist(data, DURHAM_LOCATION, date);
             when(weatherTriageEvaluator.evaluate(any()))
                     .thenReturn(Optional.of(new TriageResult("100% low cloud", TriageRule.HIGH_CLOUD)));
             when(repository.save(any())).thenReturn(ForecastEvaluationEntity.builder().id(100L).build());
@@ -1094,11 +1117,11 @@ class ForecastServiceTest {
             LocalDateTime sunset = date.atTime(20, 30);
             when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
             when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
             when(openMeteoService.getAtmosphericDataWithResponse(
                     any(ForecastRequest.class), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(
-                            buildAtmosphericData(sunset, TargetType.SUNSET),
-                            new OpenMeteoForecastResponse()));
+                    .thenReturn(new WeatherExtractionResult(data, new OpenMeteoForecastResponse()));
+            passCoastalMist(data, DURHAM_LOCATION, date);
             when(weatherTriageEvaluator.evaluate(any()))
                     .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
 
@@ -1123,11 +1146,11 @@ class ForecastServiceTest {
             LocalDateTime sunset = date.atTime(20, 30);
             when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
             when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+            AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
             when(openMeteoService.getAtmosphericDataWithResponse(
                     any(ForecastRequest.class), any(), any()))
-                    .thenReturn(new WeatherExtractionResult(
-                            buildAtmosphericData(sunset, TargetType.SUNSET),
-                            new OpenMeteoForecastResponse()));
+                    .thenReturn(new WeatherExtractionResult(data, new OpenMeteoForecastResponse()));
+            passCoastalMist(data, DURHAM_LOCATION, date);
             when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
 
             ForecastService service = new ForecastService(

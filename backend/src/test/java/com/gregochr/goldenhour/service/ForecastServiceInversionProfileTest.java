@@ -125,7 +125,8 @@ class ForecastServiceInversionProfileTest {
      * argument stays open and the tests inspect it with captors instead; the cloud-approach step also takes
      * the wall-clock time, which a test cannot know.
      */
-    private void stubAugmentationChain(LocalDate date, LocalDateTime sunrise, int elevation) {
+    private void stubAugmentationChain(LocationEntity location, LocalDate date, LocalDateTime sunrise,
+            int elevation) {
         when(augmentor.augmentWithDirectionalCloud(eq(BASE), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), isNull(),
                 isNull())).then(returnsFirstArg());
         when(augmentor.augmentWithCloudApproach(eq(BASE), eq(LAT), eq(LON), eq(AZIMUTH), eq(sunrise), any(),
@@ -140,7 +141,7 @@ class ForecastServiceInversionProfileTest {
         when(augmentor.augmentWithBluebellConditions(any(), eq(ELIGIBLE.getLocationType()),
                 eq(ELIGIBLE.getBluebellExposure()), eq(date))).then(returnsFirstArg());
         when(augmentor.augmentWithValleyMist(any(), eq(false))).then(returnsFirstArg());
-        when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), any(LocationEntity.class), eq(date)))
+        when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), eq(location), eq(date)))
                 .then(returnsFirstArg());
     }
 
@@ -177,20 +178,20 @@ class ForecastServiceInversionProfileTest {
                 EvaluationModel.SONNET, null, Map.of(), null, null, profiles);
     }
 
-    private void stubPath() {
-        stubPath(451);
+    private void stubPath(LocationEntity location) {
+        stubPath(location, 451);
     }
 
-    private void stubPath(int elevation) {
+    private void stubPath(LocationEntity location, int elevation) {
         stubSolar(DATE, SUNRISE);
         stubCachedWeather(SUNRISE);
-        stubAugmentationChain(DATE, SUNRISE, elevation);
+        stubAugmentationChain(location, DATE, SUNRISE, elevation);
     }
 
     @Test
     @DisplayName("a prefetched map is keyed by location id: the profile is sliced to the event and attached")
     void prefetchedProfileIsAttached() {
-        stubPath();
+        stubPath(ELIGIBLE);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
 
         ForecastPreEvalResult result = tenArg(ELIGIBLE, Map.of(LOCATION_ID, wholeProfile()));
@@ -207,7 +208,7 @@ class ForecastServiceInversionProfileTest {
     @Test
     @DisplayName("a prefetched map without the location's id means no profile and NO on-demand fallback")
     void mapWithoutTheKeyHasNoFallback() {
-        stubPath();
+        stubPath(ELIGIBLE);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
 
         ForecastPreEvalResult result = tenArg(ELIGIBLE, Map.of(99L, wholeProfile()));
@@ -220,7 +221,7 @@ class ForecastServiceInversionProfileTest {
     @Test
     @DisplayName("an empty prefetched map (the prefetch failed) is no profile, never one request per slot")
     void emptyMapMeansNoProfile() {
-        stubPath();
+        stubPath(ELIGIBLE);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
 
         tenArg(ELIGIBLE, Map.of());
@@ -235,7 +236,7 @@ class ForecastServiceInversionProfileTest {
         stubSolar(DATE, SUNRISE);
         stubCachedWeather(SUNRISE);
         stubFetchedWeather(SUNRISE);
-        stubAugmentationChain(DATE, SUNRISE, 451);
+        stubAugmentationChain(ELIGIBLE, DATE, SUNRISE, 451);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
         when(openMeteoService.fetchInversionProfileOnDemand(ELIGIBLE)).thenReturn(wholeProfile());
 
@@ -252,7 +253,7 @@ class ForecastServiceInversionProfileTest {
     @Test
     @DisplayName("a profile failure on demand never fails the slot and mist is still scored")
     void onDemandFailureDoesNotFailTheSlot() {
-        stubPath();
+        stubPath(ELIGIBLE);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
         when(openMeteoService.fetchInversionProfileOnDemand(ELIGIBLE)).thenThrow(new RuntimeException("429"));
 
@@ -275,7 +276,7 @@ class ForecastServiceInversionProfileTest {
         when(openMeteoService.getAtmosphericDataFromCache(
                 eq(new ForecastRequest(LAT, LON, "Cat Bells", september, TargetType.SUNRISE)),
                 eq(septemberSunrise), eq(Map.of()))).thenReturn(extraction());
-        stubAugmentationChain(september, septemberSunrise, 451);
+        stubAugmentationChain(ELIGIBLE, september, septemberSunrise, 451);
         when(augmentor.inversionV2Enabled()).thenReturn(true);
 
         forecastService.fetchWeatherAndTriage(ELIGIBLE, september, TargetType.SUNRISE, Set.of(),
@@ -287,7 +288,7 @@ class ForecastServiceInversionProfileTest {
     @Test
     @DisplayName("with the v2 switch off nothing is fetched or attached")
     void switchOffFetchesNothing() {
-        stubPath();
+        stubPath(ELIGIBLE);
         when(augmentor.inversionV2Enabled()).thenReturn(false);
 
         nineArg(ELIGIBLE);
@@ -304,7 +305,7 @@ class ForecastServiceInversionProfileTest {
     void noFloorGetsNoProfile() {
         LocationEntity noFloor = LocationEntity.builder().id(LOCATION_ID).name("Cat Bells").lat(LAT).lon(LON)
                 .elevationMetres(451).overlooksWater(true).build();
-        stubPath();
+        stubPath(noFloor);
 
         tenArg(noFloor, Map.of(LOCATION_ID, wholeProfile()));
 
@@ -318,7 +319,7 @@ class ForecastServiceInversionProfileTest {
         LocationEntity low = LocationEntity.builder().id(LOCATION_ID).name("Cat Bells").lat(LAT).lon(LON)
                 .elevationMetres(199).overlooksWater(true)
                 .valleyFloorMetres(80).valleyFloorLat(54.575).valleyFloorLng(-3.152).build();
-        stubPath(199);
+        stubPath(low, 199);
 
         tenArg(low, Map.of(LOCATION_ID, wholeProfile()));
 
