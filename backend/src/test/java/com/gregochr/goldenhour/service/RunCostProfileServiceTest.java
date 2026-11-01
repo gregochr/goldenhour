@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
 import java.time.Clock;
@@ -30,7 +31,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.mockito.ArgumentMatchers.any;
+
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -45,6 +46,7 @@ class RunCostProfileServiceTest {
     private static final Instant NOW = Instant.parse("2026-11-01T12:00:00Z");
     private static final LocalDateTime WINDOW_START = LocalDateTime.of(2026, 10, 2, 23, 0);
     private static final long MICRO_PER_USD = 1_000_000L;
+    private static final Pageable LATEST_RATE_PAGE = PageRequest.of(0, 1);
 
     @Mock
     private ApiCallLogRepository apiCallLogRepository;
@@ -357,11 +359,11 @@ class RunCostProfileServiceTest {
     @DisplayName("gbpPerUsd is the newest recorded rate, and absent when no run recorded one")
     void gbpRate() {
         rows();
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class))).thenReturn(List.of(0.75));
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE)).thenReturn(List.of(0.75));
         assertThat(service.gbpPerUsd()).contains(0.75);
 
         clock.advance(Duration.ofHours(1));
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class))).thenReturn(List.of());
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE)).thenReturn(List.of());
         assertThat(service.gbpPerUsd()).isEmpty();
     }
 
@@ -369,7 +371,7 @@ class RunCostProfileServiceTest {
     @DisplayName("a null exchange rate row is skipped")
     void nullRateSkipped() {
         rows();
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class)))
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE))
                 .thenReturn(java.util.Collections.singletonList(null));
 
         assertThat(service.gbpPerUsd()).isEmpty();
@@ -378,8 +380,8 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("a failing log query yields empty profiles rather than an exception")
     void queryFailureGivesEmptyMap() {
-        when(apiCallLogRepository.findCostRowsSince(any())).thenThrow(new IllegalStateException("db down"));
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class))).thenReturn(List.of(0.8));
+        when(apiCallLogRepository.findCostRowsSince(WINDOW_START)).thenThrow(new IllegalStateException("db down"));
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE)).thenReturn(List.of(0.8));
 
         assertThat(service.costProfiles()).isEmpty();
         assertThat(service.gbpPerUsd()).contains(0.8);
@@ -389,7 +391,7 @@ class RunCostProfileServiceTest {
     @DisplayName("a failing rate query yields an absent rate rather than an exception")
     void rateFailureGivesEmptyRate() {
         rows();
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class)))
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE))
                 .thenThrow(new IllegalStateException("db down"));
 
         assertThat(service.gbpPerUsd()).isEmpty();
@@ -423,10 +425,10 @@ class RunCostProfileServiceTest {
         Rewind.clear();
 
         // one real build, plus two uncached builds under the rewind
-        verify(apiCallLogRepository, times(3)).findCostRowsSince(any());
+        verify(apiCallLogRepository, times(3)).findCostRowsSince(WINDOW_START);
         // and the real memo is still intact for the next real reader
         service.costProfiles();
-        verify(apiCallLogRepository, times(3)).findCostRowsSince(any());
+        verify(apiCallLogRepository, times(3)).findCostRowsSince(WINDOW_START);
     }
 
     @Test
@@ -439,7 +441,7 @@ class RunCostProfileServiceTest {
 
         service.costProfiles();
 
-        verify(apiCallLogRepository, times(2)).findCostRowsSince(any());
+        verify(apiCallLogRepository, times(2)).findCostRowsSince(WINDOW_START);
     }
 
     @Test
@@ -458,7 +460,7 @@ class RunCostProfileServiceTest {
     @DisplayName("a failed exchange-rate read is not remembered; the next request retries")
     void failedRateReadIsNotMemoised() {
         rows();
-        when(jobRunRepository.findLatestExchangeRates(any(Pageable.class)))
+        when(jobRunRepository.findLatestExchangeRates(LATEST_RATE_PAGE))
                 .thenThrow(new IllegalStateException("db down"))
                 .thenReturn(List.of(0.77));
 
