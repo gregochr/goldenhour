@@ -102,11 +102,12 @@ beforeEach(() => {
 });
 
 describe('collapsed — the row is the entry', () => {
-  it('reads "Ask about what’s on the map…" and opens the Ask section on a press', () => {
+  it('reads "Ask PhotoCast…" and opens the Ask section on a press', () => {
     mount('collapsed');
 
     const entry = screen.getByTestId('wf-map-peek-ask-entry');
     expect(entry).toHaveTextContent(PEEK_ASK_PROMPT);
+    expect(entry.querySelector('.wf-map-peek-ask-k')).toBeNull();
     expect(entry).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(entry);
     expect(onOpen).toHaveBeenCalledTimes(1);

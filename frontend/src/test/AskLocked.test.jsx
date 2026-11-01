@@ -149,9 +149,10 @@ describe('the phone bar', () => {
     expect(bar).toHaveAttribute('data-locked', 'true');
     expect(screen.queryByTestId('ask-bar-locked')).toBeNull();
     expect(bar).toHaveTextContent(/Ask/);
+    expect(bar).toHaveTextContent(/^Ask PhotoCast…Pro/);
     // The pill stays a DIRECT child, between the prompt and the arrow: the stylesheet matches `.wf-ask-bar > .wf-lens-pro`.
     expect(Array.from(bar.children).map((c) => c.className.split(' ')[0]))
-      .toEqual(['wf-ask-bar-k', 'wf-ask-bar-q', 'wf-lens-pro', 'wf-ask-bar-go']);
+      .toEqual(['wf-ask-bar-q', 'wf-lens-pro', 'wf-ask-bar-go']);
   });
 
   it('is named by its content, "{prompt} Pro", with no aria-label to replace it', async () => {
@@ -234,7 +235,7 @@ describe('the phone Map peek entry', () => {
     expect(entry.closest('.wf-lens-locked')).toBeNull();
     expect(screen.queryByTestId('wf-map-peek-ask-locked')).toBeNull();
     expect(Array.from(entry.children).map((c) => c.className.split(' ')[0]))
-      .toEqual(['wf-map-peek-ask-k', 'wf-map-peek-ask-q', 'wf-lens-pro', 'wf-map-peek-ask-go']);
+      .toEqual(['wf-map-peek-ask-q', 'wf-lens-pro', 'wf-map-peek-ask-go']);
     expect(entry).toHaveAttribute('aria-expanded', 'false');
     expect(entry).toHaveAccessibleName(/\bPro$/);
     expect(entry.querySelector('a')).toBeNull();

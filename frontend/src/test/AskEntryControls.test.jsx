@@ -13,16 +13,16 @@ import AskField from '../components/ask/AskField.jsx';
 describe('AskBar', () => {
   it('is a button named by its prompt, which opens the dialog it names', () => {
     const onOpen = vi.fn();
-    render(<AskBar prompt="Ask about rare events…" onOpen={onOpen} />);
-    const bar = screen.getByRole('button', { name: 'Ask about rare events…' });
+    render(<AskBar prompt="Ask PhotoCast…" onOpen={onOpen} />);
+    const bar = screen.getByRole('button', { name: 'Ask PhotoCast…' });
     expect(bar).toHaveAttribute('aria-haspopup', 'dialog');
     fireEvent.click(bar);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps its decorative "Ask" kicker and arrow out of the accessible name', () => {
-    render(<AskBar prompt="Ask about this weekend…" onOpen={vi.fn()} />);
-    expect(screen.getByTestId('ask-bar')).toHaveAccessibleName('Ask about this weekend…');
+  it('keeps its decorative arrow out of the accessible name', () => {
+    render(<AskBar prompt="Ask PhotoCast…" onOpen={vi.fn()} />);
+    expect(screen.getByTestId('ask-bar')).toHaveAccessibleName('Ask PhotoCast…');
   });
 
   it('reports whether its sheet is open', () => {
@@ -47,10 +47,19 @@ describe('AskBar', () => {
   });
 });
 
+describe('no separate "Ask" key label', () => {
+  it('shows only the prompt in the bar and the field', () => {
+    const { container } = render(<><AskBar prompt="Ask PhotoCast…" onOpen={vi.fn()} /><AskField onOpen={vi.fn()} /></>);
+    expect(screen.getByTestId('ask-bar')).toHaveTextContent(/^Ask PhotoCast….?$/);
+    expect(screen.getByTestId('ask-field')).toHaveTextContent(/^Ask PhotoCast….?$/);
+    expect(container.querySelector('.wf-ask-bar-k, .wf-askf-k')).toBeNull();
+  });
+});
+
 describe('AskField', () => {
   it('is the 260px form by default, with no "/" hint and no shortcut claimed', () => {
     render(<AskField onOpen={vi.fn()} />);
-    const field = screen.getByRole('button', { name: 'Ask about the forecasts…' });
+    const field = screen.getByRole('button', { name: 'Ask PhotoCast…' });
     expect(field).toHaveAttribute('data-width', '260');
     expect(field).not.toHaveAttribute('aria-keyshortcuts');
     expect(screen.queryByText('/')).toBeNull();
@@ -66,7 +75,7 @@ describe('AskField', () => {
 
   it('keeps the key cap out of the accessible name', () => {
     render(<AskField onOpen={vi.fn()} width={340} showKeyHint />);
-    expect(screen.getByTestId('ask-field')).toHaveAccessibleName('Ask about the forecasts…');
+    expect(screen.getByTestId('ask-field')).toHaveAccessibleName('Ask PhotoCast…');
   });
 
   it('opens on press, reports expanded, and is disabled for real when told', () => {
@@ -82,7 +91,7 @@ describe('AskField', () => {
   });
 
   it('takes a different prompt, which becomes its name', () => {
-    render(<AskField onOpen={vi.fn()} prompt="Ask about the map…" />);
-    expect(screen.getByRole('button', { name: 'Ask about the map…' })).toBeInTheDocument();
+    render(<AskField onOpen={vi.fn()} prompt="Ask PhotoCast…" />);
+    expect(screen.getByRole('button', { name: 'Ask PhotoCast…' })).toBeInTheDocument();
   });
 });

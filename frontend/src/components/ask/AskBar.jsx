@@ -22,8 +22,7 @@ import { refShape } from './askShapes.js';
  * down, or Ask itself is unreachable, and a disabled bar must read as one to a screen reader too.
  *
  * @param {object} props
- * @param {string} props.prompt the tab's prompt; Plan's follows the windows on the matrix ("this weekend" /
- *   "the next few days"), Coming up's is "Ask about rare events…"
+ * @param {string} props.prompt the prompt text, always {@code ASK_PROMPT} ("Ask PhotoCast…") from the shell
  * @param {function(): void} props.onOpen opens the sheet
  * @param {boolean} [props.disabled]
  * @param {boolean} [props.locked] the reader is not PRO or ADMIN: the bar is a live trigger for the Ask upsell
@@ -55,7 +54,6 @@ export default function AskBar({
       onClick={onOpen}
       onKeyDown={onKeyDown}
     >
-      <span className="wf-ask-bar-k" aria-hidden="true">Ask</span>
       <span className="wf-ask-bar-q">{prompt}</span>
       {locked && <span className="wf-lens-pro" data-testid="ask-bar-upsell">Pro</span>}
       <span className="wf-ask-bar-go" aria-hidden="true">↑</span>

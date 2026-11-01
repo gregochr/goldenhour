@@ -84,24 +84,24 @@ afterEach(() => {
 });
 
 describe('the phone bar (below 640px)', () => {
-  it('is drawn on Plan, saying the next few days when no weekend window is on the matrix', async () => {
+  it('is drawn on Plan, reading the one Ask prompt', async () => {
     renderAskShell({ width: 390, ctx: { upcomingEvents: [{ date: '2026-10-22' }] } });
-    expect(await barReady()).toHaveAccessibleName('Ask about the next few days…');
+    expect(await barReady()).toHaveAccessibleName('Ask PhotoCast…');
     expect(bar()).toBeEnabled();
   });
 
-  it('says this weekend on Plan when the matrix holds a Saturday window', async () => {
+  it('reads the same prompt on Plan whatever windows the matrix holds', async () => {
     renderAskShell({
       width: 390, ctx: { upcomingEvents: [{ date: '2026-10-23' }, { date: '2026-10-24' }] },
     });
-    expect(await barReady()).toHaveAccessibleName('Ask about this weekend…');
+    expect(await barReady()).toHaveAccessibleName('Ask PhotoCast…');
   });
 
-  it('is drawn on Coming up with that tab\'s prompt', async () => {
+  it('is drawn on Coming up with the same prompt', async () => {
     renderAskShell({ width: 390 });
     await barReady();
     fireEvent.click(tab('Coming up'));
-    expect(bar()).toHaveAccessibleName('Ask about rare events…');
+    expect(bar()).toHaveAccessibleName('Ask PhotoCast…');
   });
 
   it('is not drawn on the Map or on Operations', async () => {
@@ -154,23 +154,23 @@ describe('the phone bar (below 640px)', () => {
 });
 
 describe('the tablet field (640 to 1023px)', () => {
-  it('reads the weekday prompt, the weekend prompt, and the Map follows Plan', async () => {
+  it('reads the one prompt on Plan and on the Map, whatever the windows', async () => {
     const { unmount } = renderAskShell({
       width: 800, ctx: { upcomingEvents: [{ date: '2026-10-22' }] }, props: { mapPane: MAP_PANE },
     });
-    expect(await fieldReady()).toHaveAccessibleName('Ask about the next few days…');
+    expect(await fieldReady()).toHaveAccessibleName('Ask PhotoCast…');
     fireEvent.click(tab('Map'));
-    expect(field()).toHaveAccessibleName('Ask about the next few days…');
+    expect(field()).toHaveAccessibleName('Ask PhotoCast…');
     unmount();
     renderAskShell({ width: 800, ctx: { upcomingEvents: [{ date: '2026-10-24' }] } });
-    expect(await fieldReady()).toHaveAccessibleName('Ask about this weekend…');
+    expect(await fieldReady()).toHaveAccessibleName('Ask PhotoCast…');
   });
 
-  it('reads the rare-events prompt on Coming up', async () => {
+  it('reads the same prompt on Coming up', async () => {
     renderAskShell({ width: 800 });
     await fieldReady();
     fireEvent.click(tab('Coming up'));
-    expect(field()).toHaveAccessibleName('Ask about rare events…');
+    expect(field()).toHaveAccessibleName('Ask PhotoCast…');
   });
 
   it.each(['At a Glance', 'Coming up', 'Map'])('is drawn on %s', async (name) => {
@@ -898,8 +898,8 @@ describe('the question field', () => {
 
   it('is named for what it is, in the words its placeholder shows', async () => {
     await openTyping();
-    expect(screen.getByRole('textbox', { name: 'Ask about the forecasts' })).toBe(screen.getByTestId('ask-input'));
-    expect(screen.getByTestId('ask-input')).toHaveAttribute('placeholder', 'Ask about the forecasts…');
+    expect(screen.getByRole('textbox', { name: 'Ask PhotoCast' })).toBe(screen.getByTestId('ask-input'));
+    expect(screen.getByTestId('ask-input')).toHaveAttribute('placeholder', 'Ask PhotoCast…');
   });
 
   describe('when typed questions are off (state 7)', () => {

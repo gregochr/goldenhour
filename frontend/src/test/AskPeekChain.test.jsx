@@ -343,7 +343,7 @@ describe('the row, on the real chain', () => {
 
     expect(mode()).toBe('collapsed');
     expect(psh()).toBe('126px');
-    expect(screen.getByTestId('wf-map-peek-ask-entry')).toHaveTextContent('Ask about what’s on the map…');
+    expect(screen.getByTestId('wf-map-peek-ask-entry')).toHaveTextContent('Ask PhotoCast…');
     expect(buttonsShown()).toBe(true);
   });
 
