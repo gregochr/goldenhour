@@ -333,7 +333,7 @@ export default function WaitlistManagementView({ onCountChange }) {
         </span>
       </h2>
       {entries.length > 0 && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-[639px]:flex-wrap">
           <button
             type="button"
             className="btn-secondary text-xs max-[639px]:min-h-11"

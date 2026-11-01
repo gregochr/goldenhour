@@ -182,7 +182,7 @@ describe('Chips', () => {
     expect(screen.getByTestId('c').className).toContain('max-[639px]:shrink-0');
   });
 
-  it('groups chips, scrolls the row sideways on a phone and divides groups', () => {
+  it('groups chips, wraps the row on a phone rather than scrolling it, and divides groups', () => {
     render(
       <ChipRow testId="row">
         <ChipGroup label="Status"><Chip label="A" on={false} onClick={vi.fn()} testId="c" /></ChipGroup>
@@ -190,7 +190,12 @@ describe('Chips', () => {
       </ChipRow>,
     );
     expect(screen.getByRole('group', { name: 'Status' })).toBeInTheDocument();
-    expect(screen.getByTestId('row').className).toContain('max-[639px]:overflow-x-auto');
+    const row = screen.getByTestId('row');
+    expect(row).toHaveClass('flex-wrap');
+    expect(row.className).not.toContain('overflow-x-auto');
+    expect(row.className).not.toContain('flex-nowrap');
+    expect(screen.getByRole('group', { name: 'Status' })).toHaveClass('max-[639px]:flex-wrap');
+    expect(row.querySelector('[aria-hidden="true"]')).toHaveClass('max-[639px]:hidden');
   });
 
   it('draws a select as a chip that reports the chosen value', () => {
