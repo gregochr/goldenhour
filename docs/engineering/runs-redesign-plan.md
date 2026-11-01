@@ -2,7 +2,9 @@
 
 **Status:** planned on 2026-10-31 and revised after a backend and a frontend adversarial review. **R1 is built**
 (2026-10-31, the two endpoints; see "Built departures (R1)" under §9). **R2a is built** (2026-10-31, the Runs tab, the
-job-run panel and Start a run; see "Built departures (R2a)" under §9). R2b, R3, R4 and R5 are not yet built.
+job-run panel and Start a run; see "Built departures (R2a)" under §9). **R2b is built** (2026-11-01, the cycle panel, the live
+strip, the nested batch hash, the live count and the `pipelineruns` fold; see "Built departures (R2b)" under §9). R3, R4
+and R5 are not yet built.
 
 **Source:** the owner's Claude Design export "PhotoCast Runs" (`design_handoff_runs`: `README.md`, `Runs Redesign.html`,
 `runs-redesign.js`, 14 frames). It lives with the owner, not in the repo. For the life of the planning session it is
@@ -878,6 +880,56 @@ Where the plan's text was ambiguous, or the code made a different call safer, R2
 - **Tests deleted** (their features are dropped by §9): the run-type select and the two checkboxes, the Date / Duration /
   Succeeded sort buttons, and `MetricsSummary`'s slowest service, success rate, evaluations count, batch-versus-real-time
   cost split and client-side Today / 7-day filter (the server now does that, on UK days). Every other assertion moved.
+
+### Built departures (R2b)
+
+Where the plan's text was ambiguous, or the served data could not carry it, R2b follows these:
+
+- **The cycle detail now serves the cost.** R2b added `costMicroDollars` and `costGbpRate` to
+  `GET /api/admin/pipeline-runs/{id}` (a small server change beside the frontend work), computed by the one rule the list
+  row uses (`AdminRunsService.cycleCost`, shared, not copied). The panel reads the detail's cost, never the list row; zero
+  or absent reads as an em dash.
+- **A cycle's name** is the row's served name when the row is loaded, else the same wording keyed by `cycleType`
+  (`utils/cycleView.js`); the detail serves no name.
+- **"Checked {when}"** is the time of the client's own last read of the cycle (the detail has no server timestamp for when
+  `waitingOn` was computed).
+- **The waiting box's counts** ("{n} of {m} batches") are the cycle's batches still SUBMITTED over all of its batches. With
+  no SUBMITTED batch the box heads with the server's own `waitingOn` sentence instead.
+- **Not-yet-run phases are drawn by the client.** The server serves only phases that have started, so while a cycle is
+  RUNNING the known phases after the last started one (in the order re-classify, submit, wait, retry, briefing) are
+  appended as not yet run ("Runs after {the running phase}"; the retry phase says "Runs if needed", since it runs only
+  when something failed). Re-classify is drawn for every cycle type that records it (INTRADAY and EVENING, as
+  `CycleType.recordsReclassifyPhase()`), so a NIGHTLY cycle's strip bar is four segments, not five. A finished cycle draws
+  exactly what the server served, and a phase left RUNNING in one shows no "so far" clock.
+- **A completed retry phase with no detail reads "Nothing to retry"** (the copy sheet's wording).
+- **`COMPLETED` reads as Done.** The cycle detail serves `PipelineRunStatus`, not `RunListStatus`; `cycleStatusView` maps
+  COMPLETED to the Done look and leaves the rest alone.
+- **Going back from a batch is a new history entry** (`select` of the cycle), not `history.back()`, so the control, Esc and
+  the phone back bar all land on the cycle whichever way the batch was reached (including a pasted nested address).
+- **Small losses from the old Pipeline Runs detail,** accepted with the redesign: the summary's started and completed
+  dates are now "HH:MM (relative)" in the meta and the full date only in the footer's Completed; there is no `#` column on
+  the phase rows (the order is the timeline's); the total duration shows as the Phases meta once finished, with no
+  running total while RUNNING (the live strip and the running phase carry the clocks); and the old intro paragraph
+  explaining SUBMIT, WAIT and BRIEFING is gone.
+- **The back control sits above the title** on split and overlay (a "‹ Cycle #{id}" row, 44px high), not in the
+  header row beside the ×; the panel's Refresh sits in the header beside the ×. On a phone the layout's back bar carries
+  both.
+- **The panel's accessible name is "Cycle #412"** (the label carries the hash sign).
+- **A nested batch the server has no run for (404) returns to its cycle,** replacing the entry, not to the bare tab.
+- **On the Runs tab ManageView sends no live-count request of its own;** the Runs view reports the count on each of its
+  refreshes. Elsewhere it polls `GET /api/admin/runs?size=1` every minute.
+- **A null pick reads "No pick"** (a rank present on one side of the comparison only); a pick with no region is "Stay
+  home". A changed card shows "Was {headline}" and that nightly pick's own line (region, rating).
+- **The live strip's elapsed time is the running phase's** (the wait, as the frames show), not the cycle's.
+- **A pasted `#manage/pipelineruns/abc`** (non-numeric) redirects to the bare `#manage/runs`.
+- **A taking-over poll reads once at once.** `useCycleDetail` elects the first reader as the poller; when it leaves, the next
+  reader takes over and, as `useVisiblePoll` always does when it starts, reads straight away.
+- **`fetchPipelineRuns` and the `PipelineRunsView` list are gone;** `api/pipelineRunApi.js` keeps only the detail read.
+- **Tests deleted with `PipelineRunsView`:** its list tests (the table's pills, the DEGRADED orange pill, the empty
+  state, the row click, the list error sentence) are the old list's, which `RunsView` now serves (covered by
+  `RunsView.test.jsx`); the detail tests moved to `RunsCycles.test.jsx` (see the PR body for where each went). The old
+  "expand a batch to show dispositions inline" is replaced by the batch drill-in, since the batch's job-run panel carries
+  the dispositions.
 
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 

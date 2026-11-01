@@ -19,10 +19,15 @@ import java.util.List;
  * @param phases     the run's phase rows in execution order
  * @param batches    the forecast_batch rows tagged with this cycle id
  * @param comparison intraday-vs-nightly best-bet comparison, or {@code null}
+ * @param costMicroDollars the cycle's batch cost in micro-dollars (zero when no run carries one), by the same rule as
+ *                         the Runs list row; the briefing's cost is on its own unlinked run and is not included
+ * @param costGbpRate GBP per USD from the latest cost-bearing run, or {@code null}
  */
 public record PipelineRunDetail(
         PipelineRunSummary run,
         List<PipelinePhaseSummary> phases,
         List<PipelineRunBatch> batches,
-        PipelineRunPickComparison comparison) {
+        PipelineRunPickComparison comparison,
+        long costMicroDollars,
+        Double costGbpRate) {
 }

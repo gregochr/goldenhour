@@ -16,6 +16,8 @@ import com.gregochr.goldenhour.model.runs.RunListItem;
 import com.gregochr.goldenhour.model.runs.RunListResponse;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.model.runs.RunRange;
+import com.gregochr.goldenhour.model.runs.CycleCost;
+import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.BatchSummaryDeriver;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
@@ -100,6 +102,9 @@ class AdminRunsServiceTest {
 
     @Autowired
     private PipelineRunRepository pipelineRuns;
+
+    @Autowired
+    private ForecastBatchRepository batchRepo;
 
     @MockitoBean
     private BatchSummaryDeriver deriver;
@@ -298,6 +303,50 @@ class AdminRunsServiceTest {
         assertThat(filtered.runningCount()).isEqualTo(4);
         assertThat(filtered.liveCycleId()).isEqualTo(newerLive.getId());
         assertThat(live.getId()).isNotEqualTo(newerLive.getId());
+    }
+
+    @Test
+    @DisplayName("the cycle detail's cost is the list row's: anchor not counted twice, latest rate")
+    void detailCostMatchesTheListRow() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, Instant.parse("2026-10-31T01:00:00Z"),
+                PipelineRunStatus.COMPLETED);
+        JobRunEntity first = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 5), true, 5, 0, 100L);
+        JobRunEntity second = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 6), true, 5, 0, 200L);
+        batch("msgbatch_1", BatchType.FORECAST, nightly.getId(), first.getId(), BatchStatus.COMPLETED);
+        batch("msgbatch_2", BatchType.FORECAST, nightly.getId(), second.getId(), BatchStatus.COMPLETED);
+        em.flush();
+        pipelineRuns.recordDispositionJobRun(nightly.getId(), first.getId());
+        em.clear();
+
+        PipelineRunEntity reloaded = pipelineRuns.findById(nightly.getId()).orElseThrow();
+        CycleCost detail = service.cycleCost(reloaded, batchRepo.findByPipelineRunId(nightly.getId()));
+        RunListItem row = list(RunRange.TODAY, null, false).items().stream()
+                .filter(i -> i.kind() == RunKind.CYCLE).findFirst().orElseThrow();
+
+        assertThat(detail.costMicroDollars()).isEqualTo(300L).isEqualTo(row.costMicroDollars());
+        assertThat(detail.costGbpRate()).isEqualTo(0.8).isEqualTo(row.costGbpRate());
+    }
+
+    @Test
+    @DisplayName("the cycle detail's cost counts a batch run matched on its notes, and is zero with no run")
+    void detailCostUsesTheNotesFallbackAndIsZeroWhenNothingCosts() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, Instant.parse("2026-10-31T01:00:00Z"),
+                PipelineRunStatus.COMPLETED);
+        JobRunEntity unlinked = job(RunType.SCHEDULED_BATCH, LocalDateTime.of(2026, 10, 31, 1, 6), true, 5, 0, 40L);
+        unlinked.setNotes("Anthropic batch: msgbatch_cycle");
+        batch("msgbatch_cycle", BatchType.FORECAST, nightly.getId(), null, BatchStatus.COMPLETED);
+        PipelineRunEntity empty = cycle(CycleType.INTRADAY, Instant.parse("2026-10-31T14:00:00Z"),
+                PipelineRunStatus.RUNNING);
+        commit();
+
+        CycleCost withNotes = service.cycleCost(pipelineRuns.findById(nightly.getId()).orElseThrow(),
+                batchRepo.findByPipelineRunId(nightly.getId()));
+        CycleCost none = service.cycleCost(pipelineRuns.findById(empty.getId()).orElseThrow(), List.of());
+
+        assertThat(withNotes.costMicroDollars()).isEqualTo(40L);
+        assertThat(withNotes.costGbpRate()).isEqualTo(0.8);
+        assertThat(none.costMicroDollars()).isZero();
+        assertThat(none.costGbpRate()).isNull();
     }
 
     @Test

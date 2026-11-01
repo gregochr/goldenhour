@@ -179,10 +179,11 @@ function emptyText(nextOvernightAt) {
  * @param {() => void} props.onRefresh called by Refresh
  * @param {() => void} props.onStart called by Start a run
  * @param {import('react').ReactNode} [props.progress] the live run-progress panel, drawn above the summary
+ * @param {import('react').ReactNode} [props.liveStrip] the running cycle's strip, drawn above the summary
  */
 export default function RunsListPane({
   headingRef, startButtonRef = undefined, items, meta = null, loading, loadingMore, error = null, updatedAt = null, hasMore, filters, filterActions,
-  selectedKey = null, onSelect, onLoadMore, onRefresh, onStart, progress = null,
+  selectedKey = null, onSelect, onLoadMore, onRefresh, onStart, progress = null, liveStrip = null,
 }) {
   const kindCounts = meta?.kindCounts ?? {};
   let body;
@@ -271,6 +272,8 @@ export default function RunsListPane({
 
       <ErrorBanner message={error} data-testid="runs-error" />
 
+      {liveStrip}
+
       {meta?.summary && <RunsSummary summary={meta.summary} />}
 
       <DataTools testId="runs-tools">
@@ -338,4 +341,5 @@ RunsListPane.propTypes = {
   onRefresh: PropTypes.func.isRequired,
   onStart: PropTypes.func.isRequired,
   progress: PropTypes.node,
+  liveStrip: PropTypes.node,
 };

@@ -28,7 +28,6 @@ vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
 vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
-vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 vi.mock('../components/runs/RunsView.jsx', async () => {
@@ -45,7 +44,7 @@ vi.mock('../components/runs/RunsView.jsx', async () => {
 // The expected layout, written out literally (deliberately not imported from ManageView).
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
-    ['runs', 'Runs'], ['pipelineruns', 'Pipeline Runs'],
+    ['runs', 'Runs'],
     ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
   ] },
   { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },

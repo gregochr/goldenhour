@@ -1,15 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, within, fireEvent } from '@testing-library/react';
 import ManageView from '../components/ManageView.jsx';
 import useHashSelection from '../hooks/useHashSelection.js';
+import { fetchRuns } from '../api/runsApi.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { useIsWide } from '../hooks/useIsWide.js';
 
 // Module-level, like the Runs tab's own parser, so the hook's listener stays stable.
 const parseRuns = (segments) => (
-  segments.length === 2 && segments[0] === 'job' ? { job: Number(segments[1]) } : null
+  segments.length === 2 && ['job', 'cycle'].includes(segments[0]) ? { [segments[0]]: Number(segments[1]) } : null
 );
 
-// The Runs hashes (runs-redesign-plan.md §4): the Job Runs tab became Runs, so the old #manage/metrics redirects in
-// place, on mount and on hashchange; a cycle row opens Pipeline Runs on that cycle until the cycle panel is built.
+// The Runs hashes (runs-redesign-plan.md §4): the Job Runs tab became Runs and Pipeline Runs folded into it, so the old
+// #manage/metrics and #manage/pipelineruns[/{id}] redirect in place, on mount and on hashchange; and the live count
+// beside Runs follows the server's runningCount.
+
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
+vi.mock('../hooks/useIsWide.js', () => ({ useIsWide: vi.fn() }));
+vi.mock('../api/runsApi.js', () => ({ fetchRuns: vi.fn() }));
 
 vi.mock('../api/waitlistApi.js', () => ({ getWaitlist: vi.fn().mockResolvedValue([]) }));
 vi.mock('../api/forecastApi.js', () => ({ fetchLocations: vi.fn().mockResolvedValue([]) }));
@@ -33,19 +41,13 @@ vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 // The Runs stub is a REAL consumer of the shared hash hook, as the Runs view is: it shows the selection it read.
 vi.mock('../components/runs/RunsView.jsx', () => ({
-  default: function RunsProbe() {
+  default: function RunsProbe({ onLiveCountChange }) {
     const { selectedId } = useHashSelection('runs', { parse: parseRuns });
-    return <div data-testid="stub-view">Runs selected: {selectedId ? JSON.stringify(selectedId) : 'none'}</div>;
-  },
-}));
-// The Pipeline Runs stub shows the cycle ManageView handed it, so a hash that failed to open one is seen.
-vi.mock('../components/PipelineRunsView.jsx', () => ({
-  default: function PipelineProbe({ activeRunId, onCloseDetail, onSelectRun }) {
     return (
       <div data-testid="stub-view">
-        Pipeline Runs open: {activeRunId ?? 'none'}
-        <button type="button" onClick={() => onSelectRun(77)}>pick 77</button>
-        <button type="button" onClick={onCloseDetail}>close detail</button>
+        Runs selected: {selectedId ? JSON.stringify(selectedId) : 'none'}
+        <button type="button" onClick={() => onLiveCountChange(3)}>report 3</button>
+        <button type="button" onClick={() => onLiveCountChange(0)}>report 0</button>
       </div>
     );
   },
@@ -62,6 +64,9 @@ function goTo(hash) {
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '';
+  useIsMobile.mockReturnValue(false);
+  useIsWide.mockReturnValue(false);
+  fetchRuns.mockResolvedValue({ runningCount: 0 });
 });
 
 describe('ManageView: #manage/metrics redirects to #manage/runs', () => {
@@ -135,10 +140,10 @@ describe('ManageView: #manage/metrics redirects to #manage/runs', () => {
 });
 
 describe('ManageView: the Runs tab and the landing', () => {
-  it('lists Runs first in its group, with Pipeline Runs kept for this phase', () => {
+  it('lists Runs first in its group, with no Pipeline Runs tab (it folded into Runs)', () => {
     render(<ManageView onComplete={vi.fn()} />);
     expect(screen.getByTestId('manage-tab-runs')).toHaveTextContent('Runs');
-    expect(screen.getByTestId('manage-tab-pipelineruns')).toHaveTextContent('Pipeline Runs');
+    expect(screen.queryByTestId('manage-tab-pipelineruns')).toBeNull();
     expect(screen.queryByTestId('manage-tab-metrics')).toBeNull();
   });
 
@@ -161,72 +166,142 @@ describe('ManageView: the Runs tab and the landing', () => {
   });
 });
 
-describe('ManageView: a cycle row opens Pipeline Runs on that cycle (until R2b)', () => {
-  it('opens the cycle named by #manage/pipelineruns/{id} on mount', () => {
+describe('ManageView: #manage/pipelineruns redirects to #manage/runs', () => {
+  it('on mount, a cycle id becomes cycle/{id}, before the Runs view reads it', () => {
     window.location.hash = '#manage/pipelineruns/412';
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: 412');
+    expect(window.location.hash).toBe('#manage/runs/cycle/412');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected: {"cycle":412}');
   });
 
-  it('opens it on hashchange from the Runs tab', () => {
-    window.location.hash = '#manage/runs';
+  it('on hashchange from another tab', () => {
+    window.location.hash = '#manage/users';
     render(<ManageView onComplete={vi.fn()} />);
 
     goTo('#manage/pipelineruns/412');
 
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: 412');
-    expect(window.location.hash).toBe('#manage/pipelineruns/412');
+    expect(window.location.hash).toBe('#manage/runs/cycle/412');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected: {"cycle":412}');
   });
 
-  it('shows the bare list for the bare Pipeline Runs address', () => {
+  it('hands the Runs view the redirected selection when it is already mounted on Runs', () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected: none');
+
+    goTo('#manage/pipelineruns/77');
+
+    expect(window.location.hash).toBe('#manage/runs/cycle/77');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected: {"cycle":77}');
+  });
+
+  it('the bare address and a non-numeric id both become the bare Runs tab', () => {
     window.location.hash = '#manage/pipelineruns';
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: none');
+    expect(window.location.hash).toBe('#manage/runs');
+
+    goTo('#manage/pipelineruns/abc');
+    expect(window.location.hash).toBe('#manage/runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected: none');
   });
 
-  it('ignores a non-numeric id', () => {
-    window.location.hash = '#manage/pipelineruns/abc';
+  it('keeps a query', () => {
+    window.location.hash = '#manage/pipelineruns/412?kind=cycles';
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: none');
+    expect(window.location.hash).toBe('#manage/runs/cycle/412?kind=cycles');
   });
 
-  it('arriving on Pipeline Runs by a bare address keeps the cycle that was open', () => {
-    window.location.hash = '#manage/pipelineruns/412';
+  it('does not touch a hash that merely starts with the same letters', () => {
+    window.location.hash = '#manage/pipelinerunsx';
     render(<ManageView onComplete={vi.fn()} />);
-    goTo('#manage/runs');
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs selected');
-
-    goTo('#manage/pipelineruns');
-
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: 412');
+    expect(window.location.hash).toBe('#manage/pipelinerunsx');
   });
 
-  it('picking another cycle rewrites the cycle address in place, so a reload does not reopen the old one', () => {
-    window.location.hash = '#manage/pipelineruns/412';
+  it('rewrites the entry in place, adding no history entry beyond the assignment itself', () => {
+    window.location.hash = '#manage/users';
     render(<ManageView onComplete={vi.fn()} />);
     const before = window.history.length;
 
-    act(() => { screen.getByRole('button', { name: 'pick 77' }).click(); });
+    goTo('#manage/pipelineruns/9');
 
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: 77');
-    expect(window.location.hash).toBe('#manage/pipelineruns/77');
-    expect(window.history.length).toBe(before);
+    expect(window.history.length).toBeLessThanOrEqual(before + 1);
+    expect(window.location.hash).toBe('#manage/runs/cycle/9');
+  });
+});
+
+describe('ManageView: the live count beside Runs', () => {
+  // On another tab of the Runs group (so the sub-tab bar shows Runs): there the Runs view reports the count itself and ManageView sends no request of its own.
+  beforeEach(() => {
+    window.location.hash = '#manage/scheduler';
   });
 
-  it('leaves a bare Pipeline Runs address alone when a cycle is picked', () => {
-    window.location.hash = '#manage/pipelineruns';
+  const layouts = [
+    ['sidebar', () => { useIsWide.mockReturnValue(true); }],
+    ['sub-tab bar', () => {}],
+  ];
+
+  it.each(layouts)('shows the server runningCount in the %s, once the poll lands', async (_name, setup) => {
+    setup();
+    fetchRuns.mockResolvedValue({ runningCount: 2 });
     render(<ManageView onComplete={vi.fn()} />);
-    act(() => { screen.getByRole('button', { name: 'pick 77' }).click(); });
-    expect(window.location.hash).toBe('#manage/pipelineruns');
+
+    const badge = await screen.findByTestId('runs-live-count');
+    expect(badge).toHaveTextContent('2');
+    expect(badge).toHaveTextContent('2 running');
+    expect(within(screen.getByTestId('manage-tab-runs')).getByTestId('runs-live-count')).toBe(badge);
+    expect(fetchRuns).toHaveBeenCalledWith({ size: 1 });
   });
 
-  it('closing the detail leaves the bare address, so Back does not land on the cycle again', () => {
-    window.location.hash = '#manage/pipelineruns/412';
+  it('shows it in the phone select as "Runs (2)"', async () => {
+    useIsMobile.mockReturnValue(true);
+    fetchRuns.mockResolvedValue({ runningCount: 2 });
     render(<ManageView onComplete={vi.fn()} />);
+    expect(await screen.findByRole('option', { name: 'Runs (2)' })).toBeInTheDocument();
+  });
 
-    act(() => { screen.getByRole('button', { name: 'close detail' }).click(); });
+  it('shows nothing at zero', async () => {
+    render(<ManageView onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(fetchRuns).toHaveBeenCalled();
+    expect(screen.queryByTestId('runs-live-count')).toBeNull();
+  });
 
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs open: none');
-    expect(window.location.hash).toBe('#manage/pipelineruns');
+  it('sends no request of its own on the Runs tab: only the Runs view reports there', async () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(fetchRuns).not.toHaveBeenCalled();
+  });
+
+  it('keeps the count the Runs view reported when the reader leaves the Runs tab', async () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'report 3' }));
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('3');
+
+    fireEvent.click(screen.getByTestId('manage-tab-scheduler'));
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('3');
+  });
+
+  it('follows the Runs view\'s own report, and clears when it reports none', async () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(screen.queryByTestId('runs-live-count')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'report 3' }));
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'report 0' }));
+    expect(screen.queryByTestId('runs-live-count')).toBeNull();
+  });
+
+  it('keeps the last count when the poll fails', async () => {
+    fetchRuns.mockResolvedValueOnce({ runningCount: 1 });
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(await screen.findByTestId('runs-live-count')).toHaveTextContent('1');
+    fetchRuns.mockRejectedValue(new Error('down'));
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('1');
   });
 });

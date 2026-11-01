@@ -18,7 +18,6 @@ vi.mock('../components/TideManagementView.jsx', () => ({ default: () => <div>Tid
 vi.mock('../components/runs/RunsView.jsx', () => ({ default: () => <div>Runs view</div> }));
 vi.mock('../components/ModelSelectionView.jsx', () => ({ default: () => <div>Run Config</div> }));
 vi.mock('../components/SchedulerView.jsx', () => ({ default: () => <div>Scheduler</div> }));
-vi.mock('../components/PipelineRunsView.jsx', () => ({ default: () => <div>Pipeline Runs</div> }));
 
 describe('ManageView — Rewind tab', () => {
   beforeEach(() => {

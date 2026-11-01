@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,6 +18,16 @@ import java.util.Optional;
  * Spring Data repository for {@link JobRunEntity}.
  */
 public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
+
+    /**
+     * The runs of a type whose {@code notes} are exactly one of the given texts: a batch run whose link to its
+     * batch row was never written is found by the {@code "Anthropic batch: {id}"} its notes carry.
+     *
+     * @param runType the run type
+     * @param notes   the exact notes to match
+     * @return the matching runs
+     */
+    List<JobRunEntity> findByRunTypeAndNotesIn(RunType runType, Collection<String> notes);
 
     /**
      * Finds recent job runs by run type, ordered by start time descending. The id tie-break keeps

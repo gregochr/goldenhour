@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { TIDE_HALO_CLASS } from '../../utils/tideHalo.js';
 
 /** The dot and text colours per tone: go, amber, coral, tide (a run in flight) and the quiet ink-4 "off". */
 const TONES = {
@@ -32,7 +33,7 @@ export default function StatusDot({
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs ${text} ${className}`} data-testid={testId}>
       <span
-        className={`size-1.5 shrink-0 rounded-full ${style.dot} ${halo ? 'shadow-[0_0_0_3px_rgba(111,168,176,0.28)]' : ''}`}
+        className={`size-1.5 shrink-0 rounded-full ${style.dot} ${halo ? TIDE_HALO_CLASS : ''}`}
         aria-hidden="true"
       />
       {children}

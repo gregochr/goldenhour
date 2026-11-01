@@ -38,9 +38,6 @@ vi.mock('../components/ModelSelectionView.jsx', () => ({
 vi.mock('../components/SchedulerView.jsx', () => ({
   default: () => <div>Scheduler</div>,
 }));
-vi.mock('../components/PipelineRunsView.jsx', () => ({
-  default: () => <div>Pipeline Runs</div>,
-}));
 
 /** Waitlist lives under People; the landing group is Runs. */
 const openWaitlist = () => {
