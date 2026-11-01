@@ -142,6 +142,8 @@ class ForecastServiceInversionProfileTest {
         // The inversion step's output is whatever carries (or lacks) the attached profile in this scenario. Its
         // stub records that exact object, and every later step must receive THAT object (identity), so a step
         // that silently handed on the original BASE instead would fail here rather than discard the profile.
+        // any(): the input is the profile-bearing copy the service builds itself (no handle to it before
+        // the call); the tests inspect it afterwards via scoredInput, and later steps match its identity.
         when(augmentor.augmentWithInversionScore(any(), eq(elevation), eq(true))).then(inv -> {
             inversionOutput.set(inv.getArgument(0));
             return inv.getArgument(0);

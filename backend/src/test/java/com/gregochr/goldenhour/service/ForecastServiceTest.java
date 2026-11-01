@@ -62,6 +62,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -431,7 +432,9 @@ class ForecastServiceTest {
 
         when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
         when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
-        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+        when(openMeteoService.getAtmosphericDataWithResponse(
+                eq(new ForecastRequest(DURHAM_LAT, DURHAM_LON, "Boulmer", date, TargetType.SUNRISE)),
+                eq(sunrise), isNull()))
                 .thenReturn(new WeatherExtractionResult(data, null));
         when(augmentor.augmentWithCoastalMist(eq(data), eq(coastal), eq(date))).thenReturn(banded);
         when(augmentor.augmentWithBluebellConditions(eq(banded), eq(coastal.getLocationType()),
