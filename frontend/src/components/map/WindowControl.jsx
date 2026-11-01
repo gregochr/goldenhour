@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { auroraChipLevel } from '../../utils/auroraChipLevel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
@@ -57,7 +58,7 @@ export default function WindowControl({
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
-  shaped = false,
+  shaped = false, auroraAlertNight = null, auroraAlertLevel = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -489,7 +490,7 @@ export default function WindowControl({
           </span>
         ) : active ? (
           <>
-            <KindChip row={active} />
+            <KindChip row={active} auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel} />
             {' '}
             {/* The kind chip already reads SUNRISE/SUNSET, so the pill text is the day-only
                 form — `dayLabel`, never `label` (map-tab-v2-plan.md's kind-chip dedup). Falls
@@ -657,6 +658,8 @@ export default function WindowControl({
                     ratedCount={ratedCounts?.get(row.id) ?? null}
                     shaped={shaped}
                     verdict={verdicts?.get(row.id) ?? null}
+                    auroraAlertNight={auroraAlertNight}
+                    auroraAlertLevel={auroraAlertLevel}
                   />
                 ))}
               </div>
@@ -684,6 +687,8 @@ export default function WindowControl({
                     onSelect={() => selectRow(row)}
                     shaped={shaped}
                     verdict={verdicts?.get(row.id) ?? null}
+                    auroraAlertNight={auroraAlertNight}
+                    auroraAlertLevel={auroraAlertLevel}
                   />
                 ))}
               </div>
@@ -745,6 +750,9 @@ export default function WindowControl({
 }
 
 WindowControl.propTypes = {
+  /** The night the aurora alert describes, and its level: that night's aurora chip follows the level. */
+  auroraAlertNight: PropTypes.string,
+  auroraAlertLevel: PropTypes.string,
   events: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string.isRequired,
     kind: PropTypes.string.isRequired,
@@ -986,13 +994,13 @@ function dayHeading(dateStr) {
 }
 
 /**
- * am / pm / night / hw — the CSS colour-class key. Astro and Aurora share one colour (README table);
+ * am / pm / night / aurora / hw — the CSS colour-class key. Astro is `night` (violet), Aurora its own green;
  * the daylight High-water row has its own, in the tide light (hot-topics-by-day-plan §3 M3).
  */
 function kindClass(row) {
   if (row.kind === 'solar') return row.eventType === 'SUNRISE' ? 'am' : 'pm';
   if (row.kind === 'hw') return 'hw';
-  return 'night';
+  return row.eventType === 'AURORA' ? 'aurora' : 'night';
 }
 
 const KIND_TEXT = {
@@ -1018,18 +1026,23 @@ function HighWaterVerdict() {
  * draws the identical roster this dropdown does and must not mint a second kind-chip markup — the
  * kind-chip dedup rule this file already states for `dayLabel` applies to the chip itself too.
  */
-export function KindChip({ row }) {
+export function KindChip({ row, auroraAlertNight = null, auroraAlertLevel = null }) {
   // Reuses `.wf-hc-sun` — the day rail's own kind-chip class (matrix-axis plan D14) — rather than
   // minting a second chip vocabulary. `.am`/`.pm` already exist there; `.night` is this phase's one
   // addition (index.css), sharing the same `color-mix` idiom against the new astro tokens.
   return (
-    <span className={`wf-hc-sun ${kindClass(row)}`}>
+    <span
+      className={`wf-hc-sun ${kindClass(row)}`}
+      data-aurora-level={auroraChipLevel(row, auroraAlertNight, auroraAlertLevel) ?? undefined}
+    >
       {KIND_TEXT[row.eventType] || row.eventType}
     </span>
   );
 }
 
 KindChip.propTypes = {
+  auroraAlertNight: PropTypes.string,
+  auroraAlertLevel: PropTypes.string,
   row: PropTypes.shape({
     kind: PropTypes.string,
     eventType: PropTypes.string,
@@ -1049,6 +1062,7 @@ const CHANNEL_ICON = {
 /** One dropdown row — kind chip · label+time · `N★ best` with swatch · topic icons. */
 function WindowRow({
   row, active, onSelect, ratedCount = null, shaped = false, verdict = null,
+  auroraAlertNight = null, auroraAlertLevel = null,
 }) {
   const icons = useMemo(() => {
     const seen = new Set();
@@ -1063,7 +1077,12 @@ function WindowRow({
   }, [row.badges]);
 
   if (row.past) {
-    return <PastWindowRow row={row} active={active} onSelect={onSelect} ratedCount={ratedCount} />;
+    return (
+      <PastWindowRow
+        row={row} active={active} onSelect={onSelect} ratedCount={ratedCount}
+        auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel}
+      />
+    );
   }
 
   return (
@@ -1080,7 +1099,7 @@ function WindowRow({
       title={row.rosterNote || undefined}
       onClick={onSelect}
     >
-      <KindChip row={row} />
+      <KindChip row={row} auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel} />
       {' '}
       <span className="wf-win-row-main">
         {/* Day-only form beside the kind chip — see the collapsed pill above, including the
@@ -1148,7 +1167,9 @@ RatedCell.propTypes = { ratedCount: PropTypes.number };
  * (an option's name is its content, and the sub-header is not inside it). No pick, no topics, no
  * score: a past window is `served: false` and states none of those.
  */
-function PastWindowRow({ row, active, onSelect, ratedCount }) {
+function PastWindowRow({
+  row, active, onSelect, ratedCount, auroraAlertNight = null, auroraAlertLevel = null,
+}) {
   return (
     <button
       type="button"
@@ -1160,7 +1181,7 @@ function PastWindowRow({ row, active, onSelect, ratedCount }) {
       className={`wf-win-row wf-win-row-past${active ? ' on' : ''}`}
       onClick={onSelect}
     >
-      <KindChip row={row} />
+      <KindChip row={row} auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel} />
       {' '}
       <span className="wf-win-row-main">
         <b className="wf-win-row-pasttime">
@@ -1177,6 +1198,8 @@ function PastWindowRow({ row, active, onSelect, ratedCount }) {
 }
 
 PastWindowRow.propTypes = {
+  auroraAlertNight: PropTypes.string,
+  auroraAlertLevel: PropTypes.string,
   row: PropTypes.shape({
     id: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
@@ -1189,6 +1212,8 @@ PastWindowRow.propTypes = {
 };
 
 WindowRow.propTypes = {
+  auroraAlertNight: PropTypes.string,
+  auroraAlertLevel: PropTypes.string,
   shaped: PropTypes.bool,
   verdict: PropTypes.shape({ tier: PropTypes.string }),
   row: PropTypes.shape({
