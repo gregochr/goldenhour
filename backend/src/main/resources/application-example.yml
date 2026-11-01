@@ -178,6 +178,12 @@ photocast:
   #                                 # is fetched (PHOTOCAST_INVERSION_V2_ENABLED)
   #       raise-cap-enabled: true   # true = a site below 600 m may be raised at most one point over the old
   #                                 # score; summits are never capped. false lifts the cap
+  # Coastal mist (docs/engineering/coastal-mist-plan.md, Phase 1): a light sea mist band (event-slot visibility
+  # 5-10 km, temperature-dew point gap 1.5 C or less) for a coastal (tide types) site that is not mist_prone.
+  # Read once at startup, so changing it needs a backend restart. Default shown.
+  #   coastal-mist:
+  #     enabled: true               # false = the band is never computed, stored (null band, scored false) or
+  #                                 # put in the prompt (PHOTOCAST_COASTAL_MIST_ENABLED)
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:

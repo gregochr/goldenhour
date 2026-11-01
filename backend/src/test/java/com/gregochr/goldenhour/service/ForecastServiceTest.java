@@ -11,6 +11,8 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CoastalMistBand;
+import com.gregochr.goldenhour.model.CoastalMistResult;
 import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.CloudApproachData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -141,6 +143,8 @@ class ForecastServiceTest {
         lenient().when(augmentor.augmentWithBluebellConditions(any(), any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithCoastalMist(any(), any(), any()))
                 .thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -398,6 +402,37 @@ class ForecastServiceTest {
         verify(augmentor).augmentWithValleyMist(any(), eq(true));
         verify(slotAtmosphereWriter, times(1))
                 .write(mistProne, date, TargetType.SUNRISE, scored);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() runs the coastal mist seam with the LOCATION and date, and the "
+            + "result reaches the readings write and the triage check")
+    void fetchWeatherAndTriage_coastalMistSeam_receivesLocationAndFlowsToWriter() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocationEntity coastal = LocationEntity.builder()
+                .id(4L).name("Boulmer").lat(DURHAM_LAT).lon(DURHAM_LON)
+                .tideType(Set.of(TideType.HIGH)).build();
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        AtmosphericData banded = data.withCoastalMist(new CoastalMistResult(
+                CoastalMistBand.LIGHT, 7_000, 0.8, 30));
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(augmentor.augmentWithCoastalMist(any(), eq(coastal), eq(date))).thenReturn(banded);
+        when(augmentor.augmentWithBluebellConditions(eq(banded), any(), any(), any())).thenReturn(banded);
+        when(weatherTriageEvaluator.evaluate(banded)).thenReturn(Optional.empty());
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                coastal, date, TargetType.SUNRISE, Set.of(TideType.HIGH),
+                EvaluationModel.SONNET, null);
+
+        assertThat(result.triaged()).isFalse();
+        assertThat(result.atmosphericData().coastalMist().band()).isEqualTo(CoastalMistBand.LIGHT);
+        verify(augmentor).augmentWithCoastalMist(any(), eq(coastal), eq(date));
+        verify(slotAtmosphereWriter, times(1)).write(coastal, date, TargetType.SUNRISE, banded);
     }
 
     @Test

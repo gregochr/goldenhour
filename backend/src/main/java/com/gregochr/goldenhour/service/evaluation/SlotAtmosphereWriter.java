@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CoastalMistResult;
 import com.gregochr.goldenhour.model.InversionV2Result;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -206,6 +207,12 @@ public class SlotAtmosphereWriter {
         row.setMistScore(data.mistScore());
         row.setMistScored(true);
         row.setMistPotential(data.mistPotential() == null ? null : data.mistPotential().name());
+        // Coastal mist (coastal-mist-plan Phase 1): written on EVERY write. The carrier is non-null only when
+        // the check ran (switch on, coastal, not mist_prone), so a switched-off or inland write leaves a null
+        // band and coastal_mist_scored = false and no stale value from an earlier write survives.
+        CoastalMistResult coastalMist = data.coastalMist();
+        row.setCoastalMistBand(coastalMist == null ? null : coastalMist.band().name());
+        row.setCoastalMistScored(coastalMist != null);
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }

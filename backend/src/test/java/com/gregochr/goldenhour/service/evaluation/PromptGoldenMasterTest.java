@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.entity.TideStatisticalSize;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.service.WoodlandVerdictEvaluator;
 import com.gregochr.goldenhour.model.BluebellConditionScore;
+import com.gregochr.goldenhour.model.CoastalMistBand;
+import com.gregochr.goldenhour.model.CoastalMistResult;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.TideRiskLevel;
 import com.gregochr.goldenhour.model.TideSnapshot;
@@ -202,6 +204,33 @@ class PromptGoldenMasterTest {
                 .astronomicalRangeMetres(5.00)
                 .build();
         assertGolden("coastal-surge", data);
+    }
+
+    @Test
+    @DisplayName("coastal light sea mist: coastal builder + tide block + the one coastal mist line")
+    void coastalMistLight() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .locationName("Boulmer UK")
+                .solarEventTime(LocalDateTime.of(2026, 11, 2, 7, 12))
+                .targetType(TargetType.SUNRISE)
+                .visibility(7_230)
+                .temperature(6.4)
+                .dewPoint(5.8)
+                .lowCloud(25)
+                .tide(new TideSnapshot(
+                        TideState.HIGH,
+                        LocalDateTime.of(2026, 11, 2, 7, 40),
+                        new BigDecimal("4.60"),
+                        LocalDateTime.of(2026, 11, 2, 13, 55),
+                        new BigDecimal("1.40"),
+                        true,
+                        LocalDateTime.of(2026, 11, 2, 7, 40),
+                        null,
+                        LunarTideType.REGULAR_TIDE, null, false,
+                        TideStatisticalSize.EXTRA_HIGH))
+                .build()
+                .withCoastalMist(new CoastalMistResult(CoastalMistBand.LIGHT, 7_230, 0.6, 25));
+        assertGolden("coastal-mist-light", data);
     }
 
     /**

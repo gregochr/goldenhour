@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.CoastalMistBand;
 import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.ForecastScoreRepository;
@@ -295,6 +296,55 @@ class SlotSignalReaderTest {
         SlotSignals s = reader().read(FROM, TO).get(0);
 
         assertThat(s.readings().mistPotential()).isEqualTo(MistPotential.FOGBOUND);
+    }
+
+    @Test
+    @DisplayName("V210: the reader maps the coastal mist band and flag off the entity, carried together")
+    void readings_mapsCoastalMistBandAndFlag() {
+        LocationEntity loc = location(25L);
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(loc);
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setCoastalMistBand("LIGHT");
+        a.setCoastalMistScored(true);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a));
+
+        SlotSignals s = reader().read(FROM, TO).get(0);
+
+        assertThat(s.readings().coastalMistBand()).isEqualTo(CoastalMistBand.LIGHT);
+        assertThat(s.readings().coastalMistScored()).isTrue();
+    }
+
+    @Test
+    @DisplayName("V210: a pre-column row and an unknown stored name both read as no band, never throwing")
+    void readings_coastalMistAbsentAndUnknownNameReadAsNoBand() {
+        LocationEntity unknown = location(26L);
+        SlotAtmosphereEntity unknownRow = new SlotAtmosphereEntity();
+        unknownRow.setLocation(unknown);
+        unknownRow.setEvaluationDate(FROM);
+        unknownRow.setEventType(SUNSET);
+        unknownRow.setCoastalMistBand("HEAVY");
+        unknownRow.setCoastalMistScored(true);
+        LocationEntity old = location(27L);
+        SlotAtmosphereEntity oldRow = readings(old, "1.00");
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(unknownRow, oldRow));
+
+        List<SlotSignals> result = reader().read(FROM, TO);
+
+        SlotSignals unknownSignals = result.stream()
+                .filter(x -> x.location().getId() == 26L).findFirst().orElseThrow();
+        SlotSignals oldSignals = result.stream()
+                .filter(x -> x.location().getId() == 27L).findFirst().orElseThrow();
+        assertThat(unknownSignals.readings().coastalMistBand()).isNull();
+        assertThat(oldSignals.readings().coastalMistBand()).isNull();
+        assertThat(oldSignals.readings().coastalMistScored()).isFalse();
+        assertThat(SlotSignals.Readings.EMPTY.coastalMistBand()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.coastalMistScored()).isFalse();
     }
 
     @Test

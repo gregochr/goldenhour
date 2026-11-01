@@ -199,6 +199,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 .thenAnswer(inv -> inv.getArgument(0));
         lenient().when(augmentor.augmentWithValleyMist(any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(augmentor.augmentWithCoastalMist(any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(0));
 
         // Weather pre-fetch: the collector's own bulk prefetch feeds a non-empty map into
         // fetchWeatherAndTriage, which then reads it back via getAtmosphericDataFromCache.

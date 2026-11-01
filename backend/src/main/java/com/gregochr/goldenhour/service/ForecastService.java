@@ -335,8 +335,12 @@ public class ForecastService {
         // above — so a stood-down candidate still records it (the two-question rule).
         AtmosphericData withMist = augmentor.augmentWithValleyMist(
                 withInversion, location.isMistProne());
+        // Coastal mist (coastal-mist-plan Phase 1): a coastal (tide types) non-mist_prone site only,
+        // gated on the LOCATION, never data.tide(). Here for the same reason as the valley mist above: before
+        // the readings write and triage, so a stood-down candidate still records it.
+        AtmosphericData withCoastalMist = augmentor.augmentWithCoastalMist(withMist, location, date);
         AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
-                withMist, location.getLocationType(), location.getBluebellExposure(), date);
+                withCoastalMist, location.getLocationType(), location.getBluebellExposure(), date);
 
         // Record conditions for every place whose weather was fetched — the ONE seam every
         // caller of fetchWeatherAndTriage shares (the batch collector's scheduled AND
