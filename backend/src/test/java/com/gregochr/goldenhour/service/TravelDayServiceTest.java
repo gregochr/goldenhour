@@ -68,7 +68,7 @@ class TravelDayServiceTest {
                 .endDate(LocalDate.of(2026, 7, 3))
                 .note("London")
                 .build();
-        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(any()))
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(LocalDate.of(2026, 7, 1)))
                 .thenReturn(List.of(entity));
 
         List<TravelDayResponse> result = service.list();
@@ -140,16 +140,19 @@ class TravelDayServiceTest {
     void listFollowsARewoundClock() {
         TravelDayEntity ended = TravelDayEntity.builder().id(1L)
                 .startDate(LocalDate.of(2026, 6, 20)).endDate(LocalDate.of(2026, 6, 22)).build();
-        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(any())).thenAnswer(inv -> {
-            LocalDate cutoff = inv.getArgument(0);
-            return List.of(ended).stream().filter(e -> !e.getEndDate().isBefore(cutoff)).toList();
-        });
+        // Exact cut-offs: the real clock (00:30 BST on 1 Jul) cuts at 1 Jul, the rewound one at 21 Jun.
+        LocalDate realCutoff = LocalDate.of(2026, 7, 1);
+        LocalDate rewoundCutoff = LocalDate.of(2026, 6, 21);
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(realCutoff)).thenReturn(List.of());
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(rewoundCutoff)).thenReturn(List.of(ended));
 
         assertThat(service.list()).isEmpty();
+        verify(repository).findByEndDateGreaterThanEqualOrderByStartDateDesc(realCutoff);
 
         Clock rewound = Clock.fixed(Instant.parse("2026-06-21T09:00:00Z"), ZoneOffset.UTC);
         TravelDayService rewoundService = new TravelDayService(repository, servedEpoch, rewound);
         assertThat(rewoundService.list()).extracting(TravelDayResponse::id).containsExactly(1L);
+        verify(repository).findByEndDateGreaterThanEqualOrderByStartDateDesc(rewoundCutoff);
     }
 
     @Test
