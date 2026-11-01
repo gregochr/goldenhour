@@ -1,6 +1,6 @@
 # Coastal mist: light sea mist is the shot, sea fret is not (2026-11-01)
 
-**Status:** plan, revised after two reviews; owner confirmed the three review changes (2026-11-01); Phase 1a done; Phase 1 building.
+**Status:** plan, revised after two reviews; owner confirmed the three review changes (2026-11-01); Phase 1a done; Phase 1 merged (#1583); Phase 2 built and reviewed.
 - *Owner decisions (2026-11-01):* every coastal non-mist-prone site gets the prompt line; it goes live with
   a switch; **yes to the hot topic**.
 - *Changed since then:* the review moved the bands and narrowed the topic (§4). The owner should confirm
@@ -150,8 +150,13 @@ Original task:
   - **sunrise only**, since there is no sunset evidence;
   - **daysAhead ≤ 1**, since the evidence is short-lead forecasts;
   - **east (North Sea) coast only**, since haar evidence is North Sea and Irish Sea fog is a different
-    mechanism. The rule is coastal sites at longitude > −2.5°, with a test listing the qualifying sites for the
-    owner to check. The Cumbrian coast waits for its own evidence.
+    mechanism. The rule is coastal sites at longitude > −2.5° **and latitude ≥ 53.5°** (build review,
+    2026-11-01: longitude alone admitted the English Channel coast). The owner checks the qualifying sites with a
+    read-only SQL query rather than a test, because production's location table is configured on the host. The
+    Cumbrian coast waits for its own evidence.
+- **Chip colour:** `#D5DCD6`. It was chosen by calculation to stay ≥ ΔE 14 from Big seas, valley mist, tide
+  teal and the dawn blue under deuteranopia and protanopia, because the Map rings are colour-only. A test pins
+  it.
 - **Never raised for THICK**, just as FOGBOUND is never raised for valleys.
 - **Name and display:** type `SEA_MIST` (never reuse `MIST`, which would collide with valley mist's per-date
   topic). It is served to every role, as MIST is.
