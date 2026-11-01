@@ -81,26 +81,6 @@ public class SunsetEvaluationParser {
     /** Extracts the Golden Hour Potential (0-100) from Claude's response. */
     static final Pattern GOLDEN_HOUR_PATTERN = Pattern.compile("\"golden_hour\"\\s*:\\s*(\\d{1,3})");
 
-    /** Extracts the basic Fiery Sky Potential (0-100) from Claude's response. */
-    static final Pattern BASIC_FIERY_SKY_PATTERN =
-            Pattern.compile("\"basic_fiery_sky\"\\s*:\\s*(\\d{1,3})");
-
-    /** Extracts the basic Golden Hour Potential (0-100) from Claude's response. */
-    static final Pattern BASIC_GOLDEN_HOUR_PATTERN =
-            Pattern.compile("\"basic_golden_hour\"\\s*:\\s*(\\d{1,3})");
-
-    /**
-     * Extracts the basic summary — bounded against over-capture, same as {@link #SUMMARY_PATTERN}
-     * (including the stack-safe unrolled-loop form that avoids {@code StackOverflowError} on long
-     * responses).
-     */
-    static final Pattern BASIC_SUMMARY_PATTERN =
-            Pattern.compile("\"basic_summary\"\\s*:\\s*\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"\\s*[,}]");
-
-    /** Greedy salvage for basic summary, used only when {@link #BASIC_SUMMARY_PATTERN} finds no match. */
-    static final Pattern BASIC_SUMMARY_PATTERN_SALVAGE =
-            Pattern.compile("(?s)\"basic_summary\"\\s*:\\s*\"(.*)\"\\s*[,}]");
-
     /** Extracts the cloud inversion score (0-10) from Claude's response. */
     static final Pattern INVERSION_SCORE_PATTERN =
             Pattern.compile("\"inversion_score\"\\s*:\\s*(\\d{1,2})");
@@ -234,16 +214,6 @@ public class SunsetEvaluationParser {
             Integer goldenHour = RatingValidator.validateScore(
                     node.get("golden_hour").asInt(), 0, 100, "golden_hour", null, null);
             String summary = node.get("summary").stringValue();
-            Integer basicFierySky = node.has("basic_fiery_sky")
-                    ? RatingValidator.validateScore(node.get("basic_fiery_sky").asInt(),
-                            0, 100, "basic_fiery_sky", null, null)
-                    : null;
-            Integer basicGoldenHour = node.has("basic_golden_hour")
-                    ? RatingValidator.validateScore(node.get("basic_golden_hour").asInt(),
-                            0, 100, "basic_golden_hour", null, null)
-                    : null;
-            String basicSummary = node.has("basic_summary")
-                    ? node.get("basic_summary").stringValue() : null;
             Integer inversionScore = node.has("inversion_score")
                     ? RatingValidator.validateScore(node.get("inversion_score").asInt(),
                             0, 10, "inversion_score", null, null)
@@ -258,7 +228,6 @@ public class SunsetEvaluationParser {
             // Bluebell left the standard prompt in Pass 3 — it now has its own prompt/parser
             // (parseBluebellEvaluation), so the colour evaluation carries no bluebell score.
             return new ParseResult(new SunsetEvaluation(rating, fierySky, goldenHour, summary,
-                    basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential,
                     headline, mistPotential), false);
         } catch (Exception jsonException) {
@@ -268,6 +237,7 @@ public class SunsetEvaluationParser {
             return new ParseResult(parseWithRegexFallback(text, jsonException), true);
         }
     }
+
     /**
      * Fallback parser when the JSON is structurally invalid (e.g. unescaped quotes in summary).
      *
@@ -290,21 +260,6 @@ public class SunsetEvaluationParser {
             Integer goldenHour = RatingValidator.validateScore(
                     Integer.parseInt(goldenHourMatcher.group(1)), 0, 100, "golden_hour", null, null);
 
-            Matcher basicFierySkyMatcher = BASIC_FIERY_SKY_PATTERN.matcher(text);
-            Matcher basicGoldenHourMatcher = BASIC_GOLDEN_HOUR_PATTERN.matcher(text);
-            Integer basicFierySky = basicFierySkyMatcher.find()
-                    ? RatingValidator.validateScore(
-                            Integer.parseInt(basicFierySkyMatcher.group(1)),
-                            0, 100, "basic_fiery_sky", null, null)
-                    : null;
-            Integer basicGoldenHour = basicGoldenHourMatcher.find()
-                    ? RatingValidator.validateScore(
-                            Integer.parseInt(basicGoldenHourMatcher.group(1)),
-                            0, 100, "basic_golden_hour", null, null)
-                    : null;
-            String basicSummary = extractField(
-                    BASIC_SUMMARY_PATTERN, BASIC_SUMMARY_PATTERN_SALVAGE, text);
-
             Matcher inversionScoreMatcher = INVERSION_SCORE_PATTERN.matcher(text);
             Matcher inversionPotentialMatcher = INVERSION_POTENTIAL_PATTERN.matcher(text);
             Integer inversionScore = inversionScoreMatcher.find()
@@ -324,7 +279,6 @@ public class SunsetEvaluationParser {
 
             // Bluebell fields left the standard prompt in Pass 3 (own prompt/parser).
             return new SunsetEvaluation(rating, fierySky, goldenHour, summary,
-                    basicFierySky, basicGoldenHour, basicSummary,
                     inversionScore, inversionPotential,
                     headline, mistPotential);
         }

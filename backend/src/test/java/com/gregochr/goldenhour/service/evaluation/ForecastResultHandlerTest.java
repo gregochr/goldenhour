@@ -203,13 +203,13 @@ class ForecastResultHandlerTest {
                         + "\"headline\":\"Fire over the fells\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
-        // basic_* (LITE tier) and inversion fields are not carried by BriefingEvaluationResult at
-        // all — scoreEvaluationRow must source them from this parsed SunsetEvaluation directly,
+        // Inversion fields are not carried by BriefingEvaluationResult at all —
+        // scoreEvaluationRow must source them from this parsed SunsetEvaluation directly,
         // the same as the sync path's ForecastService.buildEntity does.
         when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(
-                        new SunsetEvaluation(4, 70, 65, "X", 55, 48, "Basic-tier summary",
-                                6, "MODERATE", "Fire over the fells"),
+                        new SunsetEvaluation(4, 70, 65, "X",
+                                6, "MODERATE", "Fire over the fells", null),
                         false));
 
         LocalDateTime submittedAt = LocalDateTime.of(2026, 4, 16, 3, 0);
@@ -254,10 +254,12 @@ class ForecastResultHandlerTest {
         assertThat(saved.getScoredAt()).isEqualTo(NOW);
         // V182: stamped with the same instant, from the same guard, by the build that scored it.
         assertThat(saved.getAppBuild()).isEqualTo(BUILD);
-        // LITE-tier and inversion fields, absent from BriefingEvaluationResult, must still land.
-        assertThat(saved.getBasicFierySkyPotential()).isEqualTo(55);
-        assertThat(saved.getBasicGoldenHourPotential()).isEqualTo(48);
-        assertThat(saved.getBasicSummary()).isEqualTo("Basic-tier summary");
+        // The basic tier is no longer requested or written (basic-tier-removal-plan.md): a scored
+        // row leaves the legacy basic_* columns null.
+        assertThat(saved.getBasicFierySkyPotential()).isNull();
+        assertThat(saved.getBasicGoldenHourPotential()).isNull();
+        assertThat(saved.getBasicSummary()).isNull();
+        // Inversion fields, absent from BriefingEvaluationResult, must still land.
         assertThat(saved.getInversion()).isNotNull();
         assertThat(saved.getInversion().getScore()).isEqualTo(6);
         assertThat(saved.getInversion().getPotential()).isEqualTo("MODERATE");
@@ -273,7 +275,7 @@ class ForecastResultHandlerTest {
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
         when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(
-                        new SunsetEvaluation(4, 20, 65, "X", null, null, null, null, null, null,
+                        new SunsetEvaluation(4, 20, 65, "X", null, null, null,
                                 claudeBand),
                         false));
         ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
@@ -355,8 +357,8 @@ class ForecastResultHandlerTest {
         // score — says otherwise: the embeddable is null. It must stay null.
         when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(
-                        new SunsetEvaluation(3, 50, 45, "X", null, null, null,
-                                4, "MODERATE", null),
+                        new SunsetEvaluation(3, 50, 45, "X",
+                                4, "MODERATE", null, null),
                         false));
 
         ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()

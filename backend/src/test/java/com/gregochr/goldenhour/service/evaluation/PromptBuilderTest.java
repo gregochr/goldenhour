@@ -97,9 +97,8 @@ public class PromptBuilderTest {
                 .contains("fiery_sky")
                 .contains("golden_hour")
                 .contains("summary")
-                .contains("basic_fiery_sky")
-                .contains("basic_golden_hour")
-                .contains("basic_summary");
+                .doesNotContain("DUAL-TIER")
+                .doesNotContain("basic_");
     }
 
     @Test
@@ -367,8 +366,8 @@ public class PromptBuilderTest {
                     .as("summary must describe its content and forbid placeholders")
                     .contains("never a placeholder such as 'test'");
             assertThat(configStr)
-                    .as("basic_summary must also forbid placeholders")
-                    .contains("basic (altitude-only) rating; never a placeholder");
+                    .as("the basic tier is no longer requested")
+                    .doesNotContain("basic (altitude-only)");
         }
 
         @Test
@@ -384,14 +383,12 @@ public class PromptBuilderTest {
         }
 
         @Test
-        @DisplayName("Output config JSON contains dual-tier fields")
-        void outputConfig_containsDualTierFields() {
+        @DisplayName("Output config JSON has no basic_ property (basic tier no longer requested)")
+        void outputConfig_hasNoBasicTierFields() {
             var config = promptBuilder.buildOutputConfig();
             String configStr = config.toString();
 
-            assertThat(configStr).contains("basic_fiery_sky");
-            assertThat(configStr).contains("basic_golden_hour");
-            assertThat(configStr).contains("basic_summary");
+            assertThat(configStr).doesNotContain("basic_");
         }
 
         @Test
@@ -436,8 +433,7 @@ public class PromptBuilderTest {
         void outputConfig_scoresBoundedZeroToHundred() {
             String configStr = promptBuilder.buildOutputConfig().toString();
 
-            for (String field : List.of("fiery_sky", "golden_hour",
-                    "basic_fiery_sky", "basic_golden_hour")) {
+            for (String field : List.of("fiery_sky", "golden_hour")) {
                 int idx = configStr.indexOf(field + "={");
                 assertThat(idx)
                         .as("%s field must appear", field)

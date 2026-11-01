@@ -625,7 +625,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * bump {@code forecast_run_at} — it means "when the weather was sampled", and the freshness
      * comparisons in {@code EvaluationViewService} depend on it staying the submit-time value.
      *
-     * <p>LITE-tier basic scores and cloud-inversion outputs come from {@code eval} (the parsed
+     * <p>Cloud-inversion outputs come from {@code eval} (the parsed
      * Claude response), not {@code result} ({@link BriefingEvaluationResult} carries neither) —
      * matching {@code ForecastService.buildEntity}'s sync-path parity: those fields are never
      * touched by the sky-not-forecast substitution, only rating/summary/headline are. The
@@ -643,7 +643,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param evalRowId     primary key of the pending row
      * @param location      the evaluated location; its {@code mist_prone} flag is the gate on
      *                      Claude's valley mist reading (valley-mist-plan M2)
-     * @param eval          the parsed Claude evaluation — source of the basic-tier and inversion
+     * @param eval          the parsed Claude evaluation — source of the inversion
      *                      fields {@link BriefingEvaluationResult} does not carry
      * @param result        the validated result also being written to {@code cached_evaluation}
      * @param resolvedModel the model that produced the response
@@ -663,9 +663,6 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         entity.setGoldenHourPotential(result.goldenHourPotential());
         entity.setSummary(result.summary());
         entity.setHeadline(result.headline());
-        entity.setBasicFierySkyPotential(eval.basicFierySkyPotential());
-        entity.setBasicGoldenHourPotential(eval.basicGoldenHourPotential());
-        entity.setBasicSummary(eval.basicSummary());
         if (entity.getInversion() != null) {
             entity.setInversion(InversionDetails.builder()
                     .score(eval.inversionScore())

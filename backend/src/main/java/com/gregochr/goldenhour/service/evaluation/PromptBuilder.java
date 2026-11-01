@@ -263,12 +263,6 @@ public class PromptBuilder {
             + "Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.\n"
             + "golden_hour: overall light quality. Clear sky with good visibility scores well. "
             + "Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.\n\n"
-            + "DUAL-TIER SCORING: when directional cloud data is provided, also output three "
-            + "additional fields: basic_fiery_sky, basic_golden_hour, basic_summary. These MUST "
-            + "represent what you would score if you only had the observer-point cloud data "
-            + "(the Cloud: Low/Mid/High line) and NO directional cloud information. The basic "
-            + "scores use altitude-based inference only. If no directional cloud data is provided, "
-            + "omit the basic_* fields entirely.\n\n"
             + "CLOUD APPROACH RISK: ONLY apply these rules when a 'CLOUD APPROACH RISK:' block is "
             + "present in the data below. If no such block appears, ignore this section entirely.\n"
             + "The upwind sample point is placed at exactly wind_speed × time_to_event — the "
@@ -726,8 +720,7 @@ public class PromptBuilder {
      * evaluation JSON schema.
      *
      * <p>The property order is fixed: {@code rating, fiery_sky, golden_hour, summary, headline,
-     * basic_fiery_sky, basic_golden_hour, basic_summary, inversion_score, inversion_potential,
-     * mist_potential}.
+     * inversion_score, inversion_potential, mist_potential}.
      * Structured outputs emit fields in the schema's property order, so the order decides whether
      * the model commits to a rating before or after writing its explanation. The maps are
      * insertion-ordered because the JDK's immutable maps iterate in an order that changes per
@@ -771,17 +764,6 @@ public class PromptBuilder {
                                                 "type", "string",
                                                 "description",
                                                 "4-9 word card header in Claude's voice.")),
-                                        Map.entry("basic_fiery_sky", PromptUtils.ordered(
-                                                "type", "integer",
-                                                "description", "0-100 inclusive.")),
-                                        Map.entry("basic_golden_hour", PromptUtils.ordered(
-                                                "type", "integer",
-                                                "description", "0-100 inclusive.")),
-                                        Map.entry("basic_summary", PromptUtils.ordered(
-                                                "type", "string",
-                                                "description",
-                                                "One sentence explaining the basic (altitude-only) "
-                                                        + "rating; never a placeholder.")),
                                         Map.entry("inversion_score", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-10 inclusive.")),

@@ -211,15 +211,15 @@ public class ForecastEvaluationEntity {
     @Embedded
     private DirectionalCloudDetails directionalCloud;
 
-    /** Fiery sky potential without directional data (LITE tier), or null if no directional data. */
+    /** No longer written (basic-tier-removal-plan.md); kept for history. */
     @Column(name = "basic_fiery_sky_potential")
     private Integer basicFierySkyPotential;
 
-    /** Golden hour potential without directional data (LITE tier), or null if no directional data. */
+    /** No longer written (basic-tier-removal-plan.md); kept for history. */
     @Column(name = "basic_golden_hour_potential")
     private Integer basicGoldenHourPotential;
 
-    /** Summary without directional data (LITE tier), or null if no directional data. */
+    /** No longer written (basic-tier-removal-plan.md); kept for history. */
     @Column(name = "basic_summary", columnDefinition = "TEXT")
     private String basicSummary;
 

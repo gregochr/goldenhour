@@ -80,8 +80,6 @@ Output your evaluation as JSON with these fields: rating (1-5; MAXIMUM 3 when th
 fiery_sky: dramatic colour potential. Requires clouds (mid/high) to catch light. Clear sky = 20-40. Ideal cloud canvas with clear horizon = 70-90. Total overcast = 5-15.
 golden_hour: overall light quality. Clear sky with good visibility scores well. Clear + low humidity + moderate aerosol = 65-85. Overcast = 10-30. Haze = varies.
 
-DUAL-TIER SCORING: when directional cloud data is provided, also output three additional fields: basic_fiery_sky, basic_golden_hour, basic_summary. These MUST represent what you would score if you only had the observer-point cloud data (the Cloud: Low/Mid/High line) and NO directional cloud information. The basic scores use altitude-based inference only. If no directional cloud data is provided, omit the basic_* fields entirely.
-
 CLOUD APPROACH RISK: ONLY apply these rules when a 'CLOUD APPROACH RISK:' block is present in the data below. If no such block appears, ignore this section entirely.
 The upwind sample point is placed at exactly wind_speed × time_to_event — the distance current cloud would physically travel to the solar horizon by event time. Current cloud there IS what would arrive, unless it dissipates first.
 - Solar trend [BUILDING]: low cloud rising toward the 113km solar horizon. Event-time snapshot is likely understated. Penalise fiery_sky by 15-30 points.

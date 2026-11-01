@@ -156,9 +156,8 @@ class CachePayloadGoldenMasterTest {
         // provenance; the value happens to land back on 4.
         LocationEntity location = seascape("Berwick-Upon-Tweed", 1L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
-                3, 72, 68, "Clearing western sky over the harbour.",
-                null, null, null, null, null,
-                "Fiery tide-lit finish");
+                3, 72, 68, "Clearing western sky over the harbour.", null, null,
+                "Fiery tide-lit finish", null);
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(true, true, LunarTideType.SPRING_TIDE)));
         // Tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1): skyRating is
@@ -176,9 +175,8 @@ class CachePayloadGoldenMasterTest {
         // the pre-decomposition 3★ — the intended R1 behaviour (misaligned tide = no foreground).
         LocationEntity location = seascape("Spittal Beach", 2L, "Northumberland Coast");
         SunsetEvaluation eval = new SunsetEvaluation(
-                3, 55, 60, "Decent western light but the tide is out of phase.",
-                null, null, null, null, null,
-                "Soft light, low water");
+                3, 55, 60, "Decent western light but the tide is out of phase.", null, null,
+                "Soft light, low water", null);
         when(forecastDataAugmentor.deriveTideContext(location, DATE, SUNSET))
                 .thenReturn(Optional.of(tideContext(false, false, LunarTideType.REGULAR_TIDE)));
         // skyRating (3) beside the tide-dragged combined rating (2) — "wrong water, not wrong
