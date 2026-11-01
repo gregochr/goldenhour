@@ -6,16 +6,17 @@ import { formatClockUk } from '../../utils/runsView.js';
 /** One rank's card: the current pick, and for a changed one "Was {pick}" struck through and the changed dimensions. */
 function PlanCard({ diff }) {
   const headline = pickHeadline(diff.intraday);
-  const detailLine = diff.intraday?.headline ? pickLine(diff.intraday) : null;
+  // The old values stay visible: a changed card names the nightly pick by its headline AND its line (region, rating).
+  const wasLine = diff.nightly?.headline ? pickLine(diff.nightly) : null;
   return (
     <div className="rounded-lg border border-plex-border px-3 py-2.5" data-testid={`cross-run-diff-${diff.rank}`}>
       <p className="font-mono text-[10.5px] uppercase tracking-wider text-plex-text-muted">{rankLabel(diff.rank)}</p>
       <p className="mt-1 break-words text-[13.5px] text-plex-text" data-testid={`cross-run-pick-${diff.rank}`}>{headline}</p>
-      {detailLine && <p className="break-words text-[12px] text-plex-text-secondary">{detailLine}</p>}
       {diff.changed ? (
         <>
           <p className="mt-1 break-words text-[12.5px] text-plex-text-muted line-through" data-testid={`cross-run-was-${diff.rank}`}>
             Was {pickHeadline(diff.nightly)}
+            {wasLine && <span className="block" data-testid={`cross-run-was-line-${diff.rank}`}>{wasLine}</span>}
           </p>
           <p className="mt-0.5 text-[12.5px] text-verdict-marginal" data-testid={`cross-run-changed-${diff.rank}`}>
             {changedDimensionsText(diff)}
@@ -58,7 +59,8 @@ export default function CycleComparison({ comparison }) {
         {diffs.map((diff) => <PlanCard key={diff.rank} diff={diff} />)}
       </div>
       <p className="mt-2.5 break-words text-[12.5px] text-plex-text-secondary" data-testid="cross-run-baseline">
-        Baseline: nightly cycle #{comparison.baselineRunId} {'·'} {formatClockUk(comparison.baselineTriggerTime)}
+        {[`Baseline: nightly cycle #${comparison.baselineRunId}`, formatClockUk(comparison.baselineTriggerTime)]
+          .filter(Boolean).join(' \u00b7 ')}
       </p>
     </PanelSection>
   );

@@ -885,10 +885,10 @@ Where the plan's text was ambiguous, or the code made a different call safer, R2
 
 Where the plan's text was ambiguous, or the served data could not carry it, R2b follows these:
 
-- **The cycle panel's cost comes from the cycle's list row.** `GET /api/admin/pipeline-runs/{id}` serves no cost, and R2b is
-  frontend only, so "Batch cost" reads `costMicroDollars` and `costGbpRate` from the loaded row; a cycle opened by a link
-  whose row is not on the loaded page shows an em dash. Closing that gap is a server follow-up (put the cost on the
-  detail).
+- **The cycle detail now serves the cost.** R2b added `costMicroDollars` and `costGbpRate` to
+  `GET /api/admin/pipeline-runs/{id}` (a small server change beside the frontend work), computed by the one rule the list
+  row uses (`AdminRunsService.cycleCost`, shared, not copied). The panel reads the detail's cost, never the list row; zero
+  or absent reads as an em dash.
 - **A cycle's name** is the row's served name when the row is loaded, else the same wording keyed by `cycleType`
   (`utils/cycleView.js`); the detail serves no name.
 - **"Checked {when}"** is the time of the client's own last read of the cycle (the detail has no server timestamp for when
@@ -897,13 +897,30 @@ Where the plan's text was ambiguous, or the served data could not carry it, R2b 
   no SUBMITTED batch the box heads with the server's own `waitingOn` sentence instead.
 - **Not-yet-run phases are drawn by the client.** The server serves only phases that have started, so while a cycle is
   RUNNING the known phases after the last started one (in the order re-classify, submit, wait, retry, briefing) are
-  appended as not yet run ("Runs after {the running phase}"). Re-classify is only ever drawn for an INTRADAY cycle, so a
-  nightly cycle's strip bar is four segments, not five. A finished cycle draws exactly what the server served.
+  appended as not yet run ("Runs after {the running phase}"; the retry phase says "Runs if needed", since it runs only
+  when something failed). Re-classify is drawn for every cycle type that records it (INTRADAY and EVENING, as
+  `CycleType.recordsReclassifyPhase()`), so a NIGHTLY cycle's strip bar is four segments, not five. A finished cycle draws
+  exactly what the server served, and a phase left RUNNING in one shows no "so far" clock.
 - **A completed retry phase with no detail reads "Nothing to retry"** (the copy sheet's wording).
 - **`COMPLETED` reads as Done.** The cycle detail serves `PipelineRunStatus`, not `RunListStatus`; `cycleStatusView` maps
   COMPLETED to the Done look and leaves the rest alone.
 - **Going back from a batch is a new history entry** (`select` of the cycle), not `history.back()`, so the control, Esc and
   the phone back bar all land on the cycle whichever way the batch was reached (including a pasted nested address).
+- **Small losses from the old Pipeline Runs detail,** accepted with the redesign: the summary's started and completed
+  dates are now "HH:MM (relative)" in the meta and the full date only in the footer's Completed; there is no `#` column on
+  the phase rows (the order is the timeline's); the total duration shows as the Phases meta once finished, with no
+  running total while RUNNING (the live strip and the running phase carry the clocks); and the old intro paragraph
+  explaining SUBMIT, WAIT and BRIEFING is gone.
+- **The back control sits above the title** on split and overlay (a "‹ Cycle #{id}" row, 44px high), not in the
+  header row beside the ×; the panel's Refresh sits in the header beside the ×. On a phone the layout's back bar carries
+  both.
+- **The panel's accessible name is "Cycle #412"** (the label carries the hash sign).
+- **A nested batch the server has no run for (404) returns to its cycle,** replacing the entry, not to the bare tab.
+- **On the Runs tab ManageView sends no live-count request of its own;** the Runs view reports the count on each of its
+  refreshes. Elsewhere it polls `GET /api/admin/runs?size=1` every minute.
+- **A null pick reads "No pick"** (a rank present on one side of the comparison only); a pick with no region is "Stay
+  home". A changed card shows "Was {headline}" and that nightly pick's own line (region, rating).
+- **The live strip's elapsed time is the running phase's** (the wait, as the frames show), not the cycle's.
 - **A pasted `#manage/pipelineruns/abc`** (non-numeric) redirects to the bare `#manage/runs`.
 - **A taking-over poll reads once at once.** `useCycleDetail` elects the first reader as the poller; when it leaves, the next
   reader takes over and, as `useVisiblePoll` always does when it starts, reads straight away.

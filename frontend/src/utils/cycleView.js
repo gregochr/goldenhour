@@ -52,7 +52,7 @@ export function phaseShort(phase) {
 /**
  * The phases the panel and strip draw, in {@code sequenceOrder}. While the cycle is RUNNING, the known phases that come
  * after the last started one and have not started are appended as not yet run ({@code status: 'PENDING'}); re-classify
- * is a cycle type's own phase, so it is never invented for a cycle that did not start with it.
+ * is never invented for a NIGHTLY cycle, which does not record it.
  *
  * @param {{run: object, phases: Array<object>}} detail the cycle detail
  * @returns {Array<object>} the served phases, then any pending ones
@@ -64,12 +64,20 @@ export function phaseRows(detail) {
   const lastIndex = Math.max(-1, ...served.map((p) => PHASE_ORDER.indexOf(p.phase)));
   const pending = PHASE_ORDER
     .filter((phase, index) => index > lastIndex && !seen.has(phase)
-      && (phase !== 'STABILITY_RECLASSIFY' || detail.run.cycleType === 'INTRADAY'))
+      && (phase !== 'STABILITY_RECLASSIFY' || recordsReclassify(detail.run.cycleType)))
     .map((phase, index) => ({
       phase, sequenceOrder: (served.at(-1)?.sequenceOrder ?? 0) + index + 1, status: 'PENDING',
       startedAt: null, completedAt: null, durationSeconds: null, detail: null,
     }));
   return [...served, ...pending];
+}
+
+/**
+ * Whether a cycle type records the re-classify phase: every type but NIGHTLY ({@code CycleType.recordsReclassifyPhase}:
+ * INTRADAY and EVENING). Used only to decide whether a not-yet-started re-classify is worth drawing.
+ */
+function recordsReclassify(cycleType) {
+  return cycleType !== 'NIGHTLY';
 }
 
 /** The batches still SUBMITTED, with the figures the waiting box reads. */
@@ -116,14 +124,15 @@ function capitalise(text) {
 }
 
 /**
- * One best-bet pick as a line: "Northumberland Coast · Sunset · Sat 31 Oct · ★4.2". No pick, or a pick with no
- * region, is the stay-home pick.
+ * One best-bet pick as a line: "Northumberland Coast · Sunset · Sat 31 Oct · ★4.2". A pick with no region is the
+ * stay-home pick; no pick at all (a rank that exists on only one side of the comparison) reads "No pick".
  *
  * @param {object|null} pick a comparison pick
  * @returns {string}
  */
 export function pickLine(pick) {
-  if (!pick || !pick.region) return 'Stay home';
+  if (!pick) return 'No pick';
+  if (!pick.region) return 'Stay home';
   const parts = [pick.region];
   if (pick.eventType) parts.push(capitalise(pick.eventType.toLowerCase()));
   if (pick.eventDate) parts.push(pickDate(pick.eventDate));
@@ -131,7 +140,7 @@ export function pickLine(pick) {
   return parts.join(' · ');
 }
 
-/** The pick's headline when it has one, else its line (a stay-home pick has the stay-home wording). */
+/** The pick's headline when it has one, else its line ("Stay home" or "No pick" in words). */
 export function pickHeadline(pick) {
   return pick?.headline || pickLine(pick);
 }

@@ -26,10 +26,12 @@ const TITLE_CLASS = 'break-words font-serif text-[22px] font-semibold leading-ti
  *   (Users: {@code user-reader-panel}, {@code user-edit-account}) but that share one title and × id
  * @param {import('react').ReactNode} [props.children] the body
  * @param {import('react').ReactNode} [props.footer] pinned under the body
+ * @param {import('react').ReactNode} [props.headerAction] a control beside the × (the Runs cycle panel's Refresh); the
+ *   caller hides it on a phone when the back bar carries it
  */
 export default function PanelShell({
   title, titleClassName = TITLE_CLASS, subtitle = null, onClose, testIdPrefix, testId = undefined, children = null,
-  footer = null,
+  footer = null, headerAction = null,
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid={testId ?? testIdPrefix}>
@@ -49,6 +51,8 @@ export default function PanelShell({
             </p>
           )}
         </div>
+        <div className="flex shrink-0 items-center gap-1">
+        {headerAction}
         <button
           type="button"
           className="-mr-1 flex size-9 shrink-0 items-center justify-center rounded text-lg leading-none text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:hidden"
@@ -58,6 +62,7 @@ export default function PanelShell({
         >
           <span aria-hidden="true">&times;</span>
         </button>
+        </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid={`${testIdPrefix}-body`}>{children}</div>
       {footer && (
@@ -81,4 +86,5 @@ PanelShell.propTypes = {
   testId: PropTypes.string,
   children: PropTypes.node,
   footer: PropTypes.node,
+  headerAction: PropTypes.node,
 };

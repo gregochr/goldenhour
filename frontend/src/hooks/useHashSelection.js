@@ -33,9 +33,15 @@ export function selectionFromHash(tab, parse = undefined) {
 }
 
 /** Writes a selection into the hash, the way the Manage tabs do, so it survives a reload and Back. */
-function writeSelection(tab, path, keepQuery) {
+function writeSelection(tab, path, keepQuery, replace = false) {
+  const target = `${path == null ? `manage/${tab}` : `manage/${tab}/${path}`}${keepQuery ? querySuffix() : ''}`;
+  if (replace) {
+    // Rewrites the current entry (no history entry, no hashchange): the caller has already set its own state.
+    window.history.replaceState(window.history.state, '', `#${target}`);
+    return;
+  }
   // Intentional browser navigation side effect, as ManageView does for its tabs.
-  window.location.hash = `${path == null ? `manage/${tab}` : `manage/${tab}/${path}`}${keepQuery ? querySuffix() : ''}`;
+  window.location.hash = target;
 }
 
 /** Whether two selections are the same value (an object a parser builds anew each time is not a change). */
@@ -62,7 +68,7 @@ function sameSelection(a, b) {
  * @param {{parse?: (segments: string[]) => *, format?: (selection: *) => string, keepQuery?: boolean}} [options]
  *   a custom hash shape (the default is a single numeric id), and whether {@code select} and {@code clear} keep an
  *   inbound {@code ?query} (the default is not)
- * @returns {{selectedId: *, select: (id: *) => void, clear: (options?: {replace: boolean}) => void}}
+ * @returns {{selectedId: *, select: (id: *, options?: {replace: boolean}) => void, clear: (options?: {replace: boolean}) => void}}
  */
 export default function useHashSelection(tab, options = undefined) {
   const parse = options?.parse;
@@ -80,9 +86,11 @@ export default function useHashSelection(tab, options = undefined) {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [tab, parse]);
 
-  const select = useCallback((id) => {
+  const select = useCallback((id, selectOptions) => {
     setSelectedId(id);
-    writeSelection(tab, id == null ? null : (format ? format(id) : id), keepQuery);
+    // `{replace: true}` rewrites the current entry: for a selection that has to give way to another (a nested batch
+    // the server no longer has, back to its cycle) so Back does not land on the dead address.
+    writeSelection(tab, id == null ? null : (format ? format(id) : id), keepQuery, selectOptions?.replace === true);
   }, [tab, format, keepQuery]);
 
   const clear = useCallback((clearOptions) => {

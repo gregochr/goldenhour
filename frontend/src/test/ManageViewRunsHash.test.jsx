@@ -230,6 +230,11 @@ describe('ManageView: #manage/pipelineruns redirects to #manage/runs', () => {
 });
 
 describe('ManageView: the live count beside Runs', () => {
+  // On another tab of the Runs group (so the sub-tab bar shows Runs): there the Runs view reports the count itself and ManageView sends no request of its own.
+  beforeEach(() => {
+    window.location.hash = '#manage/scheduler';
+  });
+
   const layouts = [
     ['sidebar', () => { useIsWide.mockReturnValue(true); }],
     ['sub-tab bar', () => {}],
@@ -242,6 +247,7 @@ describe('ManageView: the live count beside Runs', () => {
 
     const badge = await screen.findByTestId('runs-live-count');
     expect(badge).toHaveTextContent('2');
+    expect(badge).toHaveTextContent('2 running');
     expect(within(screen.getByTestId('manage-tab-runs')).getByTestId('runs-live-count')).toBe(badge);
     expect(fetchRuns).toHaveBeenCalledWith({ size: 1 });
   });
@@ -258,6 +264,23 @@ describe('ManageView: the live count beside Runs', () => {
     await act(async () => {});
     expect(fetchRuns).toHaveBeenCalled();
     expect(screen.queryByTestId('runs-live-count')).toBeNull();
+  });
+
+  it('sends no request of its own on the Runs tab: only the Runs view reports there', async () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    await act(async () => {});
+    expect(fetchRuns).not.toHaveBeenCalled();
+  });
+
+  it('keeps the count the Runs view reported when the reader leaves the Runs tab', async () => {
+    window.location.hash = '#manage/runs';
+    render(<ManageView onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'report 3' }));
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('3');
+
+    fireEvent.click(screen.getByTestId('manage-tab-scheduler'));
+    expect(screen.getByTestId('runs-live-count')).toHaveTextContent('3');
   });
 
   it('follows the Runs view\'s own report, and clears when it reports none', async () => {

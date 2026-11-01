@@ -192,6 +192,8 @@ export const cycleDetail = (over = {}) => ({
     }),
   ],
   comparison: null,
+  costMicroDollars: 770_000,
+  costGbpRate: 0.79,
   ...over,
 });
 

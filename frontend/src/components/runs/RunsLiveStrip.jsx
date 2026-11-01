@@ -3,11 +3,12 @@ import {
   cycleName, elapsedText, phaseLabel, phaseRows, phaseShort, waitingBatches,
 } from '../../utils/cycleView.js';
 import { formatClockUk } from '../../utils/runsView.js';
+import { TIDE_HALO_CLASS } from '../../utils/tideHalo.js';
 
 /** One segment of the bar: done is go, the current one a tide gradient, later ones the border colour. */
 function segmentClass(status) {
   if (status === 'COMPLETED') return 'bg-plex-ok';
-  if (status === 'RUNNING') return 'bg-gradient-to-r from-tide to-plex-border';
+  if (status === 'RUNNING') return 'bg-linear-to-r from-tide to-plex-border';
   if (status === 'FAILED') return 'bg-plex-coral';
   return 'bg-plex-border';
 }
@@ -28,7 +29,9 @@ export default function RunsLiveStrip({ detail, item = null, onOpen }) {
   const rows = phaseRows(detail);
   const { waiting, total } = waitingBatches(detail);
   const inWait = run.currentPhase === 'FORECAST_BATCH_WAIT';
-  const elapsed = elapsedText(run.triggerTime);
+  // The clock is the running phase's (frames 1 and 2: "1h 35m so far" is the wait), not the cycle's.
+  const runningPhase = rows.find((p) => p.status === 'RUNNING');
+  const elapsed = elapsedText(runningPhase?.startedAt ?? run.triggerTime);
   const line = [
     run.currentPhase ? phaseLabel(run.currentPhase) : null,
     inWait ? `waiting on ${waiting.length} of ${total} batches` : null,
@@ -41,7 +44,7 @@ export default function RunsLiveStrip({ detail, item = null, onOpen }) {
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span
-          className="size-2 shrink-0 rounded-full bg-tide shadow-[0_0_0_3px_rgba(111,168,176,0.28)] animate-pulse motion-reduce:animate-none"
+          className={`size-2 shrink-0 rounded-full bg-tide ${TIDE_HALO_CLASS} animate-pulse motion-reduce:animate-none`}
           aria-hidden="true"
           data-testid="runs-live-pulse"
         />
@@ -55,16 +58,21 @@ export default function RunsLiveStrip({ detail, item = null, onOpen }) {
           type="button"
           className="ml-auto rounded px-2 text-[13px] font-medium text-plex-text hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
           onClick={onOpen}
+          aria-label={`Open ${cycleName(run, item)}`}
           data-testid="runs-live-open"
         >
           Open
         </button>
       </div>
-      <div className="mt-2 flex gap-2" aria-hidden="true" data-testid="runs-live-bar">
+      <div className="mt-2 flex gap-2 max-[639px]:gap-1" aria-hidden="true" data-testid="runs-live-bar">
         {rows.map((p) => (
-          <div key={p.phase} className="min-w-0 flex-1">
-            <div className={`h-[3px] rounded-full ${segmentClass(p.status)}`} data-testid={`runs-live-seg-${p.phase}`} />
-            <span className="mt-1 block truncate font-mono text-[10.5px] text-plex-text-muted">{phaseShort(p.phase)}</span>
+          <div key={`${p.phase}-${p.sequenceOrder}`} className="min-w-0 flex-1">
+            <div className={`h-1 rounded-full ${segmentClass(p.status)}`} data-testid={`runs-live-seg-${p.phase}`} />
+            <span
+              className={`mt-1 block whitespace-nowrap font-mono text-[10.5px] tracking-tight max-[639px]:text-[9px] ${p.status === 'RUNNING' ? 'text-tide' : 'text-plex-text-muted'}`}
+            >
+              {phaseShort(p.phase)}
+            </span>
           </div>
         ))}
       </div>

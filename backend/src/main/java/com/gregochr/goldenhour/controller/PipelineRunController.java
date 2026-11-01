@@ -8,9 +8,11 @@ import com.gregochr.goldenhour.model.PipelineRunBatch;
 import com.gregochr.goldenhour.model.PipelineRunDetail;
 import com.gregochr.goldenhour.model.PipelineRunPickComparison;
 import com.gregochr.goldenhour.model.PipelineRunSummary;
+import com.gregochr.goldenhour.model.runs.CycleCost;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService;
 import com.gregochr.goldenhour.service.pipeline.PipelineRunService;
+import com.gregochr.goldenhour.service.runs.AdminRunsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,6 +43,7 @@ public class PipelineRunController {
     private final PipelineRunService pipelineRunService;
     private final ForecastBatchRepository forecastBatchRepository;
     private final PipelineRunComparisonService comparisonService;
+    private final AdminRunsService adminRunsService;
 
     /**
      * Constructs the controller.
@@ -48,13 +51,15 @@ public class PipelineRunController {
      * @param pipelineRunService      pipeline run persistence layer
      * @param forecastBatchRepository queried for the cycle's batch list
      * @param comparisonService       builds the intraday-vs-nightly pick comparison
+     * @param adminRunsService        the one rule for a cycle's batch cost, shared with the Runs list
      */
     public PipelineRunController(PipelineRunService pipelineRunService,
             ForecastBatchRepository forecastBatchRepository,
-            PipelineRunComparisonService comparisonService) {
+            PipelineRunComparisonService comparisonService, AdminRunsService adminRunsService) {
         this.pipelineRunService = pipelineRunService;
         this.forecastBatchRepository = forecastBatchRepository;
         this.comparisonService = comparisonService;
+        this.adminRunsService = adminRunsService;
     }
 
     /**
@@ -85,14 +90,17 @@ public class PipelineRunController {
         List<PipelinePhaseSummary> phases = pipelineRunService.findPhases(id).stream()
                 .map(PipelineRunController::toPhase)
                 .toList();
-        List<PipelineRunBatch> batches = forecastBatchRepository.findByPipelineRunId(id).stream()
+        List<ForecastBatchEntity> batchEntities = forecastBatchRepository.findByPipelineRunId(id);
+        List<PipelineRunBatch> batches = batchEntities.stream()
                 .map(PipelineRunController::toBatch)
                 .toList();
         PipelineRunPickComparison comparison =
                 comparisonService.compareToSameDayNightly(run);
 
-        return ResponseEntity.ok(
-                new PipelineRunDetail(toSummary(run), phases, batches, comparison));
+        CycleCost cost = adminRunsService.cycleCost(run, batchEntities);
+
+        return ResponseEntity.ok(new PipelineRunDetail(
+                toSummary(run), phases, batches, comparison, cost.costMicroDollars(), cost.costGbpRate()));
     }
 
     private static PipelineRunSummary toSummary(PipelineRunEntity run) {

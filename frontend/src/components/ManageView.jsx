@@ -145,9 +145,15 @@ export default function ManageView({ onComplete }) {
   // Read here on a minute poll so the count shows before the tab is opened; the Runs view reports it on each of its
   // own refreshes while it is open.
   const [runningCount, setRunningCount] = useState(0);
+  const activeTabRef = useRef(initial.tab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
   const handleLiveCount = useCallback((count) => setRunningCount(count), []);
   const liveCountLoaded = useRef(false);
   const pollLiveCount = useCallback(() => {
+    // On the Runs tab the Runs view reports the count on its own refreshes: a second request would only race it.
+    if (activeTabRef.current === 'runs') return;
     // The pane stays mounted, hidden, on the Map and Plan tabs: no polling there once a count is in hand.
     if (liveCountLoaded.current && rootRef.current?.closest('[hidden]')) return;
     fetchRuns({ size: 1 })
@@ -302,6 +308,7 @@ export default function ManageView({ onComplete }) {
               {tab.value === 'runs' && liveShown && (
                 <span className={LIVE_COUNT_CLASSES} data-testid="runs-live-count">
                   {runningCount}
+                  <span className="sr-only"> running</span>
                 </span>
               )}
             </button>
@@ -367,6 +374,7 @@ export default function ManageView({ onComplete }) {
             {tab.value === 'runs' && liveShown && (
               <span className={LIVE_COUNT_CLASSES} data-testid="runs-live-count">
                 {runningCount}
+                <span className="sr-only"> running</span>
               </span>
             )}
           </button>

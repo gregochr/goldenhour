@@ -6,7 +6,7 @@ import { totalRequests } from '../../utils/cycleView.js';
 import { batchStatusView } from '../../utils/runStatus.js';
 import { formatClockUk, midTruncate } from '../../utils/runsView.js';
 
-const ROW_CLASS = 'flex min-h-12 w-full items-center justify-between gap-3 border-t border-plex-border py-2 text-left first:border-t-0';
+const ROW_CLASS = 'flex min-h-12 items-center justify-between gap-3 py-2 text-left';
 
 /** "64 requests · 64 / 0 ok/err · 15:02 (1h 35m ago)". */
 function batchLine(batch) {
@@ -80,7 +80,7 @@ export default function CycleBatches({ batches, onOpen }) {
           No batches were submitted. The cycle went straight to the briefing.
         </p>
       ) : (
-        <ul>
+        <ul className="divide-y divide-plex-border">
           {batches.map((batch) => (
             <li key={batch.id}>
               {batch.jobRunId ? (
@@ -94,7 +94,7 @@ export default function CycleBatches({ batches, onOpen }) {
                   <BatchRowBody batch={batch} chevron />
                 </button>
               ) : (
-                <div className={ROW_CLASS} data-testid={`pipeline-batch-row-${batch.id}`}>
+                <div className={`${ROW_CLASS} w-full`} data-testid={`pipeline-batch-row-${batch.id}`}>
                   <BatchRowBody batch={batch} chevron={false} />
                 </div>
               )}

@@ -622,6 +622,7 @@ describe('Runs: opening a run', () => {
     fireEvent.click(await screen.findByTestId('runs-row-cycle-412'));
     expect(window.location.hash).toBe('#manage/runs/cycle/412');
     expect(await screen.findByTestId('cycle-panel-title')).toHaveTextContent('Afternoon refresh');
+    expect(screen.getByRole('complementary', { name: 'Cycle #412' })).toBeInTheDocument();
     expect(fetchPipelineRunDetail).toHaveBeenCalledWith(412);
     expect(fetchJobRun).not.toHaveBeenCalled();
   });

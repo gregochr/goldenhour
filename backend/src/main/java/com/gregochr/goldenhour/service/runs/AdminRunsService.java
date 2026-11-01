@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.JobRunDto;
+import com.gregochr.goldenhour.model.runs.CycleCost;
 import com.gregochr.goldenhour.model.runs.RunBatchInfo;
 import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunJobDetail;
@@ -324,11 +325,56 @@ public class AdminRunsService {
         int done = (int) cycleBatches.stream()
                 .filter(b -> ForecastBatchEntity.BatchStatus.TERMINAL.contains(b.getStatus())).count();
 
-        // Distinct ids: the cycle's disposition anchor is its first batch's run, so it must not count twice.
+        CycleCost cycleCost = cycleCost(cycle, cycleBatches, facts.costRuns(), facts.hiddenByNotes());
+
+        Instant ended = cycle.getCompletedAt();
+        Long duration = ended == null ? null : Duration.between(cycle.getTriggerTime(), ended).toSeconds();
+        return new RunListItem(RunKind.CYCLE, cycle.getId(), RunGroup.CYCLES,
+                RunClassifier.cycleName(cycle.getCycleType()), cycle.getTriggerTime(), ended, duration,
+                outcome.status(), outcome.note(), outcome.tone(), cycleCost.costMicroDollars(), cycleCost.costGbpRate(),
+                done, cycleBatches.size(), null, null, null,
+                cycle.getCycleType(), cycleBatches.size(), null, null, null);
+    }
+
+    /**
+     * The cost of one cycle for its detail view, by the same rule the list uses ({@link #cycleCost(PipelineRunEntity,
+     * List, Map, Map)}): the distinct job runs behind its batches plus its disposition anchor, and a batch whose
+     * job-run link was never written is matched on the Anthropic batch id its run's notes name.
+     *
+     * @param cycle        the pipeline run
+     * @param cycleBatches the forecast batches tagged with the cycle
+     * @return the batch cost and the latest rate; a cost of zero when nothing carries one
+     */
+    public CycleCost cycleCost(PipelineRunEntity cycle, List<ForecastBatchEntity> cycleBatches) {
+        Set<Long> costRunIds = new HashSet<>();
+        cycleBatches.stream().map(ForecastBatchEntity::getJobRunId).filter(Objects::nonNull).forEach(costRunIds::add);
+        if (cycle.getDispositionJobRunId() != null) {
+            costRunIds.add(cycle.getDispositionJobRunId());
+        }
+        Map<Long, JobRunEntity> costRuns = costRunIds.isEmpty() ? Map.of()
+                : jobRuns.findAllById(costRunIds).stream()
+                        .collect(Collectors.toMap(JobRunEntity::getId, Function.identity()));
+        Map<String, JobRunEntity> byNotes = new LinkedHashMap<>();
+        List<String> unlinkedNotes = cycleBatches.stream().filter(b -> b.getJobRunId() == null)
+                .map(b -> BATCH_NOTE_PREFIX + b.getAnthropicBatchId()).toList();
+        if (!unlinkedNotes.isEmpty()) {
+            for (JobRunEntity run : jobRuns.findByRunTypeAndNotesIn(RunType.SCHEDULED_BATCH, unlinkedNotes)) {
+                batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
+            }
+        }
+        return cycleCost(cycle, cycleBatches, costRuns, byNotes);
+    }
+
+    /**
+     * The one cost rule for a cycle, shared by the list and the detail: distinct job run ids (the disposition anchor
+     * is the first batch's run, so it must not count twice), summed; the rate is the latest run's.
+     */
+    private static CycleCost cycleCost(PipelineRunEntity cycle, List<ForecastBatchEntity> cycleBatches,
+            Map<Long, JobRunEntity> loadedRuns, Map<String, JobRunEntity> hiddenByNotes) {
         Set<Long> runIds = new HashSet<>();
-        Map<Long, JobRunEntity> costRunsById = new LinkedHashMap<>(facts.costRuns());
+        Map<Long, JobRunEntity> costRunsById = new LinkedHashMap<>(loadedRuns);
         for (ForecastBatchEntity b : cycleBatches) {
-            JobRunEntity linked = b.getJobRunId() != null ? null : facts.hiddenByNotes().get(b.getAnthropicBatchId());
+            JobRunEntity linked = b.getJobRunId() != null ? null : hiddenByNotes.get(b.getAnthropicBatchId());
             if (linked != null) {
                 // The batch row has no job run link; the run is matched on its notes instead.
                 runIds.add(linked.getId());
@@ -348,14 +394,7 @@ public class AdminRunsService {
                 .filter(r -> r.getExchangeRateGbpPerUsd() != null)
                 .max(Comparator.comparing(JobRunEntity::getStartedAt))
                 .map(JobRunEntity::getExchangeRateGbpPerUsd).orElse(null);
-
-        Instant ended = cycle.getCompletedAt();
-        Long duration = ended == null ? null : Duration.between(cycle.getTriggerTime(), ended).toSeconds();
-        return new RunListItem(RunKind.CYCLE, cycle.getId(), RunGroup.CYCLES,
-                RunClassifier.cycleName(cycle.getCycleType()), cycle.getTriggerTime(), ended, duration,
-                outcome.status(), outcome.note(), outcome.tone(), cost, rate,
-                done, cycleBatches.size(), null, null, null,
-                cycle.getCycleType(), cycleBatches.size(), null, null, null);
+        return new CycleCost(cost, rate);
     }
 
     // ── Job runs ──────────────────────────────────────────────────────────────

@@ -65,38 +65,58 @@ function FailureBox({ run }) {
 
 FailureBox.propTypes = { run: PropTypes.object.isRequired };
 
+/** Refresh as a text button beside the x; on a phone the layout's back bar carries it instead. */
+function RefreshAction({ onRefresh }) {
+  return (
+    <button
+      type="button"
+      className={`${textButtonClass} max-[639px]:hidden`}
+      onClick={onRefresh}
+      data-testid="cycle-panel-refresh"
+    >
+      Refresh
+    </button>
+  );
+}
+
+RefreshAction.propTypes = { onRefresh: PropTypes.func.isRequired };
+
 /**
  * The cycle panel (plan §5.2, R2b): everything the old Pipeline Runs detail showed, in sections that appear only when
  * they have data. Title is the cycle's name, then the meta, a waiting box (running) or a failure box (degraded or
  * failed), the comparison (only with one), the phases, the batches, and a footer with the batch cost and the
  * completed time. A batch row opens that batch's job-run panel.
  *
- * <p>The served cycle carries no cost, so the footer reads it from the cycle's list row ({@code item}); a cycle opened
- * by a link whose row is not on the loaded page shows an em dash.
+ * <p>The footer's cost is the detail's own ({@code costMicroDollars}, {@code costGbpRate}: the batch cost by the list
+ * row's rule); zero or absent reads as an em dash, never as a zero amount.
  *
  * @param {object} props
  * @param {object|null} props.detail the cycle detail ({@code run}, {@code phases}, {@code batches}, {@code comparison})
- * @param {object|null} [props.item] the cycle's list row, when it is on the loaded page (name and cost)
+ * @param {object|null} [props.item] the cycle's list row, when it is on the loaded page (its served name)
  * @param {boolean} props.loading true until the cycle arrives
  * @param {string|null} [props.error] why it could not load
  * @param {boolean} [props.notFound] true when the server has no such cycle
  * @param {number|null} [props.fetchedAt] when the cycle was last read (the real clock), for "Checked {when}"
  * @param {number} props.id the cycle id (the panel's title while loading)
- * @param {boolean} [props.showRefresh] draws the Refresh text button (off on a phone, where the back bar carries it)
  * @param {() => void} props.onRefresh re-reads the cycle
  * @param {() => void} props.onClose closes the panel
  * @param {(jobRunId: number) => void} props.onOpenBatch opens a batch's job-run panel
  */
 export default function CyclePanel({
-  detail = null, item = null, loading, error = null, notFound = false, fetchedAt = null, id, showRefresh = true,
-  onRefresh, onClose, onOpenBatch,
+  detail = null, item = null, loading, error = null, notFound = false, fetchedAt = null, id, onRefresh, onClose,
+  onOpenBatch,
 }) {
   if (!detail) {
     let message = 'Loading...';
     if (notFound) message = 'This cycle no longer exists.';
     else if (error) message = error;
     return (
-      <PanelShell title={`Cycle #${id}`} onClose={onClose} testIdPrefix="cycle-panel">
+      <PanelShell
+        title={`Cycle #${id}`}
+        onClose={onClose}
+        testIdPrefix="cycle-panel"
+        headerAction={error && !loading ? <RefreshAction onRefresh={onRefresh} /> : null}
+      >
         <p
           className={`px-[18px] py-4 text-sm ${error && !loading ? 'text-plex-coral' : 'text-plex-text-muted'}`}
           data-testid="cycle-panel-state"
@@ -110,8 +130,8 @@ export default function CyclePanel({
   const { run } = detail;
   const status = cycleStatusView(run.status);
   const running = run.status === 'RUNNING';
-  const usd = item ? formatSpendUsd(item.costMicroDollars) : '';
-  const cost = item ? runCostText(item) : '—';
+  const usd = formatSpendUsd(detail.costMicroDollars);
+  const cost = runCostText({ costMicroDollars: detail.costMicroDollars, costGbpRate: detail.costGbpRate });
   const footerItems = [
     {
       label: running ? 'Batch cost so far' : 'Batch cost',
@@ -132,19 +152,13 @@ export default function CyclePanel({
       subtitle={<span data-testid="cycle-panel-meta">{cycleMetaLine(run, status.label)}</span>}
       onClose={onClose}
       testIdPrefix="cycle-panel"
+      headerAction={<RefreshAction onRefresh={onRefresh} />}
       footer={(
         <div className="px-[18px] py-3 max-[639px]:px-4" data-testid="cycle-footer">
           <KvList items={footerItems} />
         </div>
       )}
     >
-      {showRefresh && (
-        <div className="flex justify-end border-b border-plex-border px-[18px] py-1.5">
-          <button type="button" className={textButtonClass} onClick={onRefresh} data-testid="cycle-panel-refresh">
-            Refresh
-          </button>
-        </div>
-      )}
       {error && (
         <p className="border-b border-plex-border px-[18px] py-2 text-[12.5px] text-plex-coral max-[639px]:px-4" data-testid="cycle-panel-error">
           {error}
@@ -165,6 +179,8 @@ CyclePanel.propTypes = {
     phases: PropTypes.arrayOf(PropTypes.object),
     batches: PropTypes.arrayOf(PropTypes.object),
     comparison: PropTypes.object,
+    costMicroDollars: PropTypes.number,
+    costGbpRate: PropTypes.number,
   }),
   item: PropTypes.object,
   loading: PropTypes.bool.isRequired,
@@ -172,7 +188,6 @@ CyclePanel.propTypes = {
   notFound: PropTypes.bool,
   fetchedAt: PropTypes.number,
   id: PropTypes.number.isRequired,
-  showRefresh: PropTypes.bool,
   onRefresh: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onOpenBatch: PropTypes.func.isRequired,

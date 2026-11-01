@@ -8,7 +8,6 @@ import CyclePanel from './CyclePanel.jsx';
 import RunsLiveStrip from './RunsLiveStrip.jsx';
 import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
 import { useIsSplitLayout } from '../../hooks/useIsSplitLayout.js';
-import { useIsMobile } from '../../hooks/useIsMobile.js';
 import useCloseWhenFilteredOut from '../../hooks/useCloseWhenFilteredOut.js';
 import useHashSelection from '../../hooks/useHashSelection.js';
 import useCycleDetail from '../../hooks/useCycleDetail.js';
@@ -117,8 +116,6 @@ export default function RunsView({
   const { selectedId: selection, select, clear } = useHashSelection(TAB, hashOptions);
   const panelRef = useRef(null);
 
-  const isMobile = useIsMobile();
-
   const starting = selection?.type === 'start';
   const isBatch = selection?.type === 'batch';
   const isCycle = selection?.type === 'cycle';
@@ -143,8 +140,11 @@ export default function RunsView({
   // A hash naming no job run or cycle (a pasted unknown id) leaves the bare tab address, replacing the entry.
   const notFound = job.notFound || (isCycle && cycle.notFound);
   useEffect(() => {
-    if (notFound) clear({ replace: true });
-  }, [notFound, clear]);
+    if (!notFound) return;
+    // A batch the server has no run for returns to its cycle, not to the bare tab.
+    if (isBatch && !cycle.notFound) select({ type: 'cycle', id: cycleId }, { replace: true });
+    else clear({ replace: true });
+  }, [notFound, isBatch, cycleId, cycle.notFound, select, clear]);
 
   const cycleRow = (id) => list.items.find((item) => item.kind === 'CYCLE' && item.id === id) ?? null;
 
@@ -281,7 +281,6 @@ export default function RunsView({
         error={cycle.error}
         notFound={cycle.notFound}
         fetchedAt={cycle.fetchedAt}
-        showRefresh={!isMobile}
         onRefresh={cycle.refresh}
         onClose={closePanel}
         onOpenBatch={(jobRunId) => select({ type: 'batch', cycleId, id: jobRunId })}
@@ -305,7 +304,7 @@ export default function RunsView({
 
   let panelLabel = 'Run';
   if (starting) panelLabel = 'Start a run';
-  else if (isCycle) panelLabel = `Cycle ${cycleId}`;
+  else if (isCycle) panelLabel = `Cycle #${cycleId}`;
   else if (jobId != null) panelLabel = `Job run ${jobId}`;
   // A batch keeps its cycle's key, so closing everything returns focus to the cycle's row; focusKey tells the shell
   // that the body changed (cycle to batch and back) and the title takes focus again.

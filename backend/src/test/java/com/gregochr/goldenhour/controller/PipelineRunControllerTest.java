@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunPhaseEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
+import com.gregochr.goldenhour.model.runs.CycleCost;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -99,11 +100,14 @@ class PipelineRunControllerTest extends AbstractControllerTest {
         when(pipelineRunService.findById(42L)).thenReturn(Optional.of(run));
         when(pipelineRunService.findPhases(42L)).thenReturn(List.of(submitPhase, waitPhase));
         when(batchRepository.findByPipelineRunId(42L)).thenReturn(List.of(batch));
+        when(adminRunsService.cycleCost(run, List.of(batch))).thenReturn(new CycleCost(770_000L, 0.79));
 
         mockMvc.perform(get("/api/admin/pipeline-runs/42"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.run.id").value(42))
                 .andExpect(jsonPath("$.run.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.costMicroDollars").value(770000))
+                .andExpect(jsonPath("$.costGbpRate").value(0.79))
                 .andExpect(jsonPath("$.phases.length()").value(2))
                 .andExpect(jsonPath("$.phases[0].phase").value("FORECAST_BATCH_SUBMIT"))
                 .andExpect(jsonPath("$.phases[0].durationSeconds").value(60))
@@ -154,6 +158,7 @@ class PipelineRunControllerTest extends AbstractControllerTest {
         when(pipelineRunService.findById(50L)).thenReturn(Optional.of(intraday));
         when(pipelineRunService.findPhases(50L)).thenReturn(List.of());
         when(batchRepository.findByPipelineRunId(50L)).thenReturn(List.of());
+        when(adminRunsService.cycleCost(intraday, List.of())).thenReturn(new CycleCost(0L, null));
         when(pipelineRunComparisonService.compareToSameDayNightly(intraday))
                 .thenReturn(comparison);
 
@@ -171,7 +176,10 @@ class PipelineRunControllerTest extends AbstractControllerTest {
                             .value("North Yorkshire Coast"))
                     .andExpect(jsonPath("$.comparison.diffs[0].nightly.region")
                             .value("Northumberland"))
-                    .andExpect(jsonPath("$.comparison.diffs[1].changed").value(false));
+                    .andExpect(jsonPath("$.comparison.diffs[1].changed").value(false))
+                    // No cost resolved for this cycle: served as zero with no rate, never invented.
+                    .andExpect(jsonPath("$.costMicroDollars").value(0))
+                    .andExpect(jsonPath("$.costGbpRate").isEmpty());
         } catch (Exception e) {
             throw new AssertionError(e);
         }

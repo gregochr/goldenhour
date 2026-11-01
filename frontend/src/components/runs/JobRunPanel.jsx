@@ -53,7 +53,7 @@ export default function JobRunPanel({
   const backRow = onBack && backLabel && !isMobile ? (
     <button
       type="button"
-      className="flex min-h-9 shrink-0 items-center gap-1 border-b border-plex-border px-[18px] text-left text-[13px] font-medium text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+      className="flex min-h-11 shrink-0 items-center gap-1 border-b border-plex-border px-[18px] text-left text-[13px] font-medium text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
       onClick={onBack}
       data-testid="job-run-back"
     >

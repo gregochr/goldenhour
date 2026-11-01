@@ -102,7 +102,7 @@ describe('Runs: the live strip', () => {
     expect(await screen.findByTestId('runs-live-title')).toHaveTextContent('Afternoon refresh is running');
     expect(screen.getByTestId('runs-live-meta')).toHaveTextContent('Cycle #412 · started 15:00');
     expect(screen.getByTestId('runs-live-line'))
-      .toHaveTextContent('Wait for completion · waiting on 2 of 4 batches · 1h 38m so far');
+      .toHaveTextContent('Wait for completion · waiting on 2 of 4 batches · 1h 35m so far');
   });
 
   it('draws the five-segment bar for an intraday cycle: done go, the current one tide, the rest not yet', async () => {
@@ -111,7 +111,9 @@ describe('Runs: the live strip', () => {
     const bar = await screen.findByTestId('runs-live-bar');
     expect(bar).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByTestId('runs-live-seg-STABILITY_RECLASSIFY').className).toContain('bg-plex-ok');
+    expect(screen.getByTestId('runs-live-seg-FORECAST_BATCH_WAIT').className).toContain('bg-linear-to-r');
     expect(screen.getByTestId('runs-live-seg-FORECAST_BATCH_WAIT').className).toContain('from-tide');
+    expect(screen.getByTestId('runs-live-seg-FORECAST_BATCH_WAIT').className).toContain('h-1');
     expect(screen.getByTestId('runs-live-seg-RETRY_FAILED').className).toContain('bg-plex-border');
     expect(screen.getByTestId('runs-live-seg-BRIEFING').className).toContain('bg-plex-border');
     expect(bar.children).toHaveLength(5);
@@ -132,13 +134,18 @@ describe('Runs: the live strip', () => {
   it('stops the pulse for reduced motion', async () => {
     fetchRuns.mockResolvedValue(LIVE_PAGE());
     renderView();
-    expect((await screen.findByTestId('runs-live-pulse')).className).toContain('motion-reduce:animate-none');
+    const pulse = await screen.findByTestId('runs-live-pulse');
+    expect(pulse.className).toContain('motion-reduce:animate-none');
+    // The halo is the shared one, driven by the tide token rather than a hard-coded colour.
+    expect(pulse.className).toContain('var(--color-tide)');
+    expect(pulse.className).not.toContain('rgba(');
   });
 
-  it('Open selects the cycle: its address and its panel', async () => {
+  it('Open selects the cycle: its address and its panel, and names the cycle for a screen reader', async () => {
     fetchRuns.mockResolvedValue(LIVE_PAGE());
     renderView();
-    fireEvent.click(await screen.findByTestId('runs-live-open'));
+    expect(await screen.findByTestId('runs-live-open')).toHaveAccessibleName('Open Afternoon refresh');
+    fireEvent.click(screen.getByTestId('runs-live-open'));
     expect(window.location.hash).toBe('#manage/runs/cycle/412');
     expect(await screen.findByTestId('cycle-panel-title')).toHaveTextContent('Afternoon refresh');
   });
@@ -168,7 +175,7 @@ describe('Runs: the live strip', () => {
     vi.setSystemTime(new Date('2026-10-31T16:38:00Z'));
     setRewind('2026-01-15T09:00:00Z');
     renderView();
-    expect(await screen.findByTestId('runs-live-line')).toHaveTextContent('1h 38m so far');
+    expect(await screen.findByTestId('runs-live-line')).toHaveTextContent('1h 35m so far');
   });
 });
 
@@ -188,7 +195,7 @@ describe('Runs: the cycle panel', () => {
     expect(screen.getByTestId('cycle-panel-title')).toHaveTextContent('Afternoon refresh');
     expect(screen.getByTestId('cycle-panel-meta'))
       .toHaveTextContent('Cycle #412 · intraday · Running · started 15:00 (1h 38m ago)');
-    expect(screen.getByRole('complementary', { name: 'Cycle 412' })).toBeInTheDocument();
+    expect(screen.getByRole('complementary', { name: 'Cycle #412' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.querySelector('[aria-modal="true"]')).toBeNull();
   });
@@ -261,7 +268,9 @@ describe('Runs: the cycle panel', () => {
       expect(screen.getByTestId('cycle-phase-FORECAST_BATCH_WAIT')).toHaveAttribute('data-state', 'running');
       const retry = screen.getByTestId('cycle-phase-RETRY_FAILED');
       expect(retry).toHaveAttribute('data-state', 'pending');
-      expect(retry).toHaveTextContent('Runs after Wait');
+      // Retry runs only if something failed, so it does not promise to run after Wait.
+      expect(retry).toHaveTextContent('Runs if needed');
+      expect(retry).not.toHaveTextContent('Runs after');
       expect(screen.getByTestId('cycle-phase-BRIEFING')).toHaveTextContent('Runs after Wait');
     });
 
@@ -296,6 +305,47 @@ describe('Runs: the cycle panel', () => {
     it('says "Nothing to retry" for a completed retry phase with no detail', async () => {
       await openCycle(finishedDetail());
       expect(screen.getByTestId('cycle-phase-detail-RETRY_FAILED')).toHaveTextContent('Nothing to retry');
+    });
+
+    it('says each phase\'s state in words, and shows Failed on a failed one', async () => {
+      const detail = finishedDetail();
+      await openCycle({
+        ...detail,
+        run: cycleRun({ status: 'DEGRADED', currentPhase: null, waitingOn: null, failureReason: 'x', completedAt: '2026-10-31T16:58:00Z' }),
+        phases: detail.phases.map((p) => (p.phase === 'FORECAST_BATCH_SUBMIT' ? { ...p, status: 'FAILED' } : p)),
+      });
+      expect(screen.getByTestId('cycle-phase-STABILITY_RECLASSIFY')).toHaveTextContent('Done: Re-classify');
+      expect(screen.getByTestId('cycle-phase-FORECAST_BATCH_SUBMIT')).toHaveTextContent('Failed: Submit batches');
+      expect(screen.getByTestId('cycle-phase-failed-FORECAST_BATCH_SUBMIT')).toHaveTextContent('Failed');
+      expect(screen.queryByTestId('cycle-phase-failed-BRIEFING')).toBeNull();
+    });
+
+    it('names a running and a not-yet-run phase in words too', async () => {
+      await openCycle();
+      expect(screen.getByTestId('cycle-phase-FORECAST_BATCH_WAIT')).toHaveTextContent('Running: Wait for completion');
+      expect(screen.getByTestId('cycle-phase-BRIEFING')).toHaveTextContent('Not yet run: Briefing');
+    });
+
+    it('draws no "so far" clock for a phase left RUNNING in a cycle that is no longer running', async () => {
+      const detail = finishedDetail();
+      await openCycle({
+        ...detail,
+        run: cycleRun({ status: 'FAILED', currentPhase: null, waitingOn: null, failureReason: 'x', completedAt: '2026-10-31T16:58:00Z' }),
+        phases: detail.phases.map((p) => (p.phase === 'FORECAST_BATCH_WAIT'
+          ? { ...p, status: 'RUNNING', durationSeconds: null, completedAt: null } : p)),
+      });
+      expect(screen.queryByTestId('cycle-phase-elapsed-FORECAST_BATCH_WAIT')).toBeNull();
+    });
+
+    it('draws the connector long enough to reach the next dot', async () => {
+      await openCycle();
+      expect(screen.getByTestId('cycle-phase-STABILITY_RECLASSIFY').className).toContain('after:bottom-[-19px]');
+      expect(screen.getByTestId('cycle-phase-BRIEFING').className).not.toContain('after:');
+    });
+
+    it('draws a pending re-classify for an EVENING cycle (it records that phase), not for a NIGHTLY one', async () => {
+      await openCycle(cycleDetail({ run: cycleRun({ cycleType: 'EVENING', currentPhase: null }), phases: [] }));
+      expect(screen.getByTestId('cycle-phase-STABILITY_RECLASSIFY')).toHaveAttribute('data-state', 'pending');
     });
 
     it('does not invent a re-classify phase for a nightly cycle that has none', async () => {
@@ -360,7 +410,45 @@ describe('Runs: the cycle panel', () => {
       expect(screen.getByTestId('cross-run-verdict')).toHaveTextContent('No change');
     });
 
-    it('draws a rank beyond 2 as "Plan 3" and a none pick as the stay-home wording', async () => {
+    it('reads a pick with no region as "Stay home", and a rank on one side only as "No pick"', async () => {
+      await openCycle(cycleDetail({
+        comparison: {
+          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
+          diffs: [
+            { rank: 1, changed: true, changedDimensions: ['REGION'], intraday: { region: null }, nightly: NIGHTLY_A },
+            { rank: 3, changed: true, changedDimensions: ['PRESENCE'], intraday: null, nightly: NIGHTLY_A },
+          ],
+        },
+      }));
+      expect(screen.getByTestId('cross-run-pick-1')).toHaveTextContent('Stay home');
+      expect(screen.getByTestId('cross-run-pick-3')).toHaveTextContent('No pick');
+    });
+
+    it('a changed card keeps the old values visible: Was {headline} and the nightly pick\'s region and rating', async () => {
+      await openCycle(cycleDetail({
+        comparison: {
+          baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
+          diffs: [{ rank: 1, changed: true, changedDimensions: ['REGION'], intraday: PICK_A, nightly: NIGHTLY_A }],
+        },
+      }));
+      expect(screen.getByTestId('cross-run-was-1')).toHaveTextContent('Was Hills tonight');
+      expect(screen.getByTestId('cross-run-was-line-1')).toHaveTextContent('Northumberland');
+      expect(screen.getByTestId('cross-run-was-line-1')).toHaveTextContent('∅3.1'.replace('∅', '★'));
+      // The current pick shows its headline only: no second line repeating the region.
+      expect(screen.getByTestId('cross-run-diff-1')).not.toHaveTextContent('North Yorkshire Coast');
+    });
+
+    it('leaves the baseline\'s time out when it has none', async () => {
+      await openCycle(cycleDetail({
+        comparison: {
+          baselineRunId: 408, baselineTriggerTime: null,
+          diffs: [{ rank: 1, changed: false, changedDimensions: [], intraday: PICK_A, nightly: PICK_A }],
+        },
+      }));
+      expect(screen.getByTestId('cross-run-baseline').textContent).toBe('Baseline: nightly cycle #408');
+    });
+
+    it('draws a rank beyond 2 as "Plan 3" and a missing pick in words', async () => {
       await openCycle(cycleDetail({
         comparison: {
           baselineRunId: 408, baselineTriggerTime: '2026-10-31T01:08:00Z',
@@ -370,7 +458,7 @@ describe('Runs: the cycle panel', () => {
         },
       }));
       expect(screen.getByTestId('cross-run-diff-3')).toHaveTextContent('Plan 3');
-      expect(screen.getByTestId('cross-run-pick-3')).toHaveTextContent('Stay home');
+      expect(screen.getByTestId('cross-run-pick-3')).toHaveTextContent('No pick');
       expect(screen.getByTestId('cross-run-changed-3')).toHaveTextContent('Added/dropped');
     });
 
@@ -422,17 +510,21 @@ describe('Runs: the cycle panel', () => {
       expect(within(row).queryByRole('button')).toBeNull();
     });
 
-    it('draws a batch with a job run as a button of at least 48px', async () => {
-      await openCycle();
+    it('draws a batch with a job run as a button of at least 48px, the divider on the list not the row', async () => {
+      await openCycle(cycleDetail({ batches: [cycleBatch(), cycleBatch({ id: 8, jobRunId: null })] }));
       const row = screen.getByTestId('pipeline-batch-row-7');
       expect(row.tagName).toBe('BUTTON');
       expect(row.className).toContain('min-h-12');
+      expect(row.className).not.toMatch(/(^|\s)w-full/);
+      expect(row.className).not.toContain('first:');
+      expect(screen.getByTestId('pipeline-batch-row-8').className).toMatch(/(^|\s)w-full/);
+      expect(within(screen.getByTestId('cycle-batches')).getByRole('list').className).toContain('divide-y');
     });
   });
 
   describe('the footer', () => {
-    it('shows the batch cost from the cycle\'s row, "so far" while running, and the completed time', async () => {
-      await openCycle(cycleDetail(), [cycleItem({ costMicroDollars: 770_000, costGbpRate: 0.79 })]);
+    it('shows the batch cost from the DETAIL, "so far" while running, and the completed time', async () => {
+      await openCycle(cycleDetail(), [cycleItem({ costMicroDollars: 1, costGbpRate: 0.79 })]);
       const cost = screen.getByTestId('cycle-cost');
       expect(screen.getByTestId('cycle-footer')).toHaveTextContent('Batch cost so far');
       expect(cost).toHaveTextContent('£0.6083');
@@ -441,14 +533,20 @@ describe('Runs: the cycle panel', () => {
     });
 
     it('reads "Batch cost" and the completed time once finished', async () => {
-      await openCycle(finishedDetail(), [cycleItem({ status: 'DONE', costMicroDollars: 770_000, costGbpRate: 0.79 })]);
+      await openCycle(finishedDetail());
       expect(screen.getByTestId('cycle-footer')).toHaveTextContent(/Batch cost(?! so far)/);
       expect(screen.getByTestId('cycle-completed')).toHaveTextContent('31 Oct 2026');
     });
 
-    it('shows an em dash for the cost when the row is not on the loaded page', async () => {
+    it('reads the cost from the detail even when the row is not on the loaded page', async () => {
       await openCycle(cycleDetail(), []);
+      expect(screen.getByTestId('cycle-cost')).toHaveTextContent('£0.6083');
+    });
+
+    it.each([[0, 0.79], [0, null], [null, null]])('shows an em dash, not a zero amount, for a cost of %s', async (micro, rate) => {
+      await openCycle(cycleDetail({ costMicroDollars: micro, costGbpRate: rate }));
       expect(screen.getByTestId('cycle-cost')).toHaveTextContent('—');
+      expect(screen.getByTestId('cycle-cost')).not.toHaveTextContent('£');
     });
   });
 
@@ -481,6 +579,21 @@ describe('Runs: the cycle panel', () => {
       renderView();
       await waitFor(() => expect(window.location.hash).toBe('#manage/runs'));
       expect(screen.queryByTestId('cycle-panel')).toBeNull();
+    });
+
+    it('offers Refresh in the error state too, and it reads the cycle again', async () => {
+      fetchPipelineRunDetail.mockRejectedValueOnce(new Error('down'));
+      window.location.hash = '#manage/runs/cycle/412';
+      renderView();
+      expect(await screen.findByTestId('cycle-panel-state')).toHaveTextContent('down');
+      fireEvent.click(screen.getByTestId('cycle-panel-refresh'));
+      expect(await screen.findByTestId('cycle-panel-meta')).toBeInTheDocument();
+    });
+
+    it('draws Refresh beside the x in the header', async () => {
+      await openCycle();
+      const header = screen.getByTestId('cycle-panel-close').parentElement;
+      expect(within(header).getByTestId('cycle-panel-refresh')).toBeInTheDocument();
     });
 
     it('Refresh reads the cycle again', async () => {
@@ -585,6 +698,20 @@ describe('Runs: drilling into a batch', () => {
     expect(window.location.hash).toBe('#manage/runs');
   });
 
+  it('a batch the server has no run for returns to its cycle, not to the bare tab', async () => {
+    fetchJobRun.mockRejectedValue(Object.assign(new Error('nope'), { response: { status: 404 } }));
+    window.location.hash = '#manage/runs/cycle/412/job/9876';
+    renderView();
+    await waitFor(() => expect(window.location.hash).toBe('#manage/runs/cycle/412'));
+    expect(await screen.findByTestId('cycle-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('job-run-panel')).toBeNull();
+  });
+
+  it('the back row is 44px high on the tablet overlay', async () => {
+    await openBatch();
+    expect(screen.getByTestId('job-run-back').className).toContain('min-h-11');
+  });
+
   it('a standalone job run has no back row', async () => {
     window.location.hash = '#manage/runs/job/9001';
     fetchJobRun.mockResolvedValue(jobDetail({ id: 9001 }));
@@ -608,12 +735,12 @@ describe('Runs: drilling into a batch', () => {
       expect(await screen.findByTestId('cycle-panel')).toBeInTheDocument();
     });
 
-    it('a cycle\'s back bar says Runs and carries Refresh; the panel draws no second Refresh', async () => {
+    it('a cycle\'s back bar says Runs and carries Refresh; the header\'s own Refresh is hidden on a phone', async () => {
       window.location.hash = '#manage/runs/cycle/412';
       renderView();
       await screen.findByTestId('cycle-panel');
       expect(screen.getByTestId('runs-split-back')).toHaveTextContent('Runs');
-      expect(screen.queryByTestId('cycle-panel-refresh')).toBeNull();
+      expect(screen.getByTestId('cycle-panel-refresh').className).toContain('max-[639px]:hidden');
       fireEvent.click(screen.getByTestId('cycle-back-refresh'));
       await waitFor(() => expect(fetchPipelineRunDetail).toHaveBeenCalledTimes(2));
     });
