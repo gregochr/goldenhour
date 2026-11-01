@@ -31,10 +31,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.AdditionalAnswers.returnsFirstArg;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -121,9 +123,9 @@ class ForecastServiceInversionProfileTest {
 
     /**
      * Pins every pass-through augmentation to the values this location and slot fix. The inversion step and
-     * the two after it (mist, bluebell) receive data that may or may not carry a v2 carrier, so their data
-     * argument stays open and the tests inspect it with captors instead; the cloud-approach step also takes
-     * the wall-clock time, which a test cannot know.
+     * the three after it (mist, coastal mist, bluebell) receive data that may or may not carry a v2 carrier, so
+     * they are matched on identity with the inversion step's own output rather than on a fixed object; the
+     * cloud-approach step also takes the wall-clock time, which a test cannot know.
      */
     private void stubAugmentationChain(LocationEntity location, LocalDate date, LocalDateTime sunrise,
             int elevation) {
@@ -137,12 +139,27 @@ class ForecastServiceInversionProfileTest {
                 .then(returnsFirstArg());
         when(augmentor.augmentWithStormSurge(eq(BASE), any(), eq(LOCATION_ID), eq("Cat Bells"), same(RESPONSE)))
                 .then(returnsFirstArg());
-        when(augmentor.augmentWithInversionScore(any(), eq(elevation), eq(true))).then(returnsFirstArg());
-        when(augmentor.augmentWithBluebellConditions(any(), eq(ELIGIBLE.getLocationType()),
-                eq(ELIGIBLE.getBluebellExposure()), eq(date))).then(returnsFirstArg());
-        when(augmentor.augmentWithValleyMist(any(), eq(false))).then(returnsFirstArg());
-        when(augmentor.augmentWithCoastalMist(any(AtmosphericData.class), eq(location), eq(date)))
+        // The inversion step's output is whatever carries (or lacks) the attached profile in this scenario. Its
+        // stub records that exact object, and every later step must receive THAT object (identity), so a step
+        // that silently handed on the original BASE instead would fail here rather than discard the profile.
+        when(augmentor.augmentWithInversionScore(any(), eq(elevation), eq(true))).then(inv -> {
+            inversionOutput.set(inv.getArgument(0));
+            return inv.getArgument(0);
+        });
+        when(augmentor.augmentWithValleyMist(argThat(this::isInversionOutput), eq(false)))
                 .then(returnsFirstArg());
+        when(augmentor.augmentWithCoastalMist(argThat(this::isInversionOutput), eq(location), eq(date)))
+                .then(returnsFirstArg());
+        when(augmentor.augmentWithBluebellConditions(argThat(this::isInversionOutput),
+                eq(ELIGIBLE.getLocationType()), eq(ELIGIBLE.getBluebellExposure()), eq(date)))
+                .then(returnsFirstArg());
+    }
+
+    /** The object the inversion step's stub handed on in this scenario, set when that step runs. */
+    private final AtomicReference<AtmosphericData> inversionOutput = new AtomicReference<>();
+
+    private boolean isInversionOutput(AtmosphericData data) {
+        return data != null && data == inversionOutput.get();
     }
 
     /** A whole-day profile of the valley cell on {@link #DATE}, 80 m floor. */
