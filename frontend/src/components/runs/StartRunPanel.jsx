@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { refreshTideData, backfillTideData, fetchLocations } from '../../api/forecastApi';
 import { enrichBortle } from '../../api/auroraApi';
@@ -6,108 +6,14 @@ import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../../api/bat
 import { runBriefing } from '../../api/briefingApi.js';
 import { useAuth } from '../../context/AuthContext';
 import { useAuroraStatus } from '../../hooks/useAuroraStatus.js';
-import useConfirmDialog from '../../hooks/useConfirmDialog.js';
-import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import PanelShell from '../data/PanelShell.jsx';
 import AuroraForecastModal from '../AuroraForecastModal';
 import AuroraSimulateModal from '../AuroraSimulateModal';
-import { isSkyPromptCandidate } from '../../utils/locationTypes.js';
-
-/**
- * Returns true if the location may go to the SKY prompt.
- *
- * <p>This panel previews which locations a colour RUN will touch, so the predicate it mirrors is
- * `LocationEntity.hasColourTypes()` — the gate those engines filter on — and NOT the briefing's
- * own candidacy test. The two deliberately disagree about WOODLAND: a wood is a briefing
- * candidate but has no sky to forecast.
- */
-function hasColourTypes(loc) {
-  return isSkyPromptCandidate(loc.locationType);
-}
-
-/**
- * Returns true if the location is pure-wildlife only (WILDLIFE but no colour types).
- *
- * <p>⚠️ NOT `locationTypes.isWildlifeOnly`, and the two names mean DIFFERENT sets. This is the
- * backend pure-wildlife rule (a WILDLIFE+WOODLAND or WILDLIFE+BLUEBELL
- * place counts, because no colour type is present). `isWildlifeOnly` is the narrower `LocationEntity.isWildlifeOnly()`
- * (WILDLIFE is the ONLY type), which decides who gets a comfort forecast.
- */
-function isPureWildlife(loc) {
-  const types = loc.locationType || [];
-  return types.includes('WILDLIFE') && !hasColourTypes(loc);
-}
-
-/** Returns true if the location is coastal (has at least one tide type). */
-function isCoastal(loc) {
-  const tides = loc.tideType || [];
-  return tides.length > 0;
-}
-
-/**
- * Filters enabled locations by run type and groups them by region.
- *
- * @param {Array} locations - All locations from the API.
- * @param {string} runType - WEATHER or TIDE (anything else lists the colour-type locations).
- * @returns {{ groups: Array<{region: string, locations: string[]}>, total: number }}
- */
-function getLocationSummary(locations, runType) {
-  const enabled = locations.filter((loc) => loc.enabled !== false);
-
-  let filtered;
-  if (runType === 'TIDE') {
-    filtered = enabled.filter(isCoastal);
-  } else if (runType === 'WEATHER') {
-    filtered = enabled.filter(isPureWildlife);
-  } else {
-    filtered = enabled.filter(hasColourTypes);
-  }
-
-  // Group by region name (or "No region")
-  const byRegion = {};
-  for (const loc of filtered) {
-    const regionName = loc.region?.name || 'No region';
-    if (!byRegion[regionName]) byRegion[regionName] = [];
-    byRegion[regionName].push(loc.name);
-  }
-
-  const groups = Object.entries(byRegion)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([region, names]) => ({ region, locations: names.sort() }));
-
-  return { groups, total: filtered.length };
-}
-
-/**
- * Renders the location summary grouped by region inside a confirmation dialog.
- */
-function LocationSummary({ groups, total }) {
-  if (total === 0) {
-    return <p className="text-xs text-plex-text-muted italic">No matching locations found.</p>;
-  }
-
-  return (
-    <div className="max-h-48 overflow-y-auto text-xs space-y-2">
-      {groups.map((g) => (
-        <div key={g.region}>
-          <p className="text-plex-text font-medium">{g.region} ({g.locations.length})</p>
-          <p className="text-plex-text-muted ml-2">{g.locations.join(', ')}</p>
-        </div>
-      ))}
-      <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
-        {total} location{total !== 1 ? 's' : ''} total
-      </p>
-    </div>
-  );
-}
-
-LocationSummary.propTypes = {
-  groups: PropTypes.arrayOf(PropTypes.shape({
-    region: PropTypes.string.isRequired,
-    locations: PropTypes.arrayOf(PropTypes.string).isRequired,
-  })).isRequired,
-  total: PropTypes.number.isRequired,
-};
+import { LocationSummary, RegionChecklist, pluralLocations } from './StartRunScope.jsx';
+import {
+  BUSY_MESSAGE, START_GROUPS, getLocationSummary, getSeascapeTideSummary, isBatchOption, tideDataDescription,
+} from '../../utils/startRunOptions.js';
+import { sectionLabelClass, textButtonClass } from '../users/userFormClasses.js';
 
 /**
  * The Start a run panel's in-flight flags and its status line. {@code RunsView} holds them (not the panel) so that
@@ -131,24 +37,79 @@ export function useStartRunState() {
   };
 }
 
+/** The next option's index in a radio group, for an arrow key (wrapping), or null for any other key. */
+function arrowTarget(key, index, count) {
+  if (key === 'ArrowDown' || key === 'ArrowRight') return (index + 1) % count;
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return (index - 1 + count) % count;
+  return null;
+}
+
 /**
- * The Start a run panel ({@code #manage/runs/start}), R2a's legacy body (runs-redesign-plan.md R-D4): today's admin
- * trigger card lifted as it stands, every button, the batch region dialog, the tide confirm dialogs, both aurora
- * modals, {@code anyRunning} and the busy and error lines. R3 rebuilds the body into radio options; until then
- * nothing about what each button does has changed.
+ * One option's radio button: its name and one line of description, with the radio dot at the right. The scope the
+ * option expands to is drawn by the caller, under it.
+ */
+function OptionRadio({
+  option, description, checked, tabbable, disabled, onSelect, onKeyDown, buttonRef,
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      role="radio"
+      aria-checked={checked}
+      tabIndex={tabbable ? 0 : -1}
+      disabled={disabled}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      className="flex w-full cursor-pointer items-start gap-3 rounded-[inherit] px-3.5 py-3 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold disabled:cursor-not-allowed disabled:opacity-50 max-[639px]:min-h-11"
+      data-testid={`start-option-${option.key}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-medium text-plex-text">{option.name}</span>
+        <span className="mt-0.5 block text-[12.5px] text-plex-text-secondary">{description}</span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border ${
+          checked ? 'border-plex-gold' : 'border-plex-border-light'
+        }`}
+      >
+        {checked && <span className="size-2 rounded-full bg-plex-gold" />}
+      </span>
+    </button>
+  );
+}
+
+OptionRadio.propTypes = {
+  option: PropTypes.shape({ key: PropTypes.string.isRequired, name: PropTypes.string.isRequired }).isRequired,
+  description: PropTypes.string.isRequired,
+  checked: PropTypes.bool.isRequired,
+  tabbable: PropTypes.bool.isRequired,
+  disabled: PropTypes.bool.isRequired,
+  onSelect: PropTypes.func.isRequired,
+  onKeyDown: PropTypes.func.isRequired,
+  buttonRef: PropTypes.func.isRequired,
+};
+
+/**
+ * The Start a run panel ({@code #manage/runs/start}, runs-redesign-plan.md §5.3, R3): a choice of runs in two radio
+ * groups (Forecast, Data refresh), the selected one expanding its scope inline, and the aurora simulation row under
+ * Testing. The footer carries the scope, Cancel and {@code Start {option}}.
  *
- * <p>A start that returns a {@code jobRunId} hands it to {@code onActiveRunChange}, which sets the run
- * {@code RunProgressPanel} follows (above the list, so it outlives this panel). A start that adds a run to the list
- * calls {@code onStarted}, so the list's head is re-fetched.
+ * <p>A start that returns a {@code jobRunId} hands it to {@code onRunStarted} ({@code RunsView} sets the run
+ * {@code RunProgressPanel} follows, reloads the list's head and opens that run's panel). A start with no id, and the
+ * aurora forecast's modal on completing, call {@code onFinished} with the line to toast ({@code RunsView} reloads the
+ * head and closes this panel). A 409 shows the busy sentence here. The in-flight flags live in {@code RunsView}
+ * ({@link useStartRunState}), so closing and reopening the panel mid-request keeps the guard.
  *
  * @param {object} props
- * @param {(jobRunId: number) => void} props.onActiveRunChange sets the run whose progress is followed
- * @param {() => void} props.onStarted called after a start that adds or changes a run, to reload the list head
+ * @param {(jobRunId: number) => void} props.onRunStarted called after a start that returned a job run id
+ * @param {(message: string) => void} props.onFinished called after a start with no id, with the line to toast
  * @param {() => void} props.onClose closes the panel
  * @param {object} [props.runState] the lifted flags and status line ({@link useStartRunState}), when the caller holds them
  */
 export default function StartRunPanel({
-  onActiveRunChange, onStarted, onClose, runState = undefined,
+  onRunStarted, onFinished, onClose, runState = undefined,
 }) {
   const { isAdmin } = useAuth();
   const ownState = useStartRunState();
@@ -157,13 +118,17 @@ export default function StartRunPanel({
     runningBriefing, setRunningBriefing, runningScheduledBatch, setRunningScheduledBatch, runningJfdiBatch,
     setRunningJfdiBatch, runStatus, setRunStatus,
   } = runState ?? ownState;
+  const [selected, setSelected] = useState('scheduled-batch');
   const [showAuroraModal, setShowAuroraModal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const { status: auroraStatus } = useAuroraStatus();
-  const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
-  const [allLocations, setAllLocations] = useState([]);
-  const [batchRegions, setBatchRegions] = useState([]);
-  const [batchDialog, setBatchDialog] = useState(null);
+  const [allLocations, setAllLocations] = useState(null);
+  const [batchRegions, setBatchRegions] = useState(null);
+  // `null` MEANS "all regions" and is not the same as an empty set: the default follows the regions whenever they
+  // land. (Snapshotting the roster at open time was a race that sent an empty region list.)
+  const [selectedIds, setSelectedIds] = useState(null);
+  const optionRefs = useRef({});
+  const headingBase = useId();
 
   // Load locations and batch regions once
   useEffect(() => {
@@ -171,195 +136,156 @@ export default function StartRunPanel({
     getRegions().then(setBatchRegions).catch(() => {});
   }, []);
 
-  const anyRunning = runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
+  const anyRunning = runningTide || runningBackfill || runningLightPollution || runningBriefing
+    || runningScheduledBatch || runningJfdiBatch;
 
-  const handleEnrichLightPollution = async () => {
-    setRunningLightPollution(true);
-    setRunStatus(null);
-    try {
-      const result = await enrichBortle();
-      const msg = result.jobRunId
-        ? `Light pollution enrichment started (job #${result.jobRunId}).`
-        : 'Light pollution enrichment started.';
-      setRunStatus({ type: 'success', message: msg });
-      if (result.jobRunId) {
-        onActiveRunChange(result.jobRunId);
-      }
-      onStarted();
-    } catch (err) {
-      const msg = err?.response?.status === 400
-        ? 'Light pollution API key not configured.'
-        : 'Light pollution refresh failed.';
-      setRunStatus({ type: 'error', message: msg });
-    } finally {
-      setRunningLightPollution(false);
-    }
-  };
+  const regions = useMemo(() => batchRegions ?? [], [batchRegions]);
+  const batchSelection = useMemo(
+    () => selectedIds ?? new Set(regions.map((r) => r.id)),
+    [selectedIds, regions],
+  );
+  const tideSummary = useMemo(() => (allLocations ? getLocationSummary(allLocations, 'TIDE') : null), [allLocations]);
+  const historySummary = useMemo(() => (allLocations ? getSeascapeTideSummary(allLocations) : null), [allLocations]);
 
-  const handleRunBriefing = async () => {
-    setRunningBriefing(true);
-    setRunStatus(null);
-    try {
-      const result = await runBriefing();
-      setRunStatus({ type: 'success', message: result.status || 'Briefing refreshed.' });
-      onStarted();
-    } catch (err) {
-      // 409: the backend refuses a second build while one is running (typically the pipeline's
-      // own) — that is not a failure, and there is nothing in the logs to check.
-      const msg = err?.response?.status === 409
-        ? 'A briefing refresh is already in progress. Wait for it to complete.'
-        : 'Briefing refresh failed. Check the logs.';
-      setRunStatus({ type: 'error', message: msg });
-    } finally {
-      setRunningBriefing(false);
-    }
-  };
-
-  const handleRefreshTide = () => {
-    openDialog({
-      title: 'Refresh Tide Data',
-      message: 'Refresh tide data for all coastal locations? This will call the WorldTides API.',
-      confirmLabel: 'Refresh',
-      destructive: false,
-      locationSummary: getLocationSummary(allLocations, 'TIDE'),
-      onConfirm: async () => {
-        closeDialog();
-        setRunningTide(true);
-        setRunStatus(null);
-        try {
-          const result = await refreshTideData();
-          setRunStatus({ type: 'success', message: result.status || 'Run started.' });
-          if (result.jobRunId) {
-            onActiveRunChange(result.jobRunId);
-          }
-          onStarted();
-        } catch (err) {
-          // 409: the refresh is refused because one is already going (from any route: schedule,
-          // Run Now, or an earlier press here).
-          const msg = err?.response?.status === 409
-            ? 'Refresh Tide Data: a run is already in progress. Wait for it to complete.'
-            : 'Refresh Tide Data failed. Check the logs.';
-          setRunStatus({ type: 'error', message: msg });
-        } finally {
-          setRunningTide(false);
-        }
-      },
-    });
-  };
-
-  const handleBackfillTide = () => {
-    const seascapeCoastal = allLocations
-      .filter((loc) => loc.enabled !== false)
-      .filter((loc) => (loc.locationType || []).includes('SEASCAPE'))
-      .filter(isCoastal);
-    const summary = getLocationSummary(
-      allLocations.filter((loc) => (loc.locationType || []).includes('SEASCAPE')),
-      'TIDE',
-    );
-    openDialog({
-      title: 'Backfill Tide History',
-      message: `Backfill 12 months of historical tide data for ${seascapeCoastal.length} SEASCAPE location(s)? This fetches in 7-day chunks, skipping dates where data already exists. Multiple WorldTides API calls will be made per location.`,
-      confirmLabel: 'Backfill',
-      destructive: false,
-      locationSummary: summary,
-      onConfirm: async () => {
-        closeDialog();
-        setRunningBackfill(true);
-        setRunStatus(null);
-        try {
-          const result = await backfillTideData();
-          setRunStatus({ type: 'success', message: result.status || 'Backfill started.' });
-          onStarted();
-        } catch {
-          setRunStatus({ type: 'error', message: 'Tide backfill failed. Check the logs.' });
-        } finally {
-          setRunningBackfill(false);
-        }
-      },
-    });
-  };
-
-  /**
-   * Opens the batch dialog with every region selected.
-   *
-   * <p>`selectedIds: null` MEANS "all regions", and is not the same as an empty set. Snapshotting
-   * `batchRegions` here instead was a race: the button renders immediately while `getRegions()` is
-   * still in flight, so an admin who clicked quickly got a dialog built from an empty roster. The
-   * regions then arrived, rendered three unchecked boxes reading "0 of 3 regions selected", and
-   * unchecking one actually CHECKED it — the selection was empty, so the toggle added rather than
-   * removed. Submitting from that state sent an empty region list. Deferring the resolution to
-   * render time makes the default follow the data whenever it lands.
-   */
-  const openBatchDialog = (mode) => {
-    setBatchDialog({ mode, selectedIds: null });
-  };
-
-  /** The dialog's live selection: an explicit set once touched, otherwise every known region. */
-  const resolveBatchSelection = (selectedIds) =>
-    selectedIds ?? new Set(batchRegions.map((r) => r.id));
-
-  const handleBatchToggleRegion = (regionId) => {
-    setBatchDialog((prev) => {
-      if (!prev) return prev;
-      const next = new Set(resolveBatchSelection(prev.selectedIds));
+  const handleToggleRegion = (regionId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev ?? regions.map((r) => r.id));
       if (regionId === '__all__') {
-        if (next.size === batchRegions.length) {
+        if (next.size === regions.length) {
           next.clear();
         } else {
-          for (const r of batchRegions) next.add(r.id);
+          for (const r of regions) next.add(r.id);
         }
       } else if (next.has(regionId)) {
         next.delete(regionId);
       } else {
         next.add(regionId);
       }
-      return { ...prev, selectedIds: next };
+      return next;
     });
   };
 
-  const handleBatchSubmit = async () => {
-    if (!batchDialog) return;
-    const { mode, selectedIds } = batchDialog;
-    // An explicitly emptied selection is NOT "all", and must never be submitted. The API reads an
-    // empty list exactly as it reads null — ForecastTaskCollector:729 says so outright, "null or
-    // empty means all regions" — so submitting from "0 of 3 regions selected" would run the whole
-    // roster the screen has just told the operator is excluded, at full batch cost. Pre-existing;
-    // found by review while fixing the selection race above.
-    if (selectedIds !== null && selectedIds.size === 0) {
-      return;
-    }
-    // null means "all regions", which the API expects as a null region list — the same thing an
-    // explicitly all-selected set means. An empty set is refused above and never reaches the wire.
-    const regionIds = selectedIds === null || selectedIds.size === batchRegions.length
-      ? null
-      : [...selectedIds];
-    const setRunning = mode === 'scheduled' ? setRunningScheduledBatch : setRunningJfdiBatch;
-    const submitFn = mode === 'scheduled' ? submitScheduledBatch : submitJfdiBatch;
-    const label = mode === 'scheduled' ? 'Scheduled batch' : 'JFDI batch';
+  const selectOption = (key) => {
+    setSelected(key);
+    setRunStatus(null);
+  };
 
-    setBatchDialog(null);
+  // An explicitly emptied batch selection is NOT "all", and is never submitted: the API reads an empty list exactly as
+  // it reads null ("null or empty means all regions"), so sending it would run the whole roster the screen has just
+  // said is excluded. The Start button is disabled, and the handler refuses too.
+  const batchEmpty = isBatchOption(selected) && regions.length > 0 && batchSelection.size === 0;
+
+  /**
+   * Runs one start: raises the option's in-flight flag, clears the status line, and routes the outcome. A response with
+   * a job run id opens that run; one without finishes with a toast; a 409 shows the busy sentence; any other failure
+   * shows {@code failure}.
+   */
+  const execute = async (setRunning, call, failure) => {
     setRunning(true);
     setRunStatus(null);
     try {
-      const result = await submitFn(regionIds);
-      setRunStatus({
-        type: 'success',
-        message: `${label} submitted: ${result.requestCount} request(s), batch ${result.batchId}.`,
-      });
-      onStarted();
+      const result = await call();
+      if (result?.jobRunId) {
+        onRunStarted(result.jobRunId);
+      } else {
+        onFinished(result?.status || 'Started.');
+      }
     } catch (err) {
-      const msg = err?.response?.status === 409
-        ? 'A batch is already in progress. Wait for it to complete.'
-        : `${label} submission failed. Check the logs.`;
-      setRunStatus({ type: 'error', message: msg });
+      const message = err?.response?.status === 409 ? BUSY_MESSAGE : failure(err);
+      setRunStatus({ type: 'error', message });
     } finally {
       setRunning(false);
     }
   };
 
-  // Resolved once per render: the dialog's null sentinel must never reach the JSX, and four
-  // separate call sites are four chances to miss one — which is exactly what happened.
-  const batchSelection = batchDialog ? resolveBatchSelection(batchDialog.selectedIds) : null;
+  const submitBatch = (mode) => {
+    if (batchEmpty) return;
+    // null means "all regions", which the API expects as a null region list — the same thing an explicitly
+    // all-selected set means. An empty set is refused above and never reaches the wire.
+    const regionIds = selectedIds === null || selectedIds.size === regions.length ? null : [...selectedIds];
+    const scheduled = mode === 'scheduled';
+    const label = scheduled ? 'Scheduled batch' : 'JFDI batch';
+    execute(
+      scheduled ? setRunningScheduledBatch : setRunningJfdiBatch,
+      () => (scheduled ? submitScheduledBatch(regionIds) : submitJfdiBatch(regionIds)),
+      () => `${label} submission failed. Check the logs.`,
+    );
+  };
+
+  const handleStart = () => {
+    switch (selected) {
+      case 'scheduled-batch':
+        submitBatch('scheduled');
+        break;
+      case 'jfdi-batch':
+        submitBatch('jfdi');
+        break;
+      case 'briefing':
+        execute(setRunningBriefing, runBriefing, () => 'Briefing refresh failed. Check the logs.');
+        break;
+      case 'aurora-forecast':
+        setShowAuroraModal(true);
+        break;
+      case 'tide-data':
+        execute(setRunningTide, refreshTideData, () => 'Tide data refresh failed. Check the logs.');
+        break;
+      case 'tide-history':
+        execute(setRunningBackfill, backfillTideData, () => 'Tide backfill failed. Check the logs.');
+        break;
+      default:
+        execute(
+          setRunningLightPollution,
+          enrichBortle,
+          (err) => (err?.response?.status === 400
+            ? 'Light pollution API key not configured.'
+            : 'Light pollution refresh failed.'),
+        );
+    }
+  };
+
+  const startLabel = START_GROUPS.flatMap((g) => g.options).find((o) => o.key === selected).startLabel;
+
+  // The footer's scope: regions and locations for a batch, the location count for a tide option, nothing otherwise.
+  let scope = null;
+  if (isBatchOption(selected) && batchRegions) {
+    const locationCount = regions.filter((r) => batchSelection.has(r.id)).reduce((sum, r) => sum + r.locationCount, 0);
+    scope = `${batchSelection.size} of ${regions.length} region${regions.length === 1 ? '' : 's'} · ${pluralLocations(locationCount)}`;
+  } else if (selected === 'tide-data' && tideSummary) {
+    scope = pluralLocations(tideSummary.total);
+  } else if (selected === 'tide-history' && historySummary) {
+    scope = pluralLocations(historySummary.total);
+  }
+
+  /** The inline scope the selected option expands, or null for an option with none. */
+  const scopeFor = (key) => {
+    if (isBatchOption(key)) {
+      if (!batchRegions) return <p className="text-xs text-plex-text-muted">Loading regions…</p>;
+      if (regions.length === 0) return <p className="text-xs text-plex-text-muted">Every region will run.</p>;
+      return (
+        <RegionChecklist
+          regions={regions}
+          selection={batchSelection}
+          onToggle={handleToggleRegion}
+          disabled={anyRunning}
+        />
+      );
+    }
+    if (key === 'tide-data' || key === 'tide-history') {
+      const summary = key === 'tide-data' ? tideSummary : historySummary;
+      if (!summary) return <p className="text-xs text-plex-text-muted">Loading locations…</p>;
+      return <LocationSummary groups={summary.groups} total={summary.total} />;
+    }
+    return null;
+  };
+
+  const onOptionKeyDown = (group, index) => (event) => {
+    const target = arrowTarget(event.key, index, group.options.length);
+    if (target == null) return;
+    event.preventDefault();
+    const next = group.options[target].key;
+    selectOption(next);
+    optionRefs.current[next]?.focus();
+  };
 
   return (
     <PanelShell
@@ -367,172 +293,116 @@ export default function StartRunPanel({
       subtitle="Runs start straight away and appear at the top of the list."
       onClose={onClose}
       testIdPrefix="start-run-panel"
+      footer={isAdmin ? (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3 max-[639px]:px-4"
+          data-testid="start-run-footer"
+        >
+          <p className="min-w-0 flex-1 font-mono text-[11.5px] text-plex-text-muted" data-testid="start-run-scope">
+            {scope}
+          </p>
+          <button type="button" className={textButtonClass} onClick={onClose} data-testid="start-run-cancel">
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary text-sm max-[639px]:min-h-11"
+            onClick={handleStart}
+            disabled={anyRunning || batchEmpty}
+            data-testid="start-run-submit"
+          >
+            {startLabel}
+          </button>
+        </div>
+      ) : null}
     >
       {isAdmin && (
-        <div className="space-y-4 px-[18px] py-4 max-[639px]:px-4" data-testid="start-run-card">
-          <div>
-            <h3
-              className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2"
-              data-testid="forecast-runs-heading"
-            >
-              Forecast Runs
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="text-sm px-3 py-1.5 font-medium rounded border border-indigo-500/50 bg-indigo-900/30 text-indigo-300 hover:bg-indigo-800/40 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
-                onClick={() => setShowAuroraModal(true)}
-                disabled={anyRunning}
-                title="Choose which nights to generate Claude aurora forecasts for"
-                data-testid="run-aurora-forecast-btn"
+        <div data-testid="start-run-card">
+          {START_GROUPS.map((group) => {
+            const headingId = `${headingBase}-${group.id}`;
+            const groupHasSelection = group.options.some((o) => o.key === selected);
+            return (
+              <section
+                key={group.id}
+                className="border-b border-plex-border px-[18px] py-[14px] max-[639px]:px-4"
+                data-testid={`start-group-${group.id}`}
               >
-                🌌 Aurora Forecast
-              </button>
+                <h3 id={headingId} className={`${sectionLabelClass} mb-2.5`}>{group.label}</h3>
+                <div role="radiogroup" aria-labelledby={headingId} className="space-y-2">
+                  {group.options.map((option, index) => {
+                    const checked = option.key === selected;
+                    const description = option.key === 'tide-data'
+                      ? tideDataDescription(tideSummary ? tideSummary.total : null)
+                      : option.description;
+                    const optionScope = checked ? scopeFor(option.key) : null;
+                    return (
+                      <div
+                        key={option.key}
+                        className={`rounded-lg border ${
+                          checked ? 'border-plex-gold/60 bg-plex-gold/5' : 'border-plex-border'
+                        }`}
+                      >
+                        <OptionRadio
+                          option={option}
+                          description={description}
+                          checked={checked}
+                          tabbable={groupHasSelection ? checked : index === 0}
+                          disabled={anyRunning}
+                          onSelect={() => selectOption(option.key)}
+                          onKeyDown={onOptionKeyDown(group, index)}
+                          buttonRef={(node) => { optionRefs.current[option.key] = node; }}
+                        />
+                        {optionScope && (
+                          <div
+                            className="border-t border-plex-border px-3.5 py-2.5"
+                            data-testid={`start-scope-${option.key}`}
+                          >
+                            {optionScope}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+          <section className="px-[18px] py-[14px] max-[639px]:px-4" data-testid="start-group-testing">
+            <h3 className={`${sectionLabelClass} mb-2.5`}>Testing</h3>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium text-plex-text">Aurora simulation</p>
+                <p className="mt-0.5 text-[12.5px] text-plex-text-secondary">
+                  Injects fake NOAA data so the aurora UI can be tested.
+                </p>
+                <p
+                  className={`mt-0.5 text-[12.5px] ${auroraStatus?.simulated ? 'text-verdict-marginal' : 'text-plex-text-muted'}`}
+                  data-testid="aurora-simulation-state"
+                >
+                  {auroraStatus?.simulated ? 'On' : 'Off'}
+                </p>
+              </div>
               <button
-                className={`text-sm px-3 py-1.5 font-medium rounded border transition-colors disabled:opacity-50 max-[639px]:min-h-11 ${
-                  auroraStatus?.simulated
-                    ? 'border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40'
-                    : 'border-plex-border bg-plex-bg text-plex-text-muted hover:bg-plex-border/30'
-                }`}
+                type="button"
+                className="btn-secondary shrink-0 text-sm max-[639px]:min-h-11"
                 onClick={() => setShowSimulateModal(true)}
                 title={auroraStatus?.simulated ? 'Simulation active — click to manage' : 'Inject fake NOAA data for UI testing'}
                 data-testid="aurora-simulate-btn"
               >
-                {auroraStatus?.simulated ? '🧪 Simulated' : '🧪 Simulate'}
-              </button>
-              <button
-                className="btn-primary text-sm max-[639px]:min-h-11"
-                onClick={handleRunBriefing}
-                disabled={anyRunning}
-                title="Trigger an immediate briefing refresh"
-                data-testid="run-briefing-btn"
-              >
-                {runningBriefing ? '⟳ Running…' : '⟳ Briefing'}
+                Simulate…
               </button>
             </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Data Refresh</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="btn-primary text-sm max-[639px]:min-h-11"
-                onClick={handleRefreshTide}
-                disabled={anyRunning}
-                data-testid="refresh-tide-btn"
-              >
-                {runningTide ? '⟳ Running…' : '⟳ Refresh Tide Data'}
-              </button>
-              <button
-                className="btn-primary text-sm max-[639px]:min-h-11"
-                onClick={handleBackfillTide}
-                disabled={anyRunning}
-                data-testid="backfill-tide-btn"
-              >
-                {runningBackfill ? '⟳ Running…' : '⟳ Backfill Tide History (12 mo)'}
-              </button>
-              <button
-                className="btn-primary text-sm max-[639px]:min-h-11"
-                onClick={handleEnrichLightPollution}
-                disabled={anyRunning}
-                title="Enrich all unenriched locations with light pollution rating"
-                data-testid="refresh-light-pollution-btn"
-              >
-                {runningLightPollution ? '⟳ Running…' : '🌌 Refresh Light Pollution'}
-              </button>
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Batch Evaluation</p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="btn-primary text-sm max-[639px]:min-h-11"
-                onClick={() => openBatchDialog('scheduled')}
-                disabled={anyRunning}
-                data-testid="run-scheduled-batch-btn"
-              >
-                {runningScheduledBatch ? '⟳ Running…' : '⟳ Run Scheduled Batch'}
-              </button>
-              <button
-                className="text-sm px-3 py-1.5 font-medium rounded border border-amber-500/50 bg-amber-900/30 text-amber-300 hover:bg-amber-800/40 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
-                onClick={() => openBatchDialog('jfdi')}
-                disabled={anyRunning}
-                data-testid="run-jfdi-batch-btn"
-              >
-                {runningJfdiBatch ? '⟳ Running…' : '⟳ Run JFDI Batch'}
-              </button>
-            </div>
-            <p className="text-xs text-plex-text-muted mt-1.5">
-              Scheduled = same triage gates as the overnight job. JFDI = all locations, all dates (T to T+3), both events, no gates.
-            </p>
-          </div>
+          </section>
           {runStatus && (
             <p
-              className={`text-xs ${runStatus.type === 'success' ? 'text-green-400' : 'text-red-400'}`}
+              role="status"
+              className={`px-[18px] pb-4 text-xs max-[639px]:px-4 ${runStatus.type === 'success' ? 'text-plex-ok' : 'text-plex-error'}`}
               data-testid="start-run-status"
             >
               {runStatus.message}
             </p>
           )}
         </div>
-      )}
-
-      {/* Styled confirmation dialog */}
-      {confirmDialog && (
-        <ConfirmDialog
-          title={confirmDialog.title}
-          message={confirmDialog.message}
-          confirmLabel={confirmDialog.confirmLabel}
-          onConfirm={confirmDialog.onConfirm}
-          onCancel={closeDialog}
-          destructive={confirmDialog.destructive}
-        >
-          {confirmDialog.locationSummary && (
-            <LocationSummary
-              groups={confirmDialog.locationSummary.groups}
-              total={confirmDialog.locationSummary.total}
-            />
-          )}
-        </ConfirmDialog>
-      )}
-
-      {/* Batch submission dialog with region selector */}
-      {batchDialog && (
-        <ConfirmDialog
-          title={batchDialog.mode === 'scheduled' ? 'Run Scheduled Batch' : 'Run JFDI Batch'}
-          message={
-            batchDialog.mode === 'scheduled'
-              ? 'Submit a batch with the same triage and stability gates as the overnight scheduled job.'
-              : 'Submit a JFDI batch — all dates T+0 to T+3, both sunrise and sunset, no triage gates.'
-          }
-          confirmLabel={`Submit (${batchSelection.size} region${batchSelection.size !== 1 ? 's' : ''})`}
-          onConfirm={handleBatchSubmit}
-          onCancel={() => setBatchDialog(null)}
-        >
-          <div className="max-h-48 overflow-y-auto text-xs space-y-2">
-            <label className="flex items-center gap-2 text-plex-text font-medium cursor-pointer" data-testid="batch-region-toggle-all">
-              <input
-                type="checkbox"
-                checked={batchSelection.size === batchRegions.length}
-                onChange={() => handleBatchToggleRegion('__all__')}
-                className="accent-blue-400"
-              />
-              All regions ({batchRegions.reduce((sum, r) => sum + r.locationCount, 0)} locations)
-            </label>
-            {batchRegions.map((r) => (
-              <label key={r.id} className="flex items-center gap-2 text-plex-text cursor-pointer" data-testid={`batch-region-toggle-${r.id}`}>
-                <input
-                  type="checkbox"
-                  checked={batchSelection.has(r.id)}
-                  onChange={() => handleBatchToggleRegion(r.id)}
-                  className="accent-blue-400"
-                />
-                {r.name} ({r.locationCount})
-              </label>
-            ))}
-            <p className="text-plex-text-secondary font-medium pt-1 border-t border-plex-border">
-              {batchSelection.size} of {batchRegions.length} region{batchRegions.length !== 1 ? 's' : ''} selected
-            </p>
-          </div>
-        </ConfirmDialog>
       )}
 
       {/* Aurora forecast night selector modal */}
@@ -542,11 +412,9 @@ export default function StartRunPanel({
           onComplete={(result) => {
             const nightCount = result.nights?.length ?? 0;
             const scored = result.nights?.reduce((sum, n) => sum + (n.locationsScored ?? 0), 0) ?? 0;
-            setRunStatus({
-              type: 'success',
-              message: `Aurora forecast complete: ${nightCount} night${nightCount !== 1 ? 's' : ''}, ${scored} location${scored !== 1 ? 's' : ''} scored. Cost: ${result.estimatedCost ?? '—'}.`,
-            });
-            onStarted();
+            onFinished(
+              `Aurora forecast complete: ${nightCount} night${nightCount !== 1 ? 's' : ''}, ${scored} location${scored !== 1 ? 's' : ''} scored. Cost: ${result.estimatedCost ?? '—'}.`,
+            );
           }}
         />
       )}
@@ -566,8 +434,8 @@ export default function StartRunPanel({
 }
 
 StartRunPanel.propTypes = {
-  onActiveRunChange: PropTypes.func.isRequired,
-  onStarted: PropTypes.func.isRequired,
+  onRunStarted: PropTypes.func.isRequired,
+  onFinished: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   runState: PropTypes.object,
 };

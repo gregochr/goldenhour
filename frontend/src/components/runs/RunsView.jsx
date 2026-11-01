@@ -7,7 +7,7 @@ import JobRunPanel from './JobRunPanel.jsx';
 import CyclePanel from './CyclePanel.jsx';
 import RunsLiveStrip from './RunsLiveStrip.jsx';
 import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
-import { useIsSplitLayout } from '../../hooks/useIsSplitLayout.js';
+import SubRegionToast from '../subregions/SubRegionToast.jsx';
 import useCloseWhenFilteredOut from '../../hooks/useCloseWhenFilteredOut.js';
 import useHashSelection from '../../hooks/useHashSelection.js';
 import useCycleDetail from '../../hooks/useCycleDetail.js';
@@ -88,7 +88,8 @@ const itemId = (item) => item.id;
  * ({@code #manage/runs/cycle/{id}}), whose batch rows open the job-run panel nested under it
  * ({@code .../cycle/{id}/job/{jobRunId}}). While the server names a running cycle a live strip sits above the summary;
  * it and the open cycle panel share one fetch ({@code useCycleDetail}). Start a run opens {@code #manage/runs/start},
- * today's trigger card lifted as it stands (R-D4).
+ * (R3: a choice of runs with inline scope). A start with a job run id opens that run's panel; one without closes
+ * the Start panel and toasts the server's line.
  *
  * <p>The run {@code RunProgressPanel} follows ({@code activeRunId}, kept in ManageView so it survives leaving the tab)
  * draws above the list rather than inside the Start panel, so closing that panel never drops it. Every clock read in
@@ -109,7 +110,6 @@ export default function RunsView({
   // The Operations pane stays mounted, hidden, while the reader is on the Map or Plan tab: no polling then.
   const isPaused = useCallback(() => rootRef.current?.closest('[hidden]') != null, []);
   const list = useRunsList(filters, { isPaused });
-  const isSplit = useIsSplitLayout();
   // The Start a run panel's in-flight flags and message live here, so closing it mid-request keeps both.
   const startState = useStartRunState();
   const hashOptions = useMemo(() => ({ parse: parseRunsHash, format: formatRunsHash, keepQuery: true }), []);
@@ -233,11 +233,29 @@ export default function RunsView({
     };
   }, []);
 
-  // A run started from the Start panel is followed by the progress panel on the list. Below 1000px the panel covers
-  // the list (overlay or a full page), so it closes and the progress is in view. One RunProgressPanel mount only.
-  const handleActiveRunChange = (jobRunId) => {
+  // What the Start a run panel's handlers may do after the panel has gone: a start the reader closed the panel on, or
+  // moved on from, must not close or replace whatever panel is open now.
+  const startingRef = useRef(false);
+  useEffect(() => {
+    startingRef.current = starting;
+  }, [starting]);
+  const [toast, setToast] = useState(null);
+  const clearToast = useCallback(() => setToast(null), []);
+
+  // A start that returned a job run id: the progress panel on the list follows it (ManageView keeps the id), the
+  // list's head reloads, and, while the Start panel is still the open one, the new run's own panel replaces it.
+  const handleRunStarted = (jobRunId) => {
     onActiveRunChange(jobRunId);
-    if (!isSplit) closePanel();
+    list.refresh();
+    if (startingRef.current) select({ type: 'job', id: jobRunId });
+  };
+
+  // A start with no id (and the aurora forecast, once its modal finishes): reload the head, toast the line, and close
+  // the Start panel if it is still the open one.
+  const handleStartFinished = (message) => {
+    list.refresh();
+    setToast(message);
+    if (startingRef.current) closePanel();
   };
 
   // Closing Start a run puts focus back on the button that opened it, unless focus is already somewhere the reader
@@ -264,8 +282,8 @@ export default function RunsView({
   if (starting) {
     panel = (
       <StartRunPanel
-        onActiveRunChange={handleActiveRunChange}
-        onStarted={list.refresh}
+        onRunStarted={handleRunStarted}
+        onFinished={handleStartFinished}
         onClose={closePanel}
         runState={startState}
       />
@@ -386,6 +404,7 @@ export default function RunsView({
         rowTestIdPrefix="runs"
         testId="runs-split"
       />
+      <SubRegionToast message={toast} onDone={clearToast} />
     </div>
   );
 }

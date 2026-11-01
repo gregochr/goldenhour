@@ -3,8 +3,9 @@
 **Status:** planned on 2026-10-31 and revised after a backend and a frontend adversarial review. **R1 is built**
 (2026-10-31, the two endpoints; see "Built departures (R1)" under §9). **R2a is built** (2026-10-31, the Runs tab, the
 job-run panel and Start a run; see "Built departures (R2a)" under §9). **R2b is built** (2026-11-01, the cycle panel, the live
-strip, the nested batch hash, the live count and the `pipelineruns` fold; see "Built departures (R2b)" under §9). R3, R4
-and R5 are not yet built.
+strip, the nested batch hash, the live count and the `pipelineruns` fold; see "Built departures (R2b)" under §9). **R3 is
+built** (2026-11-01, Start a run as a choice of runs with inline scope; see "Built departures (R3)" under §9). R4 and R5
+are not yet built.
 
 **Source:** the owner's Claude Design export "PhotoCast Runs" (`design_handoff_runs`: `README.md`, `Runs Redesign.html`,
 `runs-redesign.js`, 14 frames). It lives with the owner, not in the repo. For the life of the planning session it is
@@ -930,6 +931,26 @@ Where the plan's text was ambiguous, or the served data could not carry it, R2b 
   `RunsView.test.jsx`); the detail tests moved to `RunsCycles.test.jsx` (see the PR body for where each went). The old
   "expand a batch to show dispositions inline" is replaced by the batch drill-in, since the batch's job-run panel carries
   the dispositions.
+
+### Built departures (R3)
+
+Where the plan's text was ambiguous, or the code made a different call safer, R3 follows these:
+
+- **The footer button's label is "Start JFDI batch"** (not "Start jfdi batch"): "Start {option, lower case}" with JFDI kept in capitals. The other labels are lower case ("Start scheduled batch", "Start tide data").
+- **Aurora simulation is not a radio option.** It is the Testing group's row (On/Off text, **Simulate…**), as the handoff's frame shows, so the radio groups are Forecast and Data refresh. Simulate… stays usable while a run is in flight (it is not a run). The old "Simulated" amber button state is the On text in `text-verdict-marginal`.
+- **Roving tab stop per group.** Arrow keys (Up/Left, Down/Right, wrapping) move the single choice and the focus within the group they are pressed in; a group that does not hold the choice puts its tab stop on its first option. There is one choice across both groups.
+- **The default choice is Scheduled batch**, as in the frame; choosing another option clears the panel's status line.
+- **The toast is `SubRegionToast`** (the app's one existing toast: a polite status, five seconds, portalled), reused rather than a second one. `RunsView` holds it.
+- **A start with no `jobRunId` uses the server's `status` or "Started." for every option**, including a batch (the old "N request(s), batch X" line and the light pollution "(job #n)" line are gone; a batch returns a run id, so its panel carries the detail). The aurora forecast has no id: finishing its modal reloads the list, closes the panel and toasts "Aurora forecast complete: {n} nights, {k} locations scored. Cost: {cost}.", as the old status line said.
+- **A start never moves a reader who has moved on.** The handlers outlive the panel (the in-flight flags are lifted), so a finish closes, and a run id opens a panel, only when the Start panel is still the open one (`startingRef`); otherwise the id still goes to the progress panel and the list reloads.
+- **Below 1000px a start no longer closes the Start panel to show the list.** It opens the new run's panel (overlay or page), which is what the plan asks of every width; the progress panel stays mounted above the list.
+- **One 409 sentence for every option** ("A run is already in progress. Wait for it to finish."), replacing the briefing, tide and batch wordings. Other failures keep their wording, except the tide data one, now sentence case ("Tide data refresh failed. Check the logs.").
+- **An empty explicit region selection disables Start**, and `submitBatch` refuses it too. With no regions served at all, Start sends `null` (all), as the old dialog did; while regions load the scope says "Loading regions…".
+- **The region rows' counts are separate figures** ("Cumbria" and "5", "All regions" and "10 locations"), not "Cumbria (5)" and "All regions (10 locations)". The "All regions" box shows a mixed state while some regions are unchecked.
+- **The tide scopes show "Loading locations…"** until the location list arrives, and the footer shows no scope until then. Tide history's scope is the enabled coastal SEASCAPE locations (what the old confirm counted).
+- **Deleted with the legacy body:** the tide `ConfirmDialog` usage and the batch region `ConfirmDialog` (both inline in `StartRunPanel`; `ConfirmDialog` and `useConfirmDialog` stay, others use them), the `anyRunning`-gated button rows, the emoji labels, and the `indigo-*`, `amber-*`, `green-400` and `red-400` colours (token colours now).
+- **`StartRunPanel`'s props are `onRunStarted(jobRunId)` and `onFinished(message)`** (were `onActiveRunChange` and `onStarted`); `useStartRunState` is unchanged.
+- **Tests deleted** (their subject is gone): the batch dialog's "Submit (n regions)" confirm button text, "n of m regions selected" line and the dialog's own title and description (the option and footer carry them), the tide `ConfirmDialog`'s "Refresh" confirm click, and the "closes on cancel" dialog test (Cancel is now the footer's, which closes the panel). Every other assertion moved to `StartRunPanel.test.jsx`, `RunsView.test.jsx` or `RunProgressKeptAfterFailures.test.jsx`.
 
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 

@@ -51,8 +51,8 @@ vi.mock('../api/runProgressApi', () => ({
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { getWaitlist } from '../api/waitlistApi.js';
-import { fetchRuns } from '../api/runsApi.js';
-import { runsPage } from './runsFixtures.js';
+import { fetchRuns, fetchJobRun } from '../api/runsApi.js';
+import { jobDetail, runsPage } from './runsFixtures.js';
 import { fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions } from '../api/batchApi';
@@ -77,20 +77,27 @@ const playRunning = async (runId, tasks) => {
   });
 };
 
-/** Starts a run the way an admin does: a run button whose response carries the new job run id. */
+/**
+ * Starts a run the way an admin does: Start a run, an option whose response carries the new job run id, Start. The
+ * Start panel is opened first when it is not (a start replaces it with the new run's panel).
+ */
 const startRun = async (runId) => {
   enrichBortle.mockResolvedValueOnce({ jobRunId: runId });
+  if (!screen.queryByTestId('start-option-light-pollution')) {
+    await act(async () => { fireEvent.click(screen.getByTestId('start-run-btn')); });
+  }
+  fireEvent.click(await screen.findByTestId('start-option-light-pollution'));
   await act(async () => {
-    fireEvent.click(screen.getByTestId('refresh-light-pollution-btn'));
+    fireEvent.click(screen.getByTestId('start-run-submit'));
   });
   await screen.findByTestId('run-progress-panel');
 };
 
 const renderJobRuns = async () => {
-  // The Start a run panel holds the run buttons (R2a keeps today's trigger card in it).
+  // The Start a run panel holds the run options.
   window.location.hash = '#manage/runs/start';
   const view = render(<ManageView onComplete={vi.fn()} />);
-  await screen.findByTestId('refresh-light-pollution-btn');
+  await screen.findByTestId('start-option-light-pollution');
   return view;
 };
 
@@ -124,6 +131,7 @@ describe('Runs: a finished run with failures keeps its panel', () => {
     useIsSplitLayout.mockReturnValue(true);
     fetchLocations.mockResolvedValue([]);
     getRegions.mockResolvedValue([]);
+    fetchJobRun.mockImplementation((id) => Promise.resolve(jobDetail({ id })));
     subscribeToRunProgress.mockImplementation(feed.subscribe);
   });
 
@@ -202,9 +210,11 @@ describe('Runs: a finished run with failures keeps its panel', () => {
       await playFinished(41, TWO_FAILURES);
       expect(screen.getByText('East Fell')).toBeInTheDocument();
 
-      // The run buttons are gated on in-flight requests only, never on a kept panel (the id's home
+      // The run options are gated on in-flight requests only, never on a kept panel (the id's home
       // in ManageView, lifted there by c82f849a, has nothing to do with the buttons).
-      expect(screen.getByTestId('refresh-light-pollution-btn')).toBeEnabled();
+      await act(async () => { fireEvent.click(screen.getByTestId('start-run-btn')); });
+      expect(await screen.findByTestId('start-option-light-pollution')).toBeEnabled();
+      expect(screen.getByTestId('start-run-submit')).toBeEnabled();
       await startRun(42);
       await playRunning(42, [task('new|a', 'Fresh Crag', 'EVALUATING')]);
 
@@ -279,45 +289,46 @@ describe('Runs: a finished run with failures keeps its panel', () => {
   });
 
   describe('where the progress panel lives (plan §5.2)', () => {
-    it('draws above the list, not inside the Start a run panel', async () => {
+    it('draws above the list, not inside the panel of the run that started (which replaces the Start panel)', async () => {
       await renderJobRuns();
       await startRun(41);
 
       const progress = screen.getByTestId('run-progress-panel');
-      expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
-      expect(screen.getByTestId('start-run-panel-body')).not.toContainElement(progress);
+      expect(await screen.findByTestId('job-run-panel')).not.toContainElement(progress);
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
       expect(screen.getByTestId('runs-list-pane')).toContainElement(progress);
       // Above the summary and the list, in document order.
       const heading = screen.getByTestId('runs-heading');
       expect(heading.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it('below 1000px the Start panel closes after a start, leaving the list and exactly one progress panel', async () => {
+    it('below 1000px the Start panel gives way to the run\'s panel after a start, with exactly one progress panel', async () => {
       useIsSplitLayout.mockReturnValue(false);
       await renderJobRuns();
 
       await startRun(41);
 
       expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(await screen.findByTestId('job-run-panel')).toBeInTheDocument();
       expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
       expect(feed.subscriptions).toEqual([41]);
     });
 
-    it('survives closing the Start a run panel', async () => {
+    it('survives closing the run\'s panel', async () => {
       await renderJobRuns();
       await startRun(41);
 
-      await act(async () => { fireEvent.click(screen.getByTestId('start-run-panel-close')); });
+      await act(async () => { fireEvent.click(await screen.findByTestId('job-run-panel-close')); });
 
-      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(screen.queryByTestId('job-run-panel')).toBeNull();
       expect(screen.getByTestId('run-progress-panel')).toBeInTheDocument();
       expect(feed.subscriptions).toEqual([41]);
     });
 
-    it('survives switching tab and coming back with the Start panel closed', async () => {
+    it('survives switching tab and coming back with no panel open', async () => {
       await renderJobRuns();
       await startRun(41);
-      await act(async () => { fireEvent.click(screen.getByTestId('start-run-panel-close')); });
+      await act(async () => { fireEvent.click(await screen.findByTestId('job-run-panel-close')); });
 
       await goToTab('models');
       await goToTab('runs');
@@ -330,12 +341,8 @@ describe('Runs: a finished run with failures keeps its panel', () => {
     it('is followed by one subscription only: the open job-run panel points at it instead', async () => {
       await renderJobRuns();
       await startRun(41);
-      const { fetchJobRun } = await import('../api/runsApi.js');
-      const { jobDetail } = await import('./runsFixtures.js');
-      fetchJobRun.mockResolvedValue(jobDetail({ id: 41 }));
 
-      await act(async () => { window.location.hash = '#manage/runs/job/41'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
-
+      // The start itself opened the run's panel (#manage/runs/job/41).
       expect(await screen.findByTestId('job-run-progress-note')).toBeInTheDocument();
       expect(feed.subscriptions).toEqual([41]);
     });
