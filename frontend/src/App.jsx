@@ -834,15 +834,15 @@ function AppInner() {
   /**
    * The Operations tab, asked for from the aurora banner: a SIMULATED alert has no map to show (it
    * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
-   * generated is Operations -> Job Runs. ADMIN only, because the pane is withheld from everyone else.
+   * generated is Operations -> Runs -> Start a run. ADMIN only, because the pane is withheld from everyone else.
    *
-   * <p>`ManageView` reads the `#manage/metrics` hash at mount AND follows it afterwards (a guarded
-   * `hashchange` listener, data-tabs-redesign-plan.md §5.1), so it lands on Job Runs whether the
+   * <p>`ManageView` reads the `#manage/runs/start` hash at mount AND follows it afterwards (a guarded
+   * `hashchange` listener, data-tabs-redesign-plan.md §5.1), so it lands on the Start a run panel whether the
    * Operations pane is opened for the first time this session or is already mounted on another
    * sub-tab. Only a `manage/<known tab>` hash moves it; any other fragment is ignored.
    */
   const openOperations = () => {
-    window.location.hash = 'manage/metrics';
+    window.location.hash = 'manage/runs/start';
     tabRequestNonce.current += 1;
     setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
   };

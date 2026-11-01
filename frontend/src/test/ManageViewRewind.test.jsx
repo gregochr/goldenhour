@@ -15,7 +15,7 @@ vi.mock('../components/UserManagementView.jsx', () => ({ default: () => <div>Use
 vi.mock('../components/LocationManagementView.jsx', () => ({ default: () => <div>Locations</div> }));
 vi.mock('../components/RegionManagementView.jsx', () => ({ default: () => <div>Regions</div> }));
 vi.mock('../components/TideManagementView.jsx', () => ({ default: () => <div>Tides</div> }));
-vi.mock('../components/JobRunsMetricsView.jsx', () => ({ default: () => <div>Job Runs</div> }));
+vi.mock('../components/runs/RunsView.jsx', () => ({ default: () => <div>Runs view</div> }));
 vi.mock('../components/ModelSelectionView.jsx', () => ({ default: () => <div>Run Config</div> }));
 vi.mock('../components/SchedulerView.jsx', () => ({ default: () => <div>Scheduler</div> }));
 vi.mock('../components/PipelineRunsView.jsx', () => ({ default: () => <div>Pipeline Runs</div> }));

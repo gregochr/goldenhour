@@ -1,7 +1,8 @@
 # Runs redesign: Runs, Scheduler and Travel days
 
 **Status:** planned on 2026-10-31 and revised after a backend and a frontend adversarial review. **R1 is built**
-(2026-10-31, the two endpoints; see "Built departures (R1)" under §9). R2a, R2b, R3, R4 and R5 are not yet built.
+(2026-10-31, the two endpoints; see "Built departures (R1)" under §9). **R2a is built** (2026-10-31, the Runs tab, the
+job-run panel and Start a run; see "Built departures (R2a)" under §9). R2b, R3, R4 and R5 are not yet built.
 
 **Source:** the owner's Claude Design export "PhotoCast Runs" (`design_handoff_runs`: `README.md`, `Runs Redesign.html`,
 `runs-redesign.js`, 14 frames). It lives with the owner, not in the repo. For the life of the planning session it is
@@ -822,6 +823,61 @@ Where the code or the wording of §5.1 made the plan's text ambiguous, R1 follow
   (`Anthropic batch: <id>`) for its group, for the detail's `batch`, and for its cycle's Batch cost.
 - **`nextOvernightAt`** comes from `DynamicSchedulerService.getAll()` filtered to `ForecastCycleJobs.NIGHTLY_JOB`, then
   `calculateNextFireTime`: null when the job is paused, disabled, unknown, or the call throws.
+
+### Built departures (R2a)
+
+Where the plan's text was ambiguous, or the code made a different call safer, R2a follows these:
+
+- **`useHashSelection` keeps an inbound `?query` only when asked** (`{keepQuery: true}`, which the Runs tab passes), not
+  for every tab as §4 says. Locations' `?region=` is a filter the reader can change in the page; writing it back on
+  `select` re-applied the old region on the next `hashchange` and broke `LocationManagementView`'s "Back restores the
+  filter" test. The default (query dropped) is unchanged, so the Data tabs are untouched. `parse` receives the segments
+  after the tab with empty ones removed, and the hook returns the same selection object when the hash moves to an equal
+  one.
+- **`ManageView` reads `#manage/pipelineruns/{id}`** into the Pipeline Runs detail (it holds `activePipelineRunId`;
+  `PipelineRunsView` has no hash of its own), at mount and on `hashchange`, so a cycle row's navigation opens that cycle.
+  Closing the detail replaces the entry with the bare `#manage/pipelineruns`.
+- **A `#manage/runs/cycle/{id}` hash names no panel in R2a** (it reads as the bare tab); R2b owns that path and the
+  `pipelineruns` redirect. A `#manage/runs/job/{id}` the server has no row for (404) replaces itself with the bare tab.
+- **`#manage` with no tab, and an unknown tab, land on Runs** (was Pipeline Runs). `#manage/metrics` redirects, keeping a
+  path and a query.
+- **The Pipeline Runs tab id stays `pipelineruns`** and now sits second in the group, after Runs.
+- **The summary's Spend is to the penny** ("£18.41", "$23.31"); the Cost column and the panel keep `formatCostGbp`'s
+  four decimals.
+- **`DispositionBreakdown`:** "{n} candidates" replaces "{n} candidates considered". FORCE_EVALUATED sits right after
+  EVALUATED (go swatch); SKIPPED_TRAVEL_DAY sits after Past date (ink-3 swatch, a skip by the admin's own choice). It
+  takes an optional `onLoaded(total)`, so the panel can say "No detail available" only when nothing at all loaded.
+- **The panel's Diagnostics shows only the rows with a count above zero** (the handoff's frame shows a zero row; §5.2
+  says only when greater than 0), and its disclosures are closed until pressed. The old always-open Failed Calls,
+  fallback-parsed and prompt-cache blocks are those disclosures. The old "Anthropic Evaluation Breakdown" is
+  **Evaluations** and the "Total Cost" block sits at the foot of **Calls**.
+- **Dates read "Thu 1 Jan – Wed 7 Jan · 7 days"** (day count kept from the old Days card, event types after it).
+  A batch with no target dates shows its horizon range instead. The manual or scheduled source is a row's line 2, not a
+  panel row.
+- **A running batch's row Result is "5 / 29"**; the panel's Progress row says "5 / 29 succeeded". The row's line 2 for a
+  finished batch with no scope says "No detail available", as the old grid row did.
+- **The open job-run panel refetches on the list's poll tick** (`pollCount`, one beat), not on a timer of its own, and
+  its calls reload quietly when its own counts or completion change.
+- **`PanelShell` gained `titleClassName`**, so a batch id can set in mono 18px; every other panel keeps the serif title.
+- **The Start a run panel keeps today's `isAdmin` guard** around the card. Its status line is `start-run-status`.
+- **Summary two-column breakpoint is 640px** (the plan's "≤640px"); the phone-only classes elsewhere are 639px.
+- **`MetricsSummary`'s per-run-type counts** ("WEATHER 3, TIDE 2 …") now exist only as the group chip counts
+  (`kindCounts`); the summary strip no longer lists runs by type.
+- **Polling is `useVisiblePoll`** (60 s, 15 s while `runningCount` is above 0), so it also stops while the browser tab
+  is hidden. It stands down while the Operations pane is hidden, read from the DOM (`closest('[hidden]')`, as
+  `usePanelEscape` does): no existing hook announces that the pane is hidden, because the pane is mounted, not removed.
+  A later head response never lands over an earlier one. A head that shares no row with what is loaded (more than a
+  page of new runs between polls) replaces the list, and older loaded rows are never refreshed by a poll.
+- **A start below 1000px closes the Start panel** (the list, and the one progress panel on it, is then what shows);
+  the panel's in-flight flags and message live in `RunsView`, so closing and reopening it mid-request keeps both.
+- **The first press of any filter control drops an inbound `?range=&kind=&attention=` in place**, so the address never
+  names filters the screen no longer shows. Closing Start a run returns focus to the Start a run button.
+- **A pasted old `#manage/metrics/…` address while already on Runs** is re-announced after the redirect, so the Runs
+  view sees it. Arriving on Pipeline Runs by a bare address keeps the cycle that was open; picking another cycle
+  rewrites a cycle address in place.
+- **Tests deleted** (their features are dropped by §9): the run-type select and the two checkboxes, the Date / Duration /
+  Succeeded sort buttons, and `MetricsSummary`'s slowest service, success rate, evaluations count, batch-versus-real-time
+  cost split and client-side Today / 7-day filter (the server now does that, on UK days). Every other assertion moved.
 
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 

@@ -19,7 +19,7 @@ const AuroraStatusContext = createContext({ status: null, liteAlert: null, loadi
 
 /**
  * Fetches aurora status once (5-minute poll while visible + refetch on return or focus after a minute) and shares it via context,
- * so the multiple consumers ({@code AuroraBanner}, {@code MapView}, {@code JobRunsMetricsView}) no
+ * so the multiple consumers ({@code AuroraBanner}, {@code MapView}, {@code StartRunPanel}) no
  * longer each fire their own request and poll — one fetch serves the whole tree.
  *
  * <p><b>Answers are applied in the order their requests were made, not the order they land.</b>

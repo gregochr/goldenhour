@@ -29,8 +29,8 @@ vi.mock('../components/RegionManagementView.jsx', () => ({
 vi.mock('../components/TideManagementView.jsx', () => ({
   default: () => <div>Tides</div>,
 }));
-vi.mock('../components/JobRunsMetricsView.jsx', () => ({
-  default: () => <div>Job Runs</div>,
+vi.mock('../components/runs/RunsView.jsx', () => ({
+  default: () => <div>Runs view</div>,
 }));
 vi.mock('../components/ModelSelectionView.jsx', () => ({
   default: () => <div>Run Config</div>,
@@ -134,8 +134,8 @@ describe('ManageView — Waitlist tab', () => {
     await waitFor(() => {
       expect(screen.getByTestId('waitlist-group-badge')).toHaveTextContent('2');
     });
-    // Still on the landing sub-view (Pipeline Runs); the sub-tab badge is not on screen
-    expect(screen.getByText('Pipeline Runs', { selector: 'div' })).toBeInTheDocument();
+    // Still on the landing sub-view (Runs); the sub-tab badge is not on screen
+    expect(screen.getByText('Runs view', { selector: 'div' })).toBeInTheDocument();
     expect(screen.queryByTestId('waitlist-count-badge')).not.toBeInTheDocument();
   });
 

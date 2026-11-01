@@ -5,8 +5,8 @@ import {
   TWO_FAILURES, NO_FAILURES, ONE_FAILURE, task, summaryEvent, completeEvent, createFeeds,
 } from './runProgressFixtures.js';
 
-// The Job Runs flow is ManageView (which owns `activeRunId`) -> JobRunsMetricsView -> the panel.
-// The defect lived in the middle: JobRunsMetricsView cleared the active run inside the panel's own
+// The Runs flow is ManageView (which owns `activeRunId`) -> RunsView -> the panel.
+// The defect lived in the middle: the view cleared the active run inside the panel's own
 // onComplete, so the panel unmounted in the tick it completed and a run with failures was never
 // kept on screen. These tests drive the real three-level chain; only the other admin
 // views, the network and the SSE feed are mocked. The feed plays events the way the server does,
@@ -32,7 +32,8 @@ vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../api/batchApi', () => ({
   getRegions: vi.fn(), submitScheduledBatch: vi.fn(), submitJfdiBatch: vi.fn(),
 }));
-vi.mock('../api/metricsApi', () => ({ getJobRuns: vi.fn(), getApiCalls: vi.fn() }));
+vi.mock('../api/runsApi.js', () => ({ fetchRuns: vi.fn(), fetchJobRun: vi.fn() }));
+vi.mock('../api/metricsApi', () => ({ getApiCalls: vi.fn(), getBatchSummary: vi.fn(), getDispositionBreakdown: vi.fn() }));
 vi.mock('../api/forecastApi', () => ({
   refreshTideData: vi.fn(), backfillTideData: vi.fn(), fetchLocations: vi.fn(),
 }));
@@ -47,13 +48,17 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
 vi.mock('../api/runProgressApi', () => ({
   subscribeToRunProgress: vi.fn(),
 }));
+// jsdom has no layout: the 1000px split is decided here, wide unless a test says otherwise.
+vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { getWaitlist } from '../api/waitlistApi.js';
-import { getJobRuns, getApiCalls } from '../api/metricsApi';
+import { fetchRuns } from '../api/runsApi.js';
+import { runsPage } from './runsFixtures.js';
 import { fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions } from '../api/batchApi';
 import { subscribeToRunProgress } from '../api/runProgressApi';
+import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
 let feed;
 /** Plays a finished run into whichever panel is subscribed to it, as the server does (live or replay). */
@@ -83,14 +88,15 @@ const startRun = async (runId) => {
 };
 
 const renderJobRuns = async () => {
-  window.location.hash = '#manage/metrics';
+  // The Start a run panel holds the run buttons (R2a keeps today's trigger card in it).
+  window.location.hash = '#manage/runs/start';
   const view = render(<ManageView onComplete={vi.fn()} />);
   await screen.findByTestId('refresh-light-pollution-btn');
   return view;
 };
 
-// Tabs live under groups: Job Runs is in Runs, Run Config is in Tuning.
-const GROUP_OF_TAB = { metrics: 'runs', models: 'tuning' };
+// Tabs live under groups: Runs is in Runs, Run Config is in Tuning.
+const GROUP_OF_TAB = { runs: 'runs', models: 'tuning' };
 
 const goToTab = async (tab) => {
   await act(async () => {
@@ -102,21 +108,21 @@ const goToTab = async (tab) => {
 const dismissButton = () => screen.getByRole('button', { name: 'Dismiss run progress' });
 const press = async (button) => { await act(async () => { fireEvent.click(button); }); };
 
-/** How many times the runs grid was (re)loaded across `action`. */
+/** How many times the runs list was (re)loaded across `action`. */
 const reloadsDuring = async (action) => {
-  const before = getJobRuns.mock.calls.length;
+  const before = fetchRuns.mock.calls.length;
   await action();
-  return getJobRuns.mock.calls.length - before;
+  return fetchRuns.mock.calls.length - before;
 };
 
-describe('Job Runs: a finished run with failures keeps its panel', () => {
+describe('Runs: a finished run with failures keeps its panel', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     feed = createFeeds();
     window.location.hash = '';
     getWaitlist.mockResolvedValue([]);
-    getJobRuns.mockResolvedValue({ data: { content: [] } });
-    getApiCalls.mockResolvedValue({ data: [] });
+    fetchRuns.mockResolvedValue(runsPage([]));
+    useIsSplitLayout.mockReturnValue(true);
     fetchLocations.mockResolvedValue([]);
     getRegions.mockResolvedValue([]);
     subscribeToRunProgress.mockImplementation(feed.subscribe);
@@ -166,12 +172,12 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
 
       await playFinished(41, NO_FAILURES);
 
-      expect(screen.getByRole('heading', { name: 'Forecast Runs' })).not.toHaveFocus();
+      expect(screen.getByRole('heading', { name: 'Runs' })).not.toHaveFocus();
     });
   });
 
   describe('Dismiss', () => {
-    it('removes the kept panel and puts focus on the Forecast Runs heading', async () => {
+    it('removes the kept panel and puts focus on the Runs heading', async () => {
       await renderJobRuns();
       await startRun(41);
       await playFinished(41, TWO_FAILURES);
@@ -179,7 +185,7 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       await press(dismissButton());
 
       expect(screen.queryByTestId('run-progress-panel')).toBeNull();
-      expect(screen.getByRole('heading', { name: 'Forecast Runs' })).toHaveFocus();
+      expect(screen.getByRole('heading', { name: 'Runs' })).toHaveFocus();
     });
 
     it('is not offered while the run is still going', async () => {
@@ -215,14 +221,14 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
     });
   });
 
-  describe('leaving the Job Runs tab', () => {
+  describe('leaving the Runs tab', () => {
     it('re-subscribes to the same run on return: the id lives in ManageView (lifted there by c82f849a)', async () => {
       await renderJobRuns();
       await startRun(41);
 
       await goToTab('models');
       expect(screen.queryByTestId('run-progress-panel')).toBeNull();
-      await goToTab('metrics');
+      await goToTab('runs');
 
       expect(await screen.findByTestId('run-progress-panel')).toBeInTheDocument();
       expect(feed.subscriptions).toEqual([41, 41]);
@@ -233,7 +239,7 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       await startRun(41);
       await goToTab('models');
       // The run finishes while the tab is unmounted; on return the server replays what happened.
-      await goToTab('metrics');
+      await goToTab('runs');
       await screen.findByTestId('run-progress-panel');
 
       const reloads = await reloadsDuring(() => playFinished(41, TWO_FAILURES));
@@ -247,7 +253,7 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       await renderJobRuns();
       await startRun(41);
       await goToTab('models');
-      await goToTab('metrics');
+      await goToTab('runs');
       await screen.findByTestId('run-progress-panel');
 
       const reloads = await reloadsDuring(() => playFinished(41, NO_FAILURES));
@@ -260,7 +266,7 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       await renderJobRuns();
       await startRun(41);
       await goToTab('models');
-      await goToTab('metrics');
+      await goToTab('runs');
       await screen.findByTestId('run-progress-panel');
 
       await act(async () => { feed.feeds[41].onExpired({ jobRunId: 41 }); });
@@ -270,6 +276,69 @@ describe('Job Runs: a finished run with failures keeps its panel', () => {
       expect(screen.queryByRole('button', { name: /^Retry/ })).toBeNull();
       await press(dismissButton());
       expect(screen.queryByTestId('run-progress-panel')).toBeNull();
+    });
+  });
+
+  describe('where the progress panel lives (plan §5.2)', () => {
+    it('draws above the list, not inside the Start a run panel', async () => {
+      await renderJobRuns();
+      await startRun(41);
+
+      const progress = screen.getByTestId('run-progress-panel');
+      expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
+      expect(screen.getByTestId('start-run-panel-body')).not.toContainElement(progress);
+      expect(screen.getByTestId('runs-list-pane')).toContainElement(progress);
+      // Above the summary and the list, in document order.
+      const heading = screen.getByTestId('runs-heading');
+      expect(heading.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('below 1000px the Start panel closes after a start, leaving the list and exactly one progress panel', async () => {
+      useIsSplitLayout.mockReturnValue(false);
+      await renderJobRuns();
+
+      await startRun(41);
+
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(screen.getAllByTestId('run-progress-panel')).toHaveLength(1);
+      expect(feed.subscriptions).toEqual([41]);
+    });
+
+    it('survives closing the Start a run panel', async () => {
+      await renderJobRuns();
+      await startRun(41);
+
+      await act(async () => { fireEvent.click(screen.getByTestId('start-run-panel-close')); });
+
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(screen.getByTestId('run-progress-panel')).toBeInTheDocument();
+      expect(feed.subscriptions).toEqual([41]);
+    });
+
+    it('survives switching tab and coming back with the Start panel closed', async () => {
+      await renderJobRuns();
+      await startRun(41);
+      await act(async () => { fireEvent.click(screen.getByTestId('start-run-panel-close')); });
+
+      await goToTab('models');
+      await goToTab('runs');
+
+      expect(await screen.findByTestId('run-progress-panel')).toBeInTheDocument();
+      expect(screen.queryByTestId('start-run-panel-title')).toBeNull();
+      expect(feed.subscriptions).toEqual([41, 41]);
+    });
+
+    it('is followed by one subscription only: the open job-run panel points at it instead', async () => {
+      await renderJobRuns();
+      await startRun(41);
+      const { fetchJobRun } = await import('../api/runsApi.js');
+      const { jobDetail } = await import('./runsFixtures.js');
+      fetchJobRun.mockResolvedValue(jobDetail({ id: 41 }));
+
+      await act(async () => { window.location.hash = '#manage/runs/job/41'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
+
+      expect(await screen.findByTestId('job-run-progress-note')).toBeInTheDocument();
+      expect(feed.subscriptions).toEqual([41]);
     });
   });
 });
