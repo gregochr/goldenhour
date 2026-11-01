@@ -1,6 +1,8 @@
 # Coastal mist: light sea mist is the shot, sea fret is not (2026-11-01)
 
-**Status:** plan only, not reviewed, nothing built. Owner idea (2026-10-31): "fog is not good, but light mist would be
+**Status:** plan. Owner decisions 2026-11-01: every recommendation in §6 accepted (all coastal non-mist-prone
+sites; 3 km / 10 km / 1.5 °C; the Phase 1 wording; live with a switch), and **yes to the Phase 2 hot topic**.
+Next: adversarial review, then Phase 0. Owner idea (2026-10-31): "fog is not good, but light mist would be
 good at, say, Bamburgh Castle." Evidence: `coastal-mist-data/` (1,000 Boulmer sunrise mornings against the
 forecast model, 2023–2025).
 
