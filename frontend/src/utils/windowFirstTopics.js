@@ -95,7 +95,7 @@ export const WHOLE_SKY_TOPIC_TYPES = new Set([
  * instead of to a colour.
  *
  * <p>⚠️ <b>Fail-open makes an INCOMPLETE list silent, so the two sets must together cover the
- * backend's whole roster</b> ({@code TopicRarity.RANK_BY_TYPE}, eighteen types). An earlier cut
+ * backend's whole roster</b> ({@code TopicRarity.RANK_BY_TYPE}, nineteen types). An earlier cut
  * listed eight and omitted {@code SNOW_TOPS} — a live strategy whose {@code regions} is a genuine
  * eligibility roster ({@code PerDateHotTopicBuilder} dates each day's topic "carrying only its
  * regions") — so "Snow on the tops" was exempt from the intersection while its sibling
@@ -103,11 +103,11 @@ export const WHOLE_SKY_TOPIC_TYPES = new Set([
  * phenomenon treated oppositely, from a set that had lost a name.
  *
  * <p>The mirror is checked by {@code windowFirstTopics.test.js}, which holds its own literal copy of
- * the eighteen and asserts the union — so adding a name to one of these sets cannot satisfy the test
+ * the nineteen and asserts the union — so adding a name to one of these sets cannot satisfy the test
  * on its own, and neither can adding it to the test's list.
  */
 export const REGION_SCOPED_TOPIC_TYPES = new Set([
-  'KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'DUST',
+  'KING_TIDE', 'SPRING_TIDE', 'STORM_SURGE', 'INVERSION', 'MIST', 'SEA_MIST', 'DUST',
   'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'CLEARANCE', 'BLUEBELL',
 ]);
 

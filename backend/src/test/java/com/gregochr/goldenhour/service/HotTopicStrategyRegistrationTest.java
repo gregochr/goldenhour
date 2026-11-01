@@ -28,6 +28,7 @@ class HotTopicStrategyRegistrationTest {
             MeteorHotTopicStrategy.class,
             InversionHotTopicStrategy.class,
             MistHotTopicStrategy.class,
+            SeaMistHotTopicStrategy.class,
             StormSurgeHotTopicStrategy.class,
             DustHotTopicStrategy.class,
             SnowFreshHotTopicStrategy.class,

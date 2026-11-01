@@ -213,6 +213,9 @@ public class SlotAtmosphereWriter {
         CoastalMistResult coastalMist = data.coastalMist();
         row.setCoastalMistBand(coastalMist == null ? null : coastalMist.band().name());
         row.setCoastalMistScored(coastalMist != null);
+        // V211 (Phase 2): the two readings the Sea mist hot topic gates on, also written on every write.
+        row.setCoastalMistLowCloudPct(coastalMist == null ? null : coastalMist.lowCloudPct());
+        row.setCoastalMistPrecipMm(coastalMist == null ? null : coastalMist.precipitationMm());
         row.setEvaluatedAt(Instant.now(clock));
         repository.save(row);
     }

@@ -123,6 +123,17 @@ class CoastalMistCalculatorTest {
     }
 
     @Test
+    @DisplayName("the result carries the event-slot precipitation, and null when the weather is missing")
+    void carriesPrecipitation() {
+        AtmosphericData wet = TestAtmosphericData.builder().visibility(7000).temperature(5.0).dewPoint(4.5)
+                .lowCloud(20).precipitation(new java.math.BigDecimal("0.4")).build();
+
+        assertThat(CoastalMistCalculator.calculate(wet).precipitationMm()).isEqualTo(0.4);
+        assertThat(CoastalMistCalculator.calculate(slot(7000, 5.0, 4.5, 20)).precipitationMm()).isEqualTo(0.0);
+        assertThat(CoastalMistCalculator.calculate(null).precipitationMm()).isNull();
+    }
+
+    @Test
     @DisplayName("a coastal site that is not mist_prone applies")
     void coastalNonMistProneApplies() {
         LocationEntity location = LocationEntity.builder().tideType(Set.of(TideType.HIGH)).mistProne(false).build();

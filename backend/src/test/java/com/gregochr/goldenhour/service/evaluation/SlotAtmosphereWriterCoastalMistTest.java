@@ -122,6 +122,29 @@ class SlotAtmosphereWriterCoastalMistTest {
     }
 
     @Test
+    @DisplayName("V211: the low cloud and precipitation the check read are written with the band")
+    void lowCloudAndPrecipitationAreWritten() {
+        SlotAtmosphereEntity saved = write(null,
+                slot().withCoastalMist(new CoastalMistResult(CoastalMistBand.LIGHT, 7_000, 0.8, 30, 0.0)));
+
+        assertThat(saved.getCoastalMistLowCloudPct()).isEqualTo(30);
+        assertThat(saved.getCoastalMistPrecipMm()).isEqualTo(0.0);
+    }
+
+    @Test
+    @DisplayName("V211: an existing row's readings are cleared when the next write has no carrier")
+    void lowCloudAndPrecipitationAreClearedNotLeftStale() {
+        SlotAtmosphereEntity existing = new SlotAtmosphereEntity();
+        existing.setCoastalMistLowCloudPct(30);
+        existing.setCoastalMistPrecipMm(0.0);
+
+        SlotAtmosphereEntity saved = write(existing, slot());
+
+        assertThat(saved.getCoastalMistLowCloudPct()).isNull();
+        assertThat(saved.getCoastalMistPrecipMm()).isNull();
+    }
+
+    @Test
     @DisplayName("an existing row is overwritten by the latest band")
     void existingRowIsOverwritten() {
         SlotAtmosphereEntity existing = new SlotAtmosphereEntity();

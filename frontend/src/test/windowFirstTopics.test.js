@@ -166,7 +166,7 @@ describe('isWholeSkyTopic — the exemption is by TYPE', () => {
   const SHIPPED_TOPIC_TYPES = [
     'ECLIPSE', 'LUNAR_ECLIPSE', 'SUPERMOON', 'EQUINOX', 'KING_TIDE', 'AURORA', 'METEOR',
     'STORM_SURGE', 'INVERSION', 'SNOW_TOPS', 'SNOW_MIST', 'SNOW_FRESH', 'DUST', 'CLEARANCE',
-    'BLUEBELL', 'NLC', 'SPRING_TIDE', 'MIST',
+    'BLUEBELL', 'NLC', 'SPRING_TIDE', 'MIST', 'SEA_MIST',
   ];
 
   it.each([...WHOLE_SKY_TOPIC_TYPES])('exempts %s', (type) => {
@@ -195,6 +195,11 @@ describe('isWholeSkyTopic — the exemption is by TYPE', () => {
     // day's topic "carrying only its regions" — so an away plan must filter it, not exempt it.
     expect(isWholeSkyTopic('MIST')).toBe(false);
     expect(REGION_SCOPED_TOPIC_TYPES.has('MIST')).toBe(true);
+  });
+
+  it('scopes SEA_MIST: its regions are the contributing coastal sites\' regions, like valley mist\'s', () => {
+    expect(isWholeSkyTopic('SEA_MIST')).toBe(false);
+    expect(REGION_SCOPED_TOPIC_TYPES.has('SEA_MIST')).toBe(true);
   });
 
   it('scopes SNOW_TOPS, which an eight-name set had lost', () => {
@@ -449,7 +454,7 @@ describe('DAY_SCOPED_TOPIC_TYPES — the backend mirror', () => {
   it('names only types the backend actually ships', () => {
     // Transitive, and deliberately so. `REGION_SCOPED_TOPIC_TYPES` is already pinned to the shipped
     // roster by the union test above, so asserting membership there pins these names to it too —
-    // without a second hand-maintained copy of the eighteen, which would rot independently.
+    // without a second hand-maintained copy of the nineteen, which would rot independently.
     //
     // The invariant is real, not a convenience: a day-scoped topic is one whose CONDITIONS are
     // geographic (a tide happens at a coastline) but whose TIMING is not (it happens all day). A

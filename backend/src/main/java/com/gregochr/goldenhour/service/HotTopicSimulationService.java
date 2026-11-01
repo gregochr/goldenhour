@@ -442,6 +442,14 @@ public class HotTopicSimulationService {
                     2, null,
                     List.of("The Lake District"), 1, null),
             new SimulationTemplate(
+                    "SEA_MIST", "Sea mist",
+                    "Light sea mist likely at sunrise",
+                    "On a still, near-saturated morning a thin veil of sea mist can drift in off the"
+                            + " North Sea. Low sun through it softens the coast. It is patchy, and some"
+                            + " mornings turn out clear.",
+                    3, null,
+                    List.of("Northumberland"), 1, null),
+            new SimulationTemplate(
                     "SUPERMOON", "Supermoon",
                     "Full moon at perigee — moonrise over the coast",
                     "A supermoon occurs when the full moon coincides with its closest approach"
