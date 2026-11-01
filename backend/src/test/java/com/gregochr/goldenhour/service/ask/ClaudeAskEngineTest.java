@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -759,6 +760,30 @@ class ClaudeAskEngineTest {
                 .doesNotContain("suggestions").doesNotContain("Seaton");
     }
 
+    private static final String TIDE_QUESTION = "Is the tide right at Seaham tonight?";
+    private static final String TIDE_QUESTION_MISSPELT = "Is the tide aligned at Seaxom tonight?";
+
+    /** True when the request's first user message is exactly this question. */
+    private static boolean asks(MessageCreateParams params, String question) {
+        return params.messages().getFirst().content().isString()
+                && question.equals(params.messages().getFirst().content().asString());
+    }
+
+    /**
+     * Stubs the client for requests whose first user message is this question. The RequestOptions (a fresh
+     * timeout per call) and the CallGate (a method reference to the job-run service) are built inside the engine
+     * on every call, so only their types can be constrained.
+     */
+    private void stubTideConversation(String question, Message first, Message... rest) {
+        when(client.createAskMessage(argThat(p -> asks(p, question)), any(RequestOptions.class),
+                any(AnthropicApiClient.CallGate.class))).thenReturn(first, rest);
+    }
+
+    private void assertEveryRequestAsks(List<MessageCreateParams> sent, String question) {
+        assertThat(sent).allSatisfy(p -> assertThat(p.messages().getFirst().content().asString())
+                .isEqualTo(question));
+    }
+
     /** A one-place snapshot: Seaham is a tide miss serving its nearest water; Seaton is a second, plain place. */
     private static AskSnapshot tideMissSnapshot() {
         return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
@@ -774,14 +799,14 @@ class ClaudeAskEngineTest {
     @DisplayName("a tide question: list_windows, then look_up_place and get_hot_topics in one turn, then "
             + "submit_answer, in three turns; the lookup row carries nearestTide and the topic is served")
     void tideQuestionFitsTheTurnBudget() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        stubTideConversation(TIDE_QUESTION,
                 toolTurn(tool("w", "list_windows", Map.of())),
                 toolTurn(tool("place", "look_up_place", Map.of("name", "Seaham")),
                         tool("topics", "get_hot_topics",
                                 Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
                 submit(Map.of("answerable", true, "summary", "No: the tide does not suit Seaham.")));
 
-        AskRun run = engine.run(question("Is the tide right at Seaham tonight?"), tideMissSnapshot(), USER,
+        AskRun run = engine.run(question(TIDE_QUESTION), tideMissSnapshot(), USER,
                 AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
@@ -790,6 +815,7 @@ class ClaudeAskEngineTest {
                 .containsExactly("list_windows", "look_up_place", "get_hot_topics", "submit_answer");
         List<MessageCreateParams> sent = sentParams();
         assertThat(sent).hasSize(3);
+        assertEveryRequestAsks(sent, TIDE_QUESTION);
         assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
                 .containsExactly("w", "place", "topics");
         assertThat(resultFor(sent.get(2), "place")).contains("\"name\":\"Seaham\"")
@@ -802,7 +828,7 @@ class ClaudeAskEngineTest {
     @DisplayName("a tide question with a spelling tie: list_windows, look_up_place (suggestions), then the "
             + "re-call and get_hot_topics in one turn, then submit_answer, in four turns")
     void tideQuestionWithASpellingTieFitsTheTurnBudget() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        stubTideConversation(TIDE_QUESTION_MISSPELT,
                 toolTurn(tool("w", "list_windows", Map.of())),
                 toolTurn(tool("first", "look_up_place", Map.of("name", "Seaxom"))),
                 toolTurn(tool("second", "look_up_place", Map.of("name", "Seaham")),
@@ -810,7 +836,7 @@ class ClaudeAskEngineTest {
                                 Map.of("types", List.of("KING_TIDE", "SPRING_TIDE"), "limit", 2))),
                 submit(Map.of("answerable", true, "summary", "Assuming you mean Seaham, the tide does not suit.")));
 
-        AskRun run = engine.run(question("Is the tide aligned at Seaxom tonight?"), tideMissSnapshot(), USER,
+        AskRun run = engine.run(question(TIDE_QUESTION_MISSPELT), tideMissSnapshot(), USER,
                 AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
@@ -819,6 +845,7 @@ class ClaudeAskEngineTest {
                 "look_up_place", "look_up_place", "get_hot_topics", "submit_answer");
         List<MessageCreateParams> sent = sentParams();
         assertThat(sent).hasSize(4);
+        assertEveryRequestAsks(sent, TIDE_QUESTION_MISSPELT);
         assertThat(resultFor(sent.get(2), "first")).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]");
         assertThat(toolResultsIn(sent.get(3))).extracting(ToolResultBlockParam::toolUseId)
                 .containsExactly("w", "first", "second", "topics");
