@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
-import JobRunsMetricsView from '../components/JobRunsMetricsView.jsx';
+import StartRunPanel from '../components/runs/StartRunPanel.jsx';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 
@@ -8,11 +8,6 @@ vi.mock('../api/batchApi', () => ({
   getRegions: vi.fn(),
   submitScheduledBatch: vi.fn(),
   submitJfdiBatch: vi.fn(),
-}));
-
-vi.mock('../api/metricsApi', () => ({
-  getJobRuns: vi.fn(),
-  getApiCalls: vi.fn(),
 }));
 
 vi.mock('../api/forecastApi', () => ({
@@ -33,13 +28,33 @@ vi.mock('../context/AuthContext.jsx', () => ({
   useAuth: () => ({ isAdmin: true, role: 'ADMIN' }),
 }));
 
+// The modals have their own tests; here only that the buttons open them, and what they report back.
+vi.mock('../components/AuroraForecastModal', () => ({
+  default: ({ onClose, onComplete }) => (
+    <div role="dialog" aria-label="Aurora forecast">
+      <button type="button" onClick={() => onComplete({ nights: [{ locationsScored: 4 }, { locationsScored: 2 }], estimatedCost: '$0.10' })}>
+        finish
+      </button>
+      <button type="button" onClick={onClose}>close</button>
+    </div>
+  ),
+}));
+vi.mock('../components/AuroraSimulateModal', () => ({
+  default: ({ onClose, onSuccess }) => (
+    <div role="dialog" aria-label="Aurora simulation">
+      <button type="button" onClick={() => onSuccess('Simulation on.')}>finish</button>
+      <button type="button" onClick={onClose}>close</button>
+    </div>
+  ),
+}));
+
 vi.mock('../hooks/useAuroraStatus.js', () => ({
   useAuroraStatus: () => ({ status: null, loading: false }),
 }));
 
 import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
-import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { fetchLocations, refreshTideData } from '../api/forecastApi';
+import { enrichBortle } from '../api/auroraApi';
 import { runBriefing } from '../api/briefingApi.js';
 
 const MOCK_REGIONS = [
@@ -48,12 +63,12 @@ const MOCK_REGIONS = [
   { id: 3, name: 'Borders', locationCount: 2 },
 ];
 
-const noop = () => {};
+const onActiveRunChange = vi.fn();
+const onStarted = vi.fn();
+const onClose = vi.fn();
 
 function setupDefaultMocks() {
   getRegions.mockResolvedValue(MOCK_REGIONS);
-  getJobRuns.mockResolvedValue({ data: { content: [] } });
-  getApiCalls.mockResolvedValue({ data: [] });
   fetchLocations.mockResolvedValue([]);
 }
 
@@ -72,11 +87,7 @@ async function openBatchDialog() {
 
 function renderView() {
   return render(
-    <JobRunsMetricsView
-      activeRunId={null}
-      onActiveRunChange={noop}
-      onActiveRunClear={noop}
-    />,
+    <StartRunPanel onActiveRunChange={onActiveRunChange} onStarted={onStarted} onClose={onClose} />,
   );
 }
 
@@ -395,13 +406,11 @@ describe('Batch submission', () => {
     expect(submitScheduledBatch).not.toHaveBeenCalled();
   });
 
-  it('reloads job runs after successful submission', async () => {
+  it('asks the list to reload its head after a successful submission', async () => {
     submitScheduledBatch.mockResolvedValue({ batchId: 'batch-reload', requestCount: 5 });
     renderView();
     await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
-
-    // Clear initial calls from mount
-    getJobRuns.mockClear();
+    expect(onStarted).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
     await act(async () => {
@@ -409,8 +418,22 @@ describe('Batch submission', () => {
     });
 
     await waitFor(() => {
-      expect(getJobRuns).toHaveBeenCalled();
+      expect(onStarted).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('does not ask for a reload when the submission is refused', async () => {
+    submitScheduledBatch.mockRejectedValue({ response: { status: 409 } });
+    renderView();
+    await waitFor(() => screen.getByTestId('run-scheduled-batch-btn'));
+
+    fireEvent.click(screen.getByTestId('run-scheduled-batch-btn'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    });
+
+    await screen.findByText('A batch is already in progress. Wait for it to complete.');
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });
 
@@ -441,20 +464,6 @@ describe('Region display in dialog', () => {
 // Scheduler's Run Now or an earlier press here. A refusal is not a failure and has nothing in the
 // logs to check, so the status line must say which it is. Each 409 test is paired with a non-409
 // one: a component that printed the "in progress" line for every error would pass the first alone.
-
-describe('A refused job-run list load', () => {
-  it("shows the server's error sentence, not axios's generic message", async () => {
-    getJobRuns.mockRejectedValue(Object.assign(
-      new Error('Request failed with status code 400'),
-      { response: { status: 400, data: { error: 'Invalid run type: NOPE' } } },
-    ));
-
-    renderView();
-
-    expect(await screen.findByText('Invalid run type: NOPE')).toBeInTheDocument();
-    expect(screen.queryByText(/Request failed with status code 400/)).toBeNull();
-  });
-});
 
 describe('Refused briefing and tide runs', () => {
   const REFUSED = { response: { status: 409 } };
@@ -535,15 +544,6 @@ describe('Retired manual forecast runs', () => {
     expect(screen.queryByTestId('run-long-term-btn')).toBeNull();
   });
 
-  it('offers only run types that job_run rows are written with, and labels SCHEDULED_BATCH "Batch"', async () => {
-    renderView();
-    const select = await screen.findByTestId('run-type-filter-select');
-    const values = within(select).getAllByRole('option').map((o) => o.getAttribute('value'));
-
-    expect(values).toEqual(['', 'WEATHER', 'TIDE', 'BRIEFING', 'SCHEDULED_BATCH']);
-    expect(within(select).getByRole('option', { name: 'Batch' })).toHaveValue('SCHEDULED_BATCH');
-  });
-
   it('lists the coastal locations in the tide refresh confirm, read-only, with no region checkboxes or slot picker', async () => {
     fetchLocations.mockResolvedValue([
       { id: 1, name: 'Bamburgh', enabled: true, locationType: ['SEASCAPE'], tideType: ['HIGH'], region: { name: 'Northumberland' } },
@@ -563,5 +563,105 @@ describe('Retired manual forecast runs', () => {
     expect(within(dialog).queryByRole('checkbox')).toBeNull();
     expect(screen.queryByTestId('confirm-dialog-slots')).toBeNull();
     expect(screen.queryByTestId('confirm-dialog-strategies')).toBeNull();
+  });
+});
+
+
+describe('Starting a run hands its id to the progress panel', () => {
+  it('sets the active run when light pollution enrichment returns a job run id', async () => {
+    enrichBortle.mockResolvedValue({ jobRunId: 77 });
+    renderView();
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn'));
+    });
+
+    expect(onActiveRunChange).toHaveBeenCalledWith(77);
+    expect(await screen.findByText('Light pollution enrichment started (job #77).')).toBeInTheDocument();
+  });
+
+  it('sets no active run when the response carries no job run id', async () => {
+    enrichBortle.mockResolvedValue({});
+    renderView();
+
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn'));
+    });
+
+    expect(onActiveRunChange).not.toHaveBeenCalled();
+    expect(await screen.findByText('Light pollution enrichment started.')).toBeInTheDocument();
+  });
+
+  it('says the key is not configured on a 400, and still reports other failures generically', async () => {
+    enrichBortle.mockRejectedValueOnce({ response: { status: 400 } });
+    renderView();
+    await act(async () => {
+      fireEvent.click(await screen.findByTestId('refresh-light-pollution-btn'));
+    });
+    expect(await screen.findByText('Light pollution API key not configured.')).toBeInTheDocument();
+
+    enrichBortle.mockRejectedValueOnce({ response: { status: 500 } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('refresh-light-pollution-btn'));
+    });
+    expect(await screen.findByText('Light pollution refresh failed.')).toBeInTheDocument();
+  });
+});
+
+describe('The panel frame', () => {
+  it('is titled "Start a run", with its subtitle, and closes from its ×', async () => {
+    renderView();
+    expect(screen.getByTestId('start-run-panel-title')).toHaveTextContent('Start a run');
+    expect(screen.getByTestId('start-run-panel-subtitle'))
+      .toHaveTextContent('Runs start straight away and appear at the top of the list.');
+    fireEvent.click(screen.getByTestId('start-run-panel-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps every trigger button of today\'s card', async () => {
+    renderView();
+    for (const id of [
+      'run-aurora-forecast-btn', 'aurora-simulate-btn', 'run-briefing-btn', 'refresh-tide-btn', 'backfill-tide-btn',
+      'refresh-light-pollution-btn', 'run-scheduled-batch-btn', 'run-jfdi-batch-btn',
+    ]) {
+      expect(await screen.findByTestId(id)).toBeInTheDocument();
+    }
+  });
+
+  it('disables every start button while one run is in flight (anyRunning)', async () => {
+    let finish;
+    runBriefing.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderView();
+
+    fireEvent.click(await screen.findByTestId('run-briefing-btn'));
+
+    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeDisabled();
+    expect(screen.getByTestId('refresh-tide-btn')).toBeDisabled();
+    expect(screen.getByTestId('run-aurora-forecast-btn')).toBeDisabled();
+    await act(async () => { finish({ status: 'ok' }); });
+    expect(screen.getByTestId('run-scheduled-batch-btn')).toBeEnabled();
+  });
+
+  it('opens the aurora forecast modal, and reports its result and reloads the list when it completes', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('run-aurora-forecast-btn'));
+    expect(await screen.findByRole('dialog', { name: 'Aurora forecast' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'finish' }));
+
+    expect(screen.getByTestId('start-run-status'))
+      .toHaveTextContent('Aurora forecast complete: 2 nights, 6 locations scored. Cost: $0.10.');
+    expect(onStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the aurora simulation modal, and reports its message when it succeeds', async () => {
+    renderView();
+    fireEvent.click(await screen.findByTestId('aurora-simulate-btn'));
+    expect(await screen.findByRole('dialog', { name: 'Aurora simulation' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'finish' }));
+
+    expect(screen.getByTestId('start-run-status')).toHaveTextContent('Simulation on.');
+    expect(onStarted).not.toHaveBeenCalled();
   });
 });

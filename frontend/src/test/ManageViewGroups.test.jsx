@@ -18,7 +18,7 @@ vi.mock('../components/RegionManagementView.jsx', () => stub('Regions'));
 vi.mock('../components/AreaManagementView.jsx', () => stub('Areas'));
 vi.mock('../components/TideManagementView.jsx', () => stub('Tides'));
 vi.mock('../components/WaitlistManagementView.jsx', () => stub('Waitlist'));
-vi.mock('../components/JobRunsMetricsView.jsx', () => stub('Job Runs'));
+vi.mock('../components/runs/RunsView.jsx', () => stub('Runs'));
 vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
@@ -30,7 +30,7 @@ vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 // The expected layout, written out literally (deliberately not imported from ManageView).
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
-    ['pipelineruns', 'Pipeline Runs'], ['metrics', 'Job Runs'],
+    ['runs', 'Runs'], ['pipelineruns', 'Pipeline Runs'],
     ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
   ] },
   { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },
@@ -80,25 +80,25 @@ describe('ManageView — grouping', () => {
     expect(screen.getByTestId('manage-tab-bar')).toHaveClass('flex-wrap');
   });
 
-  it('lands on Runs / Pipeline Runs with no hash', () => {
+  it('lands on Runs / Runs with no hash', () => {
     render(<ManageView onComplete={vi.fn()} />);
     expect(isSelectedGroup('runs')).toBe(true);
-    expect(subTabIds()[0]).toBe('pipelineruns');
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
+    expect(subTabIds()[0]).toBe('runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
   });
 
-  it('lands on Runs / Pipeline Runs for a bare #manage', () => {
+  it('lands on Runs / Runs for a bare #manage', () => {
     window.location.hash = '#manage';
     render(<ManageView onComplete={vi.fn()} />);
     expect(isSelectedGroup('runs')).toBe(true);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
   });
 
-  it('falls back to Runs / Pipeline Runs for an unknown tab', () => {
+  it('falls back to Runs / Runs for an unknown tab', () => {
     window.location.hash = '#manage/nonsense';
     render(<ManageView onComplete={vi.fn()} />);
     expect(isSelectedGroup('runs')).toBe(true);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
   });
 
   it.each(ALL_TABS)('#manage/$value lands on the $group group and the $label tab', ({ group, value, label }) => {
@@ -109,11 +109,11 @@ describe('ManageView — grouping', () => {
     expect(screen.getByTestId('stub-view')).toHaveTextContent(label);
   });
 
-  it('the retired #manage/subregions link falls back to Runs / Pipeline Runs', () => {
+  it('the retired #manage/subregions link falls back to Runs / Runs', () => {
     window.location.hash = '#manage/subregions';
     render(<ManageView onComplete={vi.fn()} />);
     expect(isSelectedGroup('runs')).toBe(true);
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Pipeline Runs');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
   });
 
   it('a user deep link (#manage/users/<id>) still resolves to People / Users', () => {
