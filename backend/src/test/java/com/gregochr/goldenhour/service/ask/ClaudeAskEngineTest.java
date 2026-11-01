@@ -745,10 +745,23 @@ class ClaudeAskEngineTest {
         assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
                 .containsExactly("list_windows", "look_up_place", "look_up_place", "submit_answer");
         assertThat(run.outcome().answer().picks()).isEmpty();
-        String firstLookup = toolResultsIn(sentParams().get(2)).stream()
-                .map(r -> r.content().orElseThrow().string().orElseThrow())
-                .filter(c -> c.contains("suggestions")).findFirst().orElseThrow();
-        assertThat(firstLookup).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]").doesNotContain("closestTo");
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(4);
+        // Turn 3 carries the tie: the first lookup's result, with suggestions and no guess.
+        assertThat(toolResultsIn(sent.get(2))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "first");
+        assertThat(resultFor(sent.get(2), "first")).contains("\"suggestions\":[\"Seaham\",\"Seaton\"]")
+                .doesNotContain("closestTo").contains("\"places\":[]");
+        // Turn 4 carries the re-call's own result: the corrected place's row, not suggestions.
+        assertThat(toolResultsIn(sent.get(3))).extracting(ToolResultBlockParam::toolUseId)
+                .containsExactly("w", "first", "second");
+        assertThat(resultFor(sent.get(3), "second")).contains("\"name\":\"Seaham\"")
+                .doesNotContain("suggestions").doesNotContain("Seaton");
+    }
+
+    private String resultFor(MessageCreateParams params, String toolUseId) {
+        return toolResultsIn(params).stream().filter(r -> r.toolUseId().equals(toolUseId)).findFirst()
+                .orElseThrow().content().orElseThrow().string().orElseThrow();
     }
 
     @Test
