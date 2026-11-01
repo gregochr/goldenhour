@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.model.AtmosphericData;
@@ -26,6 +27,7 @@ import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.Verdict;
@@ -59,6 +61,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -393,7 +396,7 @@ class ForecastTaskCollectorTest {
     void collectScheduledBatches_prefetchYieldsZero_returnsEmpty() {
         stubGoBriefingWithLocation("Durham UK");
         stubModels();
-        when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(Map.of());
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(Map.of());
 
         ScheduledBatchTasks result = collectNightly(collector);
 
@@ -418,7 +421,7 @@ class ForecastTaskCollectorTest {
 
         // Only one location's coords come back — 1/3 = 0.33, below 0.5 threshold
         String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(key1, dummyExtraction()));
 
         ScheduledBatchTasks result = collectNightly(collector);
@@ -441,7 +444,7 @@ class ForecastTaskCollectorTest {
 
         // 1 of 2 locations prefetched — ratio 0.5, equal to threshold → continues
         String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(key1, dummyExtraction()));
         when(CollectorTriageStubs.triageOfAny(forecastService, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET))
                 .thenReturn(triagedPreEval(loc1));
@@ -451,6 +454,189 @@ class ForecastTaskCollectorTest {
         // fetchWeatherAndTriage IS called → triage proceeded
         CollectorTriageStubs.triageOfAny(verify(forecastService, atLeastOnce()), TODAY, TargetType.SUNRISE,
                 EvaluationModel.SONNET);
+    }
+
+    // ── Weather pre-fetch report (batch-weather-prefetch-logging-plan.md) ─────────────────
+
+    private static final PrefetchCall FORECAST_CALL = new PrefetchCall(
+            ServiceName.OPEN_METEO_FORECAST, "batch-prefetch forecast chunk 1/1", 3, 1,
+            LocalDateTime.of(2026, 10, 31, 21, 5), 500L, null, false, "boom", 3);
+    private static final PrefetchCall CLOUD_CALL = new PrefetchCall(
+            ServiceName.OPEN_METEO_FORECAST, "batch-prefetch cloud points (5)", 5, 5,
+            LocalDateTime.of(2026, 10, 31, 21, 5, 2), 90L, 200, true, null, 1);
+
+    /** Stubs the weather pre-fetch to emit {@link #FORECAST_CALL} and return {@code result}. */
+    private void stubPrefetchEmittingCall(Map<String, WeatherExtractionResult> result) {
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(1);
+            sink.accept(FORECAST_CALL);
+            return result;
+        });
+    }
+
+    /** Stubs the cloud pre-fetch to emit {@link #CLOUD_CALL}. */
+    private void stubCloudPrefetchEmittingCall() {
+        when(openMeteoService.prefetchCloudBatch(any(), any(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(2);
+            sink.accept(CLOUD_CALL);
+            // null, as an unstubbed mock returns: the triage stubs in these tests match a null cache
+            return null;
+        });
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: zero prefetch → report carries the calls and 0/N abort reason")
+    void collectScheduledBatches_zeroPrefetch_reportCarriesCallsAndAbortReason() {
+        stubGoBriefingWithLocation("Durham UK");
+        stubModels();
+        stubPrefetchEmittingCall(Map.of());
+
+        ScheduledBatchTasks result = collectNightly(collector);
+
+        WeatherPrefetchReport report = result.weatherPrefetch();
+        assertThat(report.calls()).containsExactly(FORECAST_CALL);
+        assertThat(report.locationsRequested()).isEqualTo(1);
+        assertThat(report.locationsReturned()).isZero();
+        assertThat(report.abortReason()).isEqualTo("0/1 locations returned");
+        assertThat(report.aborted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: ratio below threshold → report carries the ratio abort reason")
+    void collectScheduledBatches_belowThreshold_reportCarriesRatioAbortReason() {
+        LocationEntity loc1 = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        LocationEntity loc2 = buildInlandLocation("Newcastle", 54.9783, -1.6178);
+        LocationEntity loc3 = buildInlandLocation("Whitby", 54.4858, -0.6206);
+        when(briefingService.getCachedBriefing()).thenReturn(buildBriefingWithSlots(TODAY, Verdict.GO,
+                loc1.getName(), loc2.getName(), loc3.getName()));
+        stubModels();
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2, loc3));
+        stubPrefetchEmittingCall(Map.of(
+                OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon()), dummyExtraction()));
+
+        ScheduledBatchTasks result = collectNightly(collector);
+
+        WeatherPrefetchReport report = result.weatherPrefetch();
+        assertThat(report.calls()).containsExactly(FORECAST_CALL);
+        assertThat(report.locationsRequested()).isEqualTo(3);
+        assertThat(report.locationsReturned()).isEqualTo(1);
+        assertThat(report.abortReason())
+                .isEqualTo("1/3 locations returned, ratio 0.33 below threshold 0.50");
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: ratio exactly at the threshold is NOT an abort")
+    void collectScheduledBatches_ratioExactlyAtThreshold_notAborted() {
+        LocationEntity loc1 = buildInlandLocation("Durham UK", 54.7753, -1.5849);
+        LocationEntity loc2 = buildInlandLocation("Newcastle", 54.9783, -1.6178);
+        when(briefingService.getCachedBriefing()).thenReturn(buildBriefingWithSlots(TODAY, Verdict.GO,
+                loc1.getName(), loc2.getName()));
+        stubModels();
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc1, loc2));
+        stubPrefetchEmittingCall(Map.of(
+                OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon()), dummyExtraction()));
+        stubCloudPrefetchEmittingCall();
+        when(CollectorTriageStubs.triageOfAny(forecastService, TODAY, TargetType.SUNRISE, EvaluationModel.SONNET))
+                .thenReturn(triagedPreEval(loc1));
+
+        ScheduledBatchTasks result = collectNightly(collector);
+
+        // Everything is triaged out, which is the "nothing left after triage" return: it still
+        // carries the report, with both the weather and the cloud calls and no abort reason.
+        WeatherPrefetchReport report = result.weatherPrefetch();
+        assertThat(report.aborted()).isFalse();
+        assertThat(report.abortReason()).isNull();
+        assertThat(report.calls()).containsExactly(FORECAST_CALL, CLOUD_CALL);
+        assertThat(report.locationsRequested()).isEqualTo(2);
+        assertThat(report.locationsReturned()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: normal return carries the weather and cloud calls")
+    void collectScheduledBatches_normalReturn_reportCarriesCalls() {
+        LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
+        stubModels();
+        stubPrefetchEmittingCall(Map.of(
+                OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
+        stubCloudPrefetchEmittingCall();
+        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY.plusDays(1), TargetType.SUNRISE,
+                EvaluationModel.SONNET))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+
+        ScheduledBatchTasks result = collectNightly(collector);
+
+        assertThat(result.nearInland()).hasSize(1);
+        assertThat(result.weatherPrefetch().calls()).containsExactly(FORECAST_CALL, CLOUD_CALL);
+        assertThat(result.weatherPrefetch().aborted()).isFalse();
+        assertThat(result.weatherPrefetch().locationsRequested()).isEqualTo(1);
+        assertThat(result.weatherPrefetch().locationsReturned()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("collectScheduledBatches: a cloud pre-fetch that throws keeps the calls recorded before it")
+    void collectScheduledBatches_cloudPrefetchThrows_callsRecordedBeforeItSurvive() {
+        LocationEntity loc = stubGoBriefingWithLocation(TODAY.plusDays(1), "Durham UK");
+        stubModels();
+        stubPrefetchEmittingCall(Map.of(
+                OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
+        when(openMeteoService.prefetchCloudBatch(any(), any(), any())).thenAnswer(invocation -> {
+            Consumer<PrefetchCall> sink = invocation.getArgument(2);
+            sink.accept(CLOUD_CALL);
+            throw new IllegalStateException("cloud blew up");
+        });
+        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY.plusDays(1), TargetType.SUNRISE,
+                EvaluationModel.SONNET))
+                .thenReturn(inlandPreEval(loc, TODAY.plusDays(1), 1));
+
+        ScheduledBatchTasks result = collectNightly(collector);
+
+        assertThat(result.weatherPrefetch().calls()).containsExactly(FORECAST_CALL, CLOUD_CALL);
+    }
+
+    @Test
+    @DisplayName("collectRegionFilteredBatches: zero prefetch → aborted result carrying the report")
+    void collectRegionFilteredBatches_zeroPrefetch_abortedWithReport() {
+        stubGoBriefingWithLocation("Durham UK");
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubPrefetchEmittingCall(Map.of());
+
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
+
+        assertThat(result.isEmpty()).isTrue();
+        assertThat(result.weatherPrefetch().aborted()).isTrue();
+        assertThat(result.weatherPrefetch().abortReason()).isEqualTo("0/1 locations returned");
+        assertThat(result.weatherPrefetch().calls()).containsExactly(FORECAST_CALL);
+    }
+
+    @Test
+    @DisplayName("collectRegionFilteredBatches: normal return carries the weather and cloud calls")
+    void collectRegionFilteredBatches_normalReturn_reportCarriesCalls() {
+        LocationEntity loc = stubGoBriefingWithLocation(TODAY, "Durham UK");
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubPrefetchEmittingCall(Map.of(
+                OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
+        stubCloudPrefetchEmittingCall();
+        when(CollectorTriageStubs.triageOf(forecastService, loc, TODAY, TargetType.SUNRISE, EvaluationModel.HAIKU))
+                .thenReturn(inlandPreEval(loc, TODAY, 0));
+
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(List.of(1L));
+
+        assertThat(result.inland()).hasSize(1);
+        assertThat(result.weatherPrefetch().calls()).containsExactly(FORECAST_CALL, CLOUD_CALL);
+        assertThat(result.weatherPrefetch().aborted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("collectRegionFilteredBatches: the early empty returns carry no report")
+    void collectRegionFilteredBatches_noCandidates_noReport() {
+        when(briefingService.getCachedBriefing()).thenReturn(null);
+
+        RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
+
+        assertThat(result.weatherPrefetch()).isEqualTo(WeatherPrefetchReport.none());
+        assertThat(result.weatherPrefetch().attempted()).isFalse();
     }
 
     // ── Triage / stability gates ──────────────────────────────────────────────
@@ -722,7 +908,7 @@ class ForecastTaskCollectorTest {
         LocationEntity loc = stubGoBriefingWithLocation("Durham UK");
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(Map.of());
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(Map.of());
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
 
@@ -762,7 +948,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         Map<String, WeatherExtractionResult> prefetched = Map.of(
                 OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction());
-        when(openMeteoService.prefetchWeatherBatchResilient(argThat(onlyPoint(loc)))).thenReturn(prefetched);
+        when(openMeteoService.prefetchWeatherBatchResilient(argThat(onlyPoint(loc)), any())).thenReturn(prefetched);
         return new Run(loc, prefetched);
     }
 
@@ -782,8 +968,8 @@ class ForecastTaskCollectorTest {
 
     private void verifyPrefetchOrder(Run run, Map<Long, InversionProfile> profiles, EvaluationModel model) {
         InOrder order = inOrder(openMeteoService, forecastService);
-        order.verify(openMeteoService).prefetchWeatherBatchResilient(argThat(onlyPoint(run.loc())));
-        order.verify(openMeteoService).prefetchCloudBatch(eq(List.of()), eq(List.of()), isNull());
+        order.verify(openMeteoService).prefetchWeatherBatchResilient(argThat(onlyPoint(run.loc())), any());
+        order.verify(openMeteoService).prefetchCloudBatch(eq(List.of()), eq(List.of()), any());
         order.verify(openMeteoService).prefetchInversionProfiles(List.of(run.loc()));
         triage(order.verify(forecastService), run, model, profiles);
     }
@@ -995,7 +1181,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
         String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
         when(CollectorTriageStubs.triageOfAny(forecastService, TODAY.plusDays(1), TargetType.SUNRISE,
                 EvaluationModel.SONNET))
@@ -1037,7 +1223,7 @@ class ForecastTaskCollectorTest {
         stubModels();
         String key1 = OpenMeteoService.coordKey(loc1.getLat(), loc1.getLon());
         String key2 = OpenMeteoService.coordKey(loc2.getLat(), loc2.getLon());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(key1, dummyExtraction(), key2, dummyExtraction()));
         when(CollectorTriageStubs.triageOfAny(forecastService, TODAY.plusDays(1), TargetType.SUNRISE,
                 EvaluationModel.SONNET))
@@ -1572,7 +1758,7 @@ class ForecastTaskCollectorTest {
 
     private void stubPrefetchSuccess(LocationEntity loc) {
         String key = OpenMeteoService.coordKey(loc.getLat(), loc.getLon());
-        when(openMeteoService.prefetchWeatherBatchResilient(any()))
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(key, dummyExtraction()));
     }
 

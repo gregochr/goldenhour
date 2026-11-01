@@ -154,7 +154,11 @@ const JobRunDetail = ({ jobRun }) => {
     ? Math.floor((new Date(maxDate) - new Date(minDate)) / (1000 * 60 * 60 * 24)) + 1
     : 0;
 
-  const isBatchWithNoApiCalls = batchSummary && Object.entries(serviceStats).length === 0;
+  // The ANTHROPIC (Batch) card stands in for an ANTHROPIC group while the batch has logged no
+  // Anthropic calls yet (or failed first). It sits alongside the other service groups, such as the
+  // Open-Meteo pre-fetch rows a batch run now carries.
+  const showBatchCard = Boolean(batchSummary) && !serviceStats.ANTHROPIC;
+  const hasServiceGroups = Object.keys(serviceStats).length > 0;
 
   return (
     <div className="mt-4 space-y-3 bg-plex-bg p-4 rounded-lg border border-plex-border">
@@ -180,7 +184,7 @@ const JobRunDetail = ({ jobRun }) => {
             <div className="text-plex-text-muted text-xs">Job Run ID</div>
             <div className="font-semibold text-plex-text">{jobRun.id}</div>
           </div>
-          {BATCH_RUN_TYPES.has(jobRun.runType) && jobRun.notes && (
+          {BATCH_RUN_TYPES.has(jobRun.runType) && jobRun.notes?.startsWith('Anthropic batch: ') && (
             <div className="bg-plex-surface p-2 rounded border border-plex-border col-span-2">
               <div className="text-plex-text-muted text-xs">Anthropic Batch ID</div>
               <div className="font-semibold text-plex-text" style={{ fontFamily: 'monospace' }}>
@@ -193,115 +197,115 @@ const JobRunDetail = ({ jobRun }) => {
 
       <h4 className="font-semibold text-plex-text text-sm">API Call Breakdown</h4>
 
-      {isBatchWithNoApiCalls ? (
-        <div className="bg-plex-surface p-3 rounded border border-plex-border text-sm">
-          <div className="flex justify-between items-start">
-            <div>
-              <div className="font-medium text-plex-text">ANTHROPIC (Batch)</div>
-              <div className="text-xs text-plex-text-muted mt-1">
-                {batchSummary.requestCount} requests: {batchSummary.succeededCount ?? 0} succeeded, {batchSummary.erroredCount ?? 0} errored
-              </div>
-              <div className="text-xs text-plex-gold mt-1 font-semibold">
-                Cost: {formatCostGbp(batchSummary.estimatedCostMicroDollars, exchangeRate)}
-                {batchSummary.estimatedCostMicroDollars > 0 && (
-                  <span className="text-plex-text-muted font-normal ml-2">
-                    ({formatCostUsd(batchSummary.estimatedCostMicroDollars)})
-                  </span>
-                )}
-              </div>
-              {(batchSummary.totalInputTokens > 0 || batchSummary.totalOutputTokens > 0) ? (
+      <div className="space-y-2">
+        {showBatchCard && (
+          <div className="bg-plex-surface p-3 rounded border border-plex-border text-sm">
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-medium text-plex-text">ANTHROPIC (Batch)</div>
                 <div className="text-xs text-plex-text-muted mt-1">
-                  Tokens: {formatTokens(batchSummary.totalInputTokens)} in
-                  {' / '}{formatTokens(batchSummary.totalOutputTokens)} out
-                  {batchSummary.totalCacheCreationTokens > 0 && (
-                    <> / {formatTokens(batchSummary.totalCacheCreationTokens)} cache write</>
-                  )}
-                  {batchSummary.totalCacheReadTokens > 0 && (
-                    <> / {formatTokens(batchSummary.totalCacheReadTokens)} cache read</>
-                  )}
+                  {batchSummary.requestCount} requests: {batchSummary.succeededCount ?? 0} succeeded, {batchSummary.erroredCount ?? 0} errored
                 </div>
-              ) : (
-                <div className="text-xs text-plex-text-muted mt-1">
-                  No token data — batch failed before processing
-                </div>
-              )}
-            </div>
-            <div className="flex gap-1">
-              <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
-                batchSummary.status === 'COMPLETED'
-                  ? 'bg-green-900/30 text-green-400'
-                  : batchSummary.status === 'FAILED'
-                    ? 'bg-red-900/30 text-red-400'
-                    : 'bg-yellow-900/30 text-yellow-400'
-              }`}>
-                {batchSummary.status}
-              </span>
-            </div>
-          </div>
-        </div>
-      ) : Object.entries(serviceStats).length === 0 ? (
-        <p className="text-plex-text-muted text-sm">No API calls recorded</p>
-      ) : (
-        <div className="space-y-2">
-          {Object.entries(serviceStats).map(([service, stats]) => (
-            <div
-              key={service}
-              className="bg-plex-surface p-3 rounded border border-plex-border text-sm"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="font-medium text-plex-text">{service}</div>
-                  <div className="text-xs text-plex-text-muted mt-1">
-                    {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
-                  </div>
-                  <div className="text-xs text-plex-gold mt-1 font-semibold">
-                    Cost: {formatCostGbp(stats.totalCostMicroDollars, exchangeRate)}
-                    {stats.totalCostMicroDollars > 0 && (
-                      <span className="text-plex-text-muted font-normal ml-2">
-                        ({formatCostUsd(stats.totalCostMicroDollars)})
-                      </span>
-                    )}
-                  </div>
-                  {/* Token breakdown for Anthropic */}
-                  {service === 'ANTHROPIC' && stats.totalInputTokens > 0 && (
-                    <div className="text-xs text-plex-text-muted mt-1">
-                      Tokens: {formatTokens(stats.totalInputTokens)} in
-                      {' / '}{formatTokens(stats.totalOutputTokens)} out
-                      {stats.totalCacheWriteTokens > 0 && (
-                        <> / {formatTokens(stats.totalCacheWriteTokens)} cache write</>
-                      )}
-                      {stats.totalCacheReadTokens > 0 && (
-                        <> / {formatTokens(stats.totalCacheReadTokens)} cache read</>
-                      )}
-                    </div>
-                  )}
-                  {stats.errorCount > 0 && (
-                    <div className={`text-xs mt-1 ${(stats.errorCount / stats.count) < 0.05 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      {stats.errorCount} failures ({((stats.errorCount / stats.count) * 100).toFixed(2)}%)
-                    </div>
-                  )}
-                </div>
-                <div className="flex gap-1">
-                  {stats.errorCount > 0 && (() => {
-                    const failRate = stats.errorCount / stats.count;
-                    const isAmber = failRate < 0.05;
-                    return (
-                      <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${isAmber ? 'bg-yellow-900/30 text-yellow-400' : 'bg-red-900/30 text-red-400'}`}>
-                        {stats.errorCount} errors
-                      </span>
-                    );
-                  })()}
-                  {stats.errorCount === 0 && (
-                    <span className="inline-block px-2 py-1 rounded-full bg-green-900/30 text-green-400 text-xs font-medium">
-                      All OK
+                <div className="text-xs text-plex-gold mt-1 font-semibold">
+                  Cost: {formatCostGbp(batchSummary.estimatedCostMicroDollars, exchangeRate)}
+                  {batchSummary.estimatedCostMicroDollars > 0 && (
+                    <span className="text-plex-text-muted font-normal ml-2">
+                      ({formatCostUsd(batchSummary.estimatedCostMicroDollars)})
                     </span>
                   )}
                 </div>
+                {(batchSummary.totalInputTokens > 0 || batchSummary.totalOutputTokens > 0) ? (
+                  <div className="text-xs text-plex-text-muted mt-1">
+                    Tokens: {formatTokens(batchSummary.totalInputTokens)} in
+                    {' / '}{formatTokens(batchSummary.totalOutputTokens)} out
+                    {batchSummary.totalCacheCreationTokens > 0 && (
+                      <> / {formatTokens(batchSummary.totalCacheCreationTokens)} cache write</>
+                    )}
+                    {batchSummary.totalCacheReadTokens > 0 && (
+                      <> / {formatTokens(batchSummary.totalCacheReadTokens)} cache read</>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-xs text-plex-text-muted mt-1">
+                    No token data — batch failed before processing
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-1">
+                <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${
+                  batchSummary.status === 'COMPLETED'
+                    ? 'bg-green-900/30 text-green-400'
+                    : batchSummary.status === 'FAILED'
+                      ? 'bg-red-900/30 text-red-400'
+                      : 'bg-yellow-900/30 text-yellow-400'
+                }`}>
+                  {batchSummary.status}
+                </span>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+        {!showBatchCard && !hasServiceGroups && (
+          <p className="text-plex-text-muted text-sm">No API calls recorded</p>
+        )}
+        {Object.entries(serviceStats).map(([service, stats]) => (
+          <div
+            key={service}
+            className="bg-plex-surface p-3 rounded border border-plex-border text-sm"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="font-medium text-plex-text">{service}</div>
+                <div className="text-xs text-plex-text-muted mt-1">
+                  {stats.count} calls, avg {Math.round(stats.totalDuration / stats.count)}ms
+                </div>
+                <div className="text-xs text-plex-gold mt-1 font-semibold">
+                  Cost: {formatCostGbp(stats.totalCostMicroDollars, exchangeRate)}
+                  {stats.totalCostMicroDollars > 0 && (
+                    <span className="text-plex-text-muted font-normal ml-2">
+                      ({formatCostUsd(stats.totalCostMicroDollars)})
+                    </span>
+                  )}
+                </div>
+                {/* Token breakdown for Anthropic */}
+                {service === 'ANTHROPIC' && stats.totalInputTokens > 0 && (
+                  <div className="text-xs text-plex-text-muted mt-1">
+                    Tokens: {formatTokens(stats.totalInputTokens)} in
+                    {' / '}{formatTokens(stats.totalOutputTokens)} out
+                    {stats.totalCacheWriteTokens > 0 && (
+                      <> / {formatTokens(stats.totalCacheWriteTokens)} cache write</>
+                    )}
+                    {stats.totalCacheReadTokens > 0 && (
+                      <> / {formatTokens(stats.totalCacheReadTokens)} cache read</>
+                    )}
+                  </div>
+                )}
+                {stats.errorCount > 0 && (
+                  <div className={`text-xs mt-1 ${(stats.errorCount / stats.count) < 0.05 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {stats.errorCount} failures ({((stats.errorCount / stats.count) * 100).toFixed(2)}%)
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-1">
+                {stats.errorCount > 0 && (() => {
+                  const failRate = stats.errorCount / stats.count;
+                  const isAmber = failRate < 0.05;
+                  return (
+                    <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${isAmber ? 'bg-yellow-900/30 text-yellow-400' : 'bg-red-900/30 text-red-400'}`}>
+                      {stats.errorCount} errors
+                    </span>
+                  );
+                })()}
+                {stats.errorCount === 0 && (
+                  <span className="inline-block px-2 py-1 rounded-full bg-green-900/30 text-green-400 text-xs font-medium">
+                    All OK
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Anthropic breakdown by model, day, and event */}
       {apiCalls.some((call) => call.service === 'ANTHROPIC') && (

@@ -223,7 +223,7 @@ class ForecastTaskCollectorForceEvalTest {
         for (LocationEntity loc : locs) {
             prefetch.put(OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction());
         }
-        when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(prefetch);
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(prefetch);
         lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenAnswer(inv -> new GridCellStabilityResult(
                         inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
@@ -261,7 +261,7 @@ class ForecastTaskCollectorForceEvalTest {
         Map<String, WeatherExtractionResult> prefetch = Map.of(
                 OpenMeteoService.coordKey(inland.getLat(), inland.getLon()), dummyExtraction(),
                 OpenMeteoService.coordKey(coastal.getLat(), coastal.getLon()), dummyExtraction());
-        when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(prefetch);
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(prefetch);
         lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenAnswer(inv -> new GridCellStabilityResult(
                         inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
@@ -302,7 +302,7 @@ class ForecastTaskCollectorForceEvalTest {
     }
 
     private void stubPrefetch(LocationEntity loc) {
-        when(openMeteoService.prefetchWeatherBatchResilient(any())).thenReturn(
+        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(
                 Map.of(OpenMeteoService.coordKey(loc.getLat(), loc.getLon()), dummyExtraction()));
     }
 

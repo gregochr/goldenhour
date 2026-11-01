@@ -47,6 +47,9 @@ import java.util.List;
  *                     one bucket or the other, never both, which is what keeps each bucket
  *                     homogeneous and its system prompt cached
  * @param dispositions per-candidate outcome trail (EVALUATED + every SKIPPED_*)
+ * @param weatherPrefetch the Open-Meteo weather pre-fetch outcome for this collect pass (calls made,
+ *                     locations returned, abort reason); the scheduled batch writes its calls onto
+ *                     the cycle's job run. {@link WeatherPrefetchReport#none()} when never reached
  */
 public record ScheduledBatchTasks(
         List<EvaluationTask.Forecast> nearInland,
@@ -55,7 +58,38 @@ public record ScheduledBatchTasks(
         List<EvaluationTask.Forecast> farCoastal,
         List<EvaluationTask.Forecast> bluebell,
         List<EvaluationTask.Forecast> woodland,
-        List<CandidateDisposition> dispositions) {
+        List<CandidateDisposition> dispositions,
+        WeatherPrefetchReport weatherPrefetch) {
+
+    /**
+     * Canonical constructor; a missing report becomes {@link WeatherPrefetchReport#none()}.
+     */
+    public ScheduledBatchTasks {
+        weatherPrefetch = weatherPrefetch == null ? WeatherPrefetchReport.none() : weatherPrefetch;
+    }
+
+    /**
+     * Constructs tasks with no weather pre-fetch report.
+     *
+     * @param nearInland   near-term inland tasks
+     * @param nearCoastal  near-term coastal tasks
+     * @param farInland    far-term inland tasks
+     * @param farCoastal   far-term coastal tasks
+     * @param bluebell     in-season bluebell tasks
+     * @param woodland     canopy woodland tasks
+     * @param dispositions per-candidate outcome trail
+     */
+    public ScheduledBatchTasks(
+            List<EvaluationTask.Forecast> nearInland,
+            List<EvaluationTask.Forecast> nearCoastal,
+            List<EvaluationTask.Forecast> farInland,
+            List<EvaluationTask.Forecast> farCoastal,
+            List<EvaluationTask.Forecast> bluebell,
+            List<EvaluationTask.Forecast> woodland,
+            List<CandidateDisposition> dispositions) {
+        this(nearInland, nearCoastal, farInland, farCoastal, bluebell, woodland, dispositions,
+                WeatherPrefetchReport.none());
+    }
 
     /**
      * @return the all-empty value (used when collection aborts or yields nothing).

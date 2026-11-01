@@ -723,6 +723,80 @@ describe('JobRunDetail — Batch Summary Card', () => {
       expect(screen.getByText('No API calls recorded')).toBeInTheDocument();
     });
   });
+
+  describe('with the batch weather pre-fetch rows on the run', () => {
+    const FORECAST_ROW_429 = {
+      ...OPEN_METEO_CALL,
+      id: 31,
+      service: 'OPEN_METEO_FORECAST',
+      succeeded: false,
+      statusCode: 429,
+      errorMessage: '2/3: 20 coords, 0 returned, 1 attempt — 429 Too Many Requests',
+    };
+
+    const batchSummary = (status) => ({ data: {
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheReadTokens: 0,
+      totalCacheCreationTokens: 0,
+      estimatedCostMicroDollars: 0,
+      requestCount: 20,
+      succeededCount: 0,
+      erroredCount: 0,
+      status,
+    }});
+
+    it('shows the ANTHROPIC (Batch) card and the Open-Meteo group for a SUBMITTED batch', async () => {
+      getBatchSummary.mockResolvedValue(batchSummary('SUBMITTED'));
+      getApiCalls.mockResolvedValue({ data: [FORECAST_ROW_429] });
+      render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+      await waitFor(() => {
+        expect(screen.getByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+      });
+      expect(screen.getByText('SUBMITTED')).toBeInTheDocument();
+      expect(screen.getAllByText('OPEN_METEO_FORECAST').length).toBeGreaterThan(0);
+      expect(screen.getByText('1 failures (100.00%)')).toBeInTheDocument();
+      expect(screen.getByText(/429 Too Many Requests/)).toBeInTheDocument();
+      expect(screen.getByText('OPEN_METEO_FORECAST · 429')).toBeInTheDocument();
+      expect(screen.queryByText('No API calls recorded')).not.toBeInTheDocument();
+    });
+
+    it('keeps the card and its failure text for a FAILED batch that also has Open-Meteo rows', async () => {
+      getBatchSummary.mockResolvedValue(batchSummary('FAILED'));
+      getApiCalls.mockResolvedValue({ data: [{ ...FORECAST_ROW_429, succeeded: true, statusCode: 200, errorMessage: null }] });
+      render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+      await waitFor(() => {
+        expect(screen.getByText('ANTHROPIC (Batch)')).toBeInTheDocument();
+      });
+      expect(screen.getByText('FAILED')).toBeInTheDocument();
+      expect(screen.getByText(/No token data/)).toBeInTheDocument();
+      expect(screen.getByText('OPEN_METEO_FORECAST')).toBeInTheDocument();
+      expect(screen.getByText('All OK')).toBeInTheDocument();
+    });
+
+    it('drops the batch card once ANTHROPIC rows exist, leaving the ANTHROPIC group', async () => {
+      getBatchSummary.mockResolvedValue(batchSummary('COMPLETED'));
+      getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL, FORECAST_ROW_429] });
+      render(<JobRunDetail jobRun={BATCH_JOB_RUN} />);
+      await waitFor(() => {
+        expect(screen.getByText('OPEN_METEO_FORECAST')).toBeInTheDocument();
+      });
+      expect(screen.queryByText('ANTHROPIC (Batch)')).not.toBeInTheDocument();
+      expect(screen.getByText('ANTHROPIC')).toBeInTheDocument();
+    });
+  });
+
+  it('hides the Anthropic Batch ID box when the note is not a batch id', async () => {
+    getApiCalls.mockResolvedValue({ data: [] });
+    render(<JobRunDetail jobRun={{
+      ...BATCH_JOB_RUN,
+      notes: 'Weather pre-fetch aborted — 0/42 locations returned (Open-Meteo); no batch submitted',
+    }} />);
+    await waitFor(() => {
+      expect(screen.getByText('Job Run ID')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Anthropic Batch ID')).not.toBeInTheDocument();
+  });
 });
 
 describe('JobRunDetail — Fallback-parsed responses', () => {

@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -71,6 +72,7 @@ public class ScheduledBatchEvaluationService {
     private final JobRunService jobRunService;
     private final java.time.Clock clock;
     private final BatchCachePrimer batchCachePrimer;
+    private final PipelineRunRepository pipelineRunRepository;
 
     /**
      * No-op between-steps hook for paths that do not split the submit into
@@ -103,6 +105,7 @@ public class ScheduledBatchEvaluationService {
      *                                    resolved in {@code Europe/London} by {@link ForecastHorizon}
      * @param batchCachePrimer            warms the sky prompt cache before the buckets submit;
      *                                    fail-open, never throws
+     * @param pipelineRunRepository       links a report-only anchor run to its pipeline cycle
      */
     public ScheduledBatchEvaluationService(
             ModelSelectionService modelSelectionService,
@@ -117,8 +120,10 @@ public class ScheduledBatchEvaluationService {
             ForecastDispositionService dispositionService,
             JobRunService jobRunService,
             java.time.Clock clock,
-            BatchCachePrimer batchCachePrimer) {
+            BatchCachePrimer batchCachePrimer,
+            PipelineRunRepository pipelineRunRepository) {
         this.batchCachePrimer = batchCachePrimer;
+        this.pipelineRunRepository = pipelineRunRepository;
         this.modelSelectionService = modelSelectionService;
         this.noaaSwpcClient = noaaSwpcClient;
         this.weatherTriageService = weatherTriageService;
@@ -431,7 +436,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearInland(), pipelineRunId, "near-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "near-term inland", e);
                 throw e;
             }
@@ -447,7 +453,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.nearCoastal(), pipelineRunId, "near-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "near-term coastal", e);
                 throw e;
             }
@@ -463,7 +470,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farInland(), pipelineRunId, "far-term inland", warmedPrefixes);
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "far-term inland", e);
                 throw e;
             }
@@ -479,7 +487,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.farCoastal(), pipelineRunId, "far-term coastal", warmedPrefixes);
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "far-term coastal", e);
                 throw e;
             }
@@ -497,7 +506,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.bluebell(), pipelineRunId, "bluebell");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "bluebell", e);
                 throw e;
             }
@@ -516,7 +526,8 @@ public class ScheduledBatchEvaluationService {
             try {
                 h = submitBucketSafely(tasks.woodland(), pipelineRunId, "woodland");
             } catch (OrphanedBatchException e) {
-                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), bucketOutcomes,
+                persistOnOrphan(pipelineRunId, cycleJobRunId, tasks.dispositions(), tasks.weatherPrefetch(),
+                        bucketOutcomes,
                         allNonEmptyBuckets, "woodland", e);
                 throw e;
             }
@@ -539,7 +550,7 @@ public class ScheduledBatchEvaluationService {
         // (legacy submitForecastBatch + orchestrated submitForecastBatchForPipelineRun
         // + the future intraday cycle, all via this method), so the persist
         // cannot be routed around again.
-        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions, tasks.weatherPrefetch());
 
         if (!tasks.isEmpty()) {
             LOG.info("Forecast batch split: near-term {} ({}i + {}c), far-term {} ({}i + {}c), "
@@ -640,6 +651,7 @@ public class ScheduledBatchEvaluationService {
      * @param cycleJobRunId       the job_run accumulated from buckets that succeeded BEFORE this
      *                            one — may still be {@code null} if this is the first bucket
      * @param dispositions        the cycle's full, uncorrected disposition list from collection
+     * @param weatherPrefetch     the cycle's weather pre-fetch report, written onto a run on this path too
      * @param bucketOutcomesSoFar every earlier bucket's outcome, not including the orphaned one
      * @param allNonEmptyBuckets  every non-empty bucket this cycle would submit, in submission
      *                            order, built before any bucket was attempted
@@ -648,7 +660,7 @@ public class ScheduledBatchEvaluationService {
      * @param e                    the exception, for its batch id and cause
      */
     private void persistOnOrphan(Long pipelineRunId, Long cycleJobRunId,
-            List<CandidateDisposition> dispositions,
+            List<CandidateDisposition> dispositions, WeatherPrefetchReport weatherPrefetch,
             List<BucketOutcome> bucketOutcomesSoFar, List<LabeledBucket> allNonEmptyBuckets,
             String label, OrphanedBatchException e) {
         int orphanIndex = indexOfLabel(allNonEmptyBuckets, label);
@@ -676,7 +688,7 @@ public class ScheduledBatchEvaluationService {
         }
 
         List<CandidateDisposition> finalDispositions = applySubmissionFailures(dispositions, outcomes);
-        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions);
+        persistCycleDispositions(pipelineRunId, cycleJobRunId, finalDispositions, weatherPrefetch);
     }
 
     /**
@@ -899,7 +911,8 @@ public class ScheduledBatchEvaluationService {
 
     /**
      * Persists the cycle's disposition rows, anchoring them to a job_run that is
-     * visible in the Job Run detail UI.
+     * visible in the Job Run detail UI, and writes the cycle's Open-Meteo weather pre-fetch calls
+     * to that same run.
      *
      * <p>When at least one batch was submitted, {@code cycleJobRunId} is the
      * first batch's job_run and the dispositions hang off it. When NO batch was
@@ -913,31 +926,82 @@ public class ScheduledBatchEvaluationService {
      * {@code disposition_job_run_id}, durably, so the location auto-disable settle can find a
      * batchless cycle's anchor run (it has no {@code forecast_batch} row to be found through).
      *
+     * <p>The weather pre-fetch calls go to one run per cycle, the run that holds the dispositions
+     * (never copied to the other bucket runs, which would double the counts). They are written in a
+     * {@code finally}, so a failing disposition persist cannot lose them, and best effort, so a
+     * failing write never fails the cycle. If there is no run at all and the pre-fetch ran (it
+     * aborted before any disposition could be written, for example), a new anchor run is created
+     * and linked to the pipeline cycle, which the disposition persist would otherwise have done.
+     *
      * @param pipelineRunId the orchestrated cycle id, or null for a legacy cron-direct invocation
      * @param cycleJobRunId the first submitted batch's job_run id, or null if none
      * @param dispositions  every candidate's disposition for this cycle
+     * @param weatherPrefetch the cycle's weather pre-fetch report
      */
     private void persistCycleDispositions(Long pipelineRunId, Long cycleJobRunId,
-            List<CandidateDisposition> dispositions) {
-        if (dispositions.isEmpty()) {
-            LOG.info("[DISPOSITION] No candidates considered this cycle — nothing to persist");
+            List<CandidateDisposition> dispositions, WeatherPrefetchReport weatherPrefetch) {
+        Long prefetchRunId = cycleJobRunId;
+        try {
+            if (dispositions.isEmpty()) {
+                LOG.info("[DISPOSITION] No candidates considered this cycle — nothing to persist");
+                return;
+            }
+            Long anchorJobRunId = cycleJobRunId;
+            String anchorKind = "batch job_run";
+            if (anchorJobRunId == null) {
+                anchorJobRunId = weatherPrefetch.aborted()
+                        ? jobRunService.startDispositionAnchorRun(dispositions.size(),
+                                abortNote(weatherPrefetch))
+                        : jobRunService.startDispositionAnchorRun(dispositions.size());
+                anchorKind = "disposition-only anchor run";
+                prefetchRunId = anchorJobRunId;
+            }
+            LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
+                    dispositions.size(), anchorJobRunId, anchorKind);
+            if (pipelineRunId == null) {
+                dispositionService.persist(anchorJobRunId, dispositions);
+            } else {
+                // One transaction for the rows AND the link to the pipeline run (see the service's
+                // javadoc): a link that cannot be written rolls the rows back with it, never swallowed.
+                dispositionService.persist(pipelineRunId, anchorJobRunId, dispositions);
+            }
+        } finally {
+            recordWeatherPrefetch(pipelineRunId, prefetchRunId, weatherPrefetch);
+        }
+    }
+
+    /**
+     * Writes the weather pre-fetch calls to the cycle's representative run, creating an anchor run
+     * (linked to the pipeline cycle) when the cycle has none. Best effort: any failure is a WARN,
+     * never an exception, so it cannot roll back or fail the cycle.
+     *
+     * <p>Accepted losses: an exception in the collector after the pre-fetch loses the report, and
+     * the admin region path writes no anchor on an abort.
+     */
+    private void recordWeatherPrefetch(Long pipelineRunId, Long runId, WeatherPrefetchReport report) {
+        if (report == null || !report.attempted()) {
             return;
         }
-        Long anchorJobRunId = cycleJobRunId;
-        String anchorKind = "batch job_run";
-        if (anchorJobRunId == null) {
-            anchorJobRunId = jobRunService.startDispositionAnchorRun(dispositions.size());
-            anchorKind = "disposition-only anchor run";
+        try {
+            Long targetRunId = runId;
+            if (targetRunId == null) {
+                targetRunId = report.aborted()
+                        ? jobRunService.startDispositionAnchorRun(0, abortNote(report))
+                        : jobRunService.startDispositionAnchorRun(0);
+                if (pipelineRunId != null) {
+                    pipelineRunRepository.recordDispositionJobRun(pipelineRunId, targetRunId);
+                }
+            }
+            jobRunService.logPrefetchCalls(targetRunId, report.calls());
+        } catch (RuntimeException e) {
+            LOG.warn("[BATCH] Could not record the weather pre-fetch calls on a job run: {}",
+                    e.getMessage());
         }
-        LOG.info("[DISPOSITION] Persisting {} dispositions for cycle jobRunId={} ({})",
-                dispositions.size(), anchorJobRunId, anchorKind);
-        if (pipelineRunId == null) {
-            dispositionService.persist(anchorJobRunId, dispositions);
-        } else {
-            // One transaction for the rows AND the link to the pipeline run (see the service's
-            // javadoc): a link that cannot be written rolls the rows back with it, never swallowed.
-            dispositionService.persist(pipelineRunId, anchorJobRunId, dispositions);
-        }
+    }
+
+    private static String abortNote(WeatherPrefetchReport report) {
+        return "Weather pre-fetch aborted — " + report.abortReason()
+                + " (Open-Meteo); no batch submitted";
     }
 
     private static Long firstNonNull(Long current, Long candidate) {
@@ -1011,6 +1075,11 @@ public class ScheduledBatchEvaluationService {
         RegionFilteredBatchTasks tasks =
                 forecastTaskCollector.collectRegionFilteredBatches(regionIds);
         if (tasks.isEmpty()) {
+            // An admin-path abort is logged only: the anchor run is SCHEDULED_BATCH-shaped.
+            if (tasks.weatherPrefetch().aborted()) {
+                LOG.warn("[BATCH] Admin region batch: weather pre-fetch aborted — {} (Open-Meteo)",
+                        tasks.weatherPrefetch().abortReason());
+            }
             return null;
         }
 
@@ -1024,6 +1093,14 @@ public class ScheduledBatchEvaluationService {
         LOG.info("[BATCH DIAG] Admin batch split: {} inland in {}, {} coastal in {}",
                 tasks.inland().size(), describeAdminBucket(tasks.inland(), inlandHandle),
                 tasks.coastal().size(), describeAdminBucket(tasks.coastal(), coastalHandle));
+
+        // The pre-fetch calls go on the first run the batches created (inland preferred).
+        Long inlandRunId = inlandHandle != null ? inlandHandle.jobRunId() : null;
+        Long coastalRunId = coastalHandle != null ? coastalHandle.jobRunId() : null;
+        Long adminRunId = firstNonNull(inlandRunId, coastalRunId);
+        if (adminRunId != null) {
+            recordWeatherPrefetch(null, adminRunId, tasks.weatherPrefetch());
+        }
 
         // Return whichever bucket Anthropic actually accepted — a null check alone
         // is not enough here, because a failed submission still returns a non-null

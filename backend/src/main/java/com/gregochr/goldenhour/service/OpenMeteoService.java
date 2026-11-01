@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.ForecastRequest;
 import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.UpwindCloudSample;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
@@ -25,12 +26,16 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Retrieves atmospheric forecast data from the Open-Meteo Forecast and Air Quality APIs.
@@ -176,12 +181,17 @@ public class OpenMeteoService {
      * does not abort the entire pre-fetch. Returns partial results — callers must handle
      * locations missing from the returned map (typically by skipping them during triage).
      *
+     * <p>Every Open-Meteo call is reported to {@code sink} as a {@link PrefetchCall}. A call that
+     * fails before the client method body runs (an open circuit breaker, a rate-limiter
+     * rejection) leaves no chunk row, so one call-level failure row is recorded for it.
+     *
      * @param coords list of unique [lat, lon] pairs
+     * @param sink   receives the Open-Meteo calls made
      * @return map from coordinate key ("lat,lon") to the paired responses; may be smaller
      *         than the input if some chunks failed
      */
     public Map<String, WeatherExtractionResult> prefetchWeatherBatchResilient(
-            List<double[]> coords) {
+            List<double[]> coords, Consumer<PrefetchCall> sink) {
         if (coords.isEmpty()) {
             LOG.info("Open-Meteo resilient batch prefetch: 0 locations — skipping");
             return Map.of();
@@ -192,18 +202,32 @@ public class OpenMeteoService {
         List<OpenMeteoForecastResponse> forecasts;
         List<OpenMeteoAirQualityResponse> airQualities;
 
+        Set<ServiceName> recorded = EnumSet.noneOf(ServiceName.class);
+        Consumer<PrefetchCall> tracking = call -> {
+            recorded.add(call.service());
+            sink.accept(call);
+        };
+
+        LocalDateTime forecastCalledAt = LocalDateTime.now(ZoneOffset.UTC);
         try {
-            forecasts = openMeteoClient.fetchForecastBriefingBatch(coords);
+            forecasts = openMeteoClient.fetchForecastBriefingBatch(coords, tracking);
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.error("Open-Meteo resilient batch: forecast call failed entirely ({}ms): {}",
                     durationMs, e.getMessage());
+            recordCallLevelFailure(sink, recorded, ServiceName.OPEN_METEO_FORECAST,
+                    "batch-prefetch forecast", coords.size(), forecastCalledAt, durationMs, e);
             return Map.of();
         }
 
+        long airStartMs = System.currentTimeMillis();
+        LocalDateTime airCalledAt = LocalDateTime.now(ZoneOffset.UTC);
         try {
-            airQualities = openMeteoClient.fetchAirQualityBatchResilient(coords);
+            airQualities = openMeteoClient.fetchAirQualityBatchResilient(coords, tracking);
         } catch (Exception e) {
+            recordCallLevelFailure(sink, recorded, ServiceName.OPEN_METEO_AIR_QUALITY,
+                    "batch-prefetch air-quality", coords.size(), airCalledAt,
+                    System.currentTimeMillis() - airStartMs, e);
             LOG.warn("Open-Meteo resilient batch: air quality call failed — continuing "
                     + "without AQ data: {}", e.getMessage());
             airQualities = new ArrayList<>(java.util.Collections.nCopies(coords.size(), null));
@@ -227,6 +251,34 @@ public class OpenMeteoService {
                 cache.size(), coords.size(), durationMs, nullCount);
 
         return cache;
+    }
+
+    /**
+     * Records one call-level failure row for a service whose client call threw without the client
+     * recording any chunk (a circuit-breaker or rate-limiter rejection, which fail before the method
+     * body runs). Does nothing when the client already recorded a row for that service. Never throws.
+     */
+    private void recordCallLevelFailure(Consumer<PrefetchCall> sink, Set<ServiceName> recorded,
+            ServiceName service, String label, int requested, LocalDateTime calledAt,
+            long durationMs, Exception e) {
+        if (recorded.contains(service)) {
+            return;
+        }
+        try {
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            sink.accept(new PrefetchCall(service, label, requested, 0, calledAt, durationMs,
+                    callStatusCode(e, message), false, message, 1));
+        } catch (RuntimeException sinkFailure) {
+            LOG.warn("Open-Meteo pre-fetch call could not be recorded: {}", sinkFailure.getMessage());
+        }
+    }
+
+    private Integer callStatusCode(Exception e, String message) {
+        Integer status = getStatusCode(e);
+        if (status == null && message.contains("429")) {
+            return 429;
+        }
+        return status;
     }
 
     /**
@@ -301,14 +353,14 @@ public class OpenMeteoService {
      * API call. Returns a {@link CloudPointCache} for lookup during augmentation.
      *
      * <p>Makes no pressure-level call; see
-     * {@link #prefetchCloudBatch(List, List, JobRunEntity)}.
+     * {@link #prefetchCloudBatch(List, List, Consumer)}.
      *
      * @param allCoords raw [lat, lon] pairs (may contain duplicates)
-     * @param jobRun    the parent job run for metrics tracking, or {@code null}
+     * @param sink      receives the call made, or {@code null} to record nothing
      * @return a cache of cloud-only responses keyed by grid cell
      */
-    public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, JobRunEntity jobRun) {
-        return prefetchCloudBatch(allCoords, List.of(), jobRun);
+    public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, Consumer<PrefetchCall> sink) {
+        return prefetchCloudBatch(allCoords, List.of(), sink);
     }
 
     /**
@@ -322,11 +374,13 @@ public class OpenMeteoService {
      *
      * @param allCoords raw [lat, lon] pairs (may contain duplicates)
      * @param farCoords the far-solar [lat, lon] points (may contain duplicates, may be empty)
-     * @param jobRun    the parent job run for metrics tracking, or {@code null}
+     * @param sink      receives one call-level row for the cloud fetch and one for the pressure-level
+     *                  fetch, or {@code null} to record nothing
      * @return a cache of cloud-only responses keyed by grid cell, with pressure levels attached
      */
     public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, List<double[]> farCoords,
-            JobRunEntity jobRun) {
+            Consumer<PrefetchCall> sink) {
+        Consumer<PrefetchCall> out = sink != null ? sink : call -> { };
         // Deduplicate by grid key
         Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
         for (double[] coord : allCoords) {
@@ -345,6 +399,8 @@ public class OpenMeteoService {
         }
 
         long startMs = System.currentTimeMillis();
+        LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
+        String label = "batch-prefetch cloud points (" + coords.size() + ")";
         try {
             List<OpenMeteoForecastResponse> responses =
                     openMeteoClient.fetchCloudOnlyBatch(coords);
@@ -366,21 +422,21 @@ public class OpenMeteoService {
                 LOG.warn("Cloud batch: {} grid cell(s) missing due to chunk failure — "
                         + "affected locations will fall back to cached data", nullCount);
             }
-            if (jobRun != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
-                        durationMs, 200, null, true, null);
-            }
-            return new CloudPointCache(cacheMap, prefetchPressureLevels(farCoords, jobRun));
+            // fetchForecastBatchInternal swallows chunk failures, so a "successful" return can be
+            // partial: the row says so rather than claiming a clean 200.
+            boolean complete = cacheMap.size() == coords.size();
+            recordSafely(out, new PrefetchCall(ServiceName.OPEN_METEO_FORECAST, label, coords.size(),
+                    cacheMap.size(), calledAt, durationMs, complete ? 200 : null, complete,
+                    complete ? null : "cloud: " + cacheMap.size() + "/" + coords.size()
+                            + " points returned", 1));
+            return new CloudPointCache(cacheMap, prefetchPressureLevels(farCoords, out));
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.warn("Cloud batch prefetch failed ({}ms), directional cloud will be unavailable: {}",
                     durationMs, e.getMessage());
-            if (jobRun != null) {
-                jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
-                        "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
-                        durationMs, getStatusCode(e), null, false, e.getMessage());
-            }
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            recordSafely(out, new PrefetchCall(ServiceName.OPEN_METEO_FORECAST, label, coords.size(),
+                    0, calledAt, durationMs, callStatusCode(e, message), false, message, 1));
             return new CloudPointCache(Map.of());
         }
     }
@@ -389,16 +445,18 @@ public class OpenMeteoService {
      * Best-effort pressure-level cloud fetch for the far points. Never throws.
      *
      * @param farCoords far-solar [lat, lon] points (may be null or empty)
-     * @param jobRun    the parent job run, or {@code null}
+     * @param sink      receives one call-level row
      * @return grid key to pressure-level response; empty on any failure
      */
     private Map<String, OpenMeteoForecastResponse> prefetchPressureLevels(List<double[]> farCoords,
-            JobRunEntity jobRun) {
+            Consumer<PrefetchCall> sink) {
         if (farCoords == null || farCoords.isEmpty()) {
             return Map.of();
         }
-        String endpoint = "pressure-level-cloud-batch(" + farCoords.size() + ")";
+        String endpoint = "batch-prefetch pressure levels (" + farCoords.size() + ")";
         long startMs = System.currentTimeMillis();
+        LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
+        int requested = farCoords.size();
         try {
             Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
             for (double[] coord : farCoords) {
@@ -406,7 +464,8 @@ public class OpenMeteoService {
             }
             List<String> gridKeys = new ArrayList<>(uniqueByGrid.keySet());
             List<double[]> coords = new ArrayList<>(uniqueByGrid.values());
-            endpoint = "pressure-level-cloud-batch(" + coords.size() + ")";
+            endpoint = "batch-prefetch pressure levels (" + coords.size() + ")";
+            requested = coords.size();
             List<OpenMeteoForecastResponse> responses =
                     openMeteoClient.fetchPressureLevelCloudBatch(coords);
             Map<String, OpenMeteoForecastResponse> levels = new LinkedHashMap<>();
@@ -418,27 +477,19 @@ public class OpenMeteoService {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.info("Pressure-level cloud prefetch: {}/{} far cells populated in {}ms",
                     levels.size(), coords.size(), durationMs);
-            try {
-                if (levels.isEmpty()) {
-                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
-                            "no pressure-level data");
-                } else {
-                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
-                }
-            } catch (Exception logFailure) {
-                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
-            }
+            boolean complete = levels.size() == coords.size();
+            recordSafely(sink, new PrefetchCall(ServiceName.OPEN_METEO_FORECAST, endpoint,
+                    coords.size(), levels.size(), calledAt, durationMs, complete ? 200 : null,
+                    complete, complete ? null : "pressure levels: " + levels.size() + "/"
+                            + coords.size() + " cells returned", 1));
             return levels;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.warn("Pressure-level cloud prefetch failed ({}ms), no levels recorded: {}",
                     durationMs, e.getMessage());
-            try {
-                logPressureLevelCall(jobRun, endpoint, durationMs, getStatusCode(e), false,
-                        e.getMessage());
-            } catch (Exception logFailure) {
-                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
-            }
+            String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            recordSafely(sink, new PrefetchCall(ServiceName.OPEN_METEO_FORECAST, endpoint, requested,
+                    0, calledAt, durationMs, callStatusCode(e, message), false, message, 1));
             return Map.of();
         }
     }
@@ -448,6 +499,15 @@ public class OpenMeteoService {
         if (jobRun != null) {
             jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
                     "GET", endpoint, null, durationMs, status, null, succeeded, error);
+        }
+    }
+
+    /** Hands a call to the sink; a faulty sink must never change what the pre-fetch returns. */
+    private void recordSafely(Consumer<PrefetchCall> sink, PrefetchCall call) {
+        try {
+            sink.accept(call);
+        } catch (RuntimeException sinkFailure) {
+            LOG.warn("Open-Meteo pre-fetch call could not be recorded: {}", sinkFailure.getMessage());
         }
     }
 

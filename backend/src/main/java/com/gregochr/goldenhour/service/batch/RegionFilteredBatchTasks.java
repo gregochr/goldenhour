@@ -16,16 +16,45 @@ import java.util.List;
  *
  * @param inland  inland tasks
  * @param coastal coastal tasks
+ * @param weatherPrefetch the weather pre-fetch outcome for this pass; {@link WeatherPrefetchReport#none()}
+ *                        when never reached
  */
 public record RegionFilteredBatchTasks(
         List<EvaluationTask.Forecast> inland,
-        List<EvaluationTask.Forecast> coastal) {
+        List<EvaluationTask.Forecast> coastal,
+        WeatherPrefetchReport weatherPrefetch) {
+
+    /**
+     * Canonical constructor; a missing report becomes {@link WeatherPrefetchReport#none()}.
+     */
+    public RegionFilteredBatchTasks {
+        weatherPrefetch = weatherPrefetch == null ? WeatherPrefetchReport.none() : weatherPrefetch;
+    }
+
+    /**
+     * Constructs tasks with no weather pre-fetch report.
+     *
+     * @param inland  inland tasks
+     * @param coastal coastal tasks
+     */
+    public RegionFilteredBatchTasks(List<EvaluationTask.Forecast> inland,
+            List<EvaluationTask.Forecast> coastal) {
+        this(inland, coastal, WeatherPrefetchReport.none());
+    }
 
     /**
      * @return the all-empty value.
      */
     public static RegionFilteredBatchTasks empty() {
         return new RegionFilteredBatchTasks(List.of(), List.of());
+    }
+
+    /**
+     * @param report the pre-fetch report that explains the abort
+     * @return the all-empty value carrying the weather pre-fetch report
+     */
+    public static RegionFilteredBatchTasks aborted(WeatherPrefetchReport report) {
+        return new RegionFilteredBatchTasks(List.of(), List.of(), report);
     }
 
     /**

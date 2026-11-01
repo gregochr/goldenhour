@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.InversionProfile;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.service.OpenMeteoResponseParser;
@@ -23,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Bulk weather and cloud-point pre-fetch for a batch's candidate set.
@@ -85,10 +87,11 @@ public final class BatchWeatherPrefetcher {
      * same one-fetch-per-cell assumption {@code BriefingWeatherLoader} already makes.
      *
      * @param candidates the candidate set
+     * @param sink       receives each Open-Meteo call made, for the cycle's job run
      * @return coord-key → prefetched weather result, empty if the fetch returned nothing
      */
     public Map<String, WeatherExtractionResult> prefetchBatchWeather(
-            List<ForecastCandidate> candidates) {
+            List<ForecastCandidate> candidates, Consumer<PrefetchCall> sink) {
         // group key -> representative coordinates / representative coord key / every coord key in group
         Map<String, double[]> fetchCoords = new LinkedHashMap<>();
         Map<String, String> representativeKey = new LinkedHashMap<>();
@@ -105,7 +108,7 @@ public final class BatchWeatherPrefetcher {
         LOG.info("Forecast batch: weather pre-fetch for {} distinct grid cell(s)/location(s) (from {} tasks)",
                 fetchCoords.size(), candidates.size());
         Map<String, WeatherExtractionResult> fetched =
-                openMeteoService.prefetchWeatherBatchResilient(new ArrayList<>(fetchCoords.values()));
+                openMeteoService.prefetchWeatherBatchResilient(new ArrayList<>(fetchCoords.values()), sink);
         if (fetched == null || fetched.isEmpty()) {
             return Map.of();
         }
@@ -143,10 +146,11 @@ public final class BatchWeatherPrefetcher {
      *
      * @param candidates        the candidate set
      * @param prefetchedWeather coord-key → prefetched weather (supplies wind for upwind sampling)
+     * @param sink              receives the cloud and pressure-level calls made
      * @return the pre-fetched cloud point cache
      */
     public CloudPointCache prefetchBatchCloudPoints(List<ForecastCandidate> candidates,
-            Map<String, WeatherExtractionResult> prefetchedWeather) {
+            Map<String, WeatherExtractionResult> prefetchedWeather, Consumer<PrefetchCall> sink) {
         LocalDateTime now = LocalDateTime.now(clock);
         List<double[]> allPoints = new ArrayList<>();
         List<double[]> farPoints = new ArrayList<>();
@@ -198,6 +202,6 @@ public final class BatchWeatherPrefetcher {
 
         LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
                 allPoints.size(), candidates.size());
-        return openMeteoService.prefetchCloudBatch(allPoints, farPoints, null);
+        return openMeteoService.prefetchCloudBatch(allPoints, farPoints, sink);
     }
 }

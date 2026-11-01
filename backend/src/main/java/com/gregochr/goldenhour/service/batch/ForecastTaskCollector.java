@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.InversionProfile;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
@@ -280,9 +281,13 @@ public class ForecastTaskCollector {
         LOG.info("Forecast batch: {} candidate task(s) — bulk pre-fetching weather",
                 candidates.size());
 
+        // The pre-fetch's Open-Meteo calls ride out on every return below as a report, because the
+        // job run they belong on does not exist yet. Accepted losses: an exception after this point
+        // (stability classification, triage) propagates and the report goes with it.
+        List<PrefetchCall> prefetchCalls = new ArrayList<>();
         int uniqueLocationCount = batchWeatherPrefetcher.countUniqueLocations(candidates);
         Map<String, WeatherExtractionResult> prefetchedWeather =
-                batchWeatherPrefetcher.prefetchBatchWeather(candidates);
+                batchWeatherPrefetcher.prefetchBatchWeather(candidates, prefetchCalls::add);
         double successRatio = uniqueLocationCount > 0
                 ? (double) prefetchedWeather.size() / uniqueLocationCount : 0.0;
         if (prefetchedWeather.isEmpty()) {
@@ -290,7 +295,9 @@ public class ForecastTaskCollector {
                     + "— aborting (likely Open-Meteo outage)", uniqueLocationCount);
             return new ScheduledBatchTasks(
                     List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-                    List.copyOf(dispositions));
+                    List.copyOf(dispositions),
+                    new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount, 0,
+                            "0/" + uniqueLocationCount + " locations returned"));
         }
         if (successRatio < minPrefetchSuccessRatio) {
             LOG.error("Forecast batch: weather pre-fetch too degraded — {}/{} locations "
@@ -300,7 +307,13 @@ public class ForecastTaskCollector {
                     String.format("%.2f", minPrefetchSuccessRatio));
             return new ScheduledBatchTasks(
                     List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-                    List.copyOf(dispositions));
+                    List.copyOf(dispositions),
+                    new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount,
+                            prefetchedWeather.size(),
+                            prefetchedWeather.size() + "/" + uniqueLocationCount
+                                    + " locations returned, ratio "
+                                    + String.format("%.2f", successRatio) + " below threshold "
+                                    + String.format("%.2f", minPrefetchSuccessRatio)));
         }
         if (prefetchedWeather.size() < uniqueLocationCount) {
             LOG.warn("Forecast batch: weather pre-fetch partial — {}/{} locations fetched, "
@@ -311,7 +324,7 @@ public class ForecastTaskCollector {
         CloudPointCache cloudCache;
         try {
             cloudCache = batchWeatherPrefetcher.prefetchBatchCloudPoints(
-                    candidates, prefetchedWeather);
+                    candidates, prefetchedWeather, prefetchCalls::add);
         } catch (Exception e) {
             LOG.warn("Forecast batch: cloud pre-fetch failed — continuing without cloud cache: {}",
                     e.getMessage());
@@ -612,11 +625,15 @@ public class ForecastTaskCollector {
             LOG.info("Forecast batch: no evaluable locations after triage, skipping submission");
             return new ScheduledBatchTasks(
                     List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-                    List.copyOf(dispositions));
+                    List.copyOf(dispositions),
+                    new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount,
+                            prefetchedWeather.size(), null));
         }
 
         return new ScheduledBatchTasks(nearInland, nearCoastal, farInland, farCoastal,
-                bluebell, woodland, List.copyOf(dispositions));
+                bluebell, woodland, List.copyOf(dispositions),
+                new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount,
+                        prefetchedWeather.size(), null));
     }
 
     /**
@@ -743,17 +760,23 @@ public class ForecastTaskCollector {
             return RegionFilteredBatchTasks.empty();
         }
 
+        // As on the scheduled path, the pre-fetch's calls ride out on the result as a report. A
+        // partial pre-fetch followed by everything being triaged out returns no handle, and its
+        // rows are not written (accepted loss).
+        List<PrefetchCall> prefetchCalls = new ArrayList<>();
+        int uniqueLocationCount = batchWeatherPrefetcher.countUniqueLocations(candidates);
         Map<String, WeatherExtractionResult> prefetchedWeather =
-                batchWeatherPrefetcher.prefetchBatchWeather(candidates);
+                batchWeatherPrefetcher.prefetchBatchWeather(candidates, prefetchCalls::add);
         if (prefetchedWeather.isEmpty()) {
             LOG.error("[BATCH] Weather pre-fetch returned zero results — aborting");
-            return RegionFilteredBatchTasks.empty();
+            return RegionFilteredBatchTasks.aborted(new WeatherPrefetchReport(prefetchCalls,
+                    uniqueLocationCount, 0, "0/" + uniqueLocationCount + " locations returned"));
         }
 
         CloudPointCache cloudCache;
         try {
             cloudCache = batchWeatherPrefetcher.prefetchBatchCloudPoints(
-                    candidates, prefetchedWeather);
+                    candidates, prefetchedWeather, prefetchCalls::add);
         } catch (Exception e) {
             LOG.warn("[BATCH] Cloud pre-fetch failed — continuing without: {}", e.getMessage());
             cloudCache = null;
@@ -827,7 +850,9 @@ public class ForecastTaskCollector {
             }
         }
 
-        return new RegionFilteredBatchTasks(inland, coastal);
+        return new RegionFilteredBatchTasks(inland, coastal,
+                new WeatherPrefetchReport(prefetchCalls, uniqueLocationCount,
+                        prefetchedWeather.size(), null));
     }
 
     /**

@@ -490,6 +490,10 @@ resilience4j:
         waitDuration: 5s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
+      # The briefing fetches retry per chunk inside the method, so a whole-method retry would
+      # re-run every chunk and record the batch weather pre-fetch's calls twice. One attempt, as prod.
+      open-meteo-briefing:
+        maxAttempts: 1
   ratelimiter:
     rateLimiterAspectOrder: 3
     instances:

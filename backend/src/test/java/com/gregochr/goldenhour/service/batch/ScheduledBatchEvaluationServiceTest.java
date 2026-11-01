@@ -12,11 +12,14 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CandidateDisposition;
+import com.gregochr.goldenhour.model.PrefetchCall;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
@@ -48,8 +51,12 @@ import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -115,6 +122,8 @@ class ScheduledBatchEvaluationServiceTest {
     private com.gregochr.goldenhour.service.JobRunService jobRunService;
     @Mock
     private BatchCachePrimer batchCachePrimer;
+    @Mock
+    private PipelineRunRepository pipelineRunRepository;
 
     /** Fixed so the batch-breakdown log line never depends on wall-clock time. */
     private static final Clock CLOCK = Clock.fixed(
@@ -134,7 +143,7 @@ class ScheduledBatchEvaluationServiceTest {
                 weatherTriageService, auroraOrchestrator,
                 locationRepository, auroraProperties, dynamicSchedulerService,
                 evaluationService, forecastTaskCollector, dispositionService,
-                jobRunService, CLOCK, batchCachePrimer);
+                jobRunService, CLOCK, batchCachePrimer, pipelineRunRepository);
 
         serviceLogger = (Logger) LoggerFactory.getLogger(ScheduledBatchEvaluationService.class);
         logAppender = new ListAppender<>();
@@ -505,6 +514,293 @@ class ScheduledBatchEvaluationServiceTest {
                 false, summary -> { }))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("link write failed");
+    }
+
+    // ── Weather pre-fetch rows (batch-weather-prefetch-logging-plan.md) ─────────────────
+
+    private static final PrefetchCall PREFETCH_OK = new PrefetchCall(
+            ServiceName.OPEN_METEO_FORECAST, "batch-prefetch forecast chunk 1/2", 20, 20,
+            LocalDateTime.of(2026, 10, 31, 21, 5), 800L, 200, true, null, 1);
+    private static final PrefetchCall PREFETCH_429 = new PrefetchCall(
+            ServiceName.OPEN_METEO_FORECAST, "batch-prefetch forecast chunk 2/2", 20, 0,
+            LocalDateTime.of(2026, 10, 31, 21, 5, 4), 300L, 429, false, "429 Too Many Requests", 1);
+
+    private static WeatherPrefetchReport reportWithCalls() {
+        return new WeatherPrefetchReport(List.of(PREFETCH_OK, PREFETCH_429), 40, 20, null);
+    }
+
+    private static WeatherPrefetchReport abortedReport() {
+        return new WeatherPrefetchReport(List.of(PREFETCH_429), 42, 3,
+                "3/42 locations returned, ratio 0.07 below threshold 0.50");
+    }
+
+    private static final String ABORT_NOTE = "Weather pre-fetch aborted — 3/42 locations returned, "
+            + "ratio 0.07 below threshold 0.50 (Open-Meteo); no batch submitted";
+
+    @Test
+    @DisplayName("weather pre-fetch rows go to the first submitted bucket's run only, never copied "
+            + "to the cycle's other bucket runs")
+    void prefetchRows_writtenToFirstBucketRunOnly() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET, EvaluationModel.HAIKU, buildAtmospheric());
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask), List.of(), List.of(),
+                        List.of(), List.of(), List.of(dispo), reportWithCalls()));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenReturn(new EvaluationHandle(21L, "msgbatch_a", 1));
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenReturn(new EvaluationHandle(22L, "msgbatch_b", 1));
+
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
+
+        verify(jobRunService).logPrefetchCalls(21L, List.of(PREFETCH_OK, PREFETCH_429));
+        verify(jobRunService, never()).logPrefetchCalls(eq(22L), any());
+        verify(jobRunService, never()).startDispositionAnchorRun(anyInt());
+        verify(jobRunService, never()).startDispositionAnchorRun(anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("an aborted pre-fetch with first-pass skips puts the rows and the abort note on the "
+            + "disposition anchor")
+    void prefetchAborted_withDispositions_rowsAndNoteOnTheAnchor() {
+        CandidateDisposition cached = new CandidateDisposition(
+                null, "Cached A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_CACHED, "Fresh cached evaluation");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(cached), abortedReport()));
+        when(jobRunService.startDispositionAnchorRun(1, ABORT_NOTE)).thenReturn(555L);
+
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
+
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(555L), eq(List.of(cached)));
+        verify(jobRunService).logPrefetchCalls(555L, List.of(PREFETCH_429));
+        // One anchor only: the rows ride on the disposition anchor, not a second one.
+        verify(jobRunService, times(1)).startDispositionAnchorRun(anyInt(), anyString());
+        verify(jobRunService, never()).startDispositionAnchorRun(anyInt());
+        verify(pipelineRunRepository, never()).recordDispositionJobRun(any(), any());
+    }
+
+    @Test
+    @DisplayName("an aborted pre-fetch with NO dispositions still creates an anchor run carrying the "
+            + "rows, and links it to the pipeline cycle")
+    void prefetchAborted_noDispositions_createsLinkedAnchorWithRows() {
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(), abortedReport()));
+        when(jobRunService.startDispositionAnchorRun(0, ABORT_NOTE)).thenReturn(556L);
+
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
+
+        verifyNoInteractions(dispositionService);
+        verify(pipelineRunRepository).recordDispositionJobRun(PIPELINE_RUN_ID, 556L);
+        verify(jobRunService).logPrefetchCalls(556L, List.of(PREFETCH_429));
+    }
+
+    @Test
+    @DisplayName("a cycle whose pre-fetch never ran writes no pre-fetch rows and creates no extra anchor")
+    void noPrefetchReport_writesNothing() {
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(ScheduledBatchTasks.empty());
+
+        service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID);
+
+        verify(jobRunService, never()).logPrefetchCalls(any(), any());
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("a throwing logPrefetchCalls leaves dispositions and the summary unchanged")
+    void prefetchRowWriteFails_cycleUnaffected() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(inlandTask), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(dispo), reportWithCalls()));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenReturn(new EvaluationHandle(21L, "msgbatch_a", 1));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down"))
+                .when(jobRunService).logPrefetchCalls(21L, List.of(PREFETCH_OK, PREFETCH_429));
+
+        ForecastBatchSubmissionOutcome outcome = service.submitForecastBatchForPipelineRun(
+                PIPELINE_RUN_ID, NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false, summary -> { });
+
+        assertThat(outcome.submitted()).isTrue();
+        assertThat(outcome.summary()).isEqualTo(new BatchSubmissionSummary(1, 1, List.of()));
+        verify(dispositionService).persist(eq(PIPELINE_RUN_ID), eq(21L), eq(List.of(dispo)));
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage())
+                    .contains("Could not record the weather pre-fetch calls").contains("db down");
+        });
+    }
+
+    @Test
+    @DisplayName("the rows are still written when the disposition persist throws (its own finally)")
+    void prefetchRows_writtenEvenWhenDispositionPersistThrows() {
+        CandidateDisposition triaged = new CandidateDisposition(
+                7L, "Triaged A", TEST_DATE, TargetType.SUNRISE, 1,
+                DispositionCategory.SKIPPED_TRIAGED, "heavy cloud");
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(triaged), reportWithCalls()));
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(555L);
+        org.mockito.Mockito.doThrow(new IllegalStateException("link write failed"))
+                .when(dispositionService).persist(99L, 555L, List.of(triaged));
+
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(
+                99L, NightlyCandidateCollectionStrategy.INSTANCE, NightlyEligibilityPolicy.INSTANCE,
+                false, summary -> { }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("link write failed");
+
+        verify(jobRunService).logPrefetchCalls(555L, List.of(PREFETCH_OK, PREFETCH_429));
+    }
+
+    @Test
+    @DisplayName("the orphan path attaches the pre-fetch rows to the earlier bucket's run before rethrowing")
+    void prefetchRows_orphanPathAttachesRows() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET, EvaluationModel.HAIKU, buildAtmospheric());
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask), List.of(), List.of(),
+                        List.of(), List.of(), List.of(dispo), reportWithCalls()));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenReturn(new EvaluationHandle(21L, "msgbatch_a", 1));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_b", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenThrow(orphaned);
+
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
+                .isSameAs(orphaned);
+
+        verify(jobRunService).logPrefetchCalls(21L, List.of(PREFETCH_OK, PREFETCH_429));
+    }
+
+    @Test
+    @DisplayName("the orphan path with no earlier run creates an anchor for the rows and links it")
+    void prefetchRows_orphanFirstBucket_anchorCreatedAndLinked() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        CandidateDisposition dispo = new CandidateDisposition(
+                42L, "Durham UK", TEST_DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.EVALUATED, null);
+        when(forecastTaskCollector.collectScheduledBatches(
+                NightlyCandidateCollectionStrategy.INSTANCE,
+                NightlyEligibilityPolicy.INSTANCE, false))
+                .thenReturn(new ScheduledBatchTasks(
+                        List.of(inlandTask), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        List.of(dispo), reportWithCalls()));
+        OrphanedBatchException orphaned = new OrphanedBatchException(
+                "msgbatch_a", new RuntimeException("row persist failed"));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.SCHEDULED),
+                eq(PIPELINE_RUN_ID))).thenThrow(orphaned);
+        when(jobRunService.startDispositionAnchorRun(1)).thenReturn(778L);
+
+        assertThatThrownBy(() -> service.submitForecastBatchForPipelineRun(PIPELINE_RUN_ID))
+                .isSameAs(orphaned);
+
+        verify(jobRunService).logPrefetchCalls(778L, List.of(PREFETCH_OK, PREFETCH_429));
+    }
+
+    @Test
+    @DisplayName("admin region path writes the pre-fetch rows to the inland run when it has one")
+    void adminRegionPath_rowsOnFirstNonNullRun() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET, EvaluationModel.HAIKU, buildAtmospheric());
+        when(forecastTaskCollector.collectRegionFilteredBatches(List.of(1L)))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask), reportWithCalls()));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(31L, "msgbatch_in", 1));
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(32L, "msgbatch_co", 1));
+
+        service.submitScheduledBatchForRegions(List.of(1L));
+
+        verify(jobRunService).logPrefetchCalls(31L, List.of(PREFETCH_OK, PREFETCH_429));
+        verify(jobRunService, never()).logPrefetchCalls(eq(32L), any());
+    }
+
+    @Test
+    @DisplayName("admin region path falls back to the coastal run when the inland handle has no run id")
+    void adminRegionPath_rowsFallBackToCoastalRun() {
+        LocationEntity location = buildLocation("Durham UK");
+        EvaluationTask.Forecast inlandTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, buildAtmospheric());
+        EvaluationTask.Forecast coastalTask = new EvaluationTask.Forecast(
+                location, TEST_DATE, TargetType.SUNSET, EvaluationModel.HAIKU, buildAtmospheric());
+        when(forecastTaskCollector.collectRegionFilteredBatches(List.of(1L)))
+                .thenReturn(new RegionFilteredBatchTasks(
+                        List.of(inlandTask), List.of(coastalTask), reportWithCalls()));
+        when(evaluationService.submit(eq(List.of(inlandTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(EvaluationHandle.empty());
+        when(evaluationService.submit(eq(List.of(coastalTask)), eq(BatchTriggerSource.ADMIN)))
+                .thenReturn(new EvaluationHandle(32L, "msgbatch_co", 1));
+
+        service.submitScheduledBatchForRegions(List.of(1L));
+
+        verify(jobRunService).logPrefetchCalls(32L, List.of(PREFETCH_OK, PREFETCH_429));
+    }
+
+    @Test
+    @DisplayName("admin region path: an aborted pre-fetch is logged only, no anchor run is created")
+    void adminRegionPath_abort_loggedOnly() {
+        when(forecastTaskCollector.collectRegionFilteredBatches(List.of(1L)))
+                .thenReturn(RegionFilteredBatchTasks.aborted(
+                        new WeatherPrefetchReport(List.of(PREFETCH_429), 5, 0,
+                                "0/5 locations returned")));
+
+        BatchSubmitResult result = service.submitScheduledBatchForRegions(List.of(1L));
+
+        assertThat(result).isNull();
+        verifyNoInteractions(jobRunService);
+        assertThat(logAppender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("0/5 locations returned");
+        });
     }
 
     @Test
