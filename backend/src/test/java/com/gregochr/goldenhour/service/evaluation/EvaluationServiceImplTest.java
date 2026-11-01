@@ -709,9 +709,9 @@ class EvaluationServiceImplTest {
         };
     }
 
-    /** Aurora answer budget for one location (256 + 220), plus the thinking allowance for 5.5. */
+    /** Aurora answer budget for one location (256 + 110), plus the thinking allowance for 5.5. */
     private static long auroraCeiling(EvaluationModel model) {
-        return model == EvaluationModel.SONNET_55 ? 476 + 4096 : 476;
+        return model == EvaluationModel.SONNET_55 ? 366 + 4096 : 366;
     }
 
     @Test
