@@ -84,6 +84,24 @@ class AskToolSchemasTest {
     }
 
     @Test
+    @DisplayName("rank_spots' description names Fiery Sky and Golden Hour for a typed conversation; the user-less "
+            + "text is the unchanged original")
+    void rankSpotsDescriptionNamesTheLightFiguresOnlyWithAUser() {
+        String base = "The spots worth going to, best first: only places rated 3 stars or better, never a wood. "
+                + "Every pick in your answer must be a locationId and windowId this tool returned.";
+        String typedText = base + " Each spot also has its Fiery Sky and Golden Hour (0-100).";
+
+        assertThat(tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_SPOTS).description().orElseThrow())
+                .isEqualTo(typedText);
+        assertThat(tool(AskToolSchemas.tools(true, false, true), AskToolSchemas.RANK_SPOTS).description()
+                .orElseThrow()).isEqualTo(typedText);
+        assertThat(tool(AskToolSchemas.tools(false), AskToolSchemas.RANK_SPOTS).description().orElseThrow())
+                .isEqualTo(base);
+        assertThat(tool(AskToolSchemas.tools(false, false, false), AskToolSchemas.RANK_SPOTS).description()
+                .orElseThrow()).isEqualTo(base);
+    }
+
+    @Test
     @DisplayName("areaName is on the typed rank_spots; the Ready list never has it, and look_up_place's "
             + "description names the named area")
     void namedAreaIsATypedQuestionArgument() {

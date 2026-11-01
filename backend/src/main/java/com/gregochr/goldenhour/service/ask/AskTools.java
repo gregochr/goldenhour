@@ -425,11 +425,16 @@ public class AskTools {
      * @param headline      the served headline, at most {@value AskTools#HEADLINE_CAP} characters, or null
      * @param pick          BEST or ALSO when this is the window's forecast-wide pick, else null
      * @param driveMinutes  minutes from the asker's home; present only when a drive limit was given
+     * @param fierySky      the slot's served Fiery Sky potential out of 100; present only in a typed
+     *                      conversation (never the Ready precompute) and only when the slot has one
+     * @param goldenHour    the slot's served Golden Hour potential out of 100; same presence rule as
+     *                      {@code fierySky}
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SpotInfo(long locationId, String name, String region, String windowId,
             int rating, String verdict, String tideState, Boolean tideAligned,
-            String tideFitPhrase, String headline, String pick, Integer driveMinutes) {
+            String tideFitPhrase, String headline, String pick, Integer driveMinutes,
+            Integer fierySky, Integer goldenHour) {
     }
 
     /**
@@ -2060,7 +2065,8 @@ public class AskTools {
         return new SpotInfo(s.locationId(), s.name(), c.region().name(), c.window().id(),
                 s.rating(), s.verdict() == null ? null : s.verdict().name(), s.tideState(),
                 s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(),
-                cap(s.headline(), HEADLINE_CAP), kind.map(Enum::name).orElse(null), minutes);
+                cap(s.headline(), HEADLINE_CAP), kind.map(Enum::name).orElse(null), minutes,
+                user.hasUser() ? s.fierySky() : null, user.hasUser() ? s.goldenHour() : null);
     }
 
     /** {@code Today}, {@code Tomorrow} or the weekday: the shared relative day, capitalised for a tool result. */

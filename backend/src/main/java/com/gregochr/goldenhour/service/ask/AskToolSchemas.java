@@ -126,11 +126,11 @@ public final class AskToolSchemas {
         }
         props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_SPOTS,
                 "description", "How many spots, at most " + AskTools.MAX_SPOTS + "."));
-        return tool(RANK_SPOTS,
-                "The spots worth going to, best first: only places rated 3 stars or better, never a "
-                        + "wood. Every pick in your answer must be a locationId and windowId this "
-                        + "tool returned.",
-                props, List.of());
+        String base = "The spots worth going to, best first: only places rated 3 stars or better, never a "
+                + "wood. Every pick in your answer must be a locationId and windowId this "
+                + "tool returned.";
+        String lightFigures = " Each spot also has its Fiery Sky and Golden Hour (0-100).";
+        return tool(RANK_SPOTS, withUser ? base + lightFigures : base, props, List.of());
     }
 
     private static Tool lookUpPlace() {
