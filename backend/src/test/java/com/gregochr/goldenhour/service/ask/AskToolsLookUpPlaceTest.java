@@ -1291,6 +1291,304 @@ class AskToolsLookUpPlaceTest {
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
 
+    // -- later windows (ask-place-tide plan T2-5 to T2-10) ----------------------------------
+
+    private static final String LATER_RISE_1 = "2026-10-11_sunrise";
+    private static final String LATER_SET_1 = "2026-10-11_sunset";
+    private static final String LATER_RISE_2 = "2026-10-12_sunrise";
+    private static final String MISS_FIT = "wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m";
+    private static final String MATCH_FIT = "high water, rising · HW 06:42 · 40m after sunrise · 2.6 m";
+
+    private static AskSnapshot.LaterTide miss(long id, String name, String region) {
+        return AskFixtures.laterTide(id, name, region, "MID", false, MISS_FIT, NEAREST_HW);
+    }
+
+    /** Three later windows (sunrise and sunset of day 6, sunrise of day 7) each holding these tides. */
+    private static AskSnapshot withLaterTides(AskSnapshot base, AskSnapshot.LaterTide... tides) {
+        return AskFixtures.withLater(base,
+                AskFixtures.laterWindow(TODAY.plusDays(6), com.gregochr.goldenhour.entity.TargetType.SUNRISE, tides),
+                AskFixtures.laterWindow(TODAY.plusDays(6), com.gregochr.goldenhour.entity.TargetType.SUNSET, tides),
+                AskFixtures.laterWindow(TODAY.plusDays(7), com.gregochr.goldenhour.entity.TargetType.SUNRISE, tides));
+    }
+
+    private static AskSnapshot alnmouthOnly() {
+        return twoDays(AskFixtures.region("Coast", true, nearest(1L, "Alnmouth", false, NEAREST_HW)));
+    }
+
+    @Test
+    @DisplayName("the default call (no windowIds) includes no later tide and is byte-identical to a snapshot "
+            + "without later windows")
+    void laterDefaultCallIsUnchanged() {
+        AskSnapshot base = twoDays(AskFixtures.region("Coast", true, nearest(3L, "Bamburgh", false, NEAREST_HW)));
+        AskSnapshot with = withLaterTides(base, miss(3L, "Bamburgh", "Coast"));
+
+        AskToolResult<LookUpPlaceResult> got = tools(with).lookUpPlace(name("bamburgh"));
+
+        assertThat(got.content()).doesNotContain("laterTides");
+        assertThat(got.content()).isEqualTo(tools(base).lookUpPlace(name("bamburgh")).content());
+    }
+
+    @Test
+    @DisplayName("naming only a later id still finds the place, from the later tide, with the tide fields only")
+    void laterIdOnlyMatchesThePlace() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"));
+        AskTools tools = tools(snapshot);
+
+        AskToolResult<LookUpPlaceResult> result = tools.lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1)));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).isEmpty();
+        assertThat(payload.note()).isNull();
+        assertThat(payload.laterTides()).containsExactly(new AskTools.LaterTideInfo(LATER_RISE_1, "Sunday",
+                "sunrise", "MID", false, MISS_FIT, NEAREST_HW));
+        assertThat(result.content()).doesNotContain("rating").doesNotContain("verdict").doesNotContain("status");
+        assertThat(tools.uncacheable()).as("a later tide is never stored").isTrue();
+    }
+
+    @Test
+    @DisplayName("a rated id and a later id of the same place give both, later tides first in the 4-row budget")
+    void mixedIdsShareTheBudget() {
+        AskSnapshot base = daysOf(6, AskFixtures.region("Coast", true, nearest(3L, "Bamburgh", false, NEAREST_HW)));
+        AskSnapshot snapshot = withLaterTides(base, miss(3L, "Bamburgh", "Coast"));
+        List<String> ids = new ArrayList<>(List.of("2026-10-05_sunset", "2026-10-06_sunset", "2026-10-07_sunset",
+                "2026-10-08_sunset", LATER_RISE_1, LATER_SET_1));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs("bamburgh", ids)));
+
+        assertThat(payload.laterTides()).extracting(AskTools.LaterTideInfo::windowId)
+                .containsExactly(LATER_RISE_1, LATER_SET_1);
+        assertThat(payload.places()).hasSize(2);
+        assertThat(payload.places().size() + payload.laterTides().size())
+                .isLessThanOrEqualTo(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(payload.note()).isEqualTo("Showing 2 of 4 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("one later id and one rated id: one tide, three rated rows at most")
+    void oneLaterIdLeavesRoomForThreeRatedRows() {
+        AskSnapshot base = daysOf(6, AskFixtures.region("Coast", true, nearest(3L, "Bamburgh", false, NEAREST_HW)));
+        AskSnapshot snapshot = withLaterTides(base, miss(3L, "Bamburgh", "Coast"));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs("bamburgh",
+                List.of("2026-10-05_sunset", "2026-10-06_sunset", "2026-10-07_sunset", "2026-10-08_sunset",
+                        LATER_RISE_1))));
+
+        assertThat(payload.laterTides()).hasSize(1);
+        assertThat(payload.places()).hasSize(3);
+        assertThat(payload.note()).isEqualTo("Showing 3 of 4 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("three later ids give two tides, the earliest two")
+    void laterTidesAreCappedAtTwo() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_2, LATER_SET_1, LATER_RISE_1))));
+
+        assertThat(AskTools.MAX_LATER_TIDE_ROWS).isEqualTo(2);
+        assertThat(payload.laterTides()).extracting(AskTools.LaterTideInfo::windowId)
+                .containsExactly(LATER_RISE_1, LATER_SET_1);
+    }
+
+    @Test
+    @DisplayName("nearestTide is only on a later miss: a match carries the fit sentence and no nearestTide")
+    void laterNearestTideIsMissOnly() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(),
+                AskFixtures.laterTide(3L, "Bamburgh", "Coast", "HIGH", true, MATCH_FIT, NEAREST_HW));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1)));
+
+        assertThat(ok(result).laterTides().getFirst().nearestTide()).isNull();
+        assertThat(result.payload().laterTides().getFirst().tideAligned()).isTrue();
+        assertThat(result.content()).doesNotContain("nearestTide");
+        AskToolResult<LookUpPlaceResult> missed = tools(withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast")))
+                .lookUpPlace(new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1)));
+        assertThat(ok(missed).laterTides().getFirst().nearestTide()).isEqualTo(NEAREST_HW);
+    }
+
+    @Test
+    @DisplayName("a later tide with no tide state is no row")
+    void laterTideWithoutStateIsNoRow() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(),
+                AskFixtures.laterTide(3L, "Bamburgh", "Coast", null, false, null, null));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1))));
+
+        assertThat(payload.laterTides()).isNull();
+    }
+
+    @Test
+    @DisplayName("a later nearestTide is capped at 60")
+    void laterNearestTideIsCapped() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(),
+                AskFixtures.laterTide(3L, "Bamburgh", "Coast", "MID", false, MISS_FIT, "N".repeat(70)));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1))));
+
+        assertThat(payload.laterTides().getFirst().nearestTide()).hasSize(AskTools.NEAREST_TIDE_CAP);
+    }
+
+    @Test
+    @DisplayName("a later tide in an out-of-scope region gives no row and reports out of scope")
+    void laterTideOutOfScope() {
+        AskSnapshot snapshot = withLaterTides(
+                twoDays(AskFixtures.region("Wall", true, AskFixtures.slot(1L, "Caw Gap", 3))),
+                miss(3L, "High Force", "Teesdale"));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot, TestScopes.of("Wall"))
+                .lookUpPlace(new LookUpPlaceArgs("high force", List.of(LATER_RISE_1)));
+
+        assertThat(ok(result).places()).isEmpty();
+        assertThat(result.payload().laterTides()).isNull();
+        assertThat(result.payload().note()).isEqualTo(AskTools.PLACE_OUT_OF_SCOPE_NOTE);
+        assertThat(result.content()).doesNotContain("High Force");
+    }
+
+    @Test
+    @DisplayName("a misspelt name that matches only through a later tide is corrected (E2) and gives the tide")
+    void laterTideSpellingIsCorrected() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburg", List.of(LATER_RISE_1))));
+
+        assertThat(payload.closestTo()).isEqualTo("bamburg");
+        assertThat(payload.laterTides()).hasSize(1);
+        assertThat(payload.laterTides().getFirst().windowId()).isEqualTo(LATER_RISE_1);
+    }
+
+    @Test
+    @DisplayName("without a later id, a later-only name is not seen by the spelling pass: the call is unchanged")
+    void laterNamesAreNotSeenWithoutALaterId() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(name("bamburg")));
+
+        assertThat(payload.closestTo()).isNull();
+        assertThat(payload.places()).isEmpty();
+        assertThat(payload.note()).isEqualTo(AskTools.NO_SUCH_PLACE_NOTE);
+    }
+
+    @Test
+    @DisplayName("an alias matches a later tide by location id")
+    void laterTideAliasMatches() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"))
+                .withNames(List.of(), Map.of(3L, List.of("The Castle Beach")));
+
+        LookUpPlaceResult payload = ok(tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("castle beach", List.of(LATER_RISE_1))));
+
+        assertThat(payload.laterTides()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a named area never carries later tides")
+    void namedAreaHasNoLaterTides() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"))
+                .withNames(List.of(new AskSnapshot.Area("Northumberland Coast", List.of(), java.util.Set.of(1L, 3L))),
+                        Map.of());
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("northumberland coast", List.of("2026-10-05_sunset", LATER_RISE_1)));
+
+        assertThat(ok(result).area()).isNotNull();
+        assertThat(result.payload().laterTides()).isNull();
+        assertThat(result.content()).doesNotContain("laterTides");
+    }
+
+    @Test
+    @DisplayName("an id that is neither rated nor later still fails as before, beside a later one")
+    void unknownIdBesideALaterOneStillFails() {
+        AskSnapshot snapshot = withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast"));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(
+                new LookUpPlaceArgs("bamburgh", List.of(LATER_RISE_1, "2030-01-01_sunrise")));
+
+        assertThat(result.error()).isTrue();
+        assertThat(result.content()).isEqualTo("Unknown window id '2030-01-01_sunrise'. "
+                + "Call list_windows for the valid ids.");
+    }
+
+    @Test
+    @DisplayName("a lookup with no later tide leaves the conversation cacheable")
+    void ratedLookupStaysCacheable() {
+        AskTools tools = tools(withLaterTides(alnmouthOnly(), miss(3L, "Bamburgh", "Coast")));
+
+        ok(tools.lookUpPlace(name("alnmouth")));
+
+        assertThat(tools.uncacheable()).isFalse();
+    }
+
+    /** The worst lookup with later tides: an alias, two detail rows and two long later tides. */
+    private AskToolResult<LookUpPlaceResult> worstLaterLookup(AskSnapshot[] holder) {
+        String place = "Hartlepool Headland And The Old Town Wall Nature Reserve Car Park";
+        String region = "The North Yorkshire Moors And Coast Region";
+        AskSnapshot base = daysOf(6, AskFixtures.region(region, false, worstExplained(1L, place)));
+        String alias = "Heugh " + "x".repeat(34);
+        AskSnapshot.LaterTide tide = AskFixtures.laterTide(1L, place, region, "HIGH", false, "T".repeat(160),
+                "N".repeat(60));
+        AskSnapshot snapshot = withLaterTides(base, tide).withNames(List.of(), Map.of(1L, List.of(alias)));
+        holder[0] = snapshot;
+        return tools(snapshot).lookUpPlace(new LookUpPlaceArgs("heugh",
+                List.of("2026-10-05_sunset", "2026-10-06_sunset", LATER_RISE_1, LATER_SET_1)));
+    }
+
+    @Test
+    @DisplayName("worst case: an alias, two detail rows and two later tides with 60-character phrases fit 4,500")
+    void laterWorstCaseFitsHalfTheCap() {
+        AskToolResult<LookUpPlaceResult> result = worstLaterLookup(new AskSnapshot[1]);
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).hasSize(2);
+        assertThat(payload.laterTides()).hasSize(2);
+        assertThat(payload.laterTides()).extracting(AskTools.LaterTideInfo::nearestTide)
+                .containsOnly("N".repeat(AskTools.NEAREST_TIDE_CAP));
+        System.out.println("[look_up_place] later-tide worst-case payload chars: " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("list_windows with four later windows, the worst later lookup and get_hot_topics at limit 2 fit "
+            + "RESULT_CHAR_CAP")
+    void laterConversationFitsTheCap() {
+        String region = "The North Yorkshire Moors And Coast Region";
+        AskSnapshot[] holder = new AskSnapshot[1];
+        worstLaterLookup(holder);
+        AskSnapshot.LaterTide tide = holder[0].laterWindows().getFirst().tides().getFirst();
+        AskSnapshot four = AskFixtures.withLater(holder[0],
+                AskFixtures.laterWindow(TODAY.plusDays(6), com.gregochr.goldenhour.entity.TargetType.SUNRISE, tide),
+                AskFixtures.laterWindow(TODAY.plusDays(6), com.gregochr.goldenhour.entity.TargetType.SUNSET, tide),
+                AskFixtures.laterWindow(TODAY.plusDays(7), com.gregochr.goldenhour.entity.TargetType.SUNRISE, tide),
+                AskFixtures.laterWindow(TODAY.plusDays(7), com.gregochr.goldenhour.entity.TargetType.SUNSET, tide));
+        AskSnapshot withTopics = new AskSnapshot(four.generatedAt(), four.runLabel(), four.today(), four.windows(),
+                List.of(new AskSnapshot.Topic("KING_TIDE", "K".repeat(60), "D".repeat(300), TODAY, List.of(region),
+                                null, null),
+                        new AskSnapshot.Topic("SPRING_TIDE", "S".repeat(60), "D".repeat(300), TODAY.plusDays(1),
+                                List.of(region), null, null),
+                        new AskSnapshot.Topic("SPRING_TIDE", "S".repeat(60), "D".repeat(300), TODAY.plusDays(2),
+                                List.of(region), null, null)),
+                four.comingUp(), four.briefingStale(), four.nights(), four.areas(), four.locationAliases(),
+                four.laterWindows());
+        AskTools tools = tools(withTopics);
+
+        int windows = tools.listWindows().content().length();
+        AskToolResult<LookUpPlaceResult> lookupResult = tools.lookUpPlace(new LookUpPlaceArgs("heugh",
+                List.of("2026-10-05_sunset", "2026-10-06_sunset", LATER_RISE_1, LATER_SET_1)));
+        int lookup = lookupResult.content().length();
+        int hot = tools.getHotTopics(new AskTools.HotTopicsArgs(List.of("KING_TIDE", "SPRING_TIDE"), 2))
+                .content().length();
+
+        System.out.println("[later tide conversation] list_windows=" + windows + " look_up_place=" + lookup
+                + " get_hot_topics=" + hot + " total=" + (windows + lookup + hot));
+        assertThat(lookupResult.error()).isFalse();
+        assertThat(windows + lookup + hot).isLessThanOrEqualTo(AskTools.RESULT_CHAR_CAP);
+    }
+
     @Test
     @DisplayName("a typed conversation of list_windows, the worst look_up_place and get_hot_topics at limit 2 "
             + "fits RESULT_CHAR_CAP")

@@ -308,6 +308,25 @@ final class AskFixtures {
                 Mockito.mock(AuroraForecastRunService.class), new AuroraStateCache()).build().orElseThrow();
     }
 
+    /** The snapshot with these later windows, everything else as it was. */
+    static AskSnapshot withLater(AskSnapshot base, AskSnapshot.LaterWindow... later) {
+        return new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(), base.hotTopics(),
+                base.comingUp(), base.briefingStale(), base.nights(), base.areas(), base.locationAliases(),
+                List.of(later));
+    }
+
+    /** A later window of the given type on the given date, event time 18:00 or 05:40 UTC. */
+    static AskSnapshot.LaterWindow laterWindow(LocalDate date, TargetType type, AskSnapshot.LaterTide... tides) {
+        return new AskSnapshot.LaterWindow(AskWindowId.format(date, type), date, type,
+                type == TargetType.SUNSET ? date.atTime(18, 0) : date.atTime(5, 40), List.of(tides));
+    }
+
+    /** A coastal later tide; {@code nearest} may be null. */
+    static AskSnapshot.LaterTide laterTide(long id, String name, String region, String state, boolean aligned,
+            String fitPhrase, String nearest) {
+        return new AskSnapshot.LaterTide(id, name, region, state, state != null, aligned, fitPhrase, nearest);
+    }
+
     static Instant instant(LocalDateTime utc) {
         return utc.toInstant(ZoneOffset.UTC);
     }

@@ -181,3 +181,159 @@ T1 built as §4.1 to §4.5 specify, one PR, no deviation from the decisions.
   not tidal" (→ T-7); answer order for tide questions (→ T-4); T-3's rationale (Map's "on the light" is the
   preference axis); empty topic regions (→ T-6); T-8 unworkable as first written (→ rewritten); T2 made the
   recommended next phase (→ T-9); one tight bullet.
+
+## §8 T2: tides for windows Ask does not rate (plan, reviewed 2026-11-01)
+
+One backend phase, one PR. Two review lenses (code facts, reader), §8.8.
+
+### 8.1 The gap
+
+- The served briefing covers `ForecastHorizon.BRIEFING_WINDOW_DAYS` = 5 UK dates (today to T+4). The Ask
+  snapshot keeps only the Plan tab's `renderedEvents` (`PlanRenderLimits.MAX_VISIBLE_EVENTS` = 6 solar events)
+  that have not passed and are not travel days. Two to four solar windows lie after the six.
+- `PlanWindowProjector.apply` gives every summary a `window()`, rendered or not, and gives it `tideFacts`
+  (:192-200).
+- ⚠️ **The slots of those later windows are empty.**
+  - Gate 4 does not score T+3 (except SETTLED regions) or any of T+4.
+  - `BriefingHonestyFilter.fullRewrite` (:381-420) empties a zero-coverage region's slots, which is the
+    designed state of those windows and of every travel day.
+  - `ServedBriefingAssembler.assembleForPlan` (:152-158) projects `tideFacts` from the RAW snapshot before
+    the filter, so the facts survive. **They are the only place-level data a later window has.**
+- Ask drops all of this, and T-8 answers "not forecast that day yet". T2 serves the facts. A day past T+4
+  (Saturday asked on a Monday) is still T-8.
+
+### 8.2 Decisions
+
+| # | Decision |
+|---|---|
+| T2-1 | **Later windows.** `AskSnapshot` gains `List<LaterWindow> laterWindows`. A later window is a solar summary in the served briefing with a non-null `window()` that has not passed (`PlanWindowProjector.hasPassed`, same `now` as `toWindow`) and has a non-empty `tideFacts`, and that is **not** an Ask window. Not being an Ask window means it is outside `renderedEvents` **or** it is a travel day: a travel day's tide is from tables and does not depend on the owner being away, so it never will be "forecast later". `LaterWindow(String id, LocalDate date, TargetType targetType, LocalDateTime eventTime, List<LaterTide> tides)`. `id` is from `AskWindowId.format`. |
+| T2-2 | **Built from the facts, not slots.** `LaterTide(long locationId, String name, String region, String tideState, boolean coastal, boolean tideAligned, String tideFitPhrase, String nearestTide)`, one per `LocationTideFact`. Facts with a null `locationId` are skipped. `region` is resolved from the **location roster** by id (an enabled location's region name, read once per snapshot build through a query that fetch-joins the region: the Ready precompute builds snapshots outside a transaction, see the class javadoc on ASTRO rows). A fact whose location has no region, or is unknown or disabled, is skipped (the briefing never walks `unregioned()` for Ask). The roster read is fail-soft: a failure gives no later windows, never no snapshot. **`windows()` is unchanged**, so rank_spots, list_windows' rated rows, picks, evidence, spreads, Ready, the cache key and freshness never see a later window. |
+| T2-3 | **Only the tide is served from a later window**: never a rating, verdict, headline, summary, scores or status. The Plan tab never shows a later window's rating, and a SETTLED T+3 rating that exists is withheld. `LaterTide` has no field for any of them, so this holds by construction. |
+| T2-4 | **`list_windows`, typed only** (`user.hasUser()`), gains `laterWindows: [{id, day, event, time}]`. The component is `@JsonInclude(NON_EMPTY)` (the mapper is a bare Jackson 2 `ObjectMapper` that writes nulls), and it is empty when user-less, so Ready's bytes are unchanged. `AskToolSchemas.listWindows()` takes `withUser` and appends, when true: " Then laterWindows: later sunrises and sunsets that are not rated, for tide questions only: pass their ids to look_up_place, never to rank_spots." The user-less text stays byte-identical. |
+| T2-5 | **`look_up_place` and window ids.** Its id resolution (AskTools :1080-1086, today `snapshot.window(id)` only, an unknown id failing the call) also accepts a later window id. A later id selects that later window's tides; a rated id selects as today. With no `windowIds` (the default) nothing later is included and the result is byte-identical to today. `windowIds`' description, typed only, becomes "Only these window ids (from list_windows, including laterWindows). Default: every rated window." (Is the schema typed only? `lookUpPlace()` is added only when `!ready`, so yes, and Ready's bytes are untouched.) |
+| T2-6 | **`rank_spots` and a later id.** Today an unknown id fails with "Unknown window id … Call list_windows for the valid ids", which risks a loop because list_windows lists it. For an id that is a later window, the error reads "<id> is not rated: use look_up_place for its tide." |
+| T2-7 | **Matching.** The place is matched over the requested rated windows' slots **and** the requested later windows' tides (name and `locationAliases` by id), merged by location id into the same `PlaceMatch`, so a call naming only a later id still finds the place. Region scope and out-of-scope reach apply to later tides as to rated slots. The E2 spelling passes (`reach`, `nearSpellings`, `closestSpelling`) also see later-tide names. A named area never carries later tides. |
+| T2-8 | **The result.** `LookUpPlaceResult` gains `laterTides: [{windowId, day, event, tideState, tideAligned, tideFitPhrase, nearestTide}]` (`NON_NULL`, null when none), for the first place only, and only when `aboutOnePlace`. Order is chronological. `tideFitPhrase` is capped as the rated row's is. `nearestTide` is only on a miss (`coastal && !tideAligned`), capped at 60, as T-2. A tide with a null `tideState` is no row. |
+| T2-9 | **Budget.** `MAX_LATER_TIDE_ROWS` = 2. When any later tide is present, the rated rows are capped so that rated rows plus later tides ≤ `MAX_PLACE_ROWS_WITH_DETAIL` (4). Later tides are kept first, because the reader asked for them by id. "Showing N of M" counts rated rows. One lookup stays ≤ 4,500 (`WORST_CASE_CHARS`), and no bound is raised. |
+| T2-10 | **Never cached.** Set `uncacheable` in look_up_place's accepted runnable whenever `laterTides` is non-empty. When a sunrise passes, the horizon shifts under the same `generatedAt` and a later window becomes rated, so an "is not giving a sky rating" answer would be stale. |
+| T2-11 | **Answer shape.** There is no pick (a pick is a rated window). The answer is answerable when a tool was called (`AskAnswerValidator` :290-301). |
+| T2-12 | **Hot topics.** T-6's same-day, same-region rule is unchanged. Topics on travel days are dropped by the hot-topic travel filter, so Ask never says "big tide" on a travel day. That is safe; record it in the reference doc. |
+
+### 8.3 What must not change
+
+- Everything in §3.
+- `AskSnapshot.windows()`, and `withNames` must carry `laterWindows` through. Keep a delegating constructor
+  without `laterWindows` (about 18 test call sites).
+- The rank_spots error for a truly unknown id.
+- Ready tool output, prompt and answers.
+- The `look_up_place` result when no later id is requested.
+- The named-area branch.
+
+### 8.4 Prompt (typed only)
+
+In the T1 bullet:
+
+- Replace "Then give the rating in one clause." with "Then give the rating in one clause, for a rated window."
+- Replace "No row for the day asked: PhotoCast has not forecast that day yet; answer answerable false and give
+  no tide." with:
+
+> Call list_windows first. For each window of the day asked that is in laterWindows, pass its id to
+> look_up_place (the same ids on a spelling re-call) and give its tide from laterTides as above, saying
+> PhotoCast is not giving a sky rating for it; never pass a later id to rank_spots. A day in neither:
+> PhotoCast has not forecast that day yet; answer answerable false and give no tide.
+
+Keep source lines ≤ 120 characters.
+
+### 8.5 Tests (read `docs/engineering/test-improvement-standards.md` first)
+
+- **`AskSnapshotBuilderTest`**:
+  - An unrendered, unpassed solar window whose regions have **empty slots** but whose `tideFacts` are set
+    becomes a later window with one tide per fact. It carries the region from the roster and `nearestTide`.
+  - A travel day inside the rendered six becomes a later window, and is still not in `windows()`.
+  - These give no later window: a passed window, a non-solar one, one with no `tideFacts`.
+  - These give no tide: a fact with a null id; a location with no region, unknown or disabled.
+  - A roster read that throws gives a snapshot with no later windows.
+  - `windows()` is unchanged.
+  - `withNames` keeps `laterWindows`.
+- **`AskToolsTest`** (list_windows and rank_spots):
+  - A typed result carries `laterWindows`.
+  - A user-less result built from a snapshot with later windows carries no `laterWindows` key (Ready guard).
+  - Empty later windows means no key.
+  - rank_spots with a later id gives the T2-6 error.
+  - rank_spots with an unknown id gives the old error.
+- **`AskToolsLookUpPlaceTest`**:
+  - **Default call:** no later tides, byte-identical to a snapshot without later windows.
+  - **One later id only:** the place is matched and `laterTides` has the tide fields.
+  - **Mixed ids** (a rated sunrise and a later sunset of the same day): both appear, later tides first in the
+    budget, rated rows plus later tides ≤ 4.
+  - **Caps:** three later ids give 2 tides.
+  - **Match row and miss row:** `nearestTide` only on a miss.
+  - **Out of scope:** a later tide in an out-of-scope region gives no row and reports out of scope.
+  - **Spelling:** a misspelt name that matches only through a later tide is corrected (E2).
+  - **Alias:** an alias matches a later tide by location id.
+  - **Named area:** never carries later tides.
+  - **Unknown id:** still fails as today.
+  - **Worst case:** the alias shape with 2 rated rows with detail plus 2 later tides, using 60-character
+    phrases, is ≤ 4,500. Print it.
+  - **Cache:** a lookup with later tides marks the conversation uncacheable. Assert this through the
+    accepted runnable or the engine, whichever the code allows.
+- **`AskPromptBuilderTest`**:
+  - The typed and thread prompts carry both new sentences, and the old T-8 sentence is gone.
+  - The user-less prompt has no `laterWindows` or `laterTides`.
+  - The F1 and T1 Ready guards pass unchanged.
+- **`AskToolSchemasTest`**: pin both `list_windows` descriptions, with the user-less one unchanged, and the
+  typed `windowIds` description. Update the with-user goldens only, and say so in §8.7.
+- **`ClaudeAskEngineTest`**: follow the T1 harness (requests constrained, no broad `any()` stub, per-turn
+  assertions).
+  - (a) A later-day tide question: list_windows; then look_up_place with the later id plus get_hot_topics;
+    then submit. The answer is not cached.
+  - (b) A mixed day: list_windows; then look_up_place with both ids plus get_hot_topics; then submit.
+- **Combined budget:** list_windows (with 4 later windows) + the worst lookup + hot topics at limit 2 fits
+  9,000. Print it.
+- **Mutation:** drop the `!tideAligned` test on later tides and watch the miss-only test fail. Back up with
+  `cp`, never `git checkout --`.
+
+### 8.6 Docs, changelog, L-check
+
+- **`reference/ask-photocast.md`**: later windows and T2-1 to T2-12 in brief; T-8 now applies only past the
+  briefing's five days.
+- **Changelog**: `changelog.d/20261101-ask-later-tides.md`, headed `### Added — Ask gives the tide for days
+  it does not rate yet`.
+- **L-check additions** (owner-run):
+  - a later day's tide;
+  - a mixed Thursday (sunrise rated, sunset later);
+  - a travel day;
+  - "Is the causeway open Saturday?" on a later window: expect a refusal with no time;
+  - "this weekend" spanning a later day and a day past T+4.
+
+### 8.7 As built
+
+T2 built as §8.2 to §8.6 specify, one PR, no deviation from the decisions.
+
+- `AskSnapshot.laterWindows` (`LaterWindow`, `LaterTide`; `laterWindow(id)`; a delegating 10-argument constructor kept; `withNames` carries it). `AskSnapshotBuilder` gains a `LocationRepository` (12-argument `@Autowired` constructor; the 10 and 11-argument ones delegate with no repository and so give no later windows) and the new JPQL query `LocationRepository.findEnabledFetchingRegion` (`JOIN FETCH l.region WHERE l.enabled = true`; the inner join drops regionless places). The roster is read once per build inside the fail-soft `laterWindows(...)`.
+- `AskTools`: `LaterWindowInfo`, `ListWindowsResult.laterWindows` (component-level `@JsonInclude(NON_EMPTY)`), `LaterTideInfo`, `LookUpPlaceResult.laterTides` (a 6-argument delegating constructor kept), `MAX_LATER_TIDE_ROWS` 2. `look_up_place` splits `windowIds` into rated and later ids; later tides join the same `PlaceMatch` by location id; the E2 passes (`reach`, `nearSpellings`) see later names only when a later id was requested, so a default call is unchanged even if a later-only name is a near spelling. `rank_spots` gives the T2-6 message for a later id.
+- Schema and prompt as §8.2 T2-4/T2-5 and §8.4, verbatim. The prompt's source lines are wrapped at 120 characters; the rendered text is the specified sentences.
+- `tideFitPhrase` on a later tide is not capped, exactly like the rated row's (the served phrase is already bounded upstream); `nearestTide` is capped at 60.
+- Goldens moved: `tool-schemas-with-user.txt` and `tool-schemas-with-user-thread.txt` only (the typed `list_windows` description gained the one sentence, 145 characters each). `tool-schemas-user-less.txt` is unchanged. `AskPromptBuilderTest`'s T1 bullet assertion was updated for the two replaced sentences.
+- Measured: worst lookup (alias shape, 2 rated detail rows + 2 later tides with 160-character fit phrases and 60-character `nearestTide`) 2,879 of `WORST_CASE_CHARS` 4,500, unchanged. Combined conversation: `list_windows` (6 rated + 4 later windows) 1,994 + that lookup 2,879 + `get_hot_topics` (limit 2) 776 = 5,649 of 9,000. No bound was raised.
+- Engine: a later-day tide question and a mixed day both finish in 3 turns, `run.outcome().uncacheable()` true, per-turn tool results asserted.
+- Mutation: dropping the `!tideAligned` test on later tides fails `laterNearestTideIsMissOnly` (restored from a `cp` backup).
+
+### 8.8 Review record
+
+- **Code facts**:
+  - Blockers: later windows' slots are emptied by the honesty filter (→ T2-2, built from the facts); facts
+    carry no region (→ the roster).
+  - Corrections: unknown ids fail both tools today (→ T2-5, T2-6); null serialisation (→ `NON_EMPTY`); the
+    `withNames` rebuild and the constructor sites; caching goes stale (→ T2-10); the `listWindows`
+    signature; 2 to 4 later windows.
+  - Confirmed: the briefing carries all 5 days with windows and facts; picks only from rendered; an answer
+    with no pick is valid; the cache key is unaffected; the budget is about 6.8k.
+- **Reader**:
+  - The same blocker.
+  - list_windows first; the "rating in one clause" conflict.
+  - Per-window, not per-day, wording (mixed days).
+  - "not giving a sky rating", not "not rated yet".
+  - Never cached.
+  - Travel days get the tide.
+  - The added L-checks.

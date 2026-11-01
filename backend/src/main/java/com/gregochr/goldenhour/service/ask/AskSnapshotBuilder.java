@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
+import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.AstroConditionsService;
 import com.gregochr.goldenhour.service.BriefingService;
@@ -112,6 +113,7 @@ public class AskSnapshotBuilder {
     private final AuroraForecastRunService nightSelector;
     private final AuroraStateCache auroraStateCache;
     private final AskAreas areas;
+    private final LocationRepository locationRepository;
 
     private Instant memoBuiltAt;
     private AskSnapshot memo;
@@ -155,12 +157,38 @@ public class AskSnapshotBuilder {
      * @param auroraStateCache the aurora alert state, reported for tonight only and never while simulated
      * @param areas            the named areas and location aliases, read once per build
      */
-    @Autowired
     public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
             AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
             AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
             AstroConditionsService astroService, AuroraForecastRunService nightSelector,
             AuroraStateCache auroraStateCache, AskAreas areas) {
+        this(briefingService, travelDayService, almanacService, freshness, clock, astroRepository,
+                auroraRepository, astroService, nightSelector, auroraStateCache, areas, null);
+    }
+
+    /**
+     * Creates the builder, with the location roster that gives a later window's tides their regions.
+     *
+     * @param briefingService     the source of the served briefing
+     * @param travelDayService    the away-date test
+     * @param almanacService      the source of the "Coming up" entries
+     * @param freshness           the project's single answer to "now" for solar events
+     * @param clock               the application clock, for the memo and the UK civil date
+     * @param astroRepository     the astro conditions rows, read with their location fetched
+     * @param auroraRepository    the stored (non-simulated) aurora results, read with their location fetched
+     * @param astroService        resolves the window a stored astro row was scored over
+     * @param nightSelector       the one owner of "which night is current"
+     * @param auroraStateCache    the aurora alert state, reported for tonight only and never while simulated
+     * @param areas               the named areas and location aliases, read once per build
+     * @param locationRepository  the enabled locations with their regions, read once per build; null gives no
+     *                            later windows
+     */
+    @Autowired
+    public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
+            AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
+            AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
+            AstroConditionsService astroService, AuroraForecastRunService nightSelector,
+            AuroraStateCache auroraStateCache, AskAreas areas, LocationRepository locationRepository) {
         this.briefingService = briefingService;
         this.travelDayService = travelDayService;
         this.almanacService = almanacService;
@@ -172,6 +200,7 @@ public class AskSnapshotBuilder {
         this.nightSelector = nightSelector;
         this.auroraStateCache = auroraStateCache;
         this.areas = areas;
+        this.locationRepository = locationRepository;
     }
 
     /**
@@ -247,11 +276,95 @@ public class AskSnapshotBuilder {
             }
         }
         windows.sort(CHRONOLOGICAL);
+        List<AskSnapshot.LaterWindow> later = laterWindows(briefing, rendered, now, travel);
         LocalDateTime generatedAt = briefing.generatedAt();
         AskAreas.Names names = areaNames();
         return Optional.of(new AskSnapshot(generatedAt, AskClock.londonHHmm(generatedAt),
                 ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale(),
-                nights(), names.areas(), names.locationAliases()));
+                nights(), names.areas(), names.locationAliases(), later));
+    }
+
+    // -- the later windows --------------------------------------------------------------------
+
+    /**
+     * The solar windows Ask does not rate that still carry a tide: outside the Plan tab's rendered six, or a
+     * travel day (whose tide is from tables, so it never will be "forecast later"). Built from each window's
+     * {@code tideFacts} and never from its slots, which the honesty filter has emptied. Fail-soft: a roster that
+     * cannot be read gives no later windows, never no snapshot.
+     */
+    private List<AskSnapshot.LaterWindow> laterWindows(DailyBriefingResponse briefing, Set<AskWindowKey> rendered,
+            LocalDateTime now, Map<LocalDate, Boolean> travel) {
+        try {
+            Map<Long, LocationEntity> roster = roster();
+            List<AskSnapshot.LaterWindow> out = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            for (BriefingDay day : briefing.days()) {
+                if (day == null || day.date() == null) {
+                    continue;
+                }
+                for (BriefingEventSummary summary : day.eventSummaries()) {
+                    AskSnapshot.LaterWindow later = toLaterWindow(day.date(), summary, now, travel, rendered, roster);
+                    if (later != null && seen.add(later.id())) {
+                        out.add(later);
+                    }
+                }
+            }
+            out.sort(Comparator.comparing(AskSnapshot.LaterWindow::date)
+                    .thenComparing(AskSnapshot.LaterWindow::targetType));
+            return out;
+        } catch (RuntimeException e) {
+            LOG.warn("[ASK] Could not build the later windows for the snapshot: {}", e.toString());
+            return List.of();
+        }
+    }
+
+    /** The enabled, regioned locations by id; empty when there is no repository. Read once per build. */
+    private Map<Long, LocationEntity> roster() {
+        Map<Long, LocationEntity> byId = new HashMap<>();
+        if (locationRepository == null) {
+            return byId;
+        }
+        for (LocationEntity location : locationRepository.findEnabledFetchingRegion()) {
+            if (location != null && location.getId() != null && location.isEnabled()
+                    && location.getRegion() != null && location.getRegion().getName() != null) {
+                byId.put(location.getId(), location);
+            }
+        }
+        return byId;
+    }
+
+    private AskSnapshot.LaterWindow toLaterWindow(LocalDate date, BriefingEventSummary summary, LocalDateTime now,
+            Map<LocalDate, Boolean> travel, Set<AskWindowKey> rendered, Map<Long, LocationEntity> roster) {
+        if (summary == null || summary.window() == null || !isSolar(summary.targetType())) {
+            return null;
+        }
+        BriefingWindow window = summary.window();
+        if (window.tideFacts() == null || window.tideFacts().isEmpty()
+                || PlanWindowProjector.hasPassed(window.eventTime(), now)) {
+            return null;
+        }
+        boolean askWindow = rendered.contains(new AskWindowKey(date, summary.targetType()))
+                && !travel.computeIfAbsent(date, travelDayService::isTravelDay);
+        if (askWindow) {
+            return null;
+        }
+        List<AskSnapshot.LaterTide> tides = new ArrayList<>();
+        for (LocationTideFact fact : window.tideFacts()) {
+            LocationEntity location = fact == null || fact.locationId() == null ? null
+                    : roster.get(fact.locationId());
+            if (location == null) {
+                continue;
+            }
+            tides.add(new AskSnapshot.LaterTide(location.getId(), location.getName(),
+                    location.getRegion().getName(), fact.tideState(), fact.tideState() != null,
+                    Boolean.TRUE.equals(fact.tideAligned()), fact.tideFitPhrase(),
+                    fact.nearestSolarOffsetPhrase()));
+        }
+        if (tides.isEmpty()) {
+            return null;
+        }
+        return new AskSnapshot.LaterWindow(AskWindowId.format(date, summary.targetType()), date,
+                summary.targetType(), window.eventTime(), tides);
     }
 
     /** The named areas and location aliases, or none when they cannot be read: Ask must still answer. */

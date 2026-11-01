@@ -1,0 +1,3 @@
+### Added — Ask gives the tide for days it does not rate yet
+
+Asking "is the tide right at St Mary's Lighthouse on Saturday?" now gets the tide for that day's sunrise or sunset even when PhotoCast has not yet given it a sky rating (days beyond the Plan tab's first six events, and travel days), saying plainly that no sky rating is given for it. Only the tide is served for those days, never a rating, and such answers are not stored for reuse. A day beyond the briefing's five days is still answered as not forecast yet. Typed questions only; Ready answers are unchanged. No frontend or migration change.
