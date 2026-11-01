@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
+import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.exception.NameClashException;
 import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
@@ -81,6 +82,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NameClashException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ErrorResponse handleNameClash(NameClashException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link JobDisabledByConfigException} to HTTP 409: the scheduled job's feature flag is off, so it
+     * cannot be paused, resumed or triggered.
+     *
+     * @param ex the exception, whose message names the job and the config key
+     * @return the error body
+     */
+    @ExceptionHandler(JobDisabledByConfigException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleJobDisabledByConfig(JobDisabledByConfigException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 

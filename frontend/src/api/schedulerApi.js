@@ -76,6 +76,20 @@ export async function resumeJob(jobKey) {
 }
 
 /**
+ * Fetches a job's newest runs by the Runs list's rules (ADMIN only). Only the three forecast cycle jobs,
+ * {@code tide_refresh} and {@code aurora_batch_evaluation} have attributable runs; any other job answers an empty
+ * list, and an unknown job a 404.
+ *
+ * @param {string} jobKey - the job key
+ * @param {number} [limit=3] - how many runs (the server clamps to 10)
+ * @returns {Promise<Array>} list items, newest first
+ */
+export async function fetchJobRuns(jobKey, limit = 3) {
+  const response = await apiClient.get(`${BASE_URL}/jobs/${jobKey}/runs`, { params: { limit } });
+  return response.data;
+}
+
+/**
  * Triggers a job to run immediately.
  * ADMIN only.
  *

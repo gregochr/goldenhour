@@ -125,6 +125,39 @@ class RunsListQueriesTest {
     }
 
     @Test
+    @DisplayName("runs of an AURORA batch: found by link or by notes, once each, never a FORECAST batch's run")
+    void runsByBatchType() {
+        JobRunEntity linked = job(RunType.SCHEDULED_BATCH, D0, D0);
+        // The same run also names its batch in its notes: it must still be one row, not two.
+        linked.setNotes("Anthropic batch: msgbatch_linked");
+        JobRunEntity unlinked = job(RunType.SCHEDULED_BATCH, D0.plusHours(1), D0.plusHours(2));
+        unlinked.setNotes("Anthropic batch: msgbatch_unlinked");
+        JobRunEntity forecast = job(RunType.SCHEDULED_BATCH, D0.plusHours(3), D0.plusHours(4));
+        forecast.setNotes("Anthropic batch: msgbatch_forecast");
+        JobRunEntity forecastUnlinked = job(RunType.SCHEDULED_BATCH, D0.plusHours(5), D0.plusHours(6));
+        forecastUnlinked.setNotes("Anthropic batch: msgbatch_forecast_unlinked");
+        JobRunEntity otherType = job(RunType.AURORA_EVALUATION, D0.plusHours(7), D0.plusHours(8));
+        otherType.setNotes("Anthropic batch: msgbatch_linked");
+        batch("msgbatch_linked", BatchType.AURORA, null, linked.getId());
+        batch("msgbatch_unlinked", BatchType.AURORA, null, null);
+        batch("msgbatch_forecast", BatchType.FORECAST, null, forecast.getId());
+        batch("msgbatch_forecast_unlinked", BatchType.FORECAST, null, null);
+        em.flush();
+        em.clear();
+
+        assertThat(jobRuns.findByRunTypeAndBatchType(RunType.SCHEDULED_BATCH, BatchType.AURORA, PageRequest.of(0, 10)))
+                .extracting(JobRunEntity::getId)
+                .containsExactly(unlinked.getId(), linked.getId());
+        assertThat(jobRuns.findByRunTypeAndBatchType(RunType.SCHEDULED_BATCH, BatchType.AURORA, PageRequest.of(0, 1)))
+                .extracting(JobRunEntity::getId).containsExactly(unlinked.getId());
+        assertThat(jobRuns.findByRunTypeAndBatchType(
+                RunType.SCHEDULED_BATCH, BatchType.FORECAST, PageRequest.of(0, 10)))
+                .extracting(JobRunEntity::getId)
+                .containsExactly(forecastUnlinked.getId(), forecast.getId());
+        assertThat(otherType.getId()).isNotNull();
+    }
+
+    @Test
     @DisplayName("range scans: job runs from a start (inclusive, id-descending ties), open runs, cycles")
     void rangeScans() {
         JobRunEntity before = job(RunType.TIDE, D0.minusSeconds(1), D0);

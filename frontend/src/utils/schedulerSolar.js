@@ -10,6 +10,19 @@ const UK_ZONE = 'Europe/London';
 /** The two jobs that may be switched to a sun-relative schedule (plan A3). */
 export const FORECAST_CYCLE_JOBS = ['near_term_batch_evaluation', 'intraday_forecast_refresh'];
 
+/** All three forecast cycle jobs: the two above and the evening sunrise refresh (a plain cron job, never solar). */
+export const CYCLE_JOBS = [...FORECAST_CYCLE_JOBS, 'evening_sunrise_refresh'];
+
+/**
+ * Whether a job runs a forecast cycle, whether or not it may be sun-relative.
+ *
+ * @param {string} jobKey - the job key
+ * @returns {boolean} true for the nightly, intraday and evening cycle jobs
+ */
+export function isCycleJob(jobKey) {
+  return CYCLE_JOBS.includes(jobKey);
+}
+
 /** Smallest offset the backend accepts, in minutes before the event. */
 export const MIN_OFFSET_MINUTES = 0;
 

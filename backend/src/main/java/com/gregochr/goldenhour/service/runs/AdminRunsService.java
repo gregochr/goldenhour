@@ -319,6 +319,47 @@ public class AdminRunsService {
         return new CycleFacts(byCycle, costRuns, byNotes);
     }
 
+    /**
+     * Maps pipeline runs to list items by the rules the Runs list uses, with set queries for their batches and
+     * cost runs. The Scheduler's recent runs reuse it so a cycle reads the same there as in Runs.
+     *
+     * @param cycles the pipeline runs, in the order to serve them
+     * @return one item per cycle, in the same order
+     */
+    public List<RunListItem> cycleItems(Collection<PipelineRunEntity> cycles) {
+        if (cycles.isEmpty()) {
+            return List.of();
+        }
+        CycleFacts loaded = loadCycleFacts(cycles, Map.of());
+        List<String> unlinkedNotes = loaded.batchesByCycle().values().stream()
+                .flatMap(List::stream)
+                .filter(b -> b.getJobRunId() == null)
+                .map(b -> BATCH_NOTE_PREFIX + b.getAnthropicBatchId())
+                .toList();
+        Map<String, JobRunEntity> byNotes = new LinkedHashMap<>();
+        if (!unlinkedNotes.isEmpty()) {
+            for (JobRunEntity run : jobRuns.findByRunTypeAndNotesIn(RunType.SCHEDULED_BATCH, unlinkedNotes)) {
+                batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
+            }
+        }
+        CycleFacts facts = new CycleFacts(loaded.batchesByCycle(), loaded.costRuns(), byNotes);
+        return cycles.stream().map(c -> cycleItem(c, facts)).toList();
+    }
+
+    /**
+     * Maps job runs of one batch type (or none) to list items by the rules the Runs list uses. The
+     * Scheduler's recent runs reuse it so a job run reads the same there as in Runs. The batch scope
+     * ({@code batchSummary}) is not derived.
+     *
+     * @param runs      the job runs, in the order to serve them
+     * @param batchType the type of their Anthropic batches, or null when they have none
+     * @return one item per run, in the same order
+     */
+    public List<RunListItem> jobItems(Collection<JobRunEntity> runs, BatchType batchType) {
+        LocalDateTime now = nowUtc();
+        return runs.stream().map(r -> jobItem(r, batchType, now)).toList();
+    }
+
     private RunListItem cycleItem(PipelineRunEntity cycle, CycleFacts facts) {
         RunClassifier.Outcome outcome = RunClassifier.classifyCycle(cycle);
         List<ForecastBatchEntity> cycleBatches = facts.batchesByCycle().getOrDefault(cycle.getId(), List.of());
