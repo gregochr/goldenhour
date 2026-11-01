@@ -292,6 +292,15 @@
      `--color-plex-coral` two lines up. */
   --color-plex-astro: #8E86D6;
   --color-plex-astro-bright: #A79FE4;
+  /* The window control's AURORA kind chip: the aurora banner's Moderate colours (`SEVERITY.MODERATE`
+     in components/AuroraBanner.jsx, `acc`/`ink`), so the chip matches the banner (owner request
+     2026-10-31). Replaces the astro/aurora shared night violet for aurora; astro stays violet. */
+  --color-plex-aurora: #3AC884;
+  --color-plex-aurora-bright: #8CE6B6;
+  /* The same chip on the night the alert describes, at STRONG/SEVERE/EXTREME: the banner's
+     `SEVERITY.STRONG` colours (`acc`/`ink`). The chip follows the banner's alert level. */
+  --color-plex-aurora-strong: #76FFA0;
+  --color-plex-aurora-strong-bright: #A8FFC4;
 
   /* The outcome-rating block's three stars (docs/design/outcome-rating/README.md §6; outcome-rating-
      plan.md §2 #5) — the only colours that block needs that this file did not already name; every
@@ -1946,12 +1955,24 @@ button.wf-hc.on:hover {
   background: color-mix(in srgb, var(--color-plex-coral) 15%, var(--color-plex-panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-coral) 30%, transparent);
 }
-/* map-tab-v2-plan.md §3 P6 — the window control's night kind (astro AND aurora share one colour,
-   README's kind-colours table). Same idiom as `.am`/`.pm` two rules up, against the astro tokens. */
+/* map-tab-v2-plan.md §3 P6 — the window control's night kind, astro only (violet; the README's
+   kind-colours table). Aurora has its own green rule below. Same idiom as `.am`/`.pm` two rules up. */
 .wf-hc-sun.night {
   color: var(--color-plex-astro-bright);
   background: color-mix(in srgb, var(--color-plex-astro) 18%, var(--color-plex-panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-astro) 34%, transparent);
+}
+/* The aurora kind chip, in the aurora banner's Moderate green (owner request 2026-10-31); on the
+   night the alert describes, at a strong level, in the banner's Strong green (`data-aurora-level`). */
+.wf-hc-sun.aurora {
+  color: var(--color-plex-aurora-bright);
+  background: color-mix(in srgb, var(--color-plex-aurora) 18%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-aurora) 34%, transparent);
+}
+.wf-hc-sun.aurora[data-aurora-level="strong"] {
+  color: var(--color-plex-aurora-strong-bright);
+  background: color-mix(in srgb, var(--color-plex-aurora-strong) 18%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-aurora-strong) 34%, transparent);
 }
 /* hot-topics-by-day-plan §3 M3 — the daylight High-water row's kind chip, in the tide light (16% fill, 34%
    inset border; docs/design/hot-topics-by-day/README.md §2D). Same idiom as `.night` above. */
