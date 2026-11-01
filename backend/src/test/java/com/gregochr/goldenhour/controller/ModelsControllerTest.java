@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.model.RunCostProfile;
 import com.gregochr.goldenhour.service.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -129,6 +130,49 @@ class ModelsControllerTest extends AbstractControllerTest {
 
         verify(modelSelectionService).getAllConfigs();
         verify(modelSelectionService).getAllExtendedThinkingConfigs();
+    }
+
+    @Test
+    @DisplayName("GET /api/models serves the measured cost profiles, the token rates and the GBP rate")
+    void getAvailableModels_servesCostProfiles() throws Exception {
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
+        when(runCostProfileService.costProfiles()).thenReturn(Map.of("BRIEFING_BEST_BET",
+                new RunCostProfile(30, 2.3, 1.0,
+                        Map.of("SONNET", new RunCostProfile.ModelCost(69, 0.039, 0.09)),
+                        Map.of("HAIKU", new RunCostProfile.ModelCost(0, 0.013, 0.03)))));
+        when(runCostProfileService.tokenRates()).thenReturn(
+                Map.of("SONNET", new RunCostProfile.TokenRates(3.0, 15.0)));
+        when(runCostProfileService.gbpPerUsd()).thenReturn(Optional.of(0.78));
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.costProfiles.BRIEFING_BEST_BET.windowDays").value(30))
+                .andExpect(jsonPath("$.costProfiles.BRIEFING_BEST_BET.runsPerDay").value(2.3))
+                .andExpect(jsonPath("$.costProfiles.BRIEFING_BEST_BET.callsPerRun").value(1.0))
+                .andExpect(jsonPath("$.costProfiles.BRIEFING_BEST_BET.measured.SONNET.usdPerCall").value(0.039))
+                .andExpect(jsonPath("$.costProfiles.BRIEFING_BEST_BET.estimates.HAIKU.usdPerDay").value(0.03))
+                .andExpect(jsonPath("$.tokenRates.SONNET.inputUsdPerMtok").value(3.0))
+                .andExpect(jsonPath("$.tokenRates.SONNET.outputUsdPerMtok").value(15.0))
+                .andExpect(jsonPath("$.gbpPerUsd").value(0.78));
+    }
+
+    @Test
+    @DisplayName("GET /api/models omits gbpPerUsd and serves an empty costProfiles when nothing is known")
+    void getAvailableModels_noCostFigures() throws Exception {
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
+        when(runCostProfileService.costProfiles()).thenReturn(Map.of());
+        when(runCostProfileService.tokenRates()).thenReturn(Map.of());
+        when(runCostProfileService.gbpPerUsd()).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.costProfiles").isMap())
+                .andExpect(jsonPath("$.costProfiles").isEmpty())
+                .andExpect(jsonPath("$.gbpPerUsd").doesNotExist());
     }
 
     @Test
