@@ -375,6 +375,7 @@ export function MapPeekWindowsSection({
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null,
   ratedCounts = null, topics = null, auroraDoor = null, shaped = false,
+  auroraAlertNight = null, auroraAlertLevel = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -442,7 +443,7 @@ export function MapPeekWindowsSection({
                 className={`wf-map-peek-wr${row.id === activeId ? ' on' : ''}`}
                 onClick={() => onSelect(row)}
               >
-                <KindChip row={row} />
+                <KindChip row={row} auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel} />
                 <span className="wf-map-peek-wr-day wf-map-peek-wr-pasttime">
                   <span className="sr-only">{`${row.dayLabel ?? row.label} `}</span>
                   {row.time}
@@ -473,7 +474,7 @@ export function MapPeekWindowsSection({
               className={`wf-map-peek-wr${row.id === activeId ? ' on' : ''}`}
               onClick={() => onSelect(row)}
             >
-              <KindChip row={row} />
+              <KindChip row={row} auroraAlertNight={auroraAlertNight} auroraAlertLevel={auroraAlertLevel} />
               <span className="wf-map-peek-wr-day">
                 {row.dayLabel ?? row.label}
                 {/* The daylight High-water row (hot-topics-by-day M3): the bolt is decoration, so the
@@ -546,6 +547,9 @@ export function MapPeekWindowsSection({
 }
 
 MapPeekWindowsSection.propTypes = {
+  /** The night the aurora alert describes, and its level (see `WindowControl`). */
+  auroraAlertNight: PropTypes.string,
+  auroraAlertLevel: PropTypes.string,
   /** The body was shaped by the reader's picks (S5a-2): an unscored night row draws no dash. */
   shaped: PropTypes.bool,
   heading: PropTypes.string.isRequired,

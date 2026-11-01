@@ -818,6 +818,20 @@ describe('MapCallout — the every-window strip', () => {
     expect(screen.getAllByTestId('map-callout-strip-cell')[1]).toHaveTextContent('4★');
   });
 
+  it('draws the verdict chip of the alert night\'s aurora event strong, and another night\'s moderate', async () => {
+    const aur = { ...ASTRO_EVENT, id: `aurora:${TODAY}:AURORA`, kind: 'aurora', eventType: 'AURORA' };
+    await mount({ event: aur, evRows: [aur], chipAlertNight: TODAY, chipAlertLevel: 'STRONG' });
+    expect(screen.getByTestId('map-callout-verdict').querySelector('.wf-hc-sun'))
+      .toHaveAttribute('data-aurora-level', 'strong');
+  });
+
+  it('keeps the chip moderate when the strong alert describes a different night', async () => {
+    const aur = { ...ASTRO_EVENT, id: `aurora:${TODAY}:AURORA`, kind: 'aurora', eventType: 'AURORA' };
+    await mount({ event: aur, evRows: [aur], chipAlertNight: '2020-01-01', chipAlertLevel: 'STRONG' });
+    expect(screen.getByTestId('map-callout-verdict').querySelector('.wf-hc-sun'))
+      .toHaveAttribute('data-aurora-level', 'moderate');
+  });
+
   it('shows an honestly unscored cell for a night row this location genuinely has no served row for', async () => {
     const astroConditionsByDate = new Map([[TODAY, [{ locationName: 'Someone Else', stars: 5 }]]]);
     await mount({ evRows, astroConditionsByDate, scoresKnown: true });

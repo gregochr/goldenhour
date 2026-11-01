@@ -12,7 +12,7 @@ vi.mock('../api/axiosClient.js', () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
 }));
 
-// Counts how many times the Job Runs stub has mounted (not rendered).
+// Counts how many times the Runs stub has mounted (not rendered).
 const { mounts } = vi.hoisted(() => ({ mounts: { jobRuns: 0 } }));
 
 const { stub } = vi.hoisted(() => ({
@@ -31,13 +31,13 @@ vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
-vi.mock('../components/JobRunsMetricsView.jsx', async () => {
+vi.mock('../components/runs/RunsView.jsx', async () => {
   const React = await import('react');
   function JobRunsStub() {
     React.useEffect(() => {
       mounts.jobRuns += 1;
     }, []);
-    return <div data-testid="stub-view">Job Runs</div>;
+    return <div data-testid="stub-view">Runs</div>;
   }
   return { default: JobRunsStub };
 });
@@ -45,7 +45,7 @@ vi.mock('../components/JobRunsMetricsView.jsx', async () => {
 // The expected layout, written out literally (deliberately not imported from ManageView).
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
-    ['pipelineruns', 'Pipeline Runs'], ['metrics', 'Job Runs'],
+    ['runs', 'Runs'], ['pipelineruns', 'Pipeline Runs'],
     ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
   ] },
   { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },
@@ -106,10 +106,10 @@ describe('ManageView — wide sidebar', () => {
 
   it('marks the active tab aria-current="page" and follows selection', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    expect(screen.getByTestId('manage-tab-pipelineruns')).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('manage-tab-runs')).toHaveAttribute('aria-current', 'page');
     fireEvent.click(screen.getByTestId('manage-tab-rewind'));
     expect(screen.getByTestId('manage-tab-rewind')).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByTestId('manage-tab-pipelineruns')).not.toHaveAttribute('aria-current');
+    expect(screen.getByTestId('manage-tab-runs')).not.toHaveAttribute('aria-current');
     expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
@@ -168,7 +168,7 @@ describe('ManageView — phone section menu', () => {
   it('selects the current tab and changing it switches content and hash', () => {
     render(<ManageView onComplete={vi.fn()} />);
     const select = screen.getByTestId('manage-section-select');
-    expect(select).toHaveValue('pipelineruns');
+    expect(select).toHaveValue('runs');
     fireEvent.change(select, { target: { value: 'regions' } });
     expect(select).toHaveValue('regions');
     expect(screen.getByTestId('stub-view')).toHaveTextContent('Regions');
@@ -229,15 +229,15 @@ describe('ManageView — layout precedence and tablet', () => {
     expect(screen.queryByTestId('manage-sidebar')).toBeNull();
     expect(screen.queryByTestId('manage-section-select')).toBeNull();
     expect(screen.getAllByTestId(/^manage-group-(?!bar$)/)).toHaveLength(5);
-    expect(screen.getByTestId('manage-tab-pipelineruns')).not.toHaveAttribute('aria-current');
+    expect(screen.getByTestId('manage-tab-runs')).not.toHaveAttribute('aria-current');
   });
 
   it('does not remount the sub-view when the layout changes', () => {
     mounts.jobRuns = 0;
     setLayout('wide');
     const { rerender } = render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-tab-metrics'));
-    expect(screen.getByTestId('stub-view')).toHaveTextContent('Job Runs');
+    // Runs is the landing tab, so it has mounted already; the layout change below must not mount it again.
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Runs');
     expect(mounts.jobRuns).toBe(1);
 
     setLayout('tablet');

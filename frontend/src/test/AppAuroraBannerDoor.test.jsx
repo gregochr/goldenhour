@@ -243,7 +243,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
 
     await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
-    expect(window.location.hash).toBe('#manage/metrics');
+    expect(window.location.hash).toBe('#manage/runs/start');
   });
 
   it('a SIMULATED alert for a non-admin has no door: no call to action, no tab request, no handoff', async () => {
@@ -430,14 +430,14 @@ describe('App — the breadcrumb\'s return (doors D2, extended by C4)', () => {
 });
 
 describe('App — a simulated alert\'s banner opens Operations (C4, S3)', () => {
-  it('asks for Operations with a fresh nonce on every press, and aims the hash at Job Runs', async () => {
+  it('asks for Operations with a fresh nonce on every press, and aims the hash at Start a run', async () => {
     getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
     renderApp('ADMIN');
 
     await pressBanner();
     await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
     const first = ShellStub.lastProps.tabRequest.nonce;
-    expect(window.location.hash).toBe('#manage/metrics');
+    expect(window.location.hash).toBe('#manage/runs/start');
     expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Operations →');
 
     // Navigate away (the shell stub reports Plan), then press again: a second request must land.

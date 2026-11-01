@@ -28,7 +28,7 @@ vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/PipelineRunsView.jsx', () => stub('Pipeline Runs'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
-vi.mock('../components/JobRunsMetricsView.jsx', () => stub('Job Runs'));
+vi.mock('../components/runs/RunsView.jsx', () => stub('Runs'));
 // The Locations view stands in with a button that reports a count, as the real view does once it has loaded.
 vi.mock('../components/LocationManagementView.jsx', () => ({
   default: ({ onAttentionCountChange }) => (
