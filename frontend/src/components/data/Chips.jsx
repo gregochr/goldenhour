@@ -95,12 +95,12 @@ Chip.propTypes = {
  */
 export function ChipSelect({ label, value, options, onChange, on = false, testId }) {
   return (
-    <span className="relative inline-flex max-[639px]:shrink-0">
+    <span className="relative inline-flex max-[639px]:max-w-full max-[639px]:shrink-0 max-[639px]:self-start">
       <select
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`${CHIP_BASE} appearance-none pr-6 ${on ? CHIP_ON : CHIP_OFF} bg-transparent`}
+        className={`${CHIP_BASE} appearance-none pr-6 max-[639px]:max-w-full max-[639px]:truncate ${on ? CHIP_ON : CHIP_OFF} bg-transparent`}
         data-testid={testId}
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -135,7 +135,7 @@ ChipSelect.propTypes = {
  */
 export function SortChip({ options, sortKey, sortDir, onChange, testId }) {
   return (
-    <span className="relative hidden @max-[540px]:inline-flex max-[639px]:shrink-0">
+    <span className="relative hidden @max-[540px]:inline-flex max-[639px]:shrink-0 max-[639px]:self-start">
       <select
         aria-label="Sort by"
         value={`${sortKey}:${sortDir}`}

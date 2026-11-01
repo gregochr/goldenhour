@@ -198,6 +198,19 @@ describe('Chips', () => {
     expect(row.querySelector('[aria-hidden="true"]')).toHaveClass('max-[639px]:hidden');
   });
 
+  it('keeps a long select inside the card on a phone: no wrapping column, truncated text, wrapper at its own width', () => {
+    render(
+      <DataTools testId="tools">
+        <ChipSelect label="Region" value="" options={[{ value: '', label: 'All regions' }]} onChange={vi.fn()} testId="sel" />
+        <SortChip options={[{ key: 'name', label: 'Name' }]} sortKey="name" sortDir="asc" onChange={vi.fn()} testId="sort" />
+      </DataTools>,
+    );
+    expect(screen.getByTestId('tools')).toHaveClass('max-[639px]:flex-nowrap');
+    expect(screen.getByTestId('sel')).toHaveClass('max-[639px]:truncate', 'max-[639px]:max-w-full');
+    expect(screen.getByTestId('sel').parentElement).toHaveClass('max-[639px]:self-start', 'max-[639px]:max-w-full');
+    expect(screen.getByTestId('sort').parentElement).toHaveClass('max-[639px]:self-start');
+  });
+
   it('draws a select as a chip that reports the chosen value', () => {
     const onChange = vi.fn();
     render(<ChipSelect label="Region" value="" options={[{ value: '', label: 'All regions' }, { value: '3', label: 'North' }]} onChange={onChange} testId="sel" />);

@@ -12,7 +12,7 @@ import { inputClass } from '../users/userFormClasses.js';
 export function DataTools({ children, testId = undefined }) {
   return (
     <div
-      className="flex flex-wrap items-center gap-2 max-[639px]:flex-col max-[639px]:items-stretch"
+      className="flex flex-wrap items-center gap-2 max-[639px]:flex-col max-[639px]:flex-nowrap max-[639px]:items-stretch"
       data-testid={testId}
     >
       {children}
