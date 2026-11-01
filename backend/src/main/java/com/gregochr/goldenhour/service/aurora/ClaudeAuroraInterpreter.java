@@ -41,8 +41,7 @@ import java.util.Map;
  *
  * <p>Constructs a rich prompt combining NOAA SWPC data (Kp trend, forecast, OVATION
  * probability, solar wind Bz, active alerts) with per-location cloud cover and dark-sky
- * data. Claude rates each viable location on a 1–5 star scale with a one-line summary
- * and a multi-factor detail breakdown.
+ * data. Claude rates each viable location on a 1–5 star scale with a one-line summary.
  *
  * <p>The prompt includes a {@link TriggerType} context so Claude uses planning language
  * ("forecast tonight — plan your evening") for daytime forecast alerts vs urgent language
@@ -65,10 +64,11 @@ public class ClaudeAuroraInterpreter {
 
     /**
      * Per-location token budget. Each entry carries a name, a star integer, a summary
-     * (up to 120 chars) and a 3–5 bullet detail block — roughly 150 tokens worst case;
-     * 220 leaves comfortable headroom so the JSON array is never truncated mid-object.
+     * (up to 90 chars) — roughly 70–90 tokens even if the model overruns the cap; 110 leaves
+     * headroom so the JSON array is never truncated mid-object (the thinking allowance is fixed, and
+     * a {@code max_tokens} stop fails the whole run).
      */
-    private static final int TOKENS_PER_LOCATION = 220;
+    private static final int TOKENS_PER_LOCATION = 110;
 
     /**
      * Number of trailing {@code '}'} positions to probe when salvaging a truncated array.
@@ -82,8 +82,7 @@ public class ClaudeAuroraInterpreter {
     private static final String SYSTEM_PROMPT = """
             You are an expert aurora photography advisor. You will receive space weather data
             and a list of photography locations. For each location, produce a 1–5 star rating
-            for aurora photography conditions, with a one-line summary and a brief multi-factor
-            detail.
+            for aurora photography conditions, with a one-line summary.
 
             Output ONLY valid JSON — no prose, no code fences, no markdown.
             The JSON must be an array of objects, one per location, in the same order as
@@ -92,11 +91,7 @@ public class ClaudeAuroraInterpreter {
             Each object must have exactly these fields:
             - "name": the location name (string, unchanged from input)
             - "stars": integer 1–5
-            - "summary": one-line summary suitable for a push notification (max 120 chars,
-              no double-quote characters inside the string)
-            - "detail": 3–5 bullet points with ✓/–/✗ icons covering: geomagnetic activity,
-              cloud outlook, solar wind Bz, moonlight, and dark skies (no double-quote
-              characters inside the string)
+            - "summary": one-line summary (max 90 chars, no double-quote characters inside the string)
 
             Scoring guidance:
             - STRONG (Kp 7+): base 4★. MODERATE (Kp 5–6): base 3★.
@@ -110,7 +105,7 @@ public class ClaudeAuroraInterpreter {
                 (DARK_THEN_MOONLIT or MOONLIT_THEN_DARK)
               - Illumination > 75%: −3.0 HARD PENALTY. Hard cap the FINAL score at 3★ regardless of Kp.
                 Only Kp 7+ (STRONG) is worth chasing under a near-full moon at UK latitudes.
-              - If illumination > 50%, MUST mention moon impact explicitly in the "detail" field.
+              - If illumination > 50%, MUST mention moon impact explicitly in the summary.
               - DARK_THEN_MOONLIT: mention moonrise time in summary.
               - MOONLIT_THEN_DARK: mention moonset time in summary.
             - Bortle 1–2: +0.5. Bortle 3–4: 0. Bortle 5+: −0.5.
