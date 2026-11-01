@@ -96,3 +96,11 @@ existing half-off data is left as is. The checks are check-then-write, not atomi
 - **Polling**: jobs and the solar preview are re-read together every 30 s (`useVisiblePoll`), each loader numbering its requests and applying only the latest; a tick is skipped while the Operations pane is hidden (`closest('[hidden]')`). The open panel's Recent runs refetch on the same beat.
 - **Server**: `DISABLED_BY_CONFIG` on trigger, pause or resume is a 409 (`JobDisabledByConfigException`, handled in `GlobalExceptionHandler`), not a 500.
 - **Real clock (R-D7)**: every clock read here is `new Date()`, never `appNow()`; a set Rewind moves none of them (pinned by `SchedulerView.test.jsx`).
+
+## Operations → Run Config: measured costs (run-config-accuracy-plan.md)
+
+`components/ModelSelectionView.jsx` holds no price. `GET /api/models` serves `costProfiles` (per tab: runs per day, calls per run, a `measured` figure for each model that ran and an `estimates` figure for each selectable model that did not), `tokenRates` (from `CostProperties`) and `gbpPerUsd` (the newest `job_run.exchange_rate_gbp_per_usd`; absent means the screen shows dollars). `service/RunCostProfileService` builds them from `api_call_log` over the last 30 UK civil days, with a 10-minute memo bypassed under Rewind, and never throws to the controller (a failure serves an empty `costProfiles`, shown as "Cost figures unavailable").
+
+- **Which rows**: Briefing = `BRIEFING` runs' `briefing-best-bet` rows (not the gloss rows); Aurora = `AURORA_EVALUATION` runs plus `au-` batch rows; the batch tabs = `fc-`/`bb-`/`wd-` batch rows whose `forecast_batch.pipeline_run_id` is set (the admin force-submit route is excluded), bucketed by `days_ahead` (0-1 near, 2+ far) in Java. Batch "runs" are pipeline cycles. Per-call figures use succeeded calls only; per-day spend includes every row.
+- **Estimates** price the tab's average token mix through `CostCalculator` (batch cache writes at the 1-hour rate); they ignore tokeniser and thinking differences.
+- **Not included**: the cache-priming call (`pw-`) logs nothing; a refused or truncated synchronous aurora call is logged at zero cost; admin aurora runs for a chosen night and the aurora gloss log nothing; `BRIEFING_GLOSS` has no tab.

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
+import com.gregochr.goldenhour.model.ApiCallCostRow;
 import com.gregochr.goldenhour.model.BatchSummaryCall;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -129,4 +130,24 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "c.service, c.targetDate, c.targetType, c.evaluationModel, c.customId) "
             + "FROM ApiCallLogEntity c WHERE c.jobRunId = :id ORDER BY c.calledAt ASC")
     List<BatchSummaryCall> findBatchSummaryCallsByJobRunId(@Param("id") Long jobRunId);
+
+    /**
+     * Returns the columns the Run Config cost profile needs for every Anthropic call logged since a
+     * moment, joined to the owning job run and (left) to the batch's pipeline cycle. The request and
+     * response body columns are never selected. Classification, day bucketing and aggregation happen
+     * in Java, because H2 and Postgres disagree on date arithmetic.
+     *
+     * @param since the earliest {@code called_at}, inclusive (UTC)
+     * @return one {@link ApiCallCostRow} per call
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.ApiCallCostRow("
+            + "j.runType, j.startedAt, a.requestUrl, a.customId, a.isBatch, a.succeeded, "
+            + "a.evaluationModel, a.targetDate, a.inputTokens, a.outputTokens, "
+            + "a.cacheCreationInputTokens, a.cacheReadInputTokens, a.costMicroDollars, "
+            + "a.jobRunId, b.pipelineRunId) "
+            + "FROM ApiCallLogEntity a JOIN JobRunEntity j ON j.id = a.jobRunId "
+            + "LEFT JOIN ForecastBatchEntity b ON b.anthropicBatchId = a.batchId "
+            + "WHERE a.service = com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC "
+            + "AND a.calledAt >= :since")
+    List<ApiCallCostRow> findCostRowsSince(@Param("since") LocalDateTime since);
 }

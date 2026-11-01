@@ -24,6 +24,47 @@ const MOCK_DATA = {
     BATCH_NEAR_TERM: 'SONNET',
     BATCH_FAR_TERM: 'HAIKU',
   },
+  tokenRates: {
+    HAIKU: { inputUsdPerMtok: 1, outputUsdPerMtok: 5 },
+    SONNET: { inputUsdPerMtok: 3, outputUsdPerMtok: 15 },
+    OPUS: { inputUsdPerMtok: 5, outputUsdPerMtok: 25 },
+  },
+  gbpPerUsd: 0.78,
+  costProfiles: {
+    BRIEFING_BEST_BET: {
+      windowDays: 30,
+      runsPerDay: 2.3,
+      callsPerRun: 1,
+      measured: { SONNET: { calls: 69, usdPerCall: 0.04, usdPerDay: 0.092 } },
+      estimates: {
+        HAIKU: { calls: 0, usdPerCall: 0.0125, usdPerDay: 0.02875 },
+        OPUS: { calls: 0, usdPerCall: 0.065, usdPerDay: 0.1495 },
+      },
+    },
+    AURORA_EVALUATION: {
+      windowDays: 30,
+      runsPerDay: 0.6,
+      callsPerRun: 1,
+      measured: { SONNET: { calls: 18, usdPerCall: 0.44, usdPerDay: 0.264 } },
+      estimates: {
+        HAIKU: { calls: 0, usdPerCall: 0.14, usdPerDay: 0.084 },
+        OPUS: { calls: 0, usdPerCall: 0.73, usdPerDay: 0.438 },
+      },
+    },
+    BATCH_NEAR_TERM: {
+      windowDays: 30,
+      runsPerDay: 6.9,
+      callsPerRun: 143,
+      measured: { SONNET: { calls: 29600, usdPerCall: 0.0028, usdPerDay: 2.76 } },
+      estimates: {
+        HAIKU: { calls: 0, usdPerCall: 0.0009, usdPerDay: 0.89 },
+        OPUS: { calls: 0, usdPerCall: 0.0047, usdPerDay: 4.64 },
+      },
+    },
+    BATCH_FAR_TERM: {
+      windowDays: 30, runsPerDay: 0, callsPerRun: 0, measured: {}, estimates: {},
+    },
+  },
 };
 
 const ET_ENABLED = 'Extended thinking enabled for Briefing';
@@ -257,8 +298,10 @@ describe('ModelSelectionView', () => {
     });
 
     expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('text-plex-gold');
-    expect(screen.getByTestId('cost-estimate-table')).toBeInTheDocument();
-    expect(screen.getByText(/12 Claude calls per run/)).toBeInTheDocument();
+    expect(screen.getByTestId('cost-table')).toBeInTheDocument();
+    expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
+      '2.3 runs a day, 1 call per run, last 30 days',
+    );
   });
 
   it('renders config tabs, and none for the retired term run types', async () => {
@@ -302,7 +345,7 @@ describe('ModelSelectionView', () => {
     expect(screen.getByText('Loading models...')).toBeInTheDocument();
   });
 
-  it('switches to Briefing tab and shows custom cost estimate', async () => {
+  it('switches to Briefing tab and shows the served cost summary', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
@@ -312,14 +355,14 @@ describe('ModelSelectionView', () => {
     fireEvent.click(screen.getByTestId('config-tab-BRIEFING_BEST_BET'));
 
     await waitFor(() => {
-      expect(screen.getByText(/12 Claude calls per run/)).toBeInTheDocument();
+      expect(screen.getByTestId('cost-table-summary')).toHaveTextContent('2.3 runs a day');
     });
 
     // Briefing tab should not show strategy toggles (no strategies configured)
     expect(screen.queryByText('Cost Optimisation')).not.toBeInTheDocument();
   });
 
-  it('switches to Aurora tab and shows custom cost estimate', async () => {
+  it('switches to Aurora tab and shows the served cost summary', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
@@ -329,7 +372,9 @@ describe('ModelSelectionView', () => {
     fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
 
     await waitFor(() => {
-      expect(screen.getByText(/35 Claude calls per run/)).toBeInTheDocument();
+      expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
+        '0.6 runs a day, 1 call per run, last 30 days',
+      );
     });
 
     // Aurora tab should not show strategy toggles
@@ -476,11 +521,11 @@ describe('ModelSelectionView', () => {
     expect(button).toHaveTextContent('Switch to HAIKU_60');
     const card = button.closest('.card');
     expect(card).toHaveTextContent('HAIKU_60');
-    expect(card).toHaveTextContent('Typical cost: unknown');
+    expect(card).toHaveTextContent('Cost per call: unknown');
     expect(card).not.toHaveTextContent('Recommended');
     expect(card).not.toHaveTextContent('NaN');
 
-    const row = within(screen.getByTestId('cost-estimate-table')).getByText('HAIKU_60').closest('tr');
+    const row = within(screen.getByTestId('cost-table')).getByText('HAIKU_60').closest('tr');
     expect(row).toHaveTextContent('—');
     expect(row).not.toHaveTextContent('NaN');
 
@@ -504,16 +549,18 @@ describe('ModelSelectionView', () => {
 
   describe('modelInfoFor and batchDescriptionFor', () => {
     it('return the hand-written entry for a known model', () => {
-      expect(modelInfoFor('HAIKU').recommended).toBe(true);
+      expect(modelInfoFor('HAIKU')).toEqual({ name: 'Haiku 4.5', speed: 'Fast' });
       expect(batchDescriptionFor('OPUS')).toMatch(/Highest accuracy/);
     });
 
-    it('return a generic, unrecommended, cost-less entry for an unknown model', () => {
-      const info = modelInfoFor('HAIKU_60');
-      expect(info).toMatchObject({
-        name: 'HAIKU_60', recommended: false, typicalCostUsd: null, speed: 'Unknown', tokenRates: 'Unknown',
-      });
-      expect(info.description).toBe('Newer model; no description yet.');
+    it('carry no price and no recommendation for any model', () => {
+      expect(modelInfoFor('SONNET')).not.toHaveProperty('typicalCostUsd');
+      expect(modelInfoFor('SONNET')).not.toHaveProperty('tokenRates');
+      expect(modelInfoFor('SONNET')).not.toHaveProperty('recommended');
+    });
+
+    it('return a generic entry for an unknown model', () => {
+      expect(modelInfoFor('HAIKU_60')).toEqual({ name: 'HAIKU_60', speed: 'Unknown' });
       expect(batchDescriptionFor('HAIKU_60')).toBe('Newer model; no description yet.');
     });
   });
@@ -543,15 +590,15 @@ describe('ModelSelectionView', () => {
     fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
 
     await waitFor(() => {
-      expect(screen.getByText(/cost-efficient model for overnight batch runs/)).toBeInTheDocument();
+      expect(screen.getByText(/Fast, cost-efficient model\./)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Recommended for scheduled batch runs/)).toBeInTheDocument();
-    expect(screen.getByText(/Best reserved for key seasonal events only/)).toBeInTheDocument();
+    expect(screen.getByText(/Strong reasoning at low cost with batch pricing/)).toBeInTheDocument();
+    expect(screen.getByText('Highest accuracy for batch runs.')).toBeInTheDocument();
 
-    // Each description appears exactly once — not the same text repeated across all three cards
-    expect(screen.getAllByText(/cost-efficient model for overnight batch runs/)).toHaveLength(1);
-    expect(screen.getAllByText(/Recommended for scheduled batch runs/)).toHaveLength(1);
+    // Each description appears exactly once — not the same text repeated across all cards
+    expect(screen.getAllByText(/Fast, cost-efficient model\./)).toHaveLength(1);
+    expect(screen.getAllByText(/Strong reasoning at low cost with batch pricing/)).toHaveLength(1);
     // The fourth model: Sonnet 5.5 has its own description, shown exactly once
     expect(screen.getAllByText(/Selectable newer Sonnet for scheduled batch runs/)).toHaveLength(1);
   });
@@ -585,49 +632,213 @@ describe('ModelSelectionView', () => {
     fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
 
     await waitFor(() => {
-      expect(screen.getByText(/35 Claude calls per run/)).toBeInTheDocument();
+      expect(screen.getByTestId('aurora-thinking-note')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('batch-info-panel')).not.toBeInTheDocument();
   });
 
-  it('Scheduled Batch tab shows batch cost table and no standard cost-estimate-table', async () => {
+  it('Batch tab shows the served cycle summary and per-request figures, not the old static table', async () => {
     render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('batch-cost-table')).toBeInTheDocument();
-    });
-
-    expect(screen.queryByTestId('cost-estimate-table')).not.toBeInTheDocument();
-    // Spot-check cost ranges are present
-    expect(screen.getAllByText('~£0.0002').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('~£0.02 – £0.08').length).toBeGreaterThanOrEqual(1);
-    // Sonnet 5.5 has its own row, so it can be marked active when selected
-    expect(within(screen.getByTestId('batch-cost-table')).getByText('Sonnet 5.5')).toBeInTheDocument();
+    const table = await screen.findByTestId('cost-table');
+    expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
+      '6.9 cycles a day, 143 requests per cycle, last 30 days',
+    );
+    const sonnet = within(table).getByText('Sonnet 4.6').closest('tr');
+    expect(sonnet).toHaveTextContent('£0.0022');
+    expect(sonnet).toHaveTextContent('measured');
+    expect(sonnet).toHaveTextContent('(active)');
+    const haiku = within(table).getByText('Haiku 4.5').closest('tr');
+    expect(haiku).toHaveTextContent('estimate');
+    expect(screen.queryByTestId('batch-cost-table')).not.toBeInTheDocument();
+    expect(screen.queryByText('~£0.0002')).not.toBeInTheDocument();
   });
 
-  it('Scheduled Batch cost table marks the Sonnet 5.5 row "(active)" when it is the active model', async () => {
+  it('cost table marks the Sonnet 5.5 row "(active)" when it is the active model', async () => {
     getAvailableModels.mockResolvedValue({
       ...MOCK_DATA,
+      available: ['HAIKU', 'SONNET', 'SONNET_55'],
       configs: { ...MOCK_DATA.configs, BATCH_NEAR_TERM: 'SONNET_55' },
     });
     render(<ModelSelectionView />);
     fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
 
-    const table = await screen.findByTestId('batch-cost-table');
+    const table = await screen.findByTestId('cost-table');
     const row = within(table).getByText('Sonnet 5.5').closest('tr');
     expect(row).toHaveTextContent('(active)');
     expect(within(table).getByText('Sonnet 4.6').closest('tr')).not.toHaveTextContent('(active)');
     expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 5.5)');
   });
 
-  it('Extended Thinking: Sonnet 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+  describe('served cost figures', () => {
+    it('cards show the measured figure for a model that ran and an estimate for one that did not', async () => {
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost per call: ~£0.031 (measured)');
+      expect(screen.getByTestId('card-cost-HAIKU')).toHaveTextContent('Cost per call: ~£0.0098 (estimate)');
+      expect(screen.getByTestId('card-cost-OPUS')).toHaveTextContent('(estimate)');
+    });
+
+    it('cards show the served token rates, converted at the served exchange rate', async () => {
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      expect(screen.getByTestId('card-rates-SONNET')).toHaveTextContent('£2.34/MTok in, £11.7/MTok out');
+      expect(screen.getByTestId('card-rates-HAIKU')).toHaveTextContent('£0.78/MTok in, £3.9/MTok out');
+    });
+
+    it('the table lists per-call and per-day figures with their basis', async () => {
+      render(<ModelSelectionView />);
+      const table = await screen.findByTestId('cost-table');
+
+      const sonnet = within(table).getByText('Sonnet 4.6').closest('tr');
+      expect(sonnet).toHaveTextContent('£0.031');
+      expect(sonnet).toHaveTextContent('£0.072');
+      expect(sonnet).toHaveTextContent('measured');
+      expect(within(table).getByText('Opus').closest('tr')).toHaveTextContent('estimate');
+    });
+
+    it('shows dollars when the backend sent no exchange rate', async () => {
+      const withoutRate = { ...MOCK_DATA };
+      delete withoutRate.gbpPerUsd;
+      getAvailableModels.mockResolvedValue(withoutRate);
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('~$0.040 (measured)');
+      expect(screen.getByTestId('card-rates-SONNET')).toHaveTextContent('$3/MTok in, $15/MTok out');
+      expect(screen.getByTestId('cost-table')).not.toHaveTextContent('£');
+    });
+
+    it('says cost figures are unavailable when costProfiles is absent, and the cards still work', async () => {
+      const withoutProfiles = { ...MOCK_DATA };
+      delete withoutProfiles.costProfiles;
+      getAvailableModels.mockResolvedValue(withoutProfiles);
+      setActiveModel.mockResolvedValue({ runType: 'BRIEFING_BEST_BET', active: 'OPUS' });
+      render(<ModelSelectionView />);
+
+      expect(await screen.findByText('Cost figures unavailable')).toBeInTheDocument();
+      expect(screen.queryByTestId('cost-table')).not.toBeInTheDocument();
+      expect(screen.getByTestId('card-cost-SONNET')).toHaveTextContent('Cost per call: unknown');
+      fireEvent.click(screen.getByTestId('switch-BRIEFING_BEST_BET-OPUS'));
+      await waitFor(() => {
+        expect(setActiveModel).toHaveBeenCalledWith('BRIEFING_BEST_BET', 'OPUS');
+      });
+    });
+
+    it('says cost figures are unavailable when costProfiles is empty', async () => {
+      getAvailableModels.mockResolvedValue({ ...MOCK_DATA, costProfiles: {} });
+      render(<ModelSelectionView />);
+
+      expect(await screen.findByText('Cost figures unavailable')).toBeInTheDocument();
+    });
+
+    it('says there were no calls when a tab has an empty window', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-BATCH_FAR_TERM'));
+
+      expect(await screen.findByText('No calls in the last 30 days')).toBeInTheDocument();
+      expect(screen.queryByTestId('cost-table')).not.toBeInTheDocument();
+    });
+
+    it('carries none of the old hard-coded costs, rates or Recommended badge', async () => {
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      const text = document.body.textContent;
+      expect(text).not.toContain('Recommended');
+      expect(text).not.toContain('£0.80/MTok');
+      expect(text).not.toContain('every 2 hours');
+      expect(text).not.toContain('35 locations');
+      expect(text).not.toContain('Typical cost');
+    });
+
+    it('footnotes every tab, with the batch and aurora additions only where they apply', async () => {
+      render(<ModelSelectionView />);
+      const footnote = await screen.findByTestId('cost-footnote');
+      expect(footnote).toHaveTextContent('Costs are calculated from logged token counts at the configured prices.');
+      expect(footnote).not.toHaveTextContent('Batch API discount');
+      expect(footnote).not.toHaveTextContent('understate');
+
+      fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+      expect(screen.getByTestId('cost-footnote')).toHaveTextContent('understate');
+      expect(screen.getByTestId('cost-footnote')).not.toHaveTextContent('Batch API discount');
+
+      fireEvent.click(screen.getByTestId('config-tab-BATCH_NEAR_TERM'));
+      expect(screen.getByTestId('cost-footnote')).toHaveTextContent(
+        'Includes the Batch API discount and prompt caching. The cache-priming call is not logged',
+      );
+    });
+  });
+
+  describe('copy', () => {
+    it('batch panel states the cycle, tier and STANDDOWN rules', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-BATCH_FAR_TERM'));
+      const panel = await screen.findByTestId('batch-info-panel');
+
+      expect(panel).toHaveTextContent('in the nightly, intraday and evening cycles');
+      expect(panel).toHaveTextContent('T+0 and T+1, at every stability; skipped only by triage or a fresh evaluation.');
+      expect(panel).toHaveTextContent('Nightly cycle only: T+2 when settled or transitional, T+3 when settled');
+      expect(panel).toHaveTextContent('up to 6 GO headline contenders');
+      expect(panel).toHaveTextContent('Nightly cycle');
+      expect(panel).toHaveTextContent('T+0 to T+3');
+      expect(panel).toHaveTextContent('T+0 to T+2');
+      expect(panel).toHaveTextContent('wind-gust variance');
+      expect(panel).toHaveTextContent(
+        "The intraday cycle covers today's sunset and tomorrow's sunrise and sunset; the evening cycle covers tomorrow's sunrise.",
+      );
+      expect(panel).toHaveTextContent(
+        'If every sky location is stood down by triage and no woodland or bluebell site is due, the batch has zero requests and is not submitted.',
+      );
+    });
+
+    it('batch panel no longer has the JFDI section, the morning promise or the model advice', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+      const panel = await screen.findByTestId('batch-info-panel');
+
+      expect(panel).not.toHaveTextContent('JFDI');
+      expect(panel).not.toHaveTextContent('Run full forecast');
+      expect(panel).not.toHaveTextContent('ready before your first morning check');
+      expect(panel).not.toHaveTextContent('re-evaluated overnight anyway');
+    });
+
+    it('the About box keeps its facts and drops the two advice lines', async () => {
+      render(<ModelSelectionView />);
+      await screen.findByTestId('cost-table');
+
+      expect(screen.getByText(/Each run type can use a different Claude model independently/)).toBeInTheDocument();
+      expect(screen.getByText(/Wildlife-only locations/)).toBeInTheDocument();
+      expect(screen.getByText(/Previous forecasts are preserved with their original model/)).toBeInTheDocument();
+      expect(screen.queryByText(/Haiku offers excellent value/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Use a more accurate model/)).not.toBeInTheDocument();
+    });
+
+    it('the Briefing thinking panel explains adaptive thinking and the 16,000 ceiling', async () => {
+      render(<ModelSelectionView />);
+      const panel = await screen.findByTestId('extended-thinking-panel');
+
+      expect(panel).toHaveTextContent('Turns on adaptive thinking for Sonnet 4.6 and Opus 4.6.');
+      expect(panel).toHaveTextContent('rises from 4,096 to 16,000');
+      expect(panel).not.toHaveTextContent('10 000');
+    });
+
+    it('the Aurora tab explains how thinking and the reply budget are set, with no toggle', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-AURORA_EVALUATION'));
+      const note = await screen.findByTestId('aurora-thinking-note');
+
+      expect(note).toHaveTextContent('One call rates every viable location.');
+      expect(note).toHaveTextContent('about 220 tokens per location, plus 4,096 for Sonnet 5.5');
+      expect(screen.queryByTestId('toggle-extended-thinking')).not.toBeInTheDocument();
+    });
+  });
+
+  it('Extended Thinking: Sonnet 5.5 shows the no-effect note and the 16,000 ceiling', async () => {
     getAvailableModels.mockResolvedValue({
       ...MOCK_DATA,
       configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET_55' },
@@ -637,12 +848,11 @@ describe('ModelSelectionView', () => {
     fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
 
     expect(await screen.findByTestId('extended-thinking-sonnet-55-note')).toHaveTextContent(
-      'always thinks adaptively at low effort',
+      'always thinks adaptively at low effort, so this switch has no effect on it, and it always has the 16,000 ceiling.',
     );
-    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
   });
 
-  it('Extended Thinking: Haiku 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+  it('Extended Thinking: Haiku 5.5 shows the no-effect note', async () => {
     getAvailableModels.mockResolvedValue({
       ...MOCK_DATA,
       configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'HAIKU_55' },
@@ -654,10 +864,9 @@ describe('ModelSelectionView', () => {
     expect(await screen.findByTestId('extended-thinking-haiku-55-note')).toHaveTextContent(
       'thinking disabled',
     );
-    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
   });
 
-  it('Extended Thinking: Sonnet 4.6 still shows the thinking-cost line and names which Sonnet', async () => {
+  it('Extended Thinking: Sonnet 4.6 shows no no-effect note and no invented per-call cost', async () => {
     getAvailableModels.mockResolvedValue({
       ...MOCK_DATA,
       configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET' },
@@ -666,20 +875,21 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
     fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
 
-    expect(await screen.findByText(/Active — adds ~10 000 thinking tokens per call \(Sonnet 4\.6:/))
-      .toBeInTheDocument();
+    const panel = await screen.findByTestId('extended-thinking-panel');
+    expect(panel).not.toHaveTextContent('Active — adds');
+    expect(panel).not.toHaveTextContent('£0.12');
     expect(screen.queryByTestId('extended-thinking-sonnet-55-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('extended-thinking-haiku-55-note')).not.toBeInTheDocument();
   });
 
-  it('batch cost table is absent on non-batch tabs', async () => {
+  it('the batch info panel is absent on non-batch tabs', async () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
       expect(screen.getByText('Run Configuration')).toBeInTheDocument();
     });
 
-    // Default tab is BRIEFING_BEST_BET
-    expect(screen.queryByTestId('batch-cost-table')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('batch-info-panel')).not.toBeInTheDocument();
   });
 
   it('model switch on Batch Near-Term tab sends BATCH_NEAR_TERM as runType', async () => {
