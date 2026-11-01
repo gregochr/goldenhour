@@ -94,6 +94,22 @@ final class AskFixtures {
         return slotWith(id, name, rating, false, tide, null);
     }
 
+    /** A coastal slot whose tide also serves the nearest high or low water phrase. */
+    static BriefingSlot coastalNearest(Long id, String name, Integer rating, String tideState,
+            boolean tideAligned, String fitPhrase, String nearestTide) {
+        BriefingSlot base = coastal(id, name, rating, tideState, tideAligned, fitPhrase);
+        BriefingSlot.TideInfo t = base.tide();
+        BriefingSlot.TideInfo withNearest = new BriefingSlot.TideInfo(t.tideState(), t.tideAligned(),
+                t.nearestHighTideTime(), t.nearestHighTideHeight(), t.heightAboveP95(),
+                t.heightAboveSpringThreshold(), t.lunarTideType(), t.lunarPhase(), t.moonAtPerigee(),
+                t.nearestSolarOffsetMinutes(), t.nearestExtremeKind(), t.tideOnTheLight(), nearestTide,
+                t.tideLevel(), t.tideDirection(), t.tideHeight(), t.tideShortfall(), t.tideFitPhrase(),
+                t.tideAlignmentQuality());
+        return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
+                base.verdict(), base.weather(), withNearest, base.flags(), base.claudeRating(), base.skyRating(),
+                null, null, null, base.displayVerdict(), base.claudeHeadline(), base.canopy(), null);
+    }
+
     /** The slot as served after the tide strip: the same slot with no tide of its own. */
     static BriefingSlot withoutTide(BriefingSlot base) {
         return new BriefingSlot(base.locationId(), base.locationName(), base.solarEventTime(),
@@ -106,6 +122,13 @@ final class AskFixtures {
     static LocationTideFact fact(Long id, String name, String tideState, boolean aligned,
             String fitPhrase) {
         return new LocationTideFact(id, name, tideState, aligned, null, null, null, null, null, null,
+                null, fitPhrase);
+    }
+
+    /** A served tide fact that also carries the nearest high or low water phrase. */
+    static LocationTideFact factNearest(Long id, String name, String tideState, boolean aligned,
+            String fitPhrase, String nearestTide) {
+        return new LocationTideFact(id, name, tideState, aligned, null, null, nearestTide, null, null, null,
                 null, fitPhrase);
     }
 
