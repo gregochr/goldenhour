@@ -77,7 +77,9 @@ public final class CoastalMistCalculator {
         Double dewPoint = data == null || data.weather() == null ? null : data.weather().dewPointCelsius();
         Integer lowCloud = data == null || data.cloud() == null ? null : data.cloud().lowCloudPercent();
         Double gap = temperature == null || dewPoint == null ? null : gap(temperature, dewPoint);
-        return new CoastalMistResult(band(visibility, gap), visibility, gap, lowCloud);
+        Double precipitation = data == null || data.weather() == null || data.weather().precipitationMm() == null
+                ? null : data.weather().precipitationMm().doubleValue();
+        return new CoastalMistResult(band(visibility, gap), visibility, gap, lowCloud, precipitation);
     }
 
     /**

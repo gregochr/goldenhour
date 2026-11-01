@@ -35,7 +35,7 @@ public class HotTopicGlanceDecorator {
      * Shared with the strategies that stamp their own glance.
      */
     public static final Set<String> WEATHER_TYPES = Set.of(
-            "STORM_SURGE", "MIST", "INVERSION", "DUST", "CLEARANCE",
+            "STORM_SURGE", "MIST", "SEA_MIST", "INVERSION", "DUST", "CLEARANCE",
             "SNOW_TOPS", "SNOW_MIST", "SNOW_FRESH", "AURORA", "NLC");
 
     private static final String SURGE = "STORM_SURGE";

@@ -243,6 +243,10 @@ public record SlotSignals(
      *                                  cycle, whatever the band: false for a row written before the
      *                                  column, or by a writer that skipped the check. A scored row's
      *                                  band is never null
+     * @param coastalMistLowCloudPct    the event-slot low cloud (percent) the coastal check read (V211,
+     *                                  Phase 2), or null when the check did not run or the data was missing
+     * @param coastalMistPrecipMm       the event-slot precipitation (mm) the coastal check read (V211), or
+     *                                  null when the check did not run or the data was missing
      */
     public record Readings(
             BigDecimal aerosolOpticalDepth,
@@ -262,7 +266,46 @@ public record SlotSignals(
             boolean mistScored,
             MistPotential mistPotential,
             CoastalMistBand coastalMistBand,
-            boolean coastalMistScored) {
+            boolean coastalMistScored,
+            Integer coastalMistLowCloudPct,
+            Double coastalMistPrecipMm) {
+
+        /**
+         * Backward-compatible constructor for readings written before coastal-mist-plan Phase 2: the low cloud
+         * and precipitation readings read as absent.
+         *
+         * @param aerosolOpticalDepth       aerosol optical depth, or null
+         * @param dust                      surface dust µg/m³, or null
+         * @param pm25                      PM2.5 µg/m³, or null
+         * @param surgeRiskLevel            storm surge risk classification name, or null
+         * @param snowDepthMetres           lying snow depth in metres, or null
+         * @param freezingLevelMetres       0 °C isotherm altitude in metres, or null
+         * @param humidity                  relative humidity percent, or null
+         * @param surgeTotalMetres          total storm surge in metres, or null
+         * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
+         * @param surgeWindDirectionDegrees surge-time wind direction, or null
+         * @param temperatureCelsius        2 m air temperature in °C, or null
+         * @param inversionScore            cloud inversion score, or null
+         * @param inversionScored           whether the inversion check ran for this row
+         * @param mistScore                 valley mist score, or null
+         * @param mistScored                whether the valley-mist check ran for this row
+         * @param mistPotential             valley mist band, or null
+         * @param coastalMistBand           coastal mist band, or null
+         * @param coastalMistScored         whether the coastal mist check ran for this row
+         */
+        public Readings(BigDecimal aerosolOpticalDepth, BigDecimal dust, BigDecimal pm25,
+                String surgeRiskLevel, Double snowDepthMetres, Double freezingLevelMetres,
+                Integer humidity, Double surgeTotalMetres, Double surgeWindSpeedMs,
+                Double surgeWindDirectionDegrees, Double temperatureCelsius,
+                Double inversionScore, boolean inversionScored, Double mistScore,
+                boolean mistScored, MistPotential mistPotential, CoastalMistBand coastalMistBand,
+                boolean coastalMistScored) {
+            this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
+                    freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
+                    surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
+                    inversionScored, mistScore, mistScored, mistPotential, coastalMistBand,
+                    coastalMistScored, null, null);
+        }
 
         /**
          * Backward-compatible constructor for readings that carry no coastal mist columns (every
@@ -294,7 +337,7 @@ public record SlotSignals(
             this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
                     freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
                     surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
-                    inversionScored, mistScore, mistScored, mistPotential, null, false);
+                    inversionScored, mistScore, mistScored, mistPotential, null, false, null, null);
         }
 
         /**
@@ -324,7 +367,7 @@ public record SlotSignals(
             this(aerosolOpticalDepth, dust, pm25, surgeRiskLevel, snowDepthMetres,
                     freezingLevelMetres, humidity, surgeTotalMetres, surgeWindSpeedMs,
                     surgeWindDirectionDegrees, temperatureCelsius, inversionScore,
-                    inversionScored, null, false, null, null, false);
+                    inversionScored, null, false, null, null, false, null, null);
         }
 
         /**
@@ -347,6 +390,6 @@ public record SlotSignals(
         /** The all-absent readings, used for a key that has only scores. */
         public static final Readings EMPTY = new Readings(
                 null, null, null, null, null, null, null, null, null, null, null, null, false,
-                null, false, null, null, false);
+                null, false, null, null, false, null, null);
     }
 }

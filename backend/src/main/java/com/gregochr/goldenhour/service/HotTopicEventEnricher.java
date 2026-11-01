@@ -48,6 +48,8 @@ public class HotTopicEventEnricher {
             // MIST names its own event per topic (sunrise AND sunset rows both count), so this
             // entry is only the fallback for a topic that carries none: the admin simulation.
             Map.entry("MIST", SUNRISE),
+            // SEA_MIST is sunrise-only and its detector stamps SUNRISE; the entry is the simulation fallback.
+            Map.entry("SEA_MIST", SUNRISE),
             Map.entry("DUST", SUNSET),
             Map.entry("SNOW_FRESH", SUNRISE),
             Map.entry("SNOW_MIST", SUNRISE),
@@ -67,7 +69,7 @@ public class HotTopicEventEnricher {
      * ({@code PlanWindowProjector.keysFor}); {@code HotTopicWindowAnchorRosterTest} enforces it.
      */
     private static final Set<String> EVENT_STAMPED_BY_DETECTOR =
-            Set.of("MIST", "STORM_SURGE", "ECLIPSE", "LUNAR_ECLIPSE");
+            Set.of("MIST", "SEA_MIST", "STORM_SURGE", "ECLIPSE", "LUNAR_ECLIPSE");
 
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");

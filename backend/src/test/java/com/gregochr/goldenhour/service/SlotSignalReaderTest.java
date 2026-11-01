@@ -319,6 +319,35 @@ class SlotSignalReaderTest {
     }
 
     @Test
+    @DisplayName("V211: the reader maps the coastal low cloud and precipitation readings; a pre-column row is null")
+    void readings_mapsCoastalLowCloudAndPrecipitation() {
+        SlotAtmosphereEntity a = new SlotAtmosphereEntity();
+        a.setLocation(location(26L));
+        a.setEvaluationDate(FROM);
+        a.setEventType(SUNSET);
+        a.setCoastalMistLowCloudPct(35);
+        a.setCoastalMistPrecipMm(0.2);
+        SlotAtmosphereEntity old = new SlotAtmosphereEntity();
+        old.setLocation(location(27L));
+        old.setEvaluationDate(FROM);
+        old.setEventType(SUNSET);
+        stubInversion(List.of());
+        stubBluebell(List.of());
+        stubReadings(List.of(a, old));
+
+        List<SlotSignals> signals = reader().read(FROM, TO);
+
+        SlotSignals mapped = signals.stream().filter(s -> s.location().getId() == 26L).findFirst().orElseThrow();
+        SlotSignals pre = signals.stream().filter(s -> s.location().getId() == 27L).findFirst().orElseThrow();
+        assertThat(mapped.readings().coastalMistLowCloudPct()).isEqualTo(35);
+        assertThat(mapped.readings().coastalMistPrecipMm()).isEqualTo(0.2);
+        assertThat(pre.readings().coastalMistLowCloudPct()).isNull();
+        assertThat(pre.readings().coastalMistPrecipMm()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.coastalMistLowCloudPct()).isNull();
+        assertThat(SlotSignals.Readings.EMPTY.coastalMistPrecipMm()).isNull();
+    }
+
+    @Test
     @DisplayName("V210: a pre-column row and an unknown stored name both read as no band, never throwing")
     void readings_coastalMistAbsentAndUnknownNameReadAsNoBand() {
         LocationEntity unknown = location(26L);

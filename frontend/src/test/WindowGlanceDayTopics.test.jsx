@@ -184,6 +184,18 @@ describe('WindowGlanceDayTopics — the accessible name is built from content', 
     expect(pill('MIST')).toHaveAccessibleName(/weather-driven, Monday, opens the Map that evening$/);
   });
 
+  it('draws a SEA_MIST topic as its own "Sea" pill, a weather pill that opens the Map that morning', () => {
+    const seaMist = {
+      type: 'SEA_MIST', label: 'Sea mist', date: SUN, eventType: 'SUNRISE',
+      glance: { value: 'dawn · light mist, 1 site', shortValue: 'likely', weather: true },
+    };
+    renderStacks({ topics: [seaMist] });
+    const sea = pill('SEA_MIST');
+    expect(sea).toBeDefined();
+    expect(sea).toHaveTextContent('Sea');
+    expect(sea).toHaveAccessibleName(/^Sea mist .*weather-driven, Sunday, opens the Map that morning$/);
+  });
+
   it('says "shown in Coming up" for a pill that jumps', () => {
     const run = {
       id: 'spring-tide:2026-10-24:2026-10-30', type: 'spring-tide', startDate: TODAY, endDate: '2026-10-30',

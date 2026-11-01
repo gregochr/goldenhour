@@ -22,7 +22,7 @@ class TopicRarityTest {
     private static final List<String> EMITTED_TYPES = List.of(
             "AURORA", "BLUEBELL", "CLEARANCE", "DUST", "ECLIPSE", "EQUINOX", "INVERSION",
             "KING_TIDE", "LUNAR_ECLIPSE", "METEOR", "NLC", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
-            "SPRING_TIDE", "STORM_SURGE", "SUPERMOON", "MIST");
+            "SPRING_TIDE", "STORM_SURGE", "SUPERMOON", "MIST", "SEA_MIST");
 
     @Test
     @DisplayName("every kind that can reach a window has an explicit rank")

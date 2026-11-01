@@ -205,6 +205,21 @@ public class SlotAtmosphereEntity {
     @Column(name = "coastal_mist_scored", nullable = false)
     private boolean coastalMistScored;
 
+    /**
+     * The event-slot low cloud cover (percent) the coastal mist check read (V211, coastal-mist-plan Phase 2), or
+     * null when the check did not run or the cloud data was missing. Written on every write, so a skipped check
+     * leaves no stale value. Gates the Sea mist hot topic (low cloud under 50 %).
+     */
+    @Column(name = "coastal_mist_low_cloud_pct")
+    private Integer coastalMistLowCloudPct;
+
+    /**
+     * The event-slot precipitation (mm) the coastal mist check read (V211, Phase 2), or null when the check did
+     * not run or the weather was missing. Written on every write. Gates the Sea mist hot topic (a dry slot).
+     */
+    @Column(name = "coastal_mist_precip_mm")
+    private Double coastalMistPrecipMm;
+
     /** Total storm surge in metres (pressure + wind), or null. Feeds the STORM_SURGE facts line. */
     @Column(name = "surge_total_m")
     private Double surgeTotalMetres;

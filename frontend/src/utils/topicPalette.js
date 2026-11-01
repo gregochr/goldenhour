@@ -25,6 +25,7 @@ export const SWATCH_COLOR = {
   SPRING_TIDE: TIDE_TEAL,
   INVERSION: TIDE_TEAL,
   MIST: '#8FA3B8',
+  SEA_MIST: '#9DB8C7',
   STORM_SURGE: '#f59e0b',
   AURORA: NIGHTGLOW_VIOLET,
   NLC: NIGHTGLOW_VIOLET,
@@ -42,7 +43,7 @@ export const SWATCH_COLOR = {
 };
 
 /**
- * Glyph, full name and short (phone) name for each of the backend's eighteen types
+ * Glyph, full name and short (phone) name for each of the backend's nineteen types
  * ({@code TopicRarity.RANK_BY_TYPE}). {@code placeNoun} marks the types that live on the coast.
  *
  * <p>{@code chipName} is the Coming up day tile's phone name (coming-up-glance-plan T1): at 375px a
@@ -55,6 +56,9 @@ const TOPIC_META = {
   STORM_SURGE: { glyph: '🌊', name: 'Storm surge', shortName: 'Surge', chipName: 'Surge', placeNoun: 'coastal' },
   INVERSION: { glyph: '☁️', name: 'Inversion', shortName: 'Inversion', chipName: 'Invert' },
   MIST: { glyph: '🌫️', name: 'Mist', shortName: 'Mist', chipName: 'Mist' },
+  // Sea mist (coastal-mist-plan Phase 2). No placeNoun: 'coastal' is reserved for the tide types (a test pins
+  // it), and the topic's own copy already says "sea".
+  SEA_MIST: { glyph: '🌁', name: 'Sea mist', shortName: 'Sea mist', chipName: 'Sea' },
   DUST: { glyph: '🏜️', name: 'Dust', shortName: 'Dust', chipName: 'Dust' },
   SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops', shortName: 'Snow tops', chipName: 'Tops' },
   SNOW_MIST: { glyph: '❄️', name: 'Snow and mist', shortName: 'Snow mist', chipName: 'Snow' },

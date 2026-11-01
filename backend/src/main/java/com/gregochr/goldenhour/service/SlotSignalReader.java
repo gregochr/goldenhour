@@ -208,7 +208,9 @@ public class SlotSignalReader {
                             readings.getMistScore(), readings.isMistScored(),
                             SlotSignals.Readings.parsePotential(readings.getMistPotential()),
                             CoastalMistBand.parse(readings.getCoastalMistBand()),
-                            readings.isCoastalMistScored());
+                            readings.isCoastalMistScored(),
+                            readings.getCoastalMistLowCloudPct(),
+                            readings.getCoastalMistPrecipMm());
             return new SlotSignals(location, date, eventType, scores, r);
         }
     }

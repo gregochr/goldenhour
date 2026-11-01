@@ -72,7 +72,10 @@ public final class TopicRarity {
             Map.entry("SPRING_TIDE", 17),
             // Valley mist at a flagged site: no census yet (the MIST_CALC log starts with M1b), so
             // it takes the commonest rank rather than renumbering the table on a guess.
-            Map.entry("MIST", 18));
+            Map.entry("MIST", 18),
+            // Sea mist (coastal-mist-plan Phase 2): about 12 mornings a year per east-coast site, so as common
+            // as valley mist; it takes the next rank rather than renumbering the table on a guess.
+            Map.entry("SEA_MIST", 19));
 
     private TopicRarity() {
     }
