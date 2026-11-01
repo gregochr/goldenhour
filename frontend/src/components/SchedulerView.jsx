@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchSchedulerJobs,
   updateJobSchedule,
-  pauseJob,
-  resumeJob,
   fetchSolarPreview,
 } from '../api/schedulerApi.js';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
@@ -11,6 +9,7 @@ import SchedulerListPane from './scheduler/SchedulerListPane.jsx';
 import SchedulerJobPanel from './scheduler/SchedulerJobPanel.jsx';
 import { ScheduleSwitchDialog } from './SolarScheduleControls.jsx';
 import useCloseWhenFilteredOut from '../hooks/useCloseWhenFilteredOut.js';
+import useSchedulerActions from '../hooks/useSchedulerActions.js';
 import useHashSelection from '../hooks/useHashSelection.js';
 import usePanelEscape from '../hooks/usePanelEscape.js';
 import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
@@ -64,7 +63,6 @@ export default function SchedulerView() {
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
-  const [actionError, setActionError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
@@ -77,7 +75,6 @@ export default function SchedulerView() {
   const previewRequest = useRef(0);
   const rootRef = useRef(null);
   const panelRef = useRef(null);
-  const headingRef = useRef(null);
   const loadedOnce = useRef(false);
 
   const { selectedId: selectedKey, select, clear } = useHashSelection(TAB, HASH_OPTIONS);
@@ -112,6 +109,9 @@ export default function SchedulerView() {
     }
   }, []);
 
+  // Run now, Pause and Resume, held per job so a guard survives leaving the panel and coming back.
+  const actions = useSchedulerActions(loadJobs);
+
   // The poll tick, and the first load: skipped only for a tick on a screen already loaded, while the Operations pane
   // is hidden. It ticks the count the open panel's recent runs refetch on.
   const refresh = useCallback(async () => {
@@ -133,13 +133,12 @@ export default function SchedulerView() {
     if (loaded && selectedKey != null && selectedJob == null) clear({ replace: true });
   }, [loaded, selectedKey, selectedJob, clear]);
 
-  // A different panel starts with no editor open and no stale action failure (state adjusted while rendering, the
-  // pattern React documents for state that follows a prop).
+  // A different panel starts with no editor open (state adjusted while rendering, the pattern React documents for
+  // state that follows a prop). An action failure is kept per job and cleared by that job's next action.
   const [panelKey, setPanelKey] = useState(selectedKey);
   if (panelKey !== selectedKey) {
     setPanelKey(selectedKey);
     setEditingJob(null);
-    setActionError(null);
   }
 
   const visibleJobs = useMemo(
@@ -165,26 +164,6 @@ export default function SchedulerView() {
   const handleStatus = (status) => setFilters((f) => ({ ...f, status: f.status === status ? null : status }));
   const handleSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
   const handleSortChip = (key, dir) => setSort({ key, dir });
-
-  const handlePause = async (jobKey) => {
-    setActionError(null);
-    try {
-      await pauseJob(jobKey);
-      await loadJobs();
-    } catch {
-      setActionError(`Failed to pause ${jobKey}`);
-    }
-  };
-
-  const handleResume = async (jobKey) => {
-    setActionError(null);
-    try {
-      await resumeJob(jobKey);
-      await loadJobs();
-    } catch {
-      setActionError(`Failed to resume ${jobKey}`);
-    }
-  };
 
   const handleSolarSaved = async () => {
     setEditingJob(null);
@@ -224,7 +203,7 @@ export default function SchedulerView() {
       previewFailed={previewFailed}
       editing={editing}
       refreshKey={pollCount}
-      actionError={actionError}
+      actions={actions.stateOf(selectedJob.jobKey)}
       onClose={closePanel}
       onEditStart={() => setEditingJob(selectedJob.jobKey)}
       onEditCancel={cancelEdit}
@@ -232,9 +211,9 @@ export default function SchedulerView() {
       onPartial={loadJobs}
       onInlineSave={handleInlineSave}
       onSwitch={() => setSwitchingJob(selectedJob.jobKey)}
-      onPause={handlePause}
-      onResume={handleResume}
-      onActionError={setActionError}
+      onRunNow={() => actions.runNow(selectedJob)}
+      onPause={() => actions.pause(selectedJob)}
+      onResume={() => actions.resume(selectedJob)}
     />
   ) : null;
 
@@ -247,7 +226,6 @@ export default function SchedulerView() {
       <DataSplitLayout
         list={(
           <SchedulerListPane
-            headingRef={headingRef}
             allJobs={jobs}
             jobs={visibleJobs}
             loading={loading}

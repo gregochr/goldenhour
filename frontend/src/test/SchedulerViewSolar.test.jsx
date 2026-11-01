@@ -73,8 +73,9 @@ describe('SchedulerView - explicit branch per schedule type', () => {
     // the fallback cron carries its zone label and its reading
     expect(within(solar).getByTestId(`solar-fallback-${NIGHTLY}`)).toHaveTextContent('(UTC)');
     expect(within(solar).getByTestId(`solar-fallback-${NIGHTLY}`)).toHaveTextContent('0 0 1 * * *');
-    // 02:00Z on 14 Oct is 03:00 BST
-    expect(within(solar).getByTestId(`schedule-next-${NIGHTLY}`)).toHaveTextContent('03:00 UK');
+    // 02:00Z on 14 Oct is 03:00 BST; the next fire is in the panel's meta line, not a row of Schedule
+    expect(within(solar).getByTestId('scheduler-panel-meta')).toHaveTextContent('03:00');
+    expect(within(solar).queryByTestId(`schedule-next-${NIGHTLY}`)).not.toBeInTheDocument();
     expect(solar).not.toHaveTextContent('Every 0');
   });
 
@@ -319,13 +320,13 @@ describe('SchedulerView - switching a forecast cycle between fixed and sun-relat
     render(<SchedulerView />);
     await openJob();
 
-    expect(await screen.findByTestId('solar-panel-unavailable')).toHaveTextContent('Loading solar preview...');
+    expect(await screen.findByTestId('solar-panel-unavailable')).toHaveTextContent('Loading solar preview\u2026');
     expect(screen.getByTestId(`switch-btn-${NIGHTLY}`)).toBeDisabled();
   });
 });
 
 describe('Next fires - fed by the preview', () => {
-  it('labels a still-fixed job\'s rule as proposed, under that label, and a solar job\'s as current', async () => {
+  it('labels a still-fixed job\'s rule as proposed, under that label, and says nothing more for a solar job', async () => {
     mount(
       [job(), solarIntradayJob()],
       preview([previewJob(), { ...INTRADAY_PREVIEW, ruleSource: 'STORED', scheduleType: 'SOLAR_OFFSET' }]),
@@ -343,9 +344,11 @@ describe('Next fires - fed by the preview', () => {
 
     fireEvent.click(screen.getByTestId(`scheduler-row-${INTRADAY}`));
     const intraday = await screen.findByTestId(`solar-panel-${INTRADAY}`);
+    // a sun-relative job's rule is in Schedule above: Next fires repeats it only under the proposed label
     expect(within(intraday).queryByTestId(`solar-proposed-label-${INTRADAY}`)).not.toBeInTheDocument();
-    expect(within(intraday).getByTestId(`solar-rule-source-${INTRADAY}`)).toHaveTextContent('Current rule');
-    expect(within(intraday).getByTestId(`solar-panel-rule-${INTRADAY}`)).toHaveTextContent('4 h before sunset');
+    expect(within(intraday).queryByTestId(`solar-rule-source-${INTRADAY}`)).not.toBeInTheDocument();
+    expect(within(intraday).queryByTestId(`solar-panel-rule-${INTRADAY}`)).not.toBeInTheDocument();
+    expect(screen.getByTestId(`solar-rule-${INTRADAY}`)).toHaveTextContent('4 h before sunset');
   });
 
   it('shows the figures the preview carries: event and trigger times, finish, year, reference point', async () => {
@@ -381,22 +384,42 @@ describe('Next fires - fed by the preview', () => {
     );
   });
 
-  it('marks a past fire "ran" and leaves a future one bare', async () => {
-    mount([job()], preview([previewJob({
-      today: day({ fireInstant: inHours(-1) }),
-      tomorrow: day({ date: '2026-10-14', fireInstant: inHours(5) }),
-    })]));
+  const PAST_AND_FUTURE = {
+    today: day({ fireInstant: inHours(-1) }),
+    tomorrow: day({ date: '2026-10-14', fireInstant: inHours(5) }),
+  };
+
+  it('marks a past fire "ran" under an active sun-relative job, and leaves a future one bare', async () => {
+    mount([solarJob()], preview([previewJob({ ...PAST_AND_FUTURE, ruleSource: 'STORED', scheduleType: 'SOLAR_OFFSET' })]));
     await openJob();
 
     expect(await screen.findByTestId(`solar-today-${NIGHTLY}-ran`)).toHaveTextContent('ran');
     expect(screen.queryByTestId(`solar-tomorrow-${NIGHTLY}-ran`)).not.toBeInTheDocument();
   });
 
+  it('never says "ran" under a proposed rule: a job still on a fixed time has not fired it', async () => {
+    mount([job()], preview([previewJob(PAST_AND_FUTURE)]));
+    await openJob();
+
+    await screen.findByTestId(`solar-today-${NIGHTLY}`);
+    expect(screen.queryByTestId(`solar-today-${NIGHTLY}-ran`)).not.toBeInTheDocument();
+  });
+
+  it('never says "ran" for a paused job, even one that is sun-relative', async () => {
+    mount([solarJob({ status: 'PAUSED' })], preview([previewJob({
+      ...PAST_AND_FUTURE, ruleSource: 'STORED', scheduleType: 'SOLAR_OFFSET', status: 'PAUSED',
+    })]));
+    await openJob();
+
+    await screen.findByTestId(`solar-today-${NIGHTLY}`);
+    expect(screen.queryByTestId(`solar-today-${NIGHTLY}-ran`)).not.toBeInTheDocument();
+  });
+
   it('says so when there is no median to take a finish time from', async () => {
     mount([job()], preview([previewJob({ medianDurationSeconds: null })]));
     await openJob();
 
-    expect(await screen.findByTestId(`solar-finish-${NIGHTLY}`)).toHaveTextContent('Expected finish: not available');
+    expect(await screen.findByTestId(`solar-finish-${NIGHTLY}`)).toHaveTextContent('Not available (no completed cycle');
   });
 
   it('shows the clamped and fallback flags the preview sets, in amber', async () => {
@@ -461,10 +484,12 @@ describe('How sun-relative timing works', () => {
     const toggle = await screen.findByTestId('solar-notes-toggle');
     expect(toggle).toHaveTextContent('How sun-relative timing works');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.queryByTestId('solar-notes')).not.toBeInTheDocument();
+    // always rendered (so aria-controls resolves), hidden until pressed
+    expect(toggle).toHaveAttribute('aria-controls', screen.getByTestId('solar-notes-body').id);
+    expect(screen.getByTestId('solar-notes-body')).not.toBeVisible();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('solar-notes')).toBeInTheDocument();
+    expect(screen.getByTestId('solar-notes-body')).toBeVisible();
   });
 
   it('holds the four notes, word for word: catch-up windows and the safety budget among them', async () => {
@@ -476,6 +501,9 @@ describe('How sun-relative timing works', () => {
     expect(notes).toHaveTextContent('3 h 30 min');
     expect(notes).toHaveTextContent('Accepted: in midsummer the morning cycle fires shortly after midnight UK');
     expect(notes).toHaveTextContent('A falling-back day (shown above) uses the job\'s stored cron');
+    // the old last sentence pointed at the job's card, which is gone: it names the link in Schedule instead
+    expect(notes).toHaveTextContent('is the \u201cSwitch back to a fixed time\u2026\u201d link in Schedule above');
+    expect(notes).not.toHaveTextContent('the job\'s card');
   });
 
   it('lets the long config keys in the notes wrap on a narrow screen', async () => {

@@ -165,10 +165,13 @@ const COLUMNS = [
     card: 'summary',
     cardOnly: true,
     cell: (job) => {
-      const next = job.status === STATUS_ACTIVE && job.nextFireTime ? `next ${formatNextFire(job.nextFireTime)}` : '';
+      const active = job.status === STATUS_ACTIVE && job.nextFireTime;
+      const next = active
+        ? `next ${formatNextFire(job.nextFireTime)} (${relativeTime(job.nextFireTime, { future: true })})`
+        : 'next \u2014';
       return (
-        <span className="block truncate text-xs text-plex-text-secondary">
-          {[describeSchedule(job).words, next].filter(Boolean).join(' · ')}
+        <span className="block truncate text-xs text-plex-text-secondary" data-testid={`scheduler-card-line-${job.jobKey}`}>
+          {`${describeSchedule(job).words} \u00b7 ${next}`}
         </span>
       );
     },
@@ -188,7 +191,6 @@ function jobRowLabel(job) {
  * panel. Filters and sort are controlled by the caller.
  *
  * @param {object} props
- * @param {{current: HTMLElement|null}} props.headingRef the "Scheduler" heading
  * @param {Array<object>} props.allJobs every served job, for the header and the chip counts
  * @param {Array<object>} props.jobs the jobs to show, already filtered and sorted
  * @param {boolean} props.loading true until the first answer
@@ -203,14 +205,14 @@ function jobRowLabel(job) {
  * @param {(job: object) => void} props.onSelect called when a row is activated
  */
 export default function SchedulerListPane({
-  headingRef, allJobs, jobs, loading, error = null, filters, onType, onStatus, sort, onSort, onSortChip,
+  allJobs, jobs, loading, error = null, filters, onType, onStatus, sort, onSort, onSortChip,
   selectedKey = null, onSelect,
 }) {
   let body;
   if (loading) {
     body = (
       <p className="animate-pulse text-sm text-plex-text-muted motion-reduce:animate-none" data-testid="scheduler-loading">
-        Loading scheduler jobs...
+        Loading scheduler jobs…
       </p>
     );
   } else if (jobs.length === 0 && error && allJobs.length === 0) {
@@ -243,8 +245,6 @@ export default function SchedulerListPane({
     <div className="@container flex flex-col gap-4 p-4 max-[639px]:px-[14px] max-[639px]:py-3" data-testid="scheduler-list-pane">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
         <h2
-          ref={headingRef}
-          tabIndex={-1}
           className="text-sm font-semibold text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
           data-testid="scheduler-heading"
         >
@@ -304,7 +304,6 @@ export default function SchedulerListPane({
 }
 
 SchedulerListPane.propTypes = {
-  headingRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
   allJobs: PropTypes.arrayOf(PropTypes.object).isRequired,
   jobs: PropTypes.arrayOf(PropTypes.object).isRequired,
   loading: PropTypes.bool.isRequired,

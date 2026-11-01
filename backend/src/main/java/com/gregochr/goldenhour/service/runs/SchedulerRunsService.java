@@ -35,7 +35,11 @@ import java.util.Optional;
  * false whatever started it), so it gets no last run and no recent runs.
  *
  * <p>The items are mapped by {@link AdminRunsService}, so a status, a name and a note read here exactly as
- * they do in the Runs list. Reading one job costs a fixed handful of queries, never one per row.
+ * they do in the Runs list. Reading one job costs a fixed handful of queries however many rows it returns (its runs,
+ * then, for a cycle, its batches, their cost runs and the unlinked batches' notes): never one per row.
+ *
+ * <p>A manual cycle (Run now here, or a catch-up) is a pipeline run like a scheduled one, and {@code pipeline_run}
+ * carries no manual flag, so it counts as its cycle job's last run too.
  */
 @Service
 public class SchedulerRunsService {
@@ -153,8 +157,9 @@ public class SchedulerRunsService {
     }
 
     /**
-     * The newest run of each of the given jobs that has an attributable run. Reads once per attributable job
-     * (at most five), not once per job in the list.
+     * The newest run of each of the given jobs that has an attributable run. Each attributable job costs one read of
+     * its own (at most five jobs, and a few queries each: its runs, then a cycle's batches and cost runs), never one
+     * per job in the list or per row.
      *
      * @param jobKeys the scheduler job keys
      * @return the last run by job key; a job with no attributable run, or none yet, is absent

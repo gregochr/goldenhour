@@ -4,12 +4,8 @@ import PanelSection from '../data/PanelSection.jsx';
 import KvList from '../data/KvList.jsx';
 import { SolarEditForm } from '../SolarScheduleControls.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
-import {
-  describeSolarRule,
-  formatReferencePoint,
-  formatUkDateTime,
-  isForecastCycleJob,
-} from '../../utils/schedulerSolar.js';
+import { describeSolarRule, isForecastCycleJob } from '../../utils/schedulerSolar.js';
+import { ReferenceValue } from './JobNextFires.jsx';
 import {
   SCHEDULE_CRON,
   SCHEDULE_FIXED_DELAY,
@@ -40,7 +36,10 @@ function InlineScheduleForm({ job, onSave, onCancel }) {
     try {
       await onSave(job, value);
     } catch {
-      setError(`Failed to update schedule for ${job.jobKey}`);
+      setError(`Couldn't save ${job.displayName}'s schedule.`);
+    } finally {
+      // Whatever happened, the next press must reach the handler: a save that returns with the editor still open
+      // (nothing sent) must not leave Save dead.
       sending.current = false;
     }
   };
@@ -104,23 +103,12 @@ InlineScheduleForm.propTypes = {
   onCancel: PropTypes.func.isRequired,
 };
 
-/** The Reference row: the solar preview's reference point and when it was computed. */
-function referenceValue(preview) {
-  if (!preview) return null;
-  return (
-    <span data-testid="solar-reference">
-      <span className="font-mono text-[12.5px]">{formatReferencePoint(preview.referencePoint)}</span>{' '}
-      (Durham unless configured otherwise). Computed {formatUkDateTime(preview.generatedAt)}.
-    </span>
-  );
-}
-
 /**
  * The panel's Schedule section: the rule in words, the fallback cron of a sun-relative job, the next fire, an Edit that
  * swaps in {@code SolarEditForm} or the inline cron/delay field, and (for a forecast cycle job) the switch between a
  * fixed time and a sun-relative one.
  *
- * <p>⚠️ A job that is off in config can neither be edited nor switched. A sun-relative job's editor never sends a fixed
+ * <p>⚠️ A job that is off in config shows no Edit and cannot be switched. A sun-relative job's editor never sends a fixed
  * delay (see {@code SolarEditForm}); an unrecognised schedule type can be neither edited nor switched, and says so.
  *
  * @param {object} props
@@ -158,13 +146,13 @@ export default function JobSchedule({
     && (job.scheduleType === SCHEDULE_CRON || isSolar) && !editing;
   const switchDisabled = off || (job.scheduleType === SCHEDULE_CRON && (!previewEntry || previewFailed));
 
-  const editAction = recognised && !editing ? (
+  // A job that is off in config cannot be edited: Job actions says what it requires, so no dead Edit is drawn.
+  const editAction = recognised && !editing && !off ? (
     <button
       type="button"
       ref={editButton}
       onClick={onEditStart}
       className={textButtonClass}
-      disabled={off}
       data-testid={`edit-btn-${job.jobKey}`}
     >
       Edit
@@ -201,7 +189,7 @@ export default function JobSchedule({
           </>
         ),
       });
-      rows.push({ label: 'Reference', value: referenceValue(preview) });
+      rows.push({ label: 'Reference', value: preview ? <ReferenceValue preview={preview} /> : null });
       rows.push({
         label: 'Fallback cron',
         testId: `solar-fallback-${job.jobKey}`,
@@ -225,12 +213,6 @@ export default function JobSchedule({
     } else {
       rows.push({ label: 'Schedule', value: describeFixedDelay(job.fixedDelayMs) });
     }
-    rows.push({
-      label: 'Next fire',
-      testId: `schedule-next-${job.jobKey}`,
-      value: job.nextFireTime ? formatUkDateTime(job.nextFireTime) : null,
-      mono: true,
-    });
     body = <KvList items={rows} testId={`schedule-kv-${job.jobKey}`} />;
   }
 

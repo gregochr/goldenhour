@@ -104,7 +104,7 @@ function metaLine(job) {
  * @param {boolean} props.previewFailed true when the preview could not be loaded
  * @param {boolean} props.editing whether this job's schedule editor is open
  * @param {number} props.refreshKey changes on each jobs poll, so Recent runs keep up
- * @param {string|null} props.actionError the last pause, resume or trigger failure
+ * @param {object} props.actions this job's Run now, Pause and Resume state (kept by the view, per job)
  * @param {() => void} props.onClose closes the panel
  * @param {() => void} props.onEditStart opens the schedule editor
  * @param {() => void} props.onEditCancel closes it without saving
@@ -112,13 +112,13 @@ function metaLine(job) {
  * @param {() => void} props.onPartial called after a half-saved solar edit, to reload the job
  * @param {(job: object, value: string) => Promise<void>} props.onInlineSave saves the inline cron or delay
  * @param {() => void} props.onSwitch opens the schedule switch dialog
- * @param {(jobKey: string) => Promise<void>} props.onPause pauses the job
- * @param {(jobKey: string) => Promise<void>} props.onResume resumes it
- * @param {(message: string) => void} props.onActionError reports a failed trigger
+ * @param {() => void} props.onRunNow triggers the job
+ * @param {() => void} props.onPause pauses the job
+ * @param {() => void} props.onResume resumes it
  */
 export default function SchedulerJobPanel({
-  job, preview = null, previewFailed = false, editing, refreshKey, actionError = null, onClose, onEditStart,
-  onEditCancel, onSolarSaved, onPartial, onInlineSave, onSwitch, onPause, onResume, onActionError,
+  job, preview = null, previewFailed = false, editing, refreshKey, actions, onClose, onEditStart,
+  onEditCancel, onSolarSaved, onPartial, onInlineSave, onSwitch, onRunNow, onPause, onResume,
 }) {
   const solar = job.scheduleType === SCHEDULE_SOLAR;
   const showNextFires = solar || isForecastCycleJob(job.jobKey);
@@ -147,17 +147,11 @@ export default function SchedulerJobPanel({
         onSwitch={onSwitch}
       />
       {showNextFires && (
-        <JobNextFires jobKey={job.jobKey} preview={preview} failed={previewFailed} showReference={!solar} />
+        <JobNextFires jobKey={job.jobKey} status={job.status} preview={preview} failed={previewFailed} showReference={!solar} />
       )}
-      {job.runGroup && <JobRecentRuns key={job.jobKey} job={job} refreshKey={refreshKey} />}
-      {(solar || isCycleJob(job.jobKey)) && <SunTimingNotes key={job.jobKey} jobKey={job.jobKey} />}
-      <JobActions
-        job={job}
-        onPause={onPause}
-        onResume={onResume}
-        onError={onActionError}
-        error={actionError}
-      />
+      {job.runGroup && <JobRecentRuns job={job} refreshKey={refreshKey} />}
+      {(solar || isCycleJob(job.jobKey)) && <SunTimingNotes jobKey={job.jobKey} />}
+      <JobActions job={job} actions={actions} onRunNow={onRunNow} onPause={onPause} onResume={onResume} />
     </PanelShell>
   );
 }
@@ -176,7 +170,7 @@ SchedulerJobPanel.propTypes = {
   previewFailed: PropTypes.bool,
   editing: PropTypes.bool.isRequired,
   refreshKey: PropTypes.number.isRequired,
-  actionError: PropTypes.string,
+  actions: PropTypes.object.isRequired,
   onClose: PropTypes.func.isRequired,
   onEditStart: PropTypes.func.isRequired,
   onEditCancel: PropTypes.func.isRequired,
@@ -184,7 +178,7 @@ SchedulerJobPanel.propTypes = {
   onPartial: PropTypes.func.isRequired,
   onInlineSave: PropTypes.func.isRequired,
   onSwitch: PropTypes.func.isRequired,
+  onRunNow: PropTypes.func.isRequired,
   onPause: PropTypes.func.isRequired,
   onResume: PropTypes.func.isRequired,
-  onActionError: PropTypes.func.isRequired,
 };

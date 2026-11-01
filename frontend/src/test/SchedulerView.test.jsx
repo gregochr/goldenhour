@@ -154,6 +154,20 @@ describe('SchedulerView: the list', () => {
     expect(screen.getByTestId('scheduler-row-off').className).toContain('text-plex-text-muted');
   });
 
+  it('says "Loading scheduler jobs…" with the ellipsis character until the jobs arrive', async () => {
+    fetchSchedulerJobs.mockReturnValue(new Promise(() => {}));
+    render(<SchedulerView />);
+    expect(await screen.findByTestId('scheduler-loading')).toHaveTextContent('Loading scheduler jobs…');
+  });
+
+  it('gives the phone card a second line "{schedule} · next {time} ({relative})", and "next —" when paused or off', async () => {
+    mount([TIDE, POLLING, job({ id: 9, jobKey: 'off', displayName: 'Off', status: 'DISABLED_BY_CONFIG' })]);
+    const active = await screen.findByTestId('scheduler-card-line-tide_refresh');
+    expect(active.textContent).toMatch(/^Every Monday at \d{2}:\d{2} (BST|GMT) · next .+ \(in \d+[hd]\)$/);
+    expect(screen.getByTestId('scheduler-card-line-aurora_polling')).toHaveTextContent('Every 5 minutes · next —');
+    expect(screen.getByTestId('scheduler-card-line-off')).toHaveTextContent('· next —');
+  });
+
   it('shows no Next time for a paused job', async () => {
     mount([job({ status: 'PAUSED', nextFireTime: inHours(5) })]);
     expect(await screen.findByTestId(`scheduler-next-${NIGHTLY}`)).toHaveTextContent('—');
@@ -435,7 +449,7 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
     fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
 
     expect(await screen.findByTestId('inline-edit-error-tide_refresh')).toHaveTextContent(
-      'Failed to update schedule for tide_refresh',
+      "Couldn't save Tide Refresh's schedule.",
     );
     expect(screen.getByTestId('edit-input-tide_refresh')).toBeInTheDocument();
   });
@@ -504,7 +518,7 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('pause-btn-tide_refresh'));
 
-    expect(await screen.findByTestId('scheduler-action-error')).toHaveTextContent('Failed to pause tide_refresh');
+    expect(await screen.findByTestId('scheduler-action-error')).toHaveTextContent("Couldn't pause Tide Refresh.");
   });
 
   it('reports a failed resume the same way', async () => {
@@ -513,7 +527,7 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
     await openPanel('aurora_polling');
     fireEvent.click(screen.getByTestId('resume-btn-aurora_polling'));
 
-    expect(await screen.findByTestId('scheduler-action-error')).toHaveTextContent('Failed to resume aurora_polling');
+    expect(await screen.findByTestId('scheduler-action-error')).toHaveTextContent("Couldn't resume Aurora Polling.");
   });
 
   it('a job that is off in config shows what it requires, in mono, and every action is disabled', async () => {
@@ -528,7 +542,8 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
     expect(within(requires).getByText('aurora.enabled').className).toContain('font-mono');
     expect(screen.getByTestId('resume-btn-aurora_polling')).toBeDisabled();
     expect(screen.getByTestId('trigger-btn-aurora_polling')).toBeDisabled();
-    expect(screen.getByTestId('edit-btn-aurora_polling')).toBeDisabled();
+    // an off job shows no dead Edit: Job actions says what it requires
+    expect(screen.queryByTestId('edit-btn-aurora_polling')).not.toBeInTheDocument();
   });
 
   it('disables the sun-relative switch of a cycle job that is off in config', async () => {
@@ -536,7 +551,7 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
     await openPanel(NIGHTLY);
 
     expect(screen.getByTestId(`switch-btn-${NIGHTLY}`)).toBeDisabled();
-    expect(screen.getByTestId(`edit-btn-${NIGHTLY}`)).toBeDisabled();
+    expect(screen.queryByTestId(`edit-btn-${NIGHTLY}`)).not.toBeInTheDocument();
     expect(screen.getByTestId(`trigger-btn-${NIGHTLY}`)).toBeDisabled();
     expect(screen.getByTestId(`resume-btn-${NIGHTLY}`)).toBeDisabled();
   });
@@ -881,19 +896,19 @@ describe('SchedulerView: the Run now confirmation', () => {
       fireEvent.click(runNowButton('Run now'));
       await pump();
       expect(triggerJob).toHaveBeenCalledWith('tide_refresh');
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
 
       // Just short of the delay it must still be up: without this the constant is pinned only from above, and
       // shortening it would flash the confirmation past with every other assertion here still green.
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1999);
       });
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1);
       });
-      expect(runNowButton('Run now')).toBeEnabled();
+      expect(runNowButton('Run now')).not.toHaveAttribute('aria-disabled');
       expect(
         within(screen.getByTestId('scheduler-panel')).queryByRole('button', { name: 'Started ✓' }),
       ).toBeNull();
@@ -942,7 +957,7 @@ describe('SchedulerView: the Run now confirmation', () => {
 
       fireEvent.click(runNowButton('Run now'));
       await pump();
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
       // The dismiss timer must actually be pending, beside the poll interval, or the zero below would also pass for a
       // component that never armed one.
       expect(vi.getTimerCount()).toBeGreaterThan(1);
@@ -961,9 +976,9 @@ describe('SchedulerView: the Run now confirmation', () => {
    * until the call settles, still reading "Run now" (the confirmation must not claim a run before the server has
    * accepted it).
    *
-   * The `toBeDisabled()` before the second press is what carries this test. A browser never dispatches the user's click
-   * to a disabled button; jsdom does, and it is React's own filter on a disabled button's `onClick` that drops it here.
-   * It stays to pin the count a double-click must produce. `act` flushes every lane, so this cannot tell an ordinary
+   * The button is `aria-disabled` (not `disabled`) while the call is in flight, so a press never drops keyboard focus;
+   * the handler's own guard is what keeps a second press from sending. The count below pins what a double-click must
+   * produce. `act` flushes every lane, so this cannot tell an ordinary
    * `setPending` from one moved into a transition; the component's doc comment carries that rule.
    */
   it('sends no second trigger call when Run now is pressed again while the first is in flight', async () => {
@@ -974,17 +989,17 @@ describe('SchedulerView: the Run now confirmation', () => {
 
       fireEvent.click(runNowButton('Run now'));
       expect(triggerJob).toHaveBeenCalledTimes(1);
-      expect(runNowButton('Run now')).toBeDisabled();
+      expect(runNowButton('Run now')).toHaveAttribute('aria-disabled', 'true');
 
       fireEvent.click(runNowButton('Run now'));
       await pump();
       expect(triggerJob).toHaveBeenCalledTimes(1);
       // Still in flight: nothing has resolved it, so nothing may have confirmed it.
-      expect(runNowButton('Run now')).toBeDisabled();
+      expect(runNowButton('Run now')).toHaveAttribute('aria-disabled', 'true');
 
       release();
       await pump();
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
       expect(triggerJob).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -1004,13 +1019,13 @@ describe('SchedulerView: the Run now confirmation', () => {
 
       fireEvent.click(runNowButton('Run now'));
       await pump();
-      expect(screen.getByText('Failed to trigger tide_refresh')).toBeInTheDocument();
+      expect(screen.getByText("Couldn't start Tide Refresh.")).toBeInTheDocument();
 
       // The retry resolves (the default mock).
       fireEvent.click(runNowButton('Run now'));
       await pump();
       expect(triggerJob).toHaveBeenCalledTimes(2);
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
     } finally {
       vi.useRealTimers();
     }
@@ -1022,8 +1037,8 @@ describe('SchedulerView: the Run now confirmation', () => {
     await openPanel('tide_refresh');
     fireEvent.click(within(screen.getByTestId('scheduler-panel')).getByRole('button', { name: 'Run now' }));
 
-    expect(await screen.findByText('Failed to trigger tide_refresh')).toBeInTheDocument();
-    expect(within(screen.getByTestId('scheduler-panel')).getByRole('button', { name: 'Run now' })).toBeEnabled();
+    expect(await screen.findByText("Couldn't start Tide Refresh.")).toBeInTheDocument();
+    expect(within(screen.getByTestId('scheduler-panel')).getByRole('button', { name: 'Run now' })).not.toHaveAttribute('aria-disabled');
   });
 
   /**
@@ -1036,16 +1051,96 @@ describe('SchedulerView: the Run now confirmation', () => {
       await openTide();
       fireEvent.click(runNowButton('Run now'));
       await pump();
-      expect(runNowButton('Started ✓')).toBeDisabled();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
 
       fireEvent.click(screen.getByTestId('scheduler-row-aurora_polling'));
       await pump();
-      expect(runNowButton('Run now')).toBeEnabled();
+      expect(runNowButton('Run now')).not.toHaveAttribute('aria-disabled');
       expect(
         within(screen.getByTestId('scheduler-panel')).queryByRole('button', { name: 'Started ✓' }),
       ).toBeNull();
+
+      // Back on the first job its guard is still up: a press sends nothing.
+      fireEvent.click(screen.getByTestId('scheduler-row-tide_refresh'));
+      await pump();
+      expect(runNowButton('Started ✓')).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(runNowButton('Started ✓'));
+      await pump();
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(runNowButton('Run now')).not.toHaveAttribute('aria-disabled');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps a call guarded while its panel is closed, and shows a late failure only in its own job', async () => {
+    vi.useFakeTimers();
+    try {
+      let fail;
+      triggerJob.mockReturnValueOnce(new Promise((_, reject) => { fail = () => reject(new Error('late')); }));
+      await openTide();
+      fireEvent.click(runNowButton('Run now'));
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByTestId('scheduler-row-aurora_polling'));
+      await pump();
+      fail();
+      await pump();
+      // the failure belongs to the tide job, so the polling job's panel shows none
+      expect(screen.queryByTestId('scheduler-action-error')).toBeNull();
+
+      fireEvent.click(screen.getByTestId('scheduler-row-tide_refresh'));
+      await pump();
+      expect(screen.getByTestId('scheduler-action-error')).toHaveTextContent("Couldn't start Tide Refresh.");
+      // and, the call having failed, the button is ready again
+      expect(runNowButton('Run now')).not.toHaveAttribute('aria-disabled');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps keyboard focus on Run now when it is pressed', async () => {
+    vi.useFakeTimers();
+    try {
+      await openTide();
+      const button = runNowButton('Run now');
+      button.focus();
+      fireEvent.click(button);
+      await pump();
+      expect(runNowButton('Started ✓')).toBe(document.activeElement);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('guards Pause against a second press and keeps its focus', async () => {
+    let release;
+    pauseJob.mockReturnValue(new Promise((resolve) => { release = () => resolve({}); }));
+    mount();
+    await openPanel('tide_refresh');
+    const button = screen.getByTestId('pause-btn-tide_refresh');
+    button.focus();
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(pauseJob).toHaveBeenCalledTimes(1);
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toBe(document.activeElement);
+    expect(screen.getByTestId('pause-text-tide_refresh')).toHaveAttribute('aria-live', 'polite');
+    await act(async () => { release(); });
+    await waitFor(() => expect(screen.getByTestId('pause-btn-tide_refresh')).not.toHaveAttribute('aria-disabled'));
+  });
+
+  it("keeps a failed Pause's message with its own job", async () => {
+    pauseJob.mockRejectedValue(new Error('down'));
+    mount();
+    await openPanel('tide_refresh');
+    fireEvent.click(screen.getByTestId('pause-btn-tide_refresh'));
+    await screen.findByTestId('scheduler-action-error');
+    fireEvent.click(screen.getByTestId('scheduler-row-aurora_polling'));
+    await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Aurora Polling'));
+    expect(screen.queryByTestId('scheduler-action-error')).not.toBeInTheDocument();
   });
 });

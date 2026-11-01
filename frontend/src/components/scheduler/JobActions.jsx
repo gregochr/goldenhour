@@ -1,12 +1,7 @@
-import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import PanelSection from '../data/PanelSection.jsx';
-import { triggerJob } from '../../api/schedulerApi.js';
 import { isCycleJob } from '../../utils/schedulerSolar.js';
 import { STATUS_ACTIVE, STATUS_OFF } from '../../utils/schedulerView.js';
-
-/** Duration to show the "Started" confirmation. */
-export const TRIGGER_CONFIRM_MS = 2000;
 
 /** What Run now says it does: a cycle job starts a cycle and tonight's still runs; any other just runs. */
 const RUN_NOW_CYCLE = "Starts a cycle straight away. Tonight's still runs.";
@@ -16,60 +11,26 @@ const RUN_NOW_OTHER = 'Runs the job straight away.';
 export const TRIGGERED_TEXT = "Started. It'll appear in Runs in a moment.";
 
 const ROW = 'flex items-start justify-between gap-4 max-[639px]:flex-col max-[639px]:items-stretch max-[639px]:gap-2';
-const BUTTON = 'btn-secondary shrink-0 text-xs disabled:opacity-50 max-[639px]:min-h-11';
+const BUTTON = 'btn-secondary shrink-0 text-xs disabled:opacity-50 aria-disabled:opacity-50 aria-disabled:cursor-default max-[639px]:min-h-11';
 
 /**
- * One job's Run now row, which owns its own "Started" confirmation.
+ * One job's Run now row. It holds no state: whether a call is in flight or confirmed lives in
+ * {@code useSchedulerActions}, per job, so it survives the panel being closed and reopened.
  *
- * <p>⚠️ The dismiss is an effect keyed on {@code triggered}, the idiom {@code RegisterPage}'s cooldown and
- * {@code ModelSelectionView}'s success banner already use, and not a {@code setTimeout} armed by the click handler.
- * The handler used to arm it <em>after</em> awaiting {@code triggerJob}, and {@code ManageView} renders this screen
- * behind {@code activeTab === 'scheduler'}, so switching tab mid-request unmounted it before any timer existed, the
- * unmount cleanup had nothing to cancel, and the continuation then armed a timer nothing owned. An effect has no such
- * window: it never runs after unmount, and a {@code setTriggered} on an unmounted component is a no-op, so no
- * {@code isMounted} guard is needed either.
- *
- * <p>⚠️ The button is disabled from the click until the call settles ({@code pending}), not only once it resolves. It
- * used to be the latter, so a double-click sent two {@code POST .../trigger} calls, and
- * {@code DynamicSchedulerService.triggerNow} queues an immediate run for each, so one double-click ran a briefing or a
- * tide refresh twice. React flushes a click's state update before the next input event is dispatched, and a disabled
- * button receives no click, so a press while the call is in flight never reaches the handler. Keep
- * {@code setPending(true)} an ordinary update: moved into a transition it could lose that race.
- *
- * <p>This guards only this button's own round trip. {@code triggerNow} returns as soon as the run is queued, so a
- * press after the confirmation clears, a second tab, a remount mid-call, or a retry after a failed response the
- * server had in fact acted on can still queue another run while the first may be going. Whether a job refuses an
- * overlapping run is up to its target: the batch submissions and the cloud-verification backfill already do, the
- * briefing and tide refresh do not.
+ * <p>The button is {@code aria-disabled} (with the handler's own guard), not {@code disabled}, while a call is in
+ * flight or confirmed, so a press never drops keyboard focus to the page; only a job that is off in config is truly
+ * disabled.
  *
  * @param {object} props
  * @param {string} props.jobKey the job this button triggers
  * @param {boolean} props.disabled true when the job cannot be triggered at all
+ * @param {boolean} props.pending true while the trigger call is in flight
+ * @param {boolean} props.triggered true while the "Started" confirmation shows
  * @param {string} props.description what Run now does for this job, shown until the run is triggered
- * @param {(message: string) => void} props.onError receives the message to show when the trigger call fails
+ * @param {() => void} props.onRun starts the run
  */
-export function RunNowButton({ jobKey, disabled, description, onError }) {
-  const [triggered, setTriggered] = useState(false);
-  const [pending, setPending] = useState(false);
-
-  useEffect(() => {
-    if (!triggered) return undefined;
-    const timer = setTimeout(() => setTriggered(false), TRIGGER_CONFIRM_MS);
-    return () => clearTimeout(timer);
-  }, [triggered]);
-
-  const handleTrigger = async () => {
-    setPending(true);
-    try {
-      await triggerJob(jobKey);
-      setTriggered(true);
-    } catch {
-      onError(`Failed to trigger ${jobKey}`);
-    } finally {
-      setPending(false);
-    }
-  };
-
+export function RunNowButton({ jobKey, disabled, pending, triggered, description, onRun }) {
+  const blocked = pending || triggered;
   return (
     <div className={ROW} data-testid={`run-now-${jobKey}`}>
       <div className="min-w-0">
@@ -80,9 +41,10 @@ export function RunNowButton({ jobKey, disabled, description, onError }) {
       </div>
       <button
         type="button"
-        onClick={handleTrigger}
+        onClick={() => { if (!blocked) onRun(); }}
         className={BUTTON}
-        disabled={disabled || pending || triggered}
+        disabled={disabled}
+        aria-disabled={blocked || undefined}
         data-testid={`trigger-btn-${jobKey}`}
       >
         {triggered ? 'Started ✓' : 'Run now'}
@@ -94,8 +56,10 @@ export function RunNowButton({ jobKey, disabled, description, onError }) {
 RunNowButton.propTypes = {
   jobKey: PropTypes.string.isRequired,
   disabled: PropTypes.bool.isRequired,
+  pending: PropTypes.bool.isRequired,
+  triggered: PropTypes.bool.isRequired,
   description: PropTypes.string.isRequired,
-  onError: PropTypes.func.isRequired,
+  onRun: PropTypes.func.isRequired,
 };
 
 /**
@@ -104,25 +68,15 @@ RunNowButton.propTypes = {
  *
  * @param {object} props
  * @param {object} props.job the served job
- * @param {(jobKey: string) => Promise<void>} props.onPause pauses the job
- * @param {(jobKey: string) => Promise<void>} props.onResume resumes it
- * @param {(message: string) => void} props.onError receives a failed trigger's message
- * @param {string|null} [props.error] the last action's failure, shown here because the list's own banner is out of
- *   sight behind the panel on a phone
+ * @param {{pending: boolean, triggered: boolean, busy: boolean, error: string|null}} props.actions this job's action
+ *   state (kept by the view, per job)
+ * @param {() => void} props.onRunNow triggers the job
+ * @param {() => void} props.onPause pauses it
+ * @param {() => void} props.onResume resumes it
  */
-export default function JobActions({ job, onPause, onResume, onError, error = null }) {
+export default function JobActions({ job, actions, onRunNow, onPause, onResume }) {
   const off = job.status === STATUS_OFF;
-  const [busy, setBusy] = useState(false);
   const active = job.status === STATUS_ACTIVE;
-
-  const run = async (action) => {
-    setBusy(true);
-    try {
-      await action(job.jobKey);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <PanelSection label="Job actions" testId="scheduler-panel-actions">
@@ -133,32 +87,34 @@ export default function JobActions({ job, onPause, onResume, onError, error = nu
           </p>
         )}
         <RunNowButton
-          key={job.jobKey}
           jobKey={job.jobKey}
           disabled={off}
+          pending={actions.pending}
+          triggered={actions.triggered}
           description={isCycleJob(job.jobKey) ? RUN_NOW_CYCLE : RUN_NOW_OTHER}
-          onError={onError}
+          onRun={onRunNow}
         />
         <div className={ROW}>
           <div className="min-w-0">
             <p className="text-[13px] text-plex-text">{active ? 'Pause' : 'Resume'}</p>
-            <p className="text-xs text-plex-text-secondary">
+            <p className="text-xs text-plex-text-secondary" aria-live="polite" data-testid={`pause-text-${job.jobKey}`}>
               {active ? 'Skips its fires until you resume it.' : 'Fires again from its next time.'}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => run(active ? onPause : onResume)}
+            onClick={() => { if (!actions.busy) (active ? onPause : onResume)(); }}
             className={BUTTON}
-            disabled={off || busy}
+            disabled={off}
+            aria-disabled={actions.busy || undefined}
             data-testid={`${active ? 'pause' : 'resume'}-btn-${job.jobKey}`}
           >
             {active ? 'Pause' : 'Resume'}
           </button>
         </div>
-        {error && (
+        {actions.error && (
           <p className="text-xs text-plex-coral" role="alert" data-testid="scheduler-action-error">
-            {error}
+            {actions.error}
           </p>
         )}
       </div>
@@ -172,8 +128,13 @@ JobActions.propTypes = {
     status: PropTypes.string,
     configSource: PropTypes.string,
   }).isRequired,
+  actions: PropTypes.shape({
+    pending: PropTypes.bool,
+    triggered: PropTypes.bool,
+    busy: PropTypes.bool,
+    error: PropTypes.string,
+  }).isRequired,
+  onRunNow: PropTypes.func.isRequired,
   onPause: PropTypes.func.isRequired,
   onResume: PropTypes.func.isRequired,
-  onError: PropTypes.func.isRequired,
-  error: PropTypes.string,
 };

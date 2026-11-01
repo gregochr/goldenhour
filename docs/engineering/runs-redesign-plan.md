@@ -969,8 +969,9 @@ Where the plan's text was ambiguous, or the code made a different call safer, R4
   `GlobalExceptionHandler` maps to 409. An `IllegalStateException` for any other reason (no registered target) stays 500.
 - **The runs are read by `SchedulerRunsService`**, which maps the five jobs once and hands the rows to
   `AdminRunsService.cycleItems` / `jobItems` (new public methods over the Runs list's own private mapping, so a status
-  reads the same in both places). The jobs list asks for the newest run of each attributable job (up to five queries
-  in all, never one per job in the list); the runs endpoint asks for `limit` of one job's. The batch scope
+  reads the same in both places). The jobs list reads the newest run of each attributable job: up to five jobs, each
+  costing a few queries (its runs, then a cycle's batches, their cost runs and the unlinked batches' notes), never one
+  per job in the list or per row; the runs endpoint reads `limit` of one job's the same way. The batch scope
   (`batchSummary`) is not derived for these items: the Scheduler never shows it.
 - **`aurora_batch_evaluation` matches by notes as well as by link.** A `SCHEDULED_BATCH` run whose
   `forecast_batch.job_run_id` was never written is found through its `Anthropic batch: {id}` notes, as the Runs list's
@@ -979,7 +980,8 @@ Where the plan's text was ambiguous, or the code made a different call safer, R4
 - **Recent runs read "{started} · {duration}" beside the status dot**, each row an anchor to its Runs panel (a plain
   link, so it works with the keyboard and a middle click); a running run reads "running" where a duration would be.
 - **The reference point sits in Schedule for a sun-relative job and in Next fires for a cycle job still on cron**, so it
-  is named once. Its sentence (with "Computed {time}") is the old card's.
+  is named once, as "Durham, unless configured otherwise · {lat}, {lon}" with "Computed {time}" small under it. The
+  server serves coordinates only, no place name, so the place is the plan's default, not a lookup.
 - **Next fires shows for the two sun-capable cycle jobs only** (and any job that is sun-relative); the evening refresh,
   not being sun-capable, has none, but it has the "How sun-relative timing works" disclosure, which is on all three
   cycle jobs. The fourth note's "(shown above)" and "the job's card" are kept verbatim.
@@ -987,11 +989,32 @@ Where the plan's text was ambiguous, or the code made a different call safer, R4
   `#manage/scheduler/{key}` is not a filter, so the chips are local state and never written to the hash.
 - **The Next column sorts, and so does Job** (a header press; a sort chip does it in card mode). Paused, off and
   next-less jobs stay last whichever way Next is sorted.
-- **A failed pause, resume or trigger shows inside the panel** (Job actions), not in the list's banner, which is hidden
-  behind the panel on a phone. A failed first load of the jobs still shows the banner on the list.
-- **Run now's button reads "Run now", then "Started ✓"** for the 2 s (was "Run Now" / "Triggered ✓"); the line under
-  it swaps to "Started. It'll appear in Runs in a moment." for the same 2 s. It is disabled while the job is off in
-  config, in flight or confirmed.
+- **Run now, Pause and Resume state is held per job in `SchedulerView`** (`useSchedulerActions`, keyed by job key, as
+  `RunsView` holds `useStartRunState`): the in-flight guard, the "Started" confirmation and a failure survive leaving a
+  job's panel and coming back, and a late failure shows only in its own job's panel (cleared by that job's next action).
+  The guards are refs set inside the click, so a double press never sends twice. A failure shows inside the panel's Job
+  actions, not in the list's banner, which is hidden behind the panel on a phone; the messages name the job
+  ("Couldn't pause {name}.", "Couldn't resume {name}.", "Couldn't start {name}.", "Couldn't save {name}'s schedule.").
+  A failed **background poll's** banner is in the list pane, so on a phone it is covered by an open panel.
+- **Run now and Pause or Resume are `aria-disabled` plus a guard, not `disabled`, while busy, in flight or confirmed**, so
+  a press never drops keyboard focus; only a job off in config is truly `disabled`. The Pause or Resume description is
+  `aria-live="polite"`.
+- **A manual cycle also counts as its cycle job's `lastRun`.** `pipeline_run` has no manual flag, so a cycle started from
+  Runs (or a catch-up) is indistinguishable from a scheduled one.
+- **"ran" shows only under an active sun-relative job**: never under a proposed rule (a cycle job still on cron), and
+  never for a paused job.
+- **Next fires is a table plus a `KvList`** ("Expected finish", "Over the year", and "Reference" for a cron cycle job),
+  after frame 06. The rule paragraph shows only under a proposed rule ("Proposed rule" label); a sun-relative job's rule is
+  in Schedule, so the old "Current rule: this job is sun-relative now." sentence is gone. The Today / Tomorrow table sits in a
+  rounded bordered box with a rule under its header, and a fallback reason wraps anywhere.
+- **Schedule has no "Next fire" row**: the panel's meta line already says it ("next Sun 02:30 (in 14h)"). No Edit is drawn
+  for a job that is off in config (Job actions says what it requires).
+- **The fourth timing note differs from the old panel's words**: its last sentence read "Switching back to a fixed time is
+  the same control on the job's card."; there is no card now, so it reads "…is the "Switch back to a fixed time…" link in
+  Schedule above." The other three notes and the first half of the fourth are verbatim.
+- **The "How sun-relative timing works" body is always rendered, hidden until opened**, so `aria-controls` always resolves.
+- **The phone card's second line** is "{schedule} · next {time} ({relative})", and "· next —" on a paused or off row. The
+  loading lines use the ellipsis character ("Loading scheduler jobs…", "Loading solar preview…").
 - **The page-level `<p>Scheduler</p>` title in `ManageView` is gone**: the list pane carries the heading.
 - **`SolarSchedulePanel.jsx` is deleted**, its content moved to `JobSchedule` and `JobNextFires`. The three tests files
   that pinned the old cards (`SchedulerView.test.jsx`, `SchedulerViewSolar.test.jsx`,

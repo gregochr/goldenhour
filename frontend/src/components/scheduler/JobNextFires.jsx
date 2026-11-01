@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import PanelSection from '../data/PanelSection.jsx';
+import KvList from '../data/KvList.jsx';
 import {
   describeSeconds,
   describeSolarRule,
@@ -9,22 +10,47 @@ import {
   formatUkDateTime,
   formatUkTime,
 } from '../../utils/schedulerSolar.js';
+import { STATUS_ACTIVE } from '../../utils/schedulerView.js';
 
 /** An amber note: a fallback or clamped day, a stale preview. */
 const AMBER = 'text-verdict-marginal';
 
 /**
- * One day's computed fire, as a row of the Today / Tomorrow table. A fire that has already passed says "ran" under it.
+ * The reference point a sun-relative time is worked out for: "Durham, unless configured otherwise" and its
+ * coordinates, then when the preview was computed, small. (The server serves the coordinates only, so the place is the
+ * plan's default, not a lookup.)
+ *
+ * @param {object} props
+ * @param {{referencePoint: object, generatedAt: string}} props.preview the solar preview
+ */
+export function ReferenceValue({ preview }) {
+  return (
+    <span data-testid="solar-reference">
+      Durham, unless configured otherwise {'·'}{' '}
+      <span className="font-mono text-[12.5px]">{formatReferencePoint(preview.referencePoint)}</span>
+      <span className="block text-xs text-plex-text-muted">Computed {formatUkDateTime(preview.generatedAt)}</span>
+    </span>
+  );
+}
+
+ReferenceValue.propTypes = {
+  preview: PropTypes.shape({ referencePoint: PropTypes.object, generatedAt: PropTypes.string }).isRequired,
+};
+
+/**
+ * One day's computed fire, as a row of the Today / Tomorrow table. A fire that has already passed says "ran" under it,
+ * but only where it is true: a sun-relative job that is active (a proposed rule never fired, and a paused job did not).
  *
  * @param {object} props
  * @param {string} props.label "Today" or "Tomorrow"
  * @param {object|null} props.day the preview's DayFire, or null
  * @param {string} props.testId the row's test id
  * @param {Date} props.now the real clock (R-D7)
+ * @param {boolean} props.mayHaveRun whether a past fire means the job ran
  */
-function DayRow({ label, day, testId, now }) {
+function DayRow({ label, day, testId, now, mayHaveRun }) {
   if (!day) return null;
-  const ran = !day.fallback && day.fireInstant && new Date(day.fireInstant).getTime() <= now.getTime();
+  const ran = mayHaveRun && !day.fallback && day.fireInstant && new Date(day.fireInstant).getTime() <= now.getTime();
   return (
     <tr data-testid={testId} className="border-t border-plex-border/60 first:border-t-0">
       <th scope="row" className="py-1.5 pl-3 pr-3 text-left font-normal text-plex-text">
@@ -34,7 +60,7 @@ function DayRow({ label, day, testId, now }) {
       <td className="py-1.5 pr-3 font-mono text-[12.5px]">{day.eventInstant ? formatUkTime(day.eventInstant) : 'n/a'}</td>
       <td className="py-1.5 pr-3 font-mono text-[12.5px]">
         {day.fallback ? (
-          <span className={AMBER}>
+          <span className={`${AMBER} [overflow-wrap:anywhere]`}>
             Stored cron used{day.fallbackReason ? `: ${day.fallbackReason}` : ''}
           </span>
         ) : (
@@ -61,16 +87,19 @@ DayRow.propTypes = {
   }),
   testId: PropTypes.string.isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
+  mayHaveRun: PropTypes.bool.isRequired,
 };
 
 /**
- * One forecast cycle's figures from the solar preview: its rule (current, or the plan's proposed rule for a job still
- * on a fixed time), the Today / Tomorrow table, the expected finish and the year's range.
+ * One forecast cycle's figures from the solar preview: for a job still on a fixed time the plan's proposed rule, then
+ * the Today / Tomorrow table, the expected finish and the year's range.
  *
  * @param {object} props
  * @param {object} props.preview one entry of the preview's {@code jobs}
+ * @param {object|null} props.reference the whole preview, when the reference point is to be named here
+ * @param {string} props.status the served job's status
  */
-function CyclePreview({ preview: job }) {
+function CyclePreview({ preview: job, reference = null, status }) {
   const now = new Date();
   const rule = describeSolarRule(job.solarEvent, job.offsetMinutes);
   const isProposed = job.ruleSource === 'PROPOSED';
@@ -78,78 +107,61 @@ function CyclePreview({ preview: job }) {
     job.today && !job.today.fallback && job.today.fireInstant && job.medianDurationSeconds != null
       ? new Date(new Date(job.today.fireInstant).getTime() + job.medianDurationSeconds * 1000)
       : null;
+  const rows = [];
+  if (reference) rows.push({ label: 'Reference', value: <ReferenceValue preview={reference} /> });
+  rows.push({
+    label: 'Expected finish',
+    testId: `solar-finish-${job.jobKey}`,
+    value: finishInstant
+      ? `about ${formatUkTime(finishInstant.toISOString())} · trigger plus the median of the last completed cycles, ${describeSeconds(job.medianDurationSeconds)}`
+      : 'Not available (no completed cycle of this type to take a median over).',
+  });
+  rows.push({
+    label: 'Over the year',
+    testId: `solar-year-${job.jobKey}`,
+    value: `${job.earliest ? `${job.earliest.fireLocal} UK on ${formatCivilDate(job.earliest.date)}` : 'n/a'} (earliest) to ${
+      job.latest ? `${job.latest.fireLocal} UK on ${formatCivilDate(job.latest.date)}` : 'n/a'} (latest)`,
+  });
   return (
     <div className="flex flex-col gap-3" data-testid={`solar-panel-${job.jobKey}`}>
       {isProposed && (
-        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted" data-testid={`solar-proposed-label-${job.jobKey}`}>
-          Proposed rule
-        </p>
+        <div className="flex flex-col gap-1">
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted" data-testid={`solar-proposed-label-${job.jobKey}`}>
+            Proposed rule
+          </p>
+          <p className="text-xs text-plex-text-secondary" data-testid={`solar-panel-rule-${job.jobKey}`}>
+            <span className="text-plex-text">{rule}</span>
+            {', never before 00:05 UK. '}
+            <span className={AMBER} data-testid={`solar-rule-source-${job.jobKey}`}>
+              {`Proposed rule: this job is still on its ${job.scheduleType || 'unknown'} schedule.`}
+            </span>
+          </p>
+        </div>
       )}
-      <p className="text-xs text-plex-text-secondary" data-testid={`solar-panel-rule-${job.jobKey}`}>
-        <span className="text-plex-text">{rule}</span>
-        {', never before 00:05 UK. '}
-        <span
-          className={isProposed ? AMBER : 'text-plex-ok'}
-          data-testid={`solar-rule-source-${job.jobKey}`}
-        >
-          {isProposed
-            ? `Proposed rule: this job is still on its ${job.scheduleType || 'unknown'} schedule.`
-            : 'Current rule: this job is sun-relative now.'}
-        </span>
-      </p>
 
-      <table className="w-full rounded border border-plex-border text-[13px] text-plex-text-secondary">
-        <thead>
-          <tr className="font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted">
-            <th scope="col" className="py-1.5 pl-3 pr-3 text-left font-normal">
-              <span className="sr-only">Day</span>
-            </th>
-            <th scope="col" className="py-1.5 pr-3 text-left font-normal">
-              {job.solarEvent === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
-            </th>
-            <th scope="col" className="py-1.5 pr-3 text-left font-normal">
-              Fires
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <DayRow label="Today" day={job.today} testId={`solar-today-${job.jobKey}`} now={now} />
-          <DayRow label="Tomorrow" day={job.tomorrow} testId={`solar-tomorrow-${job.jobKey}`} now={now} />
-        </tbody>
-      </table>
+      <div className="overflow-hidden rounded border border-plex-border">
+        <table className="w-full text-[13px] text-plex-text-secondary">
+          <thead>
+            <tr className="border-b border-plex-border font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted">
+              <th scope="col" className="py-1.5 pl-3 pr-3 text-left font-normal">
+                <span className="sr-only">Day</span>
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-left font-normal">
+                {job.solarEvent === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
+              </th>
+              <th scope="col" className="py-1.5 pr-3 text-left font-normal">
+                Fires
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <DayRow label="Today" day={job.today} testId={`solar-today-${job.jobKey}`} now={now} mayHaveRun={!isProposed && status === STATUS_ACTIVE} />
+            <DayRow label="Tomorrow" day={job.tomorrow} testId={`solar-tomorrow-${job.jobKey}`} now={now} mayHaveRun={!isProposed && status === STATUS_ACTIVE} />
+          </tbody>
+        </table>
+      </div>
 
-      <p className="text-xs text-plex-text-secondary" data-testid={`solar-finish-${job.jobKey}`}>
-        {finishInstant ? (
-          <>
-            Expected finish today: about{' '}
-            <span className="text-plex-text">{formatUkTime(finishInstant.toISOString())}</span>{' '}
-            (trigger plus the median of the last completed cycles,{' '}
-            {describeSeconds(job.medianDurationSeconds)}).
-          </>
-        ) : (
-          'Expected finish: not available (no completed cycle of this type to take a median over).'
-        )}
-      </p>
-
-      <p className="text-xs text-plex-text-secondary" data-testid={`solar-year-${job.jobKey}`}>
-        Over the next year the trigger ranges from{' '}
-        {job.earliest ? (
-          <span className="text-plex-text">
-            {job.earliest.fireLocal} UK on {formatCivilDate(job.earliest.date)}
-          </span>
-        ) : (
-          'n/a'
-        )}{' '}
-        (earliest) to{' '}
-        {job.latest ? (
-          <span className="text-plex-text">
-            {job.latest.fireLocal} UK on {formatCivilDate(job.latest.date)}
-          </span>
-        ) : (
-          'n/a'
-        )}{' '}
-        (latest).
-      </p>
+      <KvList items={rows} />
     </div>
   );
 }
@@ -167,6 +179,8 @@ CyclePreview.propTypes = {
     latest: PropTypes.object,
     medianDurationSeconds: PropTypes.number,
   }).isRequired,
+  reference: PropTypes.object,
+  status: PropTypes.string.isRequired,
 };
 
 /**
@@ -181,12 +195,13 @@ CyclePreview.propTypes = {
  *
  * @param {object} props
  * @param {string} props.jobKey the job
+ * @param {string} props.status the served job's status ("ran" shows only under an active sun-relative job)
  * @param {object|null} props.preview the preview response, or null while it is unavailable
  * @param {boolean} props.failed true when the preview could not be loaded
  * @param {boolean} [props.showReference] whether to name the reference point here. A sun-relative job names it in its
  *   Schedule section; a cycle job still on a fixed time has no such row, and what it would be timed against is read here
  */
-export default function JobNextFires({ jobKey, preview = null, failed = false, showReference = false }) {
+export default function JobNextFires({ jobKey, status, preview = null, failed = false, showReference = false }) {
   const entry = preview?.jobs?.find((p) => p.jobKey === jobKey) ?? null;
   return (
     <PanelSection label="Next fires" testId="scheduler-panel-next-fires">
@@ -200,7 +215,7 @@ export default function JobNextFires({ jobKey, preview = null, failed = false, s
         <p className="text-xs text-plex-text-secondary" data-testid="solar-panel-unavailable">
           {failed
             ? 'Solar preview unavailable: the request failed. The switch control is disabled until it loads.'
-            : 'Loading solar preview...'}
+            : 'Loading solar preview…'}
         </p>
       )}
       {preview && !entry && (
@@ -208,20 +223,14 @@ export default function JobNextFires({ jobKey, preview = null, failed = false, s
           The preview has no figures for this job.
         </p>
       )}
-      {entry && showReference && (
-        <p className="mb-3 text-xs text-plex-text-secondary" data-testid="solar-reference">
-          Reference point:{' '}
-          <span className="text-plex-text">{formatReferencePoint(preview.referencePoint)}</span>{' '}
-          (Durham unless configured otherwise). Computed {formatUkDateTime(preview.generatedAt)}.
-        </p>
-      )}
-      {entry && <CyclePreview preview={entry} />}
+      {entry && <CyclePreview preview={entry} reference={showReference ? preview : null} status={status} />}
     </PanelSection>
   );
 }
 
 JobNextFires.propTypes = {
   jobKey: PropTypes.string.isRequired,
+  status: PropTypes.string.isRequired,
   preview: PropTypes.shape({
     referencePoint: PropTypes.object,
     generatedAt: PropTypes.string,
@@ -232,9 +241,11 @@ JobNextFires.propTypes = {
 };
 
 /**
- * The "How sun-relative timing works" disclosure: the four notes from the old solar panel, word for word. The notes
- * at the foot are fixed text from the plan (D1, D3, A4); the safety budget in particular is the plan's figure, not a
- * live read of {@code photocast.pipeline.safety-timeout}.
+ * The "How sun-relative timing works" disclosure: the four notes from the old solar panel. The notes are fixed text from
+ * the plan (D1, D3, A4); the safety budget in particular is the plan's figure, not a live read of
+ * {@code photocast.pipeline.safety-timeout}. The fourth note's last sentence differs from the old panel's: it points at
+ * the "Switch back to a fixed time…" link in Schedule above, because there is no job card to refer to any more. The
+ * body is always rendered, hidden until opened, so {@code aria-controls} always names an element.
  *
  * @param {object} props
  * @param {string} props.jobKey the open job, so each panel's disclosure has its own ids
@@ -255,9 +266,8 @@ export function SunTimingNotes({ jobKey }) {
         How sun-relative timing works
         <span className="text-plex-text-muted" aria-hidden="true">{open ? '▴' : '▾'}</span>
       </button>
-      {open && (
+      <div id={bodyId} hidden={!open} data-testid="solar-notes-body">
         <ul
-          id={bodyId}
           className="mb-3 flex list-disc flex-col gap-1 pl-5 text-xs text-plex-text-secondary"
           data-testid="solar-notes"
         >
@@ -285,10 +295,11 @@ export function SunTimingNotes({ jobKey }) {
           </li>
           <li>
             A falling-back day (shown above) uses the job&apos;s stored cron, which a sun-relative job
-            always keeps. Switching back to a fixed time is the same control on the job&apos;s card.
+            always keeps. Switching back to a fixed time is the &ldquo;Switch back to a fixed
+            time&hellip;&rdquo; link in Schedule above.
           </li>
         </ul>
-      )}
+      </div>
     </section>
   );
 }
