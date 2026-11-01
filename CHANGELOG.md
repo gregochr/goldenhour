@@ -5,6 +5,84 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.35.8] - 2026-11-01
+
+### Changed — Start a run is a choice of runs, with its scope inline
+
+Operations → Runs → Start a run no longer shows a card of buttons that each opened a confirm dialog. It is now three groups
+of options: Forecast (scheduled batch, JFDI batch, briefing, aurora forecast), Data refresh (tide data, tide history,
+light pollution) and Testing (the aurora simulation, with its On or Off state). Choosing an option shows what it will touch
+right there: the region checkboxes for a batch, and the coastal locations grouped by region for the tide options. The
+footer says what will run ("2 of 3 regions · 5 locations"), with Cancel and "Start {option}". A run that starts opens
+its own panel at once, a refresh with no run of its own closes the panel and says so in a short message, and a run
+already in progress is refused with one clear sentence.
+
+### Changed — the Scheduler is a list and a panel, and shows each job's last runs
+
+The Scheduler tab now sits on the same list-and-panel shell as Runs and the Data tabs. The list shows each job's schedule, next fire, last run and status, with chips for the schedule type and for paused or off jobs, sorted by next fire; a row opens the job's panel (`#manage/scheduler/{jobKey}`) and holds no buttons. The panel carries the schedule with Edit and the switch between a fixed time and a sun-relative one, the next fires (and, for a cycle job still on a fixed time, the proposed sun-relative rule), the job's recent runs with a link to each in Runs, the "How sun-relative timing works" notes, and Run now and Pause or Resume. A job that is off in config says what it requires and disables every action.
+
+The server now serves a `lastRun` for the three forecast cycle jobs, the tide refresh and the aurora batch evaluation (the five jobs whose runs can be proved), and `GET /api/admin/scheduler/jobs/{jobKey}/runs` serves their recent runs. Triggering, pausing or resuming a job that is off in config now answers 409 instead of 500. The old "Sun-relative forecast cycles" card is gone; its content moved into each cycle job's panel.
+
+### Added — Travel days is a list and a panel, with a calendar, past ranges and Edit
+
+The Travel days tab now sits on the same list-and-panel shell as Runs and the Scheduler. A five-week calendar from this week's Monday marks the days you are away (a day opens its range; an empty day from today on opens Add with From filled in), and the list below it groups the ranges as Upcoming and Past (collapsed), each row showing the range, its length and when it starts or ended. A row opens the range's panel (`#manage/traveldays/{id}`), which can now be edited as well as removed, with field errors under their fields; Remove needs no confirmation. Add range opens a panel with a summary of the days it covers.
+
+The server gains `GET /api/admin/travel-days?includePast=true` (every range, newest start first) and `PUT /api/admin/travel-days/{id}`, which shares add's validation: a note longer than 200 characters is now a 400 on add as well as update, not a 500. The public `/api/travel-days` is unchanged and still serves no past ranges. "Today" for the current-and-upcoming list is now the UK civil date from the injected clock.
+
+### Changed — cycles open in the Runs panel, with a live strip
+
+Operations → Runs now opens a cycle in its own panel (`#manage/runs/cycle/{id}`): what it is waiting on, why it failed or
+degraded, how this afternoon's best bets compare with this morning's nightly, its phases as a timeline, and its batches,
+each of which opens the batch's job-run panel and returns to the cycle. While a cycle is running a strip above the summary
+shows its phase bar and what it waits on, and a count beside Runs in the navigation says how many runs are in flight.
+Pipeline Runs is no longer a separate sub-tab: `#manage/pipelineruns` and `#manage/pipelineruns/{id}` now open Runs and the
+cycle. The cycle detail endpoint now also serves the cycle's batch cost, by the same rule as the list row.
+
+### Changed — align two JSDoc lines in AuroraBanner
+
+Two `@param` lines in AuroraBanner.jsx were missing their leading space; no behaviour change.
+
+### Changed — Job Runs and the job-run list become one Runs tab (Runs R2a)
+
+Operations → Runs now opens a single **Runs** list, built on the same list-and-panel shell as the Data tabs, where Job
+Runs used to be. The server merges the overnight, afternoon and evening cycles with every other run, so one list shows
+cycles, batches, tide, briefing, aurora and the rest, newest first, each with a status (Running, Done, Degraded, Partial
+or Failed), a result, a duration and a cost. A summary strip shows how many runs, how many need attention, the spend and
+the median overnight cycle for the chosen range; the range (Today, 7 days, 30 days), the kind chips and a Need attention
+chip all ask the server, and a chip never moves the address. "Load more" pages on a cursor, and the list refreshes itself
+every minute, every 15 seconds while a run is going, without losing the pages you have loaded.
+
+A run opens in a panel (`#manage/runs/job/{id}`), which also opens from a link or for a cycle's batch: its scope (locations,
+dates, model, strategies, batch id, notes), the dispositions as a stacked bar with a count per reason (now including travel
+days and force-evaluated slots), the Anthropic evaluations, per-service calls with tokens, errors and cost, and a
+Diagnostics section for failed calls, prompt-cache diagnostics and fallback-parsed responses. **Start a run** is a panel
+at `#manage/runs/start` holding today's trigger buttons unchanged (the aurora banner's link for a simulated alert lands
+there), and the progress of a run you started draws above the list, so it stays when the panel is closed. A cycle row
+still opens Pipeline Runs until its own panel arrives. The old `#manage/metrics` address redirects to `#manage/runs`.
+Times on this tab stay on the real clock whatever a Rewind says. The run-type select, the two show/hide checkboxes and
+the sort buttons are gone (the kind chips replace them).
+
+### Added — the batch's Open-Meteo weather pre-fetch now shows on its job run
+
+The forecast batch fetches weather from Open-Meteo before it submits anything to Claude, but that step left no trace on the run, so a day when Open-Meteo refused or only half answered still showed "22/22, All OK". Each chunk of the weather and air-quality fetch, and the cloud and pressure-level fetches, now appear in the run's API Call Breakdown with how many locations came back and any 429. If the pre-fetch gives up and no batch is submitted, the cycle now always leaves a run saying so, linked to its pipeline cycle. The run detail keeps its Anthropic (Batch) card next to the new Open-Meteo rows. The local and example configs now use a single attempt for the briefing Open-Meteo calls, as production already did, so a call is recorded once.
+
+### Changed — the map's aurora kind chip is green and follows the aurora banner's alert level
+
+The window control's AURORA kind chip (the pill, the week menu rows, the phone peek list and the location callout) now
+uses the aurora banner's green instead of the violet it shared with Astro: the Moderate green by
+default, and the banner's brighter Strong green (Strong, Severe and Extreme alerts) on the aurora
+row of the night the alert describes only. Every other night's aurora row keeps the Moderate
+green. Astro keeps the violet.
+
+### Changed — the aurora banner opens as its strip on desktop
+
+At 640px and up the aurora banner now shows the same short strip the phone has, with a chevron
+beside the dismiss button that expands it into the full card (thumbnail, level, when-line, best
+site) and collapses it again. A STRONG alert opens expanded; a MODERATE one starts collapsed. The
+choice belongs to the alert it was made on: any change of level or of simulated versus real, or the banner
+going away, returns to that alert's default. Nothing is remembered across a reload. No aurora
+viewline is requested while the banner is collapsed. The phone banner is unchanged.
+
 ## [v2.35.7] - 2026-10-31
 
 ### Added — a merged Runs list endpoint for the admin Operations tab
