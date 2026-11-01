@@ -81,12 +81,15 @@ submit), so the outcome travels as a value.
 - Rows are **not** copied to the cycle's other bucket runs (that would double the counts in
   `MetricsSummary`).
 
-**Frontend.** `JobRunDetail.jsx`: `isBatchWithNoApiCalls` is `batchSummary && serviceStats is
-empty`. With weather rows on the run, the "ANTHROPIC (Batch)" card (SUBMITTED/FAILED badge,
-"batch failed before processing") would vanish for an in-flight or failed batch. Change it to
-`batchSummary && !serviceStats.ANTHROPIC`, rendered alongside the other service groups. New
-`OPEN_METEO_*` groups need no other change. Show the "Anthropic Batch ID" box only when the note
-starts with `Anthropic batch: `, so the abort note is not labelled as a batch id.
+**Frontend.** `JobRunDetail.jsx` was replaced on main by the Runs panel (`components/runs/JobRunPanel.jsx`,
+`runs/JobRunSections.jsx`, `utils/jobRunPanel.js`, `hooks/useJobRunCalls.js`). In `CallsSection`, the batch
+row ("Anthropic · batch": status, "batch failed before processing") showed only when
+`batchSummary && stats is empty`, so weather rows on the run would hide it for an in-flight or failed
+batch. It now shows when `batchSummary` is present and there is no ANTHROPIC stat, beside the other
+service groups; "No API calls recorded" only when there is neither. The total is the batch's
+estimate when there is one, never added to per-call costs. New `OPEN_METEO_*` groups need no other
+change. The batch id (`anthropicBatchId` in `utils/runsView.js`) already requires the note to start
+with `Anthropic batch: `, so the abort note is not labelled as a batch id.
 
 ## Checked: no existing derivation moves
 
@@ -125,8 +128,8 @@ starts with `Anthropic batch: `, so the abort note is not labelled as a batch id
 - Move stubs of `prefetchWeatherBatchResilient(any())` to the two-argument form in every
   `ForecastTaskCollector*Test` and `BatchWeatherPrefetcherTest` (an unstubbed overload returns
   null, which reads as an abort).
-- `JobRunDetail.test.jsx`: a SUBMITTED batch run with only `OPEN_METEO_FORECAST` rows (one 429)
-  shows both the ANTHROPIC (Batch) card and the Open-Meteo group with its error and the heading
+- `JobRunPanel.test.jsx`: a SUBMITTED batch run with only `OPEN_METEO_FORECAST` rows (one 429)
+  shows both the batch row and the Open-Meteo group with its error and the heading
   `OPEN_METEO_FORECAST · 429`.
 
 ## Corrections from the plan review (binding; they override the text above)
@@ -162,12 +165,12 @@ starts with `Anthropic batch: `, so the abort note is not labelled as a batch id
    unstubbed Mockito overload returns an empty `Map`/`List`, not null: migrate the stubs anyway.
    Only `RegionFilteredBatchTasks.empty()` at the post-pre-fetch abort (line ~750) becomes
    `aborted(report)`; the earlier `empty()` returns stay.
-7. **Frontend.** The card and the service-group list in `JobRunDetail.jsx` are mutually exclusive
-   today (a ternary around lines 196–243): restructure so the ANTHROPIC (Batch) card renders when
-   `batchSummary && !serviceStats.ANTHROPIC`, alongside the groups, and "No API calls recorded"
-   only when both are absent. Extra tests: a FAILED batch with Open-Meteo rows still shows the card
-   and its failure text; a run whose note does not start with `Anthropic batch: ` hides the
-   "Anthropic Batch ID" box; the two existing card-only tests still pass.
+7. **Frontend.** `CallsSection` in `runs/JobRunSections.jsx` (which replaced `JobRunDetail.jsx`)
+   made the batch row and the service groups mutually exclusive: render the batch row when
+   `batchSummary` is present and there is no ANTHROPIC stat, alongside the groups, and "No API calls
+   recorded" only when both are absent. Extra tests in `JobRunPanel.test.jsx`: a FAILED batch with
+   Open-Meteo rows still shows the row and its failure text; ANTHROPIC rows drop the row without
+   double-counting cost; an abort note is not shown as a batch id; the batch-only tests still pass.
 
 ## Docs
 
