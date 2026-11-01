@@ -99,7 +99,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - Lite ratings outside the reader's sub-region picks are stripped and marked `gated` at the controller edge (`LitePickShaper`); never on the client. See `sub-regions-plan.md`.
 - **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS.
 - **Phone-only work stays phone-only** (`hooks/useIsMobile.js`, `(max-width: 639px)`); desktop and tablet must be provably unchanged.
-- **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term and Far-Term run on Sonnet 5.5.
+- **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term runs on Sonnet 5.5 and Batch Far-Term on Haiku 5.5 (since 2026-11-01).
 - **Ask PhotoCast is off by default** (`photocast.ask.enabled`). `stub: true` under `prod` fails startup; turning `stub` off locally bills the real Anthropic key.
 - **Local forecast runs and briefing builds can spend real Anthropic money.** Do not trigger them casually.
 - **Production is a separate Linux host.** Never diagnose production from local logs or the local DB.
