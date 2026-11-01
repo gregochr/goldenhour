@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.DayLabels;
 import com.gregochr.goldenhour.util.GeoUtils;
@@ -119,6 +120,18 @@ public class AskTools {
      * ({@code AskToolsLookUpPlaceTest} measures the worst case).
      */
     static final int MAX_PLACE_ROWS = 6;
+
+    /**
+     * The row cap when any row carries {@link PlaceDetail}: a detail row costs about 300 characters, so six would
+     * not fit the 4,500-character bound.
+     */
+    static final int MAX_PLACE_ROWS_WITH_DETAIL = 4;
+
+    /** The most rows of the one place a {@code look_up_place} answer is about that carry {@link PlaceDetail}. */
+    static final int MAX_DETAIL_ROWS = 4;
+
+    /** The longest forecast summary a {@link PlaceDetail} carries. */
+    static final int SUMMARY_CAP = 200;
 
     /** The most windows a named-area {@code look_up_place} lists. */
     static final int MAX_AREA_WINDOWS = 4;
@@ -578,11 +591,39 @@ public class AskTools {
      * @param tideFitPhrase the served tide-fit sentence, or null
      * @param status        a {@link PlaceStatus} name; its words are in the result's {@code reasons}
      * @param matchedAlias  the other name the reader's words matched when the place's own name did not, or null
+     * @param detail        the forecast's own reason, only on the rows of the one place the answer is about; null
+     *                      otherwise
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PlaceInfo(long locationId, String name, String region, String windowId, String day,
             String event, Integer rating, String verdict, String headline, String tideState,
-            Boolean tideAligned, String tideFitPhrase, String status, String matchedAlias) {
+            Boolean tideAligned, String tideFitPhrase, String status, String matchedAlias,
+            PlaceDetail detail) {
+
+        /**
+         * A place row with no detail.
+         *
+         * @param locationId    the location id
+         * @param name          the location name
+         * @param region        the region name
+         * @param windowId      the window id
+         * @param day           Today, Tomorrow or the weekday
+         * @param event         sunrise or sunset
+         * @param rating        the served rating, or null
+         * @param verdict       the served verdict, or null
+         * @param headline      the served headline, or null
+         * @param tideState     the served tide state, or null
+         * @param tideAligned   whether the wanted water is the water at the event, or null
+         * @param tideFitPhrase the served tide-fit sentence, or null
+         * @param status        a {@link PlaceStatus} name
+         * @param matchedAlias  the other name the reader's words matched, or null
+         */
+        public PlaceInfo(long locationId, String name, String region, String windowId, String day,
+                String event, Integer rating, String verdict, String headline, String tideState,
+                Boolean tideAligned, String tideFitPhrase, String status, String matchedAlias) {
+            this(locationId, name, region, windowId, day, event, rating, verdict, headline, tideState,
+                    tideAligned, tideFitPhrase, status, matchedAlias, null);
+        }
 
         /**
          * A place matched by its own name.
@@ -607,6 +648,19 @@ public class AskTools {
             this(locationId, name, region, windowId, day, event, rating, verdict, headline, tideState,
                     tideAligned, tideFitPhrase, status, null);
         }
+    }
+
+    /**
+     * The forecast's own reason for a looked-up rating (ask-place-explain plan E1): served evaluation fields only,
+     * never raw weather figures.
+     *
+     * @param summary    the sky prose, quote-safe and at most {@value AskTools#SUMMARY_CAP} characters, or null
+     * @param skyRating  the sky's own score before the tide is combined in, or null
+     * @param fierySky   the Fiery Sky potential out of 100, or null
+     * @param goldenHour the Golden Hour potential out of 100, or null
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record PlaceDetail(String summary, Integer skyRating, Integer fierySky, Integer goldenHour) {
     }
 
     /**
@@ -1014,25 +1068,47 @@ public class AskTools {
                 .toList();
         // The exact match's rows first, then the others', each place's in window order; then the row cap.
         List<PlaceInfo> all = new ArrayList<>();
-        Map<String, String> reasons = new LinkedHashMap<>();
+        List<PlaceStatus> statuses = new ArrayList<>();
+        List<AskSnapshot.Region> regions = new ArrayList<>();
+        // The forecast's reason goes only on the rows of the one place the answer is about: the first when it is
+        // exact, or when it is the only place matched (ask-place-explain plan X5).
+        boolean aboutOnePlace = ordered.getFirst().getValue().exact || ordered.size() == 1;
+        boolean anyDetail = false;
+        int detailRows = 0;
+        boolean firstPlace = true;
         for (Map.Entry<Long, PlaceMatch> entry : ordered.stream().limit(MAX_PLACE_MATCHES).toList()) {
             for (PlaceRow row : entry.getValue().rows) {
                 PlaceStatus status = classify(row.region(), row.slot());
-                all.add(placeInfo(entry.getKey(), row, status, entry.getValue().matchedAlias));
-                String reason = all.size() <= MAX_PLACE_ROWS ? statusReason(status, row.region()) : null;
-                if (reason != null) {
-                    reasons.putIfAbsent(status.name(), reason);
+                PlaceDetail detail = null;
+                if (firstPlace && aboutOnePlace && detailRows < MAX_DETAIL_ROWS) {
+                    detail = detail(row.slot(), status);
+                    if (detail != null) {
+                        detailRows++;
+                        anyDetail = true;
+                    }
                 }
+                all.add(placeInfo(entry.getKey(), row, status, entry.getValue().matchedAlias, detail));
+                statuses.add(status);
+                regions.add(row.region());
+            }
+            firstPlace = false;
+        }
+        int rowCap = anyDetail ? MAX_PLACE_ROWS_WITH_DETAIL : MAX_PLACE_ROWS;
+        Map<String, String> reasons = new LinkedHashMap<>();
+        for (int i = 0; i < Math.min(all.size(), rowCap); i++) {
+            String reason = statusReason(statuses.get(i), regions.get(i));
+            if (reason != null) {
+                reasons.putIfAbsent(statuses.get(i).name(), reason);
             }
         }
-        List<PlaceInfo> places = all.stream().limit(MAX_PLACE_ROWS).toList();
+        List<PlaceInfo> places = all.stream().limit(rowCap).toList();
         String note = null;
         int more = ordered.size() - MAX_PLACE_MATCHES;
         if (more > 0) {
             note = more + " more places match; use a longer name.";
         }
-        if (all.size() > MAX_PLACE_ROWS) {
-            note = joinNotes(note, "Showing " + MAX_PLACE_ROWS + " of " + all.size()
+        if (all.size() > rowCap) {
+            note = joinNotes(note, "Showing " + rowCap + " of " + all.size()
                     + " place-windows; pass windowIds to narrow.");
         }
         // Deliberately nothing recorded as evidence: a looked-up place is explained, never offered as a pick.
@@ -1055,14 +1131,38 @@ public class AskTools {
     private record PlaceRow(AskSnapshot.Window window, AskSnapshot.Region region, AskSnapshot.Slot slot) {
     }
 
-    private PlaceInfo placeInfo(long locationId, PlaceRow row, PlaceStatus status, String matchedAlias) {
+    /**
+     * The forecast's reason for a row, or null when the row carries none: an unrated or neighbour-outlier row, a
+     * row whose summary is the "not forecast" placeholder (it names Claude), or a row with no summary served. A wood
+     * keeps its summary only, because its potentials and sky score read the opposite way round.
+     */
+    private static PlaceDetail detail(AskSnapshot.Slot s, PlaceStatus status) {
+        if (status == PlaceStatus.UNRATED || status == PlaceStatus.NEIGHBOUR_OUTLIER
+                || ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY.equals(s.summary())) {
+            return null;
+        }
+        // Quotes become apostrophes and backslashes go, so JSON escaping cannot grow the text past its cap.
+        String summary = s.summary() == null ? null
+                : cap(s.summary().replace('"', '\'').replace("\\", ""), SUMMARY_CAP);
+        // The scores explain nothing without the reason they came with, and a row of them costs row budget.
+        if (summary == null || summary.isBlank()) {
+            return null;
+        }
+        if (status == PlaceStatus.CANOPY) {
+            return new PlaceDetail(summary, null, null, null);
+        }
+        return new PlaceDetail(summary, s.skyRating(), s.fierySky(), s.goldenHour());
+    }
+
+    private PlaceInfo placeInfo(long locationId, PlaceRow row, PlaceStatus status, String matchedAlias,
+            PlaceDetail detail) {
         AskSnapshot.Slot s = row.slot();
         Integer rating = status == PlaceStatus.UNRATED ? null : s.rating();
         return new PlaceInfo(locationId, s.name(), row.region().name(), row.window().id(),
                 dayWord(row.window().date()), row.window().targetType().name().toLowerCase(Locale.ROOT),
                 rating, s.verdict() == null ? null : s.verdict().name(), cap(s.headline(), HEADLINE_CAP),
                 s.tideState(), s.coastal() ? s.tideAligned() : null, s.tideFitPhrase(), status.name(),
-                matchedAlias);
+                matchedAlias, detail);
     }
 
     /** One named-area member at one window: what is listed, and the region its reason is read from. */

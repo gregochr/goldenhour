@@ -497,7 +497,8 @@ public class AskSnapshotBuilder {
                 fact == null ? null : fact.tideState(),
                 fact != null && Boolean.TRUE.equals(fact.tideAligned()),
                 fact == null ? null : fact.tideFitPhrase(),
-                Boolean.TRUE.equals(slot.neighbourOutlier()));
+                Boolean.TRUE.equals(slot.neighbourOutlier()), slot.claudeSummary(), slot.skyRating(),
+                slot.fierySkyPotential(), slot.goldenHourPotential());
     }
 
     /** A rendered event's identity: its date and target type. */

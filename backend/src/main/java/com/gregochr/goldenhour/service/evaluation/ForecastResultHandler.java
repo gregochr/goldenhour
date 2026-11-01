@@ -103,7 +103,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * Summary substituted for the sky-not-forecast state, overriding any prose Claude returned.
      * Distinct from the normal low-score "poor sky" wording — this is "evaluated but unscoreable".
      */
-    static final String SKY_NOT_FORECAST_SUMMARY =
+    public static final String SKY_NOT_FORECAST_SUMMARY =
             "Claude did not forecast the fiery sky and golden hour for this location";
 
     private final BriefingEvaluationService briefingEvaluationService;

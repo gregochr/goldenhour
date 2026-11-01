@@ -8,8 +8,10 @@ import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
 import com.gregochr.goldenhour.service.ask.AskTools.LookUpPlaceArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.LookUpPlaceResult;
+import com.gregochr.goldenhour.service.ask.AskTools.PlaceDetail;
 import com.gregochr.goldenhour.service.ask.AskTools.PlaceInfo;
 import com.gregochr.goldenhour.service.ask.AskTools.PlaceStatus;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
@@ -663,5 +665,213 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(payload.note()).isEqualTo("2 more places match; use a longer name. "
                 + "Showing 6 of 12 place-windows; pass windowIds to narrow.");
+    }
+
+    // -- E1: the forecast's own reason (ask-place-explain plan §4) -----------------------------
+
+    /** The slot with the evaluation's reason fields served; its combined rating and headline are kept. */
+    private static BriefingSlot explained(BriefingSlot base, Integer sky, Integer fiery, Integer golden,
+            String summary) {
+        return base.withClaudeScores(base.claudeRating(), sky, fiery, golden, summary, base.claudeHeadline());
+    }
+
+    private static AskSnapshot daysOf(int days, BriefingRegion... regions) {
+        List<com.gregochr.goldenhour.model.BriefingDay> list = new ArrayList<>();
+        for (int d = 0; d < days; d++) {
+            list.add(AskFixtures.sunsetDay(TODAY.plusDays(d), null, regions));
+        }
+        return AskFixtures.snapshotOf(AskFixtures.briefing(list, List.of()));
+    }
+
+    @Test
+    @DisplayName("one place in one window carries the full detail; the sky score may sit above the combined star")
+    void detailFullAndSkyAboveTheStar() {
+        BriefingSlot slot = explained(AskFixtures.coastal(1L, "Bamburgh", 3, "LOW", false, "Wrong water"),
+                4, 62, 71, "Thick low cloud at the western horizon with a narrow strip of clear sky above it.");
+
+        PlaceInfo info = only(ok(tools(snapshotOf(AskFixtures.region("Coast", true, slot)))
+                .lookUpPlace(name("bamburgh"))));
+
+        assertThat(info.rating()).isEqualTo(3);
+        assertThat(info.detail()).isEqualTo(new PlaceDetail(
+                "Thick low cloud at the western horizon with a narrow strip of clear sky above it.", 4, 62, 71));
+    }
+
+    @Test
+    @DisplayName("the summary has its quotes swapped for apostrophes, its backslashes dropped, and is capped")
+    void detailSummaryIsQuoteSafeAndCapped() {
+        String raw = "He said \"go\" at C:\\east " + "x".repeat(300);
+        BriefingSlot slot = explained(AskFixtures.slot(1L, "Bamburgh", 4), 4, 50, 50, raw);
+
+        PlaceDetail detail = only(ok(tools(snapshotOf(AskFixtures.region("Coast", true, slot)))
+                .lookUpPlace(name("bamburgh")))).detail();
+
+        assertThat(detail.summary()).hasSize(AskTools.SUMMARY_CAP).startsWith("He said 'go' at C:east x")
+                .endsWith("…").doesNotContain("\"").doesNotContain("\\");
+    }
+
+    @Test
+    @DisplayName("five windows of one place: four rows, all with detail, and the note says 4 of 5")
+    void detailRowsAreCappedAtFour() {
+        BriefingSlot slot = explained(AskFixtures.slot(1L, "Bamburgh", 4), 4, 50, 60, "Broken high cloud.");
+
+        LookUpPlaceResult result = ok(tools(daysOf(5, AskFixtures.region("Coast", true, slot)))
+                .lookUpPlace(name("bamburgh")));
+
+        assertThat(AskTools.MAX_PLACE_ROWS_WITH_DETAIL).isEqualTo(4);
+        assertThat(result.places()).hasSize(4).extracting(PlaceInfo::detail).doesNotContainNull();
+        assertThat(result.places()).extracting(PlaceInfo::windowId).isSorted();
+        assertThat(result.note()).isEqualTo("Showing 4 of 5 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("without detail the row cap stays 6 (nothing served to explain)")
+    void noDetailKeepsTheSixRowCap() {
+        LookUpPlaceResult result = ok(tools(daysOf(7,
+                AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Bamburgh", 4))))
+                .lookUpPlace(name("bamburgh")));
+
+        assertThat(result.places()).hasSize(6).extracting(PlaceInfo::detail).containsOnlyNulls();
+        assertThat(result.note()).isEqualTo("Showing 6 of 7 place-windows; pass windowIds to narrow.");
+    }
+
+    @Test
+    @DisplayName("two places and no exact name: neither carries detail, since the answer is not about one of them")
+    void twoNonExactPlacesGetNoDetail() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                explained(AskFixtures.slot(1L, "Alnmouth Bay", 4), 4, 50, 50, "Clear east."),
+                explained(AskFixtures.slot(2L, "Alnmouth Cove", 4), 4, 50, 50, "Clear east."));
+
+        LookUpPlaceResult result = ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth")));
+
+        assertThat(result.places()).hasSize(2).extracting(PlaceInfo::detail).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("an exact place beside a partial one: detail on the exact place only")
+    void exactPlusPartialDetailsTheExactOnly() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                explained(AskFixtures.slot(1L, "Alnmouth Bay", 4), 4, 50, 50, "Cove reason."),
+                explained(AskFixtures.slot(2L, "Alnmouth", 4), 4, 50, 50, "Exact reason."));
+
+        LookUpPlaceResult result = ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth")));
+
+        assertThat(names(result)).containsExactly("Alnmouth", "Alnmouth Bay");
+        assertThat(result.places().get(0).detail().summary()).isEqualTo("Exact reason.");
+        assertThat(result.places().get(1).detail()).isNull();
+    }
+
+    @Test
+    @DisplayName("a single non-exact place is the place the answer is about, so it carries detail")
+    void aloneIsAboutThatPlace() {
+        BriefingRegion coast = AskFixtures.region("Coast", true,
+                explained(AskFixtures.slot(1L, "Alnmouth Bay", 4), 4, 50, 50, "Cove reason."));
+
+        PlaceInfo info = only(ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth"))));
+
+        assertThat(info.detail()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("UNRATED, NEIGHBOUR_OUTLIER and the 'not forecast' placeholder carry no detail")
+    void noDetailForDisownedRows() {
+        BriefingSlot unrated = explained(AskFixtures.slot(1L, "Bamburgh", null), 4, 50, 50, "Some prose.");
+        BriefingSlot outlier = AskFixtures.outlier(
+                explained(AskFixtures.slot(2L, "Alnmouth", 5), 5, 50, 50, "Some prose."));
+        BriefingSlot placeholder = explained(AskFixtures.slot(3L, "Seaham", 1), 1, 0, 0,
+                ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
+        BriefingRegion coast = AskFixtures.region("Coast", true, unrated, outlier, placeholder);
+
+        for (String place : List.of("bamburgh", "alnmouth", "seaham")) {
+            AskToolResult<LookUpPlaceResult> result = tools(snapshotOf(coast)).lookUpPlace(name(place));
+            assertThat(only(ok(result)).detail()).as(place).isNull();
+            assertThat(result.content()).as(place).doesNotContain("\"detail\"").doesNotContain("Claude did not");
+        }
+        assertThat(only(ok(tools(snapshotOf(coast)).lookUpPlace(name("alnmouth")))).status())
+                .isEqualTo("NEIGHBOUR_OUTLIER");
+    }
+
+    @Test
+    @DisplayName("a wood keeps its summary only: no sky score and no potentials")
+    void canopyGetsTheSummaryOnly() {
+        BriefingSlot wood = explained(AskFixtures.wood(1L, "Hamsterley Forest", 5), 5, 80, 80,
+                "Soft light under the canopy.");
+
+        PlaceInfo info = only(ok(tools(snapshotOf(AskFixtures.region("Forest", true, wood)))
+                .lookUpPlace(name("hamsterley"))));
+
+        assertThat(info.status()).isEqualTo("CANOPY");
+        assertThat(info.detail()).isEqualTo(new PlaceDetail("Soft light under the canopy.", null, null, null));
+    }
+
+    @Test
+    @DisplayName("a slot with nothing served has no detail key at all in the content")
+    void allNullFieldsMeansNoDetailKey() {
+        AskToolResult<LookUpPlaceResult> result = tools(snapshotOf(
+                AskFixtures.region("Coast", true, AskFixtures.withHeadline(AskFixtures.slot(1L, "Bamburgh", 4), "h"))))
+                .lookUpPlace(name("bamburgh"));
+
+        assertThat(only(ok(result)).detail()).isNull();
+        assertThat(result.content()).doesNotContain("detail");
+    }
+
+    @Test
+    @DisplayName("rank_spots is byte-identical for a slot with and without the forecast's reason fields")
+    void rankSpotsIgnoresTheReasonFields() {
+        BriefingSlot plain = AskFixtures.coastal(1L, "Bamburgh", 4, "HIGH", true);
+        BriefingSlot rich = explained(plain, 5, 60, 70, "Clear east.");
+        RankSpotsArgs args = new RankSpotsArgs(null, null, null, null, null, null);
+
+        String without = tools(snapshotOf(AskFixtures.region("Coast", true, plain))).rankSpots(args).content();
+        String with = tools(snapshotOf(AskFixtures.region("Coast", true, rich))).rankSpots(args).content();
+
+        assertThat(with).isEqualTo(without).doesNotContain("detail").doesNotContain("Clear east");
+    }
+
+    /** A worst-case slot: long tide fit and headline, and a summary of quotes and backslashes at twice its cap. */
+    private static BriefingSlot worstExplained(long id, String placeName) {
+        String nasty = "\"\\".repeat(200);
+        return explained(AskFixtures.withHeadline(
+                AskFixtures.coastal(id, placeName, 4, "HIGH", true, "T".repeat(160)), "H".repeat(200)),
+                5, 100, 100, nasty + "abc".repeat(100));
+    }
+
+    @Test
+    @DisplayName("worst case with detail, six windows of one long-named place: four rows with 200-character "
+            + "summaries still serialise to at most 4,500 characters")
+    void detailWorstCaseSixWindowsFitsHalfTheCap() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        // Thin sample: the status reason is on the payload as well.
+        AskSnapshot snapshot = daysOf(6, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                worstExplained(1L, place)));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmouth estuary"));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(payload.places()).extracting(p -> p.detail().summary().length())
+                .containsOnly(AskTools.SUMMARY_CAP);
+        assertThat(payload.note()).isEqualTo("Showing 4 of 6 place-windows; pass windowIds to narrow.");
+        System.out.println("[look_up_place] detail worst-case payload chars (6 windows): "
+                + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("worst case with detail for a place found by a 40-character alias: four rows still fit 4,500")
+    void detailWorstCaseAliasFitsHalfTheCap() {
+        String place = "Hartlepool Headland And The Old Town Wall Nature Reserve Car Park";
+        AskSnapshot base = daysOf(6, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                worstExplained(1L, place)));
+        String alias = "Heugh " + "x".repeat(34);
+        AskSnapshot snapshot = base.withNames(List.of(), Map.of(1L, List.of(alias)));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(new LookUpPlaceArgs("heugh", null));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(payload.places()).extracting(PlaceInfo::matchedAlias).containsOnly(alias);
+        System.out.println("[look_up_place] detail alias worst-case payload chars: " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
 }
