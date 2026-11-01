@@ -40,6 +40,8 @@ function metaLine(detail) {
  * @param {string|null} props.error why the detail could not load
  * @param {boolean} props.notFound true when the server has no such job run
  * @param {boolean} props.isActiveRun true when the live progress panel is following this run
+ * @param {import('react').ReactNode} [props.progress] the live progress panel, when the layout puts it here (below
+ *   1000px, the list is covered by this panel); the same one mount that otherwise sits above the list
  * @param {() => void} props.onClose closes the panel
  * @param {string} [props.backLabel] a batch opened from its cycle: the cycle's name ("Cycle #412") for the "‹" row
  * @param {() => void} [props.onBack] returns to that cycle; with {@code backLabel} draws the row above the title on
@@ -47,7 +49,7 @@ function metaLine(detail) {
  */
 export default function JobRunPanel({
   detail = null, loading, error = null, notFound = false, isActiveRun = false, onClose, backLabel = undefined,
-  onBack = undefined,
+  onBack = undefined, progress = null,
 }) {
   const isMobile = useIsMobile();
   const backRow = onBack && backLabel && !isMobile ? (
@@ -134,7 +136,10 @@ export default function JobRunPanel({
     >
       {isActiveRun && (
         <PanelSection label="Progress" testId="job-run-progress-note">
-          <p className="text-[13px] text-plex-text-secondary">Following this run live in the progress panel on the Runs list.</p>
+          <p className="text-[13px] text-plex-text-secondary">
+            {progress ? 'Following this run live below.' : 'Following this run live in the progress panel on the Runs list.'}
+          </p>
+          {progress && <div className="mt-3">{progress}</div>}
         </PanelSection>
       )}
 
@@ -203,4 +208,5 @@ JobRunPanel.propTypes = {
   onClose: PropTypes.func.isRequired,
   backLabel: PropTypes.string,
   onBack: PropTypes.func,
+  progress: PropTypes.node,
 };

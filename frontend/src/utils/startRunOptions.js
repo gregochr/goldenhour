@@ -58,7 +58,8 @@ export const isBatchOption = (key) => key === 'scheduled-batch' || key === 'jfdi
  * @returns {string} the one-line description
  */
 export function tideDataDescription(count) {
-  return count == null ? 'Coastal locations from WorldTides.' : `${count} coastal locations from WorldTides.`;
+  if (count == null) return 'Coastal locations from WorldTides.';
+  return `${count} coastal location${count === 1 ? '' : 's'} from WorldTides.`;
 }
 
 /**

@@ -37,10 +37,12 @@ export function useStartRunState() {
   };
 }
 
-/** The next option's index in a radio group, for an arrow key (wrapping), or null for any other key. */
-function arrowTarget(key, index, count) {
+/** The option index a key moves to in a radio group of {@code count} (arrows wrap; Home and End), or null. */
+function keyTarget(key, index, count) {
   if (key === 'ArrowDown' || key === 'ArrowRight') return (index + 1) % count;
   if (key === 'ArrowUp' || key === 'ArrowLeft') return (index - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
   return null;
 }
 
@@ -49,7 +51,7 @@ function arrowTarget(key, index, count) {
  * option expands to is drawn by the caller, under it.
  */
 function OptionRadio({
-  option, description, checked, tabbable, disabled, onSelect, onKeyDown, buttonRef,
+  option, description, checked, tabbable, disabled, scopeId, idBase, onSelect, onKeyDown, buttonRef,
 }) {
   return (
     <button
@@ -57,6 +59,9 @@ function OptionRadio({
       type="button"
       role="radio"
       aria-checked={checked}
+      aria-labelledby={`${idBase}-name`}
+      aria-describedby={`${idBase}-desc`}
+      aria-controls={scopeId}
       tabIndex={tabbable ? 0 : -1}
       disabled={disabled}
       onClick={onSelect}
@@ -65,8 +70,8 @@ function OptionRadio({
       data-testid={`start-option-${option.key}`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium text-plex-text">{option.name}</span>
-        <span className="mt-0.5 block text-[12.5px] text-plex-text-secondary">{description}</span>
+        <span id={`${idBase}-name`} className="block text-[13px] font-medium text-plex-text">{option.name}</span>
+        <span id={`${idBase}-desc`} className="mt-0.5 block text-[12.5px] text-plex-text-secondary">{description}</span>
       </span>
       <span
         aria-hidden="true"
@@ -86,6 +91,8 @@ OptionRadio.propTypes = {
   checked: PropTypes.bool.isRequired,
   tabbable: PropTypes.bool.isRequired,
   disabled: PropTypes.bool.isRequired,
+  scopeId: PropTypes.string,
+  idBase: PropTypes.string.isRequired,
   onSelect: PropTypes.func.isRequired,
   onKeyDown: PropTypes.func.isRequired,
   buttonRef: PropTypes.func.isRequired,
@@ -124,6 +131,8 @@ export default function StartRunPanel({
   const { status: auroraStatus } = useAuroraStatus();
   const [allLocations, setAllLocations] = useState(null);
   const [batchRegions, setBatchRegions] = useState(null);
+  const [locationsFailed, setLocationsFailed] = useState(false);
+  const [regionsFailed, setRegionsFailed] = useState(false);
   // `null` MEANS "all regions" and is not the same as an empty set: the default follows the regions whenever they
   // land. (Snapshotting the roster at open time was a race that sent an empty region list.)
   const [selectedIds, setSelectedIds] = useState(null);
@@ -132,8 +141,8 @@ export default function StartRunPanel({
 
   // Load locations and batch regions once
   useEffect(() => {
-    fetchLocations().then(setAllLocations).catch(() => {});
-    getRegions().then(setBatchRegions).catch(() => {});
+    fetchLocations().then(setAllLocations).catch(() => setLocationsFailed(true));
+    getRegions().then(setBatchRegions).catch(() => setRegionsFailed(true));
   }, []);
 
   const anyRunning = runningTide || runningBackfill || runningLightPollution || runningBriefing
@@ -180,7 +189,8 @@ export default function StartRunPanel({
    * a job run id opens that run; one without finishes with a toast; a 409 shows the busy sentence; any other failure
    * shows {@code failure}.
    */
-  const execute = async (setRunning, call, failure) => {
+  const execute = async (setRunning, call, failure, noIdMessage = (result) => result?.status || 'Started.') => {
+    if (anyRunning) return;
     setRunning(true);
     setRunStatus(null);
     try {
@@ -188,7 +198,7 @@ export default function StartRunPanel({
       if (result?.jobRunId) {
         onRunStarted(result.jobRunId);
       } else {
-        onFinished(result?.status || 'Started.');
+        onFinished(noIdMessage(result));
       }
     } catch (err) {
       const message = err?.response?.status === 409 ? BUSY_MESSAGE : failure(err);
@@ -209,10 +219,14 @@ export default function StartRunPanel({
       scheduled ? setRunningScheduledBatch : setRunningJfdiBatch,
       () => (scheduled ? submitScheduledBatch(regionIds) : submitJfdiBatch(regionIds)),
       () => `${label} submission failed. Check the logs.`,
+      (result) => (result?.batchId
+        ? `${label} submitted: ${result.requestCount} request(s), batch ${result.batchId}.`
+        : 'Started.'),
     );
   };
 
   const handleStart = () => {
+    if (anyRunning) return;
     switch (selected) {
       case 'scheduled-batch':
         submitBatch('scheduled');
@@ -259,6 +273,9 @@ export default function StartRunPanel({
   /** The inline scope the selected option expands, or null for an option with none. */
   const scopeFor = (key) => {
     if (isBatchOption(key)) {
+      if (regionsFailed) {
+        return <p className="text-xs text-plex-text-muted" data-testid="start-scope-error">Couldn&apos;t load regions; every region will run.</p>;
+      }
       if (!batchRegions) return <p className="text-xs text-plex-text-muted">Loading regions…</p>;
       if (regions.length === 0) return <p className="text-xs text-plex-text-muted">Every region will run.</p>;
       return (
@@ -272,20 +289,27 @@ export default function StartRunPanel({
     }
     if (key === 'tide-data' || key === 'tide-history') {
       const summary = key === 'tide-data' ? tideSummary : historySummary;
+      if (locationsFailed) {
+        return <p className="text-xs text-plex-text-muted" data-testid="start-scope-error">Couldn&apos;t load locations; the run will still start.</p>;
+      }
       if (!summary) return <p className="text-xs text-plex-text-muted">Loading locations…</p>;
       return <LocationSummary groups={summary.groups} total={summary.total} />;
     }
     return null;
   };
 
-  const onOptionKeyDown = (group, index) => (event) => {
-    const target = arrowTarget(event.key, index, group.options.length);
+  // One choice across both groups, so the roving tab stop and the arrow keys run over the flat list.
+  const allOptions = START_GROUPS.flatMap((g) => g.options);
+  const onOptionKeyDown = (index) => (event) => {
+    const target = keyTarget(event.key, index, allOptions.length);
     if (target == null) return;
     event.preventDefault();
-    const next = group.options[target].key;
+    const next = allOptions[target].key;
     selectOption(next);
     optionRefs.current[next]?.focus();
   };
+
+  const startDisabled = anyRunning || batchEmpty;
 
   return (
     <PanelShell
@@ -298,17 +322,18 @@ export default function StartRunPanel({
           className="flex flex-wrap items-center gap-x-3 gap-y-2 px-[18px] py-3 max-[639px]:px-4"
           data-testid="start-run-footer"
         >
-          <p className="min-w-0 flex-1 font-mono text-[11.5px] text-plex-text-muted" data-testid="start-run-scope">
+          <p className="min-w-0 flex-1 text-xs text-plex-text-muted" data-testid="start-run-scope">
             {scope}
           </p>
           <button type="button" className={textButtonClass} onClick={onClose} data-testid="start-run-cancel">
             Cancel
           </button>
+          {/* aria-disabled, not disabled: pressing Start must not drop the focus to the page while the run is sent. */}
           <button
             type="button"
-            className="btn-primary text-sm max-[639px]:min-h-11"
+            className="btn-primary text-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-plex-gold max-[639px]:min-h-11"
             onClick={handleStart}
-            disabled={anyRunning || batchEmpty}
+            aria-disabled={startDisabled}
             data-testid="start-run-submit"
           >
             {startLabel}
@@ -318,55 +343,65 @@ export default function StartRunPanel({
     >
       {isAdmin && (
         <div data-testid="start-run-card">
-          {START_GROUPS.map((group) => {
-            const headingId = `${headingBase}-${group.id}`;
-            const groupHasSelection = group.options.some((o) => o.key === selected);
-            return (
-              <section
-                key={group.id}
-                className="border-b border-plex-border px-[18px] py-[14px] max-[639px]:px-4"
-                data-testid={`start-group-${group.id}`}
-              >
-                <h3 id={headingId} className={`${sectionLabelClass} mb-2.5`}>{group.label}</h3>
-                <div role="radiogroup" aria-labelledby={headingId} className="space-y-2">
-                  {group.options.map((option, index) => {
-                    const checked = option.key === selected;
-                    const description = option.key === 'tide-data'
-                      ? tideDataDescription(tideSummary ? tideSummary.total : null)
-                      : option.description;
-                    const optionScope = checked ? scopeFor(option.key) : null;
-                    return (
-                      <div
-                        key={option.key}
-                        className={`rounded-lg border ${
-                          checked ? 'border-plex-gold/60 bg-plex-gold/5' : 'border-plex-border'
-                        }`}
-                      >
-                        <OptionRadio
-                          option={option}
-                          description={description}
-                          checked={checked}
-                          tabbable={groupHasSelection ? checked : index === 0}
-                          disabled={anyRunning}
-                          onSelect={() => selectOption(option.key)}
-                          onKeyDown={onOptionKeyDown(group, index)}
-                          buttonRef={(node) => { optionRefs.current[option.key] = node; }}
-                        />
-                        {optionScope && (
-                          <div
-                            className="border-t border-plex-border px-3.5 py-2.5"
-                            data-testid={`start-scope-${option.key}`}
-                          >
-                            {optionScope}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
+          <div role="radiogroup" aria-label="Run to start">
+            {START_GROUPS.map((group) => {
+              const headingId = `${headingBase}-${group.id}`;
+              return (
+                <section
+                  key={group.id}
+                  role="group"
+                  aria-labelledby={headingId}
+                  className="border-b border-plex-border px-[18px] py-[14px] max-[639px]:px-4"
+                  data-testid={`start-group-${group.id}`}
+                >
+                  <h3 id={headingId} className={`${sectionLabelClass} mb-2.5`}>{group.label}</h3>
+                  <div className="space-y-2">
+                    {group.options.map((option) => {
+                      const index = allOptions.indexOf(option);
+                      const checked = option.key === selected;
+                      const description = option.key === 'tide-data'
+                        ? tideDataDescription(tideSummary ? tideSummary.total : null)
+                        : option.description;
+                      const optionScope = checked ? scopeFor(option.key) : null;
+                      const scopeId = `${headingBase}-${option.key}-scope`;
+                      return (
+                        <div
+                          key={option.key}
+                          className={`rounded-lg border ${
+                            checked ? 'border-plex-gold/60 bg-plex-gold/5' : 'border-plex-border'
+                          }`}
+                        >
+                          <OptionRadio
+                            option={option}
+                            description={description}
+                            checked={checked}
+                            tabbable={checked}
+                            disabled={anyRunning}
+                            scopeId={optionScope ? scopeId : undefined}
+                            idBase={`${headingBase}-${option.key}`}
+                            onSelect={() => selectOption(option.key)}
+                            onKeyDown={onOptionKeyDown(index)}
+                            buttonRef={(node) => { optionRefs.current[option.key] = node; }}
+                          />
+                          {optionScope && (
+                            <div
+                              id={scopeId}
+                              role="group"
+                              aria-label={`${option.name} scope`}
+                              className="border-t border-plex-border px-3.5 py-2.5"
+                              data-testid={`start-scope-${option.key}`}
+                            >
+                              {optionScope}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
           <section className="px-[18px] py-[14px] max-[639px]:px-4" data-testid="start-group-testing">
             <h3 className={`${sectionLabelClass} mb-2.5`}>Testing</h3>
             <div className="flex items-start gap-3">
@@ -379,7 +414,7 @@ export default function StartRunPanel({
                   className={`mt-0.5 text-[12.5px] ${auroraStatus?.simulated ? 'text-verdict-marginal' : 'text-plex-text-muted'}`}
                   data-testid="aurora-simulation-state"
                 >
-                  {auroraStatus?.simulated ? 'On' : 'Off'}
+                  {auroraStatus?.simulated ? 'On.' : 'Off.'}
                 </p>
               </div>
               <button
@@ -393,15 +428,16 @@ export default function StartRunPanel({
               </button>
             </div>
           </section>
-          {runStatus && (
-            <p
-              role="status"
-              className={`px-[18px] pb-4 text-xs max-[639px]:px-4 ${runStatus.type === 'success' ? 'text-plex-ok' : 'text-plex-error'}`}
-              data-testid="start-run-status"
-            >
-              {runStatus.message}
+          {/* Two live regions, always mounted and empty until written to (one that appears already holding its text is
+              announced unreliably): errors interrupt, successes wait their turn. */}
+          <div className="px-[18px] pb-4 text-xs max-[639px]:px-4" data-testid="start-run-status">
+            <p role="alert" className="text-plex-error" data-testid="start-run-status-error">
+              {runStatus?.type === 'error' ? runStatus.message : ''}
             </p>
-          )}
+            <p role="status" className="text-plex-ok" data-testid="start-run-status-ok">
+              {runStatus?.type === 'success' ? runStatus.message : ''}
+            </p>
+          </div>
         </div>
       )}
 

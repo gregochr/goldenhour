@@ -73,6 +73,7 @@ const onClose = vi.fn();
 
 const box = (testId) => screen.getByTestId(testId).querySelector('input');
 const start = () => screen.getByTestId('start-run-submit');
+const startIsDisabled = () => start().getAttribute('aria-disabled') === 'true';
 const option = (key) => screen.getByTestId(`start-option-${key}`);
 
 /** Chooses an option and presses Start, inside act so the handler's promise settles. */
@@ -104,14 +105,14 @@ describe('The options', () => {
   it('draws every option in its group with its name and one line of description', async () => {
     renderView();
 
-    const forecast = within(screen.getByRole('radiogroup', { name: 'Forecast' }));
-    expect(forecast.getAllByRole('radio').map((r) => r.getAttribute('data-testid'))).toEqual([
+    const group = screen.getByRole('radiogroup', { name: 'Run to start' });
+    expect(within(group).getAllByRole('radio').map((r) => r.getAttribute('data-testid'))).toEqual([
       'start-option-scheduled-batch', 'start-option-jfdi-batch', 'start-option-briefing', 'start-option-aurora-forecast',
-    ]);
-    const data = within(screen.getByRole('radiogroup', { name: 'Data refresh' }));
-    expect(data.getAllByRole('radio').map((r) => r.getAttribute('data-testid'))).toEqual([
       'start-option-tide-data', 'start-option-tide-history', 'start-option-light-pollution',
     ]);
+    expect(within(within(group).getByRole('group', { name: 'Forecast' })).getAllByRole('radio')).toHaveLength(4);
+    expect(within(within(group).getByRole('group', { name: 'Data refresh' })).getAllByRole('radio')).toHaveLength(3);
+    expect(screen.getAllByRole('radiogroup')).toHaveLength(1);
     expect(option('scheduled-batch')).toHaveTextContent('Same triage and stability gates as the overnight cycle.');
     expect(option('jfdi-batch')).toHaveTextContent('All locations, T to T+3, sunrise and sunset, no gates.');
     expect(option('briefing')).toHaveTextContent('Rebuilds the briefing from current ratings.');
@@ -147,6 +148,14 @@ describe('The options', () => {
     renderView();
     expect(option('tide-data')).toHaveTextContent('Coastal locations from WorldTides.');
     expect(await screen.findByText('2 coastal locations from WorldTides.')).toBeInTheDocument();
+  });
+
+  it('says "1 coastal location" in the singular', async () => {
+    fetchLocations.mockResolvedValue([
+      { id: 1, name: 'Bamburgh', enabled: true, locationType: ['SEASCAPE'], tideType: ['HIGH'], region: { name: 'Northumberland' } },
+    ]);
+    renderView();
+    expect(await screen.findByText('1 coastal location from WorldTides.')).toBeInTheDocument();
   });
 
   it('keeps only one option chosen, and the others\' scope closed', async () => {
@@ -187,15 +196,15 @@ describe('The options', () => {
 // ── Arrow keys ────────────────────────────────────────────────────────────
 
 describe('Arrow keys', () => {
-  it('puts the tab stop on the chosen option in its group, and on the first option in a group with none', async () => {
+  it('puts the one tab stop on the chosen option, across both groups', async () => {
     renderView();
     expect(option('scheduled-batch')).toHaveAttribute('tabindex', '0');
-    expect(option('jfdi-batch')).toHaveAttribute('tabindex', '-1');
-    expect(option('tide-data')).toHaveAttribute('tabindex', '0');
-    expect(option('tide-history')).toHaveAttribute('tabindex', '-1');
+    for (const key of ['jfdi-batch', 'briefing', 'aurora-forecast', 'tide-data', 'tide-history', 'light-pollution']) {
+      expect(option(key)).toHaveAttribute('tabindex', '-1');
+    }
   });
 
-  it('moves the choice and the focus down and right, and wraps at the end', async () => {
+  it('moves the choice and the focus down and right, and wraps at the end of the whole list', async () => {
     renderView();
     option('scheduled-batch').focus();
 
@@ -208,7 +217,13 @@ describe('Arrow keys', () => {
     fireEvent.keyDown(option('jfdi-batch'), { key: 'ArrowRight' });
     expect(option('briefing')).toHaveFocus();
     fireEvent.keyDown(option('briefing'), { key: 'ArrowDown' });
+    // The next option after the last forecast one is the first data refresh one: one group of seven.
     fireEvent.keyDown(option('aurora-forecast'), { key: 'ArrowDown' });
+    expect(option('tide-data')).toHaveAttribute('aria-checked', 'true');
+    expect(option('tide-data')).toHaveFocus();
+    fireEvent.keyDown(option('tide-data'), { key: 'ArrowDown' });
+    fireEvent.keyDown(option('tide-history'), { key: 'ArrowDown' });
+    fireEvent.keyDown(option('light-pollution'), { key: 'ArrowDown' });
     expect(option('scheduled-batch')).toHaveAttribute('aria-checked', 'true');
     expect(option('scheduled-batch')).toHaveFocus();
   });
@@ -216,23 +231,44 @@ describe('Arrow keys', () => {
   it('moves up and left, and wraps at the start', async () => {
     renderView();
     fireEvent.keyDown(option('scheduled-batch'), { key: 'ArrowUp' });
-    expect(option('aurora-forecast')).toHaveAttribute('aria-checked', 'true');
-    expect(option('aurora-forecast')).toHaveFocus();
-    fireEvent.keyDown(option('aurora-forecast'), { key: 'ArrowLeft' });
-    expect(option('briefing')).toHaveAttribute('aria-checked', 'true');
+    expect(option('light-pollution')).toHaveAttribute('aria-checked', 'true');
+    expect(option('light-pollution')).toHaveFocus();
+    fireEvent.keyDown(option('light-pollution'), { key: 'ArrowLeft' });
+    expect(option('tide-history')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('moves within a group, from the group\'s first option when the choice is in another', async () => {
+  it('Home goes to the first option and End to the last', async () => {
     renderView();
-    fireEvent.keyDown(option('tide-data'), { key: 'ArrowDown' });
-    expect(option('tide-history')).toHaveAttribute('aria-checked', 'true');
-    expect(option('scheduled-batch')).toHaveAttribute('aria-checked', 'false');
+    fireEvent.keyDown(option('scheduled-batch'), { key: 'End' });
+    expect(option('light-pollution')).toHaveAttribute('aria-checked', 'true');
+    expect(option('light-pollution')).toHaveFocus();
+    fireEvent.keyDown(option('light-pollution'), { key: 'Home' });
+    expect(option('scheduled-batch')).toHaveAttribute('aria-checked', 'true');
+    expect(option('scheduled-batch')).toHaveFocus();
   });
 
   it('ignores other keys', async () => {
     renderView();
     fireEvent.keyDown(option('scheduled-batch'), { key: 'a' });
     expect(option('scheduled-batch')).toHaveAttribute('aria-checked', 'true');
+  });
+});
+
+describe('Radio semantics', () => {
+  it('names each radio by its name and describes it by its description', async () => {
+    renderView();
+    const radio = screen.getByRole('radio', { name: 'JFDI batch' });
+    expect(radio).toHaveAccessibleDescription('All locations, T to T+3, sunrise and sunset, no gates.');
+  });
+
+  it('wraps the chosen option\'s scope in a labelled group the radio controls, outside the radio itself', async () => {
+    renderView();
+    await regionsLoaded();
+    const scope = screen.getByRole('group', { name: 'Scheduled batch scope' });
+    expect(scope).toContainElement(screen.getByTestId('batch-region-toggle-1'));
+    expect(option('scheduled-batch')).toHaveAttribute('aria-controls', scope.id);
+    expect(option('scheduled-batch')).not.toContainElement(scope);
+    expect(option('briefing')).not.toHaveAttribute('aria-controls');
   });
 });
 
@@ -358,19 +394,19 @@ describe('Batch scope', () => {
     await regionsLoaded();
     fireEvent.click(box('batch-region-toggle-all'));
 
-    expect(start()).toBeDisabled();
+    expect(startIsDisabled()).toBe(true);
     fireEvent.click(start());
     expect(submitScheduledBatch).not.toHaveBeenCalled();
     expect(submitJfdiBatch).not.toHaveBeenCalled();
 
     fireEvent.click(option('jfdi-batch'));
-    expect(start()).toBeDisabled();
+    expect(startIsDisabled()).toBe(true);
     fireEvent.click(start());
     expect(submitJfdiBatch).not.toHaveBeenCalled();
 
     // Choosing another option is not held back by the batch selection.
     fireEvent.click(option('briefing'));
-    expect(start()).toBeEnabled();
+    expect(startIsDisabled()).toBe(false);
   });
 
   it('with no regions served, still starts "all" (null) rather than disabling', async () => {
@@ -448,15 +484,26 @@ describe('Batch submission', () => {
     expect(onFinished).not.toHaveBeenCalled();
   });
 
-  it('finishes with a toast of "Started." when the batch returns no id and no status', async () => {
+  it('finishes with the batch\'s own summary when it returns a batch id but no run id', async () => {
     submitScheduledBatch.mockResolvedValue({ batchId: 'batch-001', requestCount: 42 });
     renderView();
     await regionsLoaded();
 
     await act(async () => { fireEvent.click(start()); });
 
-    expect(onFinished).toHaveBeenCalledWith('Started.');
+    expect(onFinished).toHaveBeenCalledWith('Scheduled batch submitted: 42 request(s), batch batch-001.');
     expect(onRunStarted).not.toHaveBeenCalled();
+  });
+
+  it('finishes with "Started." when the batch returns neither a run id nor a batch id', async () => {
+    submitJfdiBatch.mockResolvedValue({});
+    renderView();
+    await regionsLoaded();
+    fireEvent.click(option('jfdi-batch'));
+
+    await act(async () => { fireEvent.click(start()); });
+
+    expect(onFinished).toHaveBeenCalledWith('Started.');
   });
 
   it('says the busy sentence on a 409, and does not finish', async () => {
@@ -515,22 +562,15 @@ describe('Briefing, tide data, tide history and light pollution', () => {
     expect(onFinished).toHaveBeenCalledWith('Started.');
   });
 
-  it('tide data hands its run id over when the server returns one', async () => {
-    refreshTideData.mockResolvedValue({ jobRunId: 88, status: 'Started' });
+  it('tide data answers with a status and a run type, no run id, so it toasts the status', async () => {
+    refreshTideData.mockResolvedValue({ status: 'Tide refresh started.', runType: 'TIDE' });
     renderView();
 
     await chooseAndStart('tide-data');
 
     expect(refreshTideData).toHaveBeenCalledTimes(1);
-    expect(onRunStarted).toHaveBeenCalledWith(88);
-    expect(onFinished).not.toHaveBeenCalled();
-  });
-
-  it('tide data with no id toasts the status', async () => {
-    refreshTideData.mockResolvedValue({ status: 'Tide refresh started.' });
-    renderView();
-    await chooseAndStart('tide-data');
     expect(onFinished).toHaveBeenCalledWith('Tide refresh started.');
+    expect(onRunStarted).not.toHaveBeenCalled();
   });
 
   it('tide history calls the backfill and toasts its status', async () => {
@@ -589,7 +629,65 @@ describe('Briefing, tide data, tide history and light pollution', () => {
 
     fireEvent.click(option('briefing'));
 
-    expect(screen.queryByTestId('start-run-status')).toBeNull();
+    expect(screen.getByTestId('start-run-status')).toHaveTextContent('');
+    expect(screen.getByTestId('start-run-status-error')).toBeEmptyDOMElement();
+  });
+});
+
+describe('The status line is a live region that is always mounted', () => {
+  it('is mounted and empty before anything is written, as an alert and a status', async () => {
+    renderView();
+    expect(screen.getByRole('alert')).toBeEmptyDOMElement();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('writes an error into the same mounted alert', async () => {
+    runBriefing.mockRejectedValue({ response: { status: 500 } });
+    renderView();
+    const alert = screen.getByRole('alert');
+
+    await chooseAndStart('briefing');
+
+    expect(screen.getByRole('alert')).toBe(alert);
+    expect(alert).toHaveTextContent('Briefing refresh failed. Check the logs.');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('writes the simulation\'s success into the mounted status, not the alert', async () => {
+    renderView();
+    const status = screen.getByRole('status');
+    fireEvent.click(screen.getByTestId('aurora-simulate-btn'));
+    await screen.findByRole('dialog', { name: 'Aurora simulation' });
+    fireEvent.click(screen.getByRole('button', { name: 'finish' }));
+    expect(screen.getByRole('status')).toBe(status);
+    expect(status).toHaveTextContent('Simulation on.');
+    expect(screen.getByRole('alert')).toBeEmptyDOMElement();
+  });
+
+  it('keeps focus on Start while the request is in flight and after it fails', async () => {
+    let fail;
+    runBriefing.mockReturnValue(new Promise((_resolve, reject) => { fail = reject; }));
+    renderView();
+    fireEvent.click(option('briefing'));
+    start().focus();
+
+    await act(async () => { fireEvent.click(start()); });
+    expect(start()).toHaveFocus();
+    expect(startIsDisabled()).toBe(true);
+
+    await act(async () => { fail({ response: { status: 409 } }); });
+    expect(start()).toHaveFocus();
+    expect(document.body).not.toHaveFocus();
+    expect(screen.getByRole('alert')).toHaveTextContent(BUSY);
+  });
+
+  it('ignores a second press of Start while a run is in flight', async () => {
+    runBriefing.mockReturnValue(new Promise(() => {}));
+    renderView();
+    fireEvent.click(option('briefing'));
+    await act(async () => { fireEvent.click(start()); });
+    await act(async () => { fireEvent.click(start()); });
+    expect(runBriefing).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -645,6 +743,40 @@ describe('Refused runs', () => {
 });
 
 // ── Tide scope ────────────────────────────────────────────────────────────
+
+describe('When the regions fail to load', () => {
+  it('says so plainly, keeps Start usable, and sends null (every region)', async () => {
+    getRegions.mockRejectedValue(new Error('down'));
+    submitScheduledBatch.mockResolvedValue({ jobRunId: 3 });
+    renderView();
+
+    expect(await screen.findByText("Couldn't load regions; every region will run.")).toBeInTheDocument();
+    expect(screen.queryByText('Loading regions…')).toBeNull();
+    expect(startIsDisabled()).toBe(false);
+    expect(screen.getByTestId('start-run-scope')).toBeEmptyDOMElement();
+
+    await act(async () => { fireEvent.click(start()); });
+    expect(submitScheduledBatch).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('When the locations fail to load', () => {
+  it('says so for both tide options, and the run still starts', async () => {
+    fetchLocations.mockRejectedValue(new Error('down'));
+    refreshTideData.mockResolvedValue({ status: 'Tide refresh started.' });
+    renderView();
+    fireEvent.click(option('tide-data'));
+
+    expect(await screen.findByText("Couldn't load locations; the run will still start.")).toBeInTheDocument();
+    expect(screen.queryByText('Loading locations…')).toBeNull();
+    fireEvent.click(option('tide-history'));
+    expect(screen.getByText("Couldn't load locations; the run will still start.")).toBeInTheDocument();
+
+    fireEvent.click(option('tide-data'));
+    await act(async () => { fireEvent.click(start()); });
+    expect(refreshTideData).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('Tide scope', () => {
   const LOCATIONS = [
@@ -724,11 +856,11 @@ describe('While a run started here is in flight', () => {
     ]) {
       expect(option(key)).toBeDisabled();
     }
-    expect(start()).toBeDisabled();
+    expect(startIsDisabled()).toBe(true);
 
     await act(async () => { finish({ status: 'ok' }); });
     expect(option('scheduled-batch')).toBeEnabled();
-    expect(start()).toBeEnabled();
+    expect(startIsDisabled()).toBe(false);
   });
 
   it('disables the region checkboxes too', async () => {
@@ -779,7 +911,7 @@ describe('Aurora forecast and simulation', () => {
 
   it('shows the simulation row Off, and opens the simulation modal from Simulate…', async () => {
     renderView();
-    expect(screen.getByTestId('aurora-simulation-state')).toHaveTextContent('Off');
+    expect(screen.getByTestId('aurora-simulation-state')).toHaveTextContent('Off.');
     expect(screen.getByTestId('start-group-testing')).toHaveTextContent('Injects fake NOAA data so the aurora UI can be tested.');
     fireEvent.click(screen.getByTestId('aurora-simulate-btn'));
     expect(await screen.findByRole('dialog', { name: 'Aurora simulation' })).toBeInTheDocument();
@@ -788,7 +920,7 @@ describe('Aurora forecast and simulation', () => {
   it('shows the simulation On when the aurora status says it is simulated', async () => {
     mockAurora = { simulated: true };
     renderView();
-    expect(screen.getByTestId('aurora-simulation-state')).toHaveTextContent('On');
+    expect(screen.getByTestId('aurora-simulation-state')).toHaveTextContent('On.');
   });
 
   it('reports the simulation modal\'s message in the panel and does not finish', async () => {

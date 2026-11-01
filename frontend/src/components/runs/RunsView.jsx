@@ -6,6 +6,7 @@ import RunsListPane from './RunsListPane.jsx';
 import JobRunPanel from './JobRunPanel.jsx';
 import CyclePanel from './CyclePanel.jsx';
 import RunsLiveStrip from './RunsLiveStrip.jsx';
+import { useIsSplitLayout } from '../../hooks/useIsSplitLayout.js';
 import StartRunPanel, { useStartRunState } from './StartRunPanel.jsx';
 import SubRegionToast from '../subregions/SubRegionToast.jsx';
 import useCloseWhenFilteredOut from '../../hooks/useCloseWhenFilteredOut.js';
@@ -106,6 +107,7 @@ export default function RunsView({
   activeRunId = null, onActiveRunChange, onActiveRunClear, onLiveCountChange = undefined,
 }) {
   const [filters, setFilters] = useState(filtersFromHash);
+  const isSplit = useIsSplitLayout();
   const rootRef = useRef(null);
   // The Operations pane stays mounted, hidden, while the reader is on the Map or Plan tab: no polling then.
   const isPaused = useCallback(() => rootRef.current?.closest('[hidden]') != null, []);
@@ -241,6 +243,7 @@ export default function RunsView({
   }, [starting]);
   const [toast, setToast] = useState(null);
   const clearToast = useCallback(() => setToast(null), []);
+  const toastCount = useRef(0);
 
   // A start that returned a job run id: the progress panel on the list follows it (ManageView keeps the id), the
   // list's head reloads, and, while the Start panel is still the open one, the new run's own panel replaces it.
@@ -254,7 +257,12 @@ export default function RunsView({
   // the Start panel if it is still the open one.
   const handleStartFinished = (message) => {
     list.refresh();
-    setToast(message);
+    // Not while the Operations pane is hidden (the reader is on the Map or Plan tab): the line would float over it.
+    // The counter restarts the toast's timer when the same line comes round again.
+    if (rootRef.current?.closest('[hidden]') == null) {
+      toastCount.current += 1;
+      setToast({ text: message, count: toastCount.current });
+    }
     if (startingRef.current) closePanel();
   };
 
@@ -277,6 +285,22 @@ export default function RunsView({
     }
     select({ type: 'job', id: item.id });
   }
+
+  const progress = activeRunId ? (
+    <RunProgressPanel
+      // key: starting another run while a finished one is kept must replace the panel, not hand a new run id to a
+      // panel still holding the old run's tasks, summary and failure line.
+      key={activeRunId}
+      jobRunId={activeRunId}
+      onComplete={list.refresh}
+      onAutoClear={onActiveRunClear}
+      onDismiss={handleDismissRun}
+    />
+  ) : null;
+  // Below 1000px the open job-run panel covers the list, so the run it names carries its own live progress inside it.
+  // Moved, never duplicated: one mount, hence one subscription, wherever it sits.
+  // Not while the panel is still loading or failed (it shows no progress then, and a move would re-open the stream).
+  const progressInPanel = !isSplit && jobId != null && jobId === activeRunId && !job.error && !job.notFound;
 
   let panel = null;
   if (starting) {
@@ -316,6 +340,7 @@ export default function RunsView({
         onClose={closePanel}
         backLabel={isBatch ? `Cycle #${cycleId}` : undefined}
         onBack={isBatch ? backToCycle : undefined}
+        progress={progressInPanel ? progress : null}
       />
     );
   }
@@ -351,17 +376,6 @@ export default function RunsView({
     </button>
   ) : null;
 
-  const progress = activeRunId ? (
-    <RunProgressPanel
-      // key: starting another run while a finished one is kept must replace the panel, not hand a new run id to a
-      // panel still holding the old run's tasks, summary and failure line.
-      key={activeRunId}
-      jobRunId={activeRunId}
-      onComplete={list.refresh}
-      onAutoClear={onActiveRunClear}
-      onDismiss={handleDismissRun}
-    />
-  ) : null;
 
   return (
     <div
@@ -388,7 +402,7 @@ export default function RunsView({
             onLoadMore={list.loadMore}
             onRefresh={list.refresh}
             onStart={() => select({ type: 'start' })}
-            progress={progress}
+            progress={progressInPanel ? null : progress}
             liveStrip={liveStrip}
           />
         )}
@@ -404,7 +418,7 @@ export default function RunsView({
         rowTestIdPrefix="runs"
         testId="runs-split"
       />
-      <SubRegionToast message={toast} onDone={clearToast} />
+      <SubRegionToast message={toast?.text ?? null} nonce={toast?.count} onDone={clearToast} />
     </div>
   );
 }
