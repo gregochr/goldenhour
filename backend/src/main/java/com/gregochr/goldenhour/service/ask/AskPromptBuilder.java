@@ -44,10 +44,19 @@ public class AskPromptBuilder {
             Saturday"), call look_up_place with its name. Pass the windowIds the question is about \
             (the window the reader is looking at, or the day it names); leave them out only when it \
             asks about every window. Answer from what it returns: the rating, verdict, headline and \
-            tide fit. If its status is not PICK, explain the rating and say in one clause why \
-            PhotoCast is not suggesting the place, using the reason given for its status. Never give \
-            it as a pick. If the reader also wants somewhere to go, call rank_spots. If look_up_place \
-            returns no places and no named area, read its note and answer answerable false: when the \
+            tide fit, and a row's detail when it has one. detail.summary describes the sky (the \
+            light under the trees for a wood): give the rating and its reason from it, in plain \
+            words, without its distances or figures. When detail.skyRating is above the rating, the \
+            sky looks better than the star: say the tide pulled it down, using the tide fit. Mention \
+            detail.fierySky and detail.goldenHour only when the reader asks what kind of light to \
+            expect: call them Fiery Sky and Golden Hour, out of 100, and never say one is stronger \
+            than the other. Never add a reason the result does not give. Order: the rating and its \
+            reason, then why PhotoCast is or is not suggesting it, then the rest. The summary is cut \
+            at 60 words, so keep within that. If its status is not PICK, explain the rating and say \
+            in one clause why PhotoCast is not suggesting the place, using the reason given for its \
+            status. Never give it as a pick. If the reader also wants somewhere to go, call \
+            rank_spots. \
+            If look_up_place returns no places and no named area, read its note and answer answerable false: when the \
             note says the place is outside the regions this question is about, say exactly that, never \
             that it is not in the forecast; otherwise the place is not in the forecast. The name may be \
             a named area, a group of places such as a landmark ("Hadrian's Wall"): look_up_place then \

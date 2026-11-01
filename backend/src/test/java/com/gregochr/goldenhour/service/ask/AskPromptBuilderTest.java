@@ -123,6 +123,26 @@ class AskPromptBuilderTest {
     }
 
     @Test
+    @DisplayName("a typed prompt explains a place from the forecast's own reason; the Ready prompt has none of it")
+    void typedPromptCarriesThePlaceReasonRule() {
+        String typed = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+        String ready = flat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false));
+
+        assertThat(typed)
+                .contains("Answer from what it returns: the rating, verdict, headline and tide fit, and a row's "
+                        + "detail when it has one. detail.summary describes the sky (the light under the trees "
+                        + "for a wood): give the rating and its reason from it, in plain words, without its "
+                        + "distances or figures. When detail.skyRating is above the rating, the sky looks better "
+                        + "than the star: say the tide pulled it down, using the tide fit. Mention "
+                        + "detail.fierySky and detail.goldenHour only when the reader asks what kind of light to "
+                        + "expect: call them Fiery Sky and Golden Hour, out of 100, and never say one is "
+                        + "stronger than the other. Never add a reason the result does not give. Order: the "
+                        + "rating and its reason, then why PhotoCast is or is not suggesting it, then the rest. "
+                        + "The summary is cut at 60 words, so keep within that.");
+        assertThat(ready).doesNotContain("detail.summary").doesNotContain("Fiery Sky and Golden Hour");
+    }
+
+    @Test
     @DisplayName("a typed prompt knows named areas: 'no places and no named area' is the answerable-false trigger, "
             + "and areaName and other names are explained; the Ready prompt has none of it")
     void typedPromptCarriesTheNamedAreaRule() {

@@ -138,8 +138,9 @@ public final class AskToolSchemas {
         props.put("name", m("type", "string", "description", "The place's name, or part of it."));
         props.put("windowIds", array(string(), "Only these window ids (from list_windows). Default: every window."));
         return tool(LOOK_UP_PLACE,
-                "Looks up one place by name and returns its served rating, verdict, headline, tide fit and "
-                        + "whether PhotoCast recommends it (status), for each window. Use it when the reader "
+                "Looks up one place by name and returns its served rating, verdict, headline, tide fit "
+                        + "and whether PhotoCast recommends it (status), for each window, plus the forecast's own "
+                        + "reason for the place asked about. Use it when the reader "
                         + "asks about a specific place, e.g. why it is rated as it is. It never makes the place "
                         + "a pick. The name may also be a named area, such as a landmark, or another name for a "
                         + "place; the result then lists the named area's places for each window.",

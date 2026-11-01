@@ -104,6 +104,28 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
+    @DisplayName("a served slot's summary, sky score and both potentials come through; a retracted slot has none")
+    void build_slotCarriesTheForecastsReason() {
+        BriefingSlot served = AskFixtures.slot(1L, "Bamburgh", 3).withClaudeScores(3, 4, 62, 71,
+                "Thick low cloud at the western horizon.", "Heavy west");
+        BriefingSlot retracted = AskFixtures.slot(2L, "Alnmouth", null);
+        BriefingRegion region = AskFixtures.region("Coast", true, served, retracted);
+        stub(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null, region)), List.of()));
+
+        List<AskSnapshot.Slot> slots = builder.build().orElseThrow().windows().getFirst().regions().getFirst().slots();
+
+        AskSnapshot.Slot first = slots.stream().filter(s -> s.locationId() == 1L).findFirst().orElseThrow();
+        assertThat(first.summary()).isEqualTo("Thick low cloud at the western horizon.");
+        assertThat(first.skyRating()).isEqualTo(4);
+        assertThat(first.fierySky()).isEqualTo(62);
+        assertThat(first.goldenHour()).isEqualTo(71);
+        AskSnapshot.Slot second = slots.stream().filter(s -> s.locationId() == 2L).findFirst().orElseThrow();
+        assertThat(second.summary()).isNull();
+        assertThat(second.fierySky()).isNull();
+        assertThat(second.goldenHour()).isNull();
+    }
+
+    @Test
     @DisplayName("events 7-8 carry a window but are not in renderedEvents: they are not in the window set")
     void build_eventsBeyondTheRenderedSix_areExcluded() {
         // PlanWindowProjector attaches a window to EVERY summary; the six-event cap is
