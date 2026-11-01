@@ -460,8 +460,7 @@ export default function ManageView({ onComplete }) {
         )}
 
         {activeTab === 'traveldays' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Travel Days</p>
+          <div className="card">
             <TravelDaysView />
           </div>
         )}

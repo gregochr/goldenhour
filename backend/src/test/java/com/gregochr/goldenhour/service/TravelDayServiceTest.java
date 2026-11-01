@@ -4,17 +4,22 @@ import com.gregochr.goldenhour.entity.TravelDayEntity;
 import com.gregochr.goldenhour.model.TravelDayRequest;
 import com.gregochr.goldenhour.model.TravelDayResponse;
 import com.gregochr.goldenhour.repository.TravelDayRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Sort;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,8 +40,14 @@ class TravelDayServiceTest {
     @Mock
     private ServedBriefingEpoch servedEpoch;
 
-    @InjectMocks
     private TravelDayService service;
+
+    @BeforeEach
+    void setUp() {
+        // 23:30 UTC on 30 Jun is 00:30 BST on 1 Jul: UK "today" is 2026-07-01
+        Clock clock = Clock.fixed(Instant.parse("2026-06-30T23:30:00Z"), ZoneOffset.UTC);
+        service = new TravelDayService(repository, servedEpoch, clock);
+    }
 
     @Test
     @DisplayName("isTravelDay delegates to the repository containment query")
@@ -57,7 +68,7 @@ class TravelDayServiceTest {
                 .endDate(LocalDate.of(2026, 7, 3))
                 .note("London")
                 .build();
-        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(any()))
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(LocalDate.of(2026, 7, 1)))
                 .thenReturn(List.of(entity));
 
         List<TravelDayResponse> result = service.list();
@@ -71,7 +82,7 @@ class TravelDayServiceTest {
     }
 
     @Test
-    @DisplayName("list filters by end date >= today (Europe/London)")
+    @DisplayName("list filters by end date >= today (UK civil date from the injected clock)")
     void listFiltersPastRangesByToday() {
         ArgumentCaptor<LocalDate> cutoff = ArgumentCaptor.forClass(LocalDate.class);
         when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(cutoff.capture()))
@@ -80,7 +91,7 @@ class TravelDayServiceTest {
         service.list();
 
         assertThat(cutoff.getValue())
-                .isEqualTo(LocalDate.now(java.time.ZoneId.of("Europe/London")));
+                .isEqualTo(LocalDate.of(2026, 7, 1));
     }
 
     @Test
@@ -121,6 +132,99 @@ class TravelDayServiceTest {
     void addRejectsMissingDates() {
         assertThatThrownBy(() -> service.add(new TravelDayRequest(null, null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("list follows the injected clock: a rewound clock still returns a range that has since ended")
+    void listFollowsARewoundClock() {
+        TravelDayEntity ended = TravelDayEntity.builder().id(1L)
+                .startDate(LocalDate.of(2026, 6, 20)).endDate(LocalDate.of(2026, 6, 22)).build();
+        // Exact cut-offs: the real clock (00:30 BST on 1 Jul) cuts at 1 Jul, the rewound one at 21 Jun.
+        LocalDate realCutoff = LocalDate.of(2026, 7, 1);
+        LocalDate rewoundCutoff = LocalDate.of(2026, 6, 21);
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(realCutoff)).thenReturn(List.of());
+        when(repository.findByEndDateGreaterThanEqualOrderByStartDateDesc(rewoundCutoff)).thenReturn(List.of(ended));
+
+        assertThat(service.list()).isEmpty();
+        verify(repository).findByEndDateGreaterThanEqualOrderByStartDateDesc(realCutoff);
+
+        Clock rewound = Clock.fixed(Instant.parse("2026-06-21T09:00:00Z"), ZoneOffset.UTC);
+        TravelDayService rewoundService = new TravelDayService(repository, servedEpoch, rewound);
+        assertThat(rewoundService.list()).extracting(TravelDayResponse::id).containsExactly(1L);
+        verify(repository).findByEndDateGreaterThanEqualOrderByStartDateDesc(rewoundCutoff);
+    }
+
+    @Test
+    @DisplayName("listAll returns every range, past included, without the today filter")
+    void listAllReturnsEverything() {
+        TravelDayEntity past = TravelDayEntity.builder().id(1L)
+                .startDate(LocalDate.of(2026, 5, 1)).endDate(LocalDate.of(2026, 5, 2)).build();
+        when(repository.findAll(Sort.by(Sort.Direction.DESC, "startDate"))).thenReturn(List.of(past));
+
+        assertThat(service.listAll()).extracting(TravelDayResponse::id).containsExactly(1L);
+        verify(repository, never()).findByEndDateGreaterThanEqualOrderByStartDateDesc(any());
+    }
+
+    @Test
+    @DisplayName("add rejects a note over 200 characters and accepts exactly 200")
+    void addRejectsLongNote() {
+        LocalDate d = LocalDate.of(2026, 7, 1);
+        assertThatThrownBy(() -> service.add(new TravelDayRequest(d, d, "x".repeat(201))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("note");
+        verify(repository, never()).save(any());
+
+        when(repository.save(any(TravelDayEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        service.add(new TravelDayRequest(d, d, "x".repeat(200)));
+        ArgumentCaptor<TravelDayEntity> saved = ArgumentCaptor.forClass(TravelDayEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getNote()).isEqualTo("x".repeat(200));
+        assertThat(saved.getValue().getStartDate()).isEqualTo(d);
+        verify(servedEpoch).bump();
+    }
+
+    @Test
+    @DisplayName("update replaces dates and note, bumps the epoch and returns the view")
+    void updateReplacesFields() {
+        TravelDayEntity existing = TravelDayEntity.builder().id(4L)
+                .startDate(LocalDate.of(2026, 7, 1)).endDate(LocalDate.of(2026, 7, 2)).note("old").build();
+        when(repository.findById(4L)).thenReturn(Optional.of(existing));
+        when(repository.save(existing)).thenReturn(existing);
+
+        TravelDayResponse result = service.update(4L, new TravelDayRequest(
+                LocalDate.of(2026, 7, 5), LocalDate.of(2026, 7, 6), "new"));
+
+        assertThat(result.startDate()).isEqualTo(LocalDate.of(2026, 7, 5));
+        assertThat(result.endDate()).isEqualTo(LocalDate.of(2026, 7, 6));
+        assertThat(result.note()).isEqualTo("new");
+        verify(servedEpoch).bump();
+    }
+
+    @Test
+    @DisplayName("update throws NoSuchElementException when the range is missing")
+    void updateThrowsWhenMissing() {
+        when(repository.findById(4L)).thenReturn(Optional.empty());
+        LocalDate d = LocalDate.of(2026, 7, 1);
+
+        assertThatThrownBy(() -> service.update(4L, new TravelDayRequest(d, d, null)))
+                .isInstanceOf(NoSuchElementException.class);
+        verify(repository, never()).save(any());
+        verify(servedEpoch, never()).bump();
+    }
+
+    @Test
+    @DisplayName("update shares add's validation: missing dates, inverted range, long note")
+    void updateValidates() {
+        LocalDate a = LocalDate.of(2026, 7, 3);
+        LocalDate b = LocalDate.of(2026, 7, 1);
+        assertThatThrownBy(() -> service.update(4L, new TravelDayRequest(null, a, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.update(4L, new TravelDayRequest(a, b, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("endDate");
+        assertThatThrownBy(() -> service.update(4L, new TravelDayRequest(b, a, "x".repeat(201))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("note");
+        verify(repository, never()).findById(any());
         verify(repository, never()).save(any());
     }
 

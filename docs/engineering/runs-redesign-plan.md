@@ -1025,6 +1025,60 @@ Where the plan's text was ambiguous, or the code made a different call safer, R4
   (`scheduler-job-{key}`, `status-pill-{key}`), the always-on notes list (now a disclosure), and the page-level
   "Sun-relative forecast cycles" card with its heading and "Read-only" line.
 
+### Built departures (R5)
+
+Where the plan's text was ambiguous, or the code made a different call safer, R5 follows these:
+
+- **Both list groups toggle.** The DataGrid group row is a disclosure button, so "Upcoming · {n}" (open) collapses too
+  rather than being a dead button. "Past · {n}" starts collapsed. A past range stays reachable from its away day on the
+  calendar even while its row is collapsed.
+- **Upcoming sorts soonest start first and Past newest first**, a client ordering of the one served list (the server
+  serves `includePast=true` newest start first, which is already the Past order). "Upcoming" and "Past" are decided on
+  the UK date from the real clock (`end < today` is past; a range ending today is upcoming and reads "Now").
+- **"{n} upcoming" counts the ranges in the Upcoming group**, not the public list's length.
+- **A past empty calendar day is a `disabled` button** (inert, as the plan says); a past *away* day is enabled and opens
+  its range. Today's cell carries `aria-current="date"` and "today" in its label ("Mon 2 Nov, today").
+- **Add and a range panel are exclusive.** Opening Add clears the hash; pressing a row or an away day closes Add; a
+  Back or a pasted link that selects a range takes the panel from an open Add. After an Add the new range opens in its
+  panel (`#manage/traveldays/{id}`) once the reload has it.
+- **Field errors.** The client checks keep the old sentences ("Both a start and end date are required", under whichever
+  date is empty; "End date must not be before start date", under To). A 400 from the server lands under the field its
+  sentence starts with (`note…`, `endDate…`, `startDate…`); a 500 or network failure reads "Failed to add travel
+  range" / "Failed to save travel range" under the form; a failed Remove reads "Failed to remove travel range" in the
+  Remove section. The Add summary box shows only once From and To make a valid range.
+- **Remove and the save are guarded by a ref**, so a double press sends once; Remove is `aria-disabled`, not `disabled`,
+  while in flight, so focus is not dropped.
+- **Extra files beyond the four named:** `TravelAddPanel.jsx` (Add is its own panel, not a mode of `TravelRangePanel`),
+  `hooks/useTravelRangeForm.js` (the form state both panels share) and `utils/travelDays.js` (the calendar, strings and
+  validation maths, with the "now" always passed in).
+- **The old page-level "Travel Days" heading and the old empty sentence ("every date is treated as workable") are gone**;
+  the list pane carries the heading and the empty state reads as the copy sheet says.
+- **Server:** `TravelDayService` takes the injected `Clock` (its constructor gained a parameter; `list()` reads today
+  through `ForecastHorizon.today`, results unchanged). `listAll()` uses `findAll(Sort.by(DESC, "startDate"))`, so no new
+  repository method. `update` validates first, then looks the range up, so a bad body on a missing id is a 400, not a
+  404.
+
+- **Review fixes (R5).**
+  - The phone back bar reads the range text while editing and steps back to the view; otherwise it reads "Travel days"
+    and closes.
+  - An Add reloads first, then hands over to the new range only if that same Add is still the open panel (and merges the
+    created range in if the reload fails).
+  - A Remove closes the panel only if the removed range is still the open one.
+  - The calendar and the "{n} upcoming" count are hidden after a failed first load.
+  - Away numerals use `text-plex-text`.
+  - While a save or remove is in flight, Esc, the ×, the scrim and Back are no-ops (the panels report it through
+    `onSavingChange`).
+  - Add and Edit are `<form>`s: Enter submits, and Add range and Save are `type="submit"` buttons tied to the form by its
+    id.
+  - A date outside the current UK year (real clock) carries its year ("Mon 29 Dec 2025") in rows, titles, meta and
+    From/To.
+  - Closing a panel opened from a calendar day returns focus to that day.
+- **The calendar key reads "Away · no forecasts" and "Today"**; the "Past" swatch is dropped (the handoff text was not to
+  hand, so this follows the coordinator's review).
+- **Rewind and the public list.** `list()` now reads `ForecastHorizon.today` on the injected `RewindAwareClock`, so an
+  admin's rewound `GET /api/travel-days` cuts off at the rewound date. Kept on purpose: it is the cross-cutting
+  invariant, and Plan and Map stay consistent with the rewound day. The admin screen's own clock reads stay real (R-D7).
+
 ## 10. Copy sheet (from the handoff, adjusted for §1)
 
 - **Runs**
