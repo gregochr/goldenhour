@@ -1236,7 +1236,14 @@ public class ScheduledBatchEvaluationService {
                 level, ForecastHorizon.today(clock), model,
                 triage.viable(), triage.cloudByLocation(),
                 spaceWeather, TriggerType.FORECAST_LOOKAHEAD, null);
-        evaluationService.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+        EvaluationHandle handle = evaluationService.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+        if (handle == null || handle.batchId() == null) {
+            // BatchSubmissionService.submit catches an Anthropic failure and the evaluation service turns
+            // that into an empty handle, so nothing was submitted.
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "Aurora batch not submitted — Anthropic submission failed");
+            return;
+        }
         SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
                 "Alert " + level + " — "
                         + SchedulerFireOutcome.count(triage.viable().size(), "location", "locations") + " submitted");

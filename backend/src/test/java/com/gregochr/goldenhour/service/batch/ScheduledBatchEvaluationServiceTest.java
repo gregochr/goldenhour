@@ -55,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -1979,5 +1980,30 @@ class ScheduledBatchEvaluationServiceTest {
         verifyNoInteractions(evaluationService);
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
         assertThat(report.summary()).isEqualTo("Alert MODERATE — no Bortle-eligible locations");
+    }
+
+    @Test
+    @DisplayName("submitAuroraBatch reports FAILED when the submission comes back as an empty handle")
+    void submitAuroraBatch_emptyHandle_reportsFailed() {
+        SpaceWeatherData wx = new SpaceWeatherData(
+                List.of(), List.of(), null, List.of(), List.of());
+        when(noaaSwpcClient.fetchAll()).thenReturn(wx);
+        when(auroraOrchestrator.deriveAlertLevel(wx)).thenReturn(AlertLevel.MODERATE);
+        when(auroraProperties.getBortleThreshold()).thenReturn(new AuroraProperties.BortleThreshold());
+        LocationEntity loc = buildLocation("Northumberland Coast");
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4)).thenReturn(List.of(loc));
+        WeatherTriageService.TriageResult triage =
+                new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30));
+        when(weatherTriageService.triage(List.of(loc))).thenReturn(triage);
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION)).thenReturn(EvaluationModel.HAIKU);
+        when(evaluationService.submit(argThat((List<? extends EvaluationTask> tasks) -> tasks.size() == 1
+                && tasks.get(0) instanceof EvaluationTask.Aurora aurora
+                && aurora.alertLevel() == AlertLevel.MODERATE), eq(BatchTriggerSource.SCHEDULED)))
+                .thenReturn(EvaluationHandle.empty());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Aurora batch not submitted — Anthropic submission failed");
     }
 }
