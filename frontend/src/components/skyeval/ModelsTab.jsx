@@ -13,8 +13,9 @@ import VersionCompare from './VersionCompare.jsx';
  * @param {object} props.overview the served overview
  * @param {Date} props.now the moment ages and the chart's right edge are measured to
  * @param {(models: string[]) => void} props.onRunCheck opens the Run a check panel prefilled with these models
+ * @param {(model: string) => void} props.onSeeFixtures opens the Fixtures tab on that model
  */
-export default function ModelsTab({ overview, now, onRunCheck }) {
+export default function ModelsTab({ overview, now, onRunCheck, onSeeFixtures }) {
   const [highlight, setHighlight] = useState(null);
   const { head, lanes, models, sessions, versions, verdict, comparisons, fixtures } = overview;
   return (
@@ -31,6 +32,7 @@ export default function ModelsTab({ overview, now, onRunCheck }) {
             fixtureCount={fixtures.length}
             now={now}
             onRunCheck={onRunCheck}
+            onSeeFixtures={onSeeFixtures}
           />
         ))}
       </div>
@@ -68,4 +70,5 @@ ModelsTab.propTypes = {
   }).isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
   onRunCheck: PropTypes.func.isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
 };

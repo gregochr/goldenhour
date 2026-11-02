@@ -1,28 +1,6 @@
 import apiClient from './axiosClient.js';
 
 /**
- * Triggers a sky-rating eval run. Returns 202 with the in-progress run; the scoring
- * happens in the background — poll {@link getSkyRatingEvalRun} for completion.
- *
- * @param {string} model - HAIKU | HAIKU_55 | SONNET | SONNET_55 | OPUS
- * @param {number} [runsPerFixture] - runs per fixture (defaults server-side to 8)
- */
-export const runSkyRatingEval = (model, runsPerFixture) =>
-  apiClient.post(
-    `/api/admin/sky-rating-eval/run?model=${model}` +
-      (runsPerFixture ? `&runsPerFixture=${runsPerFixture}` : ''),
-  );
-
-/** Recent runs, newest first. */
-export const getSkyRatingEvalRuns = () => apiClient.get('/api/admin/sky-rating-eval/runs');
-
-/** A single run, for progress polling. */
-export const getSkyRatingEvalRun = (id) => apiClient.get(`/api/admin/sky-rating-eval/runs/${id}`);
-
-/** The calibration-drift series — one aggregate point per (completed run × fixture). */
-export const getSkyRatingEvalTrend = () => apiClient.get('/api/admin/sky-rating-eval/trend');
-
-/**
  * Everything the Sky Eval page renders, in one read: head version, schedule, lanes, sessions, per-model stats,
  * verdict, version comparisons and the Run a check defaults. All figures are derived on the server.
  */

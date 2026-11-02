@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import SkyEvalView from '../components/skyeval/SkyEvalView.jsx';
 import {
-  AVAILABLE, NOW_ISO, PREV, modelStats, overview, run, session,
+  AVAILABLE, NOW_ISO, PREV, modelStats, overview, run, runFixture, session,
 } from './skyEvalFixtures.js';
 
 vi.mock('../api/skyRatingEvalApi', () => ({
@@ -118,13 +118,10 @@ describe('SkyEvalView: header and tabs', () => {
     expect(window.localStorage.getItem('skyEval.chartHidden.OPUS')).toBe('1');
   });
 
-  it('holds a placeholder on the Fixtures tab, with no link into it anywhere', async () => {
-    await mountView(overview({
-      models: [unchecked('SONNET_55', 'Sonnet 5.5', 'BATCH_NEAR_TERM'), modelStats({ lanes: ['BATCH_FAR_TERM'], model: 'HAIKU' })],
-    }));
-    expect(screen.queryByText(/See which fixtures/)).not.toBeInTheDocument();
-    click('sky-eval-tab-fixtures');
-    expect(screen.getByTestId('sky-eval-fixtures-placeholder')).toHaveTextContent('Fixture grid arrives in the next update.');
+  it('shows the Fixtures grid on the Fixtures tab, defaulting to the near-term lane model', async () => {
+    await mountView(overview({ runFixtures: [runFixture(56, 'copt-hill-11mar-false-positive')] }), 'fixtures');
+    expect(screen.queryByTestId('sky-eval-fixtures-placeholder')).not.toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'HAIKU_55');
   });
 
   it('shows the served error when the overview fails to load', async () => {
@@ -205,7 +202,7 @@ describe('SkyEvalView: lane cards', () => {
     expect(bar).toHaveTextContent('Held after a91b0e2: 97.5% → 99.4% over 2 runs.');
   });
 
-  it('shows a dropped lane in coral with the drop, and no fixtures link before the Fixtures tab ships', async () => {
+  it('shows a dropped lane in coral with the drop and a See which fixtures link', async () => {
     await mountView(overview({
       models: [
         modelStats({
@@ -218,7 +215,43 @@ describe('SkyEvalView: lane cards', () => {
     const bar = within(screen.getByTestId('sky-eval-lane-BATCH_NEAR_TERM')).getByTestId('sky-eval-lane-status');
     expect(bar).toHaveAttribute('data-state', 'dropped');
     expect(bar).toHaveTextContent('Dropped −5.2 pts after a91b0e2 (95.6% → 90.4%).');
-    expect(within(bar).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(bar).getByTestId('sky-eval-lane-see-fixtures')).toHaveTextContent('See which fixtures');
+  });
+
+  it('forgets a link preselection when the Fixtures tab button is clicked later', async () => {
+    const ov = overview({
+      sessions: [session({ runs: [run({ id: 56, model: 'SONNET_55' }), run({ id: 57, model: 'HAIKU_55' })] })],
+      runFixtures: [runFixture(56, 'copt-hill-11mar-false-positive'), runFixture(57, 'copt-hill-11mar-false-positive')],
+    });
+    await mountView(ov, 'runs');
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    fireEvent.click(screen.getByTestId('sky-eval-run-fixtures-57'));
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'HAIKU_55');
+    click('sky-eval-tab-models');
+    click('sky-eval-tab-fixtures');
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'SONNET_55');
+  });
+
+  it('opens the Fixtures tab on the dropped lane model from See which fixtures', async () => {
+    await mountView(overview({
+      models: [
+        modelStats({
+          model: 'SONNET_55', lanes: ['BATCH_NEAR_TERM'], previousVersionPct: 95.6, onHeadPct: 90.4, deltaPts: -5.2,
+          status: 'DROPPED',
+        }),
+        modelStats({ model: 'HAIKU', lanes: ['BATCH_FAR_TERM'], status: 'DROPPED', previousVersionPct: 95, onHeadPct: 90, deltaPts: -5 }),
+      ],
+      sessions: [
+        session({ runs: [run({ id: 56, model: 'SONNET_55' }), run({ id: 57, model: 'HAIKU' })] }),
+      ],
+      runFixtures: [runFixture(56, 'copt-hill-11mar-false-positive'), runFixture(57, 'copt-hill-11mar-false-positive')],
+    }));
+    click('sky-eval-tab-models');
+    const farLane = screen.getByTestId('sky-eval-lane-BATCH_FAR_TERM');
+    fireEvent.click(within(farLane).getByTestId('sky-eval-lane-see-fixtures'));
+    expect(screen.getByTestId('sky-eval-tab-fixtures')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'HAIKU');
+    expect(window.localStorage.getItem('skyEval.tab')).toBe('fixtures');
   });
 
   it('shows an unchecked lane in amber with a Run a check link that opens the panel with that model only', async () => {
@@ -681,8 +714,24 @@ describe('SkyEvalView: Runs tab', () => {
     expect(screen.queryByTestId('sky-eval-session-runs-56')).not.toBeInTheDocument();
   });
 
-  it('shows no link into the Fixtures tab from a run', async () => {
-    await runsTab();
+  it('links each completed run to the Fixtures tab with its model preselected', async () => {
+    await runsTab(overview({
+      runFixtures: [runFixture(56, 'copt-hill-11mar-false-positive'), runFixture(57, 'copt-hill-11mar-false-positive')],
+    }));
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    expect(within(screen.getByTestId('sky-eval-run-56')).getByTestId('sky-eval-run-fixtures-56')).toHaveTextContent('Fixtures →');
+    fireEvent.click(screen.getByTestId('sky-eval-run-fixtures-57'));
+    expect(screen.getByTestId('sky-eval-tab-fixtures')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'SONNET_55');
+  });
+
+  it('has no Fixtures link on a failed or running run', async () => {
+    await runsTab(overview({
+      sessions: [session({
+        status: 'RUNNING',
+        runs: [run({ id: 56, model: 'HAIKU_55', status: 'RUNNING', progress: 0.5 }), run({ id: 57, model: 'OPUS', status: 'FAILED', errorMessage: 'x' })],
+      })],
+    }));
     fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
     expect(screen.queryByText(/Fixtures →/)).not.toBeInTheDocument();
   });
