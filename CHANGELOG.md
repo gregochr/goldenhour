@@ -5,6 +5,78 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.5] - 2026-11-02
+
+### Added — Sky Eval: runs record their version, and a served overview and quick-check endpoint
+
+Every Sky Eval run now records the commit it ran on. The production image is built without `.git`, so the
+commit column has always been empty there; `deploy.yml` now passes the commit sha, time and subject line as
+build args, `backend/Dockerfile` sets them as environment variables, and `GitInfoService` reads them when
+`git.properties` is absent (new migration V216 adds `git_commit_message` and `fixture_names` to
+`sky_rating_eval_run`). Two admin endpoints back the page redesign: `POST /api/admin/sky-rating-eval/check`
+starts one manual run per chosen model in parallel, over all fixtures or a chosen subset, and
+`GET /api/admin/sky-rating-eval/overview` serves everything the page shows (versions, sessions, lane and model
+figures, the before/after verdict and per-fixture movement) computed on the server. The existing endpoints are
+unchanged. No page change yet.
+
+### Changed — Sky Eval rebuilt around which model to run, whether a change made ratings worse, and a quick check
+
+Operations → Tuning → Sky Eval now answers its three questions directly. A header with the weekly schedule
+and an "Edit in Scheduler" link replaces the three rows of checkboxes; a Run a check panel starts a quick
+manual check (models, 1 / 3 / 8 repeats, all fixtures or only the ones missed last time) on the current build
+with a cost and time estimate. The Models tab has a verdict card for the running version, one card per
+production lane with how it compares with the other models, an Accuracy over time chart (versions as gold
+lines, hollow points for manual runs), "Did a change make ratings worse?" before and after per version with the
+fixtures that moved, and an All models table. The Runs tab groups runs into sessions with a per-run table, a
+progress bar while running and the failure message. The weekly model checkboxes moved to the Scheduler panel
+of the Sky-Rating eval job. The Fixtures tab is a placeholder until the next update. recharts is no longer a
+dependency; the charts are hand-rolled SVG.
+
+### Added — Sky Eval's Fixtures tab: each fixture's misses per run, and its rating history
+
+Sky Eval's Fixtures tab now shows, for one model at a time, every fixture against that model's newest 13 completed
+runs: all ratings in band as a soft green cell, misses as `↓n` / `↑n` on a tide-blue (below the band) or coral
+(above) cell that deepens with the miss ratio, and `·` where the fixture did not exist yet. Fixtures are sorted by
+misses in the last four runs, worst first, with the last-four in-band percentage on the right (coral below 90). A
+version change between runs draws a gold line and the commit's first four characters above the column, and manual
+runs are marked `·m`. Clicking a fixture opens its rating history: the expected band shaded, one dot per run at the
+mean rating with a min-to-max line, and the versions marked. "See which fixtures" on a dropped lane and "Fixtures →"
+on a run in the Runs tab open the tab on that model. The now-unused client calls for the old runs list and trend
+were removed; the endpoints stay. Frontend only.
+
+### Fixed — Scheduler shows "Every hour at :20" for hourly jobs
+
+The Scheduler tab described an hourly cron such as `0 20 * * * *` as "Daily at Invalid Date GMT", and silently rendered step or list minutes (`*/5`, `0,30`) as `:00` and a range like `MON-FRI` as a single day. Hourly crons now read "Every hour at :20", and any cron the label cannot describe faithfully (steps, lists, ranges) is shown as the raw expression instead of a wrong sentence.
+
+### Added — Scheduler fire log
+
+Every fire of a scheduled job (its own schedule, an admin "Run now", or a solar job's startup catch-up) is now
+recorded in a new `scheduler_fire_log` table (V215): when it started and finished, how it ended (`SUCCEEDED`,
+`PARTIAL`, `FAILED`, `SKIPPED`, or `RUNNING`), a one-line summary and what triggered it. A job reports its outcome
+through `SchedulerFireOutcome` (a scoped value, no signature change); one that throws is recorded `FAILED` and the
+exception propagates as before, and a failure to write the log never stops a job. Fires left `RUNNING` by a
+previous process are marked `FAILED` at startup. A new daily job, `scheduler_fire_log_cleanup` (03:57 UTC), keeps
+14 days. `scheduler_job_config` gains `schedule_changed_at`, stamped by schedule edits, type switches, pause and
+resume. Backend only: nothing on screen changes yet.
+
+Also fixes a lost-update race: a job's fire wrote `last_fire_time` and `last_completion_time` by reading the row
+and saving the whole entity, so a Pause or schedule edit committed while the job was running could be reverted
+when the fire ended. Both are now column-scoped updates.
+
+### Changed — Weekly PIT mutation run is capped at 3 hours
+
+The weekly PIT mutation workflow now has a 3-hour job timeout instead of GitHub's 6-hour default. It shares the single self-hosted runner with Deploy to Production, and the last four Monday runs ran into the 6-hour limit and were cancelled, one of them blocking a release deploy for over an hour. The slowest successful run took about 2h23m, so 3 hours leaves headroom without letting a stuck run hold the runner.
+
+### Fixed — Two migrations shared version 215; the Sky Eval one is now V216
+
+`V215__scheduler_fire_log.sql` and the Sky Eval `V215__sky_rating_eval_run_version_and_fixtures.sql` collided on `main`, so Flyway refused to start. Neither had been released, so the Sky Eval migration is renumbered to `V216` (same SQL, no data change).
+
+### Changed — Anthropic Java SDK 3.3.0
+
+The Anthropic Java SDK moves from 2.71.0 to 3.3.0 (API version 2026-10-21). The Ask engine's
+builder call is renamed to `addUserMessageOfContentBlockParams`, and the SDK now sends the API
+key as `Authorization: Bearer <key>` instead of `x-api-key`; production keeps the SDK default.
+
 ## [v2.36.4] - 2026-11-02
 
 ### Added — the Runs screen's Day view
