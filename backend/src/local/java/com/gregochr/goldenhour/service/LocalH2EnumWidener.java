@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.entity.SchedulerFireTrigger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -77,7 +79,9 @@ public class LocalH2EnumWidener implements SmartInitializingSingleton {
     static final List<Target> TARGETS = List.of(
             new Target("job_run", "run_type", RunType.class),
             new Target("pipeline_run", "cycle_type", CycleType.class),
-            new Target("sky_rating_eval_run", "model", EvaluationModel.class));
+            new Target("sky_rating_eval_run", "model", EvaluationModel.class),
+            new Target("scheduler_fire_log", "status", SchedulerFireStatus.class),
+            new Target("scheduler_fire_log", "trigger", SchedulerFireTrigger.class));
 
     private final DataSource dataSource;
 

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,8 +63,8 @@ class DynamicSchedulerTimeZoneTest {
 
     private DynamicSchedulerService serviceAt(String instant) {
         Clock clock = Clock.fixed(Instant.parse(instant), ZoneOffset.UTC);
-        return new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
-                solarTriggers, solarCatchUp, clock);
+        return new DynamicSchedulerService(repository, mock(SchedulerFireLogRepository.class), taskScheduler,
+                auroraProperties, solarTriggers, solarCatchUp, clock);
     }
 
     private static SchedulerJobConfigEntity cronJob(String key, String cron, String timeZone) {

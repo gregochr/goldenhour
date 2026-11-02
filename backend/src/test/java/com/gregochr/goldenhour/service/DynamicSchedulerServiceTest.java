@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,12 +24,10 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -46,6 +45,9 @@ class DynamicSchedulerServiceTest {
     private SchedulerJobConfigRepository repository;
 
     @Mock
+    private SchedulerFireLogRepository fireLog;
+
+    @Mock
     private TaskScheduler taskScheduler;
 
     @Mock
@@ -61,7 +63,7 @@ class DynamicSchedulerServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
+        service = new DynamicSchedulerService(repository, fireLog, taskScheduler, auroraProperties,
                 solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
         lenient().when(auroraProperties.isEnabled()).thenReturn(true);
     }
@@ -396,7 +398,7 @@ class DynamicSchedulerServiceTest {
 
     /** 2026-05-29 14:00 UTC, i.e. 15:00 BST: the afternoon of 29 May in the UK. */
     private DynamicSchedulerService afternoonService() {
-        return new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
+        return new DynamicSchedulerService(repository, fireLog, taskScheduler, auroraProperties,
                 solarTriggers, solarCatchUp,
                 java.time.Clock.fixed(Instant.parse("2026-05-29T14:00:00Z"), java.time.ZoneOffset.UTC));
     }
@@ -525,62 +527,7 @@ class DynamicSchedulerServiceTest {
         assertThat(next).isNull();
     }
 
-    // -------------------------------------------------------------------------
-    // wrapTarget — persistence of fire/completion times
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("wrapTarget persists lastFireTime and lastCompletionTime when runnable executes")
-    void wrapTarget_persistsFireAndCompletionTimes() {
-        SchedulerJobConfigEntity config = cronJob("tide_refresh", "0 0 2 * * MON",
-                SchedulerJobStatus.ACTIVE);
-        when(repository.findByJobKey("tide_refresh")).thenReturn(Optional.of(config));
-
-        AtomicBoolean ran = new AtomicBoolean(false);
-        service.registerJobTarget("tide_refresh", () -> ran.set(true));
-
-        // Capture the wrapped runnable from triggerNow
-        service.triggerNow("tide_refresh");
-
-        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
-        verify(taskScheduler).schedule(captor.capture(), any(Instant.class));
-
-        // Execute the wrapped runnable
-        captor.getValue().run();
-
-        assertThat(ran.get()).isTrue();
-        // findByJobKey called twice in wrapTarget (once for fire time, once for completion)
-        // plus once in triggerNow itself
-        verify(repository, atLeast(2)).findByJobKey("tide_refresh");
-        // save called at least twice — once for fire time, once for completion time
-        verify(repository, atLeast(2)).save(config);
-        assertThat(config.getLastFireTime()).isNotNull();
-        assertThat(config.getLastCompletionTime()).isNotNull();
-        assertThat(config.getLastCompletionTime()).isAfterOrEqualTo(config.getLastFireTime());
-    }
-
-    @Test
-    @DisplayName("wrapTarget persists lastCompletionTime even when target throws")
-    void wrapTarget_persistsCompletionTimeOnFailure() {
-        SchedulerJobConfigEntity config = cronJob("tide_refresh", "0 0 2 * * MON",
-                SchedulerJobStatus.ACTIVE);
-        when(repository.findByJobKey("tide_refresh")).thenReturn(Optional.of(config));
-
-        service.registerJobTarget("tide_refresh", () -> {
-            throw new RuntimeException("boom");
-        });
-
-        service.triggerNow("tide_refresh");
-
-        ArgumentCaptor<Runnable> captor = ArgumentCaptor.forClass(Runnable.class);
-        verify(taskScheduler).schedule(captor.capture(), any(Instant.class));
-
-        assertThatThrownBy(() -> captor.getValue().run())
-                .isInstanceOf(RuntimeException.class);
-
-        // Completion time should still be persisted via finally block
-        assertThat(config.getLastCompletionTime()).isNotNull();
-    }
+    // wrapTarget's fire log and scoped writes are covered by DynamicSchedulerFireLogTest.
 
     // -------------------------------------------------------------------------
     // scheduleJob — FIXED_DELAY path

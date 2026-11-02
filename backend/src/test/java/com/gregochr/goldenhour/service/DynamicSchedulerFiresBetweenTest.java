@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -49,8 +51,8 @@ class DynamicSchedulerFiresBetweenTest {
     private SolarCatchUpPolicy solarCatchUp;
 
     private DynamicSchedulerService service() {
-        return new DynamicSchedulerService(repository, taskScheduler, auroraProperties, solarTriggers, solarCatchUp,
-                Clock.fixed(FROM, ZoneOffset.UTC));
+        return new DynamicSchedulerService(repository, mock(SchedulerFireLogRepository.class), taskScheduler,
+                auroraProperties, solarTriggers, solarCatchUp, Clock.fixed(FROM, ZoneOffset.UTC));
     }
 
     private static SchedulerJobConfigEntity.SchedulerJobConfigEntityBuilder job(ScheduleType type) {

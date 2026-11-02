@@ -2,10 +2,14 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
+import com.gregochr.goldenhour.entity.SchedulerFireLogEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.entity.SchedulerFireTrigger;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.LogSanitizer;
@@ -67,10 +71,17 @@ public class DynamicSchedulerService {
     /** Longest offset a solar job may use, in minutes before the event. */
     private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
 
+    /** Longest fire-log summary stored; the column is {@code VARCHAR(200)}. */
+    static final int MAX_SUMMARY_LENGTH = 200;
+
+    /** Summary stamped on a fire the previous process never finished. */
+    static final String ORPHAN_SUMMARY = "Interrupted by a restart";
+
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
 
     private final SchedulerJobConfigRepository repository;
+    private final SchedulerFireLogRepository fireLogRepository;
     private final TaskScheduler taskScheduler;
     private final AuroraProperties auroraProperties;
     private final SolarTriggerFactory solarTriggers;
@@ -86,6 +97,7 @@ public class DynamicSchedulerService {
      * Constructs the dynamic scheduler service.
      *
      * @param repository       the job config repository
+     * @param fireLogRepository the scheduler fire-log repository
      * @param taskScheduler    the dedicated task scheduler bean
      * @param auroraProperties aurora configuration for checking enabled state
      * @param solarTriggers    builds the trigger for a {@code SOLAR_OFFSET} job
@@ -93,12 +105,14 @@ public class DynamicSchedulerService {
      * @param clock            the application clock, used for the displayed next fire of a solar job
      */
     public DynamicSchedulerService(SchedulerJobConfigRepository repository,
+            SchedulerFireLogRepository fireLogRepository,
             TaskScheduler taskScheduler,
             AuroraProperties auroraProperties,
             SolarTriggerFactory solarTriggers,
             SolarCatchUpPolicy solarCatchUp,
             Clock clock) {
         this.repository = repository;
+        this.fireLogRepository = fireLogRepository;
         this.taskScheduler = taskScheduler;
         this.auroraProperties = auroraProperties;
         this.solarTriggers = solarTriggers;
@@ -163,6 +177,7 @@ public class DynamicSchedulerService {
      * {@code integration-test} profile can choose when (or whether) to bootstrap.
      */
     public void initSchedules() {
+        sweepOrphanedFires();
         List<SchedulerJobConfigEntity> configs = repository.findAllByOrderByIdAsc();
         int failed = 0;
         for (SchedulerJobConfigEntity config : configs) {
@@ -185,6 +200,23 @@ public class DynamicSchedulerService {
         }
         LOG.info("Dynamic scheduler initialised — {} job(s) configured, {} failed to schedule",
                 configs.size(), failed);
+    }
+
+    /**
+     * Marks every fire the previous process left {@code RUNNING} as {@code FAILED} ("Interrupted by a
+     * restart"). Runs before anything is scheduled, so no fire of this process exists yet and the cutoff
+     * "now" catches exactly the leftovers. A failure is logged and never blocks startup.
+     */
+    void sweepOrphanedFires() {
+        try {
+            int swept = fireLogRepository.markOrphans(clock.instant(), ORPHAN_SUMMARY);
+            if (swept > 0) {
+                LOG.info("Marked {} scheduler fire(s) left running by the previous process as FAILED", swept);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("Could not sweep orphaned scheduler fires; startup continues: {}",
+                    LogSanitizer.sanitize(e.toString()));
+        }
     }
 
     /**
@@ -244,6 +276,7 @@ public class DynamicSchedulerService {
         config.setFixedDelayMs(newDelay);
         config.setUpdatedAt(Instant.now());
         repository.save(config);
+        markScheduleChanged(jobKey);
 
         if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
             install(config, replacement);
@@ -315,6 +348,7 @@ public class DynamicSchedulerService {
         if (updated != 1) {
             throw new IllegalStateException("Job '" + jobKey + "' schedule type was not updated");
         }
+        markScheduleChanged(jobKey);
         SchedulerJobConfigEntity reloaded = repository.findByJobKey(jobKey).orElseThrow();
 
         if (reloaded.getStatus() == SchedulerJobStatus.ACTIVE) {
@@ -359,7 +393,8 @@ public class DynamicSchedulerService {
             Optional<String> reason = solarCatchUp.reasonToRun(config);
             Consumer<Boolean> target = jobTargets.get(config.getJobKey());
             if (reason.isPresent() && target != null) {
-                taskScheduler.schedule(wrapTarget(config.getJobKey(), target, false), Instant.now());
+                taskScheduler.schedule(
+                        wrapTarget(config.getJobKey(), target, SchedulerFireTrigger.CATCH_UP), Instant.now());
                 LOG.info("Catch-up run scheduled for solar job '{}': {}",
                         LogSanitizer.sanitize(config.getJobKey()), reason.get());
             }
@@ -385,6 +420,7 @@ public class DynamicSchedulerService {
         config.setStatus(SchedulerJobStatus.PAUSED);
         config.setUpdatedAt(Instant.now());
         repository.save(config);
+        markScheduleChanged(jobKey);
 
         LOG.info("Paused job '{}'", LogSanitizer.sanitize(jobKey));
         return config;
@@ -418,6 +454,7 @@ public class DynamicSchedulerService {
         config.setStatus(SchedulerJobStatus.ACTIVE);
         config.setUpdatedAt(Instant.now());
         repository.save(config);
+        markScheduleChanged(jobKey);
         scheduleJob(config);
 
         LOG.info("Resumed job '{}'", LogSanitizer.sanitize(jobKey));
@@ -440,7 +477,7 @@ public class DynamicSchedulerService {
             throw new IllegalStateException("No registered target for job: " + jobKey);
         }
 
-        taskScheduler.schedule(wrapTarget(jobKey, target, true), Instant.now());
+        taskScheduler.schedule(wrapTarget(jobKey, target, SchedulerFireTrigger.MANUAL), Instant.now());
         LOG.info("Triggered immediate run for job '{}' by {}", LogSanitizer.sanitize(jobKey),
                 LogSanitizer.sanitize(actingUsername()));
     }
@@ -768,7 +805,7 @@ public class DynamicSchedulerService {
                     LogSanitizer.sanitize(config.getJobKey()));
             return;
         }
-        Runnable wrapped = wrapTarget(config.getJobKey(), target, false);
+        Runnable wrapped = wrapTarget(config.getJobKey(), target, SchedulerFireTrigger.SCHEDULED);
         scheduleLock.lock();
         try {
             ScheduledFuture<?> future = installer.install(wrapped);
@@ -791,22 +828,92 @@ public class DynamicSchedulerService {
         }
     }
 
-    private Runnable wrapTarget(String jobKey, Consumer<Boolean> target, boolean manual) {
+    /**
+     * Wraps a job target so each fire is recorded (scheduler-redesign-plan.md D1, D2).
+     *
+     * <p>Per fire: an insert into {@code scheduler_fire_log} (RUNNING), the job body run with a
+     * {@link SchedulerFireOutcome} carrier bound, and one scoped update completing the row. The job's
+     * {@code last_fire_time} and {@code last_completion_time} are scoped updates too, not a read and a
+     * whole-entity save, so a Pause or schedule edit committed while the job runs cannot be reverted by the
+     * fire's own write. Nothing the log does can stop or fail a job; a job that throws is recorded FAILED
+     * and the exception is rethrown unchanged.
+     */
+    private Runnable wrapTarget(String jobKey, Consumer<Boolean> target, SchedulerFireTrigger trigger) {
+        boolean manual = trigger == SchedulerFireTrigger.MANUAL;
         return () -> {
-            Instant fireTime = Instant.now();
+            Instant fireTime = clock.instant();
+            Long logId = startFireLog(jobKey, fireTime, trigger);
+            SchedulerFireOutcome.Carrier carrier = new SchedulerFireOutcome.Carrier();
+            SchedulerFireStatus status = SchedulerFireStatus.SUCCEEDED;
+            String summary = null;
             try {
-                repository.findByJobKey(jobKey).ifPresent(config -> {
-                    config.setLastFireTime(fireTime);
-                    repository.save(config);
-                });
-                target.accept(manual);
+                repository.updateLastFireTime(jobKey, fireTime);
+                SchedulerFireOutcome.runBound(carrier, () -> target.accept(manual));
+                if (carrier.status() != null) {
+                    status = carrier.status();
+                }
+                summary = carrier.summary();
+            } catch (RuntimeException | Error e) {
+                status = SchedulerFireStatus.FAILED;
+                summary = e.getClass().getSimpleName() + ": " + e.getMessage();
+                throw e;
             } finally {
-                repository.findByJobKey(jobKey).ifPresent(config -> {
-                    config.setLastCompletionTime(Instant.now());
-                    repository.save(config);
-                });
+                try {
+                    repository.updateLastCompletionTime(jobKey, clock.instant());
+                } finally {
+                    completeFireLog(jobKey, logId, status, summary, carrier.pipelineRunId());
+                }
             }
         };
+    }
+
+    /** Inserts the RUNNING row for a fire; a failure is logged and the fire goes ahead unlogged. */
+    private Long startFireLog(String jobKey, Instant fireTime, SchedulerFireTrigger trigger) {
+        try {
+            SchedulerFireLogEntity row = new SchedulerFireLogEntity();
+            row.setJobKey(jobKey);
+            row.setFiredAt(fireTime);
+            row.setStatus(SchedulerFireStatus.RUNNING);
+            row.setTriggerKind(trigger);
+            return fireLogRepository.save(row).getId();
+        } catch (RuntimeException e) {
+            LOG.warn("Could not record the start of a fire of job '{}'; the job runs unlogged: {}",
+                    LogSanitizer.sanitize(jobKey), LogSanitizer.sanitize(e.toString()));
+            return null;
+        }
+    }
+
+    /** Completes a fire's log row; a failure is logged and never thrown. */
+    private void completeFireLog(String jobKey, Long logId, SchedulerFireStatus status, String summary,
+            Long pipelineRunId) {
+        if (logId == null) {
+            return;
+        }
+        try {
+            fireLogRepository.complete(logId, clock.instant(), status, fireSummary(summary), pipelineRunId);
+        } catch (RuntimeException e) {
+            LOG.warn("Could not record the end of a fire of job '{}': {}", LogSanitizer.sanitize(jobKey),
+                    LogSanitizer.sanitize(e.toString()));
+        }
+    }
+
+    /** Sanitises a summary for storage and cuts it to the column's {@value #MAX_SUMMARY_LENGTH} characters. */
+    private static String fireSummary(String summary) {
+        if (summary == null || summary.isBlank()) {
+            return null;
+        }
+        String clean = LogSanitizer.sanitize(summary);
+        return clean.length() <= MAX_SUMMARY_LENGTH ? clean : clean.substring(0, MAX_SUMMARY_LENGTH);
+    }
+
+    /** Stamps {@code schedule_changed_at}; a failure is logged, never thrown (the change itself succeeded). */
+    private void markScheduleChanged(String jobKey) {
+        try {
+            repository.updateScheduleChangedAt(jobKey, clock.instant());
+        } catch (RuntimeException e) {
+            LOG.warn("Could not stamp schedule_changed_at for job '{}': {}", LogSanitizer.sanitize(jobKey),
+                    LogSanitizer.sanitize(e.toString()));
+        }
     }
 
     /**

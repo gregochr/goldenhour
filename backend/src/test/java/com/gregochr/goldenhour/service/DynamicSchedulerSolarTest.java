@@ -2,9 +2,12 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
+import com.gregochr.goldenhour.entity.SchedulerFireLogEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireTrigger;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,6 +61,9 @@ class DynamicSchedulerSolarTest {
     private SchedulerJobConfigRepository repository;
 
     @Mock
+    private SchedulerFireLogRepository fireLog;
+
+    @Mock
     private TaskScheduler taskScheduler;
 
     @Mock
@@ -75,8 +81,8 @@ class DynamicSchedulerSolarTest {
     void setUp() {
         SolarTriggerFactory factory = new SolarTriggerFactory(new SolarService(),
                 new SolarReferencePoint("54.776", "-1.575"));
-        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties, factory,
-                catchUp, CLOCK);
+        service = new DynamicSchedulerService(repository, fireLog, taskScheduler, auroraProperties,
+                factory, catchUp, CLOCK);
         service.registerJobTarget(NIGHTLY, () -> { });
         service.registerJobTarget(INTRADAY, () -> { });
         service.registerJobTarget("tide_refresh", () -> { });
@@ -407,7 +413,7 @@ class DynamicSchedulerSolarTest {
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(solar));
         acceptAnySchedule();
         when(catchUp.reasonToRun(solar)).thenReturn(Optional.of("fire passed"));
-        when(repository.findByJobKey(NIGHTLY)).thenReturn(Optional.of(solar));
+        when(fireLog.save(any(SchedulerFireLogEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         Instant before = Instant.now();
 
         service.initSchedules();
@@ -420,6 +426,10 @@ class DynamicSchedulerSolarTest {
         assertThat(at.getValue()).isBetween(before, Instant.now());
         run.getValue().run();
         assertThat(manualFlag.get()).as("a catch-up run is a scheduled run, not a manual one").isFalse();
+        ArgumentCaptor<SchedulerFireLogEntity> row = ArgumentCaptor.forClass(SchedulerFireLogEntity.class);
+        verify(fireLog).save(row.capture());
+        assertThat(row.getValue().getTriggerKind()).isEqualTo(SchedulerFireTrigger.CATCH_UP);
+        assertThat(row.getValue().getJobKey()).isEqualTo(NIGHTLY);
     }
 
     @Test
