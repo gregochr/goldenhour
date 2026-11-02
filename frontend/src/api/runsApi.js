@@ -39,3 +39,41 @@ export async function fetchJobRun(id) {
   const response = await apiClient.get(`${BASE_URL}/job/${id}`);
   return response.data;
 }
+
+/**
+ * Fetches one UK civil day of the Runs screen: its rows in time order with their types, statuses, costs and facts,
+ * the summary strip, the per-chip counts and, for today, what is still to run. ADMIN only. A date that is malformed,
+ * in the future or before the earliest day is a 400.
+ *
+ * @param {string|null} [date] the day as {@code YYYY-MM-DD}; today (UK) when absent
+ * @returns {Promise<object>} {date, isToday, earliestDay, sunrise, sunset, sunriseAt, sunsetAt, dayStartUtc,
+ *   dayEndUtc, now, runs, summary, filterCounts}
+ */
+export async function fetchRunDay(date = null) {
+  const params = {};
+  if (date) params.date = date;
+  const response = await apiClient.get(`${BASE_URL}/day`, { params });
+  return response.data;
+}
+
+/**
+ * Fetches one month for the Day view's calendar: per UK day its run count, spend and attention count. ADMIN only.
+ *
+ * @param {string} month the month as {@code YYYY-MM}
+ * @returns {Promise<object>} {month, days, maxSpendGbp, earliestDay}
+ */
+export async function fetchRunCalendar(month) {
+  const response = await apiClient.get(`${BASE_URL}/calendar`, { params: { month } });
+  return response.data;
+}
+
+/**
+ * Fetches the external calls of one Day-view run, aggregated per service. ADMIN only.
+ *
+ * @param {string} runId {@code cycle-N}, {@code job-N} or {@code eval-N}
+ * @returns {Promise<object>} {runId, logged, services}
+ */
+export async function fetchRunCalls(runId) {
+  const response = await apiClient.get(`${BASE_URL}/calls`, { params: { runId } });
+  return response.data;
+}

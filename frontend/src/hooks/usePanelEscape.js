@@ -18,7 +18,7 @@ function isTextField(target) {
  * hidden Map pane, so a dialog inside a {@code [hidden]} ancestor (or one the browser says is not visible) does not
  * count.
  */
-function visibleDialogOpen() {
+export function visibleDialogOpen() {
   return Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).some((node) => {
     if (node.closest('[hidden]')) return false;
     return typeof node.checkVisibility === 'function' ? node.checkVisibility() : true;

@@ -4,13 +4,16 @@ import RunsView from '../components/runs/RunsView.jsx';
 import useCycleDetail from '../hooks/useCycleDetail.js';
 import { setRewind } from '../utils/rewind.js';
 import {
-  cycleBatch, cycleDetail, cyclePhase, cycleRun, cycleItem, jobDetail, jobItem, runsPage,
+  cycleBatch, cycleDetail, cyclePhase, cycleRun, jobDetail, runsPage,
 } from './runsFixtures.js';
+import { cycleDayRow, dayResponse, dayRow, pastDayResponse } from './runsDayFixtures.js';
 
 // The R2b cycle surfaces end to end: the live strip, the cycle panel and its sections, drilling into a batch and back,
 // the shared cycle fetch and its poll, and the live count the view reports. The network is mocked at the API modules.
 
-vi.mock('../api/runsApi.js', () => ({ fetchRuns: vi.fn(), fetchJobRun: vi.fn() }));
+vi.mock('../api/runsApi.js', () => ({
+  fetchRuns: vi.fn(), fetchJobRun: vi.fn(), fetchRunDay: vi.fn(), fetchRunCalendar: vi.fn(), fetchRunCalls: vi.fn(),
+}));
 vi.mock('../api/pipelineRunApi.js', () => ({ fetchPipelineRunDetail: vi.fn() }));
 vi.mock('../api/metricsApi', () => ({
   getApiCalls: vi.fn(), getBatchSummary: vi.fn(), getDispositionBreakdown: vi.fn(),
@@ -25,7 +28,7 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
 
-import { fetchRuns, fetchJobRun } from '../api/runsApi.js';
+import { fetchRuns, fetchJobRun, fetchRunDay, fetchRunCalls } from '../api/runsApi.js';
 import { fetchPipelineRunDetail } from '../api/pipelineRunApi.js';
 import { getApiCalls, getBatchSummary, getDispositionBreakdown } from '../api/metricsApi';
 import { getRegions } from '../api/batchApi';
@@ -39,7 +42,7 @@ function renderView(props = {}) {
   return render(<RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} {...props} />);
 }
 
-const LIVE_PAGE = () => runsPage([cycleItem(), jobItem({ id: 9001 })], { runningCount: 1, liveCycleId: 412 });
+const LIVE_PAGE = () => runsPage([], { runningCount: 1, liveCycleId: 412 });
 
 /** A finished intraday cycle with every phase run. */
 const finishedDetail = (over = {}) => cycleDetail({
@@ -67,7 +70,9 @@ beforeEach(() => {
   setRewind(null);
   useIsSplitLayout.mockReturnValue(true);
   useIsMobile.mockReturnValue(false);
-  fetchRuns.mockResolvedValue(runsPage([cycleItem(), jobItem({ id: 9001 })]));
+  fetchRuns.mockResolvedValue(runsPage([]));
+  fetchRunDay.mockResolvedValue(dayResponse([cycleDayRow({ status: 'RUNNING', endedAt: null, durationSeconds: null }), dayRow()]));
+  fetchRunCalls.mockResolvedValue({ runId: 'cycle-412', logged: true, services: [] });
   fetchPipelineRunDetail.mockResolvedValue(cycleDetail());
   fetchJobRun.mockResolvedValue(jobDetail(
     { id: 9876, runType: 'SCHEDULED_BATCH' },
@@ -89,7 +94,7 @@ afterEach(() => {
 describe('Runs: the live strip', () => {
   it('is absent when the server names no running cycle', async () => {
     renderView();
-    await screen.findByTestId('runs-row-cycle-412');
+    await screen.findByTestId('runs-day-row-cycle-412');
     expect(screen.queryByTestId('runs-live-strip')).toBeNull();
     expect(fetchPipelineRunDetail).not.toHaveBeenCalled();
   });
@@ -164,7 +169,7 @@ describe('Runs: the live strip', () => {
     fetchRuns.mockResolvedValue(LIVE_PAGE());
     fetchPipelineRunDetail.mockResolvedValue(finishedDetail());
     renderView();
-    await screen.findByTestId('runs-row-cycle-412');
+    await screen.findByTestId('runs-day-row-cycle-412');
     await act(async () => {});
     expect(screen.queryByTestId('runs-live-strip')).toBeNull();
   });
@@ -180,9 +185,8 @@ describe('Runs: the live strip', () => {
 });
 
 describe('Runs: the cycle panel', () => {
-  async function openCycle(detail = cycleDetail(), items = [cycleItem()]) {
+  async function openCycle(detail = cycleDetail()) {
     fetchPipelineRunDetail.mockResolvedValue(detail);
-    fetchRuns.mockResolvedValue(runsPage(items));
     window.location.hash = '#manage/runs/cycle/412';
     renderView();
     return screen.findByTestId('cycle-panel');
@@ -524,7 +528,7 @@ describe('Runs: the cycle panel', () => {
 
   describe('the footer', () => {
     it('shows the batch cost from the DETAIL, "so far" while running, and the completed time', async () => {
-      await openCycle(cycleDetail(), [cycleItem({ costMicroDollars: 1, costGbpRate: 0.79 })]);
+      await openCycle(cycleDetail());
       const cost = screen.getByTestId('cycle-cost');
       expect(screen.getByTestId('cycle-footer')).toHaveTextContent('Batch cost so far');
       expect(cost).toHaveTextContent('£0.6083');
@@ -662,7 +666,7 @@ describe('Runs: drilling into a batch', () => {
 
   it('keeps the cycle\'s row highlighted while a batch is open', async () => {
     await openBatch();
-    expect(screen.getByTestId('runs-row-cycle-412')).toHaveAttribute('aria-current', 'true');
+    expect(await screen.findByTestId('runs-day-row-cycle-412')).toHaveAttribute('aria-current', 'true');
   });
 
   it('the back row returns to the cycle and puts focus on that batch\'s row', async () => {
@@ -747,7 +751,7 @@ describe('Runs: drilling into a batch', () => {
   });
 });
 
-describe('Runs: closing a cycle on a filter change', () => {
+describe('Runs: a cycle panel is the reader\'s alone (F7: no close when filtered out)', () => {
   async function openAndWait(hash) {
     window.location.hash = hash;
     renderView();
@@ -755,43 +759,26 @@ describe('Runs: closing a cycle on a filter change', () => {
     await screen.findByTestId(hash.includes('/job/') ? 'job-run-panel' : 'cycle-panel');
   }
 
-  it('stays when its own group still matches the chip (Cycles), closes when it does not (Batches)', async () => {
+  it.each(['cycles', 'other', 'attention'])('stays open when the %s chip is pressed', async (chip) => {
     await openAndWait('#manage/runs/cycle/412');
-    fireEvent.click(screen.getByTestId('runs-chip-cycles'));
-    expect(screen.getByTestId('cycle-panel')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('runs-chip-batches'));
-    await waitFor(() => expect(screen.queryByTestId('cycle-panel')).toBeNull());
-  });
-
-  it('closes a running cycle under Need attention, but keeps a degraded one', async () => {
-    await openAndWait('#manage/runs/cycle/412');
-    fireEvent.click(screen.getByTestId('runs-chip-attention'));
-    await waitFor(() => expect(screen.queryByTestId('cycle-panel')).toBeNull());
-  });
-
-  it('keeps a degraded cycle under Need attention', async () => {
-    fetchPipelineRunDetail.mockResolvedValue(finishedDetail({
-      run: cycleRun({ status: 'DEGRADED', currentPhase: null, waitingOn: null, failureReason: 'one batch failed' }),
-    }));
-    await openAndWait('#manage/runs/cycle/412');
-    fireEvent.click(screen.getByTestId('runs-chip-attention'));
+    fireEvent.click(screen.getByTestId(`runs-chip-${chip}`));
     await act(async () => {});
     expect(screen.getByTestId('cycle-panel')).toBeInTheDocument();
   });
 
-  it('tests a nested batch by its PARENT cycle: kind Cycles keeps it, Batches closes it', async () => {
+  it('keeps a nested batch open whichever chip is pressed', async () => {
     await openAndWait('#manage/runs/cycle/412/job/9876');
-    fireEvent.click(screen.getByTestId('runs-chip-cycles'));
+    fireEvent.click(screen.getByTestId('runs-chip-other'));
     await act(async () => {});
     expect(screen.getByTestId('job-run-panel')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('runs-chip-batches'));
-    await waitFor(() => expect(screen.queryByTestId('job-run-panel')).toBeNull());
   });
 
-  it('a range change never closes it', async () => {
+  it('a date change never closes it', async () => {
     await openAndWait('#manage/runs/cycle/412');
-    fireEvent.click(screen.getByTestId('runs-range-today'));
-    await act(async () => {});
+    await screen.findByTestId('runs-day-row-cycle-412');
+    fetchRunDay.mockResolvedValue(pastDayResponse([dayRow()]));
+    fireEvent.click(screen.getByTestId('runs-day-prev'));
+    await screen.findByTestId('runs-day-row-job-9001');
     expect(screen.getByTestId('cycle-panel')).toBeInTheDocument();
   });
 });
@@ -799,11 +786,11 @@ describe('Runs: closing a cycle on a filter change', () => {
 describe('Runs: the live count it reports', () => {
   it('reports the served runningCount on its first load and on each refresh', async () => {
     const onLiveCountChange = vi.fn();
-    fetchRuns.mockResolvedValue(runsPage([cycleItem()], { runningCount: 2, liveCycleId: null }));
+    fetchRuns.mockResolvedValue(runsPage([], { runningCount: 2, liveCycleId: null }));
     renderView({ onLiveCountChange });
     await waitFor(() => expect(onLiveCountChange).toHaveBeenLastCalledWith(2));
 
-    fetchRuns.mockResolvedValue(runsPage([cycleItem()], { runningCount: 0 }));
+    fetchRuns.mockResolvedValue(runsPage([], { runningCount: 0 }));
     fireEvent.click(screen.getByTestId('runs-refresh-btn'));
     await waitFor(() => expect(onLiveCountChange).toHaveBeenLastCalledWith(0));
   });

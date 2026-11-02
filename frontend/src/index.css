@@ -83,6 +83,17 @@
    a prefix and a variable is pruned however many times it is used, and the property just
    inherits. Build badge colours as classes here, referencing each token by its whole name. */
 @theme static {
+  /* The Runs deep dive's series colours (runs-deep-dive-plan.md F14, the handoff's README): one per display type,
+     used by the Day view's swatches and strip blocks as bg-run-* / fill-run-* / stroke-run-*, and by the Cost and
+     Timing views later. Static, so they survive with no scanned consumer (the --color-plex-panel lesson). */
+  --color-run-ask: oklch(0.72 0.1 300);
+  --color-run-sky: oklch(0.7 0.12 355);
+  --color-run-overnight: oklch(0.72 0.09 230);
+  --color-run-afternoon: oklch(0.78 0.11 75);
+  --color-run-evening: oklch(0.68 0.13 35);
+  --color-run-briefing: oklch(0.74 0.08 145);
+  --color-run-other: oklch(0.62 0.015 60);
+
   /* The CARD surface, and a real token rather than a collapse onto --surface. It sits only
      (4,3,3) from it, so substituting would have been defensible — but the window-first design
      uses it ten times as the thing that distinguishes a card from the frame it sits in, and a

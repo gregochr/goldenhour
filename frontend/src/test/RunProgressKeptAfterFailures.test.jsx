@@ -31,7 +31,9 @@ vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../api/batchApi', () => ({
   getRegions: vi.fn(), submitScheduledBatch: vi.fn(), submitJfdiBatch: vi.fn(),
 }));
-vi.mock('../api/runsApi.js', () => ({ fetchRuns: vi.fn(), fetchJobRun: vi.fn() }));
+vi.mock('../api/runsApi.js', () => ({
+  fetchRuns: vi.fn(), fetchJobRun: vi.fn(), fetchRunDay: vi.fn(), fetchRunCalendar: vi.fn(), fetchRunCalls: vi.fn(),
+}));
 vi.mock('../api/metricsApi', () => ({ getApiCalls: vi.fn(), getBatchSummary: vi.fn(), getDispositionBreakdown: vi.fn() }));
 vi.mock('../api/forecastApi', () => ({
   refreshTideData: vi.fn(), backfillTideData: vi.fn(), fetchLocations: vi.fn(),
@@ -51,8 +53,9 @@ vi.mock('../api/runProgressApi', () => ({
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import { getWaitlist } from '../api/waitlistApi.js';
-import { fetchRuns, fetchJobRun } from '../api/runsApi.js';
+import { fetchRuns, fetchJobRun, fetchRunDay } from '../api/runsApi.js';
 import { jobDetail, runsPage } from './runsFixtures.js';
+import { dayResponse } from './runsDayFixtures.js';
 import { fetchLocations } from '../api/forecastApi';
 import { enrichBortle } from '../api/auroraApi';
 import { getRegions } from '../api/batchApi';
@@ -128,6 +131,7 @@ describe('Runs: a finished run with failures keeps its panel', () => {
     window.location.hash = '';
     getWaitlist.mockResolvedValue([]);
     fetchRuns.mockResolvedValue(runsPage([]));
+    fetchRunDay.mockResolvedValue(dayResponse([]));
     useIsSplitLayout.mockReturnValue(true);
     fetchLocations.mockResolvedValue([]);
     getRegions.mockResolvedValue([]);

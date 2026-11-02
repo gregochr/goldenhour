@@ -16,6 +16,7 @@ import {
 } from '../../utils/schedulerView.js';
 import { runStatusView } from '../../utils/runStatus.js';
 import { formatRunStarted, formatSeconds } from '../../utils/runsView.js';
+import { dayFilterForGroup } from '../../utils/runsQuery.js';
 
 /** A recent run's address in the Runs tab: a cycle opens its cycle panel, a job run its job-run panel. */
 function runHref(item) {
@@ -30,13 +31,13 @@ function runSummary(item) {
 
 /**
  * The panel's Recent runs section, for a job whose runs the server can attribute: up to three, newest first, each a
- * link to its Runs panel, and "All in Runs" to the list filtered to the job's group.
+ * link to its Runs panel, and "All in Runs" to the Day view filtered to the job's group.
  */
 function JobRecentRuns({ job, refreshKey }) {
   const { runs, loading, error } = useJobRecentRuns(job.jobKey, true, refreshKey);
   const allInRuns = (
     <a
-      href={`#manage/runs?kind=${job.runGroup.toLowerCase()}`}
+      href={`#manage/runs?view=day&filter=${dayFilterForGroup(job.runGroup)}`}
       className="flex items-center text-[13px] text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
       data-testid={`scheduler-all-runs-${job.jobKey}`}
     >
