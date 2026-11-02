@@ -18,6 +18,15 @@ export const RUNS_VIEWS = ['day', 'cost', 'timing'];
 /** The Day filter chips' keys as the hash writes them (lower case); {@code all} is the default and is never written. */
 export const DAY_FILTERS = ['all', 'cycles', 'ask_ready', 'briefing', 'sky_eval', 'other', 'attention'];
 
+/** The display types the {@code type} key can name (the Cost isolate and the Timing type), as the server serves them. */
+export const RUN_TYPES = ['OVERNIGHT', 'AFTERNOON', 'EVENING', 'ASK_READY', 'BRIEFING', 'SKY_EVAL', 'OTHER'];
+
+/** The Timing measures: start to the end of the Ask ready answers that follow (the default), or the run's own length. */
+export const TIMING_MEASURES = ['cycle', 'ready'];
+
+/** The default measure for a cycle type: the number that matters for getting results out before the light. */
+export const DEFAULT_MEASURE = 'ready';
+
 /** The one thing localStorage remembers: the last view. */
 const VIEW_STORAGE_KEY = 'photocast.runs.view';
 
@@ -75,11 +84,14 @@ function legacyKindFilter(kind) {
  */
 export function normalizeRunsQuery() {
   const { path, query } = splitHash();
-  const legacy = ['range', 'kind', 'attention'].some((key) => query.has(key));
+  // {@code range} is the Cost and Timing views' own key now (a number of days); only the old word form
+  // ({@code today}, {@code week}, {@code month}) is legacy.
+  const legacyRange = query.has('range') && !/^\d+$/.test(query.get('range') ?? '');
+  const legacy = legacyRange || ['kind', 'attention'].some((key) => query.has(key));
   if (!legacy) return;
   const attention = ['true', '1'].includes((query.get('attention') ?? '').toLowerCase());
   const filter = attention ? 'attention' : legacyKindFilter(query.get('kind'));
-  ['range', 'kind', 'attention'].forEach((key) => query.delete(key));
+  [...(legacyRange ? ['range'] : []), 'kind', 'attention'].forEach((key) => query.delete(key));
   if (filter && !query.has('filter')) query.set('filter', filter);
   replaceHash(path, query);
 }
@@ -90,7 +102,11 @@ export function normalizeRunsQuery() {
  * parameters are normalised first.
  *
  * @param {Date} [now] the real clock
- * @returns {{view: string, date: string|null, filter: string}}
+ * <p>The Cost and Timing views' keys ride beside them (DD-9): {@code range} (days, validated by the view that reads
+ * it), {@code type} (a display type, or null) and {@code measure} ({@code ready} unless {@code cycle}).
+ *
+ * @returns {{view: string, date: string|null, filter: string, range: number|null, type: string|null,
+ *   measure: string}}
  */
 export function readRunsQuery(now = new Date()) {
   normalizeRunsQuery();
@@ -98,6 +114,9 @@ export function readRunsQuery(now = new Date()) {
   const view = query.get('view');
   const date = validDate(query.get('date'));
   const filter = (query.get('filter') ?? '').toLowerCase();
+  const range = /^\d+$/.test(query.get('range') ?? '') ? Number(query.get('range')) : null;
+  const type = (query.get('type') ?? '').toUpperCase();
+  const measure = (query.get('measure') ?? '').toLowerCase();
   // A date that is today or later means "today": it is not written, so it is rewritten out of the address.
   if (date && date >= ukDateStr(now)) writeRunsQuery({ date: null });
   return {
@@ -106,20 +125,26 @@ export function readRunsQuery(now = new Date()) {
     // Day hook's to clamp, once the server has said where the history starts.
     date: date && date < ukDateStr(now) ? date : null,
     filter: DAY_FILTERS.includes(filter) ? filter : 'all',
+    range,
+    type: RUN_TYPES.includes(type) ? type : null,
+    measure: TIMING_MEASURES.includes(measure) ? measure : DEFAULT_MEASURE,
   };
 }
 
 /**
  * Merges changes into the Runs query and writes it with {@code replaceState}. A {@code null} or empty value removes
- * its key; {@code filter: 'all'} is the default and is removed; {@code view} is remembered in localStorage.
+ * its key; {@code filter: 'all'} and {@code measure: 'ready'} are the defaults and are removed; {@code view} is
+ * remembered in localStorage.
  *
- * @param {{view?: string, date?: string|null, filter?: string}} patch the keys to set (or, null, remove)
+ * @param {{view?: string, date?: string|null, filter?: string, range?: number|string|null, type?: string|null,
+ *   measure?: string}} patch the keys to set (or, null, remove)
  */
 export function writeRunsQuery(patch) {
   const { path, query } = splitHash();
   Object.entries(patch).forEach(([key, value]) => {
-    if (value == null || value === '' || (key === 'filter' && value === 'all')) query.delete(key);
-    else query.set(key, value);
+    const isDefault = (key === 'filter' && value === 'all') || (key === 'measure' && value === DEFAULT_MEASURE);
+    if (value == null || value === '' || isDefault) query.delete(key);
+    else query.set(key, String(value));
   });
   if (patch.view) rememberView(patch.view);
   replaceHash(path, query);

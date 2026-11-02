@@ -6,6 +6,7 @@ import {
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
 
 const NOW = new Date('2026-11-02T09:26:00Z');
+const BASE = { view: 'day', date: null, filter: 'all', range: null, type: null, measure: 'ready' };
 
 beforeEach(() => {
   window.location.hash = '#manage/runs';
@@ -15,12 +16,12 @@ beforeEach(() => {
 
 describe('readRunsQuery', () => {
   it('defaults to the Day view, today and no filter', () => {
-    expect(readRunsQuery(NOW)).toEqual({ view: 'day', date: null, filter: 'all' });
+    expect(readRunsQuery(NOW)).toEqual({ ...BASE });
   });
 
   it('reads the view, a past date and a filter', () => {
     window.location.hash = '#manage/runs?view=timing&date=2026-11-01&filter=ask_ready';
-    expect(readRunsQuery(NOW)).toEqual({ view: 'timing', date: '2026-11-01', filter: 'ask_ready' });
+    expect(readRunsQuery(NOW)).toEqual({ ...BASE, view: 'timing', date: '2026-11-01', filter: 'ask_ready' });
   });
 
   it('reads the query beside a panel path', () => {
@@ -43,7 +44,7 @@ describe('readRunsQuery', () => {
 
   it('ignores an unknown view or filter', () => {
     window.location.hash = '#manage/runs?view=spend&filter=nope';
-    expect(readRunsQuery(NOW)).toEqual({ view: 'day', date: null, filter: 'all' });
+    expect(readRunsQuery(NOW)).toEqual({ ...BASE });
   });
 
   it('falls back to the remembered view, but the hash wins', () => {
@@ -56,6 +57,36 @@ describe('readRunsQuery', () => {
   it('survives storage that throws', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     expect(readRunsQuery(NOW).view).toBe('day');
+  });
+});
+
+describe('the Cost and Timing keys (DD-9)', () => {
+  it('reads range, type and measure', () => {
+    window.location.hash = '#manage/runs?view=timing&type=afternoon&range=60&measure=cycle';
+    expect(readRunsQuery(NOW)).toEqual({
+      ...BASE, view: 'timing', range: 60, type: 'AFTERNOON', measure: 'cycle',
+    });
+  });
+
+  it('keeps a numeric range through normalisation but drops the legacy word form', () => {
+    window.location.hash = '#manage/runs?view=cost&range=30&type=ASK_READY';
+    expect(readRunsQuery(NOW)).toMatchObject({ view: 'cost', range: 30, type: 'ASK_READY' });
+    expect(window.location.hash).toBe('#manage/runs?view=cost&range=30&type=ASK_READY');
+    window.location.hash = '#manage/runs?view=cost&range=week';
+    expect(readRunsQuery(NOW).range).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs?view=cost');
+  });
+
+  it('ignores an unknown type or measure', () => {
+    window.location.hash = '#manage/runs?view=timing&type=NOPE&measure=wall';
+    expect(readRunsQuery(NOW)).toMatchObject({ type: null, measure: 'ready' });
+  });
+
+  it('writes them, numbers as text, and removes the default measure and nulls', () => {
+    writeRunsQuery({ view: 'timing', type: 'AFTERNOON', range: 60, measure: 'cycle' });
+    expect(window.location.hash).toBe('#manage/runs?view=timing&type=AFTERNOON&range=60&measure=cycle');
+    writeRunsQuery({ measure: 'ready', type: null, range: null });
+    expect(window.location.hash).toBe('#manage/runs?view=timing');
   });
 });
 
