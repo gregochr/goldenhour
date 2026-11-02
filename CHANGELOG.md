@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.3] - 2026-11-02
+
+### Changed — Sky ratings send fewer unused lines to Claude
+
+The per-location message sent with every sky rating no longer carries the precipitation probability, the shortwave
+radiation reading or the "this location is best suited for sunrise photography" restatement of the orientation
+line. No rule in the system prompt refers to any of them. This saves about 25 tokens per request; the system prompt,
+output schema and cache prefixes are unchanged. See `docs/engineering/sky-user-message-trim-plan.md`.
+
+### Added — the Runs screen's Day, calendar and external-calls endpoints
+
+Three admin endpoints, `GET /api/admin/runs/day`, `/calendar` and `/calls`, serve what the Runs deep dive's Day
+view needs: one UK day's cycles, jobs and sky evals in time order (a cycle folded together with its batch runs,
+its briefing and ask-ready runs linked beneath it), each with a served type, status, note, cost in pounds and
+dollars (unknown costs are `null`, not zero), whether it was slow against the type's previous 30 runs, and, for
+today, what the scheduler will still run with estimated times and each cycle's trigger. The calendar serves a
+month of per-day run counts, spend and attention counts; the calls endpoint serves a run's external calls
+grouped by service.
+
+Migration V214 adds `job_run.pipeline_run_id`, written when a cycle's briefing build and its ask-ready
+precompute start their runs, so a cycle can show its children and when its answers were ready. Older runs are
+matched by the briefing phase window and by starting within two minutes of the cycle's end. No screen reads the
+endpoints yet; the Day view arrives in a following change.
+
+### Fixed — Open-Meteo: back off after timeouts and pause after a refusal
+
+When Open-Meteo stopped answering and then refused every request as "too many concurrent requests", the
+app kept sending one request a minute for nine minutes, all of them refused. Now a request that times
+out is retried after 30 and then 60 seconds instead of 2 and 4, and a refusal for too many concurrent
+requests, or an hourly or daily limit, makes the app stop calling Open-Meteo until that limit should have
+cleared (10 minutes, the next hour, or midnight UTC). Several timeouts in a row pause it for 10 minutes
+too. The batch loops stop early and leave the remaining locations empty, as they already do for a
+failed chunk, and the health circuit breakers ignore these local pauses.
+
+### Docs — Record that Batch Far-Term now runs on Haiku 4.5
+
+Far-Term moved from Haiku 5.5 back to Haiku 4.5 on 2026-11-02 after the Sky-Rating Eval showed Haiku 5.5 rating the
+Steel Rigg "solid 4" morning a 2 on every attempt. Near-Term stays on Sonnet 5.5. CLAUDE.md, `pipeline.md` and
+`architecture-decisions.md` now say so, with the eval figures.
+
+### Docs — Claude spend decision ledger
+
+Added `docs/engineering/claude-cost-ledger.md`, one place that records the November 2026 cost review: the
+baseline, what was changed, what was rejected and why, and what to watch. The read-only production
+queries behind it are in `docs/engineering/cost-queries/`.
+
 ## [v2.36.2] - 2026-11-02
 
 ### Changed — Sky-Rating Eval now includes two real strong sunrises
