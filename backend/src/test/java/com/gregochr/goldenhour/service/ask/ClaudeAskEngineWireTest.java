@@ -166,7 +166,7 @@ class ClaudeAskEngineWireTest {
         assertThat(turns.getAllValues()).extracting(AskJobRunService.Turn::usage)
                 .containsOnly(new TokenUsage(1200, 60, 0, 0));
         WIRE_MOCK.verify(2, postRequestedFor(urlPathEqualTo(PATH))
-                .withHeader("x-api-key", equalTo("test-key-wiremock")));
+                .withHeader("Authorization", equalTo("Bearer test-key-wiremock")));
     }
 
     /** Stubs a model that explores with {@code list_windows} until it is told it is on its last turn. */

@@ -72,13 +72,13 @@ class AnthropicClientWireMockRoutingTest {
     }
 
     @Test
-    @DisplayName("the request still carries the backend's API key once ClientOptions owns the URL")
+    @DisplayName("the request still carries the backend's API key as a Bearer token")
     void request_carriesBackendApiKey() {
         retrieveIgnoringSdkError("credential-check");
 
         WIRE_MOCK.verify(getRequestedFor(
                 urlPathEqualTo("/v1/messages/batches/credential-check"))
-                .withHeader("x-api-key", equalTo("test-key-wiremock")));
+                .withHeader("Authorization", equalTo("Bearer test-key-wiremock")));
     }
 
     @Test

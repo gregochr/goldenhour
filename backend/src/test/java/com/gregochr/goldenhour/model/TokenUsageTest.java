@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TokenUsageTest {
 
     private static Usage.Builder baseUsage() {
-        return Usage.builder()
+        return Usage.builder().speed(Usage.Speed.STANDARD)
                 .inputTokens(10)
                 .outputTokens(20)
                 .cacheCreationInputTokens(300)

@@ -139,7 +139,7 @@ class HaikuEvaluationStrategyTest {
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
                 .diagnostics(Optional.empty())
-                .usage(Usage.builder()
+                .usage(Usage.builder().speed(Usage.Speed.STANDARD)
                         .inputTokens(10)
                         .outputTokens(20)
                         .cacheCreation(CacheCreation.builder()

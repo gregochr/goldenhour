@@ -655,7 +655,7 @@ class ClaudeEvaluationStrategyTest {
 
     private Usage buildUsage(long inputTokens, long outputTokens,
             long cacheCreationTokens, long cacheReadTokens) {
-        return Usage.builder()
+        return Usage.builder().speed(Usage.Speed.STANDARD)
                 .inputTokens(inputTokens)
                 .outputTokens(outputTokens)
                 .cacheCreation(CacheCreation.builder()

@@ -167,8 +167,8 @@ class ClaudeAskEngineTest {
     private List<ToolResultBlockParam> toolResultsIn(MessageCreateParams params) {
         List<ToolResultBlockParam> out = new ArrayList<>();
         params.messages().forEach(m -> {
-            if (m.content().isBlockParams()) {
-                m.content().asBlockParams().stream().filter(ContentBlockParam::isToolResult)
+            if (m.content().isContentBlockParams()) {
+                m.content().asContentBlockParams().stream().filter(ContentBlockParam::isToolResult)
                         .map(ContentBlockParam::asToolResult).forEach(out::add);
             }
         });
@@ -400,10 +400,10 @@ class ClaudeAskEngineTest {
         assertThat(four.subList(0, 3)).allSatisfy(params -> assertThat(params.toolChoice().orElseThrow().isAny())
                 .isTrue());
         assertThat(four.get(3).toolChoice().orElseThrow().asTool().name()).isEqualTo("submit_answer");
-        assertThat(four.get(3).messages().getLast().content().asBlockParams())
+        assertThat(four.get(3).messages().getLast().content().asContentBlockParams())
                 .as("the last turn's tool results are followed by the last-turn line")
                 .last().satisfies(block -> assertThat(block.asText().text()).isEqualTo(ClaudeAskEngine.LAST_TURN_LINE));
-        assertThat(four.get(2).messages().getLast().content().asBlockParams())
+        assertThat(four.get(2).messages().getLast().content().asContentBlockParams())
                 .noneSatisfy(block -> assertThat(block.isText()).isTrue());
 
         // Four tool-only turns: turn 4 ends without submit_answer.
@@ -1418,7 +1418,7 @@ class ClaudeAskEngineTest {
         List<Duration> timeouts = new CopyOnWriteArrayList<>();
         when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
             RequestOptions options = inv.getArgument(1);
-            timeouts.add(options.getTimeout().request());
+            timeouts.add(options.timeout().orElseThrow().request());
             clock.advance(Duration.ofSeconds(15));
             return toolTurn(tool("t" + calls.incrementAndGet(), "list_windows", Map.of()));
         });
@@ -1445,7 +1445,7 @@ class ClaudeAskEngineTest {
 
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(client, times(2)).createAskMessage(any(), options.capture(), any());
-        assertThat(options.getAllValues().get(1).getTimeout().request()).isEqualTo(Duration.ofMillis(500));
+        assertThat(options.getAllValues().get(1).timeout().orElseThrow().request()).isEqualTo(Duration.ofMillis(500));
 
         reset(client);
         when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {

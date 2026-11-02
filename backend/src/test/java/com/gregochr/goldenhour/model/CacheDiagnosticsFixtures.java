@@ -61,7 +61,7 @@ public final class CacheDiagnosticsFixtures {
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
                 .diagnostics(diagnostics)
-                .usage(Usage.builder()
+                .usage(Usage.builder().speed(Usage.Speed.STANDARD)
                         .inputTokens(1_000)
                         .outputTokens(100)
                         .cacheCreation(CacheCreation.builder()
