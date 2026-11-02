@@ -16,6 +16,7 @@ import {
 
 vi.mock('../api/runsApi.js', () => ({
   fetchRuns: vi.fn(), fetchJobRun: vi.fn(), fetchRunDay: vi.fn(), fetchRunCalendar: vi.fn(), fetchRunCalls: vi.fn(),
+  fetchRunCost: vi.fn(), fetchRunTiming: vi.fn(),
 }));
 vi.mock('../api/pipelineRunApi.js', () => ({ fetchPipelineRunDetail: vi.fn() }));
 vi.mock('../api/metricsApi', () => ({
@@ -461,7 +462,7 @@ describe('Runs: the address (F4)', () => {
   it('opens the remembered view when the address names none', async () => {
     window.localStorage.setItem('photocast.runs.view', 'timing');
     renderView();
-    expect(await screen.findByTestId('runs-timing-soon')).toBeInTheDocument();
+    expect(await screen.findByTestId('runs-timing-loading')).toBeInTheDocument();
   });
 
   it('maps the old ?range=&kind=&attention= links to a Day filter once, and rewrites them out', async () => {

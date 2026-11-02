@@ -77,3 +77,37 @@ export async function fetchRunCalls(runId) {
   const response = await apiClient.get(`${BASE_URL}/calls`, { params: { runId } });
   return response.data;
 }
+
+/**
+ * Fetches the Cost trends view: spend by day and by run type for the last {@code days} full UK days and the same
+ * number before them, per-type changes and the verdict as structured fields. ADMIN only. Any other period is a 400.
+ *
+ * @param {number} [days] 14, 30 or 60 (the server defaults to 30)
+ * @returns {Promise<object>} {rangeDays, firstDay, lastDay, days, types, totals, verdict}
+ */
+export async function fetchRunCost(days = undefined) {
+  const params = {};
+  if (days) params.days = days;
+  const response = await apiClient.get(`${BASE_URL}/cost`, { params });
+  return response.data;
+}
+
+/**
+ * Fetches the Timing view for one run type: every measured run's duration, the statistics, every type's median, and
+ * the planner or ready-by facts. ADMIN only. An unknown type, range or measure is a 400.
+ *
+ * @param {object} params
+ * @param {string} params.type OVERNIGHT, AFTERNOON, EVENING, ASK_READY, BRIEFING or SKY_EVAL
+ * @param {number} [params.days] 30, 60 or 120 (the server defaults to 30)
+ * @param {'cycle'|'ready'} [params.measure] {@code ready} applies to the three cycle types only
+ * @returns {Promise<object>} {type, typeLabel, rangeDays, measure, runs, stats, typeMedians, withoutAnswersLink,
+ *   trigger, todaySunset, startsAt, typicalReadyAt, p90ReadyAt, worstReadyAt, readyBasis, sunriseToday,
+ *   slackAtP90Minutes}
+ */
+export async function fetchRunTiming({ type, days = undefined, measure = undefined }) {
+  const params = { type };
+  if (days) params.days = days;
+  if (measure) params.measure = measure;
+  const response = await apiClient.get(`${BASE_URL}/timing`, { params });
+  return response.data;
+}

@@ -14,6 +14,7 @@ import {
 
 vi.mock('../api/runsApi.js', () => ({
   fetchRuns: vi.fn(), fetchJobRun: vi.fn(), fetchRunDay: vi.fn(), fetchRunCalendar: vi.fn(), fetchRunCalls: vi.fn(),
+  fetchRunCost: vi.fn(), fetchRunTiming: vi.fn(),
 }));
 vi.mock('../api/pipelineRunApi.js', () => ({ fetchPipelineRunDetail: vi.fn() }));
 vi.mock('../api/metricsApi', () => ({
@@ -519,7 +520,7 @@ describe('Day view: the keys (F1)', () => {
     await loaded();
     fireEvent.keyDown(screen.getByTestId('runs-view-tab-day'), { key: 'ArrowRight' });
     expect(fetchRunDay).toHaveBeenCalledTimes(1);
-    expect(await screen.findByTestId('runs-cost-soon')).toBeInTheDocument();
+    expect(await screen.findByTestId('runs-cost-loading')).toBeInTheDocument();
   });
 });
 
@@ -1318,15 +1319,15 @@ describe('Day view: states (F13)', () => {
     expect(screen.queryByTestId('runs-day-group-upcoming')).toBeNull();
   });
 
-  it('shows "Coming in a later update" for Cost trends and Timing, with the banner still above', async () => {
+  it('shows the Cost trends and Timing views (loading until served), with the banner still above', async () => {
     fetchRuns.mockResolvedValue(runsPage([], { runningCount: 1, liveCycleId: 412 }));
     renderView();
     await loaded();
     fireEvent.click(screen.getByTestId('runs-view-tab-cost'));
-    expect(screen.getByTestId('runs-cost-soon')).toHaveTextContent('Coming in a later update.');
+    expect(await screen.findByTestId('runs-cost-loading')).toBeInTheDocument();
     expect(screen.queryByTestId('runs-day-view')).toBeNull();
     fireEvent.click(screen.getByTestId('runs-view-tab-timing'));
-    expect(screen.getByTestId('runs-timing-soon')).toBeInTheDocument();
+    expect(await screen.findByTestId('runs-timing-loading')).toBeInTheDocument();
     expect(await screen.findByTestId('runs-live-strip')).toBeInTheDocument();
   });
 

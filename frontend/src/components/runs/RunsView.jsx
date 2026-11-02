@@ -5,7 +5,9 @@ import RunProgressPanel from '../RunProgressPanel';
 import RunsHeader from './RunsHeader.jsx';
 import RunsTopStack from './RunsTopStack.jsx';
 import RunsViewTabs, { PANEL_ID, tabId } from './RunsViewTabs.jsx';
+import RunsCostView from './cost/RunsCostView.jsx';
 import RunsDayView from './day/RunsDayView.jsx';
+import RunsTimingView from './timing/RunsTimingView.jsx';
 import JobRunPanel from './JobRunPanel.jsx';
 import CyclePanel from './CyclePanel.jsx';
 import RunsLiveStrip from './RunsLiveStrip.jsx';
@@ -17,14 +19,22 @@ import useCycleDetail from '../../hooks/useCycleDetail.js';
 import useJobRunDetail from '../../hooks/useJobRunDetail.js';
 import usePanelEscape from '../../hooks/usePanelEscape.js';
 import useRunDay from '../../hooks/useRunDay.js';
+import { useRunsCost, useRunsTiming } from '../../hooks/useRunsServed.js';
 import useRunsLive from '../../hooks/useRunsLive.js';
 import { ukDateStr } from '../../utils/mapDates.js';
 import { dayTabWord } from '../../utils/runsDay.js';
 import { readRunsQuery, writeRunsQuery } from '../../utils/runsQuery.js';
+import {
+  COST_RANGES, DEFAULT_COST_RANGE, DEFAULT_TIMING_RANGE, TIMING_RANGES, TIMING_TYPES,
+} from '../../utils/runsTiming.js';
+import { isCycleType } from '../../utils/runsDay.js';
 import { textButtonClass } from '../users/userFormClasses.js';
 
 /** The Manage tab key; the hash adds {@code job/{id}}, {@code cycle/{id}[/job/{id}]} or {@code start}. */
 const TAB = 'runs';
+
+/** The keys of the address's query, for telling whether it moved. */
+const QUERY_KEYS = ['view', 'date', 'filter', 'range', 'type', 'measure'];
 
 const isId = (segment) => /^\d+$/.test(segment ?? '');
 
@@ -95,7 +105,7 @@ export default function RunsView({
       const [area, tab] = window.location.hash.replace('#', '').split('?')[0].split('/');
       if (area !== 'manage' || tab !== 'runs') return;
       const next = readRunsQuery();
-      setQuery((prev) => (prev.view === next.view && prev.date === next.date && prev.filter === next.filter ? prev : next));
+      setQuery((prev) => (QUERY_KEYS.every((key) => prev[key] === next[key]) ? prev : next));
     };
     window.addEventListener('hashchange', onAddressChange);
     window.addEventListener('popstate', onAddressChange);
@@ -112,9 +122,29 @@ export default function RunsView({
     enabled: query.view === 'day', isPaused, onClamp: handleDateChange,
     runningCount: runsLive.meta?.runningCount,
   });
+  // The Cost and Timing views' own parameters (DD-9): an unknown or missing one falls back to the view's default.
+  const costRange = COST_RANGES.includes(query.range) ? query.range : DEFAULT_COST_RANGE;
+  const costIsolate = query.type;
+  const timingRange = TIMING_RANGES.includes(query.range) ? query.range : DEFAULT_TIMING_RANGE;
+  const timingType = TIMING_TYPES.includes(query.type) ? query.type : 'AFTERNOON';
+  // Until answers ready is for the three cycles only; any other type measures the run itself.
+  const timingMeasure = isCycleType(timingType) ? query.measure : 'cycle';
+  const cost = useRunsCost(costRange, { enabled: query.view === 'cost' });
+  const timing = useRunsTiming(timingType, timingRange, timingMeasure, { enabled: query.view === 'timing' });
   const handleViewChange = useCallback((view) => {
-    setQuery((q) => ({ ...q, view }));
-    writeRunsQuery({ view });
+    // The Cost and Timing parameters mean different things in each view, so a change of view clears them.
+    setQuery((q) => ({ ...q, view, range: null, type: null, measure: 'cycle' }));
+    writeRunsQuery({ view, range: null, type: null, measure: null });
+  }, []);
+  const handleParams = useCallback((patch) => {
+    setQuery((q) => ({ ...q, ...patch }));
+    writeRunsQuery(patch);
+  }, []);
+  // A day clicked in the Cost chart or the Timing scatter opens in the Day view (a day that is today is "today").
+  const handleOpenDay = useCallback((date) => {
+    const target = date >= ukDateStr(new Date()) ? null : date;
+    setQuery((q) => ({ ...q, view: 'day', date: target, range: null, type: null, measure: 'cycle' }));
+    writeRunsQuery({ view: 'day', date: target, range: null, type: null, measure: null });
   }, []);
   const handleFilterChange = useCallback((filter) => {
     setQuery((q) => ({ ...q, filter }));
@@ -123,10 +153,14 @@ export default function RunsView({
   // One refresh for the header, the progress panel and a start (F5): the live head and the view on screen.
   const refreshLive = runsLive.refresh;
   const refreshDay = day.refresh;
+  const refreshCost = cost.refresh;
+  const refreshTiming = timing.refresh;
   const refreshAll = useCallback(() => {
     refreshLive();
     if (query.view === 'day') refreshDay();
-  }, [refreshLive, refreshDay, query.view]);
+    else if (query.view === 'cost') refreshCost();
+    else refreshTiming();
+  }, [refreshLive, refreshDay, refreshCost, refreshTiming, query.view]);
   // The Start a run panel's in-flight flags and message live here, so closing it mid-request keeps both.
   const startState = useStartRunState();
   const hashOptions = useMemo(() => ({ parse: parseRunsHash, format: formatRunsHash, keepQuery: true }), []);
@@ -352,11 +386,11 @@ export default function RunsView({
 
 
   // What sits in the list column: the header, the stack above the views (progress, error, the live banner: on every
-  // view), the view tabs, and the view itself. Cost trends and Timing are placeholders until D4.
+  // view), the view tabs, and the view itself.
   const today = day.data?.isToday ? day.data.date : ukDateStr(new Date());
   const shownDay = day.data?.date ?? query.date ?? today;
-  // "Updated" follows the view on screen: a Day still loading its date shows none (never the last day's).
-  const updatedAt = query.view === 'day' ? day.updatedAt : runsLive.updatedAt;
+  // "Updated" follows the view on screen: a view still loading shows none (never the last one's).
+  const viewUpdatedAt = { day: day.updatedAt, cost: cost.updatedAt, timing: timing.updatedAt }[query.view];
   let viewBody;
   if (query.view === 'day') {
     viewBody = (
@@ -371,14 +405,29 @@ export default function RunsView({
         onOpenDetail={openDetail}
       />
     );
+  } else if (query.view === 'cost') {
+    viewBody = (
+      <RunsCostView
+        cost={cost}
+        range={costRange}
+        onRangeChange={(range) => handleParams({ range })}
+        isolate={costIsolate}
+        onIsolate={(type) => handleParams({ type })}
+        onOpenDay={handleOpenDay}
+      />
+    );
   } else {
     viewBody = (
-      <p
-        className="rounded-xl border border-plex-border bg-plex-surface p-6 text-center text-sm text-plex-text-secondary"
-        data-testid={`runs-${query.view}-soon`}
-      >
-        Coming in a later update.
-      </p>
+      <RunsTimingView
+        timing={timing}
+        type={timingType}
+        onTypeChange={(type) => handleParams({ type, measure: 'cycle' })}
+        range={timingRange}
+        onRangeChange={(range) => handleParams({ range })}
+        measure={timingMeasure}
+        onMeasureChange={(measure) => handleParams({ measure })}
+        onOpenDay={handleOpenDay}
+      />
     );
   }
 
@@ -394,8 +443,8 @@ export default function RunsView({
             <RunsHeader
               headingRef={headingRef}
               startButtonRef={startButtonRef}
-              updatedAt={updatedAt}
-              refreshes={query.view !== 'day' || day.data?.isToday !== false}
+              updatedAt={viewUpdatedAt}
+              refreshes={query.view === 'day' && day.data?.isToday !== false}
               onRefresh={refreshAll}
               onStart={() => select({ type: 'start' })}
             />

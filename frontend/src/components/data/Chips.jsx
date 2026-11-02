@@ -53,12 +53,13 @@ export function ChipDivider() {
  *
  * @param {object} props
  * @param {string} props.label the chip's text
- * @param {number} [props.count] the number of items it would show
+ * @param {number|string} [props.count] the number of items it would show, or a short detail after the label (a median)
+ * @param {string} [props.swatchClass] a background class for a small colour square before the label (a series colour)
  * @param {boolean} props.on whether it is selected
  * @param {() => void} props.onClick called on press
  * @param {string} props.testId the chip's test id; the count's is {@code {testId}-count}
  */
-export function Chip({ label, count = undefined, on, onClick, testId }) {
+export function Chip({ label, count = undefined, swatchClass = undefined, on, onClick, testId }) {
   return (
     <button
       type="button"
@@ -67,6 +68,7 @@ export function Chip({ label, count = undefined, on, onClick, testId }) {
       onClick={onClick}
       data-testid={testId}
     >
+      {swatchClass && <i className={`size-2 shrink-0 rounded-xs ${swatchClass}`} aria-hidden="true" />}
       {label}
       {count != null && <span className="text-plex-text-muted" data-testid={`${testId}-count`}>{count}</span>}
     </button>
@@ -75,7 +77,8 @@ export function Chip({ label, count = undefined, on, onClick, testId }) {
 
 Chip.propTypes = {
   label: PropTypes.string.isRequired,
-  count: PropTypes.number,
+  count: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+  swatchClass: PropTypes.string,
   on: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,
   testId: PropTypes.string.isRequired,
