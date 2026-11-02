@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.0] - 2026-11-01
+
+### Changed — Evaluations no longer ask Claude for the unused basic-tier scores
+
+Every sky evaluation asked Claude for three extra "basic" fields (`basic_fiery_sky`, `basic_golden_hour`, `basic_summary`), but they have never been served since the Pro features gate. Dropping them from the prompt, the output schema and the parser cuts about 30% of the sky evaluation's output tokens. The three `forecast_evaluation` columns stay for history and are no longer written, so new rows hold null; a reply still carrying the old keys parses as before.
+
+### Docs — Record that Batch Far-Term now runs on Haiku 5.5
+
+CLAUDE.md and the pipeline and architecture references now say production's Batch Far-Term
+(T+2, and T+3 when settled) runs on Haiku 5.5 since 2026-11-01, switched on the Models screen;
+Batch Near-Term stays on Sonnet 5.5.
+
+### Added — Ask answers whether the tide is right at a named place
+
+Asking "is the tide right at St Mary's Lighthouse tonight?" now gets the tide verdict first, from the forecast's own tide-aligned fact, and when the tide does not suit, the nearest high or low water quoted in words ("high water 06:42, 40 minutes after sunrise") without ever calling it the time the tide would suit. Spring and king tides are mentioned only when the forecast flags one for that day and region; a day PhotoCast has not forecast yet, and any question about a causeway or when it is safe to cross, are answered as not available. Typed questions only; Ready answers are unchanged. No frontend or migration change.
+
+### Changed — The Ask box reads "Ask PhotoCast…" everywhere
+
+Every Ask entry (the phone bar, the tablet and desktop field, the Map peek row) and the Ask input placeholder now read "Ask PhotoCast…" instead of wording that varied by tab and dates. The small "Ask" key label that sat before the prompt is gone, so each entry reads just the prompt. The input accessible name is "Ask PhotoCast".
+
+### Added — Ask describes the kind of light for questions that name no place
+
+Asking "is tomorrow a fiery morning?" or "will tonight's sunset be colourful?" without naming a place now gets an answer that describes each place's light in the forecast's own headline words, backed by its Fiery Sky and Golden Hour figures (out of 100) for at most two places, instead of stars alone. `rank_spots` returns both figures in a typed conversation only; Ready answers, thread pick lines and the where-questions are unchanged. No frontend or migration change.
+
+### Added — Ask gives the tide for days it does not rate yet
+
+Asking "is the tide right at St Mary's Lighthouse on Saturday?" now gets the tide for that day's sunrise or sunset even when PhotoCast has not yet given it a sky rating (days beyond the Plan tab's first six events, and travel days), saying plainly that no sky rating is given for it. Only the tide is served for those days, never a rating, and such answers are not stored for reuse. A day beyond the briefing's five days is still answered as not forecast yet. Typed questions only; Ready answers are unchanged. No frontend or migration change.
+
 ## [v2.35.10] - 2026-11-01
 
 ### Changed — Travel days calendar: month view, drag to add
