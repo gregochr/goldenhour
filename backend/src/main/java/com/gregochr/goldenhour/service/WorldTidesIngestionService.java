@@ -23,6 +23,7 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -169,6 +170,7 @@ public class WorldTidesIngestionService {
     private final WorldTidesProperties worldTidesProperties;
     private final JobRunService jobRunService;
     private final Consumer<Long> onExtremesWritten;
+    private final Clock clock;
 
     /**
      * Constructs a {@code WorldTidesIngestionService} that tells nobody when it writes.
@@ -209,6 +211,27 @@ public class WorldTidesIngestionService {
             TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService,
             Consumer<Long> onExtremesWritten) {
+        this(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
+                jobRunService, onExtremesWritten, Clock.systemUTC());
+    }
+
+    /**
+     * Constructs a {@code WorldTidesIngestionService} that reads "now" from the given clock.
+     *
+     * @param restClient             shared RestClient for outbound HTTP calls
+     * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param tideFetchRepository    repository for the per-call fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of the provenance log
+     * @param worldTidesProperties   WorldTides API configuration
+     * @param jobRunService          service for recording API call metrics
+     * @param onExtremesWritten      called with the location id after rows are deleted or inserted
+     * @param clock                  source of the current UTC instant
+     */
+    WorldTidesIngestionService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService,
+            Consumer<Long> onExtremesWritten, Clock clock) {
+        this.clock = clock;
         this.restClient = restClient;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideFetchRepository = tideFetchRepository;
@@ -262,7 +285,7 @@ public class WorldTidesIngestionService {
             return null;
         }
 
-        LocalDateTime startOfDay = LocalDateTime.now(ZoneOffset.UTC).toLocalDate().atStartOfDay();
+        LocalDateTime startOfDay = LocalDateTime.now(clock).toLocalDate().atStartOfDay();
         LocalDateTime horizon = startOfDay.plusSeconds(FETCH_LENGTH_SECONDS);
 
         LocationEntity.TidePoint pin = new LocationEntity.TidePoint(location.getLat(), location.getLon());
@@ -318,7 +341,7 @@ public class WorldTidesIngestionService {
                 return null;
             }
 
-            LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
+            LocalDateTime fetchedAt = LocalDateTime.now(clock);
             List<TideExtremeEntity> entities = response.getExtremes().stream()
                     .filter(e -> e.getType() != null
                             && ("High".equalsIgnoreCase(e.getType())
@@ -521,7 +544,7 @@ public class WorldTidesIngestionService {
         try {
             tideFetchRecorder.record(TideFetchEntity.builder()
                     .locationId(location.getId())
-                    .fetchedAt(LocalDateTime.now(ZoneOffset.UTC))
+                    .fetchedAt(LocalDateTime.now(clock))
                     .windowFrom(from)
                     .windowTo(to)
                     .reason(reason)
@@ -706,7 +729,7 @@ public class WorldTidesIngestionService {
         }
 
         LocationEntity.TidePoint point = location.getEffectiveTidePoint();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(clock);
         LocalDate startDate = today.minusMonths(12);
         int chunksFetched = 0;
 
@@ -762,7 +785,7 @@ public class WorldTidesIngestionService {
                     continue;
                 }
 
-                LocalDateTime fetchedAt = LocalDateTime.now(ZoneOffset.UTC);
+                LocalDateTime fetchedAt = LocalDateTime.now(clock);
                 List<TideExtremeEntity> entities = response.getExtremes().stream()
                         .filter(e -> e.getType() != null
                                 && ("High".equalsIgnoreCase(e.getType())

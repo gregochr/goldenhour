@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestClient;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -47,6 +48,10 @@ class TideFetchWindowTest {
     private static final LocalDateTime START_OF_DAY = LocalDate.of(2026, 8, 10).atStartOfDay();
     private static final LocalDateTime HORIZON = START_OF_DAY.plusDays(97);
 
+    /** "Now" is pinned to the morning of {@link #START_OF_DAY}, never the wall clock. */
+    private static final Clock CLOCK = Clock.fixed(
+            START_OF_DAY.plusHours(9).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
     @Mock
     private RestClient restClient;
 
@@ -68,7 +73,7 @@ class TideFetchWindowTest {
     private TideService service() {
         return new TideService(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
                 worldTidesProperties,
-                jobRunService);
+                jobRunService, CLOCK);
     }
 
     @Test
@@ -242,7 +247,7 @@ class TideFetchWindowTest {
                     .when(repo.findOldestFetchedAtFrom(eq(LOCATION), any()))
                     .thenReturn(c.oldestFetch());
             var svc = new TideService(restClient, repo, tideFetchRepository, tideFetchRecorder,
-                    worldTidesProperties, jobRunService);
+                    worldTidesProperties, jobRunService, CLOCK);
 
             var window = svc.resolveFetchWindow(LOCATION, PIN, PIN, START_OF_DAY, HORIZON);
             if (window != null) {
@@ -385,12 +390,12 @@ class TideFetchWindowTest {
         when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
                 .thenReturn(frontier);
         when(tideExtremeRepository.findOldestFetchedAtFrom(eq(LOCATION), any()))
-                .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusDays(7));
+                .thenReturn(START_OF_DAY.minusDays(7));
 
         RestClient client = mock(RestClient.class);
         RestClientMocks.stubGet(client, WorldTidesResponse.class, oneExtremeResponse());
         TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
-                worldTidesProperties, jobRunService);
+                worldTidesProperties, jobRunService, CLOCK);
 
         service.fetchAndStoreTideExtremes(location());
 
@@ -404,23 +409,51 @@ class TideFetchWindowTest {
         assertThat(bounds.getAllValues().get(0)).isEqualTo(frontier.minusDays(7));
         assertThat(bounds.getAllValues().get(1))
                 .isAfterOrEqualTo(frontier)
-                .isEqualTo(LocalDate.now(ZoneOffset.UTC).atStartOfDay().plusDays(97));
+                .isEqualTo(HORIZON);
+    }
+
+    @Test
+    @DisplayName("when the frontier's overlap margin reaches back before today, the delete starts "
+            + "at the start of today and never earlier")
+    void tailBranchClampsTheDeleteToTheStartOfToday() {
+        // Clock a day after START_OF_DAY: frontier - 7d is before the start of today.
+        LocalDateTime today = START_OF_DAY.plusDays(1);
+        Clock later = Clock.fixed(today.plusHours(9).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+        LocalDateTime frontier = today.plusDays(3).plusHours(17).plusMinutes(52);
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
+                .thenReturn(frontier);
+        when(tideExtremeRepository.findOldestFetchedAtFrom(eq(LOCATION), any()))
+                .thenReturn(today.minusDays(7));
+
+        RestClient client = mock(RestClient.class);
+        RestClientMocks.stubGet(client, WorldTidesResponse.class, oneExtremeResponse());
+        TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
+                worldTidesProperties, jobRunService, later);
+
+        service.fetchAndStoreTideExtremes(location());
+
+        ArgumentCaptor<LocalDateTime> bounds = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(tideExtremeRepository).deleteByLocationIdAndEventTimeBetween(
+                eq(LOCATION), bounds.capture(), bounds.capture());
+        assertThat(frontier.minusDays(7)).isBefore(today);
+        assertThat(bounds.getAllValues().get(0)).isEqualTo(today);
     }
 
     @Test
     @DisplayName("a location already at the horizon makes no HTTP call, deletes nothing and "
             + "writes nothing")
     void skipBranchTouchesNothingAtAll() {
-        LocalDateTime horizonNow = LocalDate.now(ZoneOffset.UTC).atStartOfDay().plusDays(97);
+        LocalDateTime horizonNow = HORIZON;
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         when(tideExtremeRepository.findLatestEventTimeFrom(eq(LOCATION), any()))
                 .thenReturn(horizonNow.plusDays(1));
         when(tideExtremeRepository.findOldestFetchedAtFrom(eq(LOCATION), any()))
-                .thenReturn(LocalDateTime.now(ZoneOffset.UTC).minusDays(1));
+                .thenReturn(START_OF_DAY.minusDays(1));
 
         RestClient client = mock(RestClient.class);
         TideService service = new TideService(client, tideExtremeRepository, tideFetchRepository, tideFetchRecorder,
-                worldTidesProperties, jobRunService);
+                worldTidesProperties, jobRunService, CLOCK);
 
         service.fetchAndStoreTideExtremes(location());
 
@@ -442,7 +475,7 @@ class TideFetchWindowTest {
         response.setStatus(200);
         response.setCallCount(2);
         WorldTidesResponse.Extreme extreme = new WorldTidesResponse.Extreme();
-        extreme.setDt(LocalDateTime.now(ZoneOffset.UTC).plusDays(93)
+        extreme.setDt(START_OF_DAY.plusDays(93)
                 .toEpochSecond(ZoneOffset.UTC));
         extreme.setHeight(4.2);
         extreme.setType("High");
