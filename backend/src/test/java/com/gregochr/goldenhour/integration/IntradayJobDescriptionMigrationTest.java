@@ -18,7 +18,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V174 against a real Postgres: the intraday row's V141 description is reworded so it no
+ * Proves V174 and V212 against a real Postgres: the intraday row's V141 description is reworded so it no
  * longer says "mid-afternoon", a hand-edited description is left alone, and no other column or row
  * of {@code scheduler_job_config} changes.
  *
@@ -116,6 +116,53 @@ class IntradayJobDescriptionMigrationTest {
         }
 
         flyway("174").migrate();
+
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            assertThat(description(st)).isEqualTo("Operator note");
+        }
+    }
+
+    @Test
+    @DisplayName("V212 rewrites V174's description to mention the evening deferral, within varchar(500)")
+    void v212RewritesTheDescription() throws SQLException {
+        flyway("211").migrate();
+        String before;
+        Map<String, String> beforeRows;
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            before = description(st);
+            assertThat(before).contains("SETTLED is evaluated for T sunset and T+1 sunrise");
+            beforeRows = rows(st);
+        }
+
+        flyway("212").migrate();
+
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            String after = description(st);
+            assertThat(after)
+                    .isNotEqualTo(before)
+                    .contains("left for tonight's evening refresh")
+                    .contains("(SKIPPED_NO_REFRESH_NEEDED)")
+                    .doesNotContain("SETTLED is evaluated for T sunset and T+1 sunrise")
+                    .hasSizeLessThanOrEqualTo(480);
+            Map<String, String> afterRows = rows(st);
+            String beforeJob = beforeRows.remove(JOB);
+            String afterJob = afterRows.remove(JOB);
+            assertThat(afterRows).isEqualTo(beforeRows);
+            assertThat(afterJob.substring(afterJob.indexOf('|')))
+                    .isEqualTo(beforeJob.substring(beforeJob.indexOf('|')));
+        }
+    }
+
+    @Test
+    @DisplayName("V212 leaves a hand-edited description exactly as the operator wrote it")
+    void v212LeavesAHandEditedDescriptionAlone() throws SQLException {
+        flyway("211").migrate();
+        try (Connection c = connect(); Statement st = c.createStatement()) {
+            st.executeUpdate("UPDATE scheduler_job_config SET description = 'Operator note' "
+                    + "WHERE job_key = '" + JOB + "'");
+        }
+
+        flyway("212").migrate();
 
         try (Connection c = connect(); Statement st = c.createStatement()) {
             assertThat(description(st)).isEqualTo("Operator note");

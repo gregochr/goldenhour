@@ -11,14 +11,7 @@
 -- reasoning as V141 and V174 (an applied migration is never edited in place).
 
 UPDATE scheduler_job_config
-SET description = 'Re-evaluates the decision-window events (T sunset, T+1 sunrise, T+1 sunset) '
-                  || 'ahead of tonight''s sunset (a set time before it on the '
-                  || 'sun-relative schedule, else at its cron time). TRANSITIONAL/UNSETTLED are '
-                  || 'always evaluated. SETTLED is evaluated for T sunset, and skipped for T+1 sunset '
-                  || '(SKIPPED_NO_REFRESH_NEEDED), which is guaranteed two further looks before its '
-                  || 'event. T+1 sunrise is evaluated, except that when tonight''s evening sunrise '
-                  || 'refresh is due, a T+1 sunrise that already has a rating is left for it '
-                  || '(SKIPPED_NO_REFRESH_NEEDED). Re-runs the briefing afterwards.'
+SET description = 'Re-evaluates T sunset, T+1 sunrise and T+1 sunset ahead of tonight''s sunset (a set time before it, else at its cron time). TRANSITIONAL/UNSETTLED are always evaluated. SETTLED T+1 sunset is skipped (SKIPPED_NO_REFRESH_NEEDED). A T+1 sunrise that already has a rating is left for tonight''s evening refresh when that is due. Re-runs the briefing afterwards.'
 WHERE job_key = 'intraday_forecast_refresh'
   AND description = 'Re-evaluates the decision-window events (T sunset, T+1 sunrise, T+1 sunset) '
                     || 'ahead of tonight''s sunset (a set time before it on the '

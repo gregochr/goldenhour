@@ -100,6 +100,7 @@ class ForecastTaskCollectorForceEvalTest {
     private ForecastTaskCollector collectorWithCap(int cap) {
         ForecastTaskCollector c = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.service.EvaluationViewService.class),
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
                 stabilitySnapshotProvider, travelDayService, 0.5, cap,

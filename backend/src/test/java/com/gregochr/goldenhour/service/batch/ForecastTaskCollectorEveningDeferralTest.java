@@ -26,6 +26,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -34,6 +35,7 @@ import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.service.TravelDayService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,9 +59,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -84,6 +85,7 @@ class ForecastTaskCollectorEveningDeferralTest {
     @Mock private LocationService locationService;
     @Mock private BriefingService briefingService;
     @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private ForecastService forecastService;
     @Mock private ForecastStabilityClassifier stabilityClassifier;
     @Mock private ModelSelectionService modelSelectionService;
@@ -94,29 +96,25 @@ class ForecastTaskCollectorEveningDeferralTest {
     @Mock private TravelDayService travelDayService;
 
     private ForecastTaskCollector collector;
+    private ForecastPreEvalResult preEval;
 
     @BeforeEach
     void setUp() {
         collector = new ForecastTaskCollector(
-                locationService, briefingService, briefingEvaluationService,
+                locationService, briefingService, briefingEvaluationService, evaluationViewService,
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
                 stabilitySnapshotProvider, travelDayService,
                 0.5, 0, CLOCK,
                 new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL"));
-        lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
-        lenient().when(freshnessResolver.maxAgeFor(anyInt(), any())).thenReturn(Duration.ofHours(6));
-        lenient().when(briefingEvaluationService.hasFreshEvaluation(any(), any())).thenReturn(false);
-        lenient().when(briefingEvaluationService.getCachedScores(any(), any(), any()))
-                .thenReturn(Map.of());
     }
 
     @Test
-    @DisplayName("rated T+1 sunrise that passes triage: skipped as NO_REFRESH_NEEDED, weather was fetched, "
-            + "no pending row or request")
-    void ratedSunrisePassingTriage_isDeferred() {
-        LocationEntity loc = stub(TOMORROW, TargetType.SUNRISE, false);
-        stubRating(TOMORROW, TargetType.SUNRISE, rated());
+    @DisplayName("live rating in the resolved view and the slot passes triage: skipped as NO_REFRESH_NEEDED, "
+            + "weather and triage ran, no pending row")
+    void liveRatingPassingTriage_isDeferred() {
+        LocationEntity loc = stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubLiveView(Map.of(DURHAM, rated()));
 
         ScheduledBatchTasks result = collect(true);
 
@@ -127,61 +125,106 @@ class ForecastTaskCollectorEveningDeferralTest {
         assertThat(row.locationId()).isEqualTo(42L);
         assertThat(row.daysAhead()).isEqualTo(1);
         verify(openMeteoService).prefetchWeatherBatchResilient(any(), any());
-        CollectorTriageStubs.triageOf(verifyForecast(), loc, TOMORROW, TargetType.SUNRISE,
+        CollectorTriageStubs.triageOf(verify(forecastService), loc, TOMORROW, TargetType.SUNRISE,
                 EvaluationModel.SONNET);
-        verify(forecastService, never()).persistPendingEvaluation(any());
+        verify(forecastService, never()).persistPendingEvaluation(preEval);
     }
 
     @Test
-    @DisplayName("rated T+1 sunrise that triage stands down: still SKIPPED_TRIAGED, which retracts the rating")
-    void ratedSunriseTriagedOut_staysTriaged() {
-        stub(TOMORROW, TargetType.SUNRISE, true);
-        stubRating(TOMORROW, TargetType.SUNRISE, rated());
-
-        ScheduledBatchTasks result = collect(true);
-
-        CandidateDisposition row = onlyRow(result);
-        assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
-        assertThat(row.detail()).isEqualTo("heavy cloud");
-    }
-
-    @Test
-    @DisplayName("evening due but no stored rating: T+1 sunrise is evaluated")
-    void unratedSunrise_isEvaluated() {
-        stub(TOMORROW, TargetType.SUNRISE, false);
+    @DisplayName("raw cache holds a rating but the resolved view has none (retracted): NOT deferred, "
+            + "a request is built")
+    void retractedInResolvedView_isNotDeferred() {
+        stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubPersist();
+        stubLiveView(Map.of());
 
         ScheduledBatchTasks result = collect(true);
 
         assertThat(result.nearInland()).hasSize(1);
         assertThat(onlyRow(result).category()).isEqualTo(DispositionCategory.EVALUATED);
+        verify(forecastService).persistPendingEvaluation(preEval);
     }
 
     @Test
-    @DisplayName("a stored stand-down or retracted result is not a rating: evaluated")
-    void standDownAndRetracted_areNotRatings() {
-        stub(TOMORROW, TargetType.SUNRISE, false);
-        stubRating(TOMORROW, TargetType.SUNRISE,
-                new BriefingEvaluationResult(DURHAM, null, null, null, null, null, null, null));
+    @DisplayName("resolved view has a triage-only row (null rating): NOT deferred")
+    void triageOnlyRow_isNotDeferred() {
+        stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubPersist();
+        stubLiveView(Map.of(DURHAM, new BriefingEvaluationResult(
+                DURHAM, null, null, null, null, TriageReason.HIGH_CLOUD, "cloud", null)));
 
         assertThat(collect(true).nearInland()).hasSize(1);
     }
 
     @Test
-    @DisplayName("evening not due: a rated T+1 sunrise is evaluated as before")
-    void eveningNotDue_ratedSunriseEvaluated() {
-        stub(TOMORROW, TargetType.SUNRISE, false);
-        stubRating(TOMORROW, TargetType.SUNRISE, rated());
+    @DisplayName("resolved view fails to load: the slot is rated rather than skipped")
+    void viewFailure_ratesTheSlot() {
+        stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubPersist();
+        when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE)))
+                .thenThrow(new IllegalStateException("db down"));
+
+        assertThat(collect(true).nearInland()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a location with no region cannot have a cached rating: rated, view never read")
+    void noRegion_ratesTheSlot() {
+        LocationEntity loc = stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        loc.setRegion(null);
+        stubPersist();
+
+        assertThat(collect(true).nearInland()).hasSize(1);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+    }
+
+    @Test
+    @DisplayName("a rated T+1 sunrise that triage stands down: still SKIPPED_TRIAGED, and the view is never read")
+    void ratedSunriseTriagedOut_staysTriaged() {
+        stub(TOMORROW, TargetType.SUNRISE, true, 1);
+
+        CandidateDisposition row = onlyRow(collect(true));
+
+        assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
+        assertThat(row.detail()).isEqualTo("heavy cloud");
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+    }
+
+    @Test
+    @DisplayName("the resolved view is loaded exactly once for the pass, with the candidates' date range")
+    void viewLoadedOncePerPass() {
+        stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubLiveView(Map.of(DURHAM, rated()));
+
+        collect(true);
+
+        verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+    }
+
+    @Test
+    @DisplayName("evening not due: the view is never read and a rated T+1 sunrise is evaluated")
+    void eveningNotDue_evaluated() {
+        stub(TOMORROW, TargetType.SUNRISE, false, 1);
+        stubPersist();
 
         assertThat(collect(false).nearInland()).hasSize(1);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
     }
 
     @Test
-    @DisplayName("evening due: today's sunset is evaluated even when rated")
+    @DisplayName("evening due: today's sunset is evaluated and the view is never read")
     void todaysSunset_stillEvaluated() {
-        stub(TODAY, TargetType.SUNSET, false);
-        stubRating(TODAY, TargetType.SUNSET, rated());
+        stub(TODAY, TargetType.SUNSET, false, 0);
+        stubPersist();
 
         assertThat(collect(true).nearInland()).hasSize(1);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TODAY, TODAY, Set.of(TargetType.SUNRISE));
     }
 
     // ── fixture ───────────────────────────────────────────────────────────────
@@ -192,43 +235,49 @@ class ForecastTaskCollectorEveningDeferralTest {
                 IntradayEligibilityPolicy.INSTANCE);
     }
 
-    private ForecastService verifyForecast() {
-        return verify(forecastService);
-    }
-
     private static CandidateDisposition onlyRow(ScheduledBatchTasks result) {
         assertThat(result.dispositions()).hasSize(1);
         return result.dispositions().getFirst();
     }
 
-    private void stubRating(LocalDate date, TargetType type, BriefingEvaluationResult r) {
-        lenient().when(briefingEvaluationService.getCachedScores(REGION, date, type))
-                .thenReturn(Map.of(DURHAM, r));
+    private void stubLiveView(Map<String, BriefingEvaluationResult> forDurham) {
+        when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE)))
+                .thenReturn(Map.of(CacheKeyFactory.build(REGION, TOMORROW, TargetType.SUNRISE), forDurham));
     }
 
     private static BriefingEvaluationResult rated() {
         return new BriefingEvaluationResult(DURHAM, 4, 70, 60, "Good", null, null, null);
     }
 
-    private LocationEntity stub(LocalDate date, TargetType type, boolean triaged) {
+    private void stubPersist() {
+        when(forecastService.persistPendingEvaluation(preEval)).thenReturn(1L);
+    }
+
+    private LocationEntity stub(LocalDate date, TargetType type, boolean triaged, int daysAhead) {
         LocationEntity loc = location();
         when(briefingService.getCachedBriefing()).thenReturn(briefing(date, type, loc.getName()));
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
-        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
-        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
+        when(freshnessResolver.maxAgeFor(daysAhead, ForecastStability.UNSETTLED))
+                .thenReturn(Duration.ofHours(6));
+        when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED)).thenReturn(Duration.ofHours(6));
+        when(briefingEvaluationService.hasFreshEvaluation(
+                CacheKeyFactory.build(REGION, date, type), Duration.ofHours(6))).thenReturn(false);
         when(openMeteoService.prefetchWeatherBatchResilient(any(), any()))
                 .thenReturn(Map.of(OpenMeteoService.coordKey(loc.getLat(), loc.getLon()),
                         new WeatherExtractionResult(null, new OpenMeteoForecastResponse(),
                                 new OpenMeteoAirQualityResponse())));
+        preEval = preEval(loc, date, type, triaged, daysAhead);
         when(CollectorTriageStubs.triageOf(forecastService, loc, date, type, EvaluationModel.SONNET))
-                .thenReturn(preEval(loc, date, type, triaged));
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
+                .thenReturn(preEval);
+        when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
                         ForecastStability.SETTLED, "stable", 3));
-        lenient().when(forecastService.persistPendingEvaluation(any())).thenReturn(1L);
         return loc;
     }
 
@@ -263,14 +312,13 @@ class ForecastTaskCollectorEveningDeferralTest {
     }
 
     private ForecastPreEvalResult preEval(LocationEntity loc, LocalDate date, TargetType type,
-            boolean triaged) {
+            boolean triaged, int daysAhead) {
         LocalDateTime eventTime = date.atTime(6, 0);
         AtmosphericData data = TestAtmosphericData.builder()
                 .locationName(loc.getName())
                 .solarEventTime(eventTime)
                 .targetType(type)
                 .build();
-        int daysAhead = (int) java.time.temporal.ChronoUnit.DAYS.between(TODAY, date);
         return new ForecastPreEvalResult(triaged, triaged ? "heavy cloud" : null,
                 triaged ? TriageReason.HIGH_CLOUD : null, data, loc, date, type, eventTime, 90,
                 daysAhead, EvaluationModel.SONNET, Set.of(), "k", new OpenMeteoForecastResponse());

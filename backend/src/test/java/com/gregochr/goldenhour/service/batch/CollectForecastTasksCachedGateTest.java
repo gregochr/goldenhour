@@ -106,7 +106,9 @@ class CollectForecastTasksCachedGateTest {
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService,
-                briefingEvaluationService, forecastService, stabilityClassifier,
+                briefingEvaluationService,
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.service.EvaluationViewService.class),
+                forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
                 freshnessResolver, stabilitySnapshotProvider,
                 travelDayService, 0.5, 0, CLOCK,

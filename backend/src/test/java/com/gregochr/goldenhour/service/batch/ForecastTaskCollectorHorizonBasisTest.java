@@ -144,6 +144,7 @@ class ForecastTaskCollectorHorizonBasisTest {
     void setUp() {
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.service.EvaluationViewService.class),
                 forecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver,
                 stabilitySnapshotProvider, travelDayService,

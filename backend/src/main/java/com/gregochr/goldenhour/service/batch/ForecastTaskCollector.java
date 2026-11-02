@@ -19,6 +19,7 @@ import com.gregochr.goldenhour.model.GridCellStabilityResult;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.BriefingService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.ForecastService;
 import com.gregochr.goldenhour.service.ForecastStabilityClassifier;
 import com.gregochr.goldenhour.service.FreshnessResolver;
@@ -30,6 +31,7 @@ import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TideExtremeSnapshot;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
+import com.gregochr.goldenhour.service.evaluation.CacheKeyFactory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Comparator;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -100,6 +104,7 @@ public class ForecastTaskCollector {
     private final LocationService locationService;
     private final BriefingService briefingService;
     private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final ForecastService forecastService;
     private final ForecastStabilityClassifier stabilityClassifier;
     private final ModelSelectionService modelSelectionService;
@@ -135,6 +140,9 @@ public class ForecastTaskCollector {
      * @param locationService           service for retrieving enabled locations
      * @param briefingService           cached daily briefing accessor
      * @param briefingEvaluationService evaluation cache (read-only — freshness check)
+     * @param evaluationViewService     the resolved live view of stored ratings (retractions and
+     *                                  forecast-row precedence applied), read once per pass for the
+     *                                  evening-refresh deferral
      * @param forecastService           weather fetch + triage
      * @param stabilityClassifier       per-grid-cell stability classifier
      * @param modelSelectionService     resolves the active Claude model per run type
@@ -153,6 +161,7 @@ public class ForecastTaskCollector {
     public ForecastTaskCollector(LocationService locationService,
             BriefingService briefingService,
             BriefingEvaluationService briefingEvaluationService,
+            EvaluationViewService evaluationViewService,
             ForecastService forecastService,
             ForecastStabilityClassifier stabilityClassifier,
             ModelSelectionService modelSelectionService,
@@ -170,6 +179,7 @@ public class ForecastTaskCollector {
         this.locationService = locationService;
         this.briefingService = briefingService;
         this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.forecastService = forecastService;
         this.stabilityClassifier = stabilityClassifier;
         this.modelSelectionService = modelSelectionService;
@@ -366,6 +376,7 @@ public class ForecastTaskCollector {
                 candidates.size(), forceEvalKeys.size(), forceEvalCap);
 
         TideExtremeSnapshot tideSnapshot = loadTideSnapshot(candidates);
+        LiveRatings liveRatings = new LiveRatings(candidates);
 
         for (ForecastCandidate candidate : candidates) {
             // One horizon per candidate, used by the eligibility policy and by every
@@ -501,7 +512,7 @@ public class ForecastTaskCollector {
                 // the location already holds a live rating for it.
                 if (!woodlandTask && !bluebellWoodInSeason
                         && candidateStrategy.defersRatedSlot(candidate.date(), candidate.targetType())
-                        && hasStoredRating(candidate)) {
+                        && liveRatings.hasLiveRating(candidate)) {
                     LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | reason=NO_REFRESH_NEEDED ({})",
                             candidate.location().getName(), candidate.date(),
                             candidate.targetType(),
@@ -661,18 +672,52 @@ public class ForecastTaskCollector {
     }
 
     /**
-     * Whether the candidate's region cache holds a live rating (not a stand-down, failure or
-     * retraction) for its location and slot.
+     * The resolved live view of stored ratings, loaded lazily and at most once per collection pass.
+     *
+     * <p>Read from {@link EvaluationViewService#getLiveScoresForEnrichmentBulk} rather than the raw
+     * evaluation cache: persisted cache entries never carry {@code retracted}, and a later
+     * SKIPPED_STABILITY / SKIPPED_TRIAGED row or a newer forecast row only takes effect in that view. A
+     * rating counts as live when its entry exists, has a non-null {@code rating} and is not retracted;
+     * a triage-only entry does not. The view spans the candidates' dates in one call, so it is never
+     * read per slot. A failure to load it reads as "no rating", which rates the slot.
      */
-    private boolean hasStoredRating(ForecastCandidate candidate) {
-        if (candidate.location().getRegion() == null) {
-            return false;
+    private final class LiveRatings {
+
+        private final List<ForecastCandidate> candidates;
+        private Map<String, Map<String, BriefingEvaluationResult>> view;
+
+        LiveRatings(List<ForecastCandidate> candidates) {
+            this.candidates = candidates;
         }
-        BriefingEvaluationResult stored = briefingEvaluationService
-                .getCachedScores(candidate.location().getRegion().getName(), candidate.date(),
-                        candidate.targetType())
-                .get(candidate.location().getName());
-        return stored != null && stored.rating() != null && !stored.retracted();
+
+        boolean hasLiveRating(ForecastCandidate candidate) {
+            if (candidate.location().getRegion() == null) {
+                return false;
+            }
+            if (view == null) {
+                view = load();
+            }
+            BriefingEvaluationResult stored = view
+                    .getOrDefault(CacheKeyFactory.build(candidate.location().getRegion().getName(),
+                            candidate.date(), candidate.targetType()), Map.of())
+                    .get(candidate.location().getName());
+            return stored != null && stored.rating() != null && !stored.retracted();
+        }
+
+        private Map<String, Map<String, BriefingEvaluationResult>> load() {
+            LocalDate start = candidates.stream().map(ForecastCandidate::date)
+                    .min(Comparator.naturalOrder()).orElseThrow();
+            LocalDate end = candidates.stream().map(ForecastCandidate::date)
+                    .max(Comparator.naturalOrder()).orElseThrow();
+            try {
+                return evaluationViewService.getLiveScoresForEnrichmentBulk(
+                        start, end, Set.of(TargetType.SUNRISE));
+            } catch (RuntimeException e) {
+                LOG.warn("Evening-refresh deferral: live ratings unavailable, rating every slot: {}",
+                        e.getMessage());
+                return Map.of();
+            }
+        }
     }
 
     /**
