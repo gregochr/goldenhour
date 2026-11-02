@@ -1,0 +1,152 @@
+{
+  "locationName" : "Steel Rigg & Winshield Crags",
+  "solarEventTime" : "2026-10-24T06:56:17",
+  "targetType" : "SUNRISE",
+  "cloud" : {
+    "lowCloudPercent" : 34,
+    "midCloudPercent" : 86,
+    "highCloudPercent" : 100
+  },
+  "weather" : {
+    "visibilityMetres" : 18960,
+    "windSpeedMs" : 2.90,
+    "windDirectionDegrees" : 244,
+    "precipitationMm" : 0.00,
+    "humidityPercent" : 96,
+    "weatherCode" : 3,
+    "shortwaveRadiationWm2" : 0,
+    "dewPointCelsius" : 2.6,
+    "pressureHpa" : 1013.25,
+    "snowfallCm" : null,
+    "snowDepthMetres" : null,
+    "freezingLevelMetres" : null,
+    "temperature925hPaCelsius" : null,
+    "temperature850hPaCelsius" : null,
+    "precedingPrecipitationMm" : null
+  },
+  "aerosol" : {
+    "pm25" : 3.70,
+    "dustUgm3" : 0.00,
+    "aerosolOpticalDepth" : 0.080,
+    "boundaryLayerHeightMetres" : 410
+  },
+  "comfort" : {
+    "temperatureCelsius" : 3.2,
+    "apparentTemperatureCelsius" : 1.4,
+    "precipitationProbability" : 0
+  },
+  "directionalCloud" : {
+    "solarLowCloudPercent" : 0,
+    "solarMidCloudPercent" : 0,
+    "solarHighCloudPercent" : 87,
+    "antisolarLowCloudPercent" : 60,
+    "antisolarMidCloudPercent" : 100,
+    "antisolarHighCloudPercent" : 100,
+    "farSolarLowCloudPercent" : 80,
+    "farSolarMidCloudPercent" : null,
+    "farSolarHighCloudPercent" : null,
+    "farSolarLowCloudPercentDarkHour" : null,
+    "farSolarMidCloudPercentDarkHour" : null,
+    "farSolarHighCloudPercentDarkHour" : null,
+    "farSolarCloud850hPa" : null,
+    "farSolarCloud700hPa" : null,
+    "farSolarCloud600hPa" : null,
+    "farSolarCloud500hPa" : null,
+    "farSolarCloud400hPa" : null,
+    "farSolarCloud300hPa" : null,
+    "farSolarCloud250hPa" : null,
+    "farSolarCloud200hPa" : null
+  },
+  "tide" : null,
+  "cloudApproach" : {
+    "solarTrend" : {
+      "slots" : [ {
+        "hoursBeforeEvent" : 3,
+        "lowCloudPercent" : 18,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 100
+      }, {
+        "hoursBeforeEvent" : 2,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 96
+      }, {
+        "hoursBeforeEvent" : 1,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 98
+      }, {
+        "hoursBeforeEvent" : 0,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 87
+      } ],
+      "building" : false,
+      "clearing" : false
+    },
+    "upwindSample" : {
+      "distanceKm" : 43,
+      "windFromBearing" : 244,
+      "currentLowCloudPercent" : 0,
+      "eventLowCloudPercent" : 78
+    }
+  },
+  "mistTrend" : {
+    "slots" : [ {
+      "hoursRelativeToEvent" : -3,
+      "visibilityMetres" : 23560,
+      "dewPointCelsius" : 2.2,
+      "temperatureCelsius" : 2.8,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : -2,
+      "visibilityMetres" : 22720,
+      "dewPointCelsius" : 2.3,
+      "temperatureCelsius" : 2.9,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : -1,
+      "visibilityMetres" : 21580,
+      "dewPointCelsius" : 2.4,
+      "temperatureCelsius" : 2.9,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 0,
+      "visibilityMetres" : 18960,
+      "dewPointCelsius" : 2.6,
+      "temperatureCelsius" : 3.2,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 1,
+      "visibilityMetres" : 29840,
+      "dewPointCelsius" : 3.5,
+      "temperatureCelsius" : 5.0,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 2,
+      "visibilityMetres" : 33980,
+      "dewPointCelsius" : 4.3,
+      "temperatureCelsius" : 6.1,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    } ]
+  },
+  "locationOrientation" : "sunrise-optimised",
+  "surge" : null,
+  "adjustedRangeMetres" : null,
+  "astronomicalRangeMetres" : null,
+  "inversionScore" : null,
+  "bluebellConditionScore" : null,
+  "stability" : null,
+  "stabilityReason" : null,
+  "pressureTrend" : null,
+  "mistScore" : null,
+  "mistPotential" : null,
+  "inversionV2" : null,
+  "coastalMist" : null
+}
