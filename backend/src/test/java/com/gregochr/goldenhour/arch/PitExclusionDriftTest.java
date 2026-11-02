@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,6 +14,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.annotation.MergedAnnotations;
+import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
 
 /**
  * Guards the PIT mutation run against exclusion drift.
@@ -54,6 +57,22 @@ class PitExclusionDriftTest {
     private static final Path POM = Path.of("pom.xml");
 
     private static final Path TEST_SOURCE_ROOT = Path.of("src", "test", "java");
+
+    /** Compiled test classes, which exist by the time surefire runs this class. */
+    private static final Path TEST_CLASSES_ROOT = Path.of("target", "test-classes");
+
+    /** Root package of the project's tests. */
+    private static final String ROOT_PACKAGE = "com.gregochr.goldenhour";
+
+    /** Annotations that make a test boot a full application context or start containers. */
+    private static final List<String> HEAVY_ANNOTATIONS = List.of(
+            "org.springframework.boot.test.context.SpringBootTest",
+            "org.testcontainers.junit.jupiter.Testcontainers");
+
+    /** Base classes of the Testcontainers integration tests. */
+    private static final List<String> HEAVY_BASE_CLASSES = List.of(
+            "com.gregochr.goldenhour.integration.IntegrationTestBase",
+            "com.gregochr.goldenhour.integration.HttpIntegrationTestBase");
 
     /**
      * Verifies the working-directory assumption instead of relying on it.
@@ -99,6 +118,28 @@ class PitExclusionDriftTest {
                         + "a red suite — that is how the weekly mutation run went red for four "
                         + "consecutive Mondays from 2026-06-29 (CHANGELOG). Currently listed: %s",
                         className, excludedPatterns)
+                .anyMatch(pattern -> matchesPitGlob(pattern, className)));
+    }
+
+    @Test
+    void everyContextBootingOrTestcontainersClassIsListedInPitExcludedTestClasses()
+            throws IOException {
+        List<String> excludedPatterns = paramsOf("excludedTestClasses");
+        List<String> heavy = contextBootingTestClasses();
+
+        assertThat(heavy)
+                .as("no @SpringBootTest / @Testcontainers class was found under %s. This ratchet "
+                        + "only has teeth if the scan finds them; an empty result would make the "
+                        + "assertion below vacuously true. Run it after test-compile.",
+                        TEST_CLASSES_ROOT)
+                .isNotEmpty();
+
+        assertThat(heavy).allSatisfy(className -> assertThat(excludedPatterns)
+                .as("add a <param> matching %s to <excludedTestClasses> in the pitest-maven "
+                        + "configuration in backend/pom.xml. It boots a full Spring context or "
+                        + "Testcontainers, so under PIT it covers all startup-executed code and "
+                        + "makes the weekly mutation run unbounded (2h23m to over 6h, October "
+                        + "2026). Currently listed: %s", className, excludedPatterns)
                 .anyMatch(pattern -> matchesPitGlob(pattern, className)));
     }
 
@@ -174,6 +215,60 @@ class PitExclusionDriftTest {
                     .sorted()
                     .toList();
         }
+    }
+
+    /**
+     * Scans the compiled test classes by reflection for concrete classes that boot a full Spring
+     * Boot context or Testcontainers, directly, through a meta-annotation or by inheritance.
+     *
+     * @return sorted fully-qualified names of the outer classes (nested classes map to their
+     *         enclosing class, which is what PIT matches)
+     * @throws IOException if the class tree cannot be walked
+     */
+    private static List<String> contextBootingTestClasses() throws IOException {
+        assertThat(TEST_CLASSES_ROOT)
+                .as("compiled test classes must exist (surefire runs after test-compile)")
+                .isDirectory();
+        ClassLoader loader = PitExclusionDriftTest.class.getClassLoader();
+        try (Stream<Path> files = Files.walk(TEST_CLASSES_ROOT)) {
+            return files
+                    .filter(path -> path.getFileName().toString().endsWith(".class"))
+                    .map(path -> TEST_CLASSES_ROOT.relativize(path).toString()
+                            .replace(path.getFileSystem().getSeparator(), ".")
+                            .replaceAll("\\.class$", ""))
+                    .filter(name -> name.startsWith(ROOT_PACKAGE))
+                    .map(name -> load(name, loader))
+                    .filter(cls -> cls != null && !Modifier.isAbstract(cls.getModifiers())
+                            && !cls.isInterface() && bootsHeavyInfrastructure(cls))
+                    .map(cls -> cls.getName().replaceAll("\\$.*", ""))
+                    .distinct()
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    private static Class<?> load(String name, ClassLoader loader) {
+        try {
+            return Class.forName(name, false, loader);
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
+    private static boolean bootsHeavyInfrastructure(Class<?> cls) {
+        MergedAnnotations annotations =
+                MergedAnnotations.from(cls, SearchStrategy.TYPE_HIERARCHY);
+        return HEAVY_ANNOTATIONS.stream().anyMatch(annotations::isPresent)
+                || HEAVY_BASE_CLASSES.stream().anyMatch(base -> inheritsFrom(cls, base));
+    }
+
+    private static boolean inheritsFrom(Class<?> cls, String baseName) {
+        for (Class<?> c = cls.getSuperclass(); c != null; c = c.getSuperclass()) {
+            if (c.getName().equals(baseName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

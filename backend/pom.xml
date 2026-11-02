@@ -739,11 +739,27 @@
                         the list below too: PitExclusionDriftTest walks src/test/java and fails the
                         build when a tagged class is missing from <excludedTestClasses>, or when
                         the tag disappears from <excludedGroups>.
+
+                        Full-application-context and Testcontainers tests are excluded too (the
+                        integration package, the @SpringBootTest classes listed below): each one
+                        covers all the startup-executed code, and async startup work such as
+                        AlmanacService.warmOnStartup is credited to whichever test runs next, so
+                        every such test becomes a covering test for thousands of mutants and PIT's
+                        runtime is unbounded. PitExclusionDriftTest enforces this: a new class that
+                        boots a full context or Testcontainers must be listed here.
                     -->
                     <excludedTestClasses>
                         <param>com.gregochr.goldenhour.controller.*</param>
                         <param>com.gregochr.goldenhour.*IntegrationTest</param>
                         <param>com.gregochr.goldenhour.*IT</param>
+                        <param>com.gregochr.goldenhour.integration.*</param>
+                        <param>com.gregochr.goldenhour.GoldenHourApplicationTests</param>
+                        <param>com.gregochr.goldenhour.config.ResilienceConfigTest</param>
+                        <param>com.gregochr.goldenhour.config.JwtAuthenticationFilterTest</param>
+                        <param>com.gregochr.goldenhour.service.LocationFailureTrackingTest</param>
+                        <param>com.gregochr.goldenhour.service.PasswordResetFlowTest</param>
+                        <param>com.gregochr.goldenhour.service.CredentialInvalidationFlowTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskCreateMessageResilienceTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.ValleyMistPromptRegressionTest</param>

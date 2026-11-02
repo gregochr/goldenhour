@@ -10,7 +10,9 @@ jobs:
     name: PIT Mutation Testing
     runs-on: self-hosted
     # Shares the single self-hosted runner with Deploy to Production; the slowest
-    # successful run took ~2h23m, so cap well below GitHub's 6-hour default.
+    # successful run took ~2h23m, so cap well below GitHub's 6-hour default. The cap is
+    # 180 min; PIT excludes the context-booting and Testcontainers tests (see backend/pom.xml)
+    # so the run stays bounded. It compiles only: surefire already runs per PR in CI.
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +27,7 @@ jobs:
         run: |
           set -o pipefail
           chmod +x backend/mvnw
-          cd backend && ./mvnw test pitest:mutationCoverage --batch-mode --no-transfer-progress 2>&1 | tee pitest-output.log
+          cd backend && ./mvnw test-compile pitest:mutationCoverage --batch-mode --no-transfer-progress 2>&1 | tee pitest-output.log
           # Extract summary stats from PIT output
           MUTATIONS=$(grep 'Generated .* mutations Killed' pitest-output.log | grep -oE 'Generated [0-9]+ mutations Killed [0-9]+' || echo 'No summary found')
           STRENGTH=$(grep 'Test strength' pitest-output.log | grep -oE '[0-9]+%' || echo 'N/A')
