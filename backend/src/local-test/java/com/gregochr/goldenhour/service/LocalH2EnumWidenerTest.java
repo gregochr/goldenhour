@@ -123,6 +123,15 @@ class LocalH2EnumWidenerTest {
     }
 
     @Test
+    @DisplayName("the Sky Eval run model column is a widening target; the exclusion table is a plain string")
+    void skyEvalModelColumnsAreTargets() {
+        assertThat(LocalH2EnumWidener.TARGETS).contains(
+                new Target("sky_rating_eval_run", "model", com.gregochr.goldenhour.entity.EvaluationModel.class));
+        assertThat(LocalH2EnumWidener.TARGETS).extracting(Target::table)
+                .doesNotContain("sky_rating_eval_model_exclusion");
+    }
+
+    @Test
     @DisplayName("the real target: an old job_run.run_type gains ASK and ASK_READY")
     void realTargetGainsTheAskRunTypes() throws SQLException {
         DataSource ds = database();

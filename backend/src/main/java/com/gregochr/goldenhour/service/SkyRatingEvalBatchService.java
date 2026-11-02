@@ -123,16 +123,21 @@ public class SkyRatingEvalBatchService {
     }
 
     /**
-     * Scheduler entry point: creates one RUNNING run per {@link SkyRatingEvalService#SCHEDULED_MODELS
-     * model}, submits all their fixture scorings as a single batch, persists the batch id on every
+     * Scheduler entry point: creates one RUNNING run per {@link SkyRatingEvalService#scheduledModels()
+     * scheduled model}, submits all their fixture scorings as a single batch, persists the batch id on every
      * run, and returns at once. The {@link #reconcilePendingBatches() reconciler} drives the batch to
      * completion out of band, so no thread is pinned and a restart cannot lose the batch.
      *
      * @return the started runs, one per model (their final status is persisted by the reconciler)
      */
     public List<SkyRatingEvalRunEntity> runScheduledBatched() {
+        List<EvaluationModel> models = evalService.scheduledModels();
+        if (models.isEmpty()) {
+            LOG.info("Sky-rating eval weekly batch skipped: every model is switched off");
+            return List.of();
+        }
         List<RunContext> contexts = new ArrayList<>();
-        for (EvaluationModel model : SkyRatingEvalService.SCHEDULED_MODELS) {
+        for (EvaluationModel model : models) {
             SkyRatingEvalRunEntity run = evalService.startRun(
                     model, SkyRatingEvalTrigger.SCHEDULED, SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE);
             contexts.add(new RunContext(run, model));

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.SkyRatingEvalModelExclusionEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
@@ -11,9 +12,11 @@ import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.ScheduledModelView;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.repository.SkyRatingEvalModelExclusionRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -36,6 +40,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -50,10 +58,167 @@ import static org.mockito.Mockito.when;
 class SkyRatingEvalServiceTest {
 
     @Test
-    void scheduledModels_areEverySelectableModel_includingThe55Pair() {
-        assertThat(SkyRatingEvalService.SCHEDULED_MODELS).isEqualTo(EvaluationModel.selectable());
-        assertThat(SkyRatingEvalService.SCHEDULED_MODELS)
-                .contains(EvaluationModel.HAIKU_55, EvaluationModel.SONNET_55);
+    void scheduledModels_withNoExclusions_areEverySelectableModel_includingThe55Pair() {
+        when(exclusionRepository.findAll()).thenReturn(List.of());
+
+        assertThat(service().scheduledModels()).isEqualTo(EvaluationModel.selectable());
+        assertThat(service().scheduledModels()).contains(EvaluationModel.HAIKU_55, EvaluationModel.SONNET_55);
+    }
+
+    @Test
+    void scheduledModels_dropsAnExcludedModel_andKeepsSelectableOrder() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("OPUS")));
+
+        List<EvaluationModel> expected = EvaluationModel.selectable().stream()
+                .filter(m -> m != EvaluationModel.OPUS).toList();
+        assertThat(service().scheduledModels()).containsExactlyElementsOf(expected);
+    }
+
+    @Test
+    void scheduledModels_ignoresAnExclusionForANonSelectableModel() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("WILDLIFE")));
+
+        assertThat(service().scheduledModels()).isEqualTo(EvaluationModel.selectable());
+    }
+
+    @Test
+    void schedule_hasOneRowPerSelectableModel_withExcludedOnesOff() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("SONNET")));
+
+        List<ScheduledModelView> rows = service().schedule();
+
+        assertThat(rows).extracting(ScheduledModelView::model)
+                .containsExactlyElementsOf(EvaluationModel.selectable());
+        assertThat(rows).filteredOn(r -> !r.scheduled())
+                .extracting(ScheduledModelView::model).containsExactly(EvaluationModel.SONNET);
+    }
+
+    @Test
+    void setScheduled_false_insertsAnExclusionRow() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
+
+        ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
+
+        assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, false));
+        ArgumentCaptor<SkyRatingEvalModelExclusionEntity> saved =
+                ArgumentCaptor.forClass(SkyRatingEvalModelExclusionEntity.class);
+        verify(exclusionRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getModel()).isEqualTo("OPUS");
+        assertThat(saved.getValue().getExcludedAt()).isNotNull();
+    }
+
+    @Test
+    void setScheduled_false_whenAlreadyExcluded_isIdempotent() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(true);
+
+        ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
+
+        assertThat(view.scheduled()).isFalse();
+        verify(exclusionRepository).existsById("OPUS");
+        verifyNoMoreInteractions(exclusionRepository);
+    }
+
+    @Test
+    void setScheduled_false_whenAConcurrentRequestInsertedFirst_stillReportsExcluded() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
+        when(exclusionRepository.saveAndFlush(any(SkyRatingEvalModelExclusionEntity.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
+
+        assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, false));
+    }
+
+    @Test
+    void anExclusionRowForARetiredModelIsIgnoredByScheduledModelsAndSchedule() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("RETIRED_MODEL")));
+
+        assertThat(service().scheduledModels()).isEqualTo(EvaluationModel.selectable());
+        assertThat(service().schedule()).allSatisfy(row -> assertThat(row.scheduled()).isTrue());
+    }
+
+    @Test
+    void setScheduled_true_deletesTheExclusionRow() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(true);
+
+        ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, true);
+
+        assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, true));
+        verify(exclusionRepository).deleteById("OPUS");
+    }
+
+    @Test
+    void setScheduled_true_whenNotExcluded_isIdempotent() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
+
+        service().setScheduled(EvaluationModel.OPUS, true);
+
+        verify(exclusionRepository).existsById("OPUS");
+        verifyNoMoreInteractions(exclusionRepository);
+    }
+
+    @Test
+    void setScheduled_rejectsANonSelectableModel() {
+        assertThatThrownBy(() -> service().setScheduled(EvaluationModel.WILDLIFE, false))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().setScheduled(null, false))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(exclusionRepository);
+    }
+
+    @Test
+    void runScheduled_withEveryModelExcluded_createsNoRuns() {
+        when(exclusionRepository.findAll()).thenReturn(
+                EvaluationModel.selectable().stream().map(m -> exclusion(m.name())).toList());
+
+        assertThat(service().runScheduled()).isEmpty();
+
+        verifyNoInteractions(runRepository);
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    void runScheduled_skipsAnExcludedModel() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("OPUS")));
+        EvaluationDetail detail = new EvaluationDetail(
+                new SunsetEvaluation(3, 50, 60, "A controlled summary."),
+                "prompt", "raw", 100L, new TokenUsage(100, 20, 0, 0));
+        List<EvaluationModel> scheduled = EvaluationModel.selectable().stream()
+                .filter(m -> m != EvaluationModel.OPUS).toList();
+        for (EvaluationModel model : scheduled) {
+            when(evaluationService.evaluateWithDetails(any(AtmosphericData.class), eq(model), isNull()))
+                    .thenReturn(detail);
+            when(costCalculator.calculateCostMicroDollars(eq(model), any(), eq(false)))
+                    .thenReturn(COST_PER_CALL);
+        }
+        Map<Long, SkyRatingEvalRunEntity> store = new HashMap<>();
+        AtomicLong ids = new AtomicLong(0);
+        when(runRepository.save(any())).thenAnswer(inv -> {
+            SkyRatingEvalRunEntity r = inv.getArgument(0);
+            if (r.getId() == null) {
+                r.setId(ids.incrementAndGet());
+            }
+            store.put(r.getId(), r);
+            return r;
+        });
+        when(runRepository.findById(any()))
+                .thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
+
+        List<SkyRatingEvalRunEntity> runs = service().runScheduled();
+
+        assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel).containsExactlyElementsOf(scheduled);
+        int callsPerModel = SkyRatingEvalFixtures.ALL.size() * SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE;
+        for (EvaluationModel model : scheduled) {
+            verify(evaluationService, times(callsPerModel))
+                    .evaluateWithDetails(any(AtmosphericData.class), eq(model), isNull());
+        }
+        verify(evaluationService, never())
+                .evaluateWithDetails(any(AtmosphericData.class), eq(EvaluationModel.OPUS), isNull());
+    }
+
+    private static SkyRatingEvalModelExclusionEntity exclusion(String model) {
+        return SkyRatingEvalModelExclusionEntity.builder()
+                .model(model).excludedAt(LocalDateTime.of(2026, 11, 2, 9, 0)).build();
     }
 
     private static final int RUNS = 2;
@@ -69,10 +234,12 @@ class SkyRatingEvalServiceTest {
     private SkyRatingEvalRunRepository runRepository;
     @Mock
     private SkyRatingEvalResultRepository resultRepository;
+    @Mock
+    private SkyRatingEvalModelExclusionRepository exclusionRepository;
 
     private SkyRatingEvalService service() {
         return new SkyRatingEvalService(evaluationService, costCalculator, gitInfoService,
-                runRepository, resultRepository);
+                runRepository, resultRepository, exclusionRepository);
     }
 
     @Test

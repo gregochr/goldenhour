@@ -13,19 +13,30 @@ vi.mock('../api/skyRatingEvalApi', () => ({
   getSkyRatingEvalRuns: vi.fn(),
   getSkyRatingEvalRun: vi.fn(),
   getSkyRatingEvalTrend: vi.fn(),
+  getSkyRatingEvalSchedule: vi.fn(),
+  setSkyRatingEvalScheduled: vi.fn(),
 }));
 
-// Recharts' ResponsiveContainer needs a sized parent in jsdom; stub it to render children.
-vi.mock('recharts', async (importOriginal) => {
-  const actual = await importOriginal();
-  return {
-    ...actual,
-    ResponsiveContainer: ({ children }) => <div style={{ width: 400, height: 150 }}>{children}</div>,
-  };
-});
+// Recharts draws nothing in jsdom (no layout), so the chart parts are stubbed to expose what the view
+// asks them to draw: each LineChart carries its data, each Line its dataKey and stroke. Legend entries
+// are derived from the Lines, so a Line that is not rendered has no legend entry either.
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }) => <div>{children}</div>,
+  LineChart: ({ data, children }) => (
+    <div data-testid="line-chart" data-points={JSON.stringify(data)}>{children}</div>
+  ),
+  Line: ({ dataKey, stroke }) => <span data-testid={`line-${dataKey}`} data-stroke={stroke} />,
+  XAxis: () => null,
+  YAxis: ({ domain }) => <span data-testid="y-axis" data-domain={JSON.stringify(domain)} />,
+  Tooltip: () => null,
+  ReferenceArea: () => null,
+  CartesianGrid: () => null,
+  Legend: () => null,
+}));
 
 import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalTrend,
+  getSkyRatingEvalSchedule, setSkyRatingEvalScheduled,
 } from '../api/skyRatingEvalApi';
 import { getAvailableModels } from '../api/modelsApi';
 
@@ -60,9 +71,22 @@ const RUNS = [
   },
 ];
 
+const SCHEDULE = AVAILABLE.available.map((m) => ({ model: m.name, scheduled: true }));
+
+/** Completed runs for three models on one day, so the accuracy chart has three lines. */
+const THREE_MODEL_RUNS = [
+  { ...RUNS[0], id: 3, model: 'OPUS', passRate: 1.0 },
+  { ...RUNS[0], id: 2, model: 'SONNET', passRate: 0.9 },
+  { ...RUNS[0], id: 1, model: 'HAIKU', passRate: 0.7 },
+];
+
+const hiddenKey = (model) => `skyEval.chartHidden.${model}`;
+
 describe('SkyRatingEvalView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    getSkyRatingEvalSchedule.mockResolvedValue({ data: SCHEDULE });
     getSkyRatingEvalRuns.mockResolvedValue({ data: RUNS });
     getSkyRatingEvalTrend.mockResolvedValue({ data: TREND });
     getAvailableModels.mockResolvedValue(AVAILABLE);
@@ -70,6 +94,7 @@ describe('SkyRatingEvalView', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it('renders controls and a per-fixture drift chart for each fixture', async () => {
@@ -239,6 +264,267 @@ describe('SkyRatingEvalView', () => {
     render(<SkyRatingEvalView />);
     expect(await screen.findByText(/Model accuracy over time/)).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-run-5')).toHaveTextContent('Opus (ET)');
+  });
+
+  describe('Weekly run row', () => {
+    it('renders one checkbox per model, ticked from the schedule, under its own label', async () => {
+      getSkyRatingEvalSchedule.mockResolvedValue({
+        data: SCHEDULE.map((r) => (r.model === 'OPUS' ? { ...r, scheduled: false } : r)),
+      });
+      render(<SkyRatingEvalView />);
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-SONNET')).toBeChecked());
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked();
+      expect(screen.getAllByRole('checkbox').filter((c) => c.dataset.testid.startsWith('sky-eval-schedule-')))
+        .toHaveLength(5);
+      expect(screen.getByTestId('sky-eval-schedule-row')).toHaveTextContent('Weekly run');
+      expect(screen.getByTestId('sky-eval-schedule-row')).toHaveTextContent('weekly when the scheduler job is resumed');
+    });
+
+    it('PUTs the toggled model and value, and applies the response row', async () => {
+      setSkyRatingEvalScheduled.mockResolvedValue({ data: { model: 'OPUS', scheduled: false } });
+      render(<SkyRatingEvalView />);
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+      await waitFor(() => expect(setSkyRatingEvalScheduled).toHaveBeenCalledWith('OPUS', false));
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked());
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeDisabled();
+    });
+
+    it('disables the checkbox while its request is in flight', async () => {
+      let resolve;
+      setSkyRatingEvalScheduled.mockReturnValue(new Promise((r) => { resolve = r; }));
+      render(<SkyRatingEvalView />);
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeDisabled());
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked();
+      resolve({ data: { model: 'OPUS', scheduled: false } });
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeDisabled());
+    });
+
+    it('reverts and shows the banner when the PUT fails', async () => {
+      setSkyRatingEvalScheduled.mockRejectedValue(Object.assign(
+        new Error('Request failed with status code 500'),
+        { response: { status: 500, data: { error: 'Could not save the schedule' } } },
+      ));
+      render(<SkyRatingEvalView />);
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+      expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('Could not save the schedule');
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked();
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeDisabled();
+    });
+
+    it('applies only the toggled row, so out-of-order responses cannot undo each other', async () => {
+      const pending = {};
+      setSkyRatingEvalScheduled.mockImplementation((model) => new Promise((r) => { pending[model] = r; }));
+      render(<SkyRatingEvalView />);
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-HAIKU'));
+      // B (HAIKU) answers first, then A (OPUS). Each response row is correct for its own model; a
+      // whole-list replace would have the late OPUS reply carry HAIKU as still ticked.
+      pending.HAIKU({ data: { model: 'HAIKU', scheduled: false } });
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeDisabled());
+      pending.OPUS({ data: { model: 'OPUS', scheduled: false } });
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeDisabled());
+      expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked();
+      expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeChecked();
+      expect(screen.getByTestId('sky-eval-schedule-SONNET')).toBeChecked();
+    });
+
+    it('does not render a weekly checkbox for a model the schedule does not list', async () => {
+      getSkyRatingEvalSchedule.mockResolvedValue({ data: SCHEDULE.filter((r) => r.model !== 'HAIKU_55') });
+      render(<SkyRatingEvalView />);
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-SONNET')).toBeChecked());
+      expect(screen.queryByTestId('sky-eval-schedule-HAIKU_55')).not.toBeInTheDocument();
+      expect(screen.getByTestId('sky-eval-model-HAIKU_55')).toBeInTheDocument();
+    });
+
+    it('does not clear an unrelated error banner when a toggle succeeds', async () => {
+      getAvailableModels.mockResolvedValueOnce(AVAILABLE);
+      setSkyRatingEvalScheduled.mockResolvedValue({ data: { model: 'OPUS', scheduled: false } });
+      getSkyRatingEvalRuns.mockRejectedValue(new Error('runs down'));
+      render(<SkyRatingEvalView />);
+      expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('runs down');
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked());
+      expect(screen.getByTestId('sky-eval-error')).toHaveTextContent('runs down');
+    });
+
+    it('labels each of the three rows as a named group', async () => {
+      getSkyRatingEvalRuns.mockResolvedValue({ data: THREE_MODEL_RUNS });
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByRole('group', { name: 'Run now' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Weekly run' })).toBeInTheDocument();
+      expect(await screen.findByRole('group', { name: 'Show on chart' })).toBeInTheDocument();
+    });
+
+    it('says the weekly run will be skipped when no model is ticked', async () => {
+      getSkyRatingEvalSchedule.mockResolvedValue({ data: SCHEDULE.map((r) => ({ ...r, scheduled: false })) });
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByTestId('sky-eval-schedule-none')).toHaveTextContent('skipped');
+    });
+
+    it('shows the error and disables the row when the schedule fails to load, never ticking by guess', async () => {
+      getSkyRatingEvalSchedule.mockRejectedValue(Object.assign(
+        new Error('Request failed with status code 500'),
+        { response: { status: 500, data: { error: 'Schedule unavailable' } } },
+      ));
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByTestId('sky-eval-schedule-error')).toHaveTextContent('Schedule unavailable');
+      const box = screen.getByTestId('sky-eval-schedule-SONNET');
+      expect(box).toBeDisabled();
+      expect(box).not.toBeChecked();
+      expect(screen.queryByTestId('sky-eval-schedule-none')).not.toBeInTheDocument();
+    });
+
+    it('leaves the Run now radios driving the manual run and the drift panel', async () => {
+      render(<SkyRatingEvalView />);
+      fireEvent.click(await screen.findByTestId('sky-eval-model-HAIKU'));
+
+      expect(screen.getByTestId('sky-eval-model-HAIKU')).toBeChecked();
+      expect(screen.getAllByRole('radio')).toHaveLength(5);
+      expect(await screen.findByTestId('sky-eval-empty')).toHaveTextContent('Haiku');
+      expect(setSkyRatingEvalScheduled).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Show on chart row', () => {
+    const accuracyPoints = () => JSON.parse(screen.getAllByTestId('line-chart')[0].dataset.points);
+
+    beforeEach(() => {
+      getSkyRatingEvalRuns.mockResolvedValue({ data: THREE_MODEL_RUNS });
+    });
+
+    it('offers one checkbox per model that has completed runs, all ticked by default', async () => {
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByTestId('sky-eval-show-HAIKU')).toBeChecked();
+      expect(screen.getByTestId('sky-eval-show-SONNET')).toBeChecked();
+      expect(screen.getByTestId('sky-eval-show-OPUS')).toBeChecked();
+      expect(screen.queryByTestId('sky-eval-show-HAIKU_55')).not.toBeInTheDocument();
+      expect(screen.getByTestId('sky-eval-chart-row')).toHaveTextContent('Show on chart');
+    });
+
+    it('unticking a model removes its line (and so its legend entry)', async () => {
+      render(<SkyRatingEvalView />);
+      await screen.findByText(/Model accuracy over time/);
+      expect(screen.getByTestId('line-OPUS')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('sky-eval-show-OPUS'));
+
+      expect(screen.queryByTestId('line-OPUS')).not.toBeInTheDocument();
+      expect(screen.getByTestId('line-SONNET')).toBeInTheDocument();
+      expect(screen.getByTestId('line-HAIKU')).toBeInTheDocument();
+      expect(screen.getByTestId('sky-eval-show-OPUS')).not.toBeChecked();
+    });
+
+    it('keeps each remaining line the colour of its model', async () => {
+      render(<SkyRatingEvalView />);
+      await screen.findByText(/Model accuracy over time/);
+      expect(screen.getByTestId('line-OPUS')).toHaveAttribute('data-stroke', modelColour('OPUS', 2));
+
+      fireEvent.click(screen.getByTestId('sky-eval-show-HAIKU'));
+
+      expect(screen.queryByTestId('line-HAIKU')).not.toBeInTheDocument();
+      expect(screen.getByTestId('line-SONNET')).toHaveAttribute('data-stroke', modelColour('SONNET', 1));
+      expect(screen.getByTestId('line-OPUS')).toHaveAttribute('data-stroke', modelColour('OPUS', 2));
+    });
+
+    it('remembers a hidden model as the literal 1 under its own key, and removes the key when shown again', async () => {
+      render(<SkyRatingEvalView />);
+      fireEvent.click(await screen.findByTestId('sky-eval-show-OPUS'));
+
+      expect(window.localStorage.getItem(hiddenKey('OPUS'))).toBe('1');
+      expect(window.localStorage.getItem(hiddenKey('SONNET'))).toBeNull();
+
+      fireEvent.click(screen.getByTestId('sky-eval-show-OPUS'));
+      expect(window.localStorage.getItem(hiddenKey('OPUS'))).toBeNull();
+    });
+
+    it('restores a hidden model from localStorage and shows one with no key', async () => {
+      window.localStorage.setItem(hiddenKey('OPUS'), '1');
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByTestId('sky-eval-show-OPUS')).not.toBeChecked();
+      expect(screen.getByTestId('sky-eval-show-SONNET')).toBeChecked();
+      expect(screen.getByTestId('sky-eval-show-HAIKU')).toBeChecked();
+    });
+
+    it('treats any stored value other than 1 as shown', async () => {
+      window.localStorage.setItem(hiddenKey('OPUS'), 'garbage');
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByTestId('sky-eval-show-OPUS')).toBeChecked();
+    });
+
+    it('still renders and toggles when storage throws', async () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+      render(<SkyRatingEvalView />);
+
+      const box = await screen.findByTestId('sky-eval-show-OPUS');
+      expect(box).toBeChecked();
+      fireEvent.click(box);
+      expect(screen.getByTestId('sky-eval-show-OPUS')).not.toBeChecked();
+    });
+
+    it('shows a "No models selected" note in place of the chart when every model is unticked', async () => {
+      render(<SkyRatingEvalView />);
+      for (const m of ['HAIKU', 'SONNET', 'OPUS']) {
+        fireEvent.click(await screen.findByTestId(`sky-eval-show-${m}`));
+      }
+
+      expect(screen.getByTestId('sky-eval-chart-none')).toHaveTextContent('No models selected');
+      expect(screen.getByText(/Model accuracy over time/)).toBeInTheDocument();
+    });
+
+    it('computes the Y-axis floor from the visible models only', async () => {
+      getSkyRatingEvalRuns.mockResolvedValue({
+        data: [{ ...RUNS[0], id: 3, model: 'OPUS', passRate: 1.0 }, { ...RUNS[0], id: 1, model: 'HAIKU', passRate: 0.5 }],
+      });
+      render(<SkyRatingEvalView />);
+      await screen.findByText(/Model accuracy over time/);
+      expect(screen.getAllByTestId('y-axis')[0]).toHaveAttribute('data-domain', '[40,100]');
+
+      fireEvent.click(screen.getByTestId('sky-eval-show-HAIKU'));
+
+      expect(screen.getAllByTestId('y-axis')[0]).toHaveAttribute('data-domain', '[90,100]');
+    });
+
+    it('drops a day with no visible value so no empty slot remains', async () => {
+      getSkyRatingEvalRuns.mockResolvedValue({
+        data: [
+          { ...RUNS[0], id: 9, model: 'OPUS', runTimestamp: '2026-06-27T03:00:00', passRate: 1.0 },
+          { ...RUNS[0], id: 8, model: 'SONNET', runTimestamp: '2026-06-20T03:00:00', passRate: 0.9 },
+        ],
+      });
+      render(<SkyRatingEvalView />);
+      await screen.findByText(/Model accuracy over time/);
+      expect(accuracyPoints()).toHaveLength(2);
+
+      fireEvent.click(screen.getByTestId('sky-eval-show-OPUS'));
+
+      expect(accuracyPoints()).toHaveLength(1);
+      expect(accuracyPoints()[0].SONNET).toBe(90);
+    });
   });
 
   describe('pure helpers', () => {
