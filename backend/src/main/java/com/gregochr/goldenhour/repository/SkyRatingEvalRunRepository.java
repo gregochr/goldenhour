@@ -19,6 +19,13 @@ public interface SkyRatingEvalRunRepository extends JpaRepository<SkyRatingEvalR
     List<SkyRatingEvalRunEntity> findTop100ByOrderByRunTimestampDesc();
 
     /**
+     * The newest runs, newest first, capped — the bounded window the Sky Eval overview is computed over.
+     *
+     * @return up to 500 runs
+     */
+    List<SkyRatingEvalRunEntity> findTop500ByOrderByRunTimestampDesc();
+
+    /**
      * Runs with the given status, oldest first — for building the chronological trend series.
      *
      * @param status the lifecycle status to filter on

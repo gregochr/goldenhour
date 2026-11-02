@@ -68,6 +68,12 @@ public class SkyRatingEvalService {
     /** Prefix of the {@code summary} on a failed-attempt child row. */
     static final String FAILED_SUMMARY_PREFIX = "FAILED: ";
 
+    /** Repeats per fixture a quick check may ask for. */
+    public static final Set<Integer> CHECK_RUNS_OPTIONS = Set.of(1, 3, 8);
+
+    /** Column width of {@code sky_rating_eval_run.git_commit_message}. */
+    static final int MAX_COMMIT_MESSAGE_LENGTH = 500;
+
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
@@ -116,6 +122,25 @@ public class SkyRatingEvalService {
      */
     public SkyRatingEvalRunEntity startRun(EvaluationModel model, SkyRatingEvalTrigger trigger,
             int runsPerFixture) {
+        return startRun(model, trigger, runsPerFixture, null);
+    }
+
+    /**
+     * Creates and persists a RUNNING run over a subset of the fixtures (a manual quick check), stamped
+     * with the running build's commit and message.
+     *
+     * @param model           the Claude model to score with
+     * @param trigger         what initiated the run
+     * @param runsPerFixture  how many times to score each fixture
+     * @param fixtureNames    the fixtures to score, or null for all of them
+     * @return the persisted RUNNING run, {@code fixture_count} already set to the subset size
+     * @throws IllegalArgumentException if {@code fixtureNames} is empty or names an unknown fixture
+     */
+    public SkyRatingEvalRunEntity startRun(EvaluationModel model, SkyRatingEvalTrigger trigger,
+            int runsPerFixture, List<String> fixtureNames) {
+        List<SkyRatingEvalFixture> chosen = fixtureNames == null
+                ? SkyRatingEvalFixtures.ALL : SkyRatingEvalFixtures.select(fixtureNames);
+        boolean everything = chosen.size() == SkyRatingEvalFixtures.ALL.size();
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
                 .runTimestamp(now)
@@ -128,8 +153,48 @@ public class SkyRatingEvalService {
                 .gitCommitDate(gitInfoService.getCommitDate())
                 .gitDirty(gitInfoService.isDirty())
                 .gitBranch(gitInfoService.getBranch())
+                .gitCommitMessage(truncate(gitInfoService.getCommitMessage(), MAX_COMMIT_MESSAGE_LENGTH))
+                .fixtureNames(everything ? null : chosen.stream().map(SkyRatingEvalFixture::name)
+                        .collect(Collectors.joining(SkyRatingEvalFixtures.NAME_SEPARATOR)))
+                .fixtureCount(chosen.size())
                 .build();
         return runRepository.save(run);
+    }
+
+    /**
+     * Validates a quick-check request and starts one MANUAL run per model on the current build. The caller
+     * dispatches {@link #executeRun(Long)} for each returned run (in parallel).
+     *
+     * @param models         the models to check (at least one, all selectable, no duplicates)
+     * @param runsPerFixture repeats per fixture, one of {@link #CHECK_RUNS_OPTIONS}
+     * @param fixtureNames   the fixtures to score, or null for all
+     * @return the started runs, in model order
+     * @throws IllegalArgumentException on any invalid input (mapped to 400); nothing is started in that case
+     */
+    public List<SkyRatingEvalRunEntity> startChecks(List<EvaluationModel> models, Integer runsPerFixture,
+            List<String> fixtureNames) {
+        if (models == null || models.isEmpty()) {
+            throw new IllegalArgumentException("Choose at least one model to check");
+        }
+        if (models.stream().anyMatch(m -> m == null || !m.isSelectable())) {
+            throw new IllegalArgumentException("Every model must be one of " + EvaluationModel.selectable());
+        }
+        if (new HashSet<>(models).size() != models.size()) {
+            throw new IllegalArgumentException("Each model can be checked once per request");
+        }
+        if (runsPerFixture == null || !CHECK_RUNS_OPTIONS.contains(runsPerFixture)) {
+            throw new IllegalArgumentException("runsPerFixture must be one of " + CHECK_RUNS_OPTIONS);
+        }
+        if (fixtureNames != null) {
+            SkyRatingEvalFixtures.select(fixtureNames);
+        }
+        return models.stream()
+                .map(m -> startRun(m, SkyRatingEvalTrigger.MANUAL, runsPerFixture, fixtureNames))
+                .toList();
+    }
+
+    private static String truncate(String text, int max) {
+        return text == null || text.length() <= max ? text : text.substring(0, max);
     }
 
     /**
@@ -180,7 +245,7 @@ public class SkyRatingEvalService {
         long startMs = System.currentTimeMillis();
         Aggregate agg = new Aggregate();
         try {
-            for (SkyRatingEvalFixture fixture : SkyRatingEvalFixtures.ALL) {
+            for (SkyRatingEvalFixture fixture : SkyRatingEvalFixtures.forStoredNames(run.getFixtureNames())) {
                 AtmosphericData data = SkyRatingEvalFixtures.load(fixture);
                 for (int runIndex = 1; runIndex <= run.getRunsPerFixture(); runIndex++) {
                     scoreOnce(run, fixture, data, runIndex, agg);
@@ -452,7 +517,7 @@ public class SkyRatingEvalService {
 
     void finalise(SkyRatingEvalRunEntity run, Aggregate agg, SkyRatingEvalStatus status,
             String errorMessage, long startMs) {
-        run.setFixtureCount(SkyRatingEvalFixtures.ALL.size());
+        run.setFixtureCount(SkyRatingEvalFixtures.forStoredNames(run.getFixtureNames()).size());
         run.setTotalRuns(agg.totalRuns);
         run.setTotalPasses(agg.passes);
         run.setBelowMisses(agg.below);

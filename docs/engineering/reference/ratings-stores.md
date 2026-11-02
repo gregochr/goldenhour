@@ -48,7 +48,10 @@ latest-row-per-slot reads above still describe an UNPASSED slot.
 
 ⚠️ **Build and prompt provenance (V182, `app_build` and `prompt_hash`) — so a drift in the calibration gate can be pinned to a
 release or a prompt edit, not only to a model.** `forecast_evaluation.app_build` is the release (`AppBuild`, from the
-`APP_VERSION` the deploy workflow bakes in from the git tag, `dev` when unset, cut to 40 characters) running when a row GOT its
+`APP_VERSION` the deploy workflow bakes in from the git tag, `dev` when unset, cut to 40 characters; the same workflow also
+bakes `GIT_COMMIT_SHA`, `GIT_COMMIT_TIME` and `GIT_COMMIT_MESSAGE` build args, set as environment variables in
+`backend/Dockerfile`, so `GitInfoService` can name the commit in an image built without `.git` and `sky_rating_eval_run`
+stamps it, V215) running when a row GOT its
 rating or triage reason: stamped at exactly the seams `scored_at` is — `ForecastService.buildEntity` (only when the row has a
 rating) and `ForecastService.standDown` (the weather-triage stand-down), and `ForecastResultHandler.scoreEvaluationRow`
 inside the SAME first-score guard, so a re-processed result keeps the build that first made the row available. NULL for a

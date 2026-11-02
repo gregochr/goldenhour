@@ -72,4 +72,85 @@ class GitInfoServiceTest {
         assertThat(service.getCommitHash()).isEqualTo("abc");
         assertThat(service.getCommitDate()).isNull();
     }
+
+    private static java.io.InputStream stream(String text) {
+        return new java.io.ByteArrayInputStream(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static GitInfoService withEnvironment(java.util.Map<String, String> env) {
+        return new GitInfoService(env::get);
+    }
+
+    @Test
+    @DisplayName("git.properties wins over the environment, and carries the commit message")
+    void load_propertiesWinOverEnvironment() throws Exception {
+        GitInfoService service = withEnvironment(java.util.Map.of(
+                "GIT_COMMIT_SHA", "envsha0000000", "GIT_COMMIT_MESSAGE", "From the environment"));
+
+        service.load(stream("git.commit.id=propsha1234567\ngit.commit.message.short=From the properties\n"));
+
+        assertThat(service.getCommitHash()).isEqualTo("propsha1234567");
+        assertThat(service.getCommitMessage()).isEqualTo("From the properties");
+    }
+
+    @Test
+    @DisplayName("an empty git.commit.id falls back to the GIT_COMMIT_* environment, parsing the offset time")
+    void load_emptyCommitIdFallsBackToEnvironment() throws Exception {
+        GitInfoService service = withEnvironment(java.util.Map.of(
+                "GIT_COMMIT_SHA", "a91b0e2c4d5e6f708192a3b4c5d6e7f801234567",
+                "GIT_COMMIT_TIME", "2031-11-02T10:30:00+01:00",
+                "GIT_COMMIT_MESSAGE", "Prompt: stricter cirrus penalty"));
+
+        service.load(stream("git.commit.id=\ngit.branch=main\n"));
+
+        assertThat(service.getCommitHash()).isEqualTo("a91b0e2c4d5e6f708192a3b4c5d6e7f801234567");
+        assertThat(service.getCommitMessage()).isEqualTo("Prompt: stricter cirrus penalty");
+        assertThat(service.getCommitDate()).isEqualTo(java.time.LocalDateTime.of(2031, 11, 2, 9, 30));
+    }
+
+    @Test
+    @DisplayName("blank environment values are unknown: null message, no date, empty hash")
+    void environment_blankIsUnknown() throws Exception {
+        GitInfoService service = withEnvironment(java.util.Map.of(
+                "GIT_COMMIT_SHA", "  ", "GIT_COMMIT_MESSAGE", "", "GIT_COMMIT_TIME", " "));
+
+        service.load(stream("git.branch=main\n"));
+
+        assertThat(service.getCommitHash()).isEmpty();
+        assertThat(service.getCommitMessage()).isNull();
+        assertThat(service.getCommitDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("an environment sha with a blank message and an unparseable time keeps the sha only")
+    void environment_blankMessageAndBadTime() throws Exception {
+        GitInfoService service = withEnvironment(java.util.Map.of(
+                "GIT_COMMIT_SHA", "abc", "GIT_COMMIT_MESSAGE", "  ", "GIT_COMMIT_TIME", "yesterday"));
+
+        service.load(stream("git.branch=main\n"));
+
+        assertThat(service.getCommitHash()).isEqualTo("abc");
+        assertThat(service.getCommitMessage()).isNull();
+        assertThat(service.getCommitDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("with no environment at all the message is null and the hash empty")
+    void environment_absent() throws Exception {
+        GitInfoService service = withEnvironment(java.util.Map.of());
+
+        service.load(stream("git.branch=main\n"));
+
+        assertThat(service.getCommitMessage()).isNull();
+        assertThat(service.getCommitHash()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("init yields a commit hash from git.properties or, failing that, the environment")
+    void init_withoutPropertiesFileUsesEnvironment() {
+        GitInfoService service = withEnvironment(java.util.Map.of("GIT_COMMIT_SHA", "feedface00000"));
+        service.init();
+
+        assertThat(service.getCommitHash()).isNotEmpty();
+    }
 }

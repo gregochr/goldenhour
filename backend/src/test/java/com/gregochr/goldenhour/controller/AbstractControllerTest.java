@@ -207,6 +207,9 @@ abstract class AbstractControllerTest {
     protected com.gregochr.goldenhour.service.SkyRatingEvalService skyRatingEvalService;
 
     @MockitoBean
+    protected com.gregochr.goldenhour.service.SkyRatingEvalOverviewService skyRatingEvalOverviewService;
+
+    @MockitoBean
     protected RegistrationService registrationService;
 
     @MockitoBean

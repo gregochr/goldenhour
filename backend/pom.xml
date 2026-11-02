@@ -689,6 +689,7 @@
                         <includeOnlyProperty>git.commit.id</includeOnlyProperty>
                         <includeOnlyProperty>git.commit.id.abbrev</includeOnlyProperty>
                         <includeOnlyProperty>git.commit.time</includeOnlyProperty>
+                        <includeOnlyProperty>git.commit.message.short</includeOnlyProperty>
                         <includeOnlyProperty>git.dirty</includeOnlyProperty>
                         <includeOnlyProperty>git.branch</includeOnlyProperty>
                     </includeOnlyProperties>

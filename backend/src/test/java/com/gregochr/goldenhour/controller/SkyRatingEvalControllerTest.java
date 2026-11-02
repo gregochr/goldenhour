@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
 import com.gregochr.goldenhour.model.ScheduledModelView;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
+import com.gregochr.goldenhour.model.skyeval.SkyEvalOverview;
 import com.gregochr.goldenhour.service.SkyRatingEvalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -236,5 +237,113 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
 
         verify(skyRatingEvalService, org.mockito.Mockito.never())
                 .startRun(eq(EvaluationModel.SONNET), eq(SkyRatingEvalTrigger.MANUAL), org.mockito.Mockito.anyInt());
+    }
+
+    @Test
+    @DisplayName("POST /check starts one run per model, returns 202 with the ids and scores each run")
+    @WithMockUser(roles = "ADMIN")
+    void checkReturns202WithRunIds() throws Exception {
+        when(skyRatingEvalService.startChecks(List.of(EvaluationModel.SONNET_55, EvaluationModel.HAIKU), 3,
+                List.of("copt-hill-5mar-washout")))
+                .thenReturn(List.of(checkRun(21L, EvaluationModel.SONNET_55), checkRun(22L, EvaluationModel.HAIKU)));
+
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"models\":[\"SONNET_55\",\"HAIKU\"],\"runsPerFixture\":3,"
+                                + "\"fixtureNames\":[\"copt-hill-5mar-washout\"]}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.runIds[0]").value(21))
+                .andExpect(jsonPath("$.runIds[1]").value(22));
+
+        verify(skyRatingEvalService, org.mockito.Mockito.timeout(2000)).executeRun(21L);
+        verify(skyRatingEvalService, org.mockito.Mockito.timeout(2000)).executeRun(22L);
+    }
+
+    @Test
+    @DisplayName("POST /check with no fixtureNames passes null (every fixture)")
+    @WithMockUser(roles = "ADMIN")
+    void checkWithoutFixtureNamesMeansAll() throws Exception {
+        when(skyRatingEvalService.startChecks(List.of(EvaluationModel.HAIKU), 1, null))
+                .thenReturn(List.of(checkRun(30L, EvaluationModel.HAIKU)));
+
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"models\":[\"HAIKU\"],\"runsPerFixture\":1}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.runIds[0]").value(30));
+    }
+
+    @Test
+    @DisplayName("POST /check is 400 when the service rejects the request, and starts nothing")
+    @WithMockUser(roles = "ADMIN")
+    void checkInvalidRequestIs400() throws Exception {
+        when(skyRatingEvalService.startChecks(List.of(EvaluationModel.HAIKU), 5, null))
+                .thenThrow(new IllegalArgumentException("runsPerFixture must be one of [1, 3, 8]"));
+
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"models\":[\"HAIKU\"],\"runsPerFixture\":5}"))
+                .andExpect(status().isBadRequest());
+
+        verify(skyRatingEvalService).startChecks(List.of(EvaluationModel.HAIKU), 5, null);
+        verifyNoMoreInteractions(skyRatingEvalService);
+    }
+
+    @Test
+    @DisplayName("POST /check is 400 for an unknown model name or a missing body")
+    @WithMockUser(roles = "ADMIN")
+    void checkMalformedBodyIs400() throws Exception {
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"models\":[\"BOGUS\"],\"runsPerFixture\":3}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        verifyNoMoreInteractions(skyRatingEvalService);
+    }
+
+    @Test
+    @DisplayName("non-ADMIN is forbidden from POST /check and GET /overview")
+    @WithMockUser(roles = "PRO_USER")
+    void checkAndOverviewForbiddenForNonAdmin() throws Exception {
+        mockMvc.perform(post("/api/admin/sky-rating-eval/check")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"models\":[\"HAIKU\"],\"runsPerFixture\":1}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/sky-rating-eval/overview"))
+                .andExpect(status().isForbidden());
+
+        verifyNoMoreInteractions(skyRatingEvalService);
+        verifyNoMoreInteractions(skyRatingEvalOverviewService);
+    }
+
+    @Test
+    @DisplayName("GET /overview serves the assembled overview for ADMIN")
+    @WithMockUser(roles = "ADMIN")
+    void overviewReturnsPayload() throws Exception {
+        SkyEvalOverview.Version head = new SkyEvalOverview.Version("a91b0e2c", "a91b0e2", "Stricter cirrus", null);
+        SkyEvalOverview overview = new SkyEvalOverview(head,
+                new SkyEvalOverview.Schedule("weekly, Mon 04:00", null, List.of(EvaluationModel.HAIKU)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new SkyEvalOverview.Verdict(SkyEvalOverview.VerdictKind.UNCHECKED,
+                        "a91b0e2 hasn't been checked on Haiku 4.5 yet.", EvaluationModel.HAIKU, List.of(), false),
+                List.of(), new SkyEvalOverview.CheckDefaults(List.of(EvaluationModel.HAIKU), 3, List.of()));
+        when(skyRatingEvalOverviewService.overview()).thenReturn(overview);
+
+        mockMvc.perform(get("/api/admin/sky-rating-eval/overview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.head.shortSha").value("a91b0e2"))
+                .andExpect(jsonPath("$.schedule.label").value("weekly, Mon 04:00"))
+                .andExpect(jsonPath("$.verdict.kind").value("UNCHECKED"))
+                .andExpect(jsonPath("$.checkDefaults.runsPerFixture").value(3));
+    }
+
+    private static SkyRatingEvalRunEntity checkRun(long id, EvaluationModel model) {
+        return SkyRatingEvalRunEntity.builder()
+                .id(id).runTimestamp(LocalDateTime.of(2031, 11, 2, 9, 0)).startedAt(LocalDateTime.of(2031, 11, 2, 9, 0))
+                .model(model).runsPerFixture(3).triggerSource(SkyRatingEvalTrigger.MANUAL)
+                .status(SkyRatingEvalStatus.RUNNING).build();
     }
 }
