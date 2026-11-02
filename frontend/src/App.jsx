@@ -38,7 +38,7 @@ import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
 import { loadSettingsModal, warmSettingsModal } from './utils/settingsModalChunk.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
-// the admin-only Manage view (which also pulls in recharts). They load on demand behind the
+// the admin-only Manage view. They load on demand behind the
 // Suspense boundaries. The map is now the OPENING tab on tablet/desktop
 // (default-tab-by-device-plan.md — `utils/initialTab.js`), not merely a drill-down, but it stays
 // lazy regardless: a phone (where Plan opens) never needs this chunk at first paint at all, and on

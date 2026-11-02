@@ -32,7 +32,7 @@ import { formatReportedAt } from '../components/NlcSightingBanner.jsx';
 import HealthIndicator from '../components/HealthIndicator.jsx';
 import UserManagementView from '../components/UserManagementView.jsx';
 import WaitlistManagementView from '../components/WaitlistManagementView.jsx';
-import { tsLabel } from '../components/SkyRatingEvalView.jsx';
+import { formatShortDateUk } from '../utils/skyEval.js';
 import { getUsers, getUserSubRegions } from '../api/userApi.js';
 import { getWaitlist } from '../api/waitlistApi.js';
 
@@ -51,17 +51,6 @@ vi.mock('../api/userApi.js', () => ({
 }));
 
 vi.mock('../api/waitlistApi.js', () => ({ getWaitlist: vi.fn() }));
-
-// SkyRatingEvalView is imported for its exported `tsLabel` only, never rendered — but importing the
-// module still evaluates its API import, so the boundary is mocked as the house style requires.
-vi.mock('../api/skyRatingEvalApi', () => ({
-  runSkyRatingEval: vi.fn(),
-  getSkyRatingEvalRuns: vi.fn(),
-  getSkyRatingEvalRun: vi.fn(),
-  getSkyRatingEvalTrend: vi.fn(),
-  getSkyRatingEvalSchedule: vi.fn(),
-  setSkyRatingEvalScheduled: vi.fn(),
-}));
 
 /**
  * Midnight UTC on 1 April 2026 — the instant from the evidence that opened this. The UK is on BST,
@@ -318,22 +307,18 @@ describe('the health popup abroad', () => {
   });
 });
 
-describe('the eval trend axis abroad', () => {
-  // Asserted through the exported `tsLabel` rather than through a rendered axis, and the reason is
-  // a limit of the harness rather than a preference: recharts needs a laid-out container to emit
-  // tick text, jsdom has no layout, and the mocked ResponsiveContainer the sibling suite uses gets
-  // the CHARTS on screen but leaves `.recharts-cartesian-axis-tick-value` empty. Verified before
-  // writing this — a `findByText('20 Jun')` against the rendered view finds nothing either way, so
-  // it would have been a test that could not fail.
+describe('the eval chart axis abroad', () => {
+  // Asserted through the pure date formatter the Sky Eval chart's axis and tooltips use, because it is the one
+  // place the UK-calendar rule lives and jsdom has no layout to read an SVG axis from anyway.
   it('ticks a 04:00 UK batch under the UK day it ran on', () => {
     // An overnight batch at 04:00 BST on 20 June is 23:00 on the 19th in New York, so the drift
     // chart plotted it a day early — and a trend chart whose x-axis is a day out is a chart about
     // a different question from the one it is labelled with.
-    expect(tsLabel('2026-06-20T03:00:00')).toBe('20 Jun');
+    expect(formatShortDateUk('2026-06-20T03:00:00')).toBe('20 Jun');
   });
 
   it('ticks nothing rather than "Invalid Date" when a run has no timestamp', () => {
-    expect(tsLabel(null)).toBe('');
-    expect(tsLabel('not-a-date')).toBe('');
+    expect(formatShortDateUk(null)).toBe('');
+    expect(formatShortDateUk('not-a-date')).toBe('');
   });
 });
