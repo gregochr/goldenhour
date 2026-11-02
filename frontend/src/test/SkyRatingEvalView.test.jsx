@@ -80,7 +80,7 @@ const THREE_MODEL_RUNS = [
   { ...RUNS[0], id: 1, model: 'HAIKU', passRate: 0.7 },
 ];
 
-const HIDDEN_KEY = 'skyEval.chartHidden';
+const hiddenKey = (model) => `skyEval.chartHidden.${model}`;
 
 describe('SkyRatingEvalView', () => {
   beforeEach(() => {
@@ -448,18 +448,19 @@ describe('SkyRatingEvalView', () => {
       expect(screen.getByTestId('line-OPUS')).toHaveAttribute('data-stroke', modelColour('OPUS', 2));
     });
 
-    it('remembers the hidden set in localStorage', async () => {
+    it('remembers a hidden model as the literal 1 under its own key, and removes the key when shown again', async () => {
       render(<SkyRatingEvalView />);
       fireEvent.click(await screen.findByTestId('sky-eval-show-OPUS'));
 
-      expect(JSON.parse(window.localStorage.getItem(HIDDEN_KEY))).toEqual(['OPUS']);
+      expect(window.localStorage.getItem(hiddenKey('OPUS'))).toBe('1');
+      expect(window.localStorage.getItem(hiddenKey('SONNET'))).toBeNull();
 
       fireEvent.click(screen.getByTestId('sky-eval-show-OPUS'));
-      expect(JSON.parse(window.localStorage.getItem(HIDDEN_KEY))).toEqual([]);
+      expect(window.localStorage.getItem(hiddenKey('OPUS'))).toBeNull();
     });
 
-    it('restores the hidden set from localStorage and shows a model it has never heard of', async () => {
-      window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(['OPUS']));
+    it('restores a hidden model from localStorage and shows one with no key', async () => {
+      window.localStorage.setItem(hiddenKey('OPUS'), '1');
       render(<SkyRatingEvalView />);
 
       expect(await screen.findByTestId('sky-eval-show-OPUS')).not.toBeChecked();
@@ -467,8 +468,8 @@ describe('SkyRatingEvalView', () => {
       expect(screen.getByTestId('sky-eval-show-HAIKU')).toBeChecked();
     });
 
-    it('ignores a garbled stored value', async () => {
-      window.localStorage.setItem(HIDDEN_KEY, '{not json');
+    it('treats any stored value other than 1 as shown', async () => {
+      window.localStorage.setItem(hiddenKey('OPUS'), 'garbage');
       render(<SkyRatingEvalView />);
 
       expect(await screen.findByTestId('sky-eval-show-OPUS')).toBeChecked();

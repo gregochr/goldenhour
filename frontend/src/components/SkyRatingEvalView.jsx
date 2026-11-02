@@ -24,22 +24,29 @@ const MODEL_COLOURS = { HAIKU: '#60a5fa', HAIKU_55: '#38bdf8', SONNET: '#a78bfa'
 const FALLBACK_MODEL_COLOURS = ['#2dd4bf', '#f472b6', '#a3e635', '#fb7185', '#818cf8', '#e879f9'];
 const Y_AXIS_FLOOR_STEP = 10;
 const Y_AXIS_FLOOR_MARGIN = 5;
-const CHART_HIDDEN_KEY = 'skyEval.chartHidden';
+const CHART_HIDDEN_KEY_PREFIX = 'skyEval.chartHidden.';
 
-/** Reads the models hidden from the accuracy chart; storage that is missing, throws or is garbled reads as none. */
-function readChartHidden() {
+/**
+ * Whether a model was hidden from the accuracy chart on an earlier visit. One key per model, holding
+ * the literal '1' only when hidden, so no server-derived string is ever a stored value. Storage that
+ * is missing or throws reads as shown.
+ */
+function readChartHidden(model) {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(CHART_HIDDEN_KEY));
-    return Array.isArray(parsed) ? parsed.filter((m) => typeof m === 'string') : [];
+    return window.localStorage.getItem(`${CHART_HIDDEN_KEY_PREFIX}${model}`) === '1';
   } catch {
-    return [];
+    return false;
   }
 }
 
-/** Remembers the hidden set; a storage failure is ignored (the page works, it just forgets). */
-function writeChartHidden(hidden) {
+/** Remembers a model as hidden (literal '1') or shown (key removed); a storage failure is ignored. */
+function writeChartHidden(model, hidden) {
   try {
-    window.localStorage.setItem(CHART_HIDDEN_KEY, JSON.stringify(hidden));
+    if (hidden) {
+      window.localStorage.setItem(`${CHART_HIDDEN_KEY_PREFIX}${model}`, '1');
+    } else {
+      window.localStorage.removeItem(`${CHART_HIDDEN_KEY_PREFIX}${model}`);
+    }
   } catch {
     // storage unavailable: the choice lasts for this visit only
   }
@@ -160,7 +167,12 @@ const SkyRatingEvalView = () => {
   const [scheduleError, setScheduleError] = useState(null);
   const [scheduleModels, setScheduleModels] = useState([]);
   const [togglingModels, setTogglingModels] = useState([]);
-  const [chartHidden, setChartHidden] = useState(readChartHidden);
+  // This visit's chart toggles (model -> hidden); a model not in it falls back to what storage remembers.
+  const [hiddenOverrides, setHiddenOverrides] = useState({});
+  const isChartHidden = useCallback(
+    (model) => (model in hiddenOverrides ? hiddenOverrides[model] : readChartHidden(model)),
+    [hiddenOverrides],
+  );
   const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const pollingRef = useRef(null);
 
@@ -226,11 +238,9 @@ const SkyRatingEvalView = () => {
   };
 
   const toggleChartModel = (model) => {
-    setChartHidden((prev) => {
-      const next = prev.includes(model) ? prev.filter((m) => m !== model) : [...prev, model];
-      writeChartHidden(next);
-      return next;
-    });
+    const nextHidden = !isChartHidden(model);
+    setHiddenOverrides((prev) => ({ ...prev, [model]: nextHidden }));
+    writeChartHidden(model, nextHidden);
   };
 
   useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
@@ -328,8 +338,8 @@ const SkyRatingEvalView = () => {
   const modelsPresent = useMemo(() => orderModelsPresent(runs, models), [runs, models]);
 
   const visibleModels = useMemo(
-    () => modelsPresent.filter((m) => !chartHidden.includes(m)),
-    [modelsPresent, chartHidden],
+    () => modelsPresent.filter((m) => !isChartHidden(m)),
+    [modelsPresent, isChartHidden],
   );
 
   // Only the visible models' values: a day on which every visible model has no run is dropped so no
@@ -455,7 +465,7 @@ const SkyRatingEvalView = () => {
               <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
                 <input
                   type="checkbox"
-                  checked={!chartHidden.includes(m)}
+                  checked={!isChartHidden(m)}
                   onChange={() => toggleChartModel(m)}
                   className="accent-plex-gold"
                   data-testid={`sky-eval-show-${m}`}
@@ -496,7 +506,7 @@ const SkyRatingEvalView = () => {
                   />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {/* the colour index comes from the full list, so hiding a model never recolours another */}
-                  {modelsPresent.map((m, i) => (chartHidden.includes(m) ? null : (
+                  {modelsPresent.map((m, i) => (isChartHidden(m) ? null : (
                     <Line
                       key={m}
                       type="monotone"
