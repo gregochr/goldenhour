@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
@@ -671,10 +673,17 @@ class SkyRatingEvalServiceTest {
     void startRunStampsTheCommitMessageAndLeavesFixtureNamesNullForAllFixtures() {
         when(gitInfoService.getCommitHash()).thenReturn("abc1234");
         when(gitInfoService.getCommitMessage()).thenReturn("Stricter cirrus penalty");
-        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSaveOf(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL);
 
         SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, 3);
 
+        SkyRatingEvalRunEntity saved = capturedSave();
+        assertThat(saved).isSameAs(run);
+        assertThat(saved.getModel()).isEqualTo(EvaluationModel.SONNET);
+        assertThat(saved.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.MANUAL);
+        assertThat(saved.getRunsPerFixture()).isEqualTo(3);
+        assertThat(saved.getStatus()).isEqualTo(SkyRatingEvalStatus.RUNNING);
+        assertThat(saved.getGitCommitHash()).isEqualTo("abc1234");
         assertThat(run.getGitCommitMessage()).isEqualTo("Stricter cirrus penalty");
         assertThat(run.getFixtureNames()).isNull();
         assertThat(run.getFixtureCount()).isEqualTo(SkyRatingEvalFixtures.ALL.size());
@@ -683,20 +692,26 @@ class SkyRatingEvalServiceTest {
     @Test
     void startRunTruncatesALongCommitMessageToTheColumnWidth() {
         when(gitInfoService.getCommitMessage()).thenReturn("x".repeat(600));
-        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSaveOf(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL);
 
         SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, 3);
 
-        assertThat(run.getGitCommitMessage()).hasSize(SkyRatingEvalService.MAX_COMMIT_MESSAGE_LENGTH);
+        SkyRatingEvalRunEntity saved = capturedSave();
+        assertThat(saved).isSameAs(run);
+        assertThat(saved.getGitCommitMessage()).isEqualTo("x".repeat(SkyRatingEvalService.MAX_COMMIT_MESSAGE_LENGTH));
     }
 
     @Test
     void startRunWithASubsetStoresTheNamesInRegistryOrderAndSetsTheCount() {
-        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSaveOf(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL);
 
         SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 1,
                 List.of(SECOND_FIXTURE, FIRST_FIXTURE, SECOND_FIXTURE));
 
+        SkyRatingEvalRunEntity saved = capturedSave();
+        assertThat(saved).isSameAs(run);
+        assertThat(saved.getModel()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(saved.getRunsPerFixture()).isEqualTo(1);
         assertThat(run.getFixtureNames()).isEqualTo(FIRST_FIXTURE + "," + SECOND_FIXTURE);
         assertThat(run.getFixtureCount()).isEqualTo(2);
     }
@@ -758,10 +773,15 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void startChecksStartsOneManualRunPerModelWithTheSameSubset() {
-        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSaveOf(EvaluationModel.SONNET_55, SkyRatingEvalTrigger.MANUAL);
+        stubSaveOf(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL);
 
         List<SkyRatingEvalRunEntity> runs = service().startChecks(
                 List.of(EvaluationModel.SONNET_55, EvaluationModel.HAIKU), 3, List.of(FIRST_FIXTURE));
+
+        ArgumentCaptor<SkyRatingEvalRunEntity> saved = ArgumentCaptor.forClass(SkyRatingEvalRunEntity.class);
+        verify(runRepository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues()).containsExactlyElementsOf(runs);
 
         assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
                 .containsExactly(EvaluationModel.SONNET_55, EvaluationModel.HAIKU);
@@ -774,12 +794,21 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void startChecksAcceptsEveryAllowedRepeatCountAndNullFixtures() {
-        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSaveOf(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL);
+        List<SkyRatingEvalRunEntity> all = new ArrayList<>();
 
         for (int repeats : List.of(1, 3, 8)) {
-            assertThat(service().startChecks(List.of(EvaluationModel.OPUS), repeats, null))
-                    .singleElement().satisfies(r -> assertThat(r.getRunsPerFixture()).isEqualTo(repeats));
+            List<SkyRatingEvalRunEntity> started = service().startChecks(List.of(EvaluationModel.OPUS), repeats, null);
+            assertThat(started).singleElement().satisfies(r -> {
+                assertThat(r.getRunsPerFixture()).isEqualTo(repeats);
+                assertThat(r.getFixtureNames()).isNull();
+            });
+            all.addAll(started);
         }
+
+        ArgumentCaptor<SkyRatingEvalRunEntity> saved = ArgumentCaptor.forClass(SkyRatingEvalRunEntity.class);
+        verify(runRepository, times(3)).save(saved.capture());
+        assertThat(saved.getAllValues()).containsExactlyElementsOf(all);
     }
 
     @Test
@@ -804,5 +833,18 @@ class SkyRatingEvalServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
 
         verifyNoInteractions(runRepository);
+    }
+
+    /** Stubs save to hand back the entity it is given, but only for a run of this model and trigger. */
+    private void stubSaveOf(EvaluationModel model, SkyRatingEvalTrigger trigger) {
+        when(runRepository.save(argThat(r -> r != null && r.getModel() == model && r.getTriggerSource() == trigger)))
+                .thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    /** The one run entity the service saved. */
+    private SkyRatingEvalRunEntity capturedSave() {
+        ArgumentCaptor<SkyRatingEvalRunEntity> saved = ArgumentCaptor.forClass(SkyRatingEvalRunEntity.class);
+        verify(runRepository).save(saved.capture());
+        return saved.getValue();
     }
 }
