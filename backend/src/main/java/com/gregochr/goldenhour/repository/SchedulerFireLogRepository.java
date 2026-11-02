@@ -9,6 +9,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 
 /**
  * Spring Data repository for {@link SchedulerFireLogEntity}.
@@ -62,4 +64,26 @@ public interface SchedulerFireLogRepository extends JpaRepository<SchedulerFireL
             + "WHERE f.status = com.gregochr.goldenhour.entity.SchedulerFireStatus.RUNNING "
             + "AND f.firedAt < :before")
     int markOrphans(@Param("before") Instant before, @Param("summary") String summary);
+
+    /**
+     * The newest fire of every job, in one statement: the rows whose {@code fired_at} is the job's maximum, read
+     * through the {@code (job_key, fired_at DESC)} index. A job with two rows at the same instant appears twice;
+     * the caller keeps the higher id.
+     *
+     * @return at most one row per job (a job that has never fired has none)
+     */
+    @Query("SELECT f FROM SchedulerFireLogEntity f WHERE f.firedAt = "
+            + "(SELECT MAX(g.firedAt) FROM SchedulerFireLogEntity g WHERE g.jobKey = f.jobKey)")
+    List<SchedulerFireLogEntity> findNewestPerJob();
+
+    /**
+     * A job's newest completed fires with one of the given statuses, for its typical duration. Capped at 200 so a
+     * once-a-minute poller does not load its fortnight of rows.
+     *
+     * @param jobKey   the job key
+     * @param statuses the statuses to include
+     * @return up to 200 fires, newest first, each with a {@code completed_at}
+     */
+    List<SchedulerFireLogEntity> findTop200ByJobKeyAndStatusInAndCompletedAtIsNotNullOrderByFiredAtDesc(
+            String jobKey, Collection<SchedulerFireStatus> statuses);
 }

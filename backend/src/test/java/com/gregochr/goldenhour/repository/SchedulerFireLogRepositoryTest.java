@@ -11,6 +11,7 @@ import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -121,6 +122,49 @@ class SchedulerFireLogRepositoryTest {
         Map<String, Object> j2 = jdbc.queryForMap("SELECT * FROM scheduler_job_config WHERE job_key = 'j2'");
         assertThat(j2.get("LAST_FIRE_TIME")).isNull();
         assertThat(j2.get("SCHEDULE_CHANGED_AT")).isNull();
+    }
+
+    @Test
+    @DisplayName("findNewestPerJob returns the newest row of each job, once")
+    void findNewestPerJob_oneNewestRowPerJob() {
+        Instant base = Instant.parse("2027-03-05T10:00:00Z");
+        insertRunning("a_job", base);
+        long newestA = insertRunning("a_job", base.plusSeconds(3600));
+        long onlyB = insertRunning("b_job", base.plusSeconds(60));
+
+        List<SchedulerFireLogEntity> newest = fireLog.findNewestPerJob();
+
+        assertThat(newest).extracting(SchedulerFireLogEntity::getId).containsExactlyInAnyOrder(newestA, onlyB);
+        assertThat(newest).extracting(SchedulerFireLogEntity::getFiredAt)
+                .containsExactlyInAnyOrder(base.plusSeconds(3600), base.plusSeconds(60));
+    }
+
+    @Test
+    @DisplayName("findNewestPerJob is empty when nothing has fired")
+    void findNewestPerJob_emptyLog() {
+        assertThat(fireLog.findNewestPerJob()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the duration query returns only completed SUCCEEDED and PARTIAL fires of the job, newest first")
+    void durationQuery_filtersByStatusJobAndCompletion() {
+        Instant base = Instant.parse("2027-03-05T10:00:00Z");
+        long oldOk = insertRunning("a_job", base);
+        fireLog.complete(oldOk, base.plusSeconds(10), SchedulerFireStatus.SUCCEEDED, null, null);
+        long newPartial = insertRunning("a_job", base.plusSeconds(100));
+        fireLog.complete(newPartial, base.plusSeconds(120), SchedulerFireStatus.PARTIAL, null, null);
+        long failed = insertRunning("a_job", base.plusSeconds(200));
+        fireLog.complete(failed, base.plusSeconds(210), SchedulerFireStatus.FAILED, null, null);
+        long running = insertRunning("a_job", base.plusSeconds(300));
+        long otherJob = insertRunning("b_job", base.plusSeconds(400));
+        fireLog.complete(otherJob, base.plusSeconds(410), SchedulerFireStatus.SUCCEEDED, null, null);
+
+        List<SchedulerFireLogEntity> fires = fireLog
+                .findTop200ByJobKeyAndStatusInAndCompletedAtIsNotNullOrderByFiredAtDesc("a_job",
+                        List.of(SchedulerFireStatus.SUCCEEDED, SchedulerFireStatus.PARTIAL));
+
+        assertThat(fires).extracting(SchedulerFireLogEntity::getId).containsExactly(newPartial, oldOk);
+        assertThat(running).isNotIn(fires.stream().map(SchedulerFireLogEntity::getId).toList());
     }
 
     @Test

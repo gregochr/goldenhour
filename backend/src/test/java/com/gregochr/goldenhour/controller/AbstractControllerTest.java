@@ -199,6 +199,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected SchedulerRunsService schedulerRunsService;
 
+    /** Each job's newest fire, next fires and the page summary, for {@code SchedulerController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SchedulerJobOverviewService schedulerJobOverviewService;
+
+    /** One job's typical duration and Claude spend, for {@code SchedulerController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SchedulerJobDetailService schedulerJobDetailService;
+
     @MockitoBean
     protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
             pipelineRunComparisonService;

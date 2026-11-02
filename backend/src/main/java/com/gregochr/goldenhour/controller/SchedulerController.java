@@ -6,6 +6,9 @@ import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SolarEvent;
 import com.gregochr.goldenhour.model.runs.RunListItem;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulerJobCatalogue;
+import com.gregochr.goldenhour.service.SchedulerJobDetailService;
+import com.gregochr.goldenhour.service.SchedulerJobOverviewService;
 import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
 import com.gregochr.goldenhour.service.runs.SchedulerRunsService;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +39,8 @@ public class SchedulerController {
     private final DynamicSchedulerService schedulerService;
     private final SolarSchedulePreviewService solarPreviewService;
     private final SchedulerRunsService runsService;
+    private final SchedulerJobOverviewService overviewService;
+    private final SchedulerJobDetailService detailService;
 
     /**
      * Constructs the scheduler controller.
@@ -43,17 +48,27 @@ public class SchedulerController {
      * @param schedulerService    the dynamic scheduler service
      * @param solarPreviewService builds the solar schedule preview
      * @param runsService         the runs a scheduled job can be proved to have written
+     * @param overviewService     each job's newest fire, next fires, and the page summary
+     * @param detailService       one job's typical duration and Claude spend
      */
     public SchedulerController(DynamicSchedulerService schedulerService,
-            SolarSchedulePreviewService solarPreviewService, SchedulerRunsService runsService) {
+            SolarSchedulePreviewService solarPreviewService, SchedulerRunsService runsService,
+            SchedulerJobOverviewService overviewService, SchedulerJobDetailService detailService) {
         this.schedulerService = schedulerService;
         this.solarPreviewService = solarPreviewService;
         this.runsService = runsService;
+        this.overviewService = overviewService;
+        this.detailService = detailService;
     }
 
     /**
      * Lists all scheduled jobs with their current status, computed next fire time and, for the five jobs whose
      * runs can be attributed, their last run ({@code lastRun}, a Runs list item; null for every other job).
+     *
+     * <p>Polled every 30 seconds, so it adds only cheap fields: {@code catalogue} (the plain-English entry, null for
+     * a job key the catalogue does not know), {@code lastFire} (the newest {@code scheduler_fire_log} row, read for
+     * all jobs by one query; null when the job has never fired) and {@code nextFires} (up to three upcoming fire
+     * instants; empty for a paused or off-in-config job).
      *
      * @return list of job detail maps
      */
@@ -63,14 +78,43 @@ public class SchedulerController {
         List<SchedulerJobConfigEntity> configs = schedulerService.getAll();
         Map<String, RunListItem> lastRuns = runsService.lastRuns(
                 configs.stream().map(SchedulerJobConfigEntity::getJobKey).toList());
+        Map<String, SchedulerJobOverviewService.LastFire> lastFires = overviewService.lastFires();
         List<Map<String, Object>> result = configs.stream()
                 .map(config -> {
                     Map<String, Object> dto = toDto(config);
                     dto.put("lastRun", lastRuns.get(config.getJobKey()));
+                    dto.put("catalogue", SchedulerJobCatalogue.find(config.getJobKey()).orElse(null));
+                    dto.put("lastFire", lastFires.get(config.getJobKey()));
+                    dto.put("nextFires", overviewService.nextFires(config));
                     return dto;
                 })
                 .toList();
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * The page-level counts for the Scheduler header and filters: totals by status and schedule type, how many jobs
+     * use Claude, how many last failed, and the soonest non-repeating fire.
+     *
+     * @return the summary
+     */
+    @GetMapping("/jobs/summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SchedulerJobOverviewService.Summary> jobsSummary() {
+        return ResponseEntity.ok(overviewService.summary());
+    }
+
+    /**
+     * One job's panel-only detail: its typical duration and its Claude spend over the last 30 days. Not polled.
+     *
+     * @param jobKey the job key
+     * @return the detail; 404 for an unknown job
+     */
+    @GetMapping("/jobs/{jobKey}/detail")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SchedulerJobDetailService.Detail> jobDetail(@PathVariable String jobKey) {
+        return detailService.detail(jobKey).map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**

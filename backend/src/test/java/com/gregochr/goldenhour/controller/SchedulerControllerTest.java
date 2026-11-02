@@ -11,7 +11,10 @@ import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunKind;
 import com.gregochr.goldenhour.model.runs.RunListItem;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
+import com.gregochr.goldenhour.service.SchedulerJobDetailService;
+import com.gregochr.goldenhour.service.SchedulerJobOverviewService;
 import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
+import com.gregochr.goldenhour.service.runs.SchedulerJobCostService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +22,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -521,6 +525,164 @@ class SchedulerControllerTest extends AbstractControllerTest {
                 .andExpect(status().isConflict());
         mockMvc.perform(post("/api/admin/scheduler/jobs/aurora_polling/resume"))
                 .andExpect(status().isConflict());
+    }
+
+    // -------------------------------------------------------------------------
+    // Scheduler redesign S3a: catalogue, lastFire, nextFires, summary, detail
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs carries the catalogue entry, the newest fire and the next fires, reading the log once")
+    void listJobs_carriesCatalogueLastFireAndNextFires() throws Exception {
+        SchedulerJobConfigEntity tide = buildConfig("tide_refresh", ScheduleType.CRON,
+                "0 0 2 * * MON", null, SchedulerJobStatus.ACTIVE);
+        SchedulerJobConfigEntity dormant = buildConfig("dormant_account_sweep", ScheduleType.CRON,
+                "0 15 10 * * *", null, SchedulerJobStatus.PAUSED);
+        when(schedulerService.getAll()).thenReturn(List.of(tide, dormant));
+        Instant fired = Instant.parse("2027-03-05T02:00:00Z");
+        when(schedulerJobOverviewService.lastFires()).thenReturn(Map.of("tide_refresh",
+                new SchedulerJobOverviewService.LastFire(fired, fired.plusSeconds(35), "PARTIAL",
+                        "40 of 41 seascape locations", "MANUAL")));
+        when(schedulerJobOverviewService.nextFires(tide)).thenReturn(List.of(Instant.parse("2027-03-08T02:00:00Z"),
+                Instant.parse("2027-03-15T02:00:00Z")));
+        when(schedulerJobOverviewService.nextFires(dormant)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].catalogue.alias").value("Weekly tide tables"))
+                .andExpect(jsonPath("$[0].catalogue.purpose").value("Places"))
+                .andExpect(jsonPath("$[0].catalogue.services[0]").value("WorldTides"))
+                .andExpect(jsonPath("$[0].catalogue.usesClaude").value(false))
+                .andExpect(jsonPath("$[0].catalogue.watchedBy.length()").value(0))
+                .andExpect(jsonPath("$[0].lastFire.status").value("PARTIAL"))
+                .andExpect(jsonPath("$[0].lastFire.summary").value("40 of 41 seascape locations"))
+                .andExpect(jsonPath("$[0].lastFire.trigger").value("MANUAL"))
+                .andExpect(jsonPath("$[0].lastFire.firedAt").value("2027-03-05T02:00:00Z"))
+                .andExpect(jsonPath("$[0].lastFire.completedAt").value("2027-03-05T02:00:35Z"))
+                .andExpect(jsonPath("$[0].nextFires[0]").value("2027-03-08T02:00:00Z"))
+                .andExpect(jsonPath("$[0].nextFires.length()").value(2))
+                .andExpect(jsonPath("$[1].lastFire").value(nullValue()))
+                .andExpect(jsonPath("$[1]", hasKey("lastFire")))
+                .andExpect(jsonPath("$[1].nextFires.length()").value(0));
+        verify(schedulerJobOverviewService, times(1)).lastFires();
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs serves catalogue null, not an error, for a job key the catalogue does not know")
+    void listJobs_unknownJobHasNullCatalogue() throws Exception {
+        SchedulerJobConfigEntity handAdded = buildConfig("hand_added_job", ScheduleType.CRON,
+                "0 0 5 * * *", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.getAll()).thenReturn(List.of(handAdded));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].jobKey").value("hand_added_job"))
+                .andExpect(jsonPath("$[0].catalogue").value(nullValue()))
+                .andExpect(jsonPath("$[0]", hasKey("catalogue")));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/summary serves the counts and the next scheduled job")
+    void jobsSummary_servesCounts() throws Exception {
+        when(schedulerJobOverviewService.summary()).thenReturn(new SchedulerJobOverviewService.Summary(28,
+                Map.of("ACTIVE", 27, "PAUSED", 1, "DISABLED_BY_CONFIG", 0),
+                Map.of("SOLAR_OFFSET", 2, "CRON", 19, "FIXED_DELAY", 7), 5, 1,
+                new SchedulerJobOverviewService.NextScheduled("astro_conditions_refresh", "Astro Conditions",
+                        Instant.parse("2027-03-05T15:30:00Z"))));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(28))
+                .andExpect(jsonPath("$.byStatus.PAUSED").value(1))
+                .andExpect(jsonPath("$.byType.SOLAR_OFFSET").value(2))
+                .andExpect(jsonPath("$.usesClaude").value(5))
+                .andExpect(jsonPath("$.lastFireFailed").value(1))
+                .andExpect(jsonPath("$.nextScheduled.jobKey").value("astro_conditions_refresh"))
+                .andExpect(jsonPath("$.nextScheduled.displayName").value("Astro Conditions"))
+                .andExpect(jsonPath("$.nextScheduled.at").value("2027-03-05T15:30:00Z"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/summary serves nextScheduled null when nothing is left to run")
+    void jobsSummary_nullNextScheduled() throws Exception {
+        when(schedulerJobOverviewService.summary()).thenReturn(new SchedulerJobOverviewService.Summary(0,
+                Map.of(), Map.of(), 0, 0, null));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextScheduled").value(nullValue()))
+                .andExpect(jsonPath("$", hasKey("nextScheduled")));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/detail serves the duration and the Claude cost")
+    void jobDetail_servesDurationAndCost() throws Exception {
+        when(schedulerJobDetailService.detail("near_term_batch_evaluation")).thenReturn(Optional.of(
+                new SchedulerJobDetailService.Detail("near_term_batch_evaluation", 1260L, "runs",
+                        new SchedulerJobCostService.ClaudeCost(new BigDecimal("41.20"), true, 30,
+                                List.of("batches", "briefing", "askReady"), true, new BigDecimal("1.37"), null))));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/near_term_batch_evaluation/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.jobKey").value("near_term_batch_evaluation"))
+                .andExpect(jsonPath("$.typicalDurationSeconds").value(1260))
+                .andExpect(jsonPath("$.typicalDurationBasis").value("runs"))
+                .andExpect(jsonPath("$.claudeCost30d.gbp").value(41.2))
+                .andExpect(jsonPath("$.claudeCost30d.complete").value(true))
+                .andExpect(jsonPath("$.claudeCost30d.runs").value(30))
+                .andExpect(jsonPath("$.claudeCost30d.includes[2]").value("askReady"))
+                .andExpect(jsonPath("$.claudeCost30d.inclManual").value(true))
+                .andExpect(jsonPath("$.claudeCost30d.perRun").value(1.37))
+                .andExpect(jsonPath("$.claudeCost30d.reason").value(nullValue()));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/detail serves nulls for a job with no history and no Claude use")
+    void jobDetail_nullsForQuietJob() throws Exception {
+        when(schedulerJobDetailService.detail("tide_refresh")).thenReturn(
+                Optional.of(new SchedulerJobDetailService.Detail("tide_refresh", null, null, null)));
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.typicalDurationSeconds").value(nullValue()))
+                .andExpect(jsonPath("$.typicalDurationBasis").value(nullValue()))
+                .andExpect(jsonPath("$.claudeCost30d").value(nullValue()))
+                .andExpect(jsonPath("$", hasKey("claudeCost30d")));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs/{key}/detail is 404 for an unknown job")
+    void jobDetail_unknownJobIs404() throws Exception {
+        when(schedulerJobDetailService.detail("nope")).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs/nope/detail"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("the summary and detail endpoints return 403 for a non-admin")
+    void newEndpoints_return403ForNonAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/jobs/summary"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/detail"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("the summary and detail endpoints return 401 when unauthenticated")
+    void newEndpoints_return401WhenUnauthenticated() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/jobs/summary"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/scheduler/jobs/tide_refresh/detail"))
+                .andExpect(status().isUnauthorized());
     }
 
     private static SchedulerJobConfigEntity buildConfig(String jobKey, ScheduleType type,
