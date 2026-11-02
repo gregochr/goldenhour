@@ -111,7 +111,7 @@ public class RunsDayService {
         rows.sort(Comparator.comparing(RunDayRow::startedAt).thenComparing(RunDayRow::id));
 
         RunDaySummary summary = isToday
-                ? todaySummary(loaded.rows(), rows, upcoming, date, earliest, rate)
+                ? todaySummary(loaded.rows(), upcoming, date, earliest, rate)
                 : pastSummary(loaded.rows(), date, earliest, stats);
         Instant sunrise = solar.sunriseUtc(referencePoint.lat(), referencePoint.lon(), date)
                 .toInstant(ZoneOffset.UTC);
@@ -163,7 +163,7 @@ public class RunsDayService {
 
     // ── Summaries ─────────────────────────────────────────────────────────────
 
-    private RunDaySummary todaySummary(List<DeepRun> runs, List<RunDayRow> rows,
+    private RunDaySummary todaySummary(List<DeepRun> runs,
             List<ScheduledFiresLister.Upcoming> upcoming, LocalDate date, LocalDate earliest, double rate) {
         int finished = (int) runs.stream().filter(DeepRun::finished).count();
         int running = (int) runs.stream().filter(r -> r.status() == RunDeepStatus.RUNNING).count();

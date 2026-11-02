@@ -248,7 +248,8 @@ class RunsCallsServiceTest {
         assertThat(service.calls("eval-99999")).isEqualTo(Optional.empty());
         assertThat(service.calls("job-99999")).isEmpty();
         assertThat(service.calls("cycle-99999")).isEmpty();
-        for (String bad : new String[] {"", "job", "job-", "job-x", "sched-tide-1", "cycle--1", "JOB-1", "job-1 "}) {
+        for (String bad : new String[] {"", "job", "job-", "job-x", "sched-tide-1", "cycle--1", "JOB-1", "job-1 ",
+                "job-99999999999999999999", "cycle-9223372036854775808"}) {
             assertThatThrownBy(() -> service.calls(bad)).as(bad).isInstanceOf(RunsRequestException.class);
         }
         assertThatThrownBy(() -> service.calls(null)).isInstanceOf(RunsRequestException.class);

@@ -88,7 +88,12 @@ public class RunsCallsService {
         if (m == null || !m.matches()) {
             throw new RunsRequestException("runId must be cycle-N, job-N or eval-N");
         }
-        long id = Long.parseLong(m.group(2));
+        long id;
+        try {
+            id = Long.parseLong(m.group(2));
+        } catch (NumberFormatException e) {
+            throw new RunsRequestException("runId must be cycle-N, job-N or eval-N");
+        }
         return switch (m.group(1)) {
             case "cycle" -> pipelineRuns.findById(id).map(c -> forCycle(runId, c));
             case "job" -> jobRuns.findById(id).map(j -> forJob(runId, j));
