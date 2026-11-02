@@ -2,6 +2,7 @@
 
 > Moved verbatim from `CLAUDE.md` on 2026-10-22 to keep the always-loaded file small.
 > Read the section you need; this file is not loaded automatically.
+> For Claude spend decisions (what was cut, what was rejected and why) see `docs/engineering/claude-cost-ledger.md`.
 
 **Core pipeline**: Open-Meteo → Claude → H2 | Scheduled evaluations (06:00 + 18:00 UTC, T through T+7) | Admin alert emails and user emails (the forecast-result notification channels were deleted in 2026-10)
 
