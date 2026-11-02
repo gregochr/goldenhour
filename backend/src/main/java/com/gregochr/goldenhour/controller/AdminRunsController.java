@@ -7,8 +7,10 @@ import com.gregochr.goldenhour.service.runs.AdminRunsService;
 import com.gregochr.goldenhour.service.runs.RunCursor;
 import com.gregochr.goldenhour.service.runs.RunsCalendarService;
 import com.gregochr.goldenhour.service.runs.RunsCallsService;
+import com.gregochr.goldenhour.service.runs.RunsCostService;
 import com.gregochr.goldenhour.service.runs.RunsDayService;
 import com.gregochr.goldenhour.service.runs.RunsRequestException;
+import com.gregochr.goldenhour.service.runs.RunsTimingService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -39,6 +41,8 @@ public class AdminRunsController {
     private final RunsDayService dayService;
     private final RunsCalendarService calendarService;
     private final RunsCallsService callsService;
+    private final RunsCostService costService;
+    private final RunsTimingService timingService;
 
     /**
      * Constructs the controller.
@@ -47,13 +51,18 @@ public class AdminRunsController {
      * @param dayService      builds the Day view
      * @param calendarService builds the Day view's calendar month
      * @param callsService    builds a run's external calls
+     * @param costService     builds the Cost trends view
+     * @param timingService   builds the Timing view
      */
     public AdminRunsController(AdminRunsService runsService, RunsDayService dayService,
-            RunsCalendarService calendarService, RunsCallsService callsService) {
+            RunsCalendarService calendarService, RunsCallsService callsService, RunsCostService costService,
+            RunsTimingService timingService) {
         this.runsService = runsService;
         this.dayService = dayService;
         this.calendarService = calendarService;
         this.callsService = callsService;
+        this.costService = costService;
+        this.timingService = timingService;
     }
 
     /**
@@ -148,6 +157,31 @@ public class AdminRunsController {
         return callsService.calls(runId == null ? null : runId.trim())
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * The Cost trends view: spend by day and by run type for the last N full UK days against the N before.
+     *
+     * @param days the period length, 14, 30 (default) or 60
+     * @return the cost trends, or 400 for any other period
+     */
+    @GetMapping("/cost")
+    public ResponseEntity<?> cost(@RequestParam(required = false) Integer days) {
+        return ResponseEntity.ok(costService.cost(days));
+    }
+
+    /**
+     * The Timing view for one run type.
+     *
+     * @param type    OVERNIGHT, AFTERNOON, EVENING, ASK_READY, BRIEFING or SKY_EVAL
+     * @param days    the range, 30 (default), 60 or 120
+     * @param measure {@code cycle} (default) or {@code ready} (the three cycle types only)
+     * @return the timing, or 400 for an unknown type, range or measure
+     */
+    @GetMapping("/timing")
+    public ResponseEntity<?> timing(@RequestParam(required = false) String type,
+            @RequestParam(required = false) Integer days, @RequestParam(required = false) String measure) {
+        return ResponseEntity.ok(timingService.timing(type, days, measure));
     }
 
     /**

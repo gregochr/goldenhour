@@ -34,6 +34,8 @@ import java.time.Instant;
  * @param batches         cycles: Anthropic batches submitted
  * @param requests        cycles: requests across them
  * @param answersReadyAt  cycles: when the linked ask-ready run ended, or null
+ * @param locations       jobs: locations the run processed, or null (cycles and sky evals have none)
+ * @param manual          true when an admin started the run; always false for cycles, which record no such flag
  */
 record DeepRun(
         String id,
@@ -57,7 +59,9 @@ record DeepRun(
         Long jobRunId,
         Integer batches,
         Integer requests,
-        Instant answersReadyAt) {
+        Instant answersReadyAt,
+        Integer locations,
+        boolean manual) {
 
     /**
      * Whether the row finished (it is not running).

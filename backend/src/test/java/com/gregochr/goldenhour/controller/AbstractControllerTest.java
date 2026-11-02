@@ -187,6 +187,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.runs.RunsCallsService runsCallsService;
 
+    /** Builds the Runs cost trends for {@code AdminRunsController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.runs.RunsCostService runsCostService;
+
+    /** Builds the Runs timing view for {@code AdminRunsController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.runs.RunsTimingService runsTimingService;
+
     /** Reads the runs a scheduled job wrote, for {@code SchedulerController}. */
     @MockitoBean
     protected SchedulerRunsService schedulerRunsService;
