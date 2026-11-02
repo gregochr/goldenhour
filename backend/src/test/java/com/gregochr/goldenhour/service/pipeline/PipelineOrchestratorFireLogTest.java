@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerFireLogEntity;
 import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.entity.SchedulerFireTrigger;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.invocation.InvocationOnMock;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.TaskScheduler;
@@ -41,7 +43,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -101,11 +104,6 @@ class PipelineOrchestratorFireLogTest {
                 scheduledBatchEvaluationService, briefingService, forecastBatchRepository, clock,
                 queuedTail::add, Duration.ofMillis(1), Duration.ofHours(1), scheduler, pipelineRunPickService,
                 batchRetryService, adminAlertService, locationFailureService);
-        when(fireLog.save(any(SchedulerFireLogEntity.class))).thenAnswer(inv -> {
-            SchedulerFireLogEntity row = inv.getArgument(0);
-            row.setId(LOG_ID);
-            return row;
-        });
         orchestrator.registerJobTarget();
     }
 
@@ -122,7 +120,7 @@ class PipelineOrchestratorFireLogTest {
                 eq(NightlyCandidateCollectionStrategy.INSTANCE),
                 eq(NightlyEligibilityPolicy.INSTANCE),
                 eq(false),
-                any()))
+                notNull()))
                 .thenReturn(outcome);
     }
 
@@ -160,7 +158,7 @@ class PipelineOrchestratorFireLogTest {
                 eq(NightlyCandidateCollectionStrategy.INSTANCE),
                 eq(NightlyEligibilityPolicy.INSTANCE),
                 eq(false),
-                any()))
+                notNull()))
                 .thenThrow(new IllegalStateException("anthropic down"));
 
         scheduledRunnable().run();
@@ -168,6 +166,21 @@ class PipelineOrchestratorFireLogTest {
         verify(fireLog).complete(LOG_ID, NOW, SchedulerFireStatus.FAILED,
                 "Submit phase failed: anthropic down", RUN_ID);
         assertThat(queuedTail).isEmpty();
+    }
+
+    /** Stubs the RUNNING insert for exactly this fire: job key, RUNNING, trigger kind and the fixed fire instant. */
+    private void stubInsert(String jobKey, SchedulerFireTrigger kind) {
+        when(fireLog.save(argThat((SchedulerFireLogEntity row) -> row != null
+                && jobKey.equals(row.getJobKey())
+                && row.getStatus() == SchedulerFireStatus.RUNNING
+                && row.getTriggerKind() == kind
+                && NOW.equals(row.getFiredAt())))).thenAnswer(this::withLogId);
+    }
+
+    private SchedulerFireLogEntity withLogId(InvocationOnMock invocation) {
+        SchedulerFireLogEntity row = invocation.getArgument(0);
+        row.setId(LOG_ID);
+        return row;
     }
 
     /** Fires the nightly job through the scheduler (Run now) and returns the wrapped runnable it was given. */
@@ -180,9 +193,13 @@ class PipelineOrchestratorFireLogTest {
                 .cronExpression("0 0 2 * * *")
                 .status(SchedulerJobStatus.ACTIVE)
                 .build()));
+        stubInsert(KEY, SchedulerFireTrigger.MANUAL);
+        Instant before = Instant.now();
         scheduler.triggerNow(KEY);
+        Instant after = Instant.now();
         ArgumentCaptor<Runnable> run = ArgumentCaptor.forClass(Runnable.class);
-        verify(taskScheduler).schedule(run.capture(), any(Instant.class));
+        verify(taskScheduler).schedule(run.capture(),
+                argThat((Instant at) -> at != null && !at.isBefore(before) && !at.isAfter(after)));
         return run.getValue();
     }
 }

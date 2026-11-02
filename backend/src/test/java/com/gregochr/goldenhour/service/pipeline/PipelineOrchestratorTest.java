@@ -58,6 +58,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -1965,7 +1966,7 @@ class PipelineOrchestratorTest {
                     eq(NightlyCandidateCollectionStrategy.INSTANCE),
                     eq(NightlyEligibilityPolicy.INSTANCE),
                     eq(false),
-                    any()))
+                    notNull()))
                     .thenReturn(outcome);
         }
 
@@ -2054,7 +2055,7 @@ class PipelineOrchestratorTest {
                     eq(NightlyCandidateCollectionStrategy.INSTANCE),
                     eq(NightlyEligibilityPolicy.INSTANCE),
                     eq(false),
-                    any()))
+                    notNull()))
                     .thenThrow(new IllegalStateException("anthropic down"));
 
             SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);

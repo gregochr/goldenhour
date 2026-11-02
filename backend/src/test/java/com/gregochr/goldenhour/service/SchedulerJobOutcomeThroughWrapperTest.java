@@ -20,10 +20,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.Trigger;
+import org.springframework.scheduling.support.CronTrigger;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -34,8 +37,8 @@ import java.util.Optional;
 import java.util.concurrent.ScheduledFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -71,15 +74,14 @@ class SchedulerJobOutcomeThroughWrapperTest {
 
     private DynamicSchedulerService scheduler;
 
+    /** Matches the trigger installed for {@link #cronJob}: a cron trigger with its exact expression. */
+    private static final ArgumentMatcher<Trigger> CRON_MON =
+            trigger -> trigger instanceof CronTrigger cron && "0 0 2 * * MON".equals(cron.getExpression());
+
     @BeforeEach
     void setUp() {
         scheduler = new DynamicSchedulerService(repository, fireLog, taskScheduler, auroraProperties,
                 solarTriggers, solarCatchUp, Clock.fixed(NOW, ZoneOffset.UTC));
-        when(fireLog.save(any(SchedulerFireLogEntity.class))).thenAnswer(inv -> {
-            SchedulerFireLogEntity row = inv.getArgument(0);
-            row.setId(LOG_ID);
-            return row;
-        });
     }
 
     @Test
@@ -90,6 +92,7 @@ class SchedulerJobOutcomeThroughWrapperTest {
         when(tokens.deleteAllByExpiresAtBefore(argThat(cutoff -> cutoff != null && !cutoff.isBefore(before)
                 && !cutoff.isAfter(LocalDateTime.now())))).thenReturn(3L);
         new RefreshTokenCleanupService(tokens, scheduler).registerJob();
+        stubInsert("refresh_token_cleanup", SchedulerFireTrigger.SCHEDULED);
 
         scheduledRunnable("refresh_token_cleanup").run();
 
@@ -111,10 +114,14 @@ class SchedulerJobOutcomeThroughWrapperTest {
                 Clock.fixed(NOW, ZoneOffset.UTC)).registerJob();
         when(repository.findByJobKey("drive_time_refresh"))
                 .thenReturn(Optional.of(cronJob("drive_time_refresh")));
+        stubInsert("drive_time_refresh", SchedulerFireTrigger.MANUAL);
 
+        Instant before = Instant.now();
         scheduler.triggerNow("drive_time_refresh");
+        Instant after = Instant.now();
         ArgumentCaptor<Runnable> run = ArgumentCaptor.forClass(Runnable.class);
-        verify(taskScheduler).schedule(run.capture(), any(Instant.class));
+        verify(taskScheduler).schedule(run.capture(),
+                argThat((Instant at) -> at != null && !at.isBefore(before) && !at.isAfter(after)));
         run.getValue().run();
 
         ArgumentCaptor<SchedulerFireLogEntity> row = ArgumentCaptor.forClass(SchedulerFireLogEntity.class);
@@ -139,10 +146,27 @@ class SchedulerJobOutcomeThroughWrapperTest {
         new DriveTimeRefreshJob(users, locations, durations, writer, scheduler,
                 Clock.fixed(NOW, ZoneOffset.UTC)).registerJob();
 
+        stubInsert("drive_time_refresh", SchedulerFireTrigger.SCHEDULED);
+
         scheduledRunnable("drive_time_refresh").run();
 
         verify(fireLog).complete(LOG_ID, NOW, SchedulerFireStatus.PARTIAL,
                 "1 refreshed · 0 superseded · 1 failed · 0 unchanged", null);
+    }
+
+    /** Stubs the RUNNING insert for exactly this fire: job key, RUNNING, trigger kind and the fixed fire instant. */
+    private void stubInsert(String jobKey, SchedulerFireTrigger kind) {
+        when(fireLog.save(argThat((SchedulerFireLogEntity row) -> row != null
+                && jobKey.equals(row.getJobKey())
+                && row.getStatus() == SchedulerFireStatus.RUNNING
+                && row.getTriggerKind() == kind
+                && NOW.equals(row.getFiredAt())))).thenAnswer(this::withLogId);
+    }
+
+    private SchedulerFireLogEntity withLogId(InvocationOnMock invocation) {
+        SchedulerFireLogEntity row = invocation.getArgument(0);
+        row.setId(LOG_ID);
+        return row;
     }
 
     private static AppUserEntity homeUser(long id) {
@@ -157,10 +181,10 @@ class SchedulerJobOutcomeThroughWrapperTest {
 
     /** Installs a CRON schedule for the key and returns the wrapped runnable the scheduler was given. */
     private Runnable scheduledRunnable(String jobKey) {
-        when(taskScheduler.schedule(any(Runnable.class), any(Trigger.class))).thenReturn((ScheduledFuture) future);
+        when(taskScheduler.schedule(notNull(Runnable.class), argThat(CRON_MON))).thenReturn((ScheduledFuture) future);
         scheduler.scheduleJob(cronJob(jobKey));
         ArgumentCaptor<Runnable> run = ArgumentCaptor.forClass(Runnable.class);
-        verify(taskScheduler).schedule(run.capture(), any(Trigger.class));
+        verify(taskScheduler).schedule(run.capture(), argThat(CRON_MON));
         return run.getValue();
     }
 
