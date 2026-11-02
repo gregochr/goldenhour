@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.4] - 2026-11-02
+
+### Added — the Runs screen's Day view
+
+Operations → Runs now opens on a Day view in place of the long reverse-chronological list. One UK day at a time:
+a date bar (previous and next day, a calendar disclosure with a spend bar and an attention dot per day, Today,
+and the Left, Right and T keys), a summary strip, a 24-hour strip of every run in five lanes (with sunrise,
+sunset, a Now line and the still-to-come runs as dashed outlines), and the day's runs in time order with filter
+chips. Today splits into what has finished and what is still to run, with the estimated times marked `~`.
+Opening a run shows its times, cost in pounds and dollars, how it compares with the last 30, and a table of
+the external calls it made, with a link to the existing run detail. The running-cycle banner, the progress panel,
+Start a run and the cycle and job-run panels are unchanged and stay above the views. Cost trends and Timing are
+placeholders until a following change.
+
+The view, day and filter ride the address (`#manage/runs?view=day&date=2026-11-01&filter=cycles`) and survive a
+reload; the Scheduler's "All in Runs" link opens the Day view on the matching filter, and the old
+`?range=&kind=&attention=` links are mapped to it. An open run panel is no longer closed when the filter changes.
+
+### Operations — Runs: Cost trends and Timing views
+
+The Runs tab's Cost trends and Timing views are live. Cost trends answers "have my costs snowballed?" with a verdict card, a stacked daily-spend chart (7-day average line, isolate a type, click a day to open it) and a "where the change came from" table with sparklines and the dollar total. Timing shows how long a run type takes: a stat strip, a duration histogram with a smoothed curve and Median / 9 in 10 / Slowest markers, a sunset planner for the Afternoon refresh (replay the runs with a different start; Open in Scheduler), a ready-by card for the fixed-time cycles, and a "is it getting slower?" scatter that opens a run's day. Both ride the address (`?view=cost&range=&type=`, `?view=timing&type=&range=&measure=`).
+
+### Added — the Runs screen's Cost trends and Timing endpoints
+
+Two admin endpoints, `GET /api/admin/runs/cost` and `GET /api/admin/runs/timing`, serve what the Runs deep dive's
+Cost trends and Timing views need. Cost trends compares the last 14, 30 or 60 full UK days with the same number
+before them: spend by day and by run type, the biggest movers with their run count and cost per run, the dollar
+total at the stored exchange rate, and the verdict (up, down or flat, the top contributor, whether it runs as often
+as before, and the sky eval's share) as structured fields. Spend comes only from the recorded run costs, never from
+the call log, and a cost still accruing marks its day incomplete instead of counting as nothing. Timing serves one
+run type's durations over 30, 60 or 120 days with median, 9-in-10, slowest, fastest, first-half and second-half
+medians and a skew flag, each run's own-day sunset, the Afternoon refresh's sun-relative trigger, and for the fixed-time
+cycles when their results are typically ready. Cycles can be measured to the end of their ask-ready answers. No screen
+reads the endpoints yet; the views arrive in a following change.
+
 ## [v2.36.3] - 2026-11-02
 
 ### Changed — Sky ratings send fewer unused lines to Claude

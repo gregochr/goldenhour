@@ -1,3 +1,0 @@
-### Operations — Runs: Cost trends and Timing views
-
-The Runs tab's Cost trends and Timing views are live. Cost trends answers "have my costs snowballed?" with a verdict card, a stacked daily-spend chart (7-day average line, isolate a type, click a day to open it) and a "where the change came from" table with sparklines and the dollar total. Timing shows how long a run type takes: a stat strip, a duration histogram with a smoothed curve and Median / 9 in 10 / Slowest markers, a sunset planner for the Afternoon refresh (replay the runs with a different start; Open in Scheduler), a ready-by card for the fixed-time cycles, and a "is it getting slower?" scatter that opens a run's day. Both ride the address (`?view=cost&range=&type=`, `?view=timing&type=&range=&measure=`).
