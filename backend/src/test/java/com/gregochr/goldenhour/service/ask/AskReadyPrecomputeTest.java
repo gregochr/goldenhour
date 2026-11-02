@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -87,8 +86,16 @@ class AskReadyPrecomputeTest {
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(region(1L, "Northumberland"),
                 region(2L, "Teesdale")));
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class)))
-                .thenReturn(job);
+        // A scheduled or on-demand run has no cycle behind it, so it takes the three-argument form.
+        for (boolean manual : new boolean[] {true, false}) {
+            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(manual), eq(properties.getModel())))
+                    .thenReturn(job);
+        }
+        // A run a cycle dispatched is started with the cycle's id, so it is stored on the row at insert.
+        for (long cycleId : new long[] {1L, 2L, 3L, 42L}) {
+            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel()), isNull(),
+                    eq(cycleId))).thenReturn(job);
+        }
         model = call -> goodModel(call, snapshot);
         service = newService(Duration.ofMinutes(5));
     }
@@ -239,7 +246,7 @@ class AskReadyPrecomputeTest {
     void jobRunAndProvenance() {
         service.precompute(42L);
 
-        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel());
+        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel(), null, 42L);
         verify(jobRunService).completeRun(job, 17, 0);
         assertThat(job.getLocationsProcessed()).isEqualTo(17);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), eq(snapshot.generatedAt()),

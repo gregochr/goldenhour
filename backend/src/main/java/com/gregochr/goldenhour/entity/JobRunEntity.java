@@ -106,6 +106,13 @@ public class JobRunEntity {
     private String notes;
 
     /**
+     * The pipeline run (cycle) that started this run, for the cycle's chained BRIEFING and ASK_READY runs; null for
+     * every other run and for rows written before V214. Written at insert only, never updated.
+     */
+    @Column(name = "pipeline_run_id", insertable = true, updatable = false)
+    private Long pipelineRunId;
+
+    /**
      * Read-time enrichment for batch run types (SCHEDULED_BATCH / BATCH_NEAR_TERM /
      * BATCH_FAR_TERM) populated by the metrics endpoint from {@code api_call_log} rows.
      * Not persisted; null on non-batch runs and on batch runs with no usable call rows.

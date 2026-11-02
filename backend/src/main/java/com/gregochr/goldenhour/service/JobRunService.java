@@ -105,6 +105,24 @@ public class JobRunService {
      */
     public JobRunEntity startRun(RunType runType, boolean triggeredManually,
             EvaluationModel evaluationModel, String activeStrategies) {
+        return startRun(runType, triggeredManually, evaluationModel, activeStrategies, null);
+    }
+
+    /**
+     * Starts a new job run that belongs to a cycle: a cycle's BRIEFING run or the ASK_READY run that follows it.
+     *
+     * <p>The cycle id is stored on the row at insert (the column is never updated afterwards), so the Runs
+     * view can show the run under its cycle.
+     *
+     * @param runType            the type of forecast run
+     * @param triggeredManually  whether this run was triggered manually (true) or by scheduler (false)
+     * @param evaluationModel    the Claude model used (null for WEATHER/TIDE)
+     * @param activeStrategies   comma-separated list of enabled strategy names, or null
+     * @param pipelineRunId      the pipeline run (cycle) that started this run, or null when none did
+     * @return the newly created job run entity
+     */
+    public JobRunEntity startRun(RunType runType, boolean triggeredManually,
+            EvaluationModel evaluationModel, String activeStrategies, Long pipelineRunId) {
         Double exchangeRate = null;
         try {
             exchangeRate = exchangeRateService.getCurrentRate();
@@ -122,6 +140,7 @@ public class JobRunService {
                 .triggeredManually(triggeredManually)
                 .exchangeRateGbpPerUsd(exchangeRate)
                 .activeStrategies(activeStrategies)
+                .pipelineRunId(pipelineRunId)
                 .appVersion(appVersion)
                 .build();
         return jobRunRepository.save(jobRun);

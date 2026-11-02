@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.repository;
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
+import com.gregochr.goldenhour.model.ApiCallErrorGroup;
+import com.gregochr.goldenhour.model.ApiCallGroup;
 import com.gregochr.goldenhour.model.BatchCallOutcome;
 import com.gregochr.goldenhour.model.ApiCallCostRow;
 import com.gregochr.goldenhour.model.BatchSummaryCall;
@@ -151,4 +153,32 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "WHERE a.service = com.gregochr.goldenhour.entity.ServiceName.ANTHROPIC "
             + "AND a.calledAt >= :since")
     List<ApiCallCostRow> findCostRowsSince(@Param("since") LocalDateTime since);
+
+    /**
+     * The calls of some job runs summed per service and per batch/synchronous kind, by SQL on the indexed
+     * {@code job_run_id}. Backs the Runs "external calls" table; never loads a call row.
+     *
+     * @param jobRunIds the job runs
+     * @return one group per service and kind
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.ApiCallGroup("
+            + "a.service, a.isBatch, COUNT(a), SUM(a.durationMs), SUM(a.costMicroDollars), "
+            + "COUNT(CASE WHEN a.succeeded = false THEN 1 END)) "
+            + "FROM ApiCallLogEntity a WHERE a.jobRunId IN :jobRunIds GROUP BY a.service, a.isBatch")
+    List<ApiCallGroup> groupCallsByJobRuns(@Param("jobRunIds") Collection<Long> jobRunIds);
+
+    /**
+     * The failed calls of some job runs grouped by service, kind and error message (cut to 120 characters in SQL),
+     * commonest first.
+     *
+     * @param jobRunIds the job runs
+     * @return one group per distinct error
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.ApiCallErrorGroup("
+            + "a.service, a.isBatch, SUBSTRING(a.errorMessage, 1, 120), COUNT(a)) "
+            + "FROM ApiCallLogEntity a WHERE a.jobRunId IN :jobRunIds AND a.succeeded = false "
+            + "AND a.errorMessage IS NOT NULL "
+            + "GROUP BY a.service, a.isBatch, SUBSTRING(a.errorMessage, 1, 120) "
+            + "ORDER BY COUNT(a) DESC")
+    List<ApiCallErrorGroup> groupErrorsByJobRuns(@Param("jobRunIds") Collection<Long> jobRunIds);
 }

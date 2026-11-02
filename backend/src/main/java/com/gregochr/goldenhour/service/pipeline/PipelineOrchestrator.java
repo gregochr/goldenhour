@@ -769,7 +769,7 @@ public class PipelineOrchestrator {
             // resume, and a run already settled is refused by the claim.
             settleLocationFailures(run);
             try {
-                briefingService.refreshBriefing();
+                briefingService.refreshBriefing(runId);
                 persistPicksForCycle(runId);
                 pipelineRunService.completePhase(runId, PipelinePhase.BRIEFING, null);
             } catch (RuntimeException e) {

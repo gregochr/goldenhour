@@ -4,7 +4,6 @@ import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -34,7 +33,7 @@ import static com.gregochr.goldenhour.service.ask.ReadyFixtures.day;
 import static com.gregochr.goldenhour.service.ask.ReadyFixtures.oct;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -78,8 +77,12 @@ class AskReadyClaudeEngineTest {
                         AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(9), List.of())));
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
-        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class)))
-                .thenReturn(JobRunEntity.builder().id(JOB_RUN_ID).runType(RunType.ASK_READY).build());
+        JobRunEntity readyJob = JobRunEntity.builder().id(JOB_RUN_ID).runType(RunType.ASK_READY).build();
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel())))
+                .thenReturn(readyJob);
+        // A precompute a cycle dispatched starts its run with the cycle's id.
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel()), isNull(),
+                eq(42L))).thenReturn(readyJob);
     }
 
     @AfterEach

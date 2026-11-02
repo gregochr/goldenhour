@@ -172,4 +172,88 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
     @Query("SELECT j.exchangeRateGbpPerUsd FROM JobRunEntity j WHERE j.exchangeRateGbpPerUsd IS NOT NULL "
             + "ORDER BY j.startedAt DESC, j.id DESC")
     List<Double> findLatestExchangeRates(Pageable pageable);
+
+    /**
+     * Job runs that started in a UTC window, oldest first. Backs the Runs Day and Calendar views, which bound a
+     * UK civil day by its two midnights.
+     *
+     * @param from the inclusive start (naive UTC)
+     * @param to   the exclusive end (naive UTC)
+     * @return the runs, ascending by start, ties by id
+     */
+    List<JobRunEntity> findByStartedAtGreaterThanEqualAndStartedAtLessThanOrderByStartedAtAscIdAsc(
+            LocalDateTime from, LocalDateTime to);
+
+    /**
+     * Job runs of some types that started in a UTC window, oldest first. The candidates for linking a cycle to the
+     * briefing and ask-ready runs it started.
+     *
+     * @param runTypes the run types
+     * @param from     the inclusive start (naive UTC)
+     * @param to       the exclusive end (naive UTC)
+     * @return the runs, ascending by start, ties by id
+     */
+    List<JobRunEntity> findByRunTypeInAndStartedAtGreaterThanEqualAndStartedAtLessThanOrderByStartedAtAscIdAsc(
+            Collection<RunType> runTypes, LocalDateTime from, LocalDateTime to);
+
+    /**
+     * The runs that were started by (carry the id of) any of the given cycles, by the indexed
+     * {@code pipeline_run_id}.
+     *
+     * @param pipelineRunIds the cycle ids
+     * @return the linked runs
+     */
+    List<JobRunEntity> findByPipelineRunIdIn(Collection<Long> pipelineRunIds);
+
+    /**
+     * The newest finished runs of a type that the scheduler (not a person) started, before a moment, newest first,
+     * of any evaluation model. One side of the sample the Runs medians and 90th percentiles are taken over.
+     *
+     * @param runType  the run type
+     * @param before   the exclusive upper bound on the start (naive UTC)
+     * @param pageable the page (the sample size)
+     * @return the runs, newest first
+     */
+    @Query("SELECT j FROM JobRunEntity j WHERE j.runType = :runType AND j.triggeredManually = false "
+            + "AND j.completedAt IS NOT NULL AND j.startedAt < :before ORDER BY j.startedAt DESC, j.id DESC")
+    List<JobRunEntity> findFinishedScheduled(@Param("runType") RunType runType,
+            @Param("before") LocalDateTime before, Pageable pageable);
+
+    /**
+     * {@link #findFinishedScheduled} restricted to one evaluation model.
+     *
+     * @param runType  the run type
+     * @param model    the evaluation model
+     * @param before   the exclusive upper bound on the start (naive UTC)
+     * @param pageable the page (the sample size)
+     * @return the runs, newest first
+     */
+    @Query("SELECT j FROM JobRunEntity j WHERE j.runType = :runType AND j.triggeredManually = false "
+            + "AND j.evaluationModel = :model AND j.completedAt IS NOT NULL AND j.startedAt < :before "
+            + "ORDER BY j.startedAt DESC, j.id DESC")
+    List<JobRunEntity> findFinishedScheduledWithModel(@Param("runType") RunType runType,
+            @Param("model") com.gregochr.goldenhour.entity.EvaluationModel model,
+            @Param("before") LocalDateTime before, Pageable pageable);
+
+    /**
+     * {@link #findFinishedScheduled} restricted to runs that recorded no evaluation model.
+     *
+     * @param runType  the run type
+     * @param before   the exclusive upper bound on the start (naive UTC)
+     * @param pageable the page (the sample size)
+     * @return the runs, newest first
+     */
+    @Query("SELECT j FROM JobRunEntity j WHERE j.runType = :runType AND j.triggeredManually = false "
+            + "AND j.evaluationModel IS NULL AND j.completedAt IS NOT NULL AND j.startedAt < :before "
+            + "ORDER BY j.startedAt DESC, j.id DESC")
+    List<JobRunEntity> findFinishedScheduledWithoutModel(@Param("runType") RunType runType,
+            @Param("before") LocalDateTime before, Pageable pageable);
+
+    /**
+     * The start of the earliest job run, for the earliest day the Runs view offers.
+     *
+     * @return the earliest start (naive UTC), or null when there are no runs
+     */
+    @Query("SELECT MIN(j.startedAt) FROM JobRunEntity j")
+    LocalDateTime findEarliestStartedAt();
 }

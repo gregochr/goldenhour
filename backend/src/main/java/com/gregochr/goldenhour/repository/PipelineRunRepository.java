@@ -278,6 +278,37 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
     List<PipelineRunEntity> findByTriggerTimeGreaterThanEqualOrderByTriggerTimeDescIdDesc(Instant since);
 
     /**
+     * Pipeline runs triggered in a window, oldest first. Backs the Runs Day and Calendar views.
+     *
+     * @param from the inclusive start
+     * @param to   the exclusive end
+     * @return the cycles, ascending by trigger time, ties by id
+     */
+    List<PipelineRunEntity> findByTriggerTimeGreaterThanEqualAndTriggerTimeLessThanOrderByTriggerTimeAscIdAsc(
+            Instant from, Instant to);
+
+    /**
+     * The newest cycles of one type that ended in one of the given statuses, triggered before a moment, newest
+     * first. The sample the Runs medians and 90th percentiles are taken over.
+     *
+     * @param cycleType the cycle type
+     * @param statuses  the statuses that count as finished
+     * @param before    the exclusive upper bound on the trigger time
+     * @param pageable  the page (the sample size)
+     * @return the cycles, newest first
+     */
+    List<PipelineRunEntity> findByCycleTypeAndStatusInAndTriggerTimeLessThanOrderByTriggerTimeDescIdDesc(
+            CycleType cycleType, Collection<PipelineRunStatus> statuses, Instant before, Pageable pageable);
+
+    /**
+     * The trigger time of the earliest cycle, for the earliest day the Runs view offers.
+     *
+     * @return the earliest trigger time, or null when there are no cycles
+     */
+    @Query("SELECT MIN(p.triggerTime) FROM PipelineRunEntity p")
+    Instant findEarliestTriggerTime();
+
+    /**
      * The job run ids that anchor a cycle's dispositions, from a minimum id upwards. The Runs list hides
      * these from its top level.
      *

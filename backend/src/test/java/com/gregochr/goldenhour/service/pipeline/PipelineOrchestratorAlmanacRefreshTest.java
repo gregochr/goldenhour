@@ -199,7 +199,7 @@ class PipelineOrchestratorAlmanacRefreshTest {
     @DisplayName("no refresh follows a run that did not finish: a failed briefing marks the run FAILED and "
             + "refreshes nothing")
     void failedRunRefreshesNothing() {
-        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
+        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(RUN_ID);
 
         orchestrator(Runnable::run, almanacService).runNightlyCycle();
 

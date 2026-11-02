@@ -204,7 +204,7 @@ class PipelineOrchestratorAskReadyTest {
     @DisplayName("no precompute follows a run that did not finish: a failed briefing marks the run FAILED and "
             + "dispatches nothing")
     void failedRunDispatchesNothing() {
-        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
+        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(RUN_ID);
 
         orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 

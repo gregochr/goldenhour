@@ -33,4 +33,34 @@ public interface SkyRatingEvalRunRepository extends JpaRepository<SkyRatingEvalR
      * @return matching runs
      */
     List<SkyRatingEvalRunEntity> findByStatus(SkyRatingEvalStatus status);
+
+    /**
+     * Runs whose logical timestamp falls in a UTC window, oldest first, by the indexed {@code run_timestamp}.
+     *
+     * @param from the inclusive start (naive UTC)
+     * @param to   the exclusive end (naive UTC)
+     * @return the runs
+     */
+    List<SkyRatingEvalRunEntity> findByRunTimestampGreaterThanEqualAndRunTimestampLessThanOrderByRunTimestampAscIdAsc(
+            java.time.LocalDateTime from, java.time.LocalDateTime to);
+
+    /**
+     * The newest runs with a status, before a moment, newest first. The sample the Runs medians are taken over.
+     *
+     * @param status   the status (COMPLETED)
+     * @param before   the exclusive upper bound on the timestamp (naive UTC)
+     * @param pageable the page (the sample size)
+     * @return the runs, newest first
+     */
+    List<SkyRatingEvalRunEntity> findByStatusAndRunTimestampLessThanOrderByRunTimestampDescIdDesc(
+            SkyRatingEvalStatus status, java.time.LocalDateTime before,
+            org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * The timestamp of the earliest eval run, for the earliest day the Runs view offers.
+     *
+     * @return the earliest timestamp (naive UTC), or null when there are none
+     */
+    @org.springframework.data.jpa.repository.Query("SELECT MIN(r.runTimestamp) FROM SkyRatingEvalRunEntity r")
+    java.time.LocalDateTime findEarliestRunTimestamp();
 }

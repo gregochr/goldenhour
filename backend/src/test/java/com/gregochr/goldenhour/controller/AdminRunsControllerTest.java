@@ -3,6 +3,13 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.JobRunDto;
 import com.gregochr.goldenhour.model.runs.NoteTone;
+import com.gregochr.goldenhour.model.runs.RunCalendarResponse;
+import com.gregochr.goldenhour.model.runs.RunCalendarResponse.CalendarDay;
+import com.gregochr.goldenhour.model.runs.RunCallsResponse;
+import com.gregochr.goldenhour.model.runs.RunCallsResponse.CallService;
+import com.gregochr.goldenhour.model.runs.RunCallsResponse.CallStatus;
+import com.gregochr.goldenhour.model.runs.RunDayResponse;
+import com.gregochr.goldenhour.model.runs.RunDaySummary;
 import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunJobDetail;
 import com.gregochr.goldenhour.model.runs.RunKind;
@@ -11,6 +18,7 @@ import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.model.runs.RunListSummary;
 import com.gregochr.goldenhour.model.runs.RunRange;
 import com.gregochr.goldenhour.service.runs.RunCursor;
+import com.gregochr.goldenhour.service.runs.RunsRequestException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,7 +26,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -138,5 +149,113 @@ class AdminRunsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.noteTone").value("WARN"))
                 .andExpect(jsonPath("$.triggeredManually").value(true))
                 .andExpect(jsonPath("$.batch").isEmpty());
+    }
+
+    // ── Day, calendar and calls ───────────────────────────────────────────────
+
+    private static RunDayResponse emptyDay(LocalDate date) {
+        return new RunDayResponse(date, false, LocalDate.parse("2026-10-10"), "07:12", "16:49",
+                Instant.parse("2026-11-01T07:12:00Z"), Instant.parse("2026-11-01T16:49:00Z"),
+                Instant.parse("2026-11-01T00:00:00Z"), Instant.parse("2026-11-02T00:00:00Z"), null, List.of(),
+                new RunDaySummary(null, null, null, 0, 0, 0, 0, 0, 0, null, new BigDecimal("0.00"), true, null,
+                        null, null, null, null),
+                Map.of("ALL", 0));
+    }
+
+    @Test
+    @WithMockUser(roles = "PRO_USER")
+    @DisplayName("the day, calendar and calls endpoints are 403 for a non-admin")
+    void deepEndpointsForbiddenForNonAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/runs/day")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/runs/calendar").param("month", "2026-11")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/runs/calls").param("runId", "job-1")).andExpect(status().isForbidden());
+
+        verifyNoInteractions(runsDayService, runsCalendarService, runsCallsService);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/day serves the day, or today when no date is given")
+    void day_served() throws Exception {
+        when(runsDayService.day(LocalDate.parse("2026-11-01"))).thenReturn(emptyDay(LocalDate.parse("2026-11-01")));
+        when(runsDayService.day(null)).thenReturn(emptyDay(LocalDate.parse("2026-11-02")));
+
+        mockMvc.perform(get("/api/admin/runs/day").param("date", "2026-11-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value("2026-11-01"))
+                .andExpect(jsonPath("$.isToday").value(false))
+                .andExpect(jsonPath("$.earliestDay").value("2026-10-10"))
+                .andExpect(jsonPath("$.sunrise").value("07:12"))
+                .andExpect(jsonPath("$.dayStartUtc").value("2026-11-01T00:00:00Z"))
+                .andExpect(jsonPath("$.summary.spendGbp").value(0.0))
+                .andExpect(jsonPath("$.filterCounts.ALL").value(0));
+        mockMvc.perform(get("/api/admin/runs/day")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value("2026-11-02"));
+        mockMvc.perform(get("/api/admin/runs/day").param("date", " ")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("a malformed, future or too-early day is 400 with the reason")
+    void day_badRequests() throws Exception {
+        when(runsDayService.day(LocalDate.parse("2026-12-25")))
+                .thenThrow(new RunsRequestException("date is in the future"));
+
+        mockMvc.perform(get("/api/admin/runs/day").param("date", "yesterday")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("date must be YYYY-MM-DD"));
+        mockMvc.perform(get("/api/admin/runs/day").param("date", "2026-13-40")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/day").param("date", "2026-12-25")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("date is in the future"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/calendar serves the month; a bad, missing or out-of-range month is 400")
+    void calendar() throws Exception {
+        when(runsCalendarService.month(YearMonth.of(2026, 11))).thenReturn(new RunCalendarResponse("2026-11",
+                List.of(new CalendarDay(LocalDate.parse("2026-11-01"), 3, new BigDecimal("1.25"), true, 1)),
+                new BigDecimal("1.25"), LocalDate.parse("2026-10-10")));
+        when(runsCalendarService.month(YearMonth.of(2027, 1)))
+                .thenThrow(new RunsRequestException("month is in the future"));
+
+        mockMvc.perform(get("/api/admin/runs/calendar").param("month", "2026-11"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.month").value("2026-11"))
+                .andExpect(jsonPath("$.days[0].date").value("2026-11-01"))
+                .andExpect(jsonPath("$.days[0].runs").value(3))
+                .andExpect(jsonPath("$.days[0].attention").value(1))
+                .andExpect(jsonPath("$.maxSpendGbp").value(1.25));
+        mockMvc.perform(get("/api/admin/runs/calendar").param("month", "November")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("month must be YYYY-MM"));
+        mockMvc.perform(get("/api/admin/runs/calendar")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/calendar").param("month", "2027-01")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("month is in the future"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/calls serves the services; 404 for an unknown run, 400 for a bad id")
+    void calls() throws Exception {
+        when(runsCallsService.calls("job-5")).thenReturn(Optional.of(new RunCallsResponse("job-5", true,
+                List.of(new CallService("ANTHROPIC", "Anthropic Messages", "Messages · ready answers", 8L, 6500L,
+                        null, null, 1_000_000L, new BigDecimal("0.80"), new BigDecimal("1.00"), 3L,
+                        CallStatus.ERRORS, "529 overloaded after retries")))));
+        when(runsCallsService.calls("job-404")).thenReturn(Optional.empty());
+        when(runsCallsService.calls("nonsense"))
+                .thenThrow(new RunsRequestException("runId must be cycle-N, job-N or eval-N"));
+        when(runsCallsService.calls(null))
+                .thenThrow(new RunsRequestException("runId must be cycle-N, job-N or eval-N"));
+
+        mockMvc.perform(get("/api/admin/runs/calls").param("runId", " job-5 "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runId").value("job-5"))
+                .andExpect(jsonPath("$.logged").value(true))
+                .andExpect(jsonPath("$.services[0].label").value("Anthropic Messages"))
+                .andExpect(jsonPath("$.services[0].status").value("ERRORS"))
+                .andExpect(jsonPath("$.services[0].costGbp").value(0.8))
+                .andExpect(jsonPath("$.services[0].errorSummary").value("529 overloaded after retries"));
+        mockMvc.perform(get("/api/admin/runs/calls").param("runId", "job-404")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/admin/runs/calls").param("runId", "nonsense")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/calls")).andExpect(status().isBadRequest());
     }
 }
