@@ -177,8 +177,8 @@ class ClaudeAuroraInterpreterTest {
         verify(anthropicApiClient).createMessage(captor.capture());
         MessageCreateParams params = captor.getValue();
         assertThat(params.model().toString()).isEqualTo("claude-sonnet-5-5");
-        // one location: 256 + 220 = 476 answer tokens, plus the 4096 thinking allowance
-        assertThat(params.maxTokens()).isEqualTo(4572L);
+        // one location: 256 + 110 = 366 answer tokens, plus the 4096 thinking allowance
+        assertThat(params.maxTokens()).isEqualTo(4462L);
         assertThat(params.outputConfig()).isPresent();
         assertThat(params.outputConfig().get().effort())
                 .contains(com.anthropic.models.messages.OutputConfig.Effort.LOW);
@@ -202,7 +202,7 @@ class ClaudeAuroraInterpreterTest {
         verify(anthropicApiClient).createMessage(captor.capture());
         MessageCreateParams params = captor.getValue();
         assertThat(params.model().toString()).isEqualTo("claude-haiku-5-5");
-        assertThat(params.maxTokens()).isEqualTo(476L);
+        assertThat(params.maxTokens()).isEqualTo(366L);
         assertThat(params.outputConfig().orElseThrow().effort())
                 .contains(com.anthropic.models.messages.OutputConfig.Effort.LOW);
         assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
@@ -753,6 +753,40 @@ class ClaudeAuroraInterpreterTest {
         // Non-negative guard: a zero/negative count never produces a smaller-than-base budget.
         assertThat(ClaudeAuroraInterpreter.maxTokensFor(0))
                 .isEqualTo(ClaudeAuroraInterpreter.maxTokensFor(-5));
+        // Exact budget: 256 base + 110 per location.
+        assertThat(oneLocation).isEqualTo(366);
+        assertThat(tenLocations).isEqualTo(256 + 110 * 10);
+    }
+
+    @Test
+    @DisplayName("system prompt no longer asks for detail, keeps scoring rules, moon rule names the summary")
+    void systemPrompt_dropsDetailKeepsScoringRules() {
+        String prompt = ClaudeAuroraInterpreter.systemPrompt();
+
+        assertThat(prompt).doesNotContain("\"detail\"");
+        assertThat(prompt).doesNotContain("push notification");
+        assertThat(prompt).contains("max 90 chars");
+        assertThat(prompt).contains(
+                "If illumination > 50%, MUST mention moon impact explicitly in the summary.");
+        assertThat(prompt).contains("Illumination > 75%: −3.0 HARD PENALTY. Hard cap the FINAL score at 3★");
+        assertThat(prompt).contains("Bortle 1–2: +0.5. Bortle 3–4: 0. Bortle 5+: −0.5.");
+        assertThat(prompt).contains("STRONG (Kp 7+): base 4★. MODERATE (Kp 5–6): base 3★.");
+        assertThat(prompt).contains("Clamp final score to 1–5 inclusive.");
+    }
+
+    @Test
+    @DisplayName("parseResponse of a reply with no detail field gives empty detail and the right stars/summary")
+    void parseResponse_noDetailField_emptyDetail() {
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        String json = "[{\"name\":\"Galloway\",\"stars\":4,\"summary\":\"Forecast tonight\"}]";
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(json, AlertLevel.MODERATE,
+                List.of(loc), Map.of(loc, 30));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(0).summary()).isEqualTo("Forecast tonight");
+        assertThat(scores.get(0).detail()).isEmpty();
     }
 
     // -------------------------------------------------------------------------
