@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
+import com.gregochr.goldenhour.model.ScheduledModelView;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
 import com.gregochr.goldenhour.service.SkyRatingEvalService;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -68,6 +71,51 @@ public class SkyRatingEvalController {
         SkyRatingEvalRunEntity started = service.startRun(model, SkyRatingEvalTrigger.MANUAL, runs);
         CompletableFuture.runAsync(() -> service.executeRun(started.getId()), asyncExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(started);
+    }
+
+    /**
+     * The weekly schedule: every selectable model and whether the weekly run includes it.
+     *
+     * @return one row per selectable model, in selectable order
+     */
+    @GetMapping("/schedule")
+    @PreAuthorize("hasRole('ADMIN')")
+    public List<ScheduledModelView> schedule() {
+        return service.schedule();
+    }
+
+    /**
+     * Switches one model on or off for the weekly run. Returns only that model's row, so overlapping
+     * toggles from the page cannot overwrite each other.
+     *
+     * @param model the model name
+     * @param body  the request body carrying {@code scheduled}
+     * @return the model's updated row
+     * @throws IllegalArgumentException if the model is unknown or not selectable, or {@code scheduled}
+     *                                  is missing (mapped to 400)
+     */
+    @PutMapping("/schedule/{model}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ScheduledModelView setScheduled(@PathVariable String model,
+            @RequestBody ScheduleRequest body) {
+        if (body == null || body.scheduled() == null) {
+            throw new IllegalArgumentException("Request body must carry a boolean 'scheduled'");
+        }
+        EvaluationModel parsed;
+        try {
+            parsed = EvaluationModel.valueOf(model);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown model: " + model, e);
+        }
+        return service.setScheduled(parsed, body.scheduled());
+    }
+
+    /**
+     * Request body of {@code PUT /schedule/{model}}.
+     *
+     * @param scheduled true to include the model in the weekly run
+     */
+    public record ScheduleRequest(Boolean scheduled) {
     }
 
     /**

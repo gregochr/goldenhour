@@ -123,6 +123,15 @@ class LocalH2EnumWidenerTest {
     }
 
     @Test
+    @DisplayName("the Sky Eval model columns are widening targets, so a new model can be stored locally")
+    void skyEvalModelColumnsAreTargets() {
+        assertThat(LocalH2EnumWidener.TARGETS).contains(
+                new Target("sky_rating_eval_run", "model", com.gregochr.goldenhour.entity.EvaluationModel.class),
+                new Target("sky_rating_eval_model_exclusion", "model",
+                        com.gregochr.goldenhour.entity.EvaluationModel.class));
+    }
+
+    @Test
     @DisplayName("the real target: an old job_run.run_type gains ASK and ASK_READY")
     void realTargetGainsTheAskRunTypes() throws SQLException {
         DataSource ds = database();

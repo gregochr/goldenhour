@@ -21,3 +21,15 @@ export const getSkyRatingEvalRun = (id) => apiClient.get(`/api/admin/sky-rating-
 
 /** The calibration-drift series — one aggregate point per (completed run × fixture). */
 export const getSkyRatingEvalTrend = () => apiClient.get('/api/admin/sky-rating-eval/trend');
+
+/** The weekly run's model list: one `{model, scheduled}` row per selectable model. */
+export const getSkyRatingEvalSchedule = () => apiClient.get('/api/admin/sky-rating-eval/schedule');
+
+/**
+ * Switches one model on or off for the weekly run. Resolves to only that model's `{model, scheduled}` row.
+ *
+ * @param {string} model - EvaluationModel enum name
+ * @param {boolean} scheduled - true to include the model in the weekly run
+ */
+export const setSkyRatingEvalScheduled = (model, scheduled) =>
+  apiClient.put(`/api/admin/sky-rating-eval/schedule/${model}`, { scheduled });

@@ -6,6 +6,7 @@ import {
 import { getAvailableModels } from '../api/modelsApi.js';
 import {
   runSkyRatingEval, getSkyRatingEvalRuns, getSkyRatingEvalRun, getSkyRatingEvalTrend,
+  getSkyRatingEvalSchedule, setSkyRatingEvalScheduled,
 } from '../api/skyRatingEvalApi';
 import { formatCostUsd } from '../utils/formatCost';
 import { formatInstantUk } from '../utils/conversions.js';
@@ -23,6 +24,26 @@ const MODEL_COLOURS = { HAIKU: '#60a5fa', HAIKU_55: '#38bdf8', SONNET: '#a78bfa'
 const FALLBACK_MODEL_COLOURS = ['#2dd4bf', '#f472b6', '#a3e635', '#fb7185', '#818cf8', '#e879f9'];
 const Y_AXIS_FLOOR_STEP = 10;
 const Y_AXIS_FLOOR_MARGIN = 5;
+const CHART_HIDDEN_KEY = 'skyEval.chartHidden';
+
+/** Reads the models hidden from the accuracy chart; storage that is missing, throws or is garbled reads as none. */
+function readChartHidden() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CHART_HIDDEN_KEY));
+    return Array.isArray(parsed) ? parsed.filter((m) => typeof m === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Remembers the hidden set; a storage failure is ignored (the page works, it just forgets). */
+function writeChartHidden(hidden) {
+  try {
+    window.localStorage.setItem(CHART_HIDDEN_KEY, JSON.stringify(hidden));
+  } catch {
+    // storage unavailable: the choice lasts for this visit only
+  }
+}
 
 /**
  * Tailwind classes for a model's family, decided by name prefix so a newly added model is styled
@@ -134,6 +155,11 @@ const SkyRatingEvalView = () => {
   const [selectedModel, setSelectedModel] = useState('SONNET');
   const [runsPerFixture, setRunsPerFixture] = useState(DEFAULT_RUNS_PER_FIXTURE);
   const [metric, setMetric] = useState('rating');
+  // Weekly schedule: model -> scheduled. null until loaded; scheduleError set when the load failed.
+  const [schedule, setSchedule] = useState(null);
+  const [scheduleError, setScheduleError] = useState(null);
+  const [togglingModels, setTogglingModels] = useState([]);
+  const [chartHidden, setChartHidden] = useState(readChartHidden);
   const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
   const pollingRef = useRef(null);
 
@@ -166,6 +192,44 @@ const SkyRatingEvalView = () => {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await getSkyRatingEvalSchedule();
+        const next = {};
+        (res.data || []).forEach((row) => { next[row.model] = row.scheduled; });
+        setSchedule(next);
+      } catch (err) {
+        setScheduleError(apiErrorMessage(err, err?.message || 'Failed to load the weekly schedule'));
+      }
+    })();
+  }, []);
+
+  // Optimistic toggle of one model in the weekly run. Only the toggled model's own row is applied
+  // from the response, and a failure reverts only that model, so two quick toggles cannot undo each other.
+  const toggleScheduled = async (model, next) => {
+    setTogglingModels((prev) => [...prev, model]);
+    setSchedule((prev) => ({ ...prev, [model]: next }));
+    setError(null);
+    try {
+      const res = await setSkyRatingEvalScheduled(model, next);
+      setSchedule((prev) => ({ ...prev, [res.data.model]: res.data.scheduled }));
+    } catch (err) {
+      setSchedule((prev) => ({ ...prev, [model]: !next }));
+      setError(apiErrorMessage(err, err?.message || 'Failed to change the weekly schedule'));
+    } finally {
+      setTogglingModels((prev) => prev.filter((m) => m !== model));
+    }
+  };
+
+  const toggleChartModel = (model) => {
+    setChartHidden((prev) => {
+      const next = prev.includes(model) ? prev.filter((m) => m !== model) : [...prev, model];
+      writeChartHidden(next);
+      return next;
+    });
+  };
 
   useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
 
@@ -261,12 +325,27 @@ const SkyRatingEvalView = () => {
 
   const modelsPresent = useMemo(() => orderModelsPresent(runs, models), [runs, models]);
 
-  const accuracyFloor = useMemo(
-    () => accuracyDomainFloor(modelAccuracySeries.flatMap(
-      (point) => Object.entries(point).filter(([k, v]) => k !== 'tsLabel' && Number.isFinite(v)).map(([, v]) => v),
-    )),
-    [modelAccuracySeries],
+  const visibleModels = useMemo(
+    () => modelsPresent.filter((m) => !chartHidden.includes(m)),
+    [modelsPresent, chartHidden],
   );
+
+  // Only the visible models' values: a day on which every visible model has no run is dropped so no
+  // empty X slot remains, and the Y-axis floor is computed from what is drawn.
+  const chartSeries = useMemo(
+    () => modelAccuracySeries.filter((point) => visibleModels.some((m) => Number.isFinite(point[m]))),
+    [modelAccuracySeries, visibleModels],
+  );
+
+  const accuracyFloor = useMemo(
+    () => accuracyDomainFloor(chartSeries.flatMap(
+      (point) => visibleModels.map((m) => point[m]).filter((v) => Number.isFinite(v)),
+    )),
+    [chartSeries, visibleModels],
+  );
+
+  const scheduleReady = schedule !== null;
+  const noneScheduled = scheduleReady && models.length > 0 && models.every((m) => schedule[m] === false);
 
   const fixtureNames = Object.keys(byFixture);
 
@@ -289,9 +368,11 @@ const SkyRatingEvalView = () => {
 
   return (
     <div className="space-y-6" data-testid="sky-rating-eval-view">
-      {/* Controls */}
+      {/* Controls: Run now, Weekly run, Show on chart */}
+      <div className="space-y-3">
       <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
+        <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Run now</span>
+        <div className="flex items-center gap-3 flex-wrap">
           {models.map((m) => (
             <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
               <input
@@ -329,9 +410,57 @@ const SkyRatingEvalView = () => {
         >
           {running ? '⟳ Running…' : '⟳ Run Eval'}
         </button>
+      </div>
+
+      <div className="flex items-center gap-4 flex-wrap" data-testid="sky-eval-schedule-row">
+        <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Weekly run</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          {models.map((m) => (
+            <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
+              <input
+                type="checkbox"
+                checked={scheduleReady && schedule[m] !== false}
+                disabled={!scheduleReady || togglingModels.includes(m)}
+                onChange={(e) => toggleScheduled(m, e.target.checked)}
+                className="accent-plex-gold"
+                data-testid={`sky-eval-schedule-${m}`}
+              />
+              <span className={modelClasses(m).text}>{modelLabel(m)}</span>
+            </label>
+          ))}
+        </div>
+        {scheduleError && (
+          <span className="text-xs text-red-400" data-testid="sky-eval-schedule-error">{scheduleError}</span>
+        )}
         <span className="text-xs text-plex-text-muted">
           {fixtureCount} fixtures · weekly when the scheduler job is resumed
         </span>
+        {noneScheduled && (
+          <span className="text-xs text-amber-300" data-testid="sky-eval-schedule-none">
+            No model is ticked, so the weekly run will be skipped.
+          </span>
+        )}
+      </div>
+
+      {modelsPresent.length > 0 && (
+        <div className="flex items-center gap-4 flex-wrap" data-testid="sky-eval-chart-row">
+          <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Show on chart</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            {modelsPresent.map((m) => (
+              <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
+                <input
+                  type="checkbox"
+                  checked={!chartHidden.includes(m)}
+                  onChange={() => toggleChartModel(m)}
+                  className="accent-plex-gold"
+                  data-testid={`sky-eval-show-${m}`}
+                />
+                <span className={modelClasses(m).text}>{modelLabel(m)}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
       </div>
 
       <ErrorBanner message={error} data-testid="sky-eval-error" />
@@ -346,8 +475,13 @@ const SkyRatingEvalView = () => {
               <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-3">
                 Model accuracy over time — % of fixture runs in band
               </p>
+              {visibleModels.length === 0 ? (
+                <p className="text-sm text-plex-text-muted" data-testid="sky-eval-chart-none">
+                  No models selected
+                </p>
+              ) : (
               <ResponsiveContainer width="100%" height={160}>
-                <LineChart data={modelAccuracySeries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+                <LineChart data={chartSeries} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
                   <XAxis dataKey="tsLabel" tick={{ fontSize: 10, fill: '#9ca3af' }} />
                   <YAxis domain={[accuracyFloor, 100]} allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} width={44} unit="%" />
@@ -356,7 +490,8 @@ const SkyRatingEvalView = () => {
                     formatter={(v, name) => [`${v}%`, name]}
                   />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {modelsPresent.map((m, i) => (
+                  {/* the colour index comes from the full list, so hiding a model never recolours another */}
+                  {modelsPresent.map((m, i) => (chartHidden.includes(m) ? null : (
                     <Line
                       key={m}
                       type="monotone"
@@ -367,9 +502,10 @@ const SkyRatingEvalView = () => {
                       dot={{ r: 3 }}
                       connectNulls
                     />
-                  ))}
+                  )))}
                 </LineChart>
               </ResponsiveContainer>
+              )}
             </div>
           )}
 

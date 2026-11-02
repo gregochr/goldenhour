@@ -59,6 +59,8 @@ vi.mock('../api/skyRatingEvalApi', () => ({
   getSkyRatingEvalRuns: vi.fn(),
   getSkyRatingEvalRun: vi.fn(),
   getSkyRatingEvalTrend: vi.fn(),
+  getSkyRatingEvalSchedule: vi.fn(),
+  setSkyRatingEvalScheduled: vi.fn(),
 }));
 
 /**

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +76,9 @@ public class LocalH2EnumWidener implements SmartInitializingSingleton {
     /** The columns to keep wide. */
     static final List<Target> TARGETS = List.of(
             new Target("job_run", "run_type", RunType.class),
-            new Target("pipeline_run", "cycle_type", CycleType.class));
+            new Target("pipeline_run", "cycle_type", CycleType.class),
+            new Target("sky_rating_eval_run", "model", EvaluationModel.class),
+            new Target("sky_rating_eval_model_exclusion", "model", EvaluationModel.class));
 
     private final DataSource dataSource;
 

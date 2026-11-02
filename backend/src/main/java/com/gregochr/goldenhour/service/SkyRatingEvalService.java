@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.SkyRatingEvalModelExclusionEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
@@ -10,9 +11,11 @@ import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.EvaluationDetail;
+import com.gregochr.goldenhour.model.ScheduledModelView;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.repository.SkyRatingEvalModelExclusionRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
 import org.slf4j.Logger;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalDouble;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -65,13 +69,6 @@ public class SkyRatingEvalService {
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
-    /**
-     * Models the scheduled eval scores each week, for cross-model accuracy/drift comparison: every
-     * {@link EvaluationModel#selectable() selectable} model, so a newly added platform model joins
-     * the weekly eval without an edit here. Each model adds one weekly run (cost).
-     */
-    public static final List<EvaluationModel> SCHEDULED_MODELS = EvaluationModel.selectable();
-
     /** Scheduler job key — matches the seed row in V118 and the registered runnable. */
     public static final String JOB_KEY = "sky_rating_eval";
 
@@ -80,6 +77,7 @@ public class SkyRatingEvalService {
     private final GitInfoService gitInfoService;
     private final SkyRatingEvalRunRepository runRepository;
     private final SkyRatingEvalResultRepository resultRepository;
+    private final SkyRatingEvalModelExclusionRepository exclusionRepository;
 
     /**
      * Constructs the service.
@@ -89,10 +87,13 @@ public class SkyRatingEvalService {
      * @param gitInfoService    git commit metadata, for attributing drift to a prompt edit
      * @param runRepository     parent-run persistence
      * @param resultRepository  per-result persistence
+     * @param exclusionRepository models an admin has switched off for the weekly run
      */
     public SkyRatingEvalService(EvaluationService evaluationService, CostCalculator costCalculator,
             GitInfoService gitInfoService, SkyRatingEvalRunRepository runRepository,
-            SkyRatingEvalResultRepository resultRepository) {
+            SkyRatingEvalResultRepository resultRepository,
+            SkyRatingEvalModelExclusionRepository exclusionRepository) {
+        this.exclusionRepository = exclusionRepository;
         this.evaluationService = evaluationService;
         this.costCalculator = costCalculator;
         this.gitInfoService = gitInfoService;
@@ -196,8 +197,8 @@ public class SkyRatingEvalService {
 
     /**
      * Entry point for the scheduler: scores every fixture with EACH model in
-     * {@link #SCHEDULED_MODELS}, one persisted run per model, so the weekly cadence both
-     * regression-tests the prompt AND measures cross-model accuracy/drift (is each selectable model as
+     * {@link #scheduledModels()}, one persisted run per model, so the weekly cadence both
+     * regression-tests the prompt AND measures cross-model accuracy/drift (is each scheduled model as
      * accurate as the others on the ground-truth fixtures?). Each model's run is independent — one model's
      * failure is logged and does not abort the others. Synchronous today; the per-model runs are the
      * unit a future batched execution layer would submit.
@@ -206,7 +207,12 @@ public class SkyRatingEvalService {
      */
     public List<SkyRatingEvalRunEntity> runScheduled() {
         List<SkyRatingEvalRunEntity> runs = new ArrayList<>();
-        for (EvaluationModel model : SCHEDULED_MODELS) {
+        List<EvaluationModel> models = scheduledModels();
+        if (models.isEmpty()) {
+            LOG.info("Sky-rating eval weekly run skipped: every model is switched off");
+            return runs;
+        }
+        for (EvaluationModel model : models) {
             SkyRatingEvalRunEntity run = startRun(model, SkyRatingEvalTrigger.SCHEDULED,
                     DEFAULT_RUNS_PER_FIXTURE);
             runs.add(run);
@@ -218,6 +224,63 @@ public class SkyRatingEvalService {
             }
         }
         return runs;
+    }
+
+    /**
+     * The models the weekly eval scores: every {@link EvaluationModel#selectable() selectable} model
+     * except those an admin has switched off, in selectable order. It is an opt-out list, so a newly
+     * added platform model joins the weekly eval without an edit. Each model adds one weekly run (cost).
+     *
+     * @return the scheduled models (empty when all are switched off)
+     */
+    public List<EvaluationModel> scheduledModels() {
+        Set<EvaluationModel> excluded = excludedModels();
+        return EvaluationModel.selectable().stream().filter(m -> !excluded.contains(m)).toList();
+    }
+
+    /**
+     * The weekly schedule: one row per selectable model, in selectable order.
+     *
+     * @return each model with whether the weekly run includes it
+     */
+    public List<ScheduledModelView> schedule() {
+        Set<EvaluationModel> excluded = excludedModels();
+        return EvaluationModel.selectable().stream()
+                .map(m -> new ScheduledModelView(m, !excluded.contains(m)))
+                .toList();
+    }
+
+    /**
+     * Switches a model on or off for the weekly run. Idempotent: repeating a call changes nothing.
+     * A manual run of any selectable model is unaffected.
+     *
+     * @param model     the model (must be selectable)
+     * @param scheduled true to include it in the weekly run, false to exclude it
+     * @return the model's resulting schedule row
+     * @throws IllegalArgumentException if the model is null or not selectable
+     */
+    @Transactional
+    public ScheduledModelView setScheduled(EvaluationModel model, boolean scheduled) {
+        if (model == null || !model.isSelectable()) {
+            throw new IllegalArgumentException("Model " + model + " cannot be scheduled; choose one of "
+                    + EvaluationModel.selectable());
+        }
+        boolean excluded = exclusionRepository.existsById(model);
+        if (scheduled && excluded) {
+            exclusionRepository.deleteById(model);
+        } else if (!scheduled && !excluded) {
+            exclusionRepository.save(SkyRatingEvalModelExclusionEntity.builder()
+                    .model(model)
+                    .excludedAt(LocalDateTime.now(ZoneOffset.UTC))
+                    .build());
+        }
+        return new ScheduledModelView(model, scheduled);
+    }
+
+    private Set<EvaluationModel> excludedModels() {
+        return exclusionRepository.findAll().stream()
+                .map(SkyRatingEvalModelExclusionEntity::getModel)
+                .collect(Collectors.toSet());
     }
 
     /**

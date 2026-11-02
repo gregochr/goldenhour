@@ -52,6 +52,10 @@ class SkyRatingEvalBatchServiceTest {
     private static final int ATTEMPTED =
             SkyRatingEvalFixtures.ALL.size() * SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE;
 
+    /** The models the stubbed schedule hands the batch path. */
+    private static final List<EvaluationModel> SCHEDULED =
+            List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS);
+
     private SkyRatingEvalService evalService;
     private SkyRatingEvalBatchClient batchClient;
     private BatchRequestFactory batchRequestFactory;
@@ -99,9 +103,23 @@ class SkyRatingEvalBatchServiceTest {
     }
 
     @Test
+    @DisplayName("runScheduledBatched with every model switched off creates no runs and submits no batch")
+    void runScheduledBatchedWithNoScheduledModelsDoesNothing() {
+        when(evalService.scheduledModels()).thenReturn(List.of());
+
+        List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
+
+        assertThat(runs).isEmpty();
+        verify(evalService, never()).startRun(any(), any(), anyInt());
+        verify(batchClient, never()).submit(any());
+        verify(evalService, never()).attachBatchId(any(), any());
+    }
+
+    @Test
     @DisplayName("runScheduledBatched submits once, persists the batch id on every run, and does not block")
     void runScheduledBatchedPersistsBatchIdWithoutBlocking() {
         AtomicLong ids = new AtomicLong(100);
+        when(evalService.scheduledModels()).thenReturn(SCHEDULED);
         when(evalService.startRun(any(), eq(SkyRatingEvalTrigger.SCHEDULED), anyInt()))
                 .thenAnswer(inv -> runEntity(ids.getAndIncrement(), inv.getArgument(0)));
         when(batchRequestFactory.buildForecastRequest(any(), any(), any(), anyInt()))
@@ -110,9 +128,9 @@ class SkyRatingEvalBatchServiceTest {
 
         List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
 
-        assertThat(runs).hasSize(SkyRatingEvalService.SCHEDULED_MODELS.size());
+        assertThat(runs).hasSize(SCHEDULED.size());
         verify(batchClient).submit(any());
-        verify(evalService, times(SkyRatingEvalService.SCHEDULED_MODELS.size()))
+        verify(evalService, times(SCHEDULED.size()))
                 .attachBatchId(any(), eq("batchX"));
         // No synchronous await/collect — the reconciler owns completion.
         verify(batchClient, never()).isEnded(any());
@@ -124,6 +142,7 @@ class SkyRatingEvalBatchServiceTest {
     @DisplayName("runScheduledBatched marks all runs FAILED synchronously when submission throws")
     void runScheduledBatchedSubmissionFailureFinalisesFailed() {
         AtomicLong ids = new AtomicLong(100);
+        when(evalService.scheduledModels()).thenReturn(SCHEDULED);
         when(evalService.startRun(any(), eq(SkyRatingEvalTrigger.SCHEDULED), anyInt()))
                 .thenAnswer(inv -> runEntity(ids.getAndIncrement(), inv.getArgument(0)));
         when(batchRequestFactory.buildForecastRequest(any(), any(), any(), anyInt()))
@@ -132,8 +151,8 @@ class SkyRatingEvalBatchServiceTest {
 
         List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
 
-        assertThat(runs).hasSize(SkyRatingEvalService.SCHEDULED_MODELS.size());
-        verify(evalService, times(SkyRatingEvalService.SCHEDULED_MODELS.size()))
+        assertThat(runs).hasSize(SCHEDULED.size());
+        verify(evalService, times(SCHEDULED.size()))
                 .finalise(any(), any(), eq(SkyRatingEvalStatus.FAILED), contains("submit boom"),
                         anyLong());
         verify(evalService, never()).attachBatchId(any(), any());
