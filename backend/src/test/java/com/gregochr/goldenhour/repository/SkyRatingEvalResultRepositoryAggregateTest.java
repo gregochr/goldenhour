@@ -26,8 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DataJpaTest
 class SkyRatingEvalResultRepositoryAggregateTest {
 
-    private static final LocalDateTime EARLY = LocalDateTime.of(2026, 10, 1, 3, 0);
-    private static final LocalDateTime LATE = LocalDateTime.of(2026, 10, 8, 3, 0);
+    private static final LocalDateTime EARLY = LocalDateTime.of(2031, 10, 1, 3, 0);
+    private static final LocalDateTime LATE = LocalDateTime.of(2031, 10, 8, 3, 0);
 
     @Autowired
     private TestEntityManager em;

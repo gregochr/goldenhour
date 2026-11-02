@@ -98,14 +98,14 @@ class GitInfoServiceTest {
     void load_emptyCommitIdFallsBackToEnvironment() throws Exception {
         GitInfoService service = withEnvironment(java.util.Map.of(
                 "GIT_COMMIT_SHA", "a91b0e2c4d5e6f708192a3b4c5d6e7f801234567",
-                "GIT_COMMIT_TIME", "2026-11-02T10:30:00+01:00",
+                "GIT_COMMIT_TIME", "2031-11-02T10:30:00+01:00",
                 "GIT_COMMIT_MESSAGE", "Prompt: stricter cirrus penalty"));
 
         service.load(stream("git.commit.id=\ngit.branch=main\n"));
 
         assertThat(service.getCommitHash()).isEqualTo("a91b0e2c4d5e6f708192a3b4c5d6e7f801234567");
         assertThat(service.getCommitMessage()).isEqualTo("Prompt: stricter cirrus penalty");
-        assertThat(service.getCommitDate()).isEqualTo(java.time.LocalDateTime.of(2026, 11, 2, 9, 30));
+        assertThat(service.getCommitDate()).isEqualTo(java.time.LocalDateTime.of(2031, 11, 2, 9, 30));
     }
 
     @Test

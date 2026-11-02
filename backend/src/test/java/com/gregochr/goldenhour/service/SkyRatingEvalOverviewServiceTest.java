@@ -52,13 +52,13 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class SkyRatingEvalOverviewServiceTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-02T12:00:00Z");
+    private static final Instant NOW = Instant.parse("2031-11-02T12:00:00Z");
     private static final String OLD = "0ld5ha0000000000000000000000000000000001";
     private static final String MID = "m1d5ha0000000000000000000000000000000002";
     private static final String HEAD = "a91b0e2c4d5e6f708192a3b4c5d6e7f801234567";
-    private static final LocalDateTime OLD_DATE = LocalDateTime.of(2026, 10, 13, 9, 0);
-    private static final LocalDateTime MID_DATE = LocalDateTime.of(2026, 10, 20, 9, 0);
-    private static final LocalDateTime HEAD_DATE = LocalDateTime.of(2026, 11, 2, 8, 0);
+    private static final LocalDateTime OLD_DATE = LocalDateTime.of(2031, 10, 13, 9, 0);
+    private static final LocalDateTime MID_DATE = LocalDateTime.of(2031, 10, 20, 9, 0);
+    private static final LocalDateTime HEAD_DATE = LocalDateTime.of(2031, 11, 2, 8, 0);
     private static final int FIXTURES = SkyRatingEvalFixtures.ALL.size();
     private static final int REPEATS = 8;
     private static final double RATE = 0.8;
@@ -149,8 +149,8 @@ class SkyRatingEvalOverviewServiceTest {
         return o.models().stream().filter(m -> m.model() == model).findFirst().orElseThrow();
     }
 
-    private static final LocalDateTime SUN = LocalDateTime.of(2026, 10, 25, 3, 0);
-    private static final LocalDateTime SUN2 = LocalDateTime.of(2026, 10, 18, 3, 0);
+    private static final LocalDateTime SUN = LocalDateTime.of(2031, 10, 25, 3, 0);
+    private static final LocalDateTime SUN2 = LocalDateTime.of(2031, 10, 18, 3, 0);
 
     /** The standard history: Sonnet 5.5 and Haiku 4.5 each ran twice on MID, never on HEAD. */
     private void priorHistory() {
@@ -170,7 +170,7 @@ class SkyRatingEvalOverviewServiceTest {
         assertThat(o.head().sha()).isEqualTo(HEAD);
         assertThat(o.head().shortSha()).isEqualTo("a91b0e2");
         assertThat(o.head().message()).isEqualTo("Prompt: stricter cirrus penalty");
-        assertThat(o.head().committedAt()).isEqualTo(Instant.parse("2026-11-02T08:00:00Z"));
+        assertThat(o.head().committedAt()).isEqualTo(Instant.parse("2031-11-02T08:00:00Z"));
         assertThat(o.versions()).singleElement().satisfies(v -> assertThat(v.sha()).isEqualTo(HEAD));
     }
 
@@ -194,7 +194,7 @@ class SkyRatingEvalOverviewServiceTest {
     @DisplayName("fixtures list the registry in order with the first run time that scored each")
     void fixturesCarryBandAndFirstSeen() {
         firstSeen.add(new SkyRatingEvalFirstSeen(SkyRatingEvalFixtures.ALL.get(1).name(),
-                LocalDateTime.of(2026, 9, 1, 3, 0)));
+                LocalDateTime.of(2031, 9, 1, 3, 0)));
 
         SkyEvalOverview o = build();
 
@@ -203,7 +203,7 @@ class SkyRatingEvalOverviewServiceTest {
         assertThat(o.fixtures().get(0).bandLo()).isEqualTo(SkyRatingEvalFixtures.ALL.get(0).band().min());
         assertThat(o.fixtures().get(0).bandHi()).isEqualTo(SkyRatingEvalFixtures.ALL.get(0).band().max());
         assertThat(o.fixtures().get(0).firstSeenAt()).isNull();
-        assertThat(o.fixtures().get(1).firstSeenAt()).isEqualTo(Instant.parse("2026-09-01T03:00:00Z"));
+        assertThat(o.fixtures().get(1).firstSeenAt()).isEqualTo(Instant.parse("2031-09-01T03:00:00Z"));
     }
 
     @Test
@@ -231,7 +231,7 @@ class SkyRatingEvalOverviewServiceTest {
         SkyEvalOverview o = build();
 
         assertThat(o.versions()).extracting(v -> v.sha()).containsExactly(HEAD, "n0date0000000");
-        assertThat(o.versions().get(1).committedAt()).isEqualTo(Instant.parse("2026-10-25T03:00:00Z"));
+        assertThat(o.versions().get(1).committedAt()).isEqualTo(Instant.parse("2031-10-25T03:00:00Z"));
         assertThat(o.head().committedAt()).isNull();
     }
 
@@ -240,7 +240,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("runs 40 minutes apart share a session; 41 minutes apart do not")
     void sessionGapEdge() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 9, 0);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 9, 0);
         SkyRatingEvalRunEntity a = done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, t, MID, 7);
         SkyRatingEvalRunEntity b = done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(40), MID, 7);
         SkyRatingEvalRunEntity c = done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(81), MID, 7);
@@ -257,7 +257,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("a session chains from the previous run, not from its first")
     void sessionChainsFromThePreviousRun() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 9, 0);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 9, 0);
         done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, t, MID, 7);
         done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(35), MID, 7);
         done(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(70), MID, 7);
@@ -270,7 +270,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("a different trigger or version starts its own session, and a null version is its own chain")
     void sessionSplitsOnTriggerAndVersion() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 9, 0);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 9, 0);
         done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, t, MID, 7);
         done(EvaluationModel.OPUS, SkyRatingEvalTrigger.SCHEDULED, t.plusMinutes(5), MID, 7);
         done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(10), OLD, 7);
@@ -306,7 +306,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("session status is RUNNING if any run runs, FAILED if all failed, otherwise DONE")
     void sessionStatus() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 9, 0);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 9, 0);
         base(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, SkyRatingEvalStatus.RUNNING, t, MID);
         done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(1), MID, 7);
         LocalDateTime u = t.minusDays(1);
@@ -325,7 +325,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("a running synchronous run reports progress from persisted attempts; a running batch run does not")
     void progress() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 9, 0);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 9, 0);
         SkyRatingEvalRunEntity sync = base(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL,
                 SkyRatingEvalStatus.RUNNING, t, MID);
         String fixture = SkyRatingEvalFixtures.ALL.get(0).name();
@@ -375,7 +375,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("cost converts per run at its start date's rate; the session sums the pounds")
     void costConvertsPerRunDate() {
-        LocalDateTime t = LocalDateTime.of(2026, 10, 28, 23, 50);
+        LocalDateTime t = LocalDateTime.of(2031, 10, 28, 23, 50);
         SkyRatingEvalRunEntity a = done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, t, MID, 7);
         SkyRatingEvalRunEntity b = done(EvaluationModel.OPUS, SkyRatingEvalTrigger.MANUAL, t.plusMinutes(20), MID, 7);
         a.setCostMicroDollars(1_000_000L);
@@ -387,8 +387,8 @@ class SkyRatingEvalOverviewServiceTest {
         assertThat(s.runs().get(0).costGbp()).isCloseTo(1.0 * RATE, within(1e-9));
         assertThat(s.runs().get(1).costGbp()).isCloseTo(2.0 * RATE, within(1e-9));
         assertThat(s.costGbp()).isCloseTo(3.0 * RATE, within(1e-9));
-        verify(exchangeRateService).getRate(LocalDate.of(2026, 10, 28));
-        verify(exchangeRateService).getRate(LocalDate.of(2026, 10, 29));
+        verify(exchangeRateService).getRate(LocalDate.of(2031, 10, 28));
+        verify(exchangeRateService).getRate(LocalDate.of(2031, 10, 29));
         verifyNoMoreInteractions(exchangeRateService);
     }
 
@@ -401,7 +401,7 @@ class SkyRatingEvalOverviewServiceTest {
             r.setCostMicroDollars(i == 4 ? 9_000_000L : 1_000_000L);
         }
         SkyRatingEvalRunEntity manual = done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL,
-                LocalDateTime.of(2026, 10, 30, 9, 0), MID, 7);
+                LocalDateTime.of(2031, 10, 30, 9, 0), MID, 7);
         manual.setTotalRuns(10);
         manual.setCostMicroDollars(500_000L);
         manual.setDurationMs(20_000L);
@@ -756,16 +756,16 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("fresh means finished within 21 days; models sort fresh first, then by accuracy, unknowns last")
     void freshnessAndSorting() {
-        // NOW = 2026-11-02T12:00Z. Boundary: completedAt exactly 21 days earlier is still fresh.
-        LocalDateTime edge = LocalDateTime.of(2026, 10, 12, 12, 0);
+        // NOW = 2031-11-02T12:00Z. Boundary: completedAt exactly 21 days earlier is still fresh.
+        LocalDateTime edge = LocalDateTime.of(2031, 10, 12, 12, 0);
         SkyRatingEvalRunEntity sonnet = done(EvaluationModel.SONNET_55, SkyRatingEvalTrigger.SCHEDULED,
                 edge.minusMinutes(10), MID, 8);
         sonnet.setCompletedAt(edge);
         SkyRatingEvalRunEntity opus = done(EvaluationModel.OPUS, SkyRatingEvalTrigger.SCHEDULED,
                 edge.minusMinutes(11), MID, 8);
         opus.setCompletedAt(edge.minusSeconds(1));
-        done(EvaluationModel.HAIKU_55, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2026, 10, 30, 3, 0), MID, 6);
-        done(EvaluationModel.SONNET, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2026, 10, 31, 3, 0), MID, 7);
+        done(EvaluationModel.HAIKU_55, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2031, 10, 30, 3, 0), MID, 6);
+        done(EvaluationModel.SONNET, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2031, 10, 31, 3, 0), MID, 7);
 
         SkyEvalOverview o = build();
 
@@ -775,7 +775,7 @@ class SkyRatingEvalOverviewServiceTest {
         assertThat(o.models()).extracting(ModelStats::model).containsExactly(
                 EvaluationModel.SONNET_55, EvaluationModel.SONNET, EvaluationModel.HAIKU_55,
                 EvaluationModel.OPUS, EvaluationModel.HAIKU);
-        assertThat(stats(o, EvaluationModel.OPUS).lastTestedAt()).isEqualTo(Instant.parse("2026-10-12T11:59:59Z"));
+        assertThat(stats(o, EvaluationModel.OPUS).lastTestedAt()).isEqualTo(Instant.parse("2031-10-12T11:59:59Z"));
     }
 
     // ---- lanes -------------------------------------------------------------------------------------------
@@ -790,7 +790,7 @@ class SkyRatingEvalOverviewServiceTest {
                 HEAD_DATE.plusHours(1), HEAD, 4);
         opusHead.setCostMicroDollars(1_000_000L);
         // a stale model is not compared
-        done(EvaluationModel.SONNET, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2026, 9, 1, 3, 0), MID, 8);
+        done(EvaluationModel.SONNET, SkyRatingEvalTrigger.SCHEDULED, LocalDateTime.of(2031, 9, 1, 3, 0), MID, 8);
         for (SkyRatingEvalRunEntity r : runs) {
             if (r.getModel() == EvaluationModel.HAIKU || r.getModel() == EvaluationModel.SONNET_55) {
                 r.setCostMicroDollars(500_000L);
@@ -895,8 +895,8 @@ class SkyRatingEvalOverviewServiceTest {
             "v6sha0000000", "v7sha0000000"};
         for (int i = 0; i < shas.length; i++) {
             SkyRatingEvalRunEntity r = done(EvaluationModel.HAIKU, SkyRatingEvalTrigger.SCHEDULED,
-                    LocalDateTime.of(2026, 10, 1 + i, 3, 0), shas[i], 7);
-            r.setGitCommitDate(LocalDateTime.of(2026, 10, 1 + i, 1, 0));
+                    LocalDateTime.of(2031, 10, 1 + i, 3, 0), shas[i], 7);
+            r.setGitCommitDate(LocalDateTime.of(2031, 10, 1 + i, 1, 0));
         }
 
         SkyEvalOverview o = build();
@@ -994,14 +994,14 @@ class SkyRatingEvalOverviewServiceTest {
         String f3 = SkyRatingEvalFixtures.ALL.get(3).name();
         // an older session missed f0; the latest finished session missed f3 (and a running newer one is ignored)
         SkyRatingEvalRunEntity older = base(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL,
-                SkyRatingEvalStatus.COMPLETED, LocalDateTime.of(2026, 10, 20, 9, 0), MID);
+                SkyRatingEvalStatus.COMPLETED, LocalDateTime.of(2031, 10, 20, 9, 0), MID);
         aggregates.add(new SkyRatingEvalFixtureAggregate(older.getId(), f0, 8L, 4L, 4L, 0L, 8L, 8L, 1, 1));
         SkyRatingEvalRunEntity latest = base(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL,
-                SkyRatingEvalStatus.COMPLETED, LocalDateTime.of(2026, 10, 28, 9, 0), MID);
+                SkyRatingEvalStatus.COMPLETED, LocalDateTime.of(2031, 10, 28, 9, 0), MID);
         aggregates.add(new SkyRatingEvalFixtureAggregate(latest.getId(), f3, 8L, 4L, 0L, 4L, 8L, 8L, 1, 1));
         aggregates.add(new SkyRatingEvalFixtureAggregate(latest.getId(), f0, 8L, 8L, 0L, 0L, 8L, 8L, 1, 1));
         base(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, SkyRatingEvalStatus.RUNNING,
-                LocalDateTime.of(2026, 11, 1, 9, 0), MID);
+                LocalDateTime.of(2031, 11, 1, 9, 0), MID);
 
         SkyEvalOverview o = build();
 
@@ -1064,7 +1064,7 @@ class SkyRatingEvalOverviewServiceTest {
     @Test
     @DisplayName("in British summer time the same UTC cron reads an hour later")
     void scheduleLabelSummerTime() {
-        clock = Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC);
+        clock = Clock.fixed(Instant.parse("2031-07-01T12:00:00Z"), ZoneOffset.UTC);
         job = Optional.of(cronJob("0 0 3 * * MON", SchedulerJobStatus.ACTIVE, null));
 
         assertThat(build().schedule().label()).isEqualTo("weekly, Mon 04:00");

@@ -342,7 +342,7 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
 
     private static SkyRatingEvalRunEntity checkRun(long id, EvaluationModel model) {
         return SkyRatingEvalRunEntity.builder()
-                .id(id).runTimestamp(LocalDateTime.of(2026, 11, 2, 9, 0)).startedAt(LocalDateTime.of(2026, 11, 2, 9, 0))
+                .id(id).runTimestamp(LocalDateTime.of(2031, 11, 2, 9, 0)).startedAt(LocalDateTime.of(2031, 11, 2, 9, 0))
                 .model(model).runsPerFixture(3).triggerSource(SkyRatingEvalTrigger.MANUAL)
                 .status(SkyRatingEvalStatus.RUNNING).build();
     }
