@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.2] - 2026-11-02
+
+### Changed — Sky-Rating Eval now includes two real strong sunrises
+
+The eval fixture set gains Low Hauxley (4 Oct 2026, coastal) and Steel Rigg (24 Oct 2026, inland), both real
+mornings Chris photographed and called worth going, each banded exactly 4. Their inputs are the exact
+atmospheric data production sent (pinned to the stored production prompts by a new fidelity test), so a
+model that under-rates a good sky now fails the eval; the set was previously weighted towards catching
+over-rating. Eval runs now score 10 fixtures instead of 8, so per-run cost and call count rise by 25%.
+Both bands are exactly 4, so the "can it return a 5?" gap remains open.
+
+### Added — Choose which models the weekly Sky Eval runs, and filter its accuracy chart
+
+Operations → Sky Eval has two new rows under "Run now". "Weekly run" ticks which selectable models
+the weekly Sky-Rating Eval scores (saved at once; a new model is ticked by default, and unticking
+every model makes the weekly run do nothing and submit no batch). "Show on chart" hides models from
+the "Model accuracy over time" chart and is remembered in the browser. A manual run can still use
+any model.
+
+### Changed — Prompt-regression and Sky Eval now share one list of observed days
+
+The eight real observed days in `PromptRegressionTest` now come from the same registry as the weekly Sky-Rating
+Eval, so adding a day once puts it in both suites. Each day carries its owner-observed regression bounds with it,
+moved across unchanged and pinned number-for-number by a new `RegressionBoundsRegistryTest`. No bound changed.
+Angel of the North stays a regression-only case, and the two hand-authored eval fixtures stay eval-only.
+
 ## [v2.36.1] - 2026-11-02
 
 ### Fixed — Tide fetch-window test no longer depends on the real date
