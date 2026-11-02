@@ -50,6 +50,15 @@ function formatUTCAsUK(utcHour, utcMinute = 0) {
   });
 }
 
+/** A single day-of-week field as a DAY_NAMES key: "*" stays "*", MON or 1 become "MON"; anything else is null. */
+function normaliseDay(dow) {
+  if (dow === '*') return '*';
+  const upper = dow.toUpperCase();
+  if (DAY_NAMES[upper]) return upper;
+  if (/^[0-7]$/.test(dow)) return Object.keys(DAY_NAMES)[(parseInt(dow, 10) + 6) % 7];
+  return null;
+}
+
 /**
  * A human-readable description of a cron expression, with times converted to UK local time (BST or GMT). A job whose
  * cron already runs in Europe/London shows its hours as-is, labelled "UK time". A cron this cannot read comes back
@@ -66,17 +75,22 @@ export function describeCron(cron, timeZone = undefined) {
 
   const [sec, min, hour, dom, mon, dow] = parts;
 
-  if (sec === '0' && dom === '*' && mon === '*') {
+  if (sec === '0' && dom === '*' && mon === '*' && /^\d{1,2}$/.test(min)) {
+    const minVal = parseInt(min, 10);
     const isUK = timeZone === 'Europe/London';
     const tzLabel = isUK ? 'UK time' : getUKTimezoneLabel();
-    const minVal = parseInt(min, 10) || 0;
+    const dayKey = normaliseDay(dow);
+    if (hour === '*') {
+      return dow === '*' ? `Every hour at :${String(minVal).padStart(2, '0')}` : cron;
+    }
+    if (dayKey === null || !/^\d{1,2}(,\d{1,2})*$/.test(hour)) return cron;
     const timeStr = hour.split(',')
       .map((h) => (isUK
         ? `${String(parseInt(h, 10)).padStart(2, '0')}:${String(minVal).padStart(2, '0')}`
         : formatUTCAsUK(parseInt(h, 10), minVal)))
       .join(', ');
-    if (dow === '*') return `Daily at ${timeStr} ${tzLabel}`;
-    return `Every ${DAY_NAMES[dow] || dow} at ${timeStr} ${tzLabel}`;
+    if (dayKey === '*') return `Daily at ${timeStr} ${tzLabel}`;
+    return `Every ${DAY_NAMES[dayKey]} at ${timeStr} ${tzLabel}`;
   }
   return cron;
 }
