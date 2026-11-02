@@ -10,10 +10,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link RefreshTokenCleanupService}.
@@ -65,5 +68,27 @@ class RefreshTokenCleanupServiceTest {
 
         verify(refreshTokenRepository, org.mockito.Mockito.times(1))
                 .deleteAllByExpiresAtBefore(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("purgeExpiredTokens reports SUCCEEDED with the number of tokens deleted")
+    void purgeExpiredTokens_reportsCount() {
+        when(refreshTokenRepository.deleteAllByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(4L);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::purgeExpiredTokens);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("4 expired tokens deleted");
+    }
+
+    @Test
+    @DisplayName("purgeExpiredTokens with nothing to delete reports SUCCEEDED, not a skip")
+    void purgeExpiredTokens_zeroIsStillSucceeded() {
+        when(refreshTokenRepository.deleteAllByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(0L);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::purgeExpiredTokens);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 expired tokens deleted");
     }
 }

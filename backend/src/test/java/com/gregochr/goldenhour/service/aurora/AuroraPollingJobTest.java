@@ -30,6 +30,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -466,5 +468,88 @@ class AuroraPollingJobTest {
         public Instant instant() {
             return start.plus(step.multipliedBy(reads.getAndIncrement()));
         }
+    }
+
+    @Test
+    @DisplayName("poll reports SUCCEEDED with the alert level, phase and what the state machine did")
+    void poll_reportsTheOutcome() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime evening = utc("2027-01-14T22:00");
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(A_NIGHT_POLL);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(jobAt(evening)::poll);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MODERATE · night poll · alert unchanged");
+    }
+
+    @Test
+    @DisplayName("a daylight poll that raises an alert says so")
+    void poll_reportsADaylightAlertRaised() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime noon = utc("2027-01-14T12:00");
+        when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, noon)).thenReturn(A_DAYLIGHT_POLL);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(jobAt(noon)::poll);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MODERATE · daytime lookahead · alert raised, scoring started");
+    }
+
+    @Test
+    @DisplayName("a poll whose NOAA read failed reports FAILED, not a quiet success")
+    void poll_noaaReadFailed_reportsFailed() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime evening = utc("2027-01-14T22:00");
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(AuroraPollOutcome.noaaReadFailed(true));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(jobAt(evening)::poll);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("NOAA space-weather read failed");
+    }
+
+    @Test
+    @DisplayName("a held night reading reports SUCCEEDED and says it is held")
+    void poll_heldReading_saysHeld() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime evening = utc("2027-01-14T22:00");
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening))
+                .thenReturn(AuroraPollOutcome.held(AlertLevel.MINOR, TriggerType.FORECAST_LOOKAHEAD));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(jobAt(evening)::poll);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MINOR · night poll · reading held for confirmation");
+    }
+
+    @Test
+    @DisplayName("with aurora disabled the schedule reports SKIPPED")
+    void poll_disabled_reportsSkipped() {
+        properties.setEnabled(false);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(jobAt(utc("2027-01-14T22:00"))::poll);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Aurora is switched off");
+    }
+
+    @Test
+    @DisplayName("a poll refused because a cycle is already running reports SKIPPED")
+    void poll_whileACycleRuns_reportsSkipped() {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime evening = utc("2027-01-14T22:00");
+        AuroraPollingJob job = jobAt(evening);
+        List<SchedulerFireOutcome.Report> refused = new ArrayList<>();
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenAnswer(invocation -> {
+            refused.add(SchedulerFireOutcome.capture(job::poll));
+            return A_NIGHT_POLL;
+        });
+
+        job.runCycleIfIdle();
+
+        assertThat(refused).hasSize(1);
+        assertThat(refused.get(0).status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(refused.get(0).summary()).isEqualTo("Already running — skipped");
     }
 }

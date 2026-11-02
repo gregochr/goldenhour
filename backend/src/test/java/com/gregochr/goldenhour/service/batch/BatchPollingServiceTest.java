@@ -21,6 +21,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -459,5 +461,74 @@ class BatchPollingServiceTest {
         MessageBatch batch = mock(MessageBatch.class);
         when(batch.processingStatus()).thenReturn(processingStatus);
         return batch;
+    }
+
+    @Test
+    @DisplayName("reports SUCCEEDED 'No batches in flight' when nothing is pending")
+    void reports_noBatchesInFlight() {
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(pollingService::pollPendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("No batches in flight");
+    }
+
+    @Test
+    @DisplayName("reports SUCCEEDED with the checked and completed counts when no check failed")
+    void reports_checkedAndCompleted() {
+        stubBatchService();
+        ForecastBatchEntity ended = buildBatch("msgbatch_r1");
+        ForecastBatchEntity inProgress = buildBatch("msgbatch_r2");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(ended, inProgress));
+        MessageBatch endedStatus = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_r1")).thenReturn(endedStatus);
+        MessageBatch running = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(running.requestCounts()).thenReturn(counts);
+        when(counts.processing()).thenReturn(2L);
+        when(counts.succeeded()).thenReturn(1L);
+        when(counts.errored()).thenReturn(0L);
+        when(batchService.retrieve("msgbatch_r2")).thenReturn(running);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(pollingService::pollPendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 batches checked · 1 completed");
+    }
+
+    @Test
+    @DisplayName("reports FAILED when every status check threw")
+    void reports_allChecksFailed() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_r3");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        when(batchService.retrieve("msgbatch_r3")).thenThrow(new RuntimeException("API unavailable"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(pollingService::pollPendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("1 batch checked · 0 completed · 1 failed to check");
+    }
+
+    @Test
+    @DisplayName("reports PARTIAL when one check failed and another batch completed")
+    void reports_partialWhenOneCheckFailed() {
+        stubBatchService();
+        ForecastBatchEntity ended = buildBatch("msgbatch_r4");
+        ForecastBatchEntity broken = buildBatch("msgbatch_r5");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(ended, broken));
+        MessageBatch endedStatus = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_r4")).thenReturn(endedStatus);
+        when(batchService.retrieve("msgbatch_r5")).thenThrow(new RuntimeException("timeout"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(pollingService::pollPendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("2 batches checked · 1 completed · 1 failed to check");
     }
 }

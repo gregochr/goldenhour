@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
@@ -15,6 +16,7 @@ import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
 import com.gregochr.goldenhour.service.aurora.WeatherTriageService;
@@ -306,6 +308,7 @@ public class ScheduledBatchEvaluationService {
     public void submitAuroraBatch() {
         if (!auroraBatchRunning.compareAndSet(false, true)) {
             LOG.warn("Aurora batch already running — skipping concurrent trigger");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
             return;
         }
         try {
@@ -1177,6 +1180,7 @@ public class ScheduledBatchEvaluationService {
         // Scheduler UI would fetch NOAA and submit an Anthropic batch with the feature off.
         if (!auroraProperties.isEnabled()) {
             LOG.info("Aurora batch skipped — aurora.enabled=false");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Aurora is switched off");
             return;
         }
 
@@ -1185,12 +1189,14 @@ public class ScheduledBatchEvaluationService {
             spaceWeather = noaaSwpcClient.fetchAll();
         } catch (Exception e) {
             LOG.warn("Aurora batch skipped: NOAA fetch failed — {}", e.getMessage());
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, "NOAA fetch failed: " + e.getMessage());
             return;
         }
 
         AlertLevel level = auroraOrchestrator.deriveAlertLevel(spaceWeather);
         if (level == AlertLevel.QUIET) {
             LOG.info("Aurora batch skipped: alert level is QUIET");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "Aurora quiet — no batch needed");
             return;
         }
 
@@ -1203,12 +1209,16 @@ public class ScheduledBatchEvaluationService {
 
         if (candidates.isEmpty()) {
             LOG.info("Aurora batch skipped: no Bortle-eligible locations (threshold={})", threshold);
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    "Alert " + level + " — no Bortle-eligible locations");
             return;
         }
 
         WeatherTriageService.TriageResult triage = weatherTriageService.triage(candidates);
         if (triage.viable().isEmpty()) {
             LOG.info("Aurora batch skipped: no locations passed weather triage");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    "Alert " + level + " — no locations passed weather triage");
             return;
         }
 
@@ -1227,6 +1237,9 @@ public class ScheduledBatchEvaluationService {
                 triage.viable(), triage.cloudByLocation(),
                 spaceWeather, TriggerType.FORECAST_LOOKAHEAD, null);
         evaluationService.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                "Alert " + level + " — "
+                        + SchedulerFireOutcome.count(triage.viable().size(), "location", "locations") + " submitted");
     }
 
     // Task construction, weather/cloud pre-fetch, triage, stability gating, and

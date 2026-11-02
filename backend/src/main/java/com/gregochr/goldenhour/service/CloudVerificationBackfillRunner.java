@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.BackfillStatus;
 import org.slf4j.Logger;
@@ -100,6 +101,7 @@ public class CloudVerificationBackfillRunner {
     void runScheduled() {
         if (!running.compareAndSet(false, true)) {
             LOG.info("[CLOUD VERIFY] scheduled tick skipped — a run is already in progress");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
             return;
         }
         try {
@@ -195,6 +197,23 @@ public class CloudVerificationBackfillRunner {
             running.set(false);
             LOG.info("[CLOUD VERIFY] backfill run complete — verified={} batches={} error={}",
                     finalStatus.verified(), finalStatus.batches(), captured);
+            reportRun(finalStatus, captured);
+        }
+    }
+
+    /**
+     * Reports how a run ended: clean is SUCCEEDED with the verified and remaining counts, stopped with
+     * progress made is PARTIAL, stopped with none is FAILED.
+     */
+    private static void reportRun(BackfillStatus finalStatus, String error) {
+        String verified = finalStatus.verified() + " verified";
+        if (error == null) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, verified
+                    + (finalStatus.remaining() != null ? " · " + finalStatus.remaining() + " remaining" : ""));
+        } else {
+            SchedulerFireOutcome.report(
+                    finalStatus.verified() > 0 ? SchedulerFireStatus.PARTIAL : SchedulerFireStatus.FAILED,
+                    verified + " · stopped: " + error);
         }
     }
 

@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -161,5 +163,29 @@ class EvaluationAbandonmentServiceTest {
         service().sweepBackstop();
 
         verify(forecastEvaluationRepository, times(1)).abandonPendingOlderThan(any());
+    }
+
+    @Test
+    @DisplayName("sweepBackstop reports SUCCEEDED with the number of rows it abandoned")
+    void sweepBackstop_reportsAbandonedCount() {
+        LocalDateTime cutoff = LocalDateTime.ofInstant(NOW, ZoneOffset.UTC).minusHours(48);
+        when(forecastEvaluationRepository.abandonPendingOlderThan(cutoff)).thenReturn(3);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> service().sweepBackstop());
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("3 rows abandoned");
+    }
+
+    @Test
+    @DisplayName("sweepBackstop with nothing to abandon reports SUCCEEDED with 0 rows abandoned")
+    void sweepBackstop_reportsZero() {
+        LocalDateTime cutoff = LocalDateTime.ofInstant(NOW, ZoneOffset.UTC).minusHours(48);
+        when(forecastEvaluationRepository.abandonPendingOlderThan(cutoff)).thenReturn(0);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> service().sweepBackstop());
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 rows abandoned");
     }
 }

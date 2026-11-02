@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.client.NlcSightingClient;
 import com.gregochr.goldenhour.config.NlcProperties;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.NlcNightClarity;
 import com.gregochr.goldenhour.model.NlcSightingReport;
 import com.gregochr.goldenhour.model.NlcSightingResponse;
@@ -90,6 +91,8 @@ public class NlcSightingService {
     void scrapeIfEnabled() {
         if (properties.isSightingEnabled()) {
             client.refresh();
+        } else {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "NLC sightings are switched off");
         }
     }
 

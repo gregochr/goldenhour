@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import jakarta.annotation.PostConstruct;
@@ -111,6 +112,7 @@ public class ScheduledForecastService {
     public void refreshTideExtremes() {
         if (!tideRefreshRunning.compareAndSet(false, true)) {
             LOG.warn("Tide refresh already running — skipping concurrent trigger");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
             return;
         }
         try {
@@ -181,6 +183,14 @@ public class ScheduledForecastService {
         alertTideSourceChanges(changes);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
+        if (failed == 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    succeeded + " coastal locations refreshed");
+        } else {
+            SchedulerFireOutcome.report(succeeded == 0 ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL,
+                    succeeded + " of " + (succeeded + failed) + " coastal locations refreshed · "
+                            + failed + " failed");
+        }
         runGaugeCheck();
     }
 

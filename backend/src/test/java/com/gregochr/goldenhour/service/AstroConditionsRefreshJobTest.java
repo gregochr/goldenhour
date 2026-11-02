@@ -30,6 +30,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -420,5 +421,58 @@ class AstroConditionsRefreshJobTest {
         verify(jobRunService).completeRun(jobRun, 2, 0, NIGHTS);
         verify(jobRunService, never()).completeRun(jobRun, 0, 2, NIGHTS);
         verifyNoInteractions(askReadyPrecompute);
+    }
+
+    @Test
+    @DisplayName("a scored run reports SUCCEEDED with the count, and the Ask precompute adds no report of its own")
+    void reports_scoredRun() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(526);
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenReturn(new AskReadyPrecompute.Result(14, 3, 0, null));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> jobAt(AFTERNOON).run(false));
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("526 location-nights scored");
+    }
+
+    @Test
+    @DisplayName("a run that scored nothing reports FAILED rather than a quiet success")
+    void reports_nothingScored() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(0);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> jobAt(AFTERNOON).run(false));
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Nothing scored: no dark-sky locations, or the forecast fetch failed");
+    }
+
+    @Test
+    @DisplayName("a swallowed service failure reports FAILED with the reason")
+    void reports_swallowedFailure() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS))
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> jobAt(AFTERNOON).run(false));
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Refresh failed: database unavailable");
+    }
+
+    @Test
+    @DisplayName("a trigger while a run holds the guard reports SKIPPED")
+    void reports_concurrentTriggerSkipped() throws Exception {
+        AstroConditionsRefreshJob job = jobAt(AFTERNOON);
+        java.lang.reflect.Field running = AstroConditionsRefreshJob.class.getDeclaredField("running");
+        running.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) running.get(job)).set(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
+        verifyNoInteractions(jobRunService, astroConditionsService);
     }
 }

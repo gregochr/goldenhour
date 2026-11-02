@@ -71,6 +71,56 @@ public final class SchedulerFireOutcome {
         ScopedValue.where(CURRENT, carrier).run(body);
     }
 
+    /**
+     * The status for a run over many items where some may have failed: none failed is SUCCEEDED, all
+     * failed is FAILED, otherwise PARTIAL.
+     *
+     * @param failed how many items failed
+     * @param total  how many items were attempted
+     * @return the status to report
+     */
+    public static SchedulerFireStatus statusFor(int failed, int total) {
+        if (failed <= 0) {
+            return SchedulerFireStatus.SUCCEEDED;
+        }
+        return failed >= total ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL;
+    }
+
+    /**
+     * Words a count for a summary, choosing the singular or plural noun.
+     *
+     * @param n        the count
+     * @param singular the noun for exactly one, e.g. {@code "row"}
+     * @param plural   the noun otherwise, e.g. {@code "rows"}
+     * @return e.g. {@code "1 row"} or {@code "3 rows"}
+     */
+    public static String count(long n, String singular, String plural) {
+        return n + " " + (n == 1 ? singular : plural);
+    }
+
+    /**
+     * Runs a body with a fresh carrier bound and returns what it reported. Meant for tests, which live in
+     * many packages and cannot reach the package-private {@link Carrier}.
+     *
+     * @param body the code to run as if it were a scheduler fire
+     * @return the status, summary and pipeline run the body reported (each null when it reported none)
+     */
+    public static Report capture(Runnable body) {
+        Carrier carrier = new Carrier();
+        runBound(carrier, body);
+        return new Report(carrier.status(), carrier.summary(), carrier.pipelineRunId());
+    }
+
+    /**
+     * An immutable snapshot of what a fire reported, returned by {@link #capture}.
+     *
+     * @param status        the reported status, or null
+     * @param summary       the reported summary, or null
+     * @param pipelineRunId the linked pipeline run, or null
+     */
+    public record Report(SchedulerFireStatus status, String summary, Long pipelineRunId) {
+    }
+
     /** What one fire has reported so far. Mutable, one per fire, confined to the fire's thread. */
     static final class Carrier {
 

@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import com.gregochr.solarutils.SolarCalculator;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -125,11 +127,33 @@ public class AuroraPollingJob {
      */
     public void poll() {
         if (!properties.isEnabled()) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Aurora is switched off");
             return;
         }
-        if (runCycleIfIdle().isEmpty()) {
+        Optional<AuroraPollOutcome> outcome = runCycleIfIdle();
+        if (outcome.isEmpty()) {
             LOG.warn("Aurora poll skipped — a cycle is already running");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
+            return;
         }
+        reportOutcome(outcome.get());
+    }
+
+    /** Reports a finished poll: a NOAA read that failed is FAILED, anything else SUCCEEDED with the level. */
+    private static void reportOutcome(AuroraPollOutcome outcome) {
+        if (outcome.level() == null) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, "NOAA space-weather read failed");
+            return;
+        }
+        String phase = outcome.dark() ? "night poll" : "daytime lookahead";
+        String what = outcome.held() ? "reading held for confirmation" : switch (outcome.action()) {
+            case NOTIFY -> "alert raised, scoring started";
+            case SUPPRESS -> "alert unchanged";
+            case CLEAR -> "alert cleared";
+            case NONE -> "no change";
+        };
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                "Alert " + outcome.level() + " · " + phase + " · " + what);
     }
 
     /**

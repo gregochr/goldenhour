@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -107,6 +108,7 @@ public class GridCellBackfillJob {
 
         if (pending.isEmpty()) {
             LOG.info("Grid cell backfill: every location already has a cell — nothing to do");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "Every location already has a grid cell");
             return;
         }
 
@@ -142,6 +144,10 @@ public class GridCellBackfillJob {
                             + "run after filling {}. This reads as an Open-Meteo outage rather "
                             + "than bad coordinates; the backlog is retried on the next tick.",
                             consecutiveFailures, filled);
+                    SchedulerFireOutcome.report(
+                            filled > 0 ? SchedulerFireStatus.PARTIAL : SchedulerFireStatus.FAILED,
+                            "Gave up after " + consecutiveFailures + " lookup failures in a row · "
+                                    + filled + " filled");
                     return;
                 }
                 continue;
@@ -160,5 +166,9 @@ public class GridCellBackfillJob {
 
         LOG.info("Grid cell backfill complete — {} filled, {} failed, {} considered",
                 filled, failed, batch.size());
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, batch.size()),
+                filled + " of " + SchedulerFireOutcome.count(batch.size(), "location", "locations")
+                        + " filled" + (failed > 0 ? " · " + failed + " failed" : "")
+                        + (pending.size() > batch.size() ? " · " + (pending.size() - batch.size()) + " left" : ""));
     }
 }

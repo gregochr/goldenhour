@@ -10,7 +10,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -165,5 +167,59 @@ class RegionDriveTimeRefreshJobTest {
         job.runScheduled();
 
         verifyNoInteractions(regionDriveDurationService);
+    }
+
+    @Test
+    @DisplayName("reports SUCCEEDED with the refreshed region count")
+    void reports_refreshedRegions() {
+        RegionEntity lakes = region(1L, "Lake District", "Keswick");
+        RegionEntity peak = region(2L, "Peak District", "Bakewell");
+        when(regionService.findAll()).thenReturn(List.of(lakes, peak));
+        when(regionDriveDurationService.refreshForRegion(lakes)).thenReturn(61);
+        when(regionDriveDurationService.refreshForRegion(peak)).thenReturn(40);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 of 2 regions refreshed · 0 failed");
+    }
+
+    @Test
+    @DisplayName("reports SUCCEEDED when no region has a base town")
+    void reports_noBases() {
+        when(regionService.findAll()).thenReturn(List.of(region(2L, "North East", null)));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("No regions have a base town");
+    }
+
+    @Test
+    @DisplayName("reports PARTIAL when one region throws and another writes rows")
+    void reports_partialWhenOneThrows() {
+        RegionEntity lakes = region(1L, "Lake District", "Keswick");
+        RegionEntity peak = region(2L, "Peak District", "Bakewell");
+        when(regionService.findAll()).thenReturn(List.of(lakes, peak));
+        when(regionDriveDurationService.refreshForRegion(lakes)).thenThrow(new IllegalStateException("ORS down"));
+        when(regionDriveDurationService.refreshForRegion(peak)).thenReturn(40);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 of 2 regions refreshed · 1 failed");
+    }
+
+    @Test
+    @DisplayName("reports FAILED when every region writes no rows")
+    void reports_failedWhenNothingWritten() {
+        RegionEntity lakes = region(1L, "Lake District", "Keswick");
+        when(regionService.findAll()).thenReturn(List.of(lakes));
+        when(regionDriveDurationService.refreshForRegion(lakes)).thenReturn(0);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 of 1 region refreshed · 1 failed");
     }
 }

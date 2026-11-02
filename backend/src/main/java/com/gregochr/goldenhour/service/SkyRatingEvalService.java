@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalModelExclusionEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
@@ -277,8 +278,10 @@ public class SkyRatingEvalService {
         List<EvaluationModel> models = scheduledModels();
         if (models.isEmpty()) {
             LOG.info("Sky-rating eval weekly run skipped: every model is switched off");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Every model is switched off");
             return runs;
         }
+        int failedRuns = 0;
         for (EvaluationModel model : models) {
             SkyRatingEvalRunEntity run = startRun(model, SkyRatingEvalTrigger.SCHEDULED,
                     DEFAULT_RUNS_PER_FIXTURE);
@@ -286,10 +289,15 @@ public class SkyRatingEvalService {
             try {
                 executeRun(run.getId());
             } catch (RuntimeException e) {
+                failedRuns++;
                 // executeRun already marked the run FAILED; keep going so the other models still run.
                 LOG.error("Sky-rating eval scheduled run for model {} failed; continuing", model, e);
             }
         }
+        String summary = (runs.size() - failedRuns) + " of " + runs.size() + " model runs completed";
+        SchedulerFireOutcome.report(failedRuns == 0 ? SchedulerFireStatus.SUCCEEDED
+                : (failedRuns == runs.size() ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL),
+                summary);
         return runs;
     }
 

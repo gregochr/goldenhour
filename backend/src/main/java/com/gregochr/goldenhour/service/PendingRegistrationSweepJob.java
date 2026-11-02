@@ -132,6 +132,11 @@ public class PendingRegistrationSweepJob {
         LOG.info("[PENDING SWEEP] candidates={}, firstReminders={}, finalReminders={}, deferred={}, "
                         + "failedSends={}, purged={}, errors={}", tally.candidates, tally.firstSent,
                 tally.finalSent, tally.deferred, tally.failedSends, tally.purged, tally.errors);
+        int bad = tally.errors + tally.failedSends;
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(bad, tally.candidates),
+                SchedulerFireOutcome.count(tally.candidates, "candidate", "candidates") + " · "
+                        + (tally.firstSent + tally.finalSent) + " reminded · " + tally.purged + " deleted"
+                        + (bad > 0 ? " · " + bad + " failed" : ""));
     }
 
     private void handle(PendingStage c, LocalDateTime now, boolean configured, Tally tally) {

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.entity.ScheduleType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
@@ -175,19 +176,39 @@ public class ForecastCycleWatchdog {
      * Runs both checks for every forecast cycle job. Never throws.
      */
     public void check() {
+        int alerts = 0;
+        int failedChecks = 0;
+        int total = 0;
         for (ForecastCycleJobs.Job job : ForecastCycleJobs.allCycleJobs()) {
+            total++;
             try {
-                checkJob(job);
+                alerts += checkJob(job);
             } catch (RuntimeException e) {
+                failedChecks++;
                 LOG.warn("Forecast-cycle watchdog: check of {} failed: {}", job.key(), e.getMessage(), e);
             }
         }
+        reportCheck(alerts, failedChecks, total);
     }
 
-    private void checkJob(ForecastCycleJobs.Job job) {
+    /** Reports the pass: a clean pass is SUCCEEDED, some cycle checks failing PARTIAL, all failing FAILED. */
+    private static void reportCheck(int alerts, int failedChecks, int total) {
+        String alertText = alerts == 0 ? "No alerts" : alerts + (alerts == 1 ? " alert sent" : " alerts sent");
+        if (failedChecks == 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    alerts == 0 ? "All cycles on time" : alertText);
+        } else {
+            SchedulerFireOutcome.report(
+                    failedChecks >= total ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL,
+                    failedChecks + " of " + total + " cycle checks failed · " + alertText);
+        }
+    }
+
+    /** Checks one cycle job and returns how many alerts it sent. */
+    private int checkJob(ForecastCycleJobs.Job job) {
         Optional<SchedulerJobConfigEntity> found = configRepository.findByJobKey(job.key());
         if (found.isEmpty() || found.get().getStatus() != SchedulerJobStatus.ACTIVE) {
-            return;
+            return 0;
         }
         SchedulerJobConfigEntity config = found.get();
         CycleType cycle = job.cycleType();
@@ -196,26 +217,28 @@ public class ForecastCycleWatchdog {
         // A job with no solar rule (the evening) serves no event: never ask the calculator for one.
         Instant event = job.rule() == null ? null : eventInstant(config, job.rule(), today);
 
-        lastFire(config, now, today).ifPresent(fire -> checkStarted(config, cycle, now, fire, event));
+        int alerts = lastFire(config, now, today)
+                .map(fire -> checkStarted(config, cycle, now, fire, event)).orElse(0);
         if (job.rule() == null) {
-            checkEveningFinished(config, cycle, now, today);
+            alerts += checkEveningFinished(config, cycle, now, today);
         } else {
-            checkFinished(config, cycle, now, today, event);
+            alerts += checkFinished(config, cycle, now, today, event);
         }
+        return alerts;
     }
 
-    private void checkStarted(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
+    private int checkStarted(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
             Instant fire, Instant event) {
         if (fire.isAfter(now.minus(Duration.ofMinutes(START_GRACE_MINUTES)))) {
-            return;
+            return 0;
         }
         if (pipelineRunRepository
                 .findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(cycle, fire, now)
                 .isPresent()) {
-            return;
+            return 0;
         }
         if (!firstTime("start:" + config.getJobKey() + ":" + fire)) {
-            return;
+            return 0;
         }
         String detail = "The " + cycle + " forecast cycle (" + config.getJobKey() + ", scheduled "
                 + config.getScheduleType() + ") should have fired at " + UK_TIME.format(fire)
@@ -227,21 +250,23 @@ public class ForecastCycleWatchdog {
                 + "application was running, and the application log.";
         LOG.error("Forecast-cycle watchdog: {} did not start (fire {}).", config.getJobKey(), fire);
         adminAlertService.sendForecastCycleWatchdogAlert(config.getJobKey(), "did not start", detail);
+        return 1;
     }
 
-    private void checkFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
+    private int checkFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
             LocalDate today, Instant event) {
         if (event == null) {
-            return;
+            return 0;
         }
         Instant opens = event.minus(Duration.ofMinutes(FINISH_LEAD_MINUTES));
         Instant closes = event.plus(Duration.ofMinutes(FINISH_TAIL_MINUTES));
         if (now.isBefore(opens) || now.isAfter(closes)) {
-            return;
+            return 0;
         }
         Instant dayStart = today.atStartOfDay(LONDON).toInstant();
         List<PipelineRunEntity> runs = pipelineRunRepository
                 .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(cycle, dayStart);
+        int alerts = 0;
         for (PipelineRunEntity run : runs) {
             String missing = unfinished(run);
             if (missing != null && firstTime("finish:" + config.getJobKey() + ":" + run.getId())) {
@@ -254,8 +279,10 @@ public class ForecastCycleWatchdog {
                         config.getJobKey(), run.getId(), missing);
                 adminAlertService.sendForecastCycleWatchdogAlert(
                         config.getJobKey(), "did not finish", detail);
+                alerts++;
             }
         }
+        return alerts;
     }
 
     /**
@@ -263,7 +290,7 @@ public class ForecastCycleWatchdog {
      * batch is still outstanding after the budget (measured from the first batch submit, else the
      * trigger). A RUNNING run with every batch finished is building its briefing: not an alert.
      */
-    private void checkEveningFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
+    private int checkEveningFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
             LocalDate today) {
         // The evening fires at 21:00 UK time, so its deadline (and a timeout failure) can fall after UK
         // midnight: look back far enough to include any run whose deadline is recent. The extra hour
@@ -273,6 +300,7 @@ public class ForecastCycleWatchdog {
                 now.minus(eveningBudget).minus(Duration.ofHours(1))));
         List<PipelineRunEntity> runs = pipelineRunRepository
                 .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(cycle, lowerBound);
+        int alerts = 0;
         for (PipelineRunEntity run : runs) {
             String missing = eveningUnfinished(run, now);
             if (missing != null && firstTime("finish:" + config.getJobKey() + ":" + run.getId())) {
@@ -285,8 +313,10 @@ public class ForecastCycleWatchdog {
                         config.getJobKey(), run.getId(), missing);
                 adminAlertService.sendForecastCycleWatchdogAlert(
                         config.getJobKey(), "did not finish", detail);
+                alerts++;
             }
         }
+        return alerts;
     }
 
     /** What the evening run is still owed, or null when it is within budget or finished. */

@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -343,5 +344,75 @@ class DormantAccountSweepJobTest {
         job.sweep();
 
         verify(userService).purgeDormant(1L, NOW.minusDays(60), NOW.minusDays(7));
+    }
+
+    @Test
+    @DisplayName("a dry run reports SUCCEEDED with counts only: who would be warned and deleted")
+    void reports_dryRunCounts() {
+        candidates(unwarned(1L), warned(2L, NOW.minusDays(20)), warned(3L, NOW.minusDays(5)));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Dry run · 3 candidates · would warn 1 · would delete 1");
+    }
+
+    @Test
+    @DisplayName("a live sweep reports SUCCEEDED with warned and deleted counts, and no account detail")
+    void reports_liveCounts() {
+        properties.setDryRun(false);
+        when(mail.isConfigured()).thenReturn(true);
+        candidates(unwarned(1L));
+        when(mail.sendDormancyWarningEmail(1L, "user1@example.com", "user1", 90, NOW.plusDays(14)))
+                .thenReturn(true);
+        when(users.stampDormancyWarning(1L, NOW, UserRole.LITE_USER, INACTIVE_CUTOFF)).thenReturn(1);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 candidate · 1 warned · 0 deleted");
+    }
+
+    @Test
+    @DisplayName("live with no mail sender configured reports SKIPPED")
+    void reports_noSenderSkipped() {
+        properties.setDryRun(false);
+        when(mail.isConfigured()).thenReturn(false);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("No mail sender configured");
+    }
+
+    @Test
+    @DisplayName("one account throwing while another is purged reports PARTIAL")
+    void reports_partialWhenOneAccountThrows() {
+        properties.setDryRun(false);
+        when(mail.isConfigured()).thenReturn(true);
+        candidates(warned(1L, NOW.minusDays(20)), warned(2L, NOW.minusDays(20)));
+        when(userService.purgeDormant(1L, INACTIVE_CUTOFF, WARN_CUTOFF)).thenThrow(new IllegalStateException("x"));
+        when(userService.purgeDormant(2L, INACTIVE_CUTOFF, WARN_CUTOFF))
+                .thenReturn(Optional.of(new DeletedAccount("user2", "user2@example.com")));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("2 candidates · 0 warned · 1 deleted · 1 failed");
+    }
+
+    @Test
+    @DisplayName("a warning that could not be sent for the only candidate reports FAILED")
+    void reports_failedWhenEverySendFails() {
+        properties.setDryRun(false);
+        when(mail.isConfigured()).thenReturn(true);
+        candidates(unwarned(1L));
+        when(mail.sendDormancyWarningEmail(1L, "user1@example.com", "user1", 90, NOW.plusDays(14)))
+                .thenReturn(false);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("1 candidate · 0 warned · 0 deleted · 1 failed");
     }
 }

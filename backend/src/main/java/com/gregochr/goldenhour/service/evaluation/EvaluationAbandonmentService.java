@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -116,6 +118,8 @@ public class EvaluationAbandonmentService {
             LOG.info("R7: backstop sweep stamped {} PENDING row(s) older than {} ABANDONED",
                     updated, cutoff);
         }
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(updated, "row", "rows") + " abandoned");
     }
 
     /**

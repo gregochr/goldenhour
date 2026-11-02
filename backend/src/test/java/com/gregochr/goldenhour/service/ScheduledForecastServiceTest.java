@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -432,5 +433,70 @@ class ScheduledForecastServiceTest {
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
                 .containsExactly("Loc1", "Loc2");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() reports SUCCEEDED with the number of coastal locations refreshed")
+    void refreshTideExtremes_reportsSucceeded() {
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
+        when(locationService.isCoastal(durham)).thenReturn(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                scheduledForecastService::refreshTideExtremes);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 coastal locations refreshed");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() reports PARTIAL when one location fails and another refreshes")
+    void refreshTideExtremes_reportsPartial() {
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        LocationEntity scarborough = LocationEntity.builder().name("Scarborough")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
+        when(locationService.isCoastal(durham)).thenReturn(true);
+        when(locationService.isCoastal(scarborough)).thenReturn(true);
+        doThrow(new RuntimeException("API error"))
+                .when(tideService).fetchAndStoreTideExtremes(durham, null);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                scheduledForecastService::refreshTideExtremes);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 of 2 coastal locations refreshed · 1 failed");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() reports FAILED when every location fails")
+    void refreshTideExtremes_reportsFailedWhenAllFail() {
+        LocationEntity durham = LocationEntity.builder().name("Durham UK")
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
+        when(locationService.isCoastal(durham)).thenReturn(true);
+        doThrow(new RuntimeException("API error"))
+                .when(tideService).fetchAndStoreTideExtremes(durham, null);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                scheduledForecastService::refreshTideExtremes);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 of 1 coastal locations refreshed · 1 failed");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() reports SKIPPED while an admin-started refresh holds the guard")
+    void refreshTideExtremes_reportsSkippedWhenAlreadyRunning() {
+        List<Runnable> queued = new ArrayList<>();
+        assertThat(scheduledForecastService.startTideRefresh(queued::add)).isTrue();
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                scheduledForecastService::refreshTideExtremes);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
     }
 }

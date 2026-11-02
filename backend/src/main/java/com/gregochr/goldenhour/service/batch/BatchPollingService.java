@@ -4,9 +4,11 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.messages.batches.MessageBatch;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,17 +88,38 @@ public class BatchPollingService {
 
         if (pending.isEmpty()) {
             LOG.debug("Batch polling: no pending batches");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "No batches in flight");
             return;
         }
 
         LOG.info("Batch polling: checking {} pending batch(es)", pending.size());
 
+        int completed = 0;
+        int failed = 0;
         for (ForecastBatchEntity batch : pending) {
-            pollBatch(batch);
+            PollResult result = pollBatch(batch);
+            if (result == PollResult.COMPLETED) {
+                completed++;
+            } else if (result == PollResult.FAILED) {
+                failed++;
+            }
         }
+        reportPoll(pending.size(), completed, failed);
     }
 
-    private void pollBatch(ForecastBatchEntity batch) {
+    /** Reports the poll: all checks clean is SUCCEEDED, some failed PARTIAL, every one failed FAILED. */
+    private static void reportPoll(int checked, int completed, int failed) {
+        String summary = checked + (checked == 1 ? " batch checked" : " batches checked")
+                + " · " + completed + " completed" + (failed > 0 ? " · " + failed + " failed to check" : "");
+        SchedulerFireStatus status = failed == 0 ? SchedulerFireStatus.SUCCEEDED
+                : (failed == checked ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL);
+        SchedulerFireOutcome.report(status, summary);
+    }
+
+    /** What one batch check amounted to. */
+    private enum PollResult { IN_PROGRESS, COMPLETED, FAILED }
+
+    private PollResult pollBatch(ForecastBatchEntity batch) {
         String batchId = batch.getAnthropicBatchId();
         try {
             MessageBatch status = anthropicClient.messages().batches().retrieve(batchId);
@@ -118,7 +141,7 @@ public class BatchPollingService {
                             (int) status.requestCounts().errored());
                 }
                 batchRepository.save(batch);
-                return;
+                return PollResult.IN_PROGRESS;
             }
 
             if (processingStatus.equals(MessageBatch.ProcessingStatus.ENDED)) {
@@ -145,16 +168,19 @@ public class BatchPollingService {
                         lateBatchBriefingRebuild.onBatchEnded(batch);
                     }
                 }
+                return PollResult.COMPLETED;
             } else {
                 LOG.warn("Batch {}: unexpected processing status '{}', will retry next poll",
                         batchId, processingStatus);
                 batchRepository.save(batch);
+                return PollResult.IN_PROGRESS;
             }
 
         } catch (Exception e) {
             LOG.warn("Batch polling: failed to check status for {}: {}", batchId, e.getMessage());
             batch.setLastPolledAt(Instant.now());
             batchRepository.save(batch);
+            return PollResult.FAILED;
         }
     }
 }

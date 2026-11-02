@@ -22,7 +22,9 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -282,5 +284,64 @@ class PendingRegistrationSweepJobTest {
         job.sweep();
 
         verify(userService).purgeAbandonedPending(14L, NOW);
+    }
+
+    @Test
+    @DisplayName("a reminder sent and an abandoned account purged report SUCCEEDED with counts only")
+    void reports_remindedAndDeleted() {
+        configured();
+        candidates(new Stage(1L, ageHours(96), 0, null), new Stage(5L, ageHours(170), 2, NOW.minusHours(24)));
+        when(writer.claim(1L, 0, 1, NOW)).thenReturn(claimed("t1"));
+        when(mail.sendVerificationReminderEmail("a@example.com", "alice", "t1", false,
+                ageHours(96).plusHours(168))).thenReturn(true);
+        when(userService.purgeAbandonedPending(5L, NOW)).thenReturn(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 candidates · 1 reminded · 1 deleted");
+    }
+
+    @Test
+    @DisplayName("a quiet sweep with nothing due reports SUCCEEDED with zero candidates")
+    void reports_nothingDue() {
+        configured();
+        candidates();
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 candidates · 0 reminded · 0 deleted");
+    }
+
+    @Test
+    @DisplayName("one account throwing while another is purged reports PARTIAL")
+    void reports_partialWhenOneAccountThrows() {
+        configured();
+        candidates(new Stage(13L, ageHours(170), 2, NOW.minusHours(30)),
+                new Stage(14L, ageHours(170), 2, NOW.minusHours(30)));
+        when(userService.purgeAbandonedPending(13L, NOW)).thenThrow(new IllegalStateException("boom"));
+        when(userService.purgeAbandonedPending(14L, NOW)).thenReturn(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("2 candidates · 0 reminded · 1 deleted · 1 failed");
+    }
+
+    @Test
+    @DisplayName("a reminder that could not be sent for the only candidate reports FAILED")
+    void reports_failedWhenTheOnlySendFails() {
+        configured();
+        candidates(new Stage(10L, ageHours(100), 0, null));
+        when(writer.claim(10L, 0, 1, NOW)).thenReturn(new Claim(Outcome.CLAIMED,
+                new IssuedVerification("a@example.com", "alice", "t10"), "hash-t10", null));
+        when(mail.sendVerificationReminderEmail("a@example.com", "alice", "t10", false,
+                ageHours(100).plusHours(168))).thenReturn(false);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::sweep);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("1 candidate · 0 reminded · 0 deleted · 1 failed");
     }
 }

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.ask.ReadyQuestion;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
@@ -177,6 +178,7 @@ public class AstroConditionsRefreshJob {
     public void run(boolean manual) {
         if (!running.compareAndSet(false, true)) {
             LOG.info("Astro conditions refresh already running — skipping concurrent trigger");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
             return;
         }
         try {
@@ -235,7 +237,11 @@ public class AstroConditionsRefreshJob {
             if (scored == 0) {
                 LOG.warn("Astro conditions refresh scored nothing for {} — no dark-sky locations, or the"
                         + " forecast fetch failed and the previous rows were kept", dates);
+                SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                        "Nothing scored: no dark-sky locations, or the forecast fetch failed");
             } else {
+                SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                        SchedulerFireOutcome.count(scored, "location-night", "location-nights") + " scored");
                 dispatchReady(manual);
             }
         } catch (Exception e) {
@@ -244,6 +250,7 @@ public class AstroConditionsRefreshJob {
             jobRun.setNotes(message.length() > MAX_NOTE_LENGTH
                     ? message.substring(0, MAX_NOTE_LENGTH) : message);
             jobRunService.completeRun(jobRun, 0, dates.size(), dates);
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED, "Refresh failed: " + message);
         }
     }
 }

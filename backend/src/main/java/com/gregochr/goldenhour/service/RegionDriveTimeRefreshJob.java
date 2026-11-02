@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +73,7 @@ public class RegionDriveTimeRefreshJob {
 
         if (based.isEmpty()) {
             LOG.info("Region drive time refresh: no regions have a base town — nothing to do");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "No regions have a base town");
             return;
         }
 
@@ -99,5 +101,8 @@ public class RegionDriveTimeRefreshJob {
 
         LOG.info("Region drive time refresh complete — {} region(s) refreshed ({} location rows), "
                 + "{} failed, {} considered", refreshed, locationsWritten, failed, based.size());
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, based.size()),
+                refreshed + " of " + SchedulerFireOutcome.count(based.size(), "region", "regions")
+                        + " refreshed · " + failed + " failed");
     }
 }

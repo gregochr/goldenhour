@@ -69,6 +69,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
      * Intended for future scheduled cleanup jobs.
      *
      * @param now the cutoff timestamp; all tokens expiring before this will be removed
+     * @return the number of tokens removed
      */
-    void deleteAllByExpiresAtBefore(LocalDateTime now);
+    long deleteAllByExpiresAtBefore(LocalDateTime now);
 }

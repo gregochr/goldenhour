@@ -46,6 +46,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static java.time.LocalDate.now;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1603,9 +1605,11 @@ class ScheduledBatchEvaluationServiceTest {
     void submitAuroraBatch_noaaFails_skips() {
         when(noaaSwpcClient.fetchAll()).thenThrow(new RuntimeException("network"));
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         verifyNoInteractions(evaluationService);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("NOAA fetch failed: network");
     }
 
     @Test
@@ -1613,12 +1617,14 @@ class ScheduledBatchEvaluationServiceTest {
     void submitAuroraBatch_auroraDisabled_fetchesNothingAndSubmitsNothing() {
         when(auroraProperties.isEnabled()).thenReturn(false);
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         // The gate must fire before the NOAA call: resuming or triggering this job from the
         // Scheduler UI with the feature off previously fetched NOAA and submitted a batch.
         verifyNoInteractions(noaaSwpcClient);
         verifyNoInteractions(evaluationService);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Aurora is switched off");
     }
 
     @Test
@@ -1629,9 +1635,11 @@ class ScheduledBatchEvaluationServiceTest {
         when(noaaSwpcClient.fetchAll()).thenReturn(wx);
         when(auroraOrchestrator.deriveAlertLevel(wx)).thenReturn(AlertLevel.QUIET);
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         verifyNoInteractions(evaluationService);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Aurora quiet — no batch needed");
     }
 
     @Test
@@ -1657,7 +1665,7 @@ class ScheduledBatchEvaluationServiceTest {
         when(evaluationService.submit(any(List.class), eq(BatchTriggerSource.SCHEDULED)))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_aurora", 1));
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         ArgumentCaptor<List<EvaluationTask.Aurora>> captor =
                 ArgumentCaptor.forClass(List.class);
@@ -1673,6 +1681,8 @@ class ScheduledBatchEvaluationServiceTest {
         // pins "uses the clock" and not "in Europe/London" — proportionate for a field that, on
         // this path, only names a custom ID.
         assertThat(captor.getValue().get(0).date()).isEqualTo(LocalDate.of(2026, 4, 14));
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MODERATE — 1 location submitted");
     }
 
     @Test
@@ -1692,9 +1702,11 @@ class ScheduledBatchEvaluationServiceTest {
                         List.of(), List.of(loc), Map.of(loc, 100));
         when(weatherTriageService.triage(any())).thenReturn(triage);
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         verifyNoInteractions(evaluationService);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MODERATE — no locations passed weather triage");
     }
 
     // ── Concurrency guards ───────────────────────────────────────────────────
@@ -1757,9 +1769,11 @@ class ScheduledBatchEvaluationServiceTest {
         auroraField.setAccessible(true);
         ((AtomicBoolean) auroraField.get(service)).set(true);
 
-        service.submitAuroraBatch();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
 
         verifyNoInteractions(noaaSwpcClient);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
     }
 
     @Test
@@ -1948,5 +1962,22 @@ class ScheduledBatchEvaluationServiceTest {
                 .solarEventTime(TEST_EVENT_TIME)
                 .targetType(TargetType.SUNRISE)
                 .build();
+    }
+
+    @Test
+    @DisplayName("submitAuroraBatch reports SUCCEEDED when no location is Bortle-eligible")
+    void submitAuroraBatch_noEligibleLocations_reportsSucceeded() {
+        SpaceWeatherData wx = new SpaceWeatherData(
+                List.of(), List.of(), null, List.of(), List.of());
+        when(noaaSwpcClient.fetchAll()).thenReturn(wx);
+        when(auroraOrchestrator.deriveAlertLevel(wx)).thenReturn(AlertLevel.MODERATE);
+        when(auroraProperties.getBortleThreshold()).thenReturn(new AuroraProperties.BortleThreshold());
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4)).thenReturn(List.of());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::submitAuroraBatch);
+
+        verifyNoInteractions(evaluationService);
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Alert MODERATE — no Bortle-eligible locations");
     }
 }

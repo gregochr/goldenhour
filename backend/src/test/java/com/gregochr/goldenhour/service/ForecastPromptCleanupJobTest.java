@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -98,5 +99,29 @@ class ForecastPromptCleanupJobTest {
         assertThatThrownBy(() -> new ForecastPromptCleanupJob(repository, scheduler, CLOCK, 0))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("retention-days=0");
+    }
+
+    @Test
+    @DisplayName("prune reports SUCCEEDED with the rows deleted, singular for one")
+    void pruneReportsRowsDeleted() {
+        when(repository.deleteByCreatedAtBefore(Instant.parse("2026-09-03T03:50:00Z"))).thenReturn(1);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> new ForecastPromptCleanupJob(repository, scheduler, CLOCK, 30).prune());
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 row deleted");
+    }
+
+    @Test
+    @DisplayName("a prune that deletes nothing reports SUCCEEDED with 0 rows deleted")
+    void pruneReportsZero() {
+        when(repository.deleteByCreatedAtBefore(Instant.parse("2026-09-03T03:50:00Z"))).thenReturn(0);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> new ForecastPromptCleanupJob(repository, scheduler, CLOCK, 30).prune());
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 rows deleted");
     }
 }

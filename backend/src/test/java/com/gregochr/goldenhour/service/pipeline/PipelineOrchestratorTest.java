@@ -48,6 +48,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -1950,6 +1952,116 @@ class PipelineOrchestratorTest {
 
             verify(batchRetryService).submitRetry(RUN_ID, selection);
             verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED, "recovered");
+        }
+    }
+
+    @Nested
+    @DisplayName("Scheduler fire outcome — what the submit step reports to the fire log")
+    class FireOutcome {
+
+        private void stubSubmit(ForecastBatchSubmissionOutcome outcome) {
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(outcome);
+        }
+
+        private void stubTail() {
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+        }
+
+        @Test
+        @DisplayName("every bucket submitted: SUCCEEDED with the batch count, linked to the pipeline run")
+        void allBucketsSubmitted() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(2, 2, List.of())));
+            stubTail();
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("2 of 2 batches submitted");
+            assertThat(report.pipelineRunId()).isEqualTo(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("no bucket to submit: SUCCEEDED 'Nothing to submit'")
+        void nothingToSubmit() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, List.of())));
+            stubTail();
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("Nothing to submit");
+            assertThat(report.pipelineRunId()).isEqualTo(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("some buckets lost: PARTIAL with the requests lost")
+        void someBucketsLost() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(3, 1, List.of(
+                    new BatchSubmissionSummary.FailedBucket("near-term inland", 400),
+                    new BatchSubmissionSummary.FailedBucket("near-term coastal", 80)))));
+            stubTail();
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+            assertThat(report.summary()).isEqualTo("1 of 3 batches submitted · 480 requests lost");
+        }
+
+        @Test
+        @DisplayName("every bucket lost: FAILED")
+        void everyBucketLost() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(2, 0, List.of(
+                    new BatchSubmissionSummary.FailedBucket("near-term inland", 400),
+                    new BatchSubmissionSummary.FailedBucket("far-term inland", 30)))));
+            stubTail();
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+            assertThat(report.summary()).isEqualTo("No batches submitted · 430 requests lost");
+        }
+
+        @Test
+        @DisplayName("a submission dropped by the cycle guard: SKIPPED, still linked to its failed run")
+        void droppedByGuard() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.dropped());
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+            assertThat(report.summary()).isEqualTo("Dropped — another forecast submission was already running");
+            assertThat(report.pipelineRunId()).isEqualTo(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a submit phase that throws is swallowed by the cycle: FAILED with the reason")
+        void submitThrows() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenThrow(new IllegalStateException("anthropic down"));
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+            assertThat(report.summary()).isEqualTo("Submit phase failed: anthropic down");
+            assertThat(report.pipelineRunId()).isEqualTo(RUN_ID);
         }
     }
 }

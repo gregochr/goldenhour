@@ -34,6 +34,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -173,8 +175,11 @@ class SkyRatingEvalServiceTest {
         when(exclusionRepository.findAll()).thenReturn(
                 EvaluationModel.selectable().stream().map(m -> exclusion(m.name())).toList());
 
-        assertThat(service().runScheduled()).isEmpty();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> assertThat(service().runScheduled()).isEmpty());
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Every model is switched off");
         verifyNoInteractions(runRepository);
         verifyNoInteractions(evaluationService);
     }
@@ -482,8 +487,15 @@ class SkyRatingEvalServiceTest {
         when(runRepository.findById(any()))
                 .thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
 
-        List<SkyRatingEvalRunEntity> runs = service().runScheduled();
+        AtomicReference<List<SkyRatingEvalRunEntity>> result = new AtomicReference<>();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> result.set(service().runScheduled()));
+        List<SkyRatingEvalRunEntity> runs = result.get();
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo(
+                EvaluationModel.selectable().size() + " of " + EvaluationModel.selectable().size()
+                        + " model runs completed");
         // One run per scheduled model, in order, each completed — the cross-model accuracy sweep.
         assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
                 .containsExactlyElementsOf(EvaluationModel.selectable());
@@ -847,4 +859,6 @@ class SkyRatingEvalServiceTest {
         verify(runRepository).save(saved.capture());
         return saved.getValue();
     }
+
+
 }

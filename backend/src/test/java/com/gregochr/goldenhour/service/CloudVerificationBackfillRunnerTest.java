@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -240,6 +241,58 @@ class CloudVerificationBackfillRunnerTest {
         assertThat(status.running()).isFalse();
         assertThat(status.verified()).isZero();
         assertThat(status.startedAt()).isNull();
+        verify(verificationService, never()).backfill(anyInt());
+    }
+
+    @Test
+    @DisplayName("a scheduled tick that drains its slice reports SUCCEEDED with verified and remaining counts")
+    void scheduledTick_reportsVerifiedAndRemaining() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batch(100), BackfillBatch.EMPTY);
+        when(verificationService.countRemaining()).thenReturn(100L, 0L);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("100 verified · 0 remaining");
+    }
+
+    @Test
+    @DisplayName("a scheduled tick that fails after making progress reports PARTIAL with the reason")
+    void scheduledTick_failureAfterProgress_reportsPartial() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batch(100))
+                .thenThrow(new RuntimeException("429 Too Many Requests"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("100 verified · stopped: 429 Too Many Requests");
+    }
+
+    @Test
+    @DisplayName("a scheduled tick that fails before verifying anything reports FAILED")
+    void scheduledTick_failureWithNoProgress_reportsFailed() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenThrow(new RuntimeException("429 Too Many Requests"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 verified · stopped: 429 Too Many Requests");
+    }
+
+    @Test
+    @DisplayName("a scheduled tick that finds a run in progress reports SKIPPED")
+    void scheduledTick_runInProgress_reportsSkipped() throws Exception {
+        java.lang.reflect.Field running = CloudVerificationBackfillRunner.class.getDeclaredField("running");
+        running.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) running.get(runner)).set(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
         verify(verificationService, never()).backfill(anyInt());
     }
 }

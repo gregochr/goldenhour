@@ -116,4 +116,34 @@ class SchedulerFireOutcomeTest {
         assertThat(failure.get()).isNull();
         assertThat(carrier.status()).isNull();
     }
+
+    @Test
+    @DisplayName("capture returns what the body reported, and an all-null report when it reported nothing")
+    void capture_returnsTheReport() {
+        SchedulerFireOutcome.Report reported = SchedulerFireOutcome.capture(() -> {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "off");
+            SchedulerFireOutcome.linkPipelineRun(3L);
+        });
+        SchedulerFireOutcome.Report silent = SchedulerFireOutcome.capture(() -> { });
+
+        assertThat(reported).isEqualTo(new SchedulerFireOutcome.Report(SchedulerFireStatus.SKIPPED, "off", 3L));
+        assertThat(silent).isEqualTo(new SchedulerFireOutcome.Report(null, null, null));
+    }
+
+    @Test
+    @DisplayName("count words one item in the singular and anything else in the plural")
+    void count_choosesSingularOrPlural() {
+        assertThat(SchedulerFireOutcome.count(1, "row", "rows")).isEqualTo("1 row");
+        assertThat(SchedulerFireOutcome.count(0, "row", "rows")).isEqualTo("0 rows");
+        assertThat(SchedulerFireOutcome.count(12, "row", "rows")).isEqualTo("12 rows");
+    }
+
+    @Test
+    @DisplayName("statusFor: none failed is SUCCEEDED, all failed is FAILED, otherwise PARTIAL")
+    void statusFor_mapsFailureCounts() {
+        assertThat(SchedulerFireOutcome.statusFor(0, 5)).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(SchedulerFireOutcome.statusFor(0, 0)).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(SchedulerFireOutcome.statusFor(2, 5)).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(SchedulerFireOutcome.statusFor(5, 5)).isEqualTo(SchedulerFireStatus.FAILED);
+    }
 }

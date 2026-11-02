@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.NlcProperties;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.NlcSightingReport;
 import com.gregochr.goldenhour.service.NlcClarityService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -167,12 +169,15 @@ public class NlcSightingClient {
                 lastSkipLogDate = today;
                 LOG.info("NLC sighting scrape skipped: outside the NLC season (the month pages only exist in it)");
             }
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Outside the NLC season");
             return List.of();
         }
         String url = resolveUrl(today);
         NotFound missing = notFound;
         if (missing != null && missing.date().equals(today) && missing.url().equals(url)) {
             LOG.debug("NLC sighting scrape skipped: {} answered 404 earlier today", url);
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "NLCNET page not found earlier today — not retrying until tomorrow");
             return current != null ? current.reports() : List.of();
         }
         try {
@@ -183,14 +188,20 @@ public class NlcSightingClient {
             List<NlcSightingReport> reports = parse(html);
             cache = new CachedReports(reports, ZonedDateTime.now(ZoneOffset.UTC));
             LOG.debug("NLC sighting scrape parsed {} report(s) from {}", reports.size(), url);
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    reports.size() + (reports.size() == 1 ? " sighting report" : " sighting reports") + " parsed");
             return reports;
         } catch (HttpClientErrorException.NotFound e) {
             notFound = new NotFound(url, today);
             LOG.warn("NLC sighting page not found at {}; not retrying until tomorrow (retaining cached)", url);
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "NLCNET page not found — not retrying until tomorrow");
             return current != null ? current.reports() : List.of();
         } catch (Exception e) {
             LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url,
                     truncate(e.getMessage()));
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "NLCNET scrape failed: " + truncate(e.getMessage()));
             return current != null ? current.reports() : List.of();
         }
     }
