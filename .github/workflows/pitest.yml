@@ -9,6 +9,9 @@ jobs:
   pitest:
     name: PIT Mutation Testing
     runs-on: self-hosted
+    # Shares the single self-hosted runner with Deploy to Production; the slowest
+    # successful run took ~2h23m, so cap well below GitHub's 6-hour default.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 25
