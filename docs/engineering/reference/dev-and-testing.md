@@ -23,6 +23,9 @@ cd backend && ./mvnw clean verify -Dtest='!**/integration/**' -DfailIfNoSpecifie
 
 # Prompt regression tests (requires ANTHROPIC_API_KEY)
 cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
+# Observed sky-rating days live in ONE registry (eval/SkyRatingEvalFixtures.ALL) shared with the weekly Sky-Rating
+# Eval: a fixture with a RegressionBounds is also a PromptRegressionTest case. Add a JSON + one registry line + the
+# literal bounds in RegressionBoundsRegistryTest. Bounds are the owner's call only.
 
 # Frontend tests
 cd frontend && npm run test

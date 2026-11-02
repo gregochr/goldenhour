@@ -43,6 +43,10 @@ import java.util.List;
  * (strong, fully-augmented real days now exist), but the "can it return a 5?" gap is still open:
  * both bands are exactly 4, so nothing here would catch a model that never reaches a 5.
  *
+ * <p><b>One registry, two suites.</b> A fixture with a non-null
+ * {@link SkyRatingEvalFixture#regression()} is also a case in the paid {@code PromptRegressionTest};
+ * the two hand-authored fixtures stay eval-only.
+ *
  * <p>A new captured-real day slots in by dropping its exported {@code atmospheric_data_json} here
  * and adding a registry line. A fully-augmented spectacular (5) day from current prod would close
  * the remaining gap.
@@ -69,7 +73,8 @@ public final class SkyRatingEvalFixtures {
                             + "stable gated monitor — capture one when convenient.",
                     RatingBand.atMost(2),
                     "copt-hill-5mar-washout.json",
-                    false),
+                    false,
+                    new RegressionBounds(RatingBand.atMost(2), null, 25, null, 35)),
             // RETIRED: angel-of-the-north-2mar-spectacular (observer-only) — obsolete. The app now
             // always augments forecasts with directional cloud, so an observer-only input is a shape
             // production no longer produces; and the {4,5} band came from the observed evening while
@@ -85,7 +90,8 @@ public final class SkyRatingEvalFixtures {
                             + "scenario at 4 (never 5), so the band is the exact observed {4}. Coastal "
                             + "(tide) — exercises CoastalPromptBuilder.",
                     RatingBand.exactly(4),
-                    "st-marys-10mar-moderate.json"),
+                    "st-marys-10mar-moderate.json",
+                    new RegressionBounds(RatingBand.exactly(4), 30, 85, 30, 85)),
             new SkyRatingEvalFixture(
                     "copt-hill-11mar-false-positive",
                     "Real day, ported from PromptRegressionTest#coptHill_11Mar2026_sunset_cloud"
@@ -105,7 +111,8 @@ public final class SkyRatingEvalFixtures {
                             + "precedence clause was added. The route back to {1,2} is a "
                             + "measured cap-2-on-high-peak rule — see the veto doc's F6.",
                     new RatingBand(1, 3),
-                    "copt-hill-11mar-false-positive.json"),
+                    "copt-hill-11mar-false-positive.json",
+                    new RegressionBounds(new RatingBand(1, 3), null, 70, null, 65)),
             new SkyRatingEvalFixture(
                     "copt-hill-15mar-overcast",
                     "Real day, ported from PromptRegressionTest#coptHill_15Mar2026_sunset_total"
@@ -126,7 +133,8 @@ public final class SkyRatingEvalFixtures {
                             + "means the cap stopped binding). Route back to {1,2}: a measured "
                             + "cap-2-on-high-peak rule — see the veto doc's F6.",
                     new RatingBand(1, 3),
-                    "copt-hill-15mar-overcast.json"),
+                    "copt-hill-15mar-overcast.json",
+                    new RegressionBounds(new RatingBand(1, 3), null, 40, null, 55)),
             new SkyRatingEvalFixture(
                     "copt-hill-16mar-horizon-strip",
                     "Real day, ported from PromptRegressionTest#coptHill_16Mar2026_horizonStrip "
@@ -134,7 +142,8 @@ public final class SkyRatingEvalFixtures {
                             + "clears) under a high-cloud canvas — graded middling, not a washout, not "
                             + "spectacular. Fully augmented.",
                     new RatingBand(3, 4),
-                    "copt-hill-16mar-horizon-strip.json"),
+                    "copt-hill-16mar-horizon-strip.json",
+                    new RegressionBounds(new RatingBand(3, 4), 25, null, null, null)),
             new SkyRatingEvalFixture(
                     "st-marys-7apr-clear-sky-cap",
                     "Real day, ported from PromptRegressionTest#stMarysLighthouse_7Apr2026_sunrise_"
@@ -142,7 +151,8 @@ public final class SkyRatingEvalFixtures {
                             + "with no canvas — clean light but no subject in the sky, observed 3★. Guards "
                             + "the clearing-to-bald-blue failure mode. Coastal (tide).",
                     RatingBand.atMost(3),
-                    "st-marys-7apr-clear-sky-cap.json"),
+                    "st-marys-7apr-clear-sky-cap.json",
+                    new RegressionBounds(RatingBand.atMost(3), null, 40, null, null)),
             new SkyRatingEvalFixture(
                     "middling-hazy-mixed",
                     "Hand-authored middling sunset (the one synthetic fixture, kept for low-middle "
@@ -181,7 +191,8 @@ public final class SkyRatingEvalFixtures {
                             + "(tide) — exercises CoastalPromptBuilder. Restores strong-side "
                             + "coverage: a model that under-rates a good morning fails this fixture.",
                     RatingBand.exactly(4),
-                    "low-hauxley-4oct-worth-going.json"),
+                    "low-hauxley-4oct-worth-going.json",
+                    new RegressionBounds(RatingBand.exactly(4), 55, 85, 55, null)),
             new SkyRatingEvalFixture(
                     "steel-rigg-24oct-worth-going",
                     "Real day, ported from PromptRegressionTest#steelRigg_24Oct2026_sunrise_"
@@ -192,7 +203,8 @@ public final class SkyRatingEvalFixtures {
                             + "Inland (no tide) — the plain prompt path. Restores strong-side "
                             + "coverage: a model that under-rates a good morning fails this fixture.",
                     RatingBand.exactly(4),
-                    "steel-rigg-24oct-worth-going.json"));
+                    "steel-rigg-24oct-worth-going.json",
+                    new RegressionBounds(RatingBand.exactly(4), 60, 90, null, null)));
 
     private SkyRatingEvalFixtures() {
     }

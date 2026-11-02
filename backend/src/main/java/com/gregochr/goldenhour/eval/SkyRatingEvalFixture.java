@@ -24,9 +24,39 @@ package com.gregochr.goldenhour.eval;
  * @param resource    classpath resource path, relative to {@code /eval/fixtures/}
  * @param gated       whether the harness hard-asserts this fixture's band (true) or only records
  *                    and reports it (false, monitored)
+ * @param regression  the owner-observed bounds the manual {@code PromptRegressionTest} asserts for
+ *                    this day, or {@code null} for an eval-only fixture (no regression case)
  */
 public record SkyRatingEvalFixture(String name, String description, RatingBand band, String resource,
-        boolean gated) {
+        boolean gated, RegressionBounds regression) {
+
+    /**
+     * Constructor for a fixture with no regression case (eval-only).
+     *
+     * @param name        short identifier
+     * @param description what the fixture represents
+     * @param band        the expected star-rating band
+     * @param resource    classpath resource path
+     * @param gated       whether the harness hard-asserts the band
+     */
+    public SkyRatingEvalFixture(String name, String description, RatingBand band, String resource,
+            boolean gated) {
+        this(name, description, band, resource, gated, null);
+    }
+
+    /**
+     * Constructor for a gated fixture that also has a prompt-regression case.
+     *
+     * @param name        short identifier
+     * @param description what the fixture represents
+     * @param band        the expected star-rating band
+     * @param resource    classpath resource path
+     * @param regression  the prompt-regression bounds
+     */
+    public SkyRatingEvalFixture(String name, String description, RatingBand band, String resource,
+            RegressionBounds regression) {
+        this(name, description, band, resource, true, regression);
+    }
 
     /**
      * Convenience constructor for a gated fixture — the default. Use the canonical 5-argument form

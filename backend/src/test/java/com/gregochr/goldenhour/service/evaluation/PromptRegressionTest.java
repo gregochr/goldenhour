@@ -4,24 +4,23 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
-import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.eval.RegressionBounds;
+import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
+import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.AtmosphericData;
-import com.gregochr.goldenhour.model.CloudApproachData;
-import com.gregochr.goldenhour.model.DirectionalCloudData;
-import com.gregochr.goldenhour.model.SolarCloudTrend;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
-import com.gregochr.goldenhour.model.TideSnapshot;
-import com.gregochr.goldenhour.model.UpwindCloudSample;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,13 +34,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   cd backend && ANTHROPIC_API_KEY=sk-ant-... ./mvnw test -Pprompt-regression
  * </pre>
  *
- * <p>To add a new regression case:
+ * <p>The cases come from one registry shared with the weekly Sky-Rating Eval,
+ * {@link SkyRatingEvalFixtures#ALL}. To add a new observed day:
  * <ol>
  *   <li>Go to a location for sunrise/sunset and observe the actual conditions</li>
- *   <li>Fetch the Open-Meteo data for that date/time (use {@code past_days} parameter),
- *       or use {@code scripts/generate-regression-fixture.sh}</li>
- *   <li>Add a new test method with the atmospheric data and your observed score bounds</li>
+ *   <li>Export the stored {@code atmospheric_data_json} for that run (or fetch the Open-Meteo data
+ *       and use {@code scripts/generate-regression-fixture.sh}) and drop it under
+ *       {@code src/main/resources/eval/fixtures/}</li>
+ *   <li>Add one registry line in {@code SkyRatingEvalFixtures} with the eval band and a
+ *       {@link RegressionBounds} holding your observed bounds. It then runs in both this suite and
+ *       the Sky Eval; the parameterized test below picks it up with no further code</li>
+ *   <li>Add the new bounds literally to {@code RegressionBoundsRegistryTest}</li>
  * </ol>
+ * The bounds are the owner's ground truth: changing one is the owner's call only.
  */
 @Tag("prompt-regression")
 class PromptRegressionTest {
@@ -73,61 +78,59 @@ class PromptRegressionTest {
     }
 
     /**
-     * Copt Hill, 5 March 2026, SUNSET ~17:45 UTC — NEGATIVE case (blocked solar horizon).
+     * The registry-backed regression cases: every {@link SkyRatingEvalFixtures#ALL} entry whose
+     * {@link SkyRatingEvalFixture#regression()} is non-null, named by fixture name. Package-private so
+     * {@code RegressionBoundsRegistryTest} can prove discovery without calling the API.
      *
-     * <p>Observer point showed near-clear sky (1% low, 0% mid, 0% high) but the solar
-     * horizon 50 km WSW had 67% low cloud and 100% high cloud, completely blocking
-     * direct light. In reality, the sunset was a total washout — heavy cloud to the west.
-     *
-     * <p>Score ceilings based on the actual observed conditions:
-     * <ul>
-     *   <li>Rating: max 2 (poor — blocked solar horizon)</li>
-     *   <li>Fiery Sky: max 25 (no light penetration = no colour)</li>
-     *   <li>Golden Hour: max 35 (overcast-equivalent at solar horizon)</li>
-     * </ul>
+     * @return the named regression fixtures
      */
-    @Test
-    void coptHill_5Mar2026_sunset_blockedSolarHorizon() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("Copt Hill")
-                .solarEventTime(LocalDateTime.of(2026, 3, 5, 17, 45))
-                .lowCloud(1)
-                .midCloud(0)
-                .highCloud(0)
-                .visibility(5560)
-                .windSpeed(new BigDecimal("3.60"))
-                .windDirection(182)
-                .humidity(74)
-                .weatherCode(0)
-                .boundaryLayerHeight(630)
-                .shortwaveRadiation(new BigDecimal("231"))
-                .pm25(new BigDecimal("21.0"))
-                .dust(new BigDecimal("7.0"))
-                .aod(new BigDecimal("0.35"))
-                .temperature(12.1)
-                .apparentTemperature(9.5)
-                .precipProbability(0)
-                .directionalCloud(new DirectionalCloudData(
-                        67, 0, 100,   // solar horizon: Low 67%, Mid 0%, High 100%
-                        0, 0, 0, null))  // antisolar horizon: all clear
-                .build();
+    static Stream<Named<SkyRatingEvalFixture>> regressionFixtures() {
+        return SkyRatingEvalFixtures.ALL.stream()
+                .filter(f -> f.regression() != null)
+                .map(f -> Named.of(f.name(), f));
+    }
+
+    /**
+     * Runs one registered day through the real model and asserts the owner-observed bounds held in
+     * the fixture's {@link RegressionBounds}. Every case is hard-asserted regardless of the eval's
+     * {@code gated} flag (5 Mar is monitored in the eval but hard-asserted here).
+     *
+     * @param fixture the registered day
+     */
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("regressionFixtures")
+    void registeredDay_staysWithinObservedBounds(SkyRatingEvalFixture fixture) {
+        RegressionBounds bounds = fixture.regression();
+        String name = fixture.name();
+        AtmosphericData data = SkyRatingEvalFixtures.load(fixture);
 
         SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[coptHill_5Mar] " + result.summary());
+        System.out.println("[" + name + "] rating=" + result.rating()
+                + " fiery=" + result.fierySkyPotential()
+                + " golden=" + result.goldenHourPotential() + " " + result.summary());
 
         assertScoresNotNull(result);
-        assertTrue(result.rating() <= 2,
-                "Rating should be <= 2 (blocked solar horizon) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() <= 25,
-                "Fiery Sky should be <= 30 (no light penetration) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() <= 35,
-                "Golden Hour should be <= 35 (overcast at solar horizon) but was "
-                        + result.goldenHourPotential());
+        assertTrue(bounds.rating().contains(result.rating()),
+                name + ": rating should be within " + bounds.rating().label() + " but was " + result.rating());
+        assertWithin(name, "Fiery Sky", result.fierySkyPotential(), bounds.fieryMin(), bounds.fieryMax());
+        assertWithin(name, "Golden Hour", result.goldenHourPotential(), bounds.goldenMin(),
+                bounds.goldenMax());
+    }
+
+    private static void assertWithin(String name, String score, int actual, Integer min, Integer max) {
+        if (min != null) {
+            assertTrue(actual >= min, name + ": " + score + " should be >= " + min + " but was " + actual);
+        }
+        if (max != null) {
+            assertTrue(actual <= max, name + ": " + score + " should be <= " + max + " but was " + actual);
+        }
     }
 
     /**
      * Angel of the North, 2 March 2026, SUNSET ~17:35 UTC — POSITIVE case (spectacular).
+     *
+     * <p>Regression-only, deliberately not in the shared registry: its observer-only input shape
+     * (no directional cloud) is retired from the Sky Eval because production no longer produces it.
      *
      * <p>Data sourced from production record id 3284. Observer point: 2% low, 0% mid,
      * 100% high cloud — high-cloud canvas overhead. No directional cone-sampling data
@@ -175,480 +178,6 @@ class PromptRegressionTest {
         assertTrue(result.goldenHourPotential() >= 60,
                 "Golden Hour should be >= 60 (excellent light) but was "
                         + result.goldenHourPotential());
-    }
-
-    /**
-     * St Mary's Lighthouse, 10 March 2026, SUNRISE 06:34 UTC — POSITIVE case (worth going out).
-     *
-     * <p>Forecast snapped at 17:05 on 9 March for 10 March sunrise. Data sourced directly
-     * from the production {@code forecast_evaluation} table. Observer point had clear low
-     * cloud (0%) but 100% mid and high cloud — a thick canvas overhead. Solar horizon
-     * (50 km ESE) also 0% low with 100% mid and high cloud. Antisolar had 47% low,
-     * 2% mid, 0% high. Light wind (4.5 km/h SSW), good visibility (22 km), no precipitation.
-     *
-     * <p>In reality, this was a 4-star sunrise — clear low cloud let light through, and
-     * the mid/high cloud canvas caught enough colour to make the trip worthwhile. Production
-     * forecast correctly rated this 4 stars.
-     *
-     * <p>Score bounds based on the actual observed conditions:
-     * <ul>
-     *   <li>Rating: min 4 (worth going out for)</li>
-     *   <li>Fiery Sky: 30–85 (decent colour, not a washout)</li>
-     *   <li>Golden Hour: 30–85 (decent light quality)</li>
-     * </ul>
-     */
-    @Test
-    void stMarysLighthouse_10Mar2026_sunrise_moderate() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("St. Mary's Lighthouse")
-                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNRISE)
-                .solarEventTime(LocalDateTime.of(2026, 3, 10, 6, 34))
-                .lowCloud(0)
-                .midCloud(100)
-                .highCloud(100)
-                .visibility(22020)
-                .windSpeed(new BigDecimal("4.50"))
-                .windDirection(204)
-                .humidity(82)
-                .weatherCode(3)
-                .boundaryLayerHeight(625)
-                .shortwaveRadiation(new BigDecimal("4.00"))
-                .pm25(new BigDecimal("13.00"))
-                .dust(new BigDecimal("1.00"))
-                .aod(new BigDecimal("0.110"))
-                .temperature(7.3)
-                .apparentTemperature(3.6)
-                .precipProbability(0)
-                .directionalCloud(new DirectionalCloudData(
-                        0, 100, 100,    // solar horizon: Low 0%, Mid 100%, High 100%
-                        47, 2, 0, null))   // antisolar: Low 47%, Mid 2%, High 0%
-                .tide(new TideSnapshot(
-                        TideState.HIGH,
-                        LocalDateTime.of(2026, 3, 10, 7, 7),
-                        new BigDecimal("1.11"),
-                        LocalDateTime.of(2026, 3, 10, 13, 15),
-                        new BigDecimal("-1.22"),
-                        true, null, null, null, null, null, null))
-                .build();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[stMarys_10Mar] " + result.summary());
-
-        assertScoresNotNull(result);
-        assertEquals(4, result.rating(),
-                "Rating should be exactly 4 (worth going out, not spectacular) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() >= 30,
-                "Fiery Sky should be >= 30 (decent colour observed) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.fierySkyPotential() <= 85,
-                "Fiery Sky should be <= 85 (not a spectacular fireworks display) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() >= 30,
-                "Golden Hour should be >= 30 (decent light) but was "
-                        + result.goldenHourPotential());
-        assertTrue(result.goldenHourPotential() <= 85,
-                "Golden Hour should be <= 85 (decent, not spectacular) but was "
-                        + result.goldenHourPotential());
-    }
-
-    /**
-     * Copt Hill, 11 March 2026, SUNSET ~17:45 UTC — FALSE POSITIVE case (cloud approach risk).
-     *
-     * <p>The 13:45 forecast showed clear solar horizon (7% low cloud at 50 km) and 88% high
-     * cloud — looked ideal. Production rated it 4 stars. In reality, a cloud bank was
-     * approaching from the SW and the sunset was a 2-star disappointment.
-     *
-     * <p>With cloud approach risk data, the prompt now includes:
-     * <ul>
-     *   <li>Solar trend: T-3h=5%, T-2h=15%, T-1h=35%, event=7% [BUILDING]</li>
-     *   <li>Upwind: 70% low cloud at 87 km along 228° SW, model predicts 15% at event</li>
-     * </ul>
-     *
-     * <p>This data should tell Claude to penalise — the model is too optimistic about clearing.
-     *
-     * <p>Score bounds based on the actual observed outcome:
-     * <ul>
-     *   <li>Rating: max 2 (the trip was a disappointment)</li>
-     *   <li>Fiery Sky: max 35 (cloud bank arrived and blocked the display)</li>
-     *   <li>Golden Hour: max 40 (some residual light but poor overall)</li>
-     * </ul>
-     */
-    @Test
-    void coptHill_11Mar2026_sunset_cloudApproachFalsePositive() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("Copt Hill")
-                .solarEventTime(LocalDateTime.of(2026, 3, 11, 17, 45))
-                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
-                .lowCloud(0)
-                .midCloud(0)
-                .highCloud(100)
-                .visibility(27980)
-                .windSpeed(new BigDecimal("5.70"))
-                .windDirection(228)
-                .precipitation(BigDecimal.ZERO)
-                .humidity(69)
-                .weatherCode(3)
-                .shortwaveRadiation(new BigDecimal("180.00"))
-                .aod(new BigDecimal("0.080"))
-                .pm25(new BigDecimal("3.80"))
-                .dust(new BigDecimal("0.00"))
-                .boundaryLayerHeight(1035)
-                .temperature(7.6)
-                .apparentTemperature(2.8)
-                .precipProbability(0)
-                .directionalCloud(new DirectionalCloudData(
-                        7, 0, 88,       // solar horizon: Low 7%, Mid 0%, High 88%
-                        81, 0, 0, null))   // antisolar: Low 81%, Mid 0%, High 0%
-                .cloudApproach(new CloudApproachData(
-                        new SolarCloudTrend(List.of(
-                                new SolarCloudTrend.SolarCloudSlot(3, 5),
-                                new SolarCloudTrend.SolarCloudSlot(2, 15),
-                                new SolarCloudTrend.SolarCloudSlot(1, 35),
-                                new SolarCloudTrend.SolarCloudSlot(0, 7))),
-                        new UpwindCloudSample(87, 228, 70, 15)))
-                .build();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[coptHill_11Mar_approach] " + result.summary());
-        assertScoresNotNull(result);
-        assertTrue(result.rating() <= 3,
-                "Rating should be <= 3 (approach risk caps the rating; demotion 2026-08-18) but was "
-                        + result.rating());
-        // Bound derived, not fitted. The demotion (2026-08-18) replaced this rule's fiery_sky <= 20
-        // cap with a -20..-30 penalty on what the conditions earn, and these conditions are a clear
-        // 7% solar horizon under an 88% high canvas — the prompt's own IDEAL scenario, which
-        // authorises 70-90 unpenalised. 70 is that arithmetic exactly — the band tops out at 90 and
-        // the smallest penalty is 20 — so it is the highest value a penalised ideal sky can produce,
-        // and anything above it means no penalty was applied. Measured on this exact input across
-        // 25 Haiku runs: 28-68. A first cut at 65 was FITTED to an under-sampled max of 62 and a
-        // later run returned 68, which the derivation covers and the fitted number did not. Prefer
-        // the rule's arithmetic to the sample; the guard band is narrow either way.
-        assertTrue(result.fierySkyPotential() <= 70,
-                "Fiery Sky should be <= 70 (approach penalty applied to an otherwise ideal sky) "
-                        + "but was " + result.fierySkyPotential());
-        // Same derivation as line 317, on golden_hour's own band. The demotion originally dropped
-        // this rule's golden_hour <= 20 ceiling rather than demoting it — the plan specified a
-        // replacement for fiery_sky only, a silent omission closed 2026-08-18. The prompt scores
-        // clear air with good visibility at 65-85, the penalty is 20-30, so 65 is the highest value
-        // a penalised sky of this kind can produce.
-        //
-        // ⚠️ Both placements of that penalty are load-bearing and neither is decoration. Stated in
-        // rules prose ALONE it moved golden_hour by 4.4 points against the 20-30 it asks for (mean
-        // 71.4 -> 67.0); restated on the output field and in the schema description it moved it by
-        // 19.5 (-> 51.9, max exactly 65). Same lesson as the rating cap at line 314. Delete either
-        // half and this assertion starts failing rather than the prompt quietly under-penalising.
-        //
-        // Zero headroom is deliberate: 65 IS the derived ceiling, so a run at 65 passes and 66
-        // fails. That is what a spec-derived bound looks like — do not pad it to buy quiet.
-        assertTrue(result.goldenHourPotential() <= 65,
-                "Golden Hour should be <= 65 (approach penalty applied to clear, good-visibility "
-                        + "air) but was " + result.goldenHourPotential());
-    }
-
-    /**
-     * Copt Hill, 15 March 2026, SUNSET ~18:08 UTC — NEGATIVE case (total overcast + approach risk).
-     *
-     * <p>Observer point completely overcast (100% low, 99% mid). Solar horizon had 39% low and
-     * 65% mid cloud — marginal at best. Solar trend showed [BUILDING] behaviour, and the upwind
-     * sample revealed 84% current low cloud vs model's 0% prediction — model was wildly
-     * optimistic about clearing.
-     *
-     * <p>Antisolar side also heavily blocked (95% low, 53% mid). Light drizzle (0.1mm),
-     * weather code 51. In reality this was a complete non-event.
-     *
-     * <p>User observation: 1-2 stars (would not have gone out).
-     *
-     * <p>Score ceilings:
-     * <ul>
-     *   <li>Rating: max 2 (total overcast, no clearing)</li>
-     *   <li>Fiery Sky: max 25 (no light penetration through 100% low cloud)</li>
-     *   <li>Golden Hour: max 30 (completely blocked horizon)</li>
-     * </ul>
-     */
-    @Test
-    void coptHill_15Mar2026_sunset_totalOvercastWithApproach() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("Copt Hill")
-                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
-                .solarEventTime(LocalDateTime.of(2026, 3, 15, 18, 8))
-                .lowCloud(100)
-                .midCloud(99)
-                .highCloud(0)
-                .visibility(19080)
-                .windSpeed(new BigDecimal("7.70"))
-                .windDirection(274)
-                .precipitation(new BigDecimal("0.10"))
-                .humidity(73)
-                .weatherCode(51)
-                .boundaryLayerHeight(1210)
-                .shortwaveRadiation(new BigDecimal("25.00"))
-                .pm25(new BigDecimal("3.20"))
-                .dust(new BigDecimal("0.00"))
-                .aod(new BigDecimal("0.090"))
-                .temperature(5.9)
-                .apparentTemperature(0.0)
-                .precipProbability(45)
-                .directionalCloud(new DirectionalCloudData(
-                        39, 65, 0,      // solar horizon: Low 39%, Mid 65%, High 0%
-                        95, 53, 0, null))  // antisolar: Low 95%, Mid 53%, High 0%
-                .cloudApproach(new CloudApproachData(
-                        new SolarCloudTrend(List.of(
-                                new SolarCloudTrend.SolarCloudSlot(3, 52),
-                                new SolarCloudTrend.SolarCloudSlot(2, 100),
-                                new SolarCloudTrend.SolarCloudSlot(1, 100),
-                                new SolarCloudTrend.SolarCloudSlot(0, 20))),
-                        new UpwindCloudSample(67, 274, 84, 0)))
-                .build();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[coptHill_15Mar_overcast] " + result.summary());
-
-        assertScoresNotNull(result);
-        // ⚠️ GROUND TRUTH IS 1-2★, AND CHRIS WAS THERE: he was physically present on 15 March 2026
-        // and it was a real washout. Nothing below supersedes that observation.
-        //
-        // The assertion allows 3 BY DESIGN since the veto demotion — the accepted price, decided at
-        // the 2026-08-18 baseline ruling and applied here to the twin assertion that ruling never
-        // reached (the eval fixture's band moved to {1,3} then; this one was still passing by luck).
-        // See cloud-approach-veto-fix.md §4 (D2) and veto-demotion-plan.md §3.
-        //
-        // The mechanism is worth knowing before anyone files this as a bug: the OBSERVER point was
-        // overcast (100% low / 99% mid) but the SOLAR HORIZON reads 39% low under a 65% mid canvas,
-        // and the prompt scores from the directional data — so the >60% blocked ceiling never
-        // applied here and the veto was the ONLY rule holding this day down. Cap the veto at 3 and
-        // 3 is what a directionally-clearing sky with a canvas earns.
-        //
-        // NOT A FLAKE, measured before it was moved: 12 Haiku runs on this exact input gave
-        // 2,3,3,3,3,3,2,2,2,4,3,2 — <= 2 passed 5 of 12 (~42%). Two earlier green runs were luck at
-        // p~0.18, not stability. Route back to <= 2: a future measured cap-2-on-high-peak rule, F6.
-        assertTrue(result.rating() <= 3,
-                "Rating should be <= 3 (approach risk caps the rating; demotion 2026-08-18) but was "
-                        + result.rating());
-        // ⚠️ These two bounds are MEASURED WITH MARGIN, not derived — a weaker basis than the
-        // 11 Mar case's, and the difference is worth understanding before either is moved again.
-        // 11 Mar sits squarely in the prompt's IDEAL scenario (fiery_sky 70-90), so its bound is
-        // arithmetic: 90 minus the smallest 20-point penalty = 70. This sky has no such band. Its
-        // solar horizon reads 39% low under a 65% mid canvas, where the prompt says only "light
-        // partially blocked, penalise but consider that mid/high cloud above may still catch colour
-        // if gaps exist" — no numbers attached. So there is nothing to subtract a penalty from, and
-        // these are observation plus headroom. Re-measure rather than reason if they need to move.
-        //
-        // Both were masked by the rating assertion above (JUnit short-circuits), the same way :314
-        // masked :317 masked :320 on the 11 Mar case — the old <= 2 rating bound meant neither had
-        // been reached since the demotion. Measured on this exact input, 12 Haiku runs:
-        //   fiery_sky   25,25,25,28,35,35,35,35,35,35,35,35  (max 35) — the old <= 25 failed 9 of 12
-        //   golden_hour 20,20,25,25,25,28,28,28,38,40,45,48  (max 48) — the old <= 30 failed 4 of 12
-        // The old numbers encoded the vetoed world where both scores were pinned near 20.
-        assertTrue(result.fierySkyPotential() <= 40,
-                "Fiery Sky should be <= 40 (partially blocked horizon under the approach penalty) "
-                        + "but was " + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() <= 55,
-                "Golden Hour should be <= 55 (blocked observer point, penalised for approach) "
-                        + "but was " + result.goldenHourPotential());
-    }
-
-    /**
-     * Copt Hill, 16 Mar 2026 sunset — horizon strip scenario.
-     *
-     * <p>Solar horizon low cloud was 64% and building, but only a thin strip on the
-     * horizon: far-field (226 km) low cloud was 12%, dropping 52pp beyond the strip.
-     * High cloud above caught the warm light. Observed outcome: ~3 stars with pink/coral
-     * colour on high cloud. Previously scored 1/5 before strip detection was added.
-     *
-     * <p>Asserts: rating >= 3 and &lt;5 (strip softens the penalty)
-     */
-    @Test
-    void coptHill_16Mar2026_horizonStrip_shouldScoreAboveThreeButNotFive() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("Copt Hill")
-                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNSET)
-                .solarEventTime(LocalDateTime.of(2026, 3, 18, 18, 11))
-                .lowCloud(40)
-                .midCloud(30)
-                .highCloud(60)
-                .visibility(20000)
-                .windSpeed(new BigDecimal("5.50"))
-                .windDirection(270)
-                .precipitation(new BigDecimal("0.00"))
-                .humidity(65)
-                .weatherCode(2)
-                .boundaryLayerHeight(900)
-                .shortwaveRadiation(new BigDecimal("45.00"))
-                .pm25(new BigDecimal("4.00"))
-                .dust(new BigDecimal("0.00"))
-                .aod(new BigDecimal("0.10"))
-                .temperature(8.5)
-                .apparentTemperature(5.5)
-                .precipProbability(5)
-                .directionalCloud(new DirectionalCloudData(
-                        64, 10, 55,     // solar horizon: Low 64% (strip), Mid 10%, High 55%
-                        20, 15, 65,     // antisolar: Low 20%, Mid 15%, High 65% (canvas)
-                        12))            // far solar (226km): Low 12% — confirms thin strip
-                .cloudApproach(new CloudApproachData(
-                        new SolarCloudTrend(List.of(
-                                new SolarCloudTrend.SolarCloudSlot(3, 20),
-                                new SolarCloudTrend.SolarCloudSlot(2, 45),
-                                new SolarCloudTrend.SolarCloudSlot(1, 58),
-                                new SolarCloudTrend.SolarCloudSlot(0, 64))),
-                        null))
-                .build();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[coptHill_16Mar_strip] " + result.summary());
-
-        assertScoresNotNull(result);
-        assertTrue(result.rating() >= 3 && result.rating() < 5,
-                "Rating should be >=3 and <5 (horizon strip + high cloud canvas) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() >= 25,
-                "Fiery Sky should be >= 25 (high cloud catching warm light) but was "
-                        + result.fierySkyPotential());
-    }
-
-    /**
-     * St Mary's Lighthouse, 7 April 2026, SUNRISE 05:23 UTC — MISCALIBRATION case (clear sky, no canvas).
-     *
-     * <p>Perfectly clear dawn: 0% low, 0% mid, 0% high cloud at observer point. Directional
-     * cloud samples were unavailable (null — no cone sampling data persisted for this run).
-     * Excellent visibility (18 km), clean air (AOD 0.09, PM2.5 18.5 µg/m³), weather code 0.
-     * High tide closely aligned: high at 05:57 UTC, 34 minutes after sunrise.
-     *
-     * <p>Production forecast (Haiku, generated 6 Apr 20:45 UTC) gave 5★ / Fiery Sky 45 /
-     * Golden Hour 82. The observed outcome was 3★ — a perfectly clear dawn with no mid/high
-     * cloud canvas delivers only clean golden light with no drama. The current prompt
-     * over-scores clear-sky scenarios by treating high visibility and clean air as strong
-     * positives without adequately penalising the absence of a colour canvas.
-     * This test captures the miscalibration.
-     *
-     * <p>Score ceilings:
-     * <ul>
-     *   <li>Rating: max 3 (clean but undramatic — no cloud canvas to catch colour)</li>
-     *   <li>Fiery Sky: max 40 (clear sky ceiling — nothing to scatter and diffuse colour)</li>
-     *   <li>Golden Hour: no assertion yet — printed to stdout for calibration reference</li>
-     * </ul>
-     */
-    @Test
-    void stMarysLighthouse_7Apr2026_sunrise_clearSkyNoCanvas_shouldCapAtThree() {
-        AtmosphericData data = TestAtmosphericData.builder()
-                .locationName("St. Mary's Lighthouse")
-                .targetType(com.gregochr.goldenhour.entity.TargetType.SUNRISE)
-                .solarEventTime(LocalDateTime.of(2026, 4, 7, 5, 23))
-                .lowCloud(0)
-                .midCloud(0)
-                .highCloud(0)
-                .visibility(18020)
-                .windSpeed(new BigDecimal("3.50"))
-                .windDirection(156)
-                .precipitation(BigDecimal.ZERO)
-                .humidity(80)
-                .weatherCode(0)
-                .boundaryLayerHeight(320)
-                .shortwaveRadiation(new BigDecimal("10.00"))
-                .pm25(new BigDecimal("18.50"))
-                .dust(new BigDecimal("0.00"))
-                .aod(new BigDecimal("0.090"))
-                .temperature(5.6)
-                .apparentTemperature(2.0)
-                .dewPoint(2.4)
-                .precipProbability(0)
-                .tide(new TideSnapshot(
-                        TideState.HIGH,
-                        LocalDateTime.of(2026, 4, 7, 5, 57, 22),
-                        new BigDecimal("1.42"),
-                        LocalDateTime.of(2026, 4, 7, 12, 10, 11),
-                        new BigDecimal("-1.61"),
-                        null, null, null, null, null, null, null))
-                .build();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[stMarys_7Apr_clearSky] " + result.summary()
-                + " golden=" + result.goldenHourPotential());
-
-        assertScoresNotNull(result);
-        assertTrue(result.rating() <= 3,
-                "Rating should be <= 3 (no cloud canvas = no colour drama) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() <= 40,
-                "Fiery Sky should be <= 40 (clear sky — nothing to scatter colour) but was "
-                        + result.fierySkyPotential());
-    }
-
-    /**
-     * Low Hauxley, 4 October 2026, SUNRISE 06:13 UTC — POSITIVE case (worth going: clear horizon, high canvas).
-     *
-     * <p>Data sourced from production record id 86677 (Haiku 4.5, batch pipeline, run 2026-10-04
-     * 01:04 UTC), and unlike the cases above the user message is the production prompt verbatim —
-     * {@link LowHauxleyPromptFidelityTest} pins it to the stored text. A SEASCAPE with a tide, so it
-     * runs through the coastal prompt. Solar horizon 0% low / 10% mid / 100% high, antisolar
-     * 100% across, far corridor 1%; the high canvas arrived through the last three hours with no
-     * low-cloud blocker and nothing upwind. Production rated it 4 stars (fiery 72, golden 68).
-     *
-     * <p>The owner went and photographed it, looking out to Coquet Island: a clean sea horizon,
-     * streaked high cloud on the sun's side lit orange and salmon, lilac-grey away from it —
-     * strong but pastel colour, no deep red. Verdict: "It was worth going, so it's a 4. I view 3
-     * as maybe get out of bed and it was better than that." The bounds are the owner's:
-     * <ul>
-     *   <li>Rating: exactly 4 (worth going; not spectacular, so not 5; better than a 3 "maybe")</li>
-     *   <li>Fiery Sky: 55–85 (strong colour, pastel, no deep red)</li>
-     *   <li>Golden Hour: min 55</li>
-     * </ul>
-     */
-    @Test
-    void lowHauxley_4Oct2026_sunrise_clearHorizonHighCanvas_worthGoing() {
-        AtmosphericData data = LowHauxleyFixture.atmosphericData();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[lowHauxley_4Oct] rating=" + result.rating()
-                + " fiery=" + result.fierySkyPotential()
-                + " golden=" + result.goldenHourPotential() + " " + result.summary());
-
-        assertScoresNotNull(result);
-        assertEquals(4, result.rating(),
-                "Rating should be exactly 4 (worth going, not spectacular) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() >= 55 && result.fierySkyPotential() <= 85,
-                "Fiery Sky should be 55-85 (strong pastel colour, no deep red) but was "
-                        + result.fierySkyPotential());
-        assertTrue(result.goldenHourPotential() >= 55,
-                "Golden Hour should be >= 55 (good light) but was " + result.goldenHourPotential());
-    }
-
-    /**
-     * Steel Rigg &amp; Winshield Crags, 24 October 2026, SUNRISE 06:56 UTC — POSITIVE case (worth going:
-     * clear solar horizon, saturated high canvas).
-     *
-     * <p>Data sourced from production record id 119939 (Sonnet 5.5, batch near-term, run 2026-10-24
-     * 02:44 UTC), and the user message is the production prompt verbatim —
-     * {@link SteelRiggPromptFidelityTest} pins it to the stored text. An inland location (345 m,
-     * overlooking loughs), so there is no tide and it runs through the plain prompt. Solar horizon
-     * 0% low / 0% mid / 87% high, antisolar 60/100/100, far corridor (226 km) low 80%, upwind 78%
-     * at the event, 96% humidity with a 0.6°C dew gap (near-saturated). Production rated it 4 stars
-     * on all four runs for that sunrise (fiery 62–68, golden 55–66); the evaluated run gave 4 /
-     * fiery 68 / golden 62.
-     *
-     * <p>The owner photographed it from Hadrian's Wall at Steel Rigg, looking along Whinshield
-     * Crags: a sky lit deep orange, salmon and red across the whole high canvas — saturated colour,
-     * stronger than Low Hauxley's pastel. Verdict: "A solid 4". The owner went for the colour in the
-     * sky and did not stay for golden hour ("it was cold"), so Golden Hour is not judged. The bounds
-     * are the owner's:
-     * <ul>
-     *   <li>Rating: exactly 4</li>
-     *   <li>Fiery Sky: 60–90 (saturated colour across the canvas)</li>
-     *   <li>Golden Hour: no bound beyond the shared not-null check</li>
-     * </ul>
-     */
-    @Test
-    void steelRigg_24Oct2026_sunrise_clearSolarHorizonHighCanvas_worthGoing() {
-        AtmosphericData data = SteelRiggFixture.atmosphericData();
-
-        SunsetEvaluation result = strategy.evaluate(data);
-        System.out.println("[steelRigg_24Oct] rating=" + result.rating()
-                + " fiery=" + result.fierySkyPotential()
-                + " golden=" + result.goldenHourPotential() + " " + result.summary());
-
-        assertScoresNotNull(result);
-        assertEquals(4, result.rating(),
-                "Rating should be exactly 4 (a solid 4) but was " + result.rating());
-        assertTrue(result.fierySkyPotential() >= 60 && result.fierySkyPotential() <= 90,
-                "Fiery Sky should be 60-90 (saturated colour across the canvas) but was "
-                        + result.fierySkyPotential());
     }
 
     private static void assertScoresNotNull(SunsetEvaluation result) {
