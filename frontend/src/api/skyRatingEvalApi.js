@@ -22,6 +22,20 @@ export const getSkyRatingEvalRun = (id) => apiClient.get(`/api/admin/sky-rating-
 /** The calibration-drift series — one aggregate point per (completed run × fixture). */
 export const getSkyRatingEvalTrend = () => apiClient.get('/api/admin/sky-rating-eval/trend');
 
+/**
+ * Everything the Sky Eval page renders, in one read: head version, schedule, lanes, sessions, per-model stats,
+ * verdict, version comparisons and the Run a check defaults. All figures are derived on the server.
+ */
+export const getSkyEvalOverview = () => apiClient.get('/api/admin/sky-rating-eval/overview');
+
+/**
+ * Starts a quick check: one MANUAL run per model on the current build, scored in parallel. Resolves 202 with
+ * `{runIds}`, in model order. This bills the Anthropic key.
+ *
+ * @param {{models: string[], runsPerFixture: 1|3|8, fixtureNames: string[]|null}} body the check to run
+ */
+export const startSkyEvalCheck = (body) => apiClient.post('/api/admin/sky-rating-eval/check', body);
+
 /** The weekly run's model list: one `{model, scheduled}` row per selectable model. */
 export const getSkyRatingEvalSchedule = () => apiClient.get('/api/admin/sky-rating-eval/schedule');
 

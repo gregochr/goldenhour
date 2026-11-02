@@ -17,6 +17,11 @@ vi.mock('../api/schedulerApi', () => ({
   switchScheduleType: vi.fn(),
   fetchJobRuns: vi.fn(),
 }));
+vi.mock('../api/skyRatingEvalApi', () => ({
+  getSkyRatingEvalSchedule: vi.fn(),
+  setSkyRatingEvalScheduled: vi.fn(),
+}));
+vi.mock('../api/modelsApi', () => ({ getAvailableModels: vi.fn() }));
 // jsdom has no layout: the split breakpoint (1000px) is decided here, so the list stays reachable beside the panel.
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -30,6 +35,8 @@ import {
   fetchJobRuns,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
+import { getSkyRatingEvalSchedule } from '../api/skyRatingEvalApi';
+import { SCHEDULE } from './skyEvalFixtures.js';
 
 // The Scheduler tab end to end below ManageView: the served jobs on the list-and-panel shell, the panel by hash, and
 // what moved out of the old cards (Edit, Pause, Resume, Run now) into the panel. The network is mocked at the API module.
@@ -1142,5 +1149,25 @@ describe('SchedulerView: the Run now confirmation', () => {
     fireEvent.click(screen.getByTestId('scheduler-row-aurora_polling'));
     await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Aurora Polling'));
     expect(screen.queryByTestId('scheduler-action-error')).not.toBeInTheDocument();
+  });
+});
+
+describe('SchedulerView: the Sky Eval job panel', () => {
+  it('carries the weekly model checkboxes for the sky_rating_eval job, ticked from the schedule', async () => {
+    getSkyRatingEvalSchedule.mockResolvedValue({
+      data: SCHEDULE.map((r) => (r.model === 'OPUS' ? { ...r, scheduled: false } : r)),
+    });
+    mount([job({ jobKey: 'sky_rating_eval', displayName: 'Sky-rating eval' })]);
+    await openPanel('sky_rating_eval');
+    expect(await screen.findByTestId('sky-eval-schedule-row')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-SONNET_55')).toBeChecked());
+    expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked();
+  });
+
+  it('shows no weekly model checkboxes on any other job', async () => {
+    mount();
+    await openPanel('tide_refresh');
+    expect(screen.queryByTestId('sky-eval-schedule-row')).not.toBeInTheDocument();
+    expect(getSkyRatingEvalSchedule).not.toHaveBeenCalled();
   });
 });

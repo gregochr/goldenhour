@@ -94,6 +94,10 @@
   --color-run-briefing: oklch(0.74 0.08 145);
   --color-run-other: oklch(0.62 0.015 60);
 
+  /* Sky Eval's version gold (commit tags, version lines and chips). `plex-gold` is bone, so the redesign's gold
+     is its own token (docs/engineering/sky-eval-redesign-plan.md, correction 23). */
+  --color-skyeval-version: #EBD9A8;
+
   /* The CARD surface, and a real token rather than a collapse onto --surface. It sits only
      (4,3,3) from it, so substituting would have been defensible — but the window-first design
      uses it ten times as the thing that distinguishes a card from the frame it sits in, and a

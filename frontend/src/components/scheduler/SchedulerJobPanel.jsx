@@ -5,6 +5,7 @@ import StatusDot from '../data/StatusDot.jsx';
 import JobSchedule from './JobSchedule.jsx';
 import JobNextFires, { SunTimingNotes } from './JobNextFires.jsx';
 import JobActions from './JobActions.jsx';
+import SkyEvalWeeklyModels from './SkyEvalWeeklyModels.jsx';
 import useJobRecentRuns from '../../hooks/useJobRecentRuns.js';
 import { isCycleJob, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import {
@@ -150,6 +151,7 @@ export default function SchedulerJobPanel({
       {showNextFires && (
         <JobNextFires jobKey={job.jobKey} status={job.status} preview={preview} failed={previewFailed} showReference={!solar} />
       )}
+      {job.jobKey === 'sky_rating_eval' && <SkyEvalWeeklyModels />}
       {job.runGroup && <JobRecentRuns job={job} refreshKey={refreshKey} />}
       {(solar || isCycleJob(job.jobKey)) && <SunTimingNotes jobKey={job.jobKey} />}
       <JobActions job={job} actions={actions} onRunNow={onRunNow} onPause={onPause} onResume={onResume} />

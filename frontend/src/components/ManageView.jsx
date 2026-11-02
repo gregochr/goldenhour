@@ -11,7 +11,7 @@ import RunsView from './runs/RunsView.jsx';
 import ModelSelectionView from './ModelSelectionView.jsx';
 import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
-import SkyRatingEvalView from './SkyRatingEvalView.jsx';
+import SkyEvalView from './skyeval/SkyEvalView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
 import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
@@ -446,12 +446,7 @@ export default function ManageView({ onComplete }) {
           <ModelSelectionView />
         )}
 
-        {activeTab === 'skyeval' && (
-          <div className="card flex flex-col gap-4">
-            <p className="text-sm font-semibold text-plex-text">Sky-Rating Calibration Eval</p>
-            <SkyRatingEvalView />
-          </div>
-        )}
+        {activeTab === 'skyeval' && <SkyEvalView />}
 
         {activeTab === 'scheduler' && (
           <div className="card">

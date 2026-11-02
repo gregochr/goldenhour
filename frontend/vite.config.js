@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
     // Service worker that precaches the app shell so a refresh paints from disk instead of
     // waiting on the network. Deliberately scoped:
     //  - PRECACHE only the critical shell (html, css, fonts, entry + react chunks). The heavy
-    //    optional chunks (recharts ~360K, ManageView ~251K, leaflet ~165K) are lazy-loaded by
+    //    optional chunks (ManageView, leaflet ~165K) are lazy-loaded by
     //    design, so precaching them would download ~800K on every deploy for a user who may
     //    never open the Map or Manage views. They are runtime-cached on first actual use.
     //  - NEVER cache /api. The stale-while-revalidate cache and ETags (#22/#23) already own
@@ -132,28 +132,10 @@ export default defineConfig(({ mode }) => {
             test: /node_modules[\\/](leaflet|react-leaflet|@react-leaflet)[\\/]/,
             priority: 20,
           },
-          // `geo` MUST outrank `recharts`, and that priority order is the whole rule — the
-          // `recharts` test below also matches every `d3-*` module, including d3-geo/d3-array, so
-          // at equal or higher priority this group would never fire (measured at P0, which is why
-          // the plan calls it out).
-          //
-          // `d3-geo` is imported by the heat field kernel, whose only consumer is the Plan tab's
-          // heat strip. Without this rule it falls into `recharts`, and `recharts` is reached today
-          // only behind `ManageView`'s lazy() boundary — ADMIN-only. Measured both ways: with the
-          // rule the strip's chunk statically imports `geo` at 24.14 KB / 9.19 KB gzip; without it,
-          // it imports `recharts` at 396.61 KB / 115.40 KB gzip. So every reader opening Plan
-          // would fetch the whole charting library for ~20 KB of projection code.
-          //
-          // `d3-array` rides along because `d3-geo` depends on it. Splitting them would put `geo`
-          // downstream of `recharts` and reintroduce the same fetch by a longer route. The cost is
-          // that recharts' own d3-array usage lands here too — measured at 3.43 KB raw / 1.33 KB
-          // gzip off the recharts chunk, paid only by whoever loads either.
+          // `d3-geo` is imported by the heat field kernel, whose only consumer is the Plan tab's heat
+          // strip. This group keeps it (and `d3-array`, which `d3-geo` depends on) in its own small
+          // chunk. recharts, which used to share the d3 modules, is no longer a dependency.
           { name: 'geo', test: /node_modules[\\/](d3-geo|d3-array)[\\/]/, priority: 15 },
-          {
-            name: 'recharts',
-            test: /node_modules[\\/](recharts|d3-[^\\/]+|victory-vendor)[\\/]/,
-            priority: 10,
-          },
           ],
         },
       },

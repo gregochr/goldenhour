@@ -22,7 +22,7 @@ vi.mock('../components/runs/RunsView.jsx', () => stub('Runs'));
 vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
-vi.mock('../components/SkyRatingEvalView.jsx', () => stub('Sky Eval'));
+vi.mock('../components/skyeval/SkyEvalView.jsx', () => stub('Sky Eval'));
 vi.mock('../components/HotTopicSimulation.jsx', () => stub('Hot Topics'));
 vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 
