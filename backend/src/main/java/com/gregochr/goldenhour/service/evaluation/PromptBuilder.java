@@ -505,29 +505,26 @@ public class PromptBuilder {
                 "Location: %s. %s: %s UTC.%n"
                 + "Cloud: Low %d%%, Mid %d%%, High %d%%%n"
                 + "Visibility: %,dm, Wind: %.2f m/s (%d\u00b0), Precip: %.2fmm%n"
-                + "Humidity: %d%%, Precip probability: %s%%%n"
+                + "Humidity: %d%%%n"
                 + "Dew point: %s%n"
                 + "Weather code: %d%n"
-                + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
+                + "Boundary layer: %dm%n"
                 + "PM2.5: %s, Dust: %s, AOD: %s",
                 data.locationName(), data.targetType(), data.solarEventTime(),
                 cloud.lowCloudPercent(), cloud.midCloudPercent(), cloud.highCloudPercent(),
                 w.visibilityMetres(), w.windSpeedMs(), w.windDirectionDegrees(),
                 w.precipitationMm(),
                 w.humidityPercent(),
-                comfort.precipitationProbability() != null ? comfort.precipitationProbability() : "N/A",
                 dewPointStr,
                 w.weatherCode(),
-                a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
+                a.boundaryLayerHeightMetres(),
                 reading(a.pm25(), "\u00b5g/m\u00b3"),
                 reading(a.dustUgm3(), "\u00b5g/m\u00b3"),
                 reading(a.aerosolOpticalDepth(), "")));
 
         if (data.locationOrientation() != null) {
-            sb.append(String.format("%nLocation orientation: %s (this location is best suited "
-                    + "for %s photography)",
-                    data.locationOrientation(),
-                    data.locationOrientation().replace("-optimised", "")));
+            sb.append(String.format("%nLocation orientation: %s",
+                    data.locationOrientation()));
         }
 
         // Directional cloud data — sampled 113 km toward and away from the sun
@@ -801,8 +798,8 @@ public class PromptBuilder {
      *
      * <p>The unit rides on the value rather than on the format string, so an absent reading prints
      * a clean {@code PM2.5: N/A} instead of {@code PM2.5: N/Aµg/m³}. {@code N/A} is this prompt's
-     * existing vocabulary for a missing reading — dew point and precipitation probability both use
-     * it a few lines above — so Claude is not being taught a new token.
+     * existing vocabulary for a missing reading — the dew point line uses it a few lines
+     * above — so Claude is not being taught a new token.
      *
      * <p>⚠️ The alternative is worse than it looks. These values used to arrive as a hard zero
      * whenever air quality ran short of the forecast window, and the system prompt grades AOD
