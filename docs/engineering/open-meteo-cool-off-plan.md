@@ -109,3 +109,39 @@ Coverage stays ≥ 80 % per class (`jacoco:check`).
 
 `docs/engineering/reference/pipeline.md`, the **Resilience** paragraph: one sentence on the cool-off
 and the timeout backoff.
+
+## Review amendments (2026-11-02, adversarial review of this plan; these override the text above)
+
+1. **Clock reads.** The chokepoint check reads `elapsedClockMs` **only when `coolOffUntilMs != 0`**
+   (short-circuit), so the existing pressure-level and inversion budget tests, which feed the clock a
+   fixed sequence by call order, keep their readings.
+2. **Classify 429s at the chokepoints, not in the loops.** Wrap the request in `fetchForecastChunk` (5-arg)
+   and `fetchAirQualityChunk` in try/catch: classify the exception (start or extend a cool-off), then
+   rethrow it unchanged. That covers every path, including `fetchPressureLevelCloudBatch`,
+   `fetchInversionProfileBatch`, `fetchAirQualityBatch` and every single-chunk branch. The loops only
+   *check* whether a cool-off is in force after a failure and break.
+3. **The breakers must ignore `OpenMeteoCoolOffException`.** The `open-meteo` breaker registers a health
+   indicator and guards `fetchForecast`/`fetchAirQuality`; without an ignore, about ten fast-failing
+   directional-cloud calls would open it and flip admin health. Add an ignore for the exception on both
+   `open-meteo` and `open-meteo-briefing`, wired the way `ResilienceConfig` already wires the `ask`
+   breaker's ignore predicate (a `CircuitBreakerConfigCustomizer` or the existing pattern there), in code
+   so every profile gets it. A test proves the breaker does not record it.
+4. **The single-location calls are in scope after all.** `fetchForecast` and `fetchAirQuality` check the
+   cool-off first (throw `OpenMeteoCoolOffException`) and classify their own 429s (try/catch around the
+   declarative call, classify, rethrow). Every caller catches `Exception`, so a slot that would have been
+   refused by Open-Meteo anyway fails fast instead. The health probe stays out of scope (it caches for five
+   minutes and is how we see recovery).
+5. **Timeout detection:** a `java.net.SocketTimeoutException` **anywhere in the cause chain of any
+   exception** (a body-read timeout arrives as a plain `RestClientException("Error while extracting
+   response …")`, not a `ResourceAccessException`). One private helper; `isTransientFailure` uses it too, so
+   a body-read timeout is now retried like a status-line one.
+6. **Sleep seam for tests:** a package-private `LongConsumer sleeper` (default `OpenMeteoClient::sleepQuietly`)
+   used by every sleep in the class; tests record its arguments. Timeout tests use a real
+   `SocketTimeoutException` cause.
+7. **Exception message:** a fixed reason label (`too many concurrent requests`, `hourly limit`, `daily
+   limit`, `repeated timeouts`) and the end time as `HH:mm` UTC; never copy the triggering message. A test
+   asserts the message contains no "429".
+8. **`fetchForecastBatchInternal` has no in-method retry.** There, **two consecutive chunks failing on a
+   read timeout** start the 10-minute cool-off (a 59-chunk cloud batch against a hanging Open-Meteo would
+   otherwise spend about 30 minutes on timeouts).
+9. **The cool-off is in memory only**; a restart clears it. Accepted.
