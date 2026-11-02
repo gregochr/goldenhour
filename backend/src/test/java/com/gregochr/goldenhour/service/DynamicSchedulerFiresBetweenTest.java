@@ -20,9 +20,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.when;
 
 /**
@@ -98,7 +96,7 @@ class DynamicSchedulerFiresBetweenTest {
     void solarFires() {
         SolarOffsetTrigger trigger = new SolarOffsetTrigger("job", SolarEvent.SUNSET, 250, null,
                 (event, date) -> LocalDateTime.of(date.getYear(), date.getMonth(), date.getDayOfMonth(), 16, 49));
-        when(solarTriggers.create(eq("job"), eq(SolarEvent.SUNSET), eq(250), any())).thenReturn(trigger);
+        when(solarTriggers.create(eq("job"), eq(SolarEvent.SUNSET), eq(250), eq("0 0 12 * * *"))).thenReturn(trigger);
         SchedulerJobConfigEntity solar = job(ScheduleType.SOLAR_OFFSET).solarEvent(SolarEvent.SUNSET)
                 .solarOffsetMinutes(250).cronExpression("0 0 12 * * *").build();
 
@@ -115,7 +113,8 @@ class DynamicSchedulerFiresBetweenTest {
                 (event, date) -> {
                     throw new IllegalStateException("no sun");
                 });
-        when(solarTriggers.create(eq("job"), eq(SolarEvent.SUNSET), anyInt(), any())).thenReturn(broken);
+        when(solarTriggers.create(eq("job"), eq(SolarEvent.SUNSET), eq(250), eq("0 0 12 * * *")))
+                .thenReturn(broken);
         SchedulerJobConfigEntity solar = job(ScheduleType.SOLAR_OFFSET).solarEvent(SolarEvent.SUNSET)
                 .solarOffsetMinutes(250).cronExpression("0 0 12 * * *").build();
 

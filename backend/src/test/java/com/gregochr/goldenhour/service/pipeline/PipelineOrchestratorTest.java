@@ -53,7 +53,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -236,7 +235,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.FORECAST_BATCH_WAIT),
                     eq("no batches submitted"));
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
     }
@@ -277,7 +276,7 @@ class PipelineOrchestratorTest {
                     "forecast batch set (3 of 4 complete)");
             // Two completion polls; one updateWaitingOn (the still-waiting one).
             verify(forecastBatchRepository, times(2)).findByPipelineRunId(RUN_ID);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -360,7 +359,7 @@ class PipelineOrchestratorTest {
                     org.mockito.ArgumentMatchers.contains("Batch set did not reach terminal status"));
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
             verify(pipelineRunService, never()).completeRun(RUN_ID);
         }
     }
@@ -388,7 +387,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("Submit phase failed"));
             verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
             verify(pipelineRunService, never()).completeRun(RUN_ID);
         }
 
@@ -400,7 +399,7 @@ class PipelineOrchestratorTest {
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
                     .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
             doThrow(new RuntimeException("briefing broke"))
-                    .when(briefingService).refreshBriefing(anyLong());
+                    .when(briefingService).refreshBriefing(RUN_ID);
 
             orchestrator.runNightlyCycle();
 
@@ -462,7 +461,7 @@ class PipelineOrchestratorTest {
             verify(forecastBatchRepository, never()).findByPipelineRunId(RUN_ID);
             // The assertion that matters: a dropped run must never brief from
             // whatever cache the winning run leaves mid-flight.
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
             verify(pipelineRunService, never()).completeRun(RUN_ID);
         }
     }
@@ -509,7 +508,7 @@ class PipelineOrchestratorTest {
                     eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
             // WAIT and BRIEFING still ran — the fallback-to-cache behaviour is unchanged.
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completePhase(
                     eq(RUN_ID), eq(PipelinePhase.BRIEFING), isNull());
             // Terminal status is DEGRADED, never COMPLETED, never FAILED.
@@ -655,7 +654,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService, never()).degradeRun(any(), any());
             verify(pipelineRunService, never()).completeRun(RUN_ID);
             verify(pipelineRunService, never()).findLatestPhase(any(), any());
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
             verifyNoInteractions(adminAlertService);
         }
     }
@@ -681,7 +680,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService, never())
                     .startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -708,7 +707,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService, never())
                     .startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).degradeRun(RUN_ID, failedSubmitPhase.getDetail());
             verify(pipelineRunService, never()).completeRun(RUN_ID);
             verify(adminAlertService).sendPipelineDegradedAlert(
@@ -739,7 +738,7 @@ class PipelineOrchestratorTest {
             // deliberately not skipped (republishing a briefing is harmless; picks are
             // now upserted, not duplicated) — and the phase still completes + the run
             // still finishes normally.
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.BRIEFING), isNull());
             verify(pipelineRunService).completeRun(RUN_ID);
         }
@@ -754,7 +753,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1062,7 +1061,7 @@ class PipelineOrchestratorTest {
                     eq(true),
                     any());
             // And it reaches briefing through the identical tail.
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1122,7 +1121,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("within PT10M"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1199,7 +1198,7 @@ class PipelineOrchestratorTest {
                     eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
             // The cycle still WAITs and BRIEFs, then ends DEGRADED — the intraday path shares
             // finishRun with nightly.
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).degradeRun(RUN_ID, failingSummary.detail());
         }
 
@@ -1216,7 +1215,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("restarted during pre-submission"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
     }
 
@@ -1249,7 +1248,7 @@ class PipelineOrchestratorTest {
                     eq(EveningEligibilityPolicy.INSTANCE),
                     eq(true),
                     any());
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
             verify(locationFailureService, times(1)).settleCycle(any());
         }
@@ -1300,7 +1299,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("within PT10M"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1369,7 +1368,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService, never())
                     .startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
             verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1399,7 +1398,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.FORECAST_BATCH_WAIT), any());
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1427,7 +1426,7 @@ class PipelineOrchestratorTest {
                     "retry could not be completed: insert failed");
             verify(pipelineRunService).failRun(RUN_ID, "Wait/brief tail failed: insert failed");
             verifyNoInteractions(locationFailureService);
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
             verify(pipelineRunService, never()).completeRun(RUN_ID);
         }
 
@@ -1449,7 +1448,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).completePhase(eq(RUN_ID),
                     eq(PipelinePhase.RETRY_FAILED),
                     org.mockito.ArgumentMatchers.contains("exceeds cap"));
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1477,7 +1476,7 @@ class PipelineOrchestratorTest {
 
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
             verify(batchRetryService).submitRetry(RUN_ID, selection);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
     }
@@ -1503,7 +1502,7 @@ class PipelineOrchestratorTest {
             order.verify(batchRetryService).selectFailures(RUN_ID);
             order.verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
             order.verify(locationFailureService).settleCycle(run);
-            order.verify(briefingService).refreshBriefing(anyLong());
+            order.verify(briefingService).refreshBriefing(RUN_ID);
             verify(locationFailureService, times(1)).settleCycle(run);
         }
 
@@ -1529,7 +1528,7 @@ class PipelineOrchestratorTest {
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
-            doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(anyLong());
+            doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(RUN_ID);
 
             orchestrator.runNightlyCycle();
 
@@ -1551,7 +1550,7 @@ class PipelineOrchestratorTest {
 
             orchestrator.runNightlyCycle();
 
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1641,7 +1640,7 @@ class PipelineOrchestratorTest {
 
             verify(locationFailureService, times(1)).settleCycle(midBrief);
             verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.BRIEFING);
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1779,7 +1778,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
             assertThat(reads.get()).as("polls before the original deadline").isLessThan(10);
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1825,7 +1824,7 @@ class PipelineOrchestratorTest {
                     org.mockito.ArgumentMatchers.contains("Batch set did not reach terminal status"));
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
-            verify(briefingService, never()).refreshBriefing(anyLong());
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1868,7 +1867,7 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
             verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
                     org.mockito.ArgumentMatchers.contains("NOT retried: only 9 min"));
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 
@@ -1888,7 +1887,7 @@ class PipelineOrchestratorTest {
             verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
             verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
                     org.mockito.ArgumentMatchers.contains("only 0 min"));
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
         }
 
         @Test
@@ -1926,7 +1925,7 @@ class PipelineOrchestratorTest {
             verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
             verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
                     org.mockito.ArgumentMatchers.contains("NOT retried: only 9 min"));
-            verify(briefingService).refreshBriefing(anyLong());
+            verify(briefingService).refreshBriefing(RUN_ID);
         }
 
         @Test

@@ -51,7 +51,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -66,6 +66,8 @@ import static org.mockito.Mockito.when;
 class RunsDayServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-11-02T09:26:00Z");
+    /** The end of the UK civil day of {@link #NOW} (GMT in November). */
+    private static final Instant DAY_END = Instant.parse("2026-11-03T00:00:00Z");
 
     /** Supplies the fixed clock and the real solar calculator. */
     @TestConfiguration
@@ -542,7 +544,7 @@ class RunsDayServiceTest {
         commit();
         Instant fire = Instant.parse("2026-11-02T12:39:00Z");
         Instant tideFire = Instant.parse("2026-11-02T15:30:00Z");
-        when(scheduler.firesBetween(any(), any(), any())).thenAnswer(inv -> {
+        when(scheduler.firesBetween(any(SchedulerJobConfigEntity.class), eq(NOW), eq(DAY_END))).thenAnswer(inv -> {
             SchedulerJobConfigEntity c = inv.getArgument(0);
             return switch (c.getJobKey()) {
                 case ForecastCycleJobs.INTRADAY_JOB -> List.of(fire);
@@ -550,7 +552,8 @@ class RunsDayServiceTest {
                 default -> List.<Instant>of();
             };
         });
-        when(solarTriggers.create(eq(ForecastCycleJobs.INTRADAY_JOB), eq(SolarEvent.SUNSET), anyInt(), any()))
+        when(solarTriggers.create(eq(ForecastCycleJobs.INTRADAY_JOB), eq(SolarEvent.SUNSET), eq(250),
+                eq("0 0 12 * * *")))
                 .thenReturn(new SolarOffsetTrigger(ForecastCycleJobs.INTRADAY_JOB, SolarEvent.SUNSET, 250, null,
                         (event, date) -> date.atTime(16, 49)));
 
@@ -605,7 +608,7 @@ class RunsDayServiceTest {
         config(ForecastCycleJobs.NIGHTLY_JOB, ScheduleType.CRON, "0 0 1 * * *", null, null);
         commit();
         Instant evening = Instant.parse("2026-11-02T21:00:00Z");
-        when(scheduler.firesBetween(any(), any(), any())).thenAnswer(inv -> {
+        when(scheduler.firesBetween(any(SchedulerJobConfigEntity.class), eq(NOW), eq(DAY_END))).thenAnswer(inv -> {
             SchedulerJobConfigEntity c = inv.getArgument(0);
             return ForecastCycleJobs.EVENING_JOB.equals(c.getJobKey()) ? List.of(evening) : List.<Instant>of();
         });
@@ -630,7 +633,8 @@ class RunsDayServiceTest {
         paused.setStatus(SchedulerJobStatus.PAUSED);
         config("aurora_batch_evaluation", ScheduleType.CRON, "0 0 20 * * *", null, null);
         commit();
-        when(scheduler.firesBetween(any(), any(), any())).thenReturn(List.of(Instant.parse("2026-11-02T20:00:00Z")));
+        when(scheduler.firesBetween(argThat(c -> c != null && "aurora_batch_evaluation".equals(c.getJobKey())), eq(NOW),
+                eq(DAY_END))).thenReturn(List.of(Instant.parse("2026-11-02T20:00:00Z")));
 
         RunDayResponse day = service.day(null);
 
@@ -651,7 +655,7 @@ class RunsDayServiceTest {
         config("sky_rating_eval", ScheduleType.CRON, "0 0 22 * * *", null, null);
         commit();
         Instant astro = Instant.parse("2026-11-02T15:30:00Z");
-        when(scheduler.firesBetween(any(), any(), any())).thenAnswer(inv -> {
+        when(scheduler.firesBetween(any(SchedulerJobConfigEntity.class), eq(NOW), eq(DAY_END))).thenAnswer(inv -> {
             SchedulerJobConfigEntity c = inv.getArgument(0);
             return "astro_conditions_refresh".equals(c.getJobKey()) ? List.of(astro)
                     : List.of(Instant.parse("2026-11-02T22:00:00Z"));

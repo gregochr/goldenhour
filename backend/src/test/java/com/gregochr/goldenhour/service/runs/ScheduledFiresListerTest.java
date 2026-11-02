@@ -21,8 +21,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -72,8 +70,8 @@ class ScheduledFiresListerTest {
         SchedulerJobConfigEntity sunrise = solarJob(ForecastCycleJobs.EVENING_JOB, SolarEvent.SUNRISE, 0);
         SchedulerJobConfigEntity unknown = solarJob("not_a_run_job", SolarEvent.SUNSET, 60);
         when(configs.findAllByOrderByIdAsc()).thenReturn(List.of(sunrise, unknown));
-        when(scheduler.firesBetween(eq(sunrise), any(), any())).thenReturn(List.of(FIRE));
-        when(solarTriggers.create(eq(ForecastCycleJobs.EVENING_JOB), eq(SolarEvent.SUNRISE), eq(0), any()))
+        when(scheduler.firesBetween(eq(sunrise), eq(AFTER), eq(BEFORE))).thenReturn(List.of(FIRE));
+        when(solarTriggers.create(eq(ForecastCycleJobs.EVENING_JOB), eq(SolarEvent.SUNRISE), eq(0), eq("0 0 12 * * *")))
                 .thenReturn(new SolarOffsetTrigger("job", SolarEvent.SUNRISE, 0, null,
                         (event, date) -> date.atTime(7, 12)));
 
@@ -89,8 +87,9 @@ class ScheduledFiresListerTest {
     void solarWordingWithoutSunTime() {
         SchedulerJobConfigEntity noEvent = solarJob(ForecastCycleJobs.INTRADAY_JOB, SolarEvent.SUNSET, 90);
         when(configs.findAllByOrderByIdAsc()).thenReturn(List.of(noEvent));
-        when(scheduler.firesBetween(eq(noEvent), any(), any())).thenReturn(List.of(FIRE));
-        when(solarTriggers.create(eq(ForecastCycleJobs.INTRADAY_JOB), eq(SolarEvent.SUNSET), anyInt(), any()))
+        when(scheduler.firesBetween(eq(noEvent), eq(AFTER), eq(BEFORE))).thenReturn(List.of(FIRE));
+        when(solarTriggers.create(eq(ForecastCycleJobs.INTRADAY_JOB), eq(SolarEvent.SUNSET), eq(90),
+                eq("0 0 12 * * *")))
                 .thenThrow(new IllegalArgumentException("bad offset"));
 
         assertThat(lister.fires(AFTER, BEFORE).get(0).subline()).isEqualTo("Sun-relative · 1h 30m before sunset");
