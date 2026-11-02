@@ -166,6 +166,22 @@ class SkyRatingEvalFixturesTest {
         assertNotNull(data.pressureTrend(), "and a pressure trend");
     }
 
+    @Test
+    void worthGoingFixturesHaveAClearSolarHorizonUnderAHighCanvasAndAreRatedExactlyFour() {
+        for (String name : List.of("low-hauxley-4oct-worth-going", "steel-rigg-24oct-worth-going")) {
+            AtmosphericData data = load(name);
+
+            assertEquals(TargetType.SUNRISE, data.targetType(), name);
+            assertEquals(0, data.directionalCloud().solarLowCloudPercent(), name + ": clear solar horizon");
+            assertTrue(data.directionalCloud().solarHighCloudPercent() >= 80, name + ": high canvas");
+            assertEquals(4, byName(name).band().min(), name);
+            assertEquals(4, byName(name).band().max(), name);
+            assertTrue(byName(name).gated(), name + " must be gated");
+        }
+        assertNotNull(load("low-hauxley-4oct-worth-going").tide(), "Low Hauxley is coastal");
+        assertNull(load("steel-rigg-24oct-worth-going").tide(), "Steel Rigg is inland");
+    }
+
     private static AtmosphericData load(String name) {
         return SkyRatingEvalFixtures.load(byName(name));
     }
