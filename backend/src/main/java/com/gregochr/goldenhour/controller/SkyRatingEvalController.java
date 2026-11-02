@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
 import com.gregochr.goldenhour.model.ScheduledModelView;
 import com.gregochr.goldenhour.model.SkyRatingEvalTrendPoint;
+import com.gregochr.goldenhour.model.skyeval.SkyEvalOverview;
+import com.gregochr.goldenhour.service.SkyRatingEvalOverviewService;
 import com.gregochr.goldenhour.service.SkyRatingEvalService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,15 +38,18 @@ import java.util.concurrent.Executors;
 public class SkyRatingEvalController {
 
     private final SkyRatingEvalService service;
+    private final SkyRatingEvalOverviewService overviewService;
     private final Executor asyncExecutor;
 
     /**
      * Constructs the controller.
      *
-     * @param service the sky-rating eval orchestration service
+     * @param service         the sky-rating eval orchestration service
+     * @param overviewService assembles the Sky Eval page payload
      */
-    public SkyRatingEvalController(SkyRatingEvalService service) {
+    public SkyRatingEvalController(SkyRatingEvalService service, SkyRatingEvalOverviewService overviewService) {
         this.service = service;
+        this.overviewService = overviewService;
         this.asyncExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
@@ -71,6 +76,56 @@ public class SkyRatingEvalController {
         SkyRatingEvalRunEntity started = service.startRun(model, SkyRatingEvalTrigger.MANUAL, runs);
         CompletableFuture.runAsync(() -> service.executeRun(started.getId()), asyncExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(started);
+    }
+
+    /**
+     * Starts a quick check: one MANUAL run per model, on the current build, scored in parallel in the
+     * background. Returns 202 with the run ids; the Runs tab polls the overview for progress.
+     *
+     * @param body the models, repeats per fixture (1, 3 or 8) and optional fixture subset
+     * @return the started run ids (202 Accepted)
+     * @throws IllegalArgumentException if the request is invalid (mapped to 400)
+     */
+    @PostMapping("/check")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CheckResponse> check(@RequestBody CheckRequest body) {
+        if (body == null) {
+            throw new IllegalArgumentException("Request body is required");
+        }
+        List<SkyRatingEvalRunEntity> started =
+                service.startChecks(body.models(), body.runsPerFixture(), body.fixtureNames());
+        started.forEach(run -> CompletableFuture.runAsync(() -> service.executeRun(run.getId()), asyncExecutor));
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(new CheckResponse(started.stream().map(SkyRatingEvalRunEntity::getId).toList()));
+    }
+
+    /**
+     * Request body of {@code POST /check}.
+     *
+     * @param models         the models to check
+     * @param runsPerFixture repeats per fixture: 1, 3 or 8
+     * @param fixtureNames   fixtures to score, or null for all
+     */
+    public record CheckRequest(List<EvaluationModel> models, Integer runsPerFixture, List<String> fixtureNames) {
+    }
+
+    /**
+     * Response of {@code POST /check}.
+     *
+     * @param runIds the started runs' ids, in model order
+     */
+    public record CheckResponse(List<Long> runIds) {
+    }
+
+    /**
+     * Everything the Sky Eval page renders, in one read.
+     *
+     * @return the overview
+     */
+    @GetMapping("/overview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public SkyEvalOverview overview() {
+        return overviewService.overview();
     }
 
     /**

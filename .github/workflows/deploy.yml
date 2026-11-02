@@ -30,6 +30,14 @@ jobs:
         id: tag
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
+      - name: Read commit metadata
+        id: commit
+        run: |
+          # Single-line outputs only (newlines stripped); referenced solely under `with: build-args`.
+          echo "SHA=$(git log -1 --format=%H)" >> "$GITHUB_OUTPUT"
+          echo "TIME=$(git log -1 --format=%cI)" >> "$GITHUB_OUTPUT"
+          echo "MESSAGE=$(git log -1 --format=%s | tr -d '\r\n')" >> "$GITHUB_OUTPUT"
+
       - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
@@ -39,6 +47,9 @@ jobs:
           no-cache: true
           build-args: |
             APP_VERSION=${{ steps.tag.outputs.VERSION }}
+            GIT_COMMIT_SHA=${{ steps.commit.outputs.SHA }}
+            GIT_COMMIT_TIME=${{ steps.commit.outputs.TIME }}
+            GIT_COMMIT_MESSAGE=${{ steps.commit.outputs.MESSAGE }}
           tags: |
             ghcr.io/gregochr/goldenhour-backend:latest
             ghcr.io/gregochr/goldenhour-backend:${{ steps.tag.outputs.VERSION }}

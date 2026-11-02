@@ -50,4 +50,13 @@ EXPOSE 8082
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
+# The commit this image was built from (deploy.yml passes them; the image has no .git, so git.properties
+# is absent). GitInfoService falls back to these so every Sky Eval run records its version.
+ARG GIT_COMMIT_SHA=
+ARG GIT_COMMIT_TIME=
+ARG GIT_COMMIT_MESSAGE=
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+ENV GIT_COMMIT_TIME=${GIT_COMMIT_TIME}
+ENV GIT_COMMIT_MESSAGE=${GIT_COMMIT_MESSAGE}
+
 ENTRYPOINT ["java", "-jar", "/app/app.jar", "--spring.profiles.active=prod"]

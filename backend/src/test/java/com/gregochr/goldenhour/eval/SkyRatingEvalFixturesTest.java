@@ -192,4 +192,37 @@ class SkyRatingEvalFixturesTest {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("No such fixture: " + name));
     }
+
+    @Test
+    void selectReturnsTheNamedFixturesInRegistryOrderWithoutDuplicates() {
+        String first = SkyRatingEvalFixtures.ALL.get(0).name();
+        String third = SkyRatingEvalFixtures.ALL.get(2).name();
+
+        List<SkyRatingEvalFixture> picked = SkyRatingEvalFixtures.select(List.of(third, first, third));
+
+        assertEquals(List.of(first, third), picked.stream().map(SkyRatingEvalFixture::name).toList());
+    }
+
+    @Test
+    void selectRejectsUnknownNamesAndEmptyLists() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> SkyRatingEvalFixtures.select(List.of("no-such-fixture")));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> SkyRatingEvalFixtures.select(List.of()));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> SkyRatingEvalFixtures.select(null));
+    }
+
+    @Test
+    void forStoredNamesReadsASubsetAndTreatsNullOrBlankAsAll() {
+        String first = SkyRatingEvalFixtures.ALL.get(0).name();
+        String second = SkyRatingEvalFixtures.ALL.get(1).name();
+
+        assertEquals(List.of(first, second), SkyRatingEvalFixtures.forStoredNames(second + "," + first).stream()
+                .map(SkyRatingEvalFixture::name).toList());
+        assertEquals(SkyRatingEvalFixtures.ALL, SkyRatingEvalFixtures.forStoredNames(null));
+        assertEquals(SkyRatingEvalFixtures.ALL, SkyRatingEvalFixtures.forStoredNames("  "));
+        assertEquals(List.of(first), SkyRatingEvalFixtures.forStoredNames(first + ",retired-fixture").stream()
+                .map(SkyRatingEvalFixture::name).toList());
+    }
 }

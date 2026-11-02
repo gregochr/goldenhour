@@ -7,7 +7,9 @@ import com.gregochr.goldenhour.model.AtmosphericData;
 
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The sky-rating eval fixture set and the loader that deserialises a frozen JSON fixture into an
@@ -206,7 +208,44 @@ public final class SkyRatingEvalFixtures {
                     "steel-rigg-24oct-worth-going.json",
                     new RegressionBounds(RatingBand.exactly(4), 60, 90, null, null)));
 
+    /** Separator of the fixture names stored on a subset run. Fixture names are kebab-case, never contain it. */
+    public static final String NAME_SEPARATOR = ",";
+
     private SkyRatingEvalFixtures() {
+    }
+
+    /**
+     * Resolves fixture names to fixtures, in {@link #ALL} order, de-duplicated.
+     *
+     * @param names the requested names (not empty)
+     * @return the matching fixtures
+     * @throws IllegalArgumentException if the list is null or empty, or any name is not a registered fixture
+     */
+    public static List<SkyRatingEvalFixture> select(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            throw new IllegalArgumentException("fixtureNames must name at least one fixture, or be omitted for all");
+        }
+        Set<String> wanted = new LinkedHashSet<>(names);
+        List<String> unknown = wanted.stream()
+                .filter(n -> ALL.stream().noneMatch(f -> f.name().equals(n))).toList();
+        if (!unknown.isEmpty()) {
+            throw new IllegalArgumentException("Unknown fixture name(s): " + unknown);
+        }
+        return ALL.stream().filter(f -> wanted.contains(f.name())).toList();
+    }
+
+    /**
+     * The fixtures a run scored, from its stored comma-separated subset.
+     *
+     * @param fixtureNames the run's {@code fixture_names} value, or null/blank for every fixture
+     * @return the run's fixtures in {@link #ALL} order; names no longer registered are dropped
+     */
+    public static List<SkyRatingEvalFixture> forStoredNames(String fixtureNames) {
+        if (fixtureNames == null || fixtureNames.isBlank()) {
+            return ALL;
+        }
+        Set<String> wanted = Set.of(fixtureNames.split(NAME_SEPARATOR));
+        return ALL.stream().filter(f -> wanted.contains(f.name())).toList();
     }
 
     /**

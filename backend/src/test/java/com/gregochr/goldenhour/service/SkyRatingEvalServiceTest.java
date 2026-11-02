@@ -661,4 +661,148 @@ class SkyRatingEvalServiceTest {
         // success: 10*3 + 5*7 = 65 each; failure: 100*3 + 10*7 = 370 each
         assertThat(run.getCostMicroDollars()).isEqualTo(successes * 65 + billedFailures * 370);
     }
+
+    // ---- version stamp, fixture subsets, quick checks -----------------------------------------------------
+
+    private static final String FIRST_FIXTURE = SkyRatingEvalFixtures.ALL.get(0).name();
+    private static final String SECOND_FIXTURE = SkyRatingEvalFixtures.ALL.get(1).name();
+
+    @Test
+    void startRunStampsTheCommitMessageAndLeavesFixtureNamesNullForAllFixtures() {
+        when(gitInfoService.getCommitHash()).thenReturn("abc1234");
+        when(gitInfoService.getCommitMessage()).thenReturn("Stricter cirrus penalty");
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, 3);
+
+        assertThat(run.getGitCommitMessage()).isEqualTo("Stricter cirrus penalty");
+        assertThat(run.getFixtureNames()).isNull();
+        assertThat(run.getFixtureCount()).isEqualTo(SkyRatingEvalFixtures.ALL.size());
+    }
+
+    @Test
+    void startRunTruncatesALongCommitMessageToTheColumnWidth() {
+        when(gitInfoService.getCommitMessage()).thenReturn("x".repeat(600));
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, 3);
+
+        assertThat(run.getGitCommitMessage()).hasSize(SkyRatingEvalService.MAX_COMMIT_MESSAGE_LENGTH);
+    }
+
+    @Test
+    void startRunWithASubsetStoresTheNamesInRegistryOrderAndSetsTheCount() {
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        SkyRatingEvalRunEntity run = service().startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 1,
+                List.of(SECOND_FIXTURE, FIRST_FIXTURE, SECOND_FIXTURE));
+
+        assertThat(run.getFixtureNames()).isEqualTo(FIRST_FIXTURE + "," + SECOND_FIXTURE);
+        assertThat(run.getFixtureCount()).isEqualTo(2);
+    }
+
+    @Test
+    void startRunRejectsAnUnknownOrEmptyFixtureSubset() {
+        assertThatThrownBy(() -> service().startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 1,
+                List.of(FIRST_FIXTURE, "no-such-fixture")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("no-such-fixture");
+        assertThatThrownBy(() -> service().startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 1,
+                List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(runRepository);
+    }
+
+    @Test
+    void executeRunOnASubsetScoresOnlyThoseFixtures() {
+        stubScorer(3);
+        SkyRatingEvalRunEntity run = runningRun();
+        run.setFixtureNames(SECOND_FIXTURE);
+        when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
+        ArgumentCaptor<SkyRatingEvalResultEntity> results = ArgumentCaptor.forClass(SkyRatingEvalResultEntity.class);
+
+        service().executeRun(run.getId());
+
+        verify(resultRepository, times(RUNS)).save(results.capture());
+        assertThat(results.getAllValues()).extracting(SkyRatingEvalResultEntity::getFixtureName)
+                .containsOnly(SECOND_FIXTURE);
+        assertThat(run.getFixtureCount()).isEqualTo(1);
+        assertThat(run.getTotalRuns()).isEqualTo(RUNS);
+        assertThat(run.getStatus()).isEqualTo(SkyRatingEvalStatus.COMPLETED);
+    }
+
+    @Test
+    void finalisingASubsetRunKeepsTheSubsetCountWhetherItCompletesOrFails() {
+        SkyRatingEvalRunEntity completed = runningRun();
+        completed.setFixtureNames(FIRST_FIXTURE + "," + SECOND_FIXTURE);
+        SkyRatingEvalRunEntity failed = runningRun();
+        failed.setFixtureNames(FIRST_FIXTURE);
+
+        service().finalise(completed, new SkyRatingEvalService.Aggregate(), SkyRatingEvalStatus.COMPLETED, null, 0L);
+        service().finalise(failed, new SkyRatingEvalService.Aggregate(), SkyRatingEvalStatus.FAILED,
+                "Orphaned RUNNING run", 0L);
+
+        assertThat(completed.getFixtureCount()).isEqualTo(2);
+        assertThat(failed.getFixtureCount()).isEqualTo(1);
+        assertThat(failed.getStatus()).isEqualTo(SkyRatingEvalStatus.FAILED);
+    }
+
+    @Test
+    void finalisingAnAllFixturesRunCountsEveryRegisteredFixture() {
+        SkyRatingEvalRunEntity run = runningRun();
+
+        service().finalise(run, new SkyRatingEvalService.Aggregate(), SkyRatingEvalStatus.FAILED, "boom", 0L);
+
+        assertThat(run.getFixtureCount()).isEqualTo(SkyRatingEvalFixtures.ALL.size());
+    }
+
+    @Test
+    void startChecksStartsOneManualRunPerModelWithTheSameSubset() {
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        List<SkyRatingEvalRunEntity> runs = service().startChecks(
+                List.of(EvaluationModel.SONNET_55, EvaluationModel.HAIKU), 3, List.of(FIRST_FIXTURE));
+
+        assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
+                .containsExactly(EvaluationModel.SONNET_55, EvaluationModel.HAIKU);
+        assertThat(runs).allSatisfy(r -> {
+            assertThat(r.getTriggerSource()).isEqualTo(SkyRatingEvalTrigger.MANUAL);
+            assertThat(r.getRunsPerFixture()).isEqualTo(3);
+            assertThat(r.getFixtureNames()).isEqualTo(FIRST_FIXTURE);
+        });
+    }
+
+    @Test
+    void startChecksAcceptsEveryAllowedRepeatCountAndNullFixtures() {
+        when(runRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        for (int repeats : List.of(1, 3, 8)) {
+            assertThat(service().startChecks(List.of(EvaluationModel.OPUS), repeats, null))
+                    .singleElement().satisfies(r -> assertThat(r.getRunsPerFixture()).isEqualTo(repeats));
+        }
+    }
+
+    @Test
+    void startChecksRejectsInvalidRequestsAndStartsNothing() {
+        List<EvaluationModel> one = List.of(EvaluationModel.HAIKU);
+        assertThatThrownBy(() -> service().startChecks(null, 3, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(List.of(), 3, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(List.of(EvaluationModel.WILDLIFE), 3, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(List.of(EvaluationModel.SONNET_ET), 3, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(
+                List.of(EvaluationModel.HAIKU, EvaluationModel.HAIKU), 3, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("once");
+        assertThatThrownBy(() -> service().startChecks(one, 2, null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(one, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(one, 3, List.of("nope")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service().startChecks(one, 3, List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(runRepository);
+    }
 }
