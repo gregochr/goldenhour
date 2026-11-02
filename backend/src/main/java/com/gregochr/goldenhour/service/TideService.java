@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.TideFetchRepository;
 import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,9 +25,9 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -88,6 +89,7 @@ public class TideService {
 
     private final TideExtremeRepository tideExtremeRepository;
     private final WorldTidesIngestionService ingestionService;
+    private final Clock clock;
 
     /**
      * Each location's {@link #getTideStats} answer for the current UTC day, keyed by location id.
@@ -134,14 +136,36 @@ public class TideService {
      * @param worldTidesProperties   WorldTides API configuration
      * @param jobRunService          service for recording API call metrics
      */
+    @Autowired
     public TideService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
             TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
+        this(restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
+                jobRunService, Clock.systemUTC());
+    }
+
+    /**
+     * Constructs a {@code TideService} reading "now" from the given clock, so tests can pin the day
+     * the fetch window and the stats cutoff are measured from. Production uses the system UTC clock
+     * (the public constructor); the clock must be in UTC.
+     *
+     * @param restClient             shared RestClient for outbound HTTP calls
+     * @param tideExtremeRepository  repository for persisted tide extremes
+     * @param tideFetchRepository    repository for the per-call WorldTides fetch provenance log (read side)
+     * @param tideFetchRecorder      isolated, best-effort writer of that log
+     * @param worldTidesProperties   WorldTides API configuration
+     * @param jobRunService          service for recording API call metrics
+     * @param clock                  source of the current UTC instant
+     */
+    TideService(RestClient restClient, TideExtremeRepository tideExtremeRepository,
+            TideFetchRepository tideFetchRepository, TideFetchRecorder tideFetchRecorder,
+            WorldTidesProperties worldTidesProperties, JobRunService jobRunService, Clock clock) {
         this.tideExtremeRepository = tideExtremeRepository;
+        this.clock = clock;
         this.ingestionService = new WorldTidesIngestionService(
                 restClient, tideExtremeRepository, tideFetchRepository, tideFetchRecorder, worldTidesProperties,
                 jobRunService,
-                this::evictTideStats);
+                this::evictTideStats, clock);
     }
 
     /**
@@ -552,7 +576,7 @@ public class TideService {
      * @return Optional containing TideStats if data is available, empty otherwise
      */
     public Optional<TideStats> getTideStats(Long locationId) {
-        LocalDate cutoffDate = LocalDate.now(ZoneOffset.UTC);
+        LocalDate cutoffDate = LocalDate.now(clock);
         return statsMemo.get(cutoffDate, locationId, () -> computeTideStats(locationId, cutoffDate));
     }
 
