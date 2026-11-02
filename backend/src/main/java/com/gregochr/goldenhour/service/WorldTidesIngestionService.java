@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideFetchEntity;
 import com.gregochr.goldenhour.model.TideDiff;
+import com.gregochr.goldenhour.model.TideFetchResult;
 import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -278,11 +279,24 @@ public class WorldTidesIngestionService {
      */
     @Transactional
     public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
+        return fetchAndStoreTideExtremesWithOutcome(location, jobRun).change();
+    }
+
+    /**
+     * As {@link #fetchAndStoreTideExtremes(LocationEntity, JobRunEntity)}, but says what the fetch amounted
+     * to: stored, not needed, failed, or not attempted for want of an API key.
+     *
+     * @param location the coastal location to fetch tide data for
+     * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return the outcome, carrying the detected source change when one was stored
+     */
+    @Transactional
+    public TideFetchResult fetchAndStoreTideExtremesWithOutcome(LocationEntity location, JobRunEntity jobRun) {
         String apiKey = worldTidesProperties.getApiKey();
         if (apiKey == null || apiKey.isBlank()) {
             LOG.warn("WorldTides API key not configured — skipping tide fetch for {}",
                     location.getName());
-            return null;
+            return TideFetchResult.notConfigured();
         }
 
         LocalDateTime startOfDay = LocalDateTime.now(clock).toLocalDate().atStartOfDay();
@@ -294,7 +308,7 @@ public class WorldTidesIngestionService {
         if (window == null) {
             LOG.debug("Tide coverage for {} already reaches {} — no fetch needed",
                     location.getName(), horizon.toLocalDate());
-            return null;
+            return TideFetchResult.unchanged();
         }
 
         long startEpoch = window.from().toEpochSecond(ZoneOffset.UTC);
@@ -338,7 +352,7 @@ public class WorldTidesIngestionService {
                         location.getName(), response != null ? response.getStatus() : "null");
                 recordFetch(location, window.code(), window.from(), window.to(), point, response,
                         false, 0);
-                return null;
+                return TideFetchResult.failed();
             }
 
             LocalDateTime fetchedAt = LocalDateTime.now(clock);
@@ -396,7 +410,8 @@ public class WorldTidesIngestionService {
                     response.getAtlas(), response.getStation(),
                     response.getResponseLat(), response.getResponseLon());
 
-            return detectChange(location, point, response, previous.orElse(null), diff);
+            return TideFetchResult.stored(
+                    detectChange(location, point, response, previous.orElse(null), diff));
 
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStartMs;
@@ -410,7 +425,7 @@ public class WorldTidesIngestionService {
             }
             LOG.warn("Failed to fetch tide extremes for {}: {}", location.getName(), errorMsg);
             recordFetch(location, window.code(), window.from(), window.to(), point, null, false, 0);
-            return null;
+            return TideFetchResult.failed();
         }
     }
 

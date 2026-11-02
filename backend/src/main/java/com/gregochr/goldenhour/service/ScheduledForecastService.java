@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.model.TideFetchResult;
 import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import jakarta.annotation.PostConstruct;
@@ -164,13 +165,24 @@ public class ScheduledForecastService {
         LOG.info("Weekly tide refresh started — {} SEASCAPE coastal location(s)", coastal.size());
         int succeeded = 0;
         int failed = 0;
+        int refreshed = 0;
+        int unchanged = 0;
+        int notConfigured = 0;
+        int fetchFailed = 0;
         List<TideSourceChange> changes = new ArrayList<>();
 
         for (LocationEntity location : coastal) {
             try {
-                TideSourceChange change = tideService.fetchAndStoreTideExtremes(location, jobRun);
-                if (change != null) {
-                    changes.add(change);
+                TideFetchResult result = tideService.fetchAndStoreTideExtremesWithOutcome(location, jobRun);
+                if (result.change() != null) {
+                    changes.add(result.change());
+                }
+                switch (result.status()) {
+                    case STORED -> refreshed++;
+                    case UNCHANGED -> unchanged++;
+                    case FAILED -> fetchFailed++;
+                    case NOT_CONFIGURED -> notConfigured++;
+                    default -> throw new IllegalStateException("Unhandled tide fetch status " + result.status());
                 }
                 succeeded++;
             } catch (Exception e) {
@@ -183,15 +195,27 @@ public class ScheduledForecastService {
         alertTideSourceChanges(changes);
         LOG.info("Weekly tide refresh complete — {} succeeded, {} failed",
                 succeeded, failed);
-        if (failed == 0) {
-            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
-                    succeeded + " coastal locations refreshed");
-        } else {
-            SchedulerFireOutcome.report(succeeded == 0 ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL,
-                    succeeded + " of " + (succeeded + failed) + " coastal locations refreshed · "
-                            + failed + " failed");
-        }
+        reportTideRefresh(refreshed, unchanged, fetchFailed + failed, notConfigured);
         runGaugeCheck();
+    }
+
+    /**
+     * Reports the refresh: a missing WorldTides key is SKIPPED once for the whole job; otherwise failed
+     * fetches (an API failure, no usable data, or a throw) make it PARTIAL, or FAILED when none succeeded.
+     */
+    private static void reportTideRefresh(int refreshed, int unchanged, int failed, int notConfigured) {
+        if (notConfigured > 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "WorldTides key not configured");
+            return;
+        }
+        String counts = refreshed + " refreshed · " + unchanged + " unchanged";
+        if (failed == 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, counts);
+        } else {
+            SchedulerFireOutcome.report(
+                    refreshed + unchanged == 0 ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL,
+                    counts + " · " + failed + " failed");
+        }
     }
 
     /** Runs the gauge check; a failure is logged and never fails the refresh that called it. */

@@ -143,7 +143,7 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 | `batch_result_polling` | `SUCCEEDED` "No batches in flight" / "2 batches checked · 1 completed"; `PARTIAL` or `FAILED` when status checks threw ("· 1 failed to check") |
 | `sky_rating_eval` | `SUCCEEDED` "Batch submitted for 3 models" (batched) or "3 of 3 model runs completed" (sync); `SKIPPED` "Every model is switched off"; `FAILED` "Batch submission failed: …"; sync `PARTIAL`/`FAILED` per model run |
 | `sky_rating_eval_batch_poll` | `SUCCEEDED` "No evaluations in flight" / "1 batch checked"; `PARTIAL`/`FAILED` "2 batches checked · 1 failed"; `FAILED` "Could not load running evaluations: …" |
-| `tide_refresh` | `SUCCEEDED` "N coastal locations refreshed"; `PARTIAL`/`FAILED` "1 of 2 coastal locations refreshed · 1 failed"; `SKIPPED` already running |
+| `tide_refresh` | Reads `TideFetchResult` (STORED / UNCHANGED / FAILED / NOT_CONFIGURED) from `fetchAndStoreTideExtremesWithOutcome`: `SUCCEEDED` "12 refreshed · 3 unchanged"; `PARTIAL`/`FAILED` "… · 1 failed" (a quiet API failure or a throw); `SKIPPED` "WorldTides key not configured" once for the job, or already running |
 | `aurora_polling` | `SUCCEEDED` "Alert MODERATE · night poll · alert unchanged"; `FAILED` "NOAA space-weather read failed"; `SKIPPED` aurora off or cycle already running |
 | `nlc_sighting_scrape` | `SUCCEEDED` "N sighting reports parsed"; `SKIPPED` feature off or "Outside the NLC season"; `FAILED` "NLCNET scrape failed: …" / "NLCNET page not found …" |
 | `forecast_cycle_watchdog` | `SUCCEEDED` "All cycles on time" / "1 alert sent"; `PARTIAL`/`FAILED` "1 of 3 cycle checks failed · No alerts" |
