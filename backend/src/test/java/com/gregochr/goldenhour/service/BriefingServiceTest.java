@@ -466,6 +466,22 @@ class BriefingServiceTest {
     }
 
     @Test
+    @DisplayName("A refresh a cycle asks for stores the cycle's id on the briefing's job run; the plain one does not")
+    void refresh_forACycleStoresItsId() {
+        when(locationService.findAllEnabled()).thenReturn(List.of());
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any(), any(), eq(330L)))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(2L).runType(RunType.BRIEFING).build());
+
+        briefingService.refreshBriefing(330L);
+        briefingService.refreshBriefing();
+
+        org.mockito.Mockito.verify(jobRunService).startRun(RunType.BRIEFING, false, null, null, 330L);
+        org.mockito.Mockito.verify(jobRunService).startRun(RunType.BRIEFING, false, null);
+    }
+
+    @Test
     @DisplayName("The briefing window reaches T+4, so it still covers T+3 once a day has aged off")
     void refresh_windowSurvivesAgeingOvernight() {
         // The briefing is written at the TAIL of a cycle and read by the NEXT one, ~10 hours later

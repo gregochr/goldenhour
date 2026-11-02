@@ -5,6 +5,10 @@ import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunRange;
 import com.gregochr.goldenhour.service.runs.AdminRunsService;
 import com.gregochr.goldenhour.service.runs.RunCursor;
+import com.gregochr.goldenhour.service.runs.RunsCalendarService;
+import com.gregochr.goldenhour.service.runs.RunsCallsService;
+import com.gregochr.goldenhour.service.runs.RunsDayService;
+import com.gregochr.goldenhour.service.runs.RunsRequestException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -14,6 +18,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
 
 /**
  * The merged Runs list for the admin Operations tab: pipeline runs and top-level job runs in one
@@ -28,14 +36,24 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class AdminRunsController {
 
     private final AdminRunsService runsService;
+    private final RunsDayService dayService;
+    private final RunsCalendarService calendarService;
+    private final RunsCallsService callsService;
 
     /**
      * Constructs the controller.
      *
-     * @param runsService builds the merged list and the job-run detail
+     * @param runsService     builds the merged list and the job-run detail
+     * @param dayService      builds the Day view
+     * @param calendarService builds the Day view's calendar month
+     * @param callsService    builds a run's external calls
      */
-    public AdminRunsController(AdminRunsService runsService) {
+    public AdminRunsController(AdminRunsService runsService, RunsDayService dayService,
+            RunsCalendarService calendarService, RunsCallsService callsService) {
         this.runsService = runsService;
+        this.dayService = dayService;
+        this.calendarService = calendarService;
+        this.callsService = callsService;
     }
 
     /**
@@ -83,6 +101,64 @@ public class AdminRunsController {
         return runsService.jobDetail(id)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * One UK civil day of the Runs screen: its rows in time order, and for today what is still to run.
+     *
+     * @param date the day as {@code YYYY-MM-DD}; today (UK) when absent
+     * @return the day, or 400 for a date that is malformed, in the future, or before the earliest day
+     */
+    @GetMapping("/day")
+    public ResponseEntity<?> day(@RequestParam(required = false) String date) {
+        LocalDate parsed;
+        try {
+            parsed = date == null || date.isBlank() ? null : LocalDate.parse(date.trim());
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("date must be YYYY-MM-DD"));
+        }
+        return ResponseEntity.ok(dayService.day(parsed));
+    }
+
+    /**
+     * One month of the Day view's calendar.
+     *
+     * @param month the month as {@code YYYY-MM}
+     * @return the month's days, or 400 for a month that is malformed, in the future, or before the earliest day
+     */
+    @GetMapping("/calendar")
+    public ResponseEntity<?> calendar(@RequestParam(required = false) String month) {
+        YearMonth parsed;
+        try {
+            parsed = YearMonth.parse(month == null ? "" : month.trim());
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("month must be YYYY-MM"));
+        }
+        return ResponseEntity.ok(calendarService.month(parsed));
+    }
+
+    /**
+     * The external calls of one run, aggregated per service.
+     *
+     * @param runId {@code cycle-N}, {@code job-N} or {@code eval-N}
+     * @return the calls, 400 for an id of another shape, or 404 for an unknown run
+     */
+    @GetMapping("/calls")
+    public ResponseEntity<?> calls(@RequestParam(required = false) String runId) {
+        return callsService.calls(runId == null ? null : runId.trim())
+                .<ResponseEntity<?>>map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Answers a Runs request the service refused (a day or month out of range, a malformed run id) with 400.
+     *
+     * @param e the refusal
+     * @return a 400 with the shared error body
+     */
+    @ExceptionHandler(RunsRequestException.class)
+    public ResponseEntity<ErrorResponse> badRunsRequest(RunsRequestException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
     }
 
     /**

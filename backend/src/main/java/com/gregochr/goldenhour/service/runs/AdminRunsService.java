@@ -77,7 +77,7 @@ public class AdminRunsService {
     public static final int MAX_SIZE = 100;
 
     /** Prefix of the {@code notes} a batch's job run is created with. */
-    static final String BATCH_NOTE_PREFIX = "Anthropic batch: ";
+    static final String BATCH_NOTE_PREFIX = TopLevelResolver.BATCH_NOTE_PREFIX;
 
     /** Key in {@code kindCounts} for the count across every group. */
     static final String ALL_KEY = RunGroup.ALL;
@@ -88,6 +88,7 @@ public class AdminRunsService {
     private final BatchSummaryDeriver batchSummaryDeriver;
     private final DynamicSchedulerService scheduler;
     private final Clock clock;
+    private final TopLevelResolver topLevelResolver;
 
     /**
      * Constructs the service.
@@ -108,17 +109,7 @@ public class AdminRunsService {
         this.batchSummaryDeriver = batchSummaryDeriver;
         this.scheduler = scheduler;
         this.clock = clock;
-    }
-
-    /** A top-level job run with the type of its Anthropic batch, when it has one. */
-    private record TopLevelRun(JobRunEntity run, BatchType batchType) {
-    }
-
-    /**
-     * The top-level job runs, plus the runs the notes fallback hid, keyed by the Anthropic batch id their
-     * notes name (so a cycle can still count their cost).
-     */
-    private record TopLevel(List<TopLevelRun> runs, Map<String, JobRunEntity> hiddenByNotes) {
+        this.topLevelResolver = new TopLevelResolver(batches, pipelineRuns);
     }
 
     /**
@@ -148,7 +139,7 @@ public class AdminRunsService {
         jobRuns.findByCompletedAtIsNullAndStartedAtGreaterThanEqual(
                 nowUtc.minus(RunClassifier.longestStaleCeiling()))
                 .forEach(r -> candidates.putIfAbsent(r.getId(), r));
-        TopLevel topLevel = topLevel(candidates.values());
+        TopLevelResolver.TopLevel topLevel = topLevelResolver.resolve(candidates.values());
 
         List<PipelineRunEntity> cyclesInRange =
                 pipelineRuns.findByTriggerTimeGreaterThanEqualOrderByTriggerTimeDescIdDesc(fromInstant);
@@ -165,7 +156,7 @@ public class AdminRunsService {
             allItems.add(cycleItem(cycle, cycleFacts));
         }
         long runningJobs = 0;
-        for (TopLevelRun top : topLevel.runs()) {
+        for (TopLevelResolver.TopLevelRun top : topLevel.runs()) {
             RunListItem item = jobItem(top.run(), top.batchType(), nowUtc);
             if (item.status() == RunListStatus.RUNNING) {
                 runningJobs++;
@@ -209,7 +200,7 @@ public class AdminRunsService {
     public Optional<RunJobDetail> jobDetail(long id) {
         return jobRuns.findById(id).map(run -> {
             Optional<ForecastBatchEntity> batch = batches.findByJobRunId(id)
-                    .or(() -> batchNamedInNotes(run).flatMap(batches::findByAnthropicBatchId));
+                    .or(() -> TopLevelResolver.batchNamedInNotes(run).flatMap(batches::findByAnthropicBatchId));
             BatchType batchType = batch.map(ForecastBatchEntity::getBatchType).orElse(null);
             batchSummaryDeriver.derive(run).ifPresent(run::setBatchSummary);
             RunClassifier.Outcome outcome = RunClassifier.classifyJob(run, nowUtc());
@@ -225,74 +216,11 @@ public class AdminRunsService {
         });
     }
 
-    /** The Anthropic batch id a batch run's {@code notes} name, when it has the standard note. */
-    private static Optional<String> batchNamedInNotes(JobRunEntity run) {
-        if (run.getRunType() != RunType.SCHEDULED_BATCH || run.getNotes() == null
-                || !run.getNotes().startsWith(BATCH_NOTE_PREFIX)) {
-            return Optional.empty();
-        }
-        return Optional.of(run.getNotes().substring(BATCH_NOTE_PREFIX.length()));
-    }
-
     private LocalDateTime nowUtc() {
         return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
     }
 
     // ── Top level ─────────────────────────────────────────────────────────────
-
-    /**
-     * Drops every job run that belongs to a cycle, and attaches the batch type of those that remain.
-     */
-    private TopLevel topLevel(Collection<JobRunEntity> candidates) {
-        if (candidates.isEmpty()) {
-            return new TopLevel(List.of(), Map.of());
-        }
-        long minId = candidates.stream().mapToLong(JobRunEntity::getId).min().orElse(0L);
-        Set<Long> hidden = new HashSet<>(batches.findCycleBatchJobRunIdsFrom(minId));
-        hidden.addAll(pipelineRuns.findDispositionJobRunIdsFrom(minId));
-
-        // The notes fallback: a batch run whose link to its batch row was never written is matched on the
-        // Anthropic batch id its notes name. A cycle's batch hides the run; any batch gives it its type.
-        Map<String, List<JobRunEntity>> byBatchNote = new LinkedHashMap<>();
-        for (JobRunEntity run : candidates) {
-            if (!hidden.contains(run.getId())) {
-                batchNamedInNotes(run).ifPresent(
-                        id -> byBatchNote.computeIfAbsent(id, k -> new ArrayList<>()).add(run));
-            }
-        }
-        Map<String, ForecastBatchEntity> namedBatches = new LinkedHashMap<>();
-        if (!byBatchNote.isEmpty()) {
-            for (ForecastBatchEntity batch : batches.findByAnthropicBatchIdIn(byBatchNote.keySet())) {
-                namedBatches.put(batch.getAnthropicBatchId(), batch);
-            }
-        }
-        Map<String, JobRunEntity> hiddenByNotes = new LinkedHashMap<>();
-        byBatchNote.forEach((batchId, runs) -> {
-            ForecastBatchEntity named = namedBatches.get(batchId);
-            if (named != null && named.getPipelineRunId() != null) {
-                runs.forEach(r -> {
-                    hidden.add(r.getId());
-                    hiddenByNotes.put(batchId, r);
-                });
-            }
-        });
-
-        List<JobRunEntity> remaining = candidates.stream().filter(r -> !hidden.contains(r.getId())).toList();
-        Set<Long> batchRunIds = remaining.stream()
-                .filter(r -> r.getRunType() == RunType.SCHEDULED_BATCH)
-                .map(JobRunEntity::getId)
-                .collect(Collectors.toSet());
-        Map<Long, BatchType> batchTypes = new LinkedHashMap<>();
-        if (!batchRunIds.isEmpty()) {
-            for (ForecastBatchEntity batch : batches.findByJobRunIdIn(batchRunIds)) {
-                batchTypes.put(batch.getJobRunId(), batch.getBatchType());
-            }
-        }
-        List<TopLevelRun> runs = remaining.stream().map(r -> new TopLevelRun(r, batchTypes.getOrDefault(r.getId(),
-                batchNamedInNotes(r).map(namedBatches::get).map(ForecastBatchEntity::getBatchType).orElse(null))))
-                .toList();
-        return new TopLevel(runs, hiddenByNotes);
-    }
 
     // ── Cycles ────────────────────────────────────────────────────────────────
 
@@ -339,7 +267,7 @@ public class AdminRunsService {
         Map<String, JobRunEntity> byNotes = new LinkedHashMap<>();
         if (!unlinkedNotes.isEmpty()) {
             for (JobRunEntity run : jobRuns.findByRunTypeAndNotesIn(RunType.SCHEDULED_BATCH, unlinkedNotes)) {
-                batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
+                TopLevelResolver.batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
             }
         }
         CycleFacts facts = new CycleFacts(loaded.batchesByCycle(), loaded.costRuns(), byNotes);
@@ -400,7 +328,7 @@ public class AdminRunsService {
                 .map(b -> BATCH_NOTE_PREFIX + b.getAnthropicBatchId()).toList();
         if (!unlinkedNotes.isEmpty()) {
             for (JobRunEntity run : jobRuns.findByRunTypeAndNotesIn(RunType.SCHEDULED_BATCH, unlinkedNotes)) {
-                batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
+                TopLevelResolver.batchNamedInNotes(run).ifPresent(id -> byNotes.put(id, run));
             }
         }
         return cycleCost(cycle, cycleBatches, costRuns, byNotes);

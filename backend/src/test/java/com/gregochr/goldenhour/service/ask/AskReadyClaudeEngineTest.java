@@ -78,8 +78,12 @@ class AskReadyClaudeEngineTest {
                         AskFixtures.topic("SNOW_TOPS", "Snow on the Cheviot", "Fresh snow", oct(9), List.of())));
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
+        JobRunEntity readyJob = JobRunEntity.builder().id(JOB_RUN_ID).runType(RunType.ASK_READY).build();
         when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class)))
-                .thenReturn(JobRunEntity.builder().id(JOB_RUN_ID).runType(RunType.ASK_READY).build());
+                .thenReturn(readyJob);
+        // A precompute a cycle dispatched starts its run with the cycle's id.
+        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class), any(),
+                any(Long.class))).thenReturn(readyJob);
     }
 
     @AfterEach

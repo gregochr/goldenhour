@@ -37,6 +37,7 @@ import java.util.concurrent.RejectedExecutionException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -199,7 +200,7 @@ class PipelineOrchestratorAlmanacRefreshTest {
     @DisplayName("no refresh follows a run that did not finish: a failed briefing marks the run FAILED and "
             + "refreshes nothing")
     void failedRunRefreshesNothing() {
-        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
+        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(anyLong());
 
         orchestrator(Runnable::run, almanacService).runNightlyCycle();
 

@@ -123,6 +123,20 @@ class JobRunServiceTest {
         }
 
         @Test
+        @DisplayName("stores the cycle id on a run a cycle started, and none on any other run")
+        void startRun_storesPipelineRunId() {
+            when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+            ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
+            when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+            jobRunService.startRun(RunType.BRIEFING, false, null, null, 330L);
+            jobRunService.startRun(RunType.BRIEFING, false, null);
+
+            assertThat(captor.getAllValues().get(0).getPipelineRunId()).isEqualTo(330L);
+            assertThat(captor.getAllValues().get(1).getPipelineRunId()).isNull();
+        }
+
+        @Test
         @DisplayName("stores null exchange rate and still stamps version when rate fetch fails")
         void startRun_exchangeRateFails_savesNullRateWithVersion() {
             when(exchangeRateService.getCurrentRate()).thenThrow(new RuntimeException("timeout"));

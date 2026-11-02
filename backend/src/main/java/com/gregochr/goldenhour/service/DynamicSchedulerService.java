@@ -61,6 +61,9 @@ public class DynamicSchedulerService {
     /** The UK civil zone {@link #firesLaterTodayUk} reasons in. */
     private static final ZoneId UK_ZONE = ZoneId.of("Europe/London");
 
+    /** The most fires {@link #firesBetween} lists for one job, a bound for a cron that fires every second. */
+    static final int MAX_FIRES_LISTED = 100;
+
     /** Longest offset a solar job may use, in minutes before the event. */
     private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
 
@@ -535,6 +538,58 @@ public class DynamicSchedulerService {
         }
 
         return null;
+    }
+
+    /**
+     * The fires of a CRON or SOLAR_OFFSET job after one instant and before another, by the same arithmetic the
+     * scheduler itself uses: a cron in the job's own zone (UTC when it names none), a solar job by
+     * {@link SolarOffsetTrigger#nextAfter}, which applies the stored-cron fallback when a day's solar fire is
+     * unusable. A paused or disabled job, a fixed-delay job, an incomplete or unparseable schedule, and any
+     * failure to compute one answer an empty list.
+     *
+     * @param config        the job config
+     * @param afterExcl     the instant after which fires count
+     * @param beforeExcl    the instant before which fires count
+     * @return the fires in order, at most {@value #MAX_FIRES_LISTED}
+     */
+    public List<Instant> firesBetween(SchedulerJobConfigEntity config, Instant afterExcl, Instant beforeExcl) {
+        if (config.getStatus() != SchedulerJobStatus.ACTIVE) {
+            return List.of();
+        }
+        List<Instant> fires = new java.util.ArrayList<>();
+        try {
+            ScheduleType type = config.getScheduleType();
+            if (type == ScheduleType.CRON && config.getCronExpression() != null) {
+                CronExpression cron = CronExpression.parse(config.getCronExpression());
+                ZoneId zone = cronZone(config);
+                ZonedDateTime cursor = afterExcl.atZone(zone);
+                while (fires.size() < MAX_FIRES_LISTED) {
+                    cursor = cron.next(cursor);
+                    if (cursor == null || !cursor.toInstant().isBefore(beforeExcl)) {
+                        break;
+                    }
+                    fires.add(cursor.toInstant());
+                }
+            } else if (type == ScheduleType.SOLAR_OFFSET && config.getSolarEvent() != null
+                    && config.getSolarOffsetMinutes() != null) {
+                SolarOffsetTrigger trigger = solarTriggers.create(config.getJobKey(), config.getSolarEvent(),
+                        config.getSolarOffsetMinutes(), config.getCronExpression());
+                Instant cursor = afterExcl;
+                while (fires.size() < MAX_FIRES_LISTED) {
+                    Instant next = trigger.nextAfter(cursor, null).instant();
+                    if (!next.isAfter(cursor) || !next.isBefore(beforeExcl)) {
+                        break;
+                    }
+                    fires.add(next);
+                    cursor = next;
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            LOG.debug("Could not list the fires of job '{}': {}", LogSanitizer.sanitize(config.getJobKey()),
+                    LogSanitizer.sanitize(String.valueOf(e.getMessage())));
+            return List.of();
+        }
+        return fires;
     }
 
     /**

@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -204,7 +205,7 @@ class PipelineOrchestratorAskReadyTest {
     @DisplayName("no precompute follows a run that did not finish: a failed briefing marks the run FAILED and "
             + "dispatches nothing")
     void failedRunDispatchesNothing() {
-        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing();
+        doThrow(new RuntimeException("briefing broke")).when(briefingService).refreshBriefing(anyLong());
 
         orchestrator(Runnable::run, askReadyPrecompute).runNightlyCycle();
 

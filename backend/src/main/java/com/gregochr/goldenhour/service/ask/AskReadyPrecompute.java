@@ -254,7 +254,11 @@ public class AskReadyPrecompute {
             return Result.refused("the briefing has no build time");
         }
 
-        JobRunEntity job = jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel());
+        // A precompute a cycle dispatched carries the cycle's id on its run, so Runs can show it under the
+        // cycle; the astro job's own precompute and an admin's have none.
+        JobRunEntity job = pipelineRunId == null
+                ? jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel())
+                : jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel(), null, pipelineRunId);
         Counts counts = new Counts();
         try {
             work(snapshot, job.getId(), pipelineRunId, counts, only);

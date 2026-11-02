@@ -558,12 +558,23 @@ public class BriefingService {
      * {@link #refreshBriefingIfIdle()} instead.
      */
     public void refreshBriefing() {
+        refreshBriefing(null);
+    }
+
+    /**
+     * {@link #refreshBriefing()} for a build that belongs to a cycle: the briefing's job run is stored with the
+     * cycle's id, so the Runs view shows it under that cycle. Waits for a running build exactly as the no-argument
+     * form does.
+     *
+     * @param pipelineRunId the cycle whose BRIEFING phase is running, or null when no cycle asked for it
+     */
+    public void refreshBriefing(Long pipelineRunId) {
         if (!refreshLock.tryLock()) {
             LOG.info("Briefing refresh already running — waiting for it to finish before building");
             refreshLock.lock();
         }
         try {
-            doRefreshBriefing();
+            doRefreshBriefing(pipelineRunId);
         } finally {
             refreshLock.unlock();
         }
@@ -584,7 +595,7 @@ public class BriefingService {
             return false;
         }
         try {
-            doRefreshBriefing();
+            doRefreshBriefing(null);
             return true;
         } finally {
             refreshLock.unlock();
@@ -598,10 +609,12 @@ public class BriefingService {
      *
      * <p>Logs a {@link RunType#BRIEFING} job run for metrics tracking.
      */
-    private void doRefreshBriefing() {
+    private void doRefreshBriefing(Long pipelineRunId) {
         LOG.info("Daily briefing refresh started");
         long briefingStart = System.currentTimeMillis();
-        JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
+        JobRunEntity jobRun = pipelineRunId == null
+                ? jobRunService.startRun(RunType.BRIEFING, false, null)
+                : jobRunService.startRun(RunType.BRIEFING, false, null, null, pipelineRunId);
 
         LocalDate today = PlanHorizon.today(clock);
         List<LocalDate> dates = IntStream.range(0, BRIEFING_WINDOW_DAYS)

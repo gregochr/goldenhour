@@ -89,6 +89,9 @@ class AskReadyPrecomputeTest {
                 region(2L, "Teesdale")));
         when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class)))
                 .thenReturn(job);
+        // A run a cycle dispatched is started with the cycle's id, so it is stored on the row at insert.
+        when(jobRunService.startRun(any(RunType.class), anyBoolean(), any(EvaluationModel.class), any(),
+                any(Long.class))).thenReturn(job);
         model = call -> goodModel(call, snapshot);
         service = newService(Duration.ofMinutes(5));
     }
@@ -239,7 +242,7 @@ class AskReadyPrecomputeTest {
     void jobRunAndProvenance() {
         service.precompute(42L);
 
-        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel());
+        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel(), null, 42L);
         verify(jobRunService).completeRun(job, 17, 0);
         assertThat(job.getLocationsProcessed()).isEqualTo(17);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), eq(snapshot.generatedAt()),
