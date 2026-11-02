@@ -45,6 +45,7 @@ export default function SkyEvalWeeklyModels() {
   }, []);
 
   const toggle = async (model, next) => {
+    setToggleError(null);
     setToggling((prev) => [...prev, model]);
     setSchedule((prev) => ({ ...prev, [model]: next }));
     try {

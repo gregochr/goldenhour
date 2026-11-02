@@ -72,7 +72,7 @@ function SessionRuns({ session }) {
               <span className="text-right text-[11.5px] text-plex-coral max-[759px]:hidden" data-testid={`sky-eval-run-error-${r.id}`}>
                 {r.errorMessage ?? 'Failed'}
               </span>
-              <span className="text-right font-mono text-xs">{'—'}</span>
+              <span className="text-right font-mono text-xs">{formatGbp(r.costGbp)}</span>
               <span className="max-[759px]:hidden" />
             </>
           )}
@@ -84,6 +84,11 @@ function SessionRuns({ session }) {
               <span className="text-right font-mono text-xs max-[759px]:hidden">
                 {r.durationMs == null ? '—' : formatSeconds(r.durationMs / 1000)}
               </span>
+              {r.errorMessage && (
+                <span className="col-span-full text-[11.5px] text-verdict-marginal" data-testid={`sky-eval-run-error-${r.id}`}>
+                  {r.errorMessage}
+                </span>
+              )}
             </>
           )}
         </div>

@@ -74,7 +74,8 @@ export default function RunCheckPanel({
         <button
           type="button"
           onClick={onClose}
-          className="ml-auto cursor-pointer text-[13px] text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+          disabled={submitting}
+          className="ml-auto cursor-pointer text-[13px] text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-40"
           data-testid="sky-eval-check-close"
         >
           Close
@@ -181,7 +182,8 @@ export default function RunCheckPanel({
         <button
           type="button"
           onClick={onClose}
-          className="min-h-8 cursor-pointer rounded-lg border border-plex-border bg-plex-surface-light px-3 py-1.5 text-[13px] font-medium hover:border-plex-border-light focus-visible:outline-2 focus-visible:outline-plex-gold"
+          disabled={submitting}
+          className="min-h-8 cursor-pointer rounded-lg border border-plex-border bg-plex-surface-light px-3 py-1.5 text-[13px] font-medium hover:border-plex-border-light focus-visible:outline-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-40"
           data-testid="sky-eval-check-cancel"
         >
           Cancel

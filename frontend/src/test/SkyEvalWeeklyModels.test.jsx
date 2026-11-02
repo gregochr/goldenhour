@@ -133,7 +133,7 @@ describe('SkyEvalWeeklyModels', () => {
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
   });
 
-  it('does not clear an earlier error banner when a later toggle succeeds', async () => {
+  it('clears an earlier error banner once a later toggle succeeds', async () => {
     setSkyRatingEvalScheduled.mockRejectedValueOnce(new Error('first failed'));
     setSkyRatingEvalScheduled.mockResolvedValueOnce({ data: { model: 'HAIKU', scheduled: false } });
     render(<SkyEvalWeeklyModels />);
@@ -144,6 +144,19 @@ describe('SkyEvalWeeklyModels', () => {
     fireEvent.click(screen.getByTestId('sky-eval-schedule-HAIKU'));
 
     await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeChecked());
-    expect(screen.getByTestId('sky-eval-error')).toHaveTextContent('first failed');
+    expect(screen.queryByTestId('sky-eval-error')).not.toBeInTheDocument();
+  });
+
+  it('clears an earlier toggle error as soon as the next toggle starts', async () => {
+    setSkyRatingEvalScheduled.mockRejectedValueOnce(new Error('first failed'));
+    setSkyRatingEvalScheduled.mockReturnValueOnce(new Promise(() => {}));
+    render(<SkyEvalWeeklyModels />);
+    await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+    fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+    expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('first failed');
+    fireEvent.click(screen.getByTestId('sky-eval-schedule-HAIKU'));
+
+    await waitFor(() => expect(screen.queryByTestId('sky-eval-error')).not.toBeInTheDocument());
   });
 });

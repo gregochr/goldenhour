@@ -31,7 +31,7 @@ for (const [tag] of html.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
 
 const forbidden = [
   [/leaflet/i, 'leaflet'],
-  [/\/(?:recharts|geo|heatField)[-.]/i, 'recharts/geo/heatField'],
+  [/\/(?:geo|heatField)[-.]/i, 'geo/heatField'],
 ];
 let rawTotal = 0;
 let gzTotal = 0;

@@ -821,3 +821,96 @@ describe('SkyEvalView: polling', () => {
     expect(screen.getByTestId('sky-eval-fixture-count')).toHaveTextContent('4 fixtures');
   });
 });
+
+
+describe('SkyEvalView: review fixes', () => {
+  const tick = () => act(async () => { vi.advanceTimersByTime(4000); });
+  const runningOverview = (extra = {}) => overview({
+    sessions: [session({ id: 56, status: 'RUNNING', runs: [run({ id: 56, status: 'RUNNING', progress: 0.2 })] })],
+    ...extra,
+  });
+
+  it('shows a failed run\'s cost so the run rows add up to the session cost', async () => {
+    await mountView(overview({
+      sessions: [session({
+        status: 'FAILED', costGbp: 0.05,
+        runs: [run({ id: 56, status: 'FAILED', errorMessage: 'Batch API timed out', inBandPct: null, costGbp: 0.05 })],
+      })],
+    }), 'runs');
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    expect(screen.getByTestId('sky-eval-run-56')).toHaveTextContent('£0.05');
+  });
+
+  it('shows the error of a completed run that partly failed, on its own line', async () => {
+    await mountView(overview({
+      sessions: [session({ runs: [run({ id: 56, status: 'COMPLETED', errorMessage: '3 of 80 ratings failed' })] })],
+    }), 'runs');
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    const err = screen.getByTestId('sky-eval-run-error-56');
+    expect(err).toHaveTextContent('3 of 80 ratings failed');
+    expect(err.className).toContain('col-span-full');
+  });
+
+  it('shows no error line on a clean completed run', async () => {
+    await mountView(overview(), 'runs');
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    expect(screen.queryByTestId('sky-eval-run-error-56')).not.toBeInTheDocument();
+  });
+
+  it('disables Cancel, Close and the header button while submitting, and the error lands on an open panel', async () => {
+    const d = deferred();
+    startSkyEvalCheck.mockReturnValue(d.promise);
+    await mountView();
+    click('sky-eval-open-check');
+    await act(async () => { click('sky-eval-check-run'); });
+    expect(screen.getByTestId('sky-eval-check-cancel')).toBeDisabled();
+    expect(screen.getByTestId('sky-eval-check-close')).toBeDisabled();
+    expect(screen.getByTestId('sky-eval-open-check')).toBeDisabled();
+    await act(async () => {
+      d.reject(Object.assign(new Error('x'), { response: { status: 400, data: { error: 'Unknown fixture' } } }));
+    });
+    expect(screen.getByTestId('sky-eval-check-error')).toHaveTextContent('Unknown fixture');
+    expect(screen.getByTestId('sky-eval-check-cancel')).not.toBeDisabled();
+    expect(screen.getByTestId('sky-eval-open-check')).not.toBeDisabled();
+  });
+
+  it('does not fetch twice when a running session turns polling on', async () => {
+    await mountView(runningOverview());
+    await settle();
+    expect(getSkyEvalOverview).toHaveBeenCalledTimes(1);
+    await tick();
+    expect(getSkyEvalOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling after a submit whose follow-up load failed, until the new run is listed and expanded', async () => {
+    startSkyEvalCheck.mockResolvedValue({ data: { runIds: [70] } });
+    await mountView();
+    click('sky-eval-open-check');
+    getSkyEvalOverview.mockRejectedValueOnce(new Error('blip'));
+    await act(async () => { click('sky-eval-check-run'); });
+    expect(screen.getByTestId('sky-eval-load-error')).toHaveTextContent('blip');
+    const calls = getSkyEvalOverview.mock.calls.length;
+    getSkyEvalOverview.mockResolvedValue({
+      data: overview({ sessions: [session({ id: 70, runs: [run({ id: 70 })] }), ...overview().sessions] }),
+    });
+    await tick();
+    expect(getSkyEvalOverview.mock.calls.length).toBe(calls + 1);
+    expect(screen.getByTestId('sky-eval-session-toggle-70')).toHaveAttribute('aria-expanded', 'true');
+    await tick();
+    await tick();
+    expect(getSkyEvalOverview.mock.calls.length).toBe(calls + 1);
+  });
+
+  it('states each stale model\'s own age in the footnote', async () => {
+    const ov = overview();
+    await mountView({
+      ...ov,
+      models: [
+        ...ov.models,
+        modelStats({ model: 'SONNET', label: 'Sonnet 4.6', fresh: false, lastTestedAt: '2026-09-22T05:00:00Z', lanes: [] }),
+      ],
+    });
+    expect(within(screen.getByTestId('sky-eval-lane-BATCH_NEAR_TERM')).getByTestId('sky-eval-lane-stale'))
+      .toHaveTextContent('Opus last tested 29d ago, Sonnet 4.6 last tested 41d ago.');
+  });
+});

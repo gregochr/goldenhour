@@ -229,7 +229,7 @@ export function LaneCard({ lane, stats, models, head, fixtureCount, now, onRunCh
 
       {stale.length > 0 && (
         <p className="text-xs text-plex-text-muted text-pretty" data-testid="sky-eval-lane-stale">
-          {stale.map((m) => modelLabel(m.model)).join(' and ')} last tested {formatAgo(stale[0].lastTestedAt, now)}.{' '}
+          {stale.map((m) => `${modelLabel(m.model)} last tested ${formatAgo(m.lastTestedAt, now)}`).join(', ')}.{' '}
           <button
             type="button"
             className="cursor-pointer text-xs text-tide hover:text-tide-light focus-visible:outline-2 focus-visible:outline-plex-gold"

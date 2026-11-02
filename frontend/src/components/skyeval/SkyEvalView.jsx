@@ -58,6 +58,9 @@ export default function SkyEvalView() {
   const inFlightRef = useRef(false);
   const pendingExpandRef = useRef(null);
   const panelRef = useRef(null);
+  const lastLoadStartRef = useRef(0);
+  // True from a successful POST until a load has answered for it, so polling survives a failed follow-up load.
+  const [expandPending, setExpandPending] = useState(false);
 
   // One request at a time from the poll (a tick is skipped while one is in flight); a forced load (after a
   // submit) always goes, and only the newest response is applied, so an older one arriving late is dropped.
@@ -66,6 +69,7 @@ export default function SkyEvalView() {
     seqRef.current += 1;
     const seq = seqRef.current;
     inFlightRef.current = true;
+    lastLoadStartRef.current = Date.now();
     try {
       const res = await getSkyEvalOverview();
       if (seq !== seqRef.current) return;
@@ -77,6 +81,11 @@ export default function SkyEvalView() {
         if (session) {
           setOpenSessionId(session.id);
           pendingExpandRef.current = null;
+          setExpandPending(false);
+        } else if (!data.sessions.some((s) => s.status === 'RUNNING')) {
+          // Nothing is running and the run is not listed: there is nothing left to wait for.
+          pendingExpandRef.current = null;
+          setExpandPending(false);
         }
       }
     } catch (err) {
@@ -104,8 +113,13 @@ export default function SkyEvalView() {
   }, []);
 
   const anyRunning = overview?.sessions.some((s) => s.status === 'RUNNING') ?? false;
-  const poll = useCallback(() => { load(); }, [load]);
-  useVisiblePoll(poll, POLL_INTERVAL_MS, { enabled: anyRunning });
+  // The hook fetches the moment it is enabled, straight after the load that enabled it; a tick is skipped when
+  // the last load started less than one interval ago.
+  const poll = useCallback(() => {
+    if (Date.now() - lastLoadStartRef.current < POLL_INTERVAL_MS) return;
+    load();
+  }, [load]);
+  useVisiblePoll(poll, POLL_INTERVAL_MS, { enabled: anyRunning || expandPending });
 
   const setTab = (next) => {
     setTabState(next);
@@ -126,6 +140,7 @@ export default function SkyEvalView() {
     try {
       const res = await startSkyEvalCheck(body);
       pendingExpandRef.current = res.data?.runIds?.[0] ?? null;
+      setExpandPending(pendingExpandRef.current != null);
       setPanelOpen(false);
       setTab('runs');
       await load(true);
@@ -160,7 +175,7 @@ export default function SkyEvalView() {
           <button
             type="button"
             onClick={() => (panelOpen ? setPanelOpen(false) : openPanel(null))}
-            disabled={!overview}
+            disabled={!overview || submitting}
             className="min-h-8 cursor-pointer whitespace-nowrap rounded-lg bg-plex-text px-3 py-1.5 text-[13px] font-medium text-[#1B1411] focus-visible:outline-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-40"
             data-testid="sky-eval-open-check"
           >
