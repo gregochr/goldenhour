@@ -202,7 +202,7 @@ class RunsLoader {
         return new DeepRun("cycle-" + cycle.getId(), RunDeepKind.CYCLE, RunDeepType.ofCycle(cycle.getCycleType()),
                 StatKey.ofCycle(cycle.getCycleType()), null, RunClassifier.cycleName(cycle.getCycleType()), subline,
                 cycle.getTriggerTime(), ended, duration, micro, complete, gbp, status, outcome.note(),
-                outcome.tone(), null, cycle.getId(), null, batches.size(), requests, answersReady);
+                outcome.tone(), null, cycle.getId(), null, batches.size(), requests, answersReady, null, false);
     }
 
     // ── Job runs ──────────────────────────────────────────────────────────────
@@ -229,7 +229,8 @@ class RunsLoader {
         return new DeepRun("job-" + run.getId(), RunDeepKind.JOB, RunDeepType.of(run.getRunType()),
                 StatKey.ofJob(run), run.getRunType(), jobDisplayName(run, batchType), subline, started, ended,
                 duration, total, total != null && status != RunDeepStatus.RUNNING, gbp, status, outcome.note(),
-                outcome.tone(), parent, null, run.getId(), null, null, null);
+                outcome.tone(), parent, null, run.getId(), null, null, null, run.getLocationsProcessed(),
+                Boolean.TRUE.equals(run.getTriggeredManually()));
     }
 
     /**
@@ -301,7 +302,8 @@ class RunsLoader {
         String trigger = eval.getTriggerSource() == SkyRatingEvalTrigger.SCHEDULED ? "Scheduled" : "Manual";
         return new DeepRun("eval-" + eval.getId(), RunDeepKind.SKY_EVAL, RunDeepType.SKY_EVAL, StatKey.SKY_EVAL,
                 null, RunDeepType.SKY_EVAL.label(), trigger + " · " + eval.getModel().name(), started, ended,
-                duration, micro, costKnown, gbp, status, note, tone, null, null, null, null, null, null);
+                duration, micro, costKnown, gbp, status, note, tone, null, null, null, null, null, null, null,
+                eval.getTriggerSource() != SkyRatingEvalTrigger.SCHEDULED);
     }
 
     private static String truncate(String text) {

@@ -8,6 +8,10 @@ import com.gregochr.goldenhour.model.runs.RunCalendarResponse.CalendarDay;
 import com.gregochr.goldenhour.model.runs.RunCallsResponse;
 import com.gregochr.goldenhour.model.runs.RunCallsResponse.CallService;
 import com.gregochr.goldenhour.model.runs.RunCallsResponse.CallStatus;
+import com.gregochr.goldenhour.model.runs.RunCostResponse;
+import com.gregochr.goldenhour.model.runs.RunCostResponse.CostTotals;
+import com.gregochr.goldenhour.model.runs.RunCostResponse.CostVerdict;
+import com.gregochr.goldenhour.model.runs.RunCostResponse.Direction;
 import com.gregochr.goldenhour.model.runs.RunDayResponse;
 import com.gregochr.goldenhour.model.runs.RunDaySummary;
 import com.gregochr.goldenhour.model.runs.RunGroup;
@@ -16,7 +20,10 @@ import com.gregochr.goldenhour.model.runs.RunKind;
 import com.gregochr.goldenhour.model.runs.RunListResponse;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
 import com.gregochr.goldenhour.model.runs.RunListSummary;
+import com.gregochr.goldenhour.model.runs.RunDeepType;
 import com.gregochr.goldenhour.model.runs.RunRange;
+import com.gregochr.goldenhour.model.runs.RunTimingResponse;
+import com.gregochr.goldenhour.model.runs.RunTimingResponse.TimingStats;
 import com.gregochr.goldenhour.service.runs.RunCursor;
 import com.gregochr.goldenhour.service.runs.RunsRequestException;
 import org.junit.jupiter.api.DisplayName;
@@ -170,7 +177,12 @@ class AdminRunsControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/admin/runs/calendar").param("month", "2026-11")).andExpect(status().isForbidden());
         mockMvc.perform(get("/api/admin/runs/calls").param("runId", "job-1")).andExpect(status().isForbidden());
 
-        verifyNoInteractions(runsDayService, runsCalendarService, runsCallsService);
+        mockMvc.perform(get("/api/admin/runs/cost")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/runs/timing").param("type", "AFTERNOON"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(runsDayService, runsCalendarService, runsCallsService, runsCostService,
+                runsTimingService);
     }
 
     @Test
@@ -230,6 +242,61 @@ class AdminRunsControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/admin/runs/calendar")).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/admin/runs/calendar").param("month", "2027-01")).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("month is in the future"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/cost serves the trends; any period but 14, 30 or 60 is 400")
+    void cost() throws Exception {
+        when(runsCostService.cost(14)).thenReturn(new RunCostResponse(14, LocalDate.parse("2026-10-05"),
+                LocalDate.parse("2026-11-01"), List.of(), List.of(),
+                new CostTotals(new BigDecimal("10.00"), new BigDecimal("8.00"), new BigDecimal("2.00"), 25,
+                        new BigDecimal("12.66"), new BigDecimal("0.7900"), new BigDecimal("0.71"),
+                        new BigDecimal("0.57"), true),
+                new CostVerdict(Direction.UP, 25, RunDeepType.ASK_READY, "Ask ready answers",
+                        new BigDecimal("1.50"), new BigDecimal("2.00"), true, new BigDecimal("1.3"), null, null)));
+        when(runsCostService.cost(7)).thenThrow(new RunsRequestException("days must be one of [14, 30, 60]"));
+
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "14"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rangeDays").value(14))
+                .andExpect(jsonPath("$.totals.deltaPercent").value(25))
+                .andExpect(jsonPath("$.totals.fxRate").value(0.79))
+                .andExpect(jsonPath("$.verdict.direction").value("UP"))
+                .andExpect(jsonPath("$.verdict.topType").value("ASK_READY"))
+                .andExpect(jsonPath("$.verdict.runsAsOften").value(true));
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "7")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("days must be one of [14, 30, 60]"));
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "many")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/runs/timing serves the timing; a bad type, range or measure is 400")
+    void timing() throws Exception {
+        when(runsTimingService.timing("AFTERNOON", 60, "ready")).thenReturn(new RunTimingResponse(
+                RunDeepType.AFTERNOON, "Afternoon refresh", 60, "ready", List.of(),
+                new TimingStats(0, null, null, null, null, null, null, null, false, false), Map.of(), 2, null,
+                null, null, null, null, null, null, null, null));
+        when(runsTimingService.timing("OTHER", null, null))
+                .thenThrow(new RunsRequestException("OTHER is not a timing type"));
+        when(runsTimingService.timing("BRIEFING", null, "ready"))
+                .thenThrow(new RunsRequestException("measure=ready applies only to the cycle types"));
+
+        mockMvc.perform(get("/api/admin/runs/timing").param("type", "AFTERNOON").param("days", "60")
+                        .param("measure", "ready"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("AFTERNOON"))
+                .andExpect(jsonPath("$.measure").value("ready"))
+                .andExpect(jsonPath("$.withoutAnswersLink").value(2))
+                .andExpect(jsonPath("$.stats.count").value(0))
+                .andExpect(jsonPath("$.trigger").doesNotExist());
+        mockMvc.perform(get("/api/admin/runs/timing").param("type", "OTHER")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("OTHER is not a timing type"));
+        mockMvc.perform(get("/api/admin/runs/timing").param("type", "BRIEFING").param("measure", "ready"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/timing").param("type", "AFTERNOON").param("days", "x"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
