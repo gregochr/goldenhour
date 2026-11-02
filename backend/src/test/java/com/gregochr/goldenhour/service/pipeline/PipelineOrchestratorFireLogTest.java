@@ -55,7 +55,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PipelineOrchestratorFireLogTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-02T01:00:00Z");
+    private static final Instant NOW = Instant.parse("2027-03-05T01:00:00Z");
     private static final long LOG_ID = 21L;
     private static final long RUN_ID = 77L;
     private static final String KEY = "near_term_batch_evaluation";

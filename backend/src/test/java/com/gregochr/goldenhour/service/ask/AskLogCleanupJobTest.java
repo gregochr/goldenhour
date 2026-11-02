@@ -22,8 +22,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AskLogCleanupJobTest {
 
-    private static final Instant NOW = Instant.parse("2026-10-06T12:00:00Z");
-    private static final Instant CUTOFF_90_DAYS = Instant.parse("2026-07-08T12:00:00Z");
+    private static final Instant NOW = Instant.parse("2027-03-05T12:00:00Z");
+    private static final Instant CUTOFF_90_DAYS = Instant.parse("2026-12-05T12:00:00Z");
 
     @Mock
     private AskLogRepository repository;

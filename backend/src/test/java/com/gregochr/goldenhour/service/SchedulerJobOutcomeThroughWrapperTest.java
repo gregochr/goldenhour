@@ -51,7 +51,7 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings({"unchecked", "rawtypes"})
 class SchedulerJobOutcomeThroughWrapperTest {
 
-    private static final Instant NOW = Instant.parse("2026-11-02T10:00:00Z");
+    private static final Instant NOW = Instant.parse("2027-03-05T10:00:00Z");
     private static final long LOG_ID = 11L;
 
     @Mock
