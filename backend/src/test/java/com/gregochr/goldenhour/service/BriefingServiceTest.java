@@ -67,6 +67,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -469,9 +470,9 @@ class BriefingServiceTest {
     @DisplayName("A refresh a cycle asks for stores the cycle's id on the briefing's job run; the plain one does not")
     void refresh_forACycleStoresItsId() {
         when(locationService.findAllEnabled()).thenReturn(List.of());
-        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any(), any(), eq(330L)))
+        when(jobRunService.startRun(eq(RunType.BRIEFING), eq(false), isNull(), isNull(), eq(330L)))
                 .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
-        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+        when(jobRunService.startRun(eq(RunType.BRIEFING), eq(false), isNull()))
                 .thenReturn(JobRunEntity.builder().id(2L).runType(RunType.BRIEFING).build());
 
         briefingService.refreshBriefing(330L);
