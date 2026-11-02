@@ -1097,7 +1097,8 @@ public class PromptBuilderTest {
 
         assertThat(message)
                 .contains("Location orientation: sunrise-optimised")
-                .contains("best suited for sunrise photography");
+                .doesNotContain("best suited")
+                .doesNotContain("photography)");
     }
 
     @Test
@@ -1111,7 +1112,22 @@ public class PromptBuilderTest {
 
         assertThat(message)
                 .contains("Location orientation: sunset-optimised")
-                .contains("best suited for sunset photography");
+                .doesNotContain("best suited")
+                .doesNotContain("photography)");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage no longer prints precip probability or shortwave")
+    void buildUserMessage_omitsPrecipProbabilityAndShortwave() {
+        String message = promptBuilder.buildUserMessage(TestAtmosphericData.defaults());
+
+        assertThat(message)
+                .doesNotContain("Precip probability")
+                .doesNotContain("Shortwave")
+                .containsPattern("Humidity: \\d+%\\R")
+                .containsPattern("Boundary layer: \\d+m\\R")
+                .contains("Visibility:")
+                .contains("Dew point:");
     }
 
     @Test

@@ -17,7 +17,7 @@ class SteelRiggPromptFidelityTest {
     void fixtureProducesTheStoredProductionPromptExactly() {
         String built = SteelRiggFixture.userMessage(SteelRiggFixture.atmosphericData());
 
-        assertEquals(SteelRiggFixture.storedProductionPrompt(), built);
+        assertEquals(PromptTrims.apply(SteelRiggFixture.storedProductionPrompt()), built);
     }
 
     @Test

@@ -17,7 +17,7 @@ class LowHauxleyPromptFidelityTest {
     void fixtureProducesTheStoredProductionPromptExactly() {
         String built = LowHauxleyFixture.userMessage(LowHauxleyFixture.atmosphericData());
 
-        assertEquals(LowHauxleyFixture.storedProductionPrompt(), built);
+        assertEquals(PromptTrims.apply(LowHauxleyFixture.storedProductionPrompt()), built);
     }
 
     @Test

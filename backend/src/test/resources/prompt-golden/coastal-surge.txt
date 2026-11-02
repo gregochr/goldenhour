@@ -118,10 +118,10 @@ Score coastal locations on sky conditions, exactly as inland. When a STORM SURGE
 Location: Saltwick Bay UK. SUNSET: 2026-06-21T20:47 UTC.
 Cloud: Low 10%, Mid 50%, High 30%
 Visibility: 25,000m, Wind: 3.50 m/s (225°), Precip: 0.00mm
-Humidity: 62%, Precip probability: N/A%
+Humidity: 62%
 Dew point: N/A
 Weather code: 3
-Boundary layer: 1200m, Shortwave: 180 W/m²
+Boundary layer: 1200m
 PM2.5: 8.50µg/m³, Dust: 2.10µg/m³, AOD: 0.120
 STORM SURGE FORECAST:
 - Pressure effect: +0.18m (low pressure 998 hPa)

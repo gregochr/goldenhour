@@ -20,7 +20,8 @@ class SkyRatingEvalPortedFixtureFidelityTest {
     void lowHauxleyEvalFixtureBuildsTheStoredProductionPrompt() {
         AtmosphericData loaded = load("low-hauxley-4oct-worth-going");
 
-        assertEquals(LowHauxleyFixture.storedProductionPrompt(), LowHauxleyFixture.userMessage(loaded));
+        assertEquals(PromptTrims.apply(LowHauxleyFixture.storedProductionPrompt()),
+                LowHauxleyFixture.userMessage(loaded));
         assertNotNull(loaded.tide(), "coastal: production carried a tide");
     }
 
@@ -28,7 +29,8 @@ class SkyRatingEvalPortedFixtureFidelityTest {
     void steelRiggEvalFixtureBuildsTheStoredProductionPrompt() {
         AtmosphericData loaded = load("steel-rigg-24oct-worth-going");
 
-        assertEquals(SteelRiggFixture.storedProductionPrompt(), SteelRiggFixture.userMessage(loaded));
+        assertEquals(PromptTrims.apply(SteelRiggFixture.storedProductionPrompt()),
+                SteelRiggFixture.userMessage(loaded));
         assertNull(loaded.tide(), "inland: production carried no tide");
     }
 

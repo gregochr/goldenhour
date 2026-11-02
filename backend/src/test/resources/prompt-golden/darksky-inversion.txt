@@ -115,12 +115,12 @@ CRITICAL OUTPUT FORMAT RULES:
 Location: Kielder UK. SUNRISE: 2026-06-21T04:30 UTC.
 Cloud: Low 10%, Mid 50%, High 30%
 Visibility: 25,000m, Wind: 3.50 m/s (225°), Precip: 0.00mm
-Humidity: 62%, Precip probability: N/A%
+Humidity: 62%
 Dew point: 5.6°C (gap 0.4°C)
 Weather code: 3
-Boundary layer: 1200m, Shortwave: 180 W/m²
+Boundary layer: 1200m
 PM2.5: 8.50µg/m³, Dust: 2.10µg/m³, AOD: 0.120
-Location orientation: sunrise-optimised (this location is best suited for sunrise photography)
+Location orientation: sunrise-optimised
 CLOUD INVERSION FORECAST:
 Score: 9/10 (Strong Cloud Inversion Potential)
 Expected: Dramatic blanket below viewpoint; clear sky above
