@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CELL_FILL, GRID_RUNS, HISTORY, buildFixtureHistory, cellState, cellTitle, defaultFixtureModel, dotKind,
+  fixtureModels, fixtureRows, historyWindow, historyX, historyY, modelRunColumns,
   CHART, barWidthPct, buildAccuracySeries, changeTone, chartWindow, chartX, chartY, comparedTone, estimateCheck,
   formatAgo, formatClockUk, formatCostMultiple, formatDayUk, formatGbp, formatPct, formatPts, formatSeconds,
   formatShortDateUk, isKnownTab, laneBarState, laneShortLabel, modelColour, paginateSessions, passTone,
@@ -270,5 +272,214 @@ describe('paginateSessions', () => {
   it('shows everything when asked, or when there are ten or fewer', () => {
     expect(paginateSessions(make(20), true).shown).toHaveLength(20);
     expect(paginateSessions(make(10), false)).toEqual({ shown: make(10), hidden: 0 });
+  });
+});
+
+describe('Fixtures grid helpers', () => {
+  const rf = (runId, fixture, o = {}) => ({
+    runId, fixture, n: 8, inBand: 8, below: 0, above: 0, mean: 3, min: 3, max: 3, ...o,
+  });
+  const run = (id, model) => ({ id, model });
+  const sess = (id, startedAt, version, trigger, runs) => ({
+    id, startedAt, version, trigger, runs,
+  });
+
+  describe('cellState', () => {
+    it('is absent without a row, or with no attempts', () => {
+      expect(cellState(undefined)).toMatchObject({ kind: 'absent', fill: null, text: '·' });
+      expect(cellState({ n: 0, below: 0, above: 0 })).toMatchObject({ kind: 'absent' });
+    });
+
+    it('is soft green at .2 when every rating is in band', () => {
+      expect(cellState(rf(1, 'a'))).toEqual({
+        kind: 'inband', fill: CELL_FILL.inband, fillOpacity: 0.2, text: '', misses: 0,
+      });
+    });
+
+    it('is tide when mostly below, with .18 + .6 x the miss ratio', () => {
+      const c = cellState(rf(1, 'a', { inBand: 4, below: 4 }));
+      expect(c).toMatchObject({ kind: 'below', fill: '#6FA8B0', text: '↓4', misses: 4 });
+      expect(c.fillOpacity).toBeCloseTo(0.18 + 0.6 * 0.5, 10);
+    });
+
+    it('is coral when mostly above, and names both directions when mixed', () => {
+      const c = cellState(rf(1, 'a', { inBand: 4, below: 1, above: 3 }));
+      expect(c).toMatchObject({ kind: 'above', fill: '#E8593F', text: '↓1↑3', misses: 4 });
+      expect(c.fillOpacity).toBeCloseTo(0.18 + 0.6 * 0.5, 10);
+    });
+
+    it('is full strength at .78 when every rating missed, and tide on a tie', () => {
+      expect(cellState(rf(1, 'a', { inBand: 0, above: 8 })).fillOpacity).toBeCloseTo(0.78, 10);
+      expect(cellState(rf(1, 'a', { inBand: 6, below: 1, above: 1 })).kind).toBe('below');
+    });
+  });
+
+  describe('modelRunColumns', () => {
+    const sessions = [
+      sess(3, '2026-11-02T08:00:00Z', 'bbbb2222', 'MANUAL', [run(12, 'HAIKU_55'), run(20, 'SONNET_55')]),
+      sess(2, '2026-10-25T04:00:00Z', 'aaaa1111', 'SCHEDULED', [run(11, 'HAIKU_55')]),
+      sess(1, '2026-10-18T04:00:00Z', 'aaaa1111', 'SCHEDULED', [run(10, 'HAIKU_55')]),
+    ];
+    const rows = [rf(10, 'x'), rf(11, 'x'), rf(12, 'x'), rf(20, 'x')];
+
+    it('keeps one model, oldest first, and flags the version change with its 4-character id', () => {
+      const cols = modelRunColumns(sessions, rows, 'HAIKU_55');
+      expect(cols.map((c) => c.runId)).toEqual([10, 11, 12]);
+      expect(cols.map((c) => c.versionChanged)).toEqual([false, false, true]);
+      expect(cols.map((c) => c.versionLabel)).toEqual(['', '', 'bbbb']);
+      expect(cols.map((c) => c.manual)).toEqual([false, false, true]);
+    });
+
+    it('skips runs with no fixture rows, and keeps the newest 13', () => {
+      expect(modelRunColumns(sessions, [rf(10, 'x')], 'HAIKU_55').map((c) => c.runId)).toEqual([10]);
+      const many = Array.from({ length: 20 }, (_, i) => sess(
+        i, `2026-10-${String(i + 1).padStart(2, '0')}T04:00:00Z`, 'v', 'SCHEDULED', [run(100 + i, 'OPUS')],
+      ));
+      const manyRows = many.map((s) => rf(s.runs[0].id, 'x'));
+      const cols = modelRunColumns(many, manyRows, 'OPUS');
+      expect(cols).toHaveLength(GRID_RUNS);
+      expect(cols[0].runId).toBe(107);
+      expect(cols[12].runId).toBe(119);
+    });
+
+    it('treats a blank version as unknown: a change to or from it has a border but no label', () => {
+      const s = [
+        sess(1, '2026-10-18T04:00:00Z', '', 'SCHEDULED', [run(10, 'OPUS')]),
+        sess(2, '2026-10-25T04:00:00Z', 'cccc3333', 'SCHEDULED', [run(11, 'OPUS')]),
+        sess(3, '2026-11-01T04:00:00Z', null, 'SCHEDULED', [run(12, 'OPUS')]),
+      ];
+      const cols = modelRunColumns(s, [rf(10, 'x'), rf(11, 'x'), rf(12, 'x')], 'OPUS');
+      expect(cols.map((c) => c.versionChanged)).toEqual([false, true, true]);
+      expect(cols.map((c) => c.versionLabel)).toEqual(['', 'cccc', '']);
+    });
+  });
+
+  describe('fixtureRows', () => {
+    const fixtures = [{ name: 'a' }, { name: 'b' }, { name: 'c' }, { name: 'd' }];
+    const mf = [
+      { model: 'M', fixture: 'a', last4Misses: 1, last4Pct: 96 },
+      { model: 'M', fixture: 'b', last4Misses: 5, last4Pct: 84 },
+      { model: 'M', fixture: 'c', last4Misses: 1, last4Pct: 97 },
+      { model: 'OTHER', fixture: 'd', last4Misses: 9, last4Pct: 50 },
+    ];
+
+    it('sorts worst misses first, registry order on ties, fixtures with no figure last', () => {
+      const rows = fixtureRows(fixtures, mf, 'M');
+      expect(rows.map((r) => r.fixture.name)).toEqual(['b', 'a', 'c', 'd']);
+      expect(rows[0]).toMatchObject({ misses: 5, pct: 84 });
+      expect(rows[3]).toMatchObject({ misses: null, pct: null });
+    });
+  });
+
+  describe('model choice', () => {
+    it('lists the models with grid data, in served order', () => {
+      const sessions = [sess(1, 't', 'v', 'MANUAL', [run(10, 'HAIKU'), run(11, 'OPUS'), run(12, 'SONNET_55')])];
+      const models = [{ model: 'OPUS' }, { model: 'HAIKU' }, { model: 'SONNET_55' }];
+      expect(fixtureModels(models, sessions, [rf(10, 'x'), rf(11, 'x')])).toEqual(['OPUS', 'HAIKU']);
+    });
+
+    it('prefers the wanted model, then the near-term lane model, then the first', () => {
+      const lanes = [{ runType: 'BATCH_FAR_TERM', model: 'HAIKU' }, { runType: 'BATCH_NEAR_TERM', model: 'SONNET_55' }];
+      expect(defaultFixtureModel('OPUS', ['SONNET_55', 'OPUS'], lanes)).toBe('OPUS');
+      expect(defaultFixtureModel('GONE', ['HAIKU', 'SONNET_55'], lanes)).toBe('SONNET_55');
+      expect(defaultFixtureModel(null, ['HAIKU', 'OPUS'], lanes)).toBe('HAIKU');
+      expect(defaultFixtureModel(null, [], lanes)).toBeNull();
+    });
+  });
+
+  describe('cellTitle', () => {
+    const fixture = { name: 'copt-hill', bandLo: 1, bandHi: 2 };
+    const col = { startedAt: '2026-11-02T08:00:00Z', manual: true, version: 'a91b0e2c4d' };
+
+    it('gives fixture, date, version, in-band, below and above, mean and band', () => {
+      expect(cellTitle(fixture, col, rf(1, 'x', {
+        inBand: 5, below: 2, above: 1, mean: 2.456,
+      }))).toBe('copt-hill, Mon 2 Nov (manual), a91b0e2: 5/8 in band, 2 below, 1 above, mean rating 2.5, band 1–2');
+    });
+
+    it('says so when the fixture was not in the run, and when the version is unknown', () => {
+      expect(cellTitle(fixture, { ...col, manual: false, version: '' }, undefined))
+        .toBe('copt-hill, Mon 2 Nov, unknown version: not in this run');
+    });
+  });
+
+  describe('rating-history geometry', () => {
+    it('maps ratings onto the .3 to 5.7 axis, higher ratings higher up', () => {
+      expect(historyY(5.7)).toBeCloseTo(HISTORY.top, 10);
+      expect(historyY(0.3)).toBeCloseTo(HISTORY.height - HISTORY.bottom, 10);
+      expect(historyY(4)).toBeLessThan(historyY(2));
+    });
+
+    it('maps time across the plot, left to right', () => {
+      expect(historyX(0, 0, 100)).toBe(HISTORY.left);
+      expect(historyX(100, 0, 100)).toBe(HISTORY.width - HISTORY.right);
+      expect(historyX(5, 5, 5)).toBe(HISTORY.left);
+    });
+
+    it('picks the dot colour by side: model when all in band, tide below, coral above', () => {
+      expect(dotKind({ below: 0, above: 0 })).toBe('model');
+      expect(dotKind({ below: 3, above: 1 })).toBe('below');
+      expect(dotKind({ below: 1, above: 3 })).toBe('above');
+    });
+
+    it('widens the window to 30 days and pads two days before and one after', () => {
+      const day = 86400000;
+      const last = Date.parse('2026-11-02T00:00:00Z');
+      expect(historyWindow([last - 3 * day, last])).toEqual({ startMs: last - 32 * day, endMs: last + day });
+      expect(historyWindow([last - 60 * day, last])).toEqual({ startMs: last - 62 * day, endMs: last + day });
+    });
+
+    it('builds the band, one point per run the fixture is in, and the version lines inside the window', () => {
+      const fixture = { name: 'x', bandLo: 3, bandHi: 5 };
+      const cols = modelRunColumns(
+        [
+          sess(1, '2026-10-18T04:00:00Z', 'aaaa1111', 'SCHEDULED', [run(10, 'M')]),
+          sess(2, '2026-11-01T04:00:00Z', 'bbbb2222', 'SCHEDULED', [run(11, 'M')]),
+          sess(3, '2026-11-02T04:00:00Z', 'bbbb2222', 'SCHEDULED', [run(12, 'M')]),
+        ],
+        [
+          rf(10, 'x', { mean: 4, min: 3, max: 5 }),
+          rf(11, 'x', {
+            inBand: 5, below: 3, mean: 2.6, min: 1, max: 4,
+          }),
+          rf(12, 'other'),
+        ],
+        'M',
+      );
+      const versions = [
+        {
+          sha: 'bbbb2222', shortSha: 'bbbb222', message: 'later', committedAt: '2026-10-30T09:00:00Z',
+        },
+        {
+          sha: 'old', shortSha: 'old', message: null, committedAt: '2026-01-01T00:00:00Z',
+        },
+        {
+          sha: 'aaaa1111', shortSha: 'aaaa111', message: 'first', committedAt: '2026-10-10T09:00:00Z',
+        },
+      ];
+      const g = buildFixtureHistory(fixture, cols, versions);
+      expect(g.points.map((p) => p.runId)).toEqual([10, 11]);
+      expect(g.points.map((p) => p.kind)).toEqual(['model', 'below']);
+      expect(g.points[0].y).toBe(historyY(4));
+      expect(g.points[0].yMin).toBe(historyY(3));
+      expect(g.points[0].yMax).toBe(historyY(5));
+      expect(g.points[1].x).toBeGreaterThan(g.points[0].x);
+      expect(g.band.y).toBe(historyY(5.5));
+      expect(g.band.height).toBeCloseTo(historyY(2.5) - historyY(5.5), 10);
+      expect(g.markers.map((m) => m.label)).toEqual(['aaaa', 'bbbb']);
+      expect(g.markers[0].x).toBeLessThan(g.markers[1].x);
+      expect(g.markers[0].labelY).not.toBe(g.markers[1].labelY);
+      expect(g.ticks).toHaveLength(5);
+    });
+
+    it('leaves a point with no mean without a dot position', () => {
+      const cols = modelRunColumns(
+        [sess(1, '2026-10-18T04:00:00Z', 'v', 'SCHEDULED', [run(10, 'M')])],
+        [rf(10, 'x', { mean: null, min: null, max: null })],
+        'M',
+      );
+      const g = buildFixtureHistory({ name: 'x', bandLo: 1, bandHi: 2 }, cols, []);
+      expect(g.points[0]).toMatchObject({ y: null, yMin: null, yMax: null });
+    });
   });
 });

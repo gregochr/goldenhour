@@ -10,7 +10,7 @@ import { Bar, CARD_CLASS, ModelName, Swatch, TONE_TEXT, VersionTag } from './par
 const SESSION_GRID =
   'grid grid-cols-[96px_74px_minmax(0,1.3fr)_minmax(0,2.2fr)_64px_82px] items-start gap-3 max-[899px]:grid-cols-[minmax(0,1fr)_auto_auto]';
 const RUN_GRID =
-  'grid grid-cols-[minmax(0,1fr)_70px_90px_70px_70px] items-center gap-2.5 max-[759px]:grid-cols-[minmax(0,1fr)_60px_60px]';
+  'grid grid-cols-[minmax(0,1fr)_70px_90px_70px_70px_84px] items-center gap-2.5 max-[759px]:grid-cols-[minmax(0,1fr)_60px_60px_auto]';
 
 /** Status words, dot colours and text colours by session or run status (whole literal strings). */
 const STATUS_VIEW = {
@@ -34,7 +34,7 @@ function Status({ status }) {
 Status.propTypes = { status: PropTypes.string.isRequired };
 
 /** The per-run table shown beside an expanded session. */
-function SessionRuns({ session }) {
+function SessionRuns({ session, onSeeFixtures }) {
   return (
     <div
       className="mt-1 flex flex-col overflow-hidden rounded-lg border border-plex-border"
@@ -46,6 +46,7 @@ function SessionRuns({ session }) {
         <span className="text-right max-[759px]:hidden">Below / above</span>
         <span className="text-right">Cost</span>
         <span className="text-right max-[759px]:hidden">Time</span>
+        <span />
       </div>
       {session.runs.map((r) => (
         <div key={r.id} className={`${RUN_GRID} border-t border-plex-border px-2.5 py-[7px] text-[12.5px]`} data-testid={`sky-eval-run-${r.id}`}>
@@ -64,6 +65,7 @@ function SessionRuns({ session }) {
               </span>
               <span className="text-right font-mono text-xs">~{formatGbp(r.costGbp)}</span>
               <span className="max-[759px]:hidden" />
+              <span />
             </>
           )}
           {r.status === 'FAILED' && (
@@ -74,6 +76,7 @@ function SessionRuns({ session }) {
               </span>
               <span className="text-right font-mono text-xs">{formatGbp(r.costGbp)}</span>
               <span className="max-[759px]:hidden" />
+              <span />
             </>
           )}
           {r.status === 'COMPLETED' && (
@@ -83,6 +86,16 @@ function SessionRuns({ session }) {
               <span className="text-right font-mono text-xs">{formatGbp(r.costGbp)}</span>
               <span className="text-right font-mono text-xs max-[759px]:hidden">
                 {r.durationMs == null ? '—' : formatSeconds(r.durationMs / 1000)}
+              </span>
+              <span className="text-right">
+                <button
+                  type="button"
+                  onClick={() => onSeeFixtures(r.model)}
+                  className="cursor-pointer whitespace-nowrap text-xs text-tide hover:text-tide-light focus-visible:outline-2 focus-visible:outline-plex-gold"
+                  data-testid={`sky-eval-run-fixtures-${r.id}`}
+                >
+                  Fixtures {'→'}
+                </button>
               </span>
               {r.errorMessage && (
                 <span className="col-span-full text-[11.5px] text-verdict-marginal" data-testid={`sky-eval-run-error-${r.id}`}>
@@ -99,10 +112,11 @@ function SessionRuns({ session }) {
 
 SessionRuns.propTypes = {
   session: PropTypes.shape({ id: PropTypes.number.isRequired, runs: PropTypes.array.isRequired }).isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
 };
 
 /** One session: its summary button, then (when open) its runs, beside the button rather than inside it. */
-function SessionRow({ session, open, onToggle, versionMessages, now }) {
+function SessionRow({ session, open, onToggle, onSeeFixtures, versionMessages, now }) {
   const running = session.status === 'RUNNING';
   return (
     <div className="border-t border-plex-border" data-testid={`sky-eval-session-${session.id}`}>
@@ -147,7 +161,7 @@ function SessionRow({ session, open, onToggle, versionMessages, now }) {
         <span className="text-right font-mono text-[12.5px] max-[899px]:hidden">{running ? '~' : ''}{formatGbp(session.costGbp)}</span>
         <Status status={session.status} />
       </button>
-      {open && <div className="px-1.5 pb-2.5"><SessionRuns session={session} /></div>}
+      {open && <div className="px-1.5 pb-2.5"><SessionRuns session={session} onSeeFixtures={onSeeFixtures} /></div>}
     </div>
   );
 }
@@ -156,6 +170,7 @@ SessionRow.propTypes = {
   session: PropTypes.object.isRequired,
   open: PropTypes.bool.isRequired,
   onToggle: PropTypes.func.isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
   versionMessages: PropTypes.instanceOf(Map).isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
 };
@@ -169,9 +184,10 @@ SessionRow.propTypes = {
  * @param {Array<object>} props.versions the served versions (for the commit message column)
  * @param {number|null} props.openId the expanded session's id
  * @param {(id: number) => void} props.onToggle expands or collapses a session
+ * @param {(model: string) => void} props.onSeeFixtures opens the Fixtures tab on that model
  * @param {Date} props.now the moment ages are measured to
  */
-export default function RunsTab({ sessions, versions, openId, onToggle, now }) {
+export default function RunsTab({ sessions, versions, openId, onToggle, onSeeFixtures, now }) {
   const [showAll, setShowAll] = useState(false);
   const { shown, hidden } = paginateSessions(sessions, showAll);
   const versionMessages = new Map(versions.map((v) => [v.sha, v.message]));
@@ -197,7 +213,7 @@ export default function RunsTab({ sessions, versions, openId, onToggle, now }) {
             <span>Status</span>
           </div>
           {shown.map((s) => (
-            <SessionRow key={s.id} session={s} open={openId === s.id} onToggle={onToggle} versionMessages={versionMessages} now={now} />
+            <SessionRow key={s.id} session={s} open={openId === s.id} onToggle={onToggle} onSeeFixtures={onSeeFixtures} versionMessages={versionMessages} now={now} />
           ))}
         </div>
       )}
@@ -220,5 +236,6 @@ RunsTab.propTypes = {
   versions: PropTypes.array.isRequired,
   openId: PropTypes.number,
   onToggle: PropTypes.func.isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
 };

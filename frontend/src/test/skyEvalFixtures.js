@@ -183,6 +183,13 @@ export function overview(overrides = {}) {
   };
 }
 
+/** A served per-run, per-fixture row (n attempts, how many in band, below and above, mean/min/max rating). */
+export function runFixture(runId, fixture, overrides = {}) {
+  return {
+    runId, fixture, n: 8, inBand: 8, below: 0, above: 0, mean: 3, min: 3, max: 3, ...overrides,
+  };
+}
+
 /** The selectable models the models endpoint serves. */
 export const AVAILABLE = {
   available: [
