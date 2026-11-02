@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.config;
 
 import com.anthropic.errors.AnthropicServiceException;
+import com.gregochr.goldenhour.service.OpenMeteoCoolOffException;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.common.circuitbreaker.configuration.CircuitBreakerConfigCustomizer;
 import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
 import io.github.resilience4j.retry.RetryRegistry;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +16,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -189,5 +192,64 @@ class ResilienceConfigTest {
     void openMeteoRetryPredicateWired() {
         var retry = retryRegistry.retry("open-meteo");
         assertThat(retry.getRetryConfig().getExceptionPredicate()).isNotNull();
+    }
+
+    /** Runs {@code calls} failing calls, each throwing {@code failure}, through a breaker. */
+    private static void failCalls(CircuitBreaker breaker, Throwable failure, int calls) {
+        for (int i = 0; i < calls && breaker.tryAcquirePermission(); i++) {
+            breaker.onError(0, TimeUnit.NANOSECONDS, failure);
+        }
+    }
+
+    private static CircuitBreaker breakerWith(CircuitBreakerConfigCustomizer customizer) {
+        CircuitBreakerConfig.Builder builder = CircuitBreakerConfig.custom()
+                .slidingWindowSize(10)
+                .minimumNumberOfCalls(5)
+                .failureRateThreshold(50f);
+        customizer.customize(builder);
+        return CircuitBreaker.of(customizer.name() + "-probe", builder.build());
+    }
+
+    private static final OpenMeteoCoolOffException COOL_OFF =
+            new OpenMeteoCoolOffException("too many concurrent requests", Instant.parse("2026-11-02T14:00:00Z"));
+
+    @Test
+    @DisplayName("the application's real open-meteo breaker ignores a local cool-off refusal (3 x the window) "
+            + "but still opens on genuine failures")
+    void openMeteoBreaker_ignoresCoolOffRefusals() {
+        CircuitBreaker ignoring = CircuitBreaker.of("open-meteo-probe",
+                circuitBreakerRegistry.circuitBreaker("open-meteo").getCircuitBreakerConfig());
+        failCalls(ignoring, COOL_OFF, 60);
+        assertThat(ignoring.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(ignoring.getMetrics().getNumberOfFailedCalls()).isZero();
+
+        CircuitBreaker genuine = CircuitBreaker.of("open-meteo-probe-2",
+                circuitBreakerRegistry.circuitBreaker("open-meteo").getCircuitBreakerConfig());
+        failCalls(genuine, new RuntimeException("boom"), 60);
+        assertThat(genuine.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+    }
+
+    @Test
+    @DisplayName("the open-meteo-briefing customizer ignores a local cool-off refusal but still opens on "
+            + "genuine failures")
+    void openMeteoBriefingBreaker_ignoresCoolOffRefusals() {
+        CircuitBreakerConfigCustomizer customizer =
+                new ResilienceConfig().openMeteoBriefingCircuitBreakerCustomizer();
+
+        CircuitBreaker ignoring = breakerWith(customizer);
+        failCalls(ignoring, COOL_OFF, 30);
+        assertThat(customizer.name()).isEqualTo("open-meteo-briefing");
+        assertThat(ignoring.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(ignoring.getMetrics().getNumberOfFailedCalls()).isZero();
+
+        CircuitBreaker genuine = breakerWith(customizer);
+        failCalls(genuine, new RuntimeException("boom"), 30);
+        assertThat(genuine.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+    }
+
+    @Test
+    @DisplayName("the open-meteo customizer is named for the open-meteo breaker")
+    void openMeteoCustomizer_isNamedForTheOpenMeteoBreaker() {
+        assertThat(new ResilienceConfig().openMeteoCircuitBreakerCustomizer().name()).isEqualTo("open-meteo");
     }
 }

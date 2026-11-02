@@ -23,13 +23,19 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestClient;
 
+import java.net.SocketTimeoutException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
@@ -145,6 +151,37 @@ public class OpenMeteoClient {
      */
     private static final long CHUNK_RETRY_BASE_BACKOFF_MS = 2_000;
 
+    /**
+     * Base backoff in milliseconds before retrying a chunk that failed on a timeout. Doubles on each
+     * subsequent attempt: 30 s then 60 s. A request we abandon on a read timeout keeps running on
+     * Open-Meteo's side, so a quick retry only piles another concurrent request onto a server that is
+     * already struggling.
+     */
+    private static final long TIMEOUT_RETRY_BASE_BACKOFF_MS = 30_000;
+
+    /** How long the client stays quiet after a concurrent-requests refusal or repeated timeouts. */
+    private static final long COOL_OFF_MS = Duration.ofMinutes(10).toMillis();
+
+    /** Consecutive timed-out chunks, in a loop with no in-method retry, that start a cool-off. */
+    private static final int TIMEOUT_CHUNKS_BEFORE_COOL_OFF = 2;
+
+    /** HTTP status Open-Meteo answers a refused request with. */
+    private static final int HTTP_TOO_MANY_REQUESTS = 429;
+
+    /** Maximum depth walked down a cause chain when classifying a failure. */
+    private static final int MAX_CAUSE_DEPTH = 10;
+
+    private static final String REASON_CONCURRENT = "too many concurrent requests";
+    private static final String REASON_HOURLY = "hourly limit";
+    private static final String REASON_DAILY = "daily limit";
+    private static final String REASON_TIMEOUTS = "repeated timeouts";
+
+    private static final DateTimeFormatter COOL_OFF_END_TIME =
+            DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneOffset.UTC);
+
+    /** An in-force cool-off: when it ends (epoch milliseconds) and a fixed reason label. */
+    private record CoolOff(long untilMs, String reason) { }
+
     private final OpenMeteoForecastApi forecastApi;
     private final OpenMeteoAirQualityApi airQualityApi;
     private final RestClient forecastRestClient;
@@ -168,6 +205,24 @@ public class OpenMeteoClient {
      * Production code always reads {@link #CHUNK_RETRY_BASE_BACKOFF_MS}.
      */
     long chunkRetryBackoffMs = CHUNK_RETRY_BASE_BACKOFF_MS;
+
+    /**
+     * Overridable in unit tests so that timeout-retry tests do not sleep 30+ seconds per attempt.
+     * Production code always reads {@link #TIMEOUT_RETRY_BASE_BACKOFF_MS}.
+     */
+    long timeoutRetryBackoffMs = TIMEOUT_RETRY_BASE_BACKOFF_MS;
+
+    /**
+     * Every sleep in this class goes through here, so unit tests can record the waits instead of
+     * sleeping. Production code always sleeps for real.
+     */
+    LongConsumer sleeper = OpenMeteoClient::sleepQuietly;
+
+    /**
+     * The client-wide cool-off, or {@code null} when none has been started. In memory only: a restart
+     * clears it. Read on every request, but the clock is read only while this is non-null.
+     */
+    private volatile CoolOff coolOff;
 
     /**
      * Time source for the pressure-level fetch budget, in milliseconds. Overridable in unit tests;
@@ -237,7 +292,13 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
     public OpenMeteoForecastResponse fetchForecast(double lat, double lon) {
-        return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
+        requireNoCoolOff();
+        try {
+            return forecastApi.getForecast(lat, lon, FORECAST_PARAMS, "ms", "UTC");
+        } catch (RuntimeException e) {
+            noteRefusal(e);
+            throw e;
+        }
     }
 
     /**
@@ -251,7 +312,13 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
     public OpenMeteoAirQualityResponse fetchAirQuality(double lat, double lon) {
-        return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
+        requireNoCoolOff();
+        try {
+            return airQualityApi.getAirQuality(lat, lon, AIR_QUALITY_PARAMS, "UTC");
+        } catch (RuntimeException e) {
+            noteRefusal(e);
+            throw e;
+        }
     }
 
     // ──────────────────────────────── Batch methods ────────────────────────────────
@@ -304,7 +371,7 @@ public class OpenMeteoClient {
                 break;
             }
             if (i > 0) {
-                sleepQuietly(interChunkDelayMs);
+                sleeper.accept(interChunkDelayMs);
             }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             try {
@@ -350,7 +417,7 @@ public class OpenMeteoClient {
                 break;
             }
             if (i > 0) {
-                sleepQuietly(interChunkDelayMs);
+                sleeper.accept(interChunkDelayMs);
             }
             List<double[]> chunk = points.subList(i, Math.min(i + BATCH_COORD_LIMIT, points.size()));
             List<double[]> coords = chunk.stream().map(p -> new double[]{p[0], p[1]}).toList();
@@ -460,7 +527,7 @@ public class OpenMeteoClient {
 
             if (i > 0) {
                 long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
-                sleepQuietly(delay);
+                sleeper.accept(delay);
             }
 
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
@@ -487,6 +554,9 @@ public class OpenMeteoClient {
                 String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 LOG.warn("Open-Meteo briefing batch chunk {}/{} failed ({} coords): {}",
                         chunkIndex, totalChunks, chunk.size(), reason);
+                if (stopForCoolOff("briefing batch", totalChunks - chunkIndex)) {
+                    break;
+                }
                 if (reason.contains("429")) {
                     hitRateLimit = true;
                     LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
@@ -534,6 +604,11 @@ public class OpenMeteoClient {
                 lastFailure = e;
                 String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
+                // Cooling off — never retry into a refusal
+                if (e instanceof OpenMeteoCoolOffException) {
+                    throw e;
+                }
+
                 // 429 — propagate immediately; caller handles rate-limit backoff
                 if (reason.contains("429")) {
                     throw e;
@@ -546,14 +621,20 @@ public class OpenMeteoClient {
 
                 // Last attempt exhausted
                 if (attempt == CHUNK_MAX_RETRIES) {
+                    noteExhaustedTimeout(e);
                     break;
                 }
 
+                // A cool-off started meanwhile (another thread's refusal): stop retrying
+                if (coolOffInForce()) {
+                    throw e;
+                }
+
                 retryCounter[0]++;
-                long backoffMs = chunkRetryBackoffMs * (1L << attempt); // 2s, 4s
+                long backoffMs = retryBackoffMs(e, attempt); // 2s, 4s; 30s, 60s after a timeout
                 LOG.warn("Open-Meteo chunk {}/{} attempt {} failed ({}) — retrying in {}ms",
                         chunkIndex, totalChunks, attempt + 1, reason, backoffMs);
-                sleepQuietly(backoffMs);
+                sleeper.accept(backoffMs);
             }
         }
         throw new RuntimeException(
@@ -616,7 +697,7 @@ public class OpenMeteoClient {
         if (message.contains("429")) {
             return false;
         }
-        if (e instanceof ResourceAccessException) {
+        if (e instanceof ResourceAccessException || isTimeout(e)) {
             return true;
         }
         if (e instanceof HttpServerErrorException) {
@@ -642,7 +723,7 @@ public class OpenMeteoClient {
         List<OpenMeteoAirQualityResponse> results = new ArrayList<>();
         for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
             if (i > 0) {
-                sleepQuietly(interChunkDelayMs);
+                sleeper.accept(interChunkDelayMs);
             }
             List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
             results.addAll(fetchAirQualityChunk(chunk));
@@ -716,7 +797,7 @@ public class OpenMeteoClient {
 
             if (i > 0) {
                 long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
-                sleepQuietly(delay);
+                sleeper.accept(delay);
             }
 
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
@@ -744,6 +825,9 @@ public class OpenMeteoClient {
                         : e.getClass().getSimpleName();
                 LOG.warn("Open-Meteo air quality batch chunk {}/{} failed ({} coords): {}",
                         chunkIndex, totalChunks, chunk.size(), reason);
+                if (stopForCoolOff("air quality batch", totalChunks - chunkIndex)) {
+                    break;
+                }
                 if (reason.contains("429")) {
                     hitRateLimit = true;
                     LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
@@ -781,6 +865,9 @@ public class OpenMeteoClient {
                 String reason = e.getMessage() != null ? e.getMessage()
                         : e.getClass().getSimpleName();
 
+                if (e instanceof OpenMeteoCoolOffException) {
+                    throw e;
+                }
                 if (reason.contains("429")) {
                     throw e;
                 }
@@ -788,15 +875,19 @@ public class OpenMeteoClient {
                     throw e;
                 }
                 if (attempt == CHUNK_MAX_RETRIES) {
+                    noteExhaustedTimeout(e);
                     break;
+                }
+                if (coolOffInForce()) {
+                    throw e;
                 }
 
                 retryCounter[0]++;
-                long backoffMs = chunkRetryBackoffMs * (1L << attempt);
+                long backoffMs = retryBackoffMs(e, attempt);
                 LOG.warn("Open-Meteo air quality chunk {}/{} attempt {} failed ({}) "
                                 + "— retrying in {}ms",
                         chunkIndex, totalChunks, attempt + 1, reason, backoffMs);
-                sleepQuietly(backoffMs);
+                sleeper.accept(backoffMs);
             }
         }
         throw new RuntimeException(
@@ -810,17 +901,24 @@ public class OpenMeteoClient {
         String longitudes = coords.stream()
                 .map(c -> String.valueOf(c[1])).collect(Collectors.joining(","));
 
+        requireNoCoolOff();
         LOG.debug("Open-Meteo batch air-quality chunk: {} points", coords.size());
-        String json = airQualityRestClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/v1/air-quality")
-                        .queryParam("latitude", latitudes)
-                        .queryParam("longitude", longitudes)
-                        .queryParam("hourly", AIR_QUALITY_PARAMS)
-                        .queryParam("timezone", "UTC")
-                        .build())
-                .retrieve()
-                .body(String.class);
+        String json;
+        try {
+            json = airQualityRestClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/v1/air-quality")
+                            .queryParam("latitude", latitudes)
+                            .queryParam("longitude", longitudes)
+                            .queryParam("hourly", AIR_QUALITY_PARAMS)
+                            .queryParam("timezone", "UTC")
+                            .build())
+                    .retrieve()
+                    .body(String.class);
+        } catch (RuntimeException e) {
+            noteRefusal(e);
+            throw e;
+        }
 
         return parseArrayResponse(json, OpenMeteoAirQualityResponse.class);
     }
@@ -844,6 +942,7 @@ public class OpenMeteoClient {
 
         int totalChunks = (int) Math.ceil((double) coords.size() / BATCH_COORD_LIMIT);
         int succeededChunks = 0;
+        int consecutiveTimeouts = 0;
         boolean hitRateLimit = false;
 
         // Pre-fill with nulls — failed chunk positions remain null
@@ -855,7 +954,7 @@ public class OpenMeteoClient {
 
             if (i > 0) {
                 long delay = hitRateLimit ? rateLimitBackoffMs : interChunkDelayMs;
-                sleepQuietly(delay);
+                sleeper.accept(delay);
             }
 
             int end = Math.min(i + BATCH_COORD_LIMIT, coords.size());
@@ -867,11 +966,24 @@ public class OpenMeteoClient {
                     results.set(i + j, chunkResults.get(j));
                 }
                 succeededChunks++;
+                consecutiveTimeouts = 0;
                 hitRateLimit = false;
             } catch (Exception e) {
                 String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                 LOG.warn("Open-Meteo batch chunk {}/{} failed ({} coords): {}",
                         chunkIndex, totalChunks, chunk.size(), reason);
+                // This loop has no in-method retry, so back-to-back timeouts are the "exhausted" signal.
+                if (isTimeout(e)) {
+                    consecutiveTimeouts++;
+                    if (consecutiveTimeouts >= TIMEOUT_CHUNKS_BEFORE_COOL_OFF) {
+                        startCoolOff(REASON_TIMEOUTS, COOL_OFF_MS);
+                    }
+                } else {
+                    consecutiveTimeouts = 0;
+                }
+                if (stopForCoolOff("forecast batch", totalChunks - chunkIndex)) {
+                    break;
+                }
                 if (reason.contains("429")) {
                     hitRateLimit = true;
                     LOG.warn("Rate limit detected — applying {}s backoff before next chunk",
@@ -907,27 +1019,34 @@ public class OpenMeteoClient {
         String longitudes = coords.stream()
                 .map(c -> String.valueOf(c[1])).collect(Collectors.joining(","));
 
+        requireNoCoolOff();
         LOG.debug("Open-Meteo batch forecast chunk: {} points, params={}",
                 coords.size(), hourlyParams.substring(0, Math.min(30, hourlyParams.length())) + "...");
-        String json = client.get()
-                .uri(uriBuilder -> {
-                    uriBuilder
-                            .path("/v1/forecast")
-                            .queryParam("latitude", latitudes)
-                            .queryParam("longitude", longitudes)
-                            .queryParam("hourly", hourlyParams)
-                            .queryParam("wind_speed_unit", "ms")
-                            .queryParam("timezone", "UTC");
-                    if (elevationList != null) {
-                        uriBuilder.queryParam("elevation", elevationList);
-                    }
-                    if (pastDays != null) {
-                        uriBuilder.queryParam("past_days", pastDays);
-                    }
-                    return uriBuilder.build();
-                })
-                .retrieve()
-                .body(String.class);
+        String json;
+        try {
+            json = client.get()
+                    .uri(uriBuilder -> {
+                        uriBuilder
+                                .path("/v1/forecast")
+                                .queryParam("latitude", latitudes)
+                                .queryParam("longitude", longitudes)
+                                .queryParam("hourly", hourlyParams)
+                                .queryParam("wind_speed_unit", "ms")
+                                .queryParam("timezone", "UTC");
+                        if (elevationList != null) {
+                            uriBuilder.queryParam("elevation", elevationList);
+                        }
+                        if (pastDays != null) {
+                            uriBuilder.queryParam("past_days", pastDays);
+                        }
+                        return uriBuilder.build();
+                    })
+                    .retrieve()
+                    .body(String.class);
+        } catch (RuntimeException e) {
+            noteRefusal(e);
+            throw e;
+        }
 
         return parseArrayResponse(json, OpenMeteoForecastResponse.class);
     }
@@ -945,6 +1064,125 @@ public class OpenMeteoClient {
         factory.setConnectTimeout(Duration.ofSeconds(10));
         factory.setReadTimeout(Duration.ofSeconds(30));
         return factory;
+    }
+
+    // ──────────────────────────────── Cool-off ────────────────────────────────
+
+    /** Fails fast with {@link OpenMeteoCoolOffException} while a cool-off is in force. */
+    private void requireNoCoolOff() {
+        CoolOff active = activeCoolOff();
+        if (active != null) {
+            throw new OpenMeteoCoolOffException(active.reason(), Instant.ofEpochMilli(active.untilMs()));
+        }
+    }
+
+    /** True while a cool-off is in force. */
+    private boolean coolOffInForce() {
+        return activeCoolOff() != null;
+    }
+
+    /**
+     * The cool-off in force, or {@code null}. The clock is read only when a cool-off has been set, so
+     * the common path costs one volatile read and the budget tests' clock sequences are undisturbed.
+     * An expired cool-off is cleared here.
+     */
+    private CoolOff activeCoolOff() {
+        CoolOff current = coolOff;
+        if (current == null) {
+            return null;
+        }
+        if (elapsedClockMs.getAsLong() < current.untilMs()) {
+            return current;
+        }
+        synchronized (this) {
+            if (coolOff == current) {
+                coolOff = null;
+            }
+        }
+        return null;
+    }
+
+    /** Starts (or extends, never shortens) a cool-off lasting {@code durationMs} from now. */
+    private void startCoolOff(String reason, long durationMs) {
+        startCoolOffUntil(reason, elapsedClockMs.getAsLong() + durationMs);
+    }
+
+    private synchronized void startCoolOffUntil(String reason, long untilMs) {
+        CoolOff existing = coolOff;
+        if (existing != null && existing.untilMs() >= untilMs) {
+            return;
+        }
+        coolOff = new CoolOff(untilMs, reason);
+        LOG.warn("Open-Meteo cool-off until {} UTC: {}",
+                COOL_OFF_END_TIME.format(Instant.ofEpochMilli(untilMs)), reason);
+    }
+
+    /**
+     * Starts a cool-off when {@code e} is a refusal that says Open-Meteo will keep refusing: a 429
+     * naming concurrent requests (10 minutes), the hourly limit (to the next whole UTC hour) or the
+     * daily limit (to the next UTC midnight). Any other 429, the minutely limit included, starts
+     * nothing: the loops' 61 second backoff handles it. The exception itself is never altered.
+     */
+    private void noteRefusal(Throwable e) {
+        String message = e.getMessage() != null ? e.getMessage() : "";
+        if (e instanceof OpenMeteoCoolOffException || !Integer.valueOf(HTTP_TOO_MANY_REQUESTS)
+                .equals(chunkStatusCode(e, message))) {
+            return;
+        }
+        // The message normally carries the response body; read the body too in case it does not.
+        String body = e instanceof RestClientResponseException rex ? rex.getResponseBodyAsString() : "";
+        String lower = (message + " " + body).toLowerCase(Locale.ROOT);
+        if (lower.contains("too many concurrent requests")) {
+            startCoolOff(REASON_CONCURRENT, COOL_OFF_MS);
+        } else if (lower.contains("hourly api request limit")) {
+            Instant now = Instant.ofEpochMilli(elapsedClockMs.getAsLong());
+            startCoolOffUntil(REASON_HOURLY,
+                    now.truncatedTo(ChronoUnit.HOURS).plus(1, ChronoUnit.HOURS).toEpochMilli());
+        } else if (lower.contains("daily api request limit")) {
+            Instant now = Instant.ofEpochMilli(elapsedClockMs.getAsLong());
+            startCoolOffUntil(REASON_DAILY,
+                    now.truncatedTo(ChronoUnit.DAYS).plus(1, ChronoUnit.DAYS).toEpochMilli());
+        }
+    }
+
+    /** A chunk that used every attempt and last failed on a timeout starts a ten minute cool-off. */
+    private void noteExhaustedTimeout(Exception lastFailure) {
+        if (isTimeout(lastFailure)) {
+            startCoolOff(REASON_TIMEOUTS, COOL_OFF_MS);
+        }
+    }
+
+    /**
+     * Called after a chunk failure inside a batch loop. When a cool-off is in force, logs one WARN
+     * and returns true so the loop stops, leaving the unfetched positions null.
+     */
+    private boolean stopForCoolOff(String batch, int chunksLeft) {
+        CoolOff active = activeCoolOff();
+        if (active == null) {
+            return false;
+        }
+        LOG.warn("Open-Meteo {} stopping early: cooling off until {} UTC ({}), {} chunk(s) left unfetched",
+                batch, COOL_OFF_END_TIME.format(Instant.ofEpochMilli(active.untilMs())),
+                active.reason(), chunksLeft);
+        return true;
+    }
+
+    /** Wait before retry number {@code attempt + 1}: 2 s, 4 s; 30 s, 60 s after a timeout. */
+    private long retryBackoffMs(Exception failure, int attempt) {
+        long base = isTimeout(failure) ? timeoutRetryBackoffMs : chunkRetryBackoffMs;
+        return base * (1L << attempt);
+    }
+
+    /** True when a {@link SocketTimeoutException} (read or connect) is anywhere in the cause chain. */
+    private static boolean isTimeout(Throwable failure) {
+        Throwable t = failure;
+        for (int depth = 0; t != null && depth < MAX_CAUSE_DEPTH; depth++) {
+            if (t instanceof SocketTimeoutException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     /**

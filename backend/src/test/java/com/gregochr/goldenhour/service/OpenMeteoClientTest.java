@@ -12,18 +12,26 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.ArrayList;
@@ -838,5 +846,456 @@ class OpenMeteoClientTest {
                 List.of(new double[]{55.0, -1.5})))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Failed to parse");
+    }
+
+    // ── Cool-off and timeout backoff (open-meteo-cool-off-plan.md) ────────────
+
+    private static final long COOL_OFF_T0 = Instant.parse("2026-11-02T13:47:00Z").toEpochMilli();
+    private static final long TEN_MINUTES_MS = 10 * 60 * 1000L;
+    private static final long RATE_LIMIT_BACKOFF_MS = 61_000L;
+    private static final String CONCURRENT_BODY = "{\"error\":true,\"reason\":\"Too many concurrent requests\"}";
+
+    /** A client with a fake clock at {@link #COOL_OFF_T0}, recorded sleeps and no real waiting. */
+    private OpenMeteoClient coolOffClient(RestClient forecastClient, RestClient airQualityClient,
+            List<Long> sleeps, long[] now) {
+        OpenMeteoClient client = new OpenMeteoClient(
+                forecastApi, airQualityApi, new ObjectMapper(), forecastClient, airQualityClient);
+        client.interChunkDelayMs = 0;
+        client.sleeper = sleeps::add;
+        client.elapsedClockMs = () -> now[0];
+        return client;
+    }
+
+    /** A 429 as production logs it: the message carries the response body after the status text. */
+    private static HttpClientErrorException tooManyRequests(String body) {
+        return HttpClientErrorException.create("429 Too Many Requests: \"" + body + "\"",
+                HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY,
+                body.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+    }
+
+    private static ResourceAccessException readTimeout() {
+        return new ResourceAccessException("I/O error: Read timed out",
+                new SocketTimeoutException("Read timed out"));
+    }
+
+    private static void verifyRequests(RestClient client, int count) {
+        verify(client.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve(), times(count)).body(String.class);
+    }
+
+    @Test
+    @DisplayName("a read timeout is retried after 30 s then 60 s, not 2 s and 4 s")
+    void readTimeout_retriesAfterThirtyThenSixtySeconds() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, readTimeout(), readTimeout(), readTimeout());
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(sleeps).containsExactly(30_000L, 60_000L);
+        verifyRequests(mockClient, 3);
+    }
+
+    @Test
+    @DisplayName("a body-read timeout (a plain RestClientException) is retried like a status-line one, after 30 s")
+    void bodyReadTimeout_isRetriedAfterThirtySeconds() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient,
+                new RestClientException("Error while extracting response",
+                        new SocketTimeoutException("Read timed out")),
+                buildJsonArray(5, 50.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(5));
+
+        assertThat(results).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(sleeps).containsExactly(30_000L);
+    }
+
+    @Test
+    @DisplayName("a 5xx and a connection reset keep the short 2 s then 4 s backoff")
+    void serverErrorAndConnectionReset_keepShortBackoff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient,
+                new HttpServerErrorException(HttpStatus.BAD_GATEWAY, "Bad Gateway"),
+                new ResourceAccessException("I/O error: Connection reset", new IOException("Connection reset")),
+                new HttpServerErrorException(HttpStatus.BAD_GATEWAY, "Bad Gateway"));
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(sleeps).containsExactly(2_000L, 4_000L);
+    }
+
+    @Test
+    @DisplayName("too many concurrent requests on chunk 2 of 5: chunks 3-5 send nothing, chunk 1 survives, "
+            + "no 61 s backoff")
+    void concurrentRefusal_stopsTheLoopWithoutBackoff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, buildJsonArray(20, 50.0), tooManyRequests(CONCURRENT_BODY));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(100));
+
+        assertThat(results).hasSize(100);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(20, 100)).containsOnlyNulls();
+        verifyRequests(mockClient, 2);
+        assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
+    }
+
+    @Test
+    @DisplayName("a second batch during the cool-off sends nothing: nulls for many chunks, "
+            + "a cool-off exception for one, with no retry and no '429' in the message")
+    void duringCoolOff_noRequestIsSent() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, now);
+        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
+        client.fetchForecastBriefingBatch(buildCoords(100));
+        verifyRequests(mockClient, 1);
+        sleeps.clear();
+        now[0] = COOL_OFF_T0 + TEN_MINUTES_MS - 1;
+        List<PrefetchCall> calls = new ArrayList<>();
+
+        List<OpenMeteoForecastResponse> many = client.fetchForecastBriefingBatch(buildCoords(100), calls::add);
+
+        assertThat(many).hasSize(100).containsOnlyNulls();
+        assertThat(calls).hasSize(1);
+        assertThat(calls.get(0).succeeded()).isFalse();
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class)
+                .hasMessageContaining("too many concurrent requests")
+                .hasMessageContaining("until 13:57 UTC")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("429"));
+        verifyRequests(mockClient, 1);
+        assertThat(sleeps).isEmpty();
+    }
+
+    @Test
+    @DisplayName("requests flow again once the clock passes the end of the cool-off")
+    void afterCoolOff_requestsFlowAgain() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
+        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY), buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(buildCoords(100));
+        now[0] = COOL_OFF_T0 + TEN_MINUTES_MS;
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(5));
+
+        assertThat(results).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
+        verifyRequests(mockClient, 2);
+    }
+
+    @ParameterizedTest(name = "minutely or unrecognised 429 body: {0}")
+    @ValueSource(strings = {
+            "{\"error\":true,\"reason\":\"Minutely API request limit exceeded. Please try again in one minute.\"}",
+            "", "{\"error\":true,\"reason\":\"something new\"}"})
+    @DisplayName("a minutely or unrecognised 429 keeps the 61 s backoff and the next chunk is still tried")
+    void minutelyRefusal_keepsBackoffAndContinues(String body) {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, tooManyRequests(body), buildJsonArray(20, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(40));
+
+        assertThat(results.subList(0, 20)).containsOnlyNulls();
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(sleeps).containsExactly(RATE_LIMIT_BACKOFF_MS);
+        verifyRequests(mockClient, 2);
+    }
+
+    @Test
+    @DisplayName("a 429 whose message lacks the body is still classified from the response body")
+    void refusalReason_readFromResponseBodyWhenMessageLacksIt() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, HttpClientErrorException.create(HttpStatus.TOO_MANY_REQUESTS,
+                "Too Many Requests", HttpHeaders.EMPTY, CONCURRENT_BODY.getBytes(StandardCharsets.UTF_8),
+                StandardCharsets.UTF_8));
+        client.fetchForecastBriefingBatch(buildCoords(40));
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class);
+        verifyRequests(mockClient, 1);
+    }
+
+    @Test
+    @DisplayName("an hourly-limit refusal cools off until the next whole UTC hour")
+    void hourlyRefusal_endsAtNextWholeHour() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
+        stubForecastBodies(mockClient, tooManyRequests(
+                "{\"error\":true,\"reason\":\"Hourly API request limit exceeded. Try again next hour.\"}"),
+                buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(buildCoords(40));
+
+        now[0] = Instant.parse("2026-11-02T13:59:59Z").toEpochMilli();
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class)
+                .hasMessageContaining("until 14:00 UTC")
+                .hasMessageContaining("hourly limit");
+        now[0] = Instant.parse("2026-11-02T14:00:00Z").toEpochMilli();
+
+        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("a daily-limit refusal cools off until the next UTC midnight")
+    void dailyRefusal_endsAtNextMidnight() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
+        stubForecastBodies(mockClient, tooManyRequests(
+                "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}"),
+                buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(buildCoords(40));
+
+        now[0] = Instant.parse("2026-11-02T23:59:59Z").toEpochMilli();
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class)
+                .hasMessageContaining("until 00:00 UTC")
+                .hasMessageContaining("daily limit");
+        now[0] = Instant.parse("2026-11-03T00:00:00Z").toEpochMilli();
+
+        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("a later, shorter refusal never shortens a cool-off already in force")
+    void laterShorterRefusal_neverShortensTheCoolOff() {
+        RestClient forecastClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        RestClient airClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(forecastClient, airClient, new ArrayList<>(), now);
+        stubForecastBodies(airClient, tooManyRequests(
+                "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}"));
+        // The forecast request is already in flight when the daily refusal lands; it then fails hourly.
+        when(forecastClient.get().uri(org.mockito.ArgumentMatchers.<Function
+                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
+                .retrieve().body(String.class)).thenAnswer(invocation -> {
+                    assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
+                            .isInstanceOf(RuntimeException.class);
+                    throw tooManyRequests("{\"reason\":\"Hourly API request limit exceeded.\"}");
+                });
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(RuntimeException.class);
+
+        now[0] = Instant.parse("2026-11-02T14:30:00Z").toEpochMilli();
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class)
+                .hasMessageContaining("until 00:00 UTC")
+                .hasMessageContaining("daily limit");
+    }
+
+    @Test
+    @DisplayName("a chunk whose three attempts all read-time-out starts a 10 minute cool-off")
+    void exhaustedTimeouts_startCoolOff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        long[] now = {COOL_OFF_T0};
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
+        stubForecastBodies(mockClient, readTimeout(), readTimeout(), readTimeout());
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+                .isInstanceOf(OpenMeteoCoolOffException.class)
+                .hasMessageContaining("repeated timeouts")
+                .hasMessageContaining("until 13:57 UTC");
+        verifyRequests(mockClient, 3);
+    }
+
+    @Test
+    @DisplayName("a chunk that times out then succeeds does not start a cool-off")
+    void timeoutThenSuccess_startsNoCoolOff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, readTimeout(), buildJsonArray(5, 50.0), buildJsonArray(5, 50.0));
+
+        client.fetchForecastBriefingBatch(buildCoords(5));
+        List<OpenMeteoForecastResponse> second = client.fetchForecastBriefingBatch(buildCoords(5));
+
+        assertThat(second).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
+        verifyRequests(mockClient, 3);
+    }
+
+    @Test
+    @DisplayName("a timeout exhausted on a connection reset (not a socket timeout) starts no cool-off")
+    void exhaustedNonTimeoutTransient_startsNoCoolOff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        ResourceAccessException reset =
+                new ResourceAccessException("I/O error: Connection reset", new IOException("Connection reset"));
+        stubForecastBodies(mockClient, reset, reset, reset, buildJsonArray(5, 50.0));
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBatch (no in-method retry): two consecutive timed-out chunks start the cool-off "
+            + "and the other chunks send nothing")
+    void forecastBatch_twoConsecutiveTimeouts_startCoolOffAndStop() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, readTimeout(), readTimeout());
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(buildCoords(100));
+
+        assertThat(results).hasSize(100).containsOnlyNulls();
+        verifyRequests(mockClient, 2);
+        assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
+    }
+
+    @Test
+    @DisplayName("fetchForecastBatch: timeouts separated by a success never start a cool-off")
+    void forecastBatch_nonConsecutiveTimeouts_startNoCoolOff() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, readTimeout(), buildJsonArray(20, 50.0), readTimeout(),
+                buildJsonArray(20, 51.0));
+
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(buildCoords(80));
+
+        assertThat(results.subList(0, 20)).containsOnlyNulls();
+        assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(40, 60)).containsOnlyNulls();
+        assertThat(results.subList(60, 80)).allSatisfy(r -> assertThat(r).isNotNull());
+        verifyRequests(mockClient, 4);
+    }
+
+    @Test
+    @DisplayName("fetchCloudOnlyBatch: a concurrent-requests refusal on chunk 1 of 3 sends nothing further")
+    void cloudOnlyBatch_concurrentRefusal_stops() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
+
+        List<OpenMeteoForecastResponse> results = client.fetchCloudOnlyBatch(buildCoords(50));
+
+        assertThat(results).hasSize(50).containsOnlyNulls();
+        verifyRequests(mockClient, 1);
+    }
+
+    @Test
+    @DisplayName("the pressure-level fetch sends nothing while cooling off")
+    void pressureLevelBatch_duringCoolOff_sendsNothing() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
+        client.fetchCloudOnlyBatch(buildCoords(50));
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45).containsOnlyNulls();
+        verifyRequests(mockClient, 1);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatchResilient: a concurrent-requests refusal on chunk 2 of 5 stops the loop, "
+            + "and a second call sends nothing")
+    void airQualityResilient_concurrentRefusal_stopsAndFailsFast() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(null, mockAirClient, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockAirClient, buildAirQualityJsonArray(20), tooManyRequests(CONCURRENT_BODY));
+
+        List<OpenMeteoAirQualityResponse> first = client.fetchAirQualityBatchResilient(buildCoords(100));
+        List<OpenMeteoAirQualityResponse> second = client.fetchAirQualityBatchResilient(buildCoords(100));
+
+        assertThat(first.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(first.subList(20, 100)).containsOnlyNulls();
+        assertThat(second).hasSize(100).containsOnlyNulls();
+        verifyRequests(mockAirClient, 2);
+        assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatchResilient: a read timeout is retried after 30 s then 60 s")
+    void airQualityResilient_readTimeout_retriesAfterThirtyThenSixtySeconds() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        List<Long> sleeps = new ArrayList<>();
+        OpenMeteoClient client = coolOffClient(null, mockAirClient, sleeps, new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockAirClient, readTimeout(), readTimeout(), readTimeout());
+
+        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(sleeps).containsExactly(30_000L, 60_000L);
+        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class);
+        verifyRequests(mockAirClient, 3);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatch (plain): a refusal classified at the chunk makes the next call fail fast")
+    void airQualityBatch_refusalMakesNextCallFailFast() {
+        RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(null, mockAirClient, new ArrayList<>(),
+                new long[]{COOL_OFF_T0});
+        stubForecastBodies(mockAirClient, tooManyRequests(CONCURRENT_BODY));
+        assertThatThrownBy(() -> client.fetchAirQualityBatch(buildCoords(5)))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThatThrownBy(() -> client.fetchAirQualityBatch(buildCoords(5)))
+                .isInstanceOf(OpenMeteoCoolOffException.class);
+        verifyRequests(mockAirClient, 1);
+    }
+
+    @Test
+    @DisplayName("the single-location calls classify a refusal and then fail fast without calling the API")
+    void singleLocationCalls_failFastDuringCoolOff() {
+        OpenMeteoClient client = coolOffClient(null, null, new ArrayList<>(), new long[]{COOL_OFF_T0});
+        when(forecastApi.getForecast(eq(54.77), eq(-1.57), eq(OpenMeteoClient.FORECAST_PARAMS), eq("ms"),
+                eq("UTC"))).thenThrow(tooManyRequests(CONCURRENT_BODY));
+
+        assertThatThrownBy(() -> client.fetchForecast(54.77, -1.57))
+                .isInstanceOf(HttpClientErrorException.class);
+
+        assertThatThrownBy(() -> client.fetchForecast(54.77, -1.57))
+                .isInstanceOf(OpenMeteoCoolOffException.class);
+        assertThatThrownBy(() -> client.fetchAirQuality(54.77, -1.57))
+                .isInstanceOf(OpenMeteoCoolOffException.class);
+        verify(forecastApi, times(1)).getForecast(eq(54.77), eq(-1.57), eq(OpenMeteoClient.FORECAST_PARAMS),
+                eq("ms"), eq("UTC"));
+        verify(airQualityApi, times(0)).getAirQuality(eq(54.77), eq(-1.57),
+                eq(OpenMeteoClient.AIR_QUALITY_PARAMS), eq("UTC"));
+    }
+
+    @Test
+    @DisplayName("with no cool-off set the clock is never read by a batch")
+    void noCoolOff_clockIsNeverRead() {
+        RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), new long[]{COOL_OFF_T0});
+        int[] reads = {0};
+        client.elapsedClockMs = () -> {
+            reads[0]++;
+            return COOL_OFF_T0;
+        };
+        stubForecastBodies(mockClient, buildJsonArray(20, 50.0), new RuntimeException("429 Too Many Requests"),
+                buildJsonArray(5, 52.0));
+
+        client.fetchForecastBriefingBatch(buildCoords(45));
+
+        assertThat(reads[0]).isZero();
     }
 }

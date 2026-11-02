@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.config;
 
+import com.gregochr.goldenhour.service.OpenMeteoCoolOffException;
 import io.github.resilience4j.common.circuitbreaker.configuration.CircuitBreakerConfigCustomizer;
 import io.github.resilience4j.common.retry.configuration.RetryConfigCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -70,6 +71,32 @@ public class ResilienceConfig {
     public RetryConfigCustomizer openMeteoRetryCustomizer() {
         return RetryConfigCustomizer.of("open-meteo", builder ->
                 builder.retryOnException(new TransientHttpErrorPredicate()));
+    }
+
+    /**
+     * Customises the "open-meteo" circuit breaker to ignore {@link OpenMeteoCoolOffException}. A call
+     * refused locally during a cool-off never reached Open-Meteo, so it is neither a failure nor a
+     * success: without this, a handful of fast-failing calls would open the breaker (which feeds the
+     * admin health indicator) for a refusal the cool-off already accounts for.
+     *
+     * @return a customizer that makes the breaker ignore a local cool-off refusal
+     */
+    @Bean
+    public CircuitBreakerConfigCustomizer openMeteoCircuitBreakerCustomizer() {
+        return CircuitBreakerConfigCustomizer.of("open-meteo", builder ->
+                builder.ignoreExceptions(OpenMeteoCoolOffException.class));
+    }
+
+    /**
+     * Customises the "open-meteo-briefing" circuit breaker to ignore {@link OpenMeteoCoolOffException},
+     * for the same reason as {@link #openMeteoCircuitBreakerCustomizer()}.
+     *
+     * @return a customizer that makes the breaker ignore a local cool-off refusal
+     */
+    @Bean
+    public CircuitBreakerConfigCustomizer openMeteoBriefingCircuitBreakerCustomizer() {
+        return CircuitBreakerConfigCustomizer.of("open-meteo-briefing", builder ->
+                builder.ignoreExceptions(OpenMeteoCoolOffException.class));
     }
 
     /**
