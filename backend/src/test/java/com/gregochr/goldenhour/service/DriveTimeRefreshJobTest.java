@@ -24,7 +24,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -905,6 +907,81 @@ class DriveTimeRefreshJobTest {
 
             verify(driveDurationService, times(3)).measureForUser(1L, 54.97, -1.61);
             verifyNoMoreInteractions(driveTimeWriter);
+        }
+    }
+
+    @Nested
+    @DisplayName("Scheduler fire outcome")
+    class FireOutcome {
+
+        @Test
+        @DisplayName("No user has a home: SUCCEEDED, nothing to refresh")
+        void noUsersWithAHome() {
+            when(userRepository.findAll()).thenReturn(List.of(user(1L, null, null, true)));
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("No users with a home location");
+        }
+
+        @Test
+        @DisplayName("Everyone refreshed: SUCCEEDED with the refreshed count")
+        void everyoneRefreshed() {
+            List<UserDriveTimeEntity> first = rowsFor(1L, 2);
+            List<UserDriveTimeEntity> second = rowsFor(2L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(withHome(1L), withHome(2L)));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.of(first));
+            when(driveDurationService.measureForUser(2L, 54.97, -1.61)).thenReturn(Optional.of(second));
+            when(driveTimeWriter.storeIfHomeUnchanged(1L, 54.97, -1.61, first, NOW)).thenReturn(true);
+            when(driveTimeWriter.storeIfHomeUnchanged(2L, 54.97, -1.61, second, NOW)).thenReturn(true);
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(true));
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("2 refreshed · 0 superseded · 0 failed · 0 unchanged");
+        }
+
+        @Test
+        @DisplayName("One user fails and another is refreshed: PARTIAL")
+        void oneFailsOneRefreshed() {
+            List<UserDriveTimeEntity> second = rowsFor(2L, 2);
+            when(userRepository.findAll()).thenReturn(List.of(withHome(1L), withHome(2L)));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61))
+                    .thenThrow(new IllegalStateException("ORS exploded"));
+            when(driveDurationService.measureForUser(2L, 54.97, -1.61)).thenReturn(Optional.of(second));
+            when(driveTimeWriter.storeIfHomeUnchanged(2L, 54.97, -1.61, second, NOW)).thenReturn(true);
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(true));
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+            assertThat(report.summary()).isEqualTo("1 refreshed · 0 superseded · 1 failed · 0 unchanged");
+        }
+
+        @Test
+        @DisplayName("Every measurement comes back empty: FAILED")
+        void everyMeasurementEmpty() {
+            when(userRepository.findAll()).thenReturn(List.of(withHome(1L)));
+            when(driveDurationService.measureForUser(1L, 54.97, -1.61)).thenReturn(Optional.empty());
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(true));
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+            assertThat(report.summary()).isEqualTo("0 refreshed · 0 superseded · 1 failed · 0 unchanged");
+        }
+
+        @Test
+        @DisplayName("A scheduled fire with nobody due: SUCCEEDED, the skipped users counted as unchanged")
+        void nobodyDue() {
+            AppUserEntity measured = withHome(1L);
+            measured.setDriveTimesCalculatedAt(NOW.minusSeconds(3600));
+            when(userRepository.findAll()).thenReturn(List.of(measured));
+            when(locationRepository.findMaxCreatedAt()).thenReturn(null);
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
+
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("0 refreshed · 1 unchanged");
         }
     }
 }

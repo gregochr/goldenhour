@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
@@ -214,6 +215,7 @@ public class DriveTimeRefreshJob {
         if (users.isEmpty()) {
             LOG.info("Drive time refresh ({}): no enabled users with a home location — nothing "
                     + "to do", routeName(manual));
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "No users with a home location");
             return;
         }
 
@@ -224,6 +226,8 @@ public class DriveTimeRefreshJob {
             LOG.info("Drive time refresh ({}) complete — 0 refreshed, 0 superseded, 0 failed, "
                     + "{} skipped as unchanged, {} considered — no OpenRouteService calls made",
                     routeName(manual), skippedUnchanged, users.size());
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                    "0 refreshed · " + skippedUnchanged + " unchanged");
             return;
         }
 
@@ -315,6 +319,9 @@ public class DriveTimeRefreshJob {
                 + "{} superseded by a home move, {} failed, {} skipped as unchanged, {} considered",
                 routeName(manual), refreshed, locationsWritten, superseded, failed,
                 skippedUnchanged, users.size());
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, due.size()),
+                refreshed + " refreshed · " + superseded + " superseded · " + failed + " failed · "
+                        + skippedUnchanged + " unchanged");
     }
 
     private static String routeName(boolean manual) {

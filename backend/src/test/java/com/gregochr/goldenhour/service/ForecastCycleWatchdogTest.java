@@ -28,7 +28,9 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -720,5 +722,45 @@ class ForecastCycleWatchdogTest {
         watchdog.registerJob();
 
         verify(scheduler).registerJobTarget(eq(ForecastCycleWatchdog.JOB_KEY), any(Runnable.class));
+    }
+
+    @Test
+    @DisplayName("a pass with nothing wrong reports SUCCEEDED 'All cycles on time'")
+    void reports_allCyclesOnTime() {
+        nightly(cronJob(NIGHTLY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE));
+        when(runs.findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                eq(CycleType.NIGHTLY), eq(Instant.parse("2026-10-13T01:00:00Z")),
+                eq(clock.instant()))).thenReturn(Optional.of(
+                run(1, CycleType.NIGHTLY, Instant.parse("2026-10-13T01:00:03Z"),
+                        PipelineRunStatus.COMPLETED)));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(watchdog::check);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("All cycles on time");
+    }
+
+    @Test
+    @DisplayName("a pass that sends an alert reports SUCCEEDED with the alert count")
+    void reports_alertsSent() {
+        nightly(cronJob(NIGHTLY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(watchdog::check);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 alert sent");
+        verifyAlertedOnce(NIGHTLY, "did not start");
+    }
+
+    @Test
+    @DisplayName("a cycle whose check throws makes the pass PARTIAL while the others still run")
+    void reports_partialWhenOneCycleCheckThrows() {
+        when(configs.findByJobKey(NIGHTLY)).thenThrow(new IllegalStateException("db down"));
+        when(configs.findByJobKey(INTRADAY)).thenReturn(Optional.empty());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(watchdog::check);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 of 3 cycle checks failed · No alerts");
     }
 }

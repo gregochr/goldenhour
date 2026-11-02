@@ -19,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -26,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
 
 /**
  * Unit tests for {@link ForecastDispositionService}. The service is a thin
@@ -335,5 +338,39 @@ class ForecastDispositionServiceTest {
                 .containsEntry("SKIPPED_NO_REFRESH_NEEDED", 1L);
         assertThat(response.entries().get(0).disposition())
                 .isEqualTo("SKIPPED_NO_REFRESH_NEEDED");
+    }
+
+    @Test
+    @DisplayName("pruneStale reports SUCCEEDED with the rows deleted")
+    void pruneStale_reportsRowsDeleted() {
+        Instant before = Instant.now();
+        when(repository.deleteByCreatedAtBefore(argThat(cutoff -> isRetentionCutoff(cutoff, before))))
+                .thenReturn(5);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::pruneStale);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("5 rows deleted");
+    }
+
+    @Test
+    @DisplayName("pruneStale with nothing stale reports SUCCEEDED with 0 rows deleted")
+    void pruneStale_zeroRows() {
+        Instant before = Instant.now();
+        when(repository.deleteByCreatedAtBefore(argThat(cutoff -> isRetentionCutoff(cutoff, before))))
+                .thenReturn(0);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::pruneStale);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 rows deleted");
+    }
+
+    /** True when the cutoff is now minus the retention: between {@code before} and the current time, less it. */
+    private static boolean isRetentionCutoff(Instant cutoff, Instant before) {
+        Instant earliest = before.minus(ForecastDispositionService.RETENTION_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        Instant latest = Instant.now().minus(ForecastDispositionService.RETENTION_DAYS,
+                java.time.temporal.ChronoUnit.DAYS);
+        return cutoff != null && !cutoff.isBefore(earliest) && !cutoff.isAfter(latest);
     }
 }

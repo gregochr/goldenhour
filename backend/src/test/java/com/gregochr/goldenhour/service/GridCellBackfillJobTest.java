@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -82,8 +83,10 @@ class GridCellBackfillJobTest {
         when(locationEnrichmentService.fetchGridCell(54.9210, -1.3620))
                 .thenReturn(new double[]{54.95, -1.35});
 
-        job.runScheduled();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 of 2 locations filled");
         assertThat(penshaw.getGridLat()).isEqualTo(54.9);
         assertThat(penshaw.getGridLng()).isEqualTo(-1.5);
         assertThat(roker.getGridLat()).isEqualTo(54.95);
@@ -100,8 +103,10 @@ class GridCellBackfillJobTest {
         when(locationRepository.findByGridLatIsNullOrGridLngIsNullOrderByNameAsc())
                 .thenReturn(List.of());
 
-        job.runScheduled();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Every location already has a grid cell");
         // The steady state. A nightly job that is normally a no-op must actually cost nothing.
         verifyNoInteractions(locationEnrichmentService);
         verify(locationRepository, never()).updateGridCell(anyLong(), anyDouble(), anyDouble());
@@ -118,8 +123,10 @@ class GridCellBackfillJobTest {
         when(locationEnrichmentService.fetchGridCell(54.8830, -1.4809))
                 .thenReturn(new double[]{54.9, -1.5});
 
-        job.runScheduled();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 of 2 locations filled · 1 failed");
         assertThat(bad.hasGridCell()).isFalse();
         assertThat(good.getGridLat()).isEqualTo(54.9);
         verify(locationRepository, never()).updateGridCell(eq(bad.getId()), anyDouble(), anyDouble());
@@ -161,8 +168,10 @@ class GridCellBackfillJobTest {
         when(locationEnrichmentService.fetchGridCell(anyDouble(), eq(-2.0)))
                 .thenReturn(null);
 
-        job.runScheduled();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("Gave up after 5 lookup failures in a row · 1 filled");
         // The one success before the outage is kept...
         verify(locationRepository).updateGridCell(first.getId(), 54.1, -1.1);
         // ...and the run stops after the 5th consecutive failure rather than working through the
@@ -222,5 +231,20 @@ class GridCellBackfillJobTest {
 
     private LocationEntity entity(String name, double lat, double lon) {
         return LocationEntity.builder().id(nextId++).name(name).lat(lat).lon(lon).build();
+    }
+
+    @Test
+    @DisplayName("an outage from the first lookup reports FAILED, having filled nothing")
+    void reports_failedWhenAnOutageFillsNothing() {
+        List<LocationEntity> pending = new ArrayList<>();
+        IntStream.range(0, 6).forEach(i -> pending.add(entity("Down " + i, 55.0 + i, -2.0)));
+        when(locationRepository.findByGridLatIsNullOrGridLngIsNullOrderByNameAsc()).thenReturn(pending);
+        IntStream.range(0, 5).forEach(i ->
+                when(locationEnrichmentService.fetchGridCell(55.0 + i, -2.0)).thenReturn(null));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Gave up after 5 lookup failures in a row · 0 filled");
     }
 }

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
 import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.RunProgress;
@@ -379,8 +380,11 @@ public class RunProgressTracker {
                 candidates.add(progress);
             }
         }
+        int evicted = 0;
         for (RunProgress progress : candidates) {
-            evict(progress, now);
+            if (evict(progress, now)) {
+                evicted++;
+            }
         }
         synchronized (completionLock) {
             // Emitter lists of ids with no run: left empty by subscribers that have since been told the
@@ -388,6 +392,8 @@ public class RunProgressTracker {
             runEmitters.entrySet().removeIf(entry -> !activeRuns.containsKey(entry.getKey())
                     && entry.getValue().isEmpty());
         }
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(evicted, "finished run", "finished runs") + " removed");
     }
 
     private static boolean isEvictable(RunProgress progress, Instant now) {
@@ -395,18 +401,19 @@ public class RunProgressTracker {
         return completedAt != null && !now.isBefore(completedAt.plus(COMPLETED_RUN_RETENTION));
     }
 
-    private void evict(RunProgress progress, Instant now) {
+    private boolean evict(RunProgress progress, Instant now) {
         long jobRunId = progress.getJobRunId();
         synchronized (completionLock) {
             synchronized (progress.streamLock()) {
                 if (activeRuns.get(jobRunId) != progress || !isEvictable(progress, now)) {
-                    return;
+                    return false;
                 }
                 activeRuns.remove(jobRunId, progress);
                 completions.remove(jobRunId);
                 // A completed run's subscribers were all ended by its run-complete.
                 runEmitters.remove(jobRunId);
                 LOG.info("Run progress for jobRunId={} evicted (completed, retention elapsed)", jobRunId);
+                return true;
             }
         }
     }

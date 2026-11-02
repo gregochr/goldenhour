@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.ForecastEvaluationPromptRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -76,6 +77,8 @@ public class ForecastPromptCleanupJob {
         int deleted = repository.deleteByCreatedAtBefore(cutoff);
         LOG.info("[FORECAST PROMPT] Cleanup complete — deleted {} row(s) created before {} "
                 + "({} day retention)", deleted, cutoff, retentionDays);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(deleted, "row", "rows") + " deleted");
         return deleted;
     }
 }

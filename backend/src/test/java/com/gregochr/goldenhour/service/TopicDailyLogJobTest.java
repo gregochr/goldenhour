@@ -36,6 +36,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -829,5 +830,44 @@ class TopicDailyLogJobTest {
         job.runScheduled();
 
         assertThat(savedRowsOfType("NLC")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a clean run reports SUCCEEDED with all seven topic groups logged for yesterday")
+    void reports_cleanRun() {
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("7 of 7 topic groups logged for 2027-03-05");
+    }
+
+    @Test
+    @DisplayName("one topic read failing reports PARTIAL while the others are still logged")
+    void reports_partialWhenOneTopicFails() {
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
+                .thenThrow(new IllegalStateException("DB unavailable"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("6 of 7 topic groups logged for 2027-03-05 · 1 failed");
+    }
+
+    @Test
+    @DisplayName("every topic read failing reports FAILED")
+    void reports_failedWhenEveryTopicFails() {
+        IllegalStateException down = new IllegalStateException("DB unavailable");
+        when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(YESTERDAY,
+                List.of(TargetType.SUNRISE, TargetType.SUNSET))).thenThrow(down);
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenThrow(down);
+        when(locationRepository.findCoastalLocations()).thenThrow(down);
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
+                .thenThrow(down);
+        when(nlcClarityService.isNlcSeason(YESTERDAY)).thenThrow(down);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 of 7 topic groups logged for 2027-03-05 · 7 failed");
     }
 }

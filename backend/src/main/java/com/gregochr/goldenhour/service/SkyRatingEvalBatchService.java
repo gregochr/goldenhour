@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
@@ -134,6 +135,7 @@ public class SkyRatingEvalBatchService {
         List<EvaluationModel> models = evalService.scheduledModels();
         if (models.isEmpty()) {
             LOG.info("Sky-rating eval weekly batch skipped: every model is switched off");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Every model is switched off");
             return List.of();
         }
         List<RunContext> contexts = new ArrayList<>();
@@ -155,6 +157,8 @@ public class SkyRatingEvalBatchService {
             LOG.error("Sky-rating eval batch submission failed; marking all runs FAILED", e);
             contexts.forEach(ctx -> evalService.finalise(ctx.run(), ctx.agg(),
                     SkyRatingEvalStatus.FAILED, e.getMessage(), startMillis(ctx.run())));
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "Batch submission failed: " + e.getMessage());
             return runs;
         }
 
@@ -163,6 +167,8 @@ public class SkyRatingEvalBatchService {
         contexts.forEach(ctx -> evalService.attachBatchId(ctx.run(), batchId));
         LOG.info("Sky-rating eval batch {} submitted for {} run(s); reconciler will finalise them",
                 batchId, runs.size());
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                "Batch submitted for " + runs.size() + (runs.size() == 1 ? " model" : " models"));
         return runs;
     }
 
@@ -182,21 +188,28 @@ public class SkyRatingEvalBatchService {
             running = evalService.findRunning();
         } catch (RuntimeException e) {
             LOG.error("Sky-rating eval reconciler: failed to load RUNNING runs; skipping tick", e);
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "Could not load running evaluations: " + e.getMessage());
             return;
         }
         if (running.isEmpty()) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "No evaluations in flight");
             return;
         }
 
+        int failures = 0;
+        int orphans = 0;
         Map<String, List<SkyRatingEvalRunEntity>> byBatch = new LinkedHashMap<>();
         for (SkyRatingEvalRunEntity run : running) {
             String batchId = run.getBatchId();
             if (batchId == null || batchId.isBlank()) {
+                orphans++;
                 try {
                     reclaimOrphanWithoutBatch(run);
                 } catch (RuntimeException e) {
                     LOG.error("Sky-rating eval reconciler: reclaiming orphan run {} failed; "
                             + "will retry next tick", run.getId(), e);
+                    failures++;
                 }
             } else {
                 byBatch.computeIfAbsent(batchId, k -> new ArrayList<>()).add(run);
@@ -208,8 +221,16 @@ public class SkyRatingEvalBatchService {
             } catch (RuntimeException e) {
                 LOG.error("Sky-rating eval reconciler: batch {} failed; will retry next tick",
                         entry.getKey(), e);
+                failures++;
             }
         }
+        int checked = byBatch.size();
+        int units = checked + orphans;
+        String summary = checked + (checked == 1 ? " batch checked" : " batches checked")
+                + (failures > 0 ? " · " + failures + " failed" : "");
+        SchedulerFireOutcome.report(failures == 0 ? SchedulerFireStatus.SUCCEEDED
+                : (failures >= units ? SchedulerFireStatus.FAILED : SchedulerFireStatus.PARTIAL),
+                summary);
     }
 
     /** Checks one batch's status and either finalises (ENDED) or fails-past-deadline its runs. */

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelinePhaseStatus;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
@@ -15,6 +16,7 @@ import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.goldenhour.service.ForecastCycleJobs;
 import com.gregochr.goldenhour.service.LocationFailureService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
@@ -519,6 +521,7 @@ public class PipelineOrchestrator {
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
         PipelineRunEntity run = pipelineRunService.startRun(cycleType);
+        SchedulerFireOutcome.linkPipelineRun(run.getId());
         boolean submitted;
         try {
             submitted = submitPhase(run.getId(), cycleType, candidateStrategy, eligibilityPolicy);
@@ -526,6 +529,8 @@ public class PipelineOrchestrator {
             LOG.error("Pipeline run {} ({}): submission phase failed — {}", run.getId(),
                     cycleType, e.getMessage(), e);
             pipelineRunService.failRun(run.getId(), "Submit phase failed: " + e.getMessage());
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "Submit phase failed: " + e.getMessage());
             return;
         }
         if (!submitted) {
@@ -698,6 +703,8 @@ public class PipelineOrchestrator {
                         .orElse(firstPhase);
                 pipelineRunService.failPhase(runId, inFlight, reason);
                 pipelineRunService.failRun(runId, reason);
+                SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED,
+                        "Dropped — another forecast submission was already running");
                 return false;
             }
             // The submission ran, but not every bucket necessarily reached Anthropic. The phase
@@ -713,6 +720,7 @@ public class PipelineOrchestrator {
             } else {
                 pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
             }
+            reportSubmission(summary);
             return true;
         } catch (RuntimeException e) {
             // Fail whichever phase was in flight when the exception fired — for
@@ -723,6 +731,28 @@ public class PipelineOrchestrator {
                     .orElse(firstPhase);
             pipelineRunService.failPhase(runId, failed, e.getMessage());
             throw e;
+        }
+    }
+
+    /**
+     * Reports what the submission step amounted to on the scheduler thread: every bucket submitted is
+     * {@code SUCCEEDED}, some buckets lost is {@code PARTIAL}, every bucket lost is {@code FAILED}.
+     */
+    private static void reportSubmission(BatchSubmissionSummary summary) {
+        if (summary == null || summary.bucketsAttempted() == 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "Nothing to submit");
+            return;
+        }
+        String counts = summary.bucketsSubmitted() + " of " + summary.bucketsAttempted()
+                + " batches submitted";
+        if (summary.allSucceeded()) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, counts);
+        } else if (summary.bucketsSubmitted() == 0) {
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "No batches submitted · " + summary.lostRequestCount() + " requests lost");
+        } else {
+            SchedulerFireOutcome.report(SchedulerFireStatus.PARTIAL,
+                    counts + " · " + summary.lostRequestCount() + " requests lost");
         }
     }
 

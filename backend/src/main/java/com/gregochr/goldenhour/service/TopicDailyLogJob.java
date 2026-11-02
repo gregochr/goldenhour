@@ -258,21 +258,33 @@ public class TopicDailyLogJob {
      */
     void runScheduled() {
         LocalDate yesterday = ForecastHorizon.today(clock).minusDays(1);
-        logDustAndStormSurge(yesterday);
-        logInversion(yesterday);
-        logMist(yesterday);
-        logSnow(yesterday);
-        logTides(yesterday);
-        logAurora(yesterday);
-        logNlc(yesterday);
+        // DUST and STORM_SURGE share one read, so they count as one logger here.
+        boolean[] logged = {
+            logDustAndStormSurge(yesterday),
+            logInversion(yesterday),
+            logMist(yesterday),
+            logSnow(yesterday),
+            logTides(yesterday),
+            logAurora(yesterday),
+            logNlc(yesterday)
+        };
+        int failed = 0;
+        for (boolean ok : logged) {
+            if (!ok) {
+                failed++;
+            }
+        }
         LOG.info("Topic daily log complete for {}", yesterday);
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, logged.length),
+                (logged.length - failed) + " of " + logged.length + " topic groups logged for " + yesterday
+                        + (failed > 0 ? " · " + failed + " failed" : ""));
     }
 
     /**
      * DUST and STORM_SURGE share one query — both columns are written on the same
      * {@code forecast_evaluation} rows, so reading them together halves the roster sweep.
      */
-    private void logDustAndStormSurge(LocalDate date) {
+    private boolean logDustAndStormSurge(LocalDate date) {
         try {
             List<ForecastEvaluationEntity> rows =
                     forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(date, EVENT_TARGET_TYPES);
@@ -308,8 +320,10 @@ public class TopicDailyLogJob {
 
             persist(TYPE_DUST, date, dustByRegion);
             persist(TYPE_STORM_SURGE, date, surgeByRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: DUST/STORM_SURGE failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
@@ -320,7 +334,7 @@ public class TopicDailyLogJob {
      * Claude's echo is never read, so a slot that never reached Claude counts exactly like one that
      * did. See the class javadoc for why this is a different topic type from the one logged before.
      */
-    private void logInversion(LocalDate date) {
+    private boolean logInversion(LocalDate date) {
         try {
             List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
@@ -346,8 +360,10 @@ public class TopicDailyLogJob {
             }
 
             persist(TYPE_INVERSION, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: INVERSION failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
@@ -363,7 +379,7 @@ public class TopicDailyLogJob {
      * measurement that night logs nothing: unmeasured, never "no mist". The band is READ, never
      * re-derived from the score, and Claude's echo (which does not exist yet) is never consulted.
      */
-    private void logMist(LocalDate date) {
+    private boolean logMist(LocalDate date) {
         try {
             List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
@@ -389,12 +405,14 @@ public class TopicDailyLogJob {
             }
 
             persist(TYPE_MIST, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: MIST failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
-    private void logSnow(LocalDate date) {
+    private boolean logSnow(LocalDate date) {
         try {
             List<SlotAtmosphereEntity> rows = slotAtmosphereRepository.findInDateRange(date, date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
@@ -416,8 +434,10 @@ public class TopicDailyLogJob {
             }
 
             persist(TYPE_SNOW, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: SNOW failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
@@ -426,7 +446,7 @@ public class TopicDailyLogJob {
      * roster-wide — the day's biggest high water at each coastal location against that location's
      * own spring/P95 thresholds — but grouped per region rather than unioned across the roster.
      */
-    private void logTides(LocalDate date) {
+    private boolean logTides(LocalDate date) {
         try {
             List<LocationEntity> coastal = locationRepository.findCoastalLocations();
             Map<Long, LocationEntity> locationById = new HashMap<>();
@@ -436,7 +456,7 @@ public class TopicDailyLogJob {
                 }
             }
             if (locationById.isEmpty()) {
-                return;
+                return true;
             }
 
             LocalDateTime windowStart = ForecastHorizon.ukDayStartUtc(date);
@@ -491,8 +511,10 @@ public class TopicDailyLogJob {
             }
 
             persist(labelType, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: SPRING_TIDE/KING_TIDE failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
@@ -503,7 +525,7 @@ public class TopicDailyLogJob {
      * the same reason: an admin's fake-Kp test run must not log a false AURORA presence for a
      * night nothing real was ever measured on.
      */
-    private void logAurora(LocalDate date) {
+    private boolean logAurora(LocalDate date) {
         try {
             List<AuroraForecastResultEntity> rows = auroraForecastResultRepository
                     .findByForecastDateAndSimulatedFalseFetchingLocation(date);
@@ -521,8 +543,10 @@ public class TopicDailyLogJob {
             }
 
             persist(TYPE_AURORA, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: AURORA failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 
@@ -542,7 +566,7 @@ public class TopicDailyLogJob {
      * unbiased fact available for any date — not an observed sighting; see the class Javadoc. The
      * season is not region-specific, so every region gets the same reading.
      */
-    private void logNlc(LocalDate date) {
+    private boolean logNlc(LocalDate date) {
         try {
             boolean inSeason = nlcClarityService.isNlcSeason(date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
@@ -556,8 +580,10 @@ public class TopicDailyLogJob {
             }
 
             persist(TYPE_NLC, date, byRegion);
+            return true;
         } catch (Exception e) {
             LOG.warn("Topic daily log: NLC failed for {}: {}", date, e.getMessage());
+            return false;
         }
     }
 

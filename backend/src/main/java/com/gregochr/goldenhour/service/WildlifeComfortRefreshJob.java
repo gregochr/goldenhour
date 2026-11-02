@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HourlyComfort;
@@ -124,6 +125,7 @@ public class WildlifeComfortRefreshJob {
     public void run(boolean manual) {
         if (!running.compareAndSet(false, true)) {
             LOG.info("Wildlife comfort refresh already running — skipping concurrent trigger");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "Already running — skipped");
             return;
         }
         try {
@@ -147,6 +149,7 @@ public class WildlifeComfortRefreshJob {
         if (hides.isEmpty()) {
             LOG.info("Wildlife comfort refresh: no WILDLIFE-only locations — nothing to fetch");
             jobRunService.completeRun(jobRun, 0, 0, dates);
+            SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED, "No wildlife hides to refresh");
             return;
         }
 
@@ -169,6 +172,8 @@ public class WildlifeComfortRefreshJob {
                     "wildlife-comfort-forecast-batch(" + coords.size() + ")", null,
                     System.currentTimeMillis() - startMs, null, null, false, e.getMessage());
             jobRunService.completeRun(jobRun, 0, hides.size() * dates.size(), dates);
+            SchedulerFireOutcome.report(SchedulerFireStatus.FAILED,
+                    "Open-Meteo forecast failed: " + e.getMessage());
             return;
         }
 
@@ -196,6 +201,9 @@ public class WildlifeComfortRefreshJob {
         jobRunService.completeRun(jobRun, succeeded, failed, dates);
         LOG.info("Wildlife comfort refresh complete — {} hide(s), {} location-date(s) written, {} failed",
                 hides.size(), succeeded, failed);
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(failed, succeeded + failed),
+                SchedulerFireOutcome.count(hides.size(), "hide", "hides") + " · " + succeeded + " of "
+                        + (succeeded + failed) + " days written");
     }
 
     /**

@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.slf4j.Logger;
@@ -190,6 +192,8 @@ public class ForecastDispositionService {
         int deleted = repository.deleteByCreatedAtBefore(cutoff);
         LOG.info("[DISPOSITION] Cleanup complete — deleted {} row(s) older than {} day(s)",
                 deleted, RETENTION_DAYS);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(deleted, "row", "rows") + " deleted");
     }
 
     private static String truncate(String value, int maxLength) {

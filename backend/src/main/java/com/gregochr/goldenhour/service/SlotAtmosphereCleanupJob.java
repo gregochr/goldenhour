@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -133,6 +134,8 @@ public class SlotAtmosphereCleanupJob {
         int deleted = repository.deleteByEvaluationDateBefore(cutoff);
         LOG.info("[SLOT ATMOSPHERE] Cleanup complete — deleted {} row(s) with evaluation_date before {} "
                 + "({} day retention)", deleted, cutoff, retentionDays);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(deleted, "row", "rows") + " deleted");
         return deleted;
     }
 }

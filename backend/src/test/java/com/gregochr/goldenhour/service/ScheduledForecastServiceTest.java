@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.model.TideFetchResult;
 import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.service.notification.AdminAlertService;
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,7 +84,7 @@ class ScheduledForecastServiceTest {
         scheduledForecastService.refreshTideExtremes();
 
         ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
-        verify(tideService, times(1)).fetchAndStoreTideExtremes(locCaptor.capture(),
+        verify(tideService, times(1)).fetchAndStoreTideExtremesWithOutcome(locCaptor.capture(),
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getValue().getName()).isEqualTo("Durham UK");
     }
@@ -118,7 +120,7 @@ class ScheduledForecastServiceTest {
 
         scheduledForecastService.refreshTideExtremes();
 
-        verify(tideService, never()).fetchAndStoreTideExtremes(any(), any());
+        verify(tideService, never()).fetchAndStoreTideExtremesWithOutcome(any(), any());
     }
 
     @Test
@@ -132,7 +134,7 @@ class ScheduledForecastServiceTest {
         when(locationService.isCoastal(durham)).thenReturn(true);
         when(locationService.isCoastal(scarborough)).thenReturn(true);
         doThrow(new RuntimeException("API error"))
-                .when(tideService).fetchAndStoreTideExtremes(
+                .when(tideService).fetchAndStoreTideExtremesWithOutcome(
                         org.mockito.ArgumentMatchers.argThat(
                                 loc -> "Durham UK".equals(loc.getName())),
                         org.mockito.ArgumentMatchers.isNull());
@@ -140,7 +142,7 @@ class ScheduledForecastServiceTest {
         scheduledForecastService.refreshTideExtremes();
 
         ArgumentCaptor<LocationEntity> locCaptor = ArgumentCaptor.forClass(LocationEntity.class);
-        verify(tideService, times(2)).fetchAndStoreTideExtremes(locCaptor.capture(),
+        verify(tideService, times(2)).fetchAndStoreTideExtremesWithOutcome(locCaptor.capture(),
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
                 .containsExactly("Durham UK", "Scarborough");
@@ -150,7 +152,7 @@ class ScheduledForecastServiceTest {
     // Tide source-change alert — collected across the refresh, sent once at the end
     // -------------------------------------------------------------------------
 
-    private LocationEntity coastal(String name) {
+    private LocationEntity coastalLocation(String name) {
         LocationEntity location = LocationEntity.builder().name(name)
                 .locationType(Set.of(LocationType.SEASCAPE)).build();
         when(locationService.isCoastal(location)).thenReturn(true);
@@ -160,18 +162,21 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("a scheduled refresh sends ONE alert listing every location that changed, after the last fetch")
     void refreshTideExtremes_sendsOneAlertForAllChangedLocations() {
-        LocationEntity staithes = coastal("Staithes");
-        LocationEntity clean = coastal("Whitby");
-        LocationEntity saltburn = coastal("Saltburn");
+        LocationEntity staithes = coastalLocation("Staithes");
+        LocationEntity clean = coastalLocation("Whitby");
+        LocationEntity saltburn = coastalLocation("Saltburn");
         when(locationService.findAllEnabled()).thenReturn(List.of(staithes, clean, saltburn));
         TideSourceChange staithesChange = new TideSourceChange("Staithes", null,
                 List.of("HIGH 2026-11-09T06:12 UTC -> 2026-11-09T06:58 UTC (+46 min), 5.6 m -> 5.6 m"));
         TideSourceChange saltburnChange = new TideSourceChange("Saltburn", "atlas FES2022 -> FES2024", List.of());
-        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(staithesChange);
-        when(tideService.fetchAndStoreTideExtremes(saltburn, null)).thenReturn(saltburnChange);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(staithes, null))
+                .thenReturn(TideFetchResult.stored(staithesChange));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(saltburn, null))
+                .thenReturn(TideFetchResult.stored(saltburnChange));
         // The unchanged location returns no change: stubbed explicitly so its call is not a strict-stubs
         // argument mismatch that the refresh's per-location catch would swallow and count as a failure.
-        when(tideService.fetchAndStoreTideExtremes(clean, null)).thenReturn(null);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(clean, null))
+                .thenReturn(TideFetchResult.stored(null));
 
         scheduledForecastService.refreshTideExtremes();
 
@@ -182,10 +187,11 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("the admin route (Run Now / POST run/tide) sends the same single alert")
     void startTideRefresh_sendsTheAlertToo() {
-        LocationEntity staithes = coastal("Staithes");
+        LocationEntity staithes = coastalLocation("Staithes");
         when(locationService.findAllEnabled()).thenReturn(List.of(staithes));
         TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
-        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(staithes, null))
+                .thenReturn(TideFetchResult.stored(change));
 
         scheduledForecastService.startTideRefresh(Runnable::run);
 
@@ -195,7 +201,7 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("a refresh in which nothing changed sends no alert")
     void refreshTideExtremes_cleanRefreshSendsNothing() {
-        LocationEntity whitby = coastal("Whitby");
+        LocationEntity whitby = coastalLocation("Whitby");
         when(locationService.findAllEnabled()).thenReturn(List.of(whitby));
 
         scheduledForecastService.refreshTideExtremes();
@@ -206,10 +212,11 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("a failing alert never fails the refresh: the run is still completed")
     void refreshTideExtremes_alertFailureDoesNotFailTheRefresh() {
-        LocationEntity staithes = coastal("Staithes");
+        LocationEntity staithes = coastalLocation("Staithes");
         when(locationService.findAllEnabled()).thenReturn(List.of(staithes));
         TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
-        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(staithes, null))
+                .thenReturn(TideFetchResult.stored(change));
         doThrow(new IllegalStateException("mail down"))
                 .when(adminAlertService).sendTideSourceChangeAlert(List.of(change));
 
@@ -221,12 +228,13 @@ class ScheduledForecastServiceTest {
     @Test
     @DisplayName("a location whose fetch threw contributes nothing, and the others are still reported")
     void refreshTideExtremes_failedLocationDoesNotBlockTheAlert() {
-        LocationEntity broken = coastal("Broken");
-        LocationEntity staithes = coastal("Staithes");
+        LocationEntity broken = coastalLocation("Broken");
+        LocationEntity staithes = coastalLocation("Staithes");
         when(locationService.findAllEnabled()).thenReturn(List.of(broken, staithes));
         TideSourceChange change = new TideSourceChange("Staithes", "station A -> B", List.of());
-        when(tideService.fetchAndStoreTideExtremes(broken, null)).thenThrow(new RuntimeException("boom"));
-        when(tideService.fetchAndStoreTideExtremes(staithes, null)).thenReturn(change);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(broken, null)).thenThrow(new RuntimeException("boom"));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(staithes, null))
+                .thenReturn(TideFetchResult.stored(change));
 
         scheduledForecastService.refreshTideExtremes();
 
@@ -258,10 +266,10 @@ class ScheduledForecastServiceTest {
 
         assertThat(scheduledForecastService.startTideRefresh(queued::add)).isTrue();
         // Nothing runs on the caller's thread — the admin endpoint answers before the refresh.
-        verify(tideService, never()).fetchAndStoreTideExtremes(any(), any());
+        verify(tideService, never()).fetchAndStoreTideExtremesWithOutcome(any(), any());
 
         queued.forEach(Runnable::run);
-        verify(tideService).fetchAndStoreTideExtremes(bamburgh, null);
+        verify(tideService).fetchAndStoreTideExtremesWithOutcome(bamburgh, null);
     }
 
     /**
@@ -301,8 +309,11 @@ class ScheduledForecastServiceTest {
         LocationEntity bamburgh = oneCoastalLocation();
         List<Runnable> queued = new ArrayList<>();
         List<Boolean> accepted = new ArrayList<>();
-        doAnswer(inv -> accepted.add(scheduledForecastService.startTideRefresh(queued::add)))
-                .when(tideService).fetchAndStoreTideExtremes(bamburgh, null);
+        doAnswer(inv -> {
+            accepted.add(scheduledForecastService.startTideRefresh(queued::add));
+            return TideFetchResult.unchanged();
+        })
+                .when(tideService).fetchAndStoreTideExtremesWithOutcome(bamburgh, null);
 
         scheduledForecastService.refreshTideExtremes();
 
@@ -432,5 +443,104 @@ class ScheduledForecastServiceTest {
                 org.mockito.ArgumentMatchers.isNull());
         assertThat(locCaptor.getAllValues()).extracting(LocationEntity::getName)
                 .containsExactly("Loc1", "Loc2");
+    }
+
+    private SchedulerFireOutcome.Report refreshReport() {
+        return SchedulerFireOutcome.capture(scheduledForecastService::refreshTideExtremes);
+    }
+
+    @Test
+    @DisplayName("a stored fetch and an already-covered location report SUCCEEDED with refreshed and unchanged counts")
+    void refreshTideExtremes_reportsRefreshedAndUnchanged() {
+        LocationEntity durham = coastalLocation("Durham UK");
+        LocationEntity scarborough = coastalLocation("Scarborough");
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(durham, null))
+                .thenReturn(TideFetchResult.stored(null));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(scarborough, null))
+                .thenReturn(TideFetchResult.unchanged());
+
+        SchedulerFireOutcome.Report report = refreshReport();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 refreshed · 1 unchanged");
+    }
+
+    @Test
+    @DisplayName("a fetch that failed quietly makes the refresh PARTIAL beside a stored one")
+    void refreshTideExtremes_reportsPartialForAFailedFetch() {
+        LocationEntity durham = coastalLocation("Durham UK");
+        LocationEntity scarborough = coastalLocation("Scarborough");
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(durham, null))
+                .thenReturn(TideFetchResult.failed());
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(scarborough, null))
+                .thenReturn(TideFetchResult.stored(null));
+
+        SchedulerFireOutcome.Report report = refreshReport();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 refreshed · 0 unchanged · 1 failed");
+    }
+
+    @Test
+    @DisplayName("a location that throws counts as failed too, PARTIAL beside a stored one")
+    void refreshTideExtremes_reportsPartialForAThrow() {
+        LocationEntity durham = coastalLocation("Durham UK");
+        LocationEntity scarborough = coastalLocation("Scarborough");
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
+        doThrow(new RuntimeException("API error"))
+                .when(tideService).fetchAndStoreTideExtremesWithOutcome(durham, null);
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(scarborough, null))
+                .thenReturn(TideFetchResult.stored(null));
+
+        SchedulerFireOutcome.Report report = refreshReport();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("1 refreshed · 0 unchanged · 1 failed");
+    }
+
+    @Test
+    @DisplayName("every fetch failing reports FAILED")
+    void refreshTideExtremes_reportsFailedWhenAllFail() {
+        LocationEntity durham = coastalLocation("Durham UK");
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(durham, null))
+                .thenReturn(TideFetchResult.failed());
+
+        SchedulerFireOutcome.Report report = refreshReport();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 refreshed · 0 unchanged · 1 failed");
+    }
+
+    @Test
+    @DisplayName("a missing WorldTides key reports SKIPPED once for the whole job, not once per location")
+    void refreshTideExtremes_reportsSkippedWhenKeyMissing() {
+        LocationEntity durham = coastalLocation("Durham UK");
+        LocationEntity scarborough = coastalLocation("Scarborough");
+        when(locationService.findAllEnabled()).thenReturn(List.of(durham, scarborough));
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(durham, null))
+                .thenReturn(TideFetchResult.notConfigured());
+        when(tideService.fetchAndStoreTideExtremesWithOutcome(scarborough, null))
+                .thenReturn(TideFetchResult.notConfigured());
+
+        SchedulerFireOutcome.Report report = refreshReport();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("WorldTides key not configured");
+    }
+
+    @Test
+    @DisplayName("refreshTideExtremes() reports SKIPPED while an admin-started refresh holds the guard")
+    void refreshTideExtremes_reportsSkippedWhenAlreadyRunning() {
+        List<Runnable> queued = new ArrayList<>();
+        assertThat(scheduledForecastService.startTideRefresh(queued::add)).isTrue();
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                scheduledForecastService::refreshTideExtremes);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
     }
 }

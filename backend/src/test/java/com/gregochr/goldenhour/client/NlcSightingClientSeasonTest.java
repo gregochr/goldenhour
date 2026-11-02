@@ -23,6 +23,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -174,5 +176,63 @@ class NlcSightingClientSeasonTest {
         assertThat(NlcSightingClient.truncate(null)).isNull();
         assertThat(NlcSightingClient.truncate("short")).isEqualTo("short");
         assertThat(NlcSightingClient.truncate("Z".repeat(500))).hasSize(200 + "... [truncated]".length());
+    }
+
+    @Test
+    @DisplayName("a refresh outside the NLC season reports SKIPPED")
+    void refresh_outOfSeason_reportsSkipped() {
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), new NlcProperties(),
+                NlcTestSeason.withSeason(false), clockAt(new AtomicReference<>(OCTOBER_DAY_1)));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(c::refresh);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Outside the NLC season");
+    }
+
+    @Test
+    @DisplayName("a refresh that parses a page reports SUCCEEDED with the sighting count")
+    void refresh_success_reportsCount() {
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGet(rest, String.class, "<html><body><div class=\"caption\">"
+                + "Ken Kennedy from Dundee, Scotland on 2026, 08, 11 from 23:30 UT.</div></body></html>");
+        NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties(),
+                NlcTestSeason.inSeason(), clockAt(new AtomicReference<>(Instant.parse("2026-08-12T10:00:00Z"))));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(c::refresh);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 sighting report parsed");
+    }
+
+    @Test
+    @DisplayName("a 404 reports FAILED naming NLCNET, and so does the rest of that day's skipped retry")
+    void refresh_notFound_reportsFailed() {
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(rest, String.class, notFound("<html>gone</html>"));
+        NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties(),
+                NlcTestSeason.inSeason(), clockAt(new AtomicReference<>(Instant.parse("2026-08-12T10:00:00Z"))));
+
+        SchedulerFireOutcome.Report first = SchedulerFireOutcome.capture(c::refresh);
+        SchedulerFireOutcome.Report second = SchedulerFireOutcome.capture(c::refresh);
+
+        assertThat(first.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(first.summary()).isEqualTo("NLCNET page not found — not retrying until tomorrow");
+        assertThat(second.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(second.summary()).isEqualTo("NLCNET page not found earlier today — not retrying until tomorrow");
+    }
+
+    @Test
+    @DisplayName("any other scrape failure reports FAILED with a truncated NLCNET reason")
+    void refresh_otherFailure_reportsFailed() {
+        RestClient rest = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(rest, String.class, new RuntimeException("connect timed out"));
+        NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties(),
+                NlcTestSeason.inSeason(), clockAt(new AtomicReference<>(Instant.parse("2026-08-12T10:00:00Z"))));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(c::refresh);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("NLCNET scrape failed: connect timed out");
     }
 }

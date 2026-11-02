@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -237,5 +238,29 @@ class RunProgressTrackerEvictionTest {
         expiry.getValue().run();
         assertThat(late.sent()).containsExactly("run-expired|{\"jobRunId\":7}");
         assertThat(late.completed).isTrue();
+    }
+
+    @Test
+    @DisplayName("cleanup reports SUCCEEDED with the number of finished runs it removed")
+    void cleanup_reportsRemovedCount() {
+        taskEvent(LocationTaskState.COMPLETE);
+        tracker.completeRun(RUN);
+        clock.advance(Duration.ofMinutes(30));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(tracker::cleanupStaleEntries);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 finished run removed");
+    }
+
+    @Test
+    @DisplayName("cleanup with only an unfinished run reports SUCCEEDED and 0 finished runs removed")
+    void cleanup_nothingEvictable() {
+        clock.advance(Duration.ofHours(10));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(tracker::cleanupStaleEntries);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("0 finished runs removed");
     }
 }

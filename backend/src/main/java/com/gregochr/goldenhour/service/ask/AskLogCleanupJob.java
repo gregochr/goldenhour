@@ -1,7 +1,9 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.AskLogRepository;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulerFireOutcome;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +74,8 @@ public class AskLogCleanupJob {
         int deleted = repository.deleteOlderThan(cutoff);
         LOG.info("[ASK] Question log cleanup complete — deleted {} row(s) created before {} "
                 + "({} day retention)", deleted, cutoff, retentionDays);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(deleted, "row", "rows") + " deleted");
         return deleted;
     }
 }

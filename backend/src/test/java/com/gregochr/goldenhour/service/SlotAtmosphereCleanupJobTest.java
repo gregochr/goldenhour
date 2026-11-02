@@ -21,6 +21,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -229,5 +231,37 @@ class SlotAtmosphereCleanupJobTest {
 
         assertThat(longest).isEqualTo(60);
         assertThat(SlotAtmosphereCleanupJob.DEFAULT_RETENTION_DAYS).isGreaterThan(longest);
+    }
+
+    @Test
+    @DisplayName("prune reports SUCCEEDED with the rows deleted")
+    void prune_reportsRowsDeleted() {
+        when(repository.deleteByEvaluationDateBefore(LocalDate.of(2026, 6, 18))).thenReturn(12);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job(WINTER_NOON, 180).prune());
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("12 rows deleted");
+    }
+
+    @Test
+    @DisplayName("a repository failure reports nothing: the throw is the scheduler's FAILED")
+    void prune_repositoryFailure_reportsNothing() {
+        when(repository.deleteByEvaluationDateBefore(LocalDate.of(2026, 6, 18)))
+                .thenThrow(new IllegalStateException("db down"));
+        SlotAtmosphereCleanupJob job = job(WINTER_NOON, 180);
+
+        AtomicReference<Throwable> thrown = new AtomicReference<>();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> {
+            try {
+                job.prune();
+            } catch (IllegalStateException e) {
+                thrown.set(e);
+            }
+        });
+
+        assertThat(thrown.get()).hasMessage("db down");
+        assertThat(report.status()).isNull();
+        assertThat(report.summary()).isNull();
     }
 }

@@ -21,6 +21,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -108,9 +110,14 @@ class SkyRatingEvalBatchServiceTest {
     @DisplayName("runScheduledBatched with every model switched off creates no runs and submits no batch")
     void runScheduledBatchedWithNoScheduledModelsDoesNothing() {
         when(evalService.scheduledModels()).thenReturn(List.of());
+        AtomicReference<List<SkyRatingEvalRunEntity>> result = new AtomicReference<>();
 
-        List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> result.set(service.runScheduledBatched()));
+        List<SkyRatingEvalRunEntity> runs = result.get();
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Every model is switched off");
         assertThat(runs).isEmpty();
         verify(evalService).scheduledModels();
         verifyNoMoreInteractions(evalService);
@@ -127,9 +134,14 @@ class SkyRatingEvalBatchServiceTest {
         when(batchRequestFactory.buildForecastRequest(any(), any(), any(), anyInt()))
                 .thenReturn(mock(BatchCreateParams.Request.class));
         when(batchClient.submit(any())).thenReturn("batchX");
+        AtomicReference<List<SkyRatingEvalRunEntity>> result = new AtomicReference<>();
 
-        List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> result.set(service.runScheduledBatched()));
+        List<SkyRatingEvalRunEntity> runs = result.get();
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("Batch submitted for 3 models");
         assertThat(runs).hasSize(SCHEDULED.size());
         verify(batchClient).submit(any());
         verify(evalService, times(SCHEDULED.size()))
@@ -150,9 +162,14 @@ class SkyRatingEvalBatchServiceTest {
         when(batchRequestFactory.buildForecastRequest(any(), any(), any(), anyInt()))
                 .thenReturn(mock(BatchCreateParams.Request.class));
         when(batchClient.submit(any())).thenThrow(new RuntimeException("submit boom"));
+        AtomicReference<List<SkyRatingEvalRunEntity>> result = new AtomicReference<>();
 
-        List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(
+                () -> result.set(service.runScheduledBatched()));
+        List<SkyRatingEvalRunEntity> runs = result.get();
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Batch submission failed: submit boom");
         assertThat(runs).hasSize(SCHEDULED.size());
         verify(evalService, times(SCHEDULED.size()))
                 .finalise(any(), any(), eq(SkyRatingEvalStatus.FAILED), contains("submit boom"),
@@ -362,7 +379,10 @@ class SkyRatingEvalBatchServiceTest {
         when(evalService.findRunning()).thenReturn(List.of(run));
         when(batchClient.isEnded("b-slow")).thenReturn(false);
 
-        service.reconcilePendingBatches();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 batch checked");
 
         verify(batchClient, never()).collectResults(any());
         verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
@@ -414,9 +434,12 @@ class SkyRatingEvalBatchServiceTest {
         when(evalService.findRunning()).thenReturn(List.of(run));
         when(batchClient.isEnded("b-err")).thenThrow(new RuntimeException("api down"));
 
-        service.reconcilePendingBatches();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
 
         verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
+        // A status-check error within the deadline is retried next tick, not a failure of this one.
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("1 batch checked");
     }
 
     @Test
@@ -437,12 +460,14 @@ class SkyRatingEvalBatchServiceTest {
     void reconcileNoOpWhenNothingRunning() {
         when(evalService.findRunning()).thenReturn(List.of());
 
-        service.reconcilePendingBatches();
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
 
         verify(batchClient, never()).isEnded(any());
         verify(evalService, never()).finalise(any(), any(), any(), any(), anyLong());
         verify(evalService, never()).persistResult(any(), any(), anyInt(), any(), any(), any(),
                 anyBoolean(), any());
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("No evaluations in flight");
     }
 
     private static LocalDateTime recentStart() {
@@ -473,5 +498,46 @@ class SkyRatingEvalBatchServiceTest {
                 .batchId(batchId)
                 .startedAt(startedAt)
                 .build();
+    }
+
+    @Test
+    @DisplayName("reconcile reports FAILED when the RUNNING runs cannot be loaded")
+    void reconcileReportsFailedWhenRunsCannotBeLoaded() {
+        when(evalService.findRunning()).thenThrow(new IllegalStateException("db down"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Could not load running evaluations: db down");
+    }
+
+    @Test
+    @DisplayName("reconcile reports PARTIAL when one batch fails to reconcile and another is fine")
+    void reconcileReportsPartialWhenOneBatchFails() {
+        SkyRatingEvalRunEntity good = runningRun(90L, EvaluationModel.HAIKU, "b-good", recentStart());
+        SkyRatingEvalRunEntity bad = runningRun(91L, EvaluationModel.OPUS, "b-bad", recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(good, bad));
+        when(batchClient.isEnded("b-good")).thenReturn(false);
+        when(batchClient.isEnded("b-bad")).thenReturn(true);
+        when(batchClient.collectResults("b-bad")).thenThrow(new IllegalStateException("results gone"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("2 batches checked · 1 failed");
+    }
+
+    @Test
+    @DisplayName("reconcile reports FAILED when every batch fails to reconcile")
+    void reconcileReportsFailedWhenEveryBatchFails() {
+        SkyRatingEvalRunEntity bad = runningRun(92L, EvaluationModel.OPUS, "b-bad2", recentStart());
+        when(evalService.findRunning()).thenReturn(List.of(bad));
+        when(batchClient.isEnded("b-bad2")).thenReturn(true);
+        when(batchClient.collectResults("b-bad2")).thenThrow(new IllegalStateException("results gone"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::reconcilePendingBatches);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("1 batch checked · 1 failed");
     }
 }

@@ -125,12 +125,39 @@ existing half-off data is left as is. The checks are check-then-write, not atomi
 
 `DynamicSchedulerService.wrapTarget` records **every fire** of a scheduled job in `scheduler_fire_log` (V215): a `RUNNING` insert at the start, one scoped `UPDATE` at the end (`completed_at`, `status`, `summary`, `pipeline_run_id`; every other column is `updatable = false`). `status` is `RUNNING | SUCCEEDED | PARTIAL | FAILED | SKIPPED` (`MISSED` will be served, never stored); `trigger` is `SCHEDULED` (an installed schedule), `MANUAL` (`triggerNow`) or `CATCH_UP` (a solar job's startup catch-up). The target still receives `manual == (trigger == MANUAL)`.
 
-- **Reporting**: a job tells the wrapper what its fire amounted to with `SchedulerFireOutcome.report(status, summary)` and `linkPipelineRun(id)`, backed by a JDK 25 `ScopedValue` bound for the job body only (last report wins; no fire bound = a DEBUG no-op; work on other threads cannot report). Nothing reported means `SUCCEEDED`, no summary. S1 ships the mechanism; jobs adopt it in S2.
+- **Reporting**: a job tells the wrapper what its fire amounted to with `SchedulerFireOutcome.report(status, summary)` and `linkPipelineRun(id)`, backed by a JDK 25 `ScopedValue` bound for the job body only (last report wins; no fire bound = a DEBUG no-op; work on other threads cannot report). Nothing reported means `SUCCEEDED`, no summary. S1 shipped the mechanism; S2 (below) made every job report. Tests observe a job's report with `SchedulerFireOutcome.capture(Runnable)`; `count(n, singular, plural)` and `statusFor(failed, total)` keep the wording and the PARTIAL/FAILED rule uniform.
 - **Failures**: a throw is logged `FAILED` with a `LogSanitizer`-sanitised, 200-character `ExceptionClass: message` and **re-thrown unchanged**. A logging failure (insert or complete) logs WARN and never stops or fails the job.
 - **No lost update**: `last_fire_time` / `last_completion_time` are scoped `@Modifying` updates (`updateLastFireTime`, `updateLastCompletionTime`), not a `findByJobKey` + whole-entity `save`, so a Pause or schedule edit committed mid-fire is no longer reverted when the fire ends. `schedule_changed_at` (read-only on the entity) is stamped by `updateScheduleChangedAt` after a schedule edit, type switch, pause and resume.
 - **Orphans**: `initSchedules` first marks `RUNNING` rows with `fired_at < now` as `FAILED` "Interrupted by a restart" (a failure of the sweep never blocks startup).
 - **Retention**: 14 days, by the daily `scheduler_fire_log_cleanup` job (03:57 UTC, `SchedulerFireLogCleanupJob`, one bulk `DELETE`).
 - **Not logged**: admin routes that run a job body off the scheduler (`startTideRefresh`, the `@Async` cloud-verification backfill) never pass through `wrapTarget`, so they leave no fire-log row.
+
+#### What each job reports (S2)
+
+Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` = a deliberate guard (already running, feature flag off, cycle submission dropped); `PARTIAL` = some items failed, others succeeded; `FAILED` = a whole-job failure the job swallowed (a throw is `FAILED` by the wrapper). A job over many items uses `statusFor(failed, total)`. Only the scheduler thread reports: the cycle's wait-and-brief tail and the astro Ask precompute run on other executors and cannot. Summaries carry counts only (no emails, usernames, postcodes).
+
+| Job key | Reports |
+|---|---|
+| `near_term_batch_evaluation`, `intraday_forecast_refresh`, `evening_sunrise_refresh` | Links the pipeline run as soon as it exists. `SUCCEEDED` "3 of 3 batches submitted" / "Nothing to submit"; `PARTIAL` "1 of 3 batches submitted · 480 requests lost"; `FAILED` "No batches submitted · N requests lost" or "Submit phase failed: …"; `SKIPPED` "Dropped — another forecast submission was already running" |
+| `aurora_batch_evaluation` | `SUCCEEDED` "Alert MODERATE — 12 locations submitted" (also quiet / no eligible location / none passed triage); `SKIPPED` aurora off or already running; `FAILED` "NOAA fetch failed: …" |
+| `batch_result_polling` | `SUCCEEDED` "No batches in flight" / "2 batches checked · 1 completed"; `PARTIAL` or `FAILED` when status checks threw ("· 1 failed to check") |
+| `sky_rating_eval` | `SUCCEEDED` "Batch submitted for 3 models" (batched) or "3 of 3 model runs completed" (sync); `SKIPPED` "Every model is switched off"; `FAILED` "Batch submission failed: …"; sync `PARTIAL`/`FAILED` per model run |
+| `sky_rating_eval_batch_poll` | `SUCCEEDED` "No evaluations in flight" / "1 batch checked"; `PARTIAL`/`FAILED` "2 batches checked · 1 failed"; `FAILED` "Could not load running evaluations: …" |
+| `tide_refresh` | Reads `TideFetchResult` (STORED / UNCHANGED / FAILED / NOT_CONFIGURED) from `fetchAndStoreTideExtremesWithOutcome`: `SUCCEEDED` "12 refreshed · 3 unchanged"; `PARTIAL`/`FAILED` "… · 1 failed" (a quiet API failure or a throw); `SKIPPED` "WorldTides key not configured" once for the job, or already running |
+| `aurora_polling` | `SUCCEEDED` "Alert MODERATE · night poll · alert unchanged"; `FAILED` "NOAA space-weather read failed"; `SKIPPED` aurora off or cycle already running |
+| `nlc_sighting_scrape` | `SUCCEEDED` "N sighting reports parsed"; `SKIPPED` feature off or "Outside the NLC season"; `FAILED` "NLCNET scrape failed: …" / "NLCNET page not found …" |
+| `forecast_cycle_watchdog` | `SUCCEEDED` "All cycles on time" / "1 alert sent"; `PARTIAL`/`FAILED` "1 of 3 cycle checks failed · No alerts" |
+| `evaluation_abandonment_sweep` | `SUCCEEDED` "3 rows abandoned" |
+| `run_progress_cleanup` | `SUCCEEDED` "1 finished run removed" |
+| `disposition_cleanup`, `refresh_token_cleanup`, `ask_log_cleanup`, `forecast_prompt_cleanup`, `slot_atmosphere_cleanup`, `scheduler_fire_log_cleanup` | `SUCCEEDED` "N rows deleted" (tokens: "N expired tokens deleted") |
+| `dormant_account_sweep`, `pending_registration_sweep` | `SUCCEEDED` "3 candidates · 1 warned · 0 deleted" (dry run: "Dry run · 3 candidates · would warn 1 · would delete 1"); `PARTIAL`/`FAILED` adds "· N failed" (a row error or an unsent email); dormant `SKIPPED` "No mail sender configured" |
+| `drive_time_refresh` | `SUCCEEDED` "2 refreshed · 0 superseded · 0 failed · 1 unchanged" / "No users with a home location"; `PARTIAL`/`FAILED` by failed vs due users (manual-aware: Run now reports the same way) |
+| `region_drive_time_refresh` | `SUCCEEDED` "2 of 2 regions refreshed · 0 failed" / "No regions have a base town"; `PARTIAL`/`FAILED` |
+| `wildlife_comfort_refresh` | `SUCCEEDED` "2 hides · 12 of 12 days written" / "No wildlife hides to refresh"; `PARTIAL`; `FAILED` "Open-Meteo forecast failed: …"; `SKIPPED` already running |
+| `astro_conditions_refresh` | `SUCCEEDED` "526 location-nights scored"; `FAILED` "Nothing scored: …" or "Refresh failed: …"; `SKIPPED` already running |
+| `grid_cell_backfill` | `SUCCEEDED` "2 of 2 locations filled" / "Every location already has a grid cell"; `PARTIAL`; `PARTIAL`/`FAILED` "Gave up after 5 lookup failures in a row · N filled" |
+| `topic_daily_log` | `SUCCEEDED` "7 of 7 topic groups logged for 2027-03-05"; `PARTIAL`/`FAILED` "· N failed" |
+| `cloud_verification_backfill` | `SUCCEEDED` "100 verified · 0 remaining"; `PARTIAL`/`FAILED` "100 verified · stopped: …"; `SKIPPED` already running |
 
 ## Operations → Run Config: measured costs (run-config-accuracy-plan.md)
 

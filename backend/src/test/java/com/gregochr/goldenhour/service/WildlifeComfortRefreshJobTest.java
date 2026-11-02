@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -220,8 +221,10 @@ class WildlifeComfortRefreshJobTest {
                 any(LocalDate.class),
                 anyList())).thenReturn(HOURS_PER_DAY);
 
-        job.run(false);
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 hides · 12 of 12 days written");
         // Two hides, six dates: twelve location-dates written, none failed. Not 144 rows.
         verify(jobRunService).completeRun(jobRun, 12, 0, DATES);
         assertThat(jobRun.getLocationsProcessed()).isEqualTo(2);
@@ -260,8 +263,10 @@ class WildlifeComfortRefreshJobTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(
                 place(8L, "High Force", 54.6, -2.1, LocationType.WATERFALL)));
 
-        job.run(false);
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("No wildlife hides to refresh");
         verifyNoInteractions(openMeteoClient);
         verifyNoInteractions(writer);
         verify(jobRunService).completeRun(jobRun, 0, 0, DATES);
@@ -283,8 +288,10 @@ class WildlifeComfortRefreshJobTest {
         when(writer.replaceHourlyRows(eq(6L), any(LocalDate.class),
                 anyList())).thenReturn(HOURS_PER_DAY);
 
-        job.run(false);
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
+        assertThat(report.summary()).isEqualTo("2 hides · 6 of 12 days written");
         verify(writer, never()).replaceHourlyRows(eq(5L), any(LocalDate.class),
                 anyList());
         verify(writer, times(6)).replaceHourlyRows(eq(6L), any(LocalDate.class),
@@ -302,8 +309,10 @@ class WildlifeComfortRefreshJobTest {
         when(openMeteoClient.fetchForecastBriefingBatch(coordsOf(BARNS, SALTHOLME)))
                 .thenThrow(new IllegalStateException("Open-Meteo unreachable"));
 
-        job.run(false);
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(false));
 
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("Open-Meteo forecast failed: Open-Meteo unreachable");
         verifyNoInteractions(writer);
         verify(jobRunService).completeRun(jobRun, 0, 12, DATES);
         verify(jobRunService).logApiCall(eq(77L), eq(ServiceName.OPEN_METEO_FORECAST), eq("GET"),
@@ -460,5 +469,19 @@ class WildlifeComfortRefreshJobTest {
         job.run(false);
 
         verify(jobRunService).completeRun(jobRun, 0, 0, DATES);
+    }
+
+    @Test
+    @DisplayName("a second trigger while a run holds the guard reports SKIPPED and touches nothing")
+    void concurrentTrigger_reportsSkipped() throws Exception {
+        java.lang.reflect.Field running = WildlifeComfortRefreshJob.class.getDeclaredField("running");
+        running.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) running.get(job)).set(true);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(() -> job.run(true));
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("Already running — skipped");
+        verifyNoInteractions(jobRunService, locationService, openMeteoClient, writer);
     }
 }

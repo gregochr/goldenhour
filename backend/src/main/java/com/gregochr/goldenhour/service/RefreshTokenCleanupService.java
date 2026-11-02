@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -44,11 +45,13 @@ public class RefreshTokenCleanupService {
     }
 
     /**
-     * Deletes all refresh tokens whose expiry timestamp is in the past.
+     * Deletes all refresh tokens whose expiry timestamp is in the past, and reports the count.
      */
     void purgeExpiredTokens() {
         LocalDateTime now = LocalDateTime.now();
-        refreshTokenRepository.deleteAllByExpiresAtBefore(now);
-        LOG.info("Refresh token cleanup complete");
+        long deleted = refreshTokenRepository.deleteAllByExpiresAtBefore(now);
+        LOG.info("Refresh token cleanup complete — deleted {} token(s)", deleted);
+        SchedulerFireOutcome.report(SchedulerFireStatus.SUCCEEDED,
+                SchedulerFireOutcome.count(deleted, "expired token", "expired tokens") + " deleted");
     }
 }

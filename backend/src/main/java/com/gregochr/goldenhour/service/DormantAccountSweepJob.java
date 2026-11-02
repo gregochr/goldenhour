@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.DormancyProperties;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserRepository.DormancyCandidate;
@@ -121,6 +122,7 @@ public class DormantAccountSweepJob {
         boolean dryRun = properties.isDryRun();
         if (!dryRun && !userEmailService.isConfigured()) {
             LOG.info("[DORMANT SWEEP] no mail sender is configured: nothing warned, nothing deleted");
+            SchedulerFireOutcome.report(SchedulerFireStatus.SKIPPED, "No mail sender configured");
             return;
         }
         LocalDateTime now = LocalDateTime.now(clock);
@@ -149,6 +151,19 @@ public class DormantAccountSweepJob {
                     tally.failedSends, tally.unstamped, tally.waiting, tally.purged, tally.skipped,
                     tally.errors);
         }
+        reportTally(tally, dryRun);
+    }
+
+    /** Reports counts only (never an address or name): row errors and unsent warnings make it PARTIAL. */
+    private static void reportTally(Tally tally, boolean dryRun) {
+        int bad = tally.errors + tally.failedSends;
+        String problems = bad > 0 ? " · " + bad + " failed" : "";
+        String summary = dryRun
+                ? "Dry run · " + SchedulerFireOutcome.count(tally.candidates, "candidate", "candidates")
+                        + " · would warn " + tally.wouldWarn + " · would delete " + tally.wouldDelete + problems
+                : SchedulerFireOutcome.count(tally.candidates, "candidate", "candidates")
+                        + " · " + tally.warned + " warned · " + tally.purged + " deleted" + problems;
+        SchedulerFireOutcome.report(SchedulerFireOutcome.statusFor(bad, tally.candidates), summary);
     }
 
     private void handle(DormancyCandidate c, LocalDateTime now, LocalDateTime inactiveCutoff,

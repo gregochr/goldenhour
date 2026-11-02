@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.entity.TideExtremeType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
+import com.gregochr.goldenhour.model.TideFetchResult;
 import com.gregochr.goldenhour.model.TideSourceChange;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
@@ -265,6 +266,18 @@ public class TideService {
     @Transactional
     public TideSourceChange fetchAndStoreTideExtremes(LocationEntity location, JobRunEntity jobRun) {
         return ingestionService.fetchAndStoreTideExtremes(location, jobRun);
+    }
+
+    /**
+     * As {@link #fetchAndStoreTideExtremes(LocationEntity, JobRunEntity)}, but says what the fetch amounted to.
+     *
+     * @param location the coastal location to fetch tide data for
+     * @param jobRun   the parent job run for metrics tracking, or {@code null}
+     * @return the outcome: stored, not needed, failed, or not attempted for want of an API key
+     */
+    @Transactional
+    public TideFetchResult fetchAndStoreTideExtremesWithOutcome(LocationEntity location, JobRunEntity jobRun) {
+        return ingestionService.fetchAndStoreTideExtremesWithOutcome(location, jobRun);
     }
 
     /**

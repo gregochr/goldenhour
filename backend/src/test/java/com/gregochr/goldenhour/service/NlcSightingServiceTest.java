@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.lenient;
@@ -263,5 +264,29 @@ class NlcSightingServiceTest {
                 realClient, clarityService, new NlcProperties(), schedulerService, clock);
 
         assertThat(liveService.currentSighting().active()).isFalse();
+    }
+
+    @Test
+    @DisplayName("scrape target reports SKIPPED when the feature is disabled")
+    void scrapeIfEnabled_disabled_reportsSkipped() {
+        NlcProperties disabled = new NlcProperties();
+        disabled.setSightingEnabled(false);
+        NlcSightingService disabledService = new NlcSightingService(
+                client, clarityService, disabled, schedulerService, CLOCK);
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(disabledService::scrapeIfEnabled);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
+        assertThat(report.summary()).isEqualTo("NLC sightings are switched off");
+    }
+
+    @Test
+    @DisplayName("scrape target leaves the report to the client when the feature is enabled")
+    void scrapeIfEnabled_enabled_reportsNothingItself() {
+        when(client.refresh()).thenReturn(List.of());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::scrapeIfEnabled);
+
+        assertThat(report.status()).isNull();
     }
 }

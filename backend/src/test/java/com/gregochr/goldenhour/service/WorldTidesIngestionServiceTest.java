@@ -8,6 +8,13 @@ import com.gregochr.goldenhour.model.WorldTidesResponse;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.repository.TideFetchRepository;
 import com.gregochr.goldenhour.util.RestClientMocks;
+import com.gregochr.goldenhour.model.TideFetchResult;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -195,5 +202,83 @@ class WorldTidesIngestionServiceTest {
         verify(jobRunService, atLeastOnce()).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES),
                 eq("GET"), anyString(), isNull(), anyLong(), isNull(), isNull(), eq(false), msg.capture());
         assertThat(msg.getAllValues()).allSatisfy(m -> assertThat(m).doesNotContain("SECRETKEY"));
+    }
+
+    // -------------------------------------------------------------------------
+    // fetchAndStoreTideExtremesWithOutcome — what a fetch amounted to
+    // -------------------------------------------------------------------------
+
+    /** A fixture clock well away from the wall-clock date. */
+    private static final Clock OUTCOME_CLOCK = Clock.fixed(Instant.parse("2027-03-05T09:00:00Z"), ZoneOffset.UTC);
+
+    private WorldTidesIngestionService outcomeService(RestClient client) {
+        return new WorldTidesIngestionService(client, tideExtremeRepository, tideFetchRepository,
+                tideFetchRecorder, worldTidesProperties, jobRunService, id -> { }, OUTCOME_CLOCK);
+    }
+
+    @Test
+    @DisplayName("a missing API key is NOT_CONFIGURED and nothing is fetched")
+    void outcome_missingKey_isNotConfigured() {
+        when(worldTidesProperties.getApiKey()).thenReturn(" ");
+        RestClient mockClient = mock(RestClient.class);
+
+        TideFetchResult result = outcomeService(mockClient).fetchAndStoreTideExtremesWithOutcome(location(), null);
+
+        assertThat(result).isEqualTo(TideFetchResult.notConfigured());
+    }
+
+    @Test
+    @DisplayName("a non-200 answer is FAILED")
+    void outcome_nonOkStatus_isFailed() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse(400));
+
+        TideFetchResult result = outcomeService(mockClient).fetchAndStoreTideExtremesWithOutcome(location(), null);
+
+        assertThat(result).isEqualTo(TideFetchResult.failed());
+    }
+
+    @Test
+    @DisplayName("a vendor call that throws is FAILED")
+    void outcome_exception_isFailed() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGetThrows(mockClient, WorldTidesResponse.class, new IllegalStateException("down"));
+
+        TideFetchResult result = outcomeService(mockClient).fetchAndStoreTideExtremesWithOutcome(location(), null);
+
+        assertThat(result).isEqualTo(TideFetchResult.failed());
+    }
+
+    @Test
+    @DisplayName("coverage already past the horizon makes no call and is UNCHANGED")
+    void outcome_alreadyCovered_isUnchanged() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        LocalDateTime startOfDay = LocalDate.of(2027, 3, 5).atStartOfDay();
+        when(tideExtremeRepository.findLatestEventTimeFrom(1L, startOfDay)).thenReturn(startOfDay.plusDays(200));
+        when(tideExtremeRepository.findOldestFetchedAtFrom(1L, startOfDay)).thenReturn(startOfDay.minusDays(1));
+        RestClient mockClient = mock(RestClient.class);
+
+        TideFetchResult result = outcomeService(mockClient).fetchAndStoreTideExtremesWithOutcome(location(), null);
+
+        assertThat(result).isEqualTo(TideFetchResult.unchanged());
+    }
+
+    @Test
+    @DisplayName("a fetch that merges is STORED, with no source change when none was seen")
+    void outcome_merged_isStored() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        LocalDateTime startOfDay = LocalDate.of(2027, 3, 5).atStartOfDay();
+        when(tideExtremeRepository.findLatestEventTimeFrom(1L, startOfDay)).thenReturn(null);
+        WorldTidesResponse response = new WorldTidesResponse();
+        response.setStatus(200);
+        response.setExtremes(List.of());
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, response);
+
+        TideFetchResult result = outcomeService(mockClient).fetchAndStoreTideExtremesWithOutcome(location(), null);
+
+        assertThat(result.status()).isEqualTo(TideFetchResult.Status.STORED);
     }
 }
