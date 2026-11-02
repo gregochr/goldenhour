@@ -72,8 +72,9 @@ are synthetic. This plan rebuilds it in the React + Tailwind codebase on real da
   watches, backstop, stagger, follows). The required config key is **not** duplicated: it is the served
   `configSource` column. A row without an entry serves `catalogue: null` (prod rows are hand-editable), never a
   500. CI Testcontainers test: every seeded row has an entry and no entry is orphaned; cycle and astro edges
-  agree with `ForecastCycleJobs` / `ScheduledFiresLister`. Copy is seeded from `prototype/scheduler-jobs.js`;
-  **the owner reviews it in the S3a PR**; any `why` that hard-codes a clock time is reworded to name the rule.
+  agree with `ForecastCycleJobs` / `ScheduledFiresLister`. Copy is taken as-is from `prototype/scheduler-jobs.js`
+  (owner, 2026-11-02: no PR review; they check it on the prod build). The one edit: any `why` that hard-codes a
+  clock time is reworded to name the rule, since an edited schedule would make it stale.
   The stored `description` stays as the "Technical" note.
 - **D5: UK civil time, labelled per instant.** The label "GMT"/"BST" comes from the instant, so clock-change days
   label each half correctly. The day axis is the UK civil day built from real instants (23 or 25 hours). The
@@ -168,7 +169,7 @@ PhotoCast. Database only."
 | **S0** | `describeCron`: `hour === '*'` with one numeric minute → "Every hour at :20"; any other non-numeric minute/hour or a non-single day-of-week → the raw cron. Tests incl. `0 0 2 * * MON`, `*/2`, ranges, minute lists. | frontend |
 | **S1** | V215: `scheduler_fire_log` + indexes, `schedule_changed_at` on `scheduler_job_config`, cleanup job seed. Entity, repository, scoped updates (incl. replacing `wrapTarget`'s saves), `SchedulerFireOutcome` (`ScopedValue`), trigger kinds, orphan sweep at startup, cleanup job. Testcontainers migration test; unit tests (success, exception → FAILED + rethrow, PARTIAL/SKIPPED reports, logging failure harmless, trigger kinds, 200-char sanitised summary, orphan sweep, the Pause-during-fire race no longer reverts). Reference docs updated. | backend |
 | **S2** | Every job reports outcome + one-line summary per the review's job table; guards → SKIPPED; quiet failures → FAILED/PARTIAL; cycles `linkPipelineRun` and report FAILED/SKIPPED for their swallowed paths. A test per job, and one end-to-end through the real wrapper per threading shape (sync, submit-then-async, manual-aware). | backend |
-| **S3a** | `SchedulerJobCatalogue` + CI test; `/jobs` cheap fields; `/jobs/summary`; `/jobs/{key}/detail` (durations, cost). Owner reviews copy. | backend |
+| **S3a** | `SchedulerJobCatalogue` + CI test; `/jobs` cheap fields; `/jobs/summary`; `/jobs/{key}/detail` (durations, cost). | backend |
 | **S3b** | `/day` (MISSED, compressed repeaters, watchdog windows, fallback flag); `ForecastCycleWatchdog.deadlines`; `schedule-preview`; `PUT /schedule` `timeZone`; clock fix in `calculateNextFireTime`. | backend |
 | **S4a** | Tabs + query hash (D9), `DataSplitLayout` overlay mode (D10), header meta line, **All jobs** on `DataGrid` (D11), the read-only job panel sections. Rewrites `SchedulerView.test.jsx`, `SchedulerViewSolar*.test.jsx`, `schedulerView.test.js`; retires `SchedulerListPane`. | frontend |
 | **S4b** | The three editors via `schedule-preview` (slider debounced), neighbour warning, Runs → Timing link, save toast. | frontend |
