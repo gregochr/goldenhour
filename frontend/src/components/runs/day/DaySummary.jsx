@@ -3,10 +3,10 @@ import { formatClockUk, formatSeconds } from '../../../utils/runsView.js';
 import { formatGbp, untilText } from '../../../utils/runsDay.js';
 
 /** One cell of the strip: a label, a mono value and a sub-line. */
-function Cell({ label, value, sub = '', valueClass = 'text-plex-text', subClass = 'text-plex-text-muted', testId }) {
+function Cell({ label, value, sub = '', valueClass = 'text-plex-text', subClass = 'text-plex-text-secondary', testId }) {
   return (
     <div className="min-w-0 bg-plex-surface px-4 py-3 max-[639px]:px-3" data-testid={testId}>
-      <p className="text-[11.5px] text-plex-text-muted">{label}</p>
+      <p className="text-[11.5px] text-plex-text-secondary">{label}</p>
       <p className={`mt-0.5 font-mono text-[20px] leading-tight ${valueClass}`} data-testid={`${testId}-value`}>{value}</p>
       <p className={`mt-0.5 min-h-4 text-[11.5px] ${subClass}`} data-testid={`${testId}-sub`}>{sub}</p>
     </div>
@@ -67,7 +67,7 @@ function pastCells(summary) {
   const attention = summary.needAttention > 0;
   const vs = summary.vsAvgPercent;
   let spendSub = 'No 30-day average yet';
-  let spendSubClass = 'text-plex-text-muted';
+  let spendSubClass = 'text-plex-text-secondary';
   if (vs != null) {
     spendSub = `${vs > 0 ? '+' : ''}${vs}% vs 30-day avg ${summary.avg30Gbp != null ? formatGbp(summary.avg30Gbp) : ''}`.trim();
     if (vs > 10) spendSubClass = 'text-verdict-marginal';

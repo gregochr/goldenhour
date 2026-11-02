@@ -37,6 +37,12 @@ export default function DayDateBar({
     if (restoreFocus) buttonRef.current?.focus({ preventScroll: true });
   }, [onCalendarOpenChange]);
 
+  // A step button that disables itself at the edge would drop focus to the page: the date button takes it instead.
+  const step = (target, disablesSelf) => {
+    onChange(target);
+    if (disablesSelf) buttonRef.current?.focus({ preventScroll: true });
+  };
+
   const pick = useCallback((iso) => {
     onChange(iso);
     closeCalendar(true);
@@ -49,7 +55,7 @@ export default function DayDateBar({
         className={STEP_BUTTON}
         aria-label="Previous day"
         disabled={atEarliest}
-        onClick={() => onChange(previousDay(date))}
+        onClick={() => step(previousDay(date), earliestDay != null && previousDay(date) <= earliestDay)}
         data-testid="runs-day-prev"
       >
         {'‹'}
@@ -74,7 +80,7 @@ export default function DayDateBar({
         className={STEP_BUTTON}
         aria-label="Next day"
         disabled={atToday}
-        onClick={() => onChange(nextDay(date))}
+        onClick={() => step(nextDay(date), nextDay(date) >= today)}
         data-testid="runs-day-next"
       >
         {'›'}
@@ -83,7 +89,7 @@ export default function DayDateBar({
         type="button"
         className="h-[34px] cursor-pointer rounded-lg border border-plex-border px-3 text-[12px] text-plex-text transition-colors enabled:hover:bg-white/8 disabled:cursor-default disabled:text-plex-text-muted focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
         disabled={atToday}
-        onClick={() => onChange(today)}
+        onClick={() => step(today, true)}
         data-testid="runs-day-today"
       >
         Today
@@ -94,7 +100,7 @@ export default function DayDateBar({
         </span>
       )}
       <span
-        className="ml-auto font-mono text-[11px] text-plex-text-muted max-[639px]:hidden"
+        className="ml-auto font-mono text-[11px] text-plex-text-secondary max-[639px]:hidden"
         data-testid="runs-day-hint"
       >
         {'←'} {'→'} to step {'·'} T for today

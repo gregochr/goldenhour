@@ -119,7 +119,7 @@ export default function ExternalCallsTable({ runId, logged }) {
   const heading = logged && count > 0 ? `External calls · ${count} ${count === 1 ? 'service' : 'services'}` : 'External calls';
   return (
     <div className="@container mt-2 overflow-hidden rounded-lg border border-plex-border bg-plex-bg/40" data-testid="runs-calls">
-      <p className="border-b border-plex-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted">
+      <p className="border-b border-plex-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-secondary">
         {heading}
       </p>
       {body}

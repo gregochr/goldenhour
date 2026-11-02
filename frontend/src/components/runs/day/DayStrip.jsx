@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useIsMobile } from '../../../hooks/useIsMobile.js';
 import { formatClockUk } from '../../../utils/runsView.js';
+import { runStatusView } from '../../../utils/runStatus.js';
 import {
   LANES, rowCostText, rowDurationText, rowStartText, stripBlock, stripFraction, stripScale, stripTicks, typeStyle,
 } from '../../../utils/runsDay.js';
 
-// The strip's drawing space (the SVG's viewBox, not pixels: the chart scales to its card's width, F9).
-const VIEW_W = 1000;
+// The strip's drawing space. The viewBox is as wide as the card is in pixels (measured, below), so text and the 5-unit
+// minimum block are real pixels; VIEW_W_FALLBACK is used before the first measure and where nothing measures (jsdom).
+const VIEW_W_FALLBACK = 1000;
+const PHONE_MIN_W = 720;
 const GUTTER = 128;
-const PLOT_W = VIEW_W - GUTTER - 8;
+const RIGHT_PAD = 8;
 const TOP = 24;
 const LANE_H = 30;
 const BLOCK_H = 18;
@@ -36,8 +39,9 @@ function blockClasses(row, selected) {
 /** One block's words for its tooltip and accessible name. */
 function blockLines(row) {
   const cost = rowCostText(row);
+  const status = runStatusView(row.status);
   return [
-    row.name,
+    status.label !== 'Done' ? `${row.name} (${status.label})` : row.name,
     `${rowStartText(row)} · ${rowDurationText(row)}${cost !== '—' ? ` · ${cost}` : ''}`,
     row.note ?? (row.status === 'SCHEDULED' ? 'Scheduled' : ''),
   ].filter(Boolean);
@@ -62,6 +66,19 @@ function blockLines(row) {
 export default function DayStrip({ day, selectedId = null, onSelect }) {
   const isMobile = useIsMobile();
   const [hover, setHover] = useState(null);
+  const scrollRef = useRef(null);
+  const [measured, setMeasured] = useState(0);
+  // The card's pixel width, so the viewBox is 1:1 with the screen and fontSize 10-11 stays 10-11px.
+  useEffect(() => {
+    const node = scrollRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => setMeasured(Math.floor(entry.contentRect.width)));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  let viewW = measured > 0 ? measured : VIEW_W_FALLBACK;
+  if (isMobile) viewW = Math.max(viewW, PHONE_MIN_W);
+  const PLOT_W = viewW - GUTTER - RIGHT_PAD;
   const scale = stripScale(day);
   const nowMs = day.now ? Date.parse(day.now) : scale.end;
   const x = (fraction) => GUTTER + fraction * PLOT_W;
@@ -100,14 +117,15 @@ export default function DayStrip({ day, selectedId = null, onSelect }) {
     <section className="rounded-xl border border-plex-border bg-plex-surface p-4 max-[639px]:px-3" data-testid="runs-strip">
       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 className="text-[13px] font-semibold text-plex-text" data-testid="runs-strip-title">{title}</h3>
-        <span className="font-mono text-[11px] text-plex-text-muted" data-testid="runs-strip-meta">
+        <span className="font-mono text-[11px] text-plex-text-secondary" data-testid="runs-strip-meta">
           sunrise {day.sunrise} {'·'} sunset {day.sunset}
         </span>
       </div>
-      <div className={isMobile ? 'overflow-x-auto' : ''} data-testid="runs-strip-scroll">
+      <div ref={scrollRef} className={isMobile ? 'overflow-x-auto' : ''} data-testid="runs-strip-scroll">
         <svg
-          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-          className={`h-auto w-full ${isMobile ? 'min-w-[720px]' : ''}`}
+          viewBox={`0 0 ${viewW} ${VIEW_H}`}
+          className={`h-auto ${isMobile ? 'min-w-[720px]' : 'w-full'}`}
+          width={isMobile ? viewW : undefined}
           role="group"
           aria-label={`${title}. ${day.runs.length} runs.`}
           data-testid="runs-strip-svg"
@@ -140,7 +158,7 @@ export default function DayStrip({ day, selectedId = null, onSelect }) {
             <rect x={x(nowFraction)} y={TOP} width={(1 - nowFraction) * PLOT_W} height={LANES.length * LANE_H} className="fill-white/3" />
           )}
           {/* The x axis. */}
-          {stripTicks(scale).map((tick) => (
+          {stripTicks(scale).filter((tick, i, all) => PLOT_W >= 560 || i % 2 === 0 || i === all.length - 1).map((tick) => (
             <g key={tick.ms}>
               <line x1={x(tick.fraction)} x2={x(tick.fraction)} y1={TOP} y2={TOP + LANES.length * LANE_H} className="stroke-plex-border" strokeWidth="1" />
               <text

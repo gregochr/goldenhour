@@ -12,10 +12,11 @@ import { formatClockUk } from '../../utils/runsView.js';
  * @param {{current: HTMLElement|null}} props.headingRef the "Runs" heading
  * @param {{current: HTMLElement|null}} [props.startButtonRef] the Start a run button
  * @param {Date|null} [props.updatedAt] when the active view last loaded (the real clock)
+ * @param {boolean} [props.refreshes] whether the view refreshes by itself (a past day does not, so it does not say so)
  * @param {() => void} props.onRefresh called by Refresh
  * @param {() => void} props.onStart called by Start a run
  */
-export default function RunsHeader({ headingRef, startButtonRef = undefined, updatedAt = null, onRefresh, onStart }) {
+export default function RunsHeader({ headingRef, startButtonRef = undefined, updatedAt = null, refreshes = true, onRefresh, onStart }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -29,7 +30,7 @@ export default function RunsHeader({ headingRef, startButtonRef = undefined, upd
         </h2>
         {updatedAt && (
           <span className="font-mono text-[11px] text-plex-text-muted" data-testid="runs-updated">
-            Updated {formatClockUk(updatedAt)} {'·'} refreshes every minute
+            Updated {formatClockUk(updatedAt)}{refreshes ? ' \u00b7 refreshes every minute' : ''}
           </span>
         )}
       </div>
@@ -55,6 +56,7 @@ RunsHeader.propTypes = {
   headingRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
   startButtonRef: PropTypes.shape({ current: PropTypes.any }),
   updatedAt: PropTypes.instanceOf(Date),
+  refreshes: PropTypes.bool,
   onRefresh: PropTypes.func.isRequired,
   onStart: PropTypes.func.isRequired,
 };

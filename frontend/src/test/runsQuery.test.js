@@ -35,6 +35,12 @@ describe('readRunsQuery', () => {
     }
   });
 
+  it('rewrites a date equal to today (or later) out of the address', () => {
+    window.location.hash = '#manage/runs?view=day&date=2026-11-02';
+    expect(readRunsQuery(NOW).date).toBeNull();
+    expect(window.location.hash).toBe('#manage/runs?view=day');
+  });
+
   it('ignores an unknown view or filter', () => {
     window.location.hash = '#manage/runs?view=spend&filter=nope';
     expect(readRunsQuery(NOW)).toEqual({ view: 'day', date: null, filter: 'all' });

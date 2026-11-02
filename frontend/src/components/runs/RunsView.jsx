@@ -88,11 +88,30 @@ export default function RunsView({
   // The Operations pane stays mounted, hidden, while the reader is on the Map or Plan tab: no polling then.
   const isPaused = useCallback(() => rootRef.current?.closest('[hidden]') != null, []);
   const runsLive = useRunsLive({ isPaused });
+  // The address can move under the view: Back after a panel, an inbound link while mounted. Re-read it then (our
+  // own writes use replaceState and fire neither event).
+  useEffect(() => {
+    const onAddressChange = () => {
+      const [area, tab] = window.location.hash.replace('#', '').split('?')[0].split('/');
+      if (area !== 'manage' || tab !== 'runs') return;
+      const next = readRunsQuery();
+      setQuery((prev) => (prev.view === next.view && prev.date === next.date && prev.filter === next.filter ? prev : next));
+    };
+    window.addEventListener('hashchange', onAddressChange);
+    window.addEventListener('popstate', onAddressChange);
+    return () => {
+      window.removeEventListener('hashchange', onAddressChange);
+      window.removeEventListener('popstate', onAddressChange);
+    };
+  }, []);
   const handleDateChange = useCallback((date) => {
     setQuery((q) => ({ ...q, date }));
     writeRunsQuery({ date });
   }, []);
-  const day = useRunDay(query.date, { enabled: query.view === 'day', isPaused, onClamp: handleDateChange });
+  const day = useRunDay(query.date, {
+    enabled: query.view === 'day', isPaused, onClamp: handleDateChange,
+    runningCount: runsLive.meta?.runningCount,
+  });
   const handleViewChange = useCallback((view) => {
     setQuery((q) => ({ ...q, view }));
     writeRunsQuery({ view });
@@ -336,7 +355,8 @@ export default function RunsView({
   // view), the view tabs, and the view itself. Cost trends and Timing are placeholders until D4.
   const today = day.data?.isToday ? day.data.date : ukDateStr(new Date());
   const shownDay = day.data?.date ?? query.date ?? today;
-  const updatedAt = (query.view === 'day' ? day.updatedAt : null) ?? runsLive.updatedAt;
+  // "Updated" follows the view on screen: a Day still loading its date shows none (never the last day's).
+  const updatedAt = query.view === 'day' ? day.updatedAt : runsLive.updatedAt;
   let viewBody;
   if (query.view === 'day') {
     viewBody = (
@@ -375,6 +395,7 @@ export default function RunsView({
               headingRef={headingRef}
               startButtonRef={startButtonRef}
               updatedAt={updatedAt}
+              refreshes={query.view !== 'day' || day.data?.isToday !== false}
               onRefresh={refreshAll}
               onStart={() => select({ type: 'start' })}
             />

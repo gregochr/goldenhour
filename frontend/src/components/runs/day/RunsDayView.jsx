@@ -54,7 +54,7 @@ export default function RunsDayView({
   day, date, onDateChange, filter, onFilterChange, selectedKey = null, panelOpen, onOpenDetail,
 }) {
   const rootRef = useRef(null);
-  const scrollTarget = useRef(null);
+  const [scrollRequest, setScrollRequest] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const data = day.data;
@@ -62,6 +62,13 @@ export default function RunsDayView({
   const today = data?.isToday ? data.date : realToday;
   const shown = data?.date ?? date ?? today;
   const earliestDay = data?.earliestDay ?? null;
+
+  // A different day (a step, a pick, Back, an inbound link) starts with no row open.
+  const [openFor, setOpenFor] = useState(shown);
+  if (openFor !== shown) {
+    setOpenFor(shown);
+    setOpenId(null);
+  }
 
   const goTo = useCallback((iso) => {
     let target = iso;
@@ -77,17 +84,23 @@ export default function RunsDayView({
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
       if (rootRef.current?.closest('[hidden]')) return;
       if (isTypingTarget(event.target) || visibleDialogOpen() || panelOpen) return;
+      let target = null;
       if (event.key === 'ArrowLeft' && !event.shiftKey) {
-        if (earliestDay == null || shown > earliestDay) goTo(previousDay(shown));
+        if (earliestDay == null || shown > earliestDay) target = previousDay(shown);
       } else if (event.key === 'ArrowRight' && !event.shiftKey) {
-        if (shown < today) goTo(nextDay(shown));
-      } else if (event.key === 't' || event.key === 'T') {
-        if (shown !== today) goTo(today);
-      } else {
-        return;
+        if (shown < today) target = nextDay(shown);
+      } else if ((event.key === 't' || event.key === 'T') && shown !== today) {
+        target = today;
       }
+      // Only a key that moves the date is handled: at the edge it stays free for whatever else wants it.
+      if (target == null) return;
       event.preventDefault();
-      setCalendarOpen(false);
+      goTo(target);
+      if (calendarOpen) {
+        // The calendar closes with the date; focus goes back to its button rather than to the page.
+        setCalendarOpen(false);
+        rootRef.current?.querySelector('[data-testid="runs-day-date"]')?.focus({ preventScroll: true });
+      }
     };
   });
   useEffect(() => {
@@ -100,15 +113,14 @@ export default function RunsDayView({
   const handleStripSelect = (id) => {
     const row = data?.runs.find((r) => r.id === id);
     if (row && !rowMatchesFilter(row, filter)) onFilterChange('all');
-    scrollTarget.current = id;
     setOpenId(id);
+    // A fresh object per press, so pressing the block of a row that is already open still scrolls to it.
+    setScrollRequest({ id });
   };
   useEffect(() => {
-    const id = scrollTarget.current;
-    if (id == null) return;
-    scrollTarget.current = null;
-    rootRef.current?.querySelector(`[data-testid="runs-day-item-${id}"]`)?.scrollIntoView?.({ block: 'nearest' });
-  }, [openId]);
+    if (scrollRequest == null) return;
+    rootRef.current?.querySelector(`[data-testid="runs-day-item-${scrollRequest.id}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [scrollRequest]);
 
   const toggle = useCallback((id) => setOpenId((current) => (current === id ? null : id)), []);
 

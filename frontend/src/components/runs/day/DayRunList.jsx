@@ -16,7 +16,7 @@ const ROW_GRID = 'grid grid-cols-[52px_minmax(0,1fr)_92px] items-start gap-x-3 @
 function Fact({ label, children, testId }) {
   return (
     <div className="inline-flex items-baseline gap-1.5" data-testid={testId}>
-      <dt className="text-plex-text-muted">{label}</dt>
+      <dt className="text-plex-text-secondary">{label}</dt>
       <dd className="font-mono font-medium text-plex-text">{children}</dd>
     </div>
   );
@@ -36,7 +36,7 @@ function RowFacts({ row }) {
         <Fact label="Expected finish" testId="runs-fact-expected-finish">
           {facts.expectedFinish ? `~${formatClockUk(facts.expectedFinish)}` : '—'}
         </Fact>
-        <div className="text-plex-text-muted" data-testid="runs-fact-estimate-note">Estimate: median of last 30 runs</div>
+        <div className="text-plex-text-secondary" data-testid="runs-fact-estimate-note">Estimate: median of last 30 runs</div>
       </dl>
     );
   }
@@ -131,7 +131,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
               {row.note}
             </span>
           )}
-          <span className="mt-0.5 block font-mono text-[11px] text-plex-text-muted @min-[600px]:hidden" data-testid={`runs-day-compact-${row.id}`}>
+          <span className="mt-0.5 block font-mono text-[11px] text-plex-text-secondary @min-[600px]:hidden" data-testid={`runs-day-compact-${row.id}`}>
             {[duration, cost].filter((part) => part !== '—').join(' · ')}
           </span>
         </span>
@@ -145,7 +145,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
         </span>
         <span className="hidden text-right @min-[900px]:block" data-testid={`runs-day-cost-${row.id}`}>
           <span className="font-mono text-[12.5px] text-plex-text-secondary">{cost}</span>
-          {rowCostIsOpen(row) && <span className="block font-mono text-[10px] text-plex-text-muted">so far</span>}
+          {rowCostIsOpen(row) && <span className="block font-mono text-[10px] text-plex-text-secondary">so far</span>}
         </span>
         <span className="pt-0.5">
           <StatusDot tone={status.tone} halo={status.halo} hollow={status.hollow} tintText testId={`runs-day-status-${row.id}`}>
@@ -161,11 +161,12 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
           className="flex flex-col gap-2 px-3 pb-3 pl-[76px] max-[639px]:pl-3"
           data-testid={`runs-day-detail-${row.id}`}
         >
+          <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <RowFacts row={row} />
           {target && (
             <a
               href={target.href}
-              className="w-fit text-[12.5px] text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:flex max-[639px]:min-h-11 max-[639px]:items-center"
+              className="ml-auto text-[12.5px] text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:flex max-[639px]:min-h-11 max-[639px]:items-center"
               onClick={(event) => {
                 if (event.metaKey || event.ctrlKey || event.shiftKey || event.button > 0) return;
                 event.preventDefault();
@@ -176,6 +177,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
               Open run detail {'→'}
             </a>
           )}
+          </div>
           {!scheduled && <ExternalCallsTable runId={row.id} logged={row.kind !== 'SKY_EVAL'} />}
         </div>
       )}
@@ -191,16 +193,29 @@ DayRow.propTypes = {
   onOpenDetail: PropTypes.func.isRequired,
 };
 
-/** A group's header: "FINISHED · 5", "STILL TO RUN TODAY · 8 · times after a cycle are estimates". */
-function GroupHeader({ children, testId }) {
+/** A group of rows under its own heading, as a list labelled by that heading (not a header row inside one list). */
+function RowGroup({ id, testId, heading, rows, renderRow }) {
   return (
-    <li className="border-t border-plex-border bg-plex-bg/30 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted first:border-t-0" data-testid={testId}>
-      {children}
-    </li>
+    <section aria-labelledby={id} className="border-t border-plex-border first:border-t-0">
+      <h4
+        id={id}
+        className="bg-plex-bg/30 px-3 py-1.5 font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-plex-text-secondary"
+        data-testid={testId}
+      >
+        {heading}
+      </h4>
+      <ul>{rows.map(renderRow)}</ul>
+    </section>
   );
 }
 
-GroupHeader.propTypes = { children: PropTypes.node.isRequired, testId: PropTypes.string.isRequired };
+RowGroup.propTypes = {
+  id: PropTypes.string.isRequired,
+  testId: PropTypes.string.isRequired,
+  heading: PropTypes.node.isRequired,
+  rows: PropTypes.arrayOf(PropTypes.object).isRequired,
+  renderRow: PropTypes.func.isRequired,
+};
 
 /**
  * The Day view's run card (the handoff's "Run list card"): the filter chips with the day's served counts, the column
@@ -254,16 +269,26 @@ export default function DayRunList({ day, filter, onFilterChange, openId, onTogg
     );
   } else if (day.isToday) {
     body = (
-      <ul>
-        {finished.length > 0 && <GroupHeader testId="runs-day-group-finished">Finished {'·'} {finished.length}</GroupHeader>}
-        {finished.map(renderRow)}
-        {upcoming.length > 0 && (
-          <GroupHeader testId="runs-day-group-upcoming">
-            Still to run today {'·'} {upcoming.length} {'·'} times after a cycle are estimates
-          </GroupHeader>
+      <div>
+        {finished.length > 0 && (
+          <RowGroup
+            id="runs-day-heading-finished"
+            testId="runs-day-group-finished"
+            heading={<>Finished {'·'} {finished.length}</>}
+            rows={finished}
+            renderRow={renderRow}
+          />
         )}
-        {upcoming.map(renderRow)}
-      </ul>
+        {upcoming.length > 0 && (
+          <RowGroup
+            id="runs-day-heading-upcoming"
+            testId="runs-day-group-upcoming"
+            heading={<>Still to run today {'·'} {upcoming.length} {'·'} times after a cycle are estimates</>}
+            rows={upcoming}
+            renderRow={renderRow}
+          />
+        )}
+      </div>
     );
   } else {
     body = <ul>{rows.map(renderRow)}</ul>;

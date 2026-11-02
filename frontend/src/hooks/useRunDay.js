@@ -21,15 +21,18 @@ const keyOf = (date) => date ?? 'today';
  * shown as an error: {@code onClamp} is told where to go ({@code null} for today, else the earliest day).
  *
  * @param {string|null} date the ISO date, or null for today
- * @param {{enabled?: boolean, isPaused?: () => boolean, onClamp?: (date: string|null) => void}} [options]
- *   {@code enabled}: false makes the hook inert (another view is showing)
+ * @param {{enabled?: boolean, isPaused?: () => boolean, onClamp?: (date: string|null) => void,
+ *   runningCount?: number}} [options] {@code enabled}: false makes the hook inert (another view is showing);
+ *   {@code runningCount}: the live head's, a change of which re-reads a day that can still change (a cycle that
+ *   finished must not read Running for another minute)
  * @returns {{data: object|null, loading: boolean, error: string|null, updatedAt: Date|null, pollCount: number,
  *   refresh: () => void}}
  */
-export default function useRunDay(date, { enabled = true, isPaused = undefined, onClamp = undefined } = {}) {
+export default function useRunDay(date, {
+  enabled = true, isPaused = undefined, onClamp = undefined, runningCount = undefined,
+} = {}) {
   const key = keyOf(date);
-  const [state, setState] = useState({ key: null, data: null, error: null });
-  const [updatedAt, setUpdatedAt] = useState(null);
+  const [state, setState] = useState({ key: null, data: null, error: null, updatedAt: null });
   const [pollCount, setPollCount] = useState(0);
   const liveKey = useRef(key);
   const loadedKey = useRef(null);
@@ -67,14 +70,15 @@ export default function useRunDay(date, { enabled = true, isPaused = undefined, 
       if (liveKey.current !== requestKey || seq < appliedSeq.current) return;
       appliedSeq.current = seq;
       loadedKey.current = requestKey;
-      setState({ key: requestKey, data, error: null });
-      setUpdatedAt(new Date());
+      setState({ key: requestKey, data, error: null, updatedAt: new Date() });
       setPollCount((count) => count + 1);
     } catch (err) {
-      if (liveKey.current !== requestKey) return;
+      // An older failure never lands over a newer answer, any more than an older success does.
+      if (liveKey.current !== requestKey || seq < appliedSeq.current) return;
       setState((prev) => ({
         key: requestKey,
         data: prev.key === requestKey ? prev.data : null,
+        updatedAt: prev.key === requestKey ? prev.updatedAt : null,
         error: apiErrorMessage(err, err?.message || 'Failed to load the day'),
       }));
     }
@@ -95,11 +99,21 @@ export default function useRunDay(date, { enabled = true, isPaused = undefined, 
     if (enabled && !isToday) load();
   }, [enabled, isToday, load]);
 
+  // The live head's running count changing means a run started or finished: read today again now.
+  const lastRunning = useRef(runningCount);
+  useEffect(() => {
+    const previous = lastRunning.current;
+    lastRunning.current = runningCount;
+    // The first count (undefined until the live head loads) is not a change.
+    if (previous === undefined || runningCount === undefined || previous === runningCount) return;
+    if (enabled && isToday) load();
+  }, [runningCount, enabled, isToday, load]);
+
   return {
     data: current?.data ?? null,
     loading: enabled && current == null,
     error: current?.error ?? null,
-    updatedAt,
+    updatedAt: current?.updatedAt ?? null,
     pollCount,
     refresh: load,
   };

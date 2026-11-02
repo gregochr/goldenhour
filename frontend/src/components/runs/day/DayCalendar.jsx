@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import { visibleDialogOpen } from '../../../hooks/usePanelEscape.js';
 import useRunCalendar from '../../../hooks/useRunCalendar.js';
 import {
-  addMonthsClamped, formatDay, monthCells, monthLabel, monthOf, sameMonth, shiftMonth,
+  addMonthsClamped, formatDay, monthCells, monthLabel, monthOf, sameMonth,
 } from '../../../utils/travelDays.js';
 import { shiftDateStr } from '../../../utils/mapDates.js';
 import { formatGbp } from '../../../utils/runsDay.js';
@@ -192,7 +192,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
       id={id}
       role="region"
       aria-label="Choose a day"
-      className="rounded-xl border border-plex-border bg-plex-panel p-3 shadow-[0_12px_32px_rgba(0,0,0,0.5)] max-[639px]:shadow-none min-[640px]:absolute min-[640px]:left-0 min-[640px]:top-full min-[640px]:z-20 min-[640px]:mt-2 min-[640px]:w-[330px]"
+      className="rounded-xl border border-plex-border bg-plex-panel p-3 shadow-[0_12px_32px_rgba(0,0,0,0.5)] max-[639px]:shadow-none max-[639px]:w-full max-[639px]:basis-full min-[640px]:absolute min-[640px]:left-0 min-[640px]:top-full min-[640px]:z-20 min-[640px]:mt-2 min-[640px]:w-[330px]"
       data-testid="runs-calendar"
     >
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -201,7 +201,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
           className={NAV_BUTTON}
           aria-label="Previous month"
           disabled={!canGoBack}
-          onClick={() => setViewMonth(shiftMonth(viewMonth, -1))}
+          onClick={() => moveTo(addMonthsClamped(cursor, -1))}
           data-testid="runs-cal-prev"
         >
           {'‹'}
@@ -214,7 +214,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
           className={NAV_BUTTON}
           aria-label="Next month"
           disabled={!canGoForward}
-          onClick={() => setViewMonth(shiftMonth(viewMonth, 1))}
+          onClick={() => moveTo(addMonthsClamped(cursor, 1))}
           data-testid="runs-cal-next"
         >
           {'›'}
@@ -222,7 +222,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
       </div>
       <div className="mb-1 grid grid-cols-7 gap-1" aria-hidden="true">
         {HEADS.map((head) => (
-          <span key={head.key} className="text-center font-mono text-[10px] text-plex-text-muted">{head.text}</span>
+          <span key={head.key} className="text-center font-mono text-[10px] text-plex-text-secondary">{head.text}</span>
         ))}
       </div>
       {/* The grid is the one focusable widget; the cells are not. Its key and click handlers are the widget's own. */}
@@ -286,7 +286,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
       </div>
       <div className="mt-2 min-h-5 text-[11.5px]" aria-live="polite">
         {calendar.loading && (
-          <span className="text-plex-text-muted animate-pulse motion-reduce:animate-none" data-testid="runs-cal-loading">
+          <span className="text-plex-text-secondary animate-pulse motion-reduce:animate-none" data-testid="runs-cal-loading">
             Loading the month{'…'}
           </span>
         )}
@@ -304,7 +304,7 @@ export default function DayCalendar({ id, date, today, earliestDay = null, onPic
           </span>
         )}
       </div>
-      <div className="mt-1 flex items-center justify-between gap-3 text-[11.5px] text-plex-text-muted">
+      <div className="mt-1 flex items-center justify-between gap-3 text-[11.5px] text-plex-text-secondary">
         <span className="inline-flex items-center gap-3">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-[3px] w-3 rounded-full bg-tide" aria-hidden="true" />spend

@@ -98,6 +98,8 @@ export function readRunsQuery(now = new Date()) {
   const view = query.get('view');
   const date = validDate(query.get('date'));
   const filter = (query.get('filter') ?? '').toLowerCase();
+  // A date that is today or later means "today": it is not written, so it is rewritten out of the address.
+  if (date && date >= ukDateStr(now)) writeRunsQuery({ date: null });
   return {
     view: RUNS_VIEWS.includes(view) ? view : (storedView() ?? 'day'),
     // A future date is clamped to today before it is ever asked for (F12); an earlier-than-earliest one is the

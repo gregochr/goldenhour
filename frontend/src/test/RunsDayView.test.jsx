@@ -501,8 +501,14 @@ describe('Day view: the keys (F1)', () => {
     render(<RunsView activeRunId={null} onActiveRunChange={noop} onActiveRunClear={noop} />, { container: host });
     await loaded();
     host.hidden = true;
-    // A Map window is open: a visible dialog elsewhere, plus the hidden Runs pane. Neither moves the Runs date.
-    press('ArrowRight');
+    // A Map window is open: a real visible dialog outside the host, plus the hidden Runs pane.
+    const mapWindow = document.createElement('div');
+    mapWindow.setAttribute('role', 'dialog');
+    document.body.appendChild(mapWindow);
+    press('ArrowLeft');
+    expect(fetchRunDay).toHaveBeenCalledTimes(1);
+    // The hidden pane alone is enough too: with the dialog gone, the arrow still does not move the date.
+    mapWindow.remove();
     press('ArrowLeft');
     expect(fetchRunDay).toHaveBeenCalledTimes(1);
     host.remove();
@@ -677,6 +683,209 @@ describe('Day view: the calendar disclosure (F2)', () => {
     expect(region.className).toContain('min-[640px]:absolute');
     expect(region.className).not.toContain(' absolute ');
     expect(screen.getByTestId('runs-cal-prev').className).toContain('max-[639px]:size-11');
+  });
+});
+
+describe('Day view: review fixes', () => {
+  const press = (key, init = {}, target = document.body) => fireEvent.keyDown(target, { key, ...init });
+
+  it('moves the calendar cursor into the month the month buttons page to (aria-activedescendant is a rendered cell)', async () => {
+    renderView();
+    await loaded();
+    fireEvent.click(screen.getByTestId('runs-day-date'));
+    const grid = await screen.findByTestId('runs-cal-grid');
+    fireEvent.click(screen.getByTestId('runs-cal-prev'));
+    const active = grid.getAttribute('aria-activedescendant');
+    expect(active).toContain('2026-10-');
+    expect(document.getElementById(active)).not.toBeNull();
+    fireEvent.click(screen.getByTestId('runs-cal-next'));
+    expect(document.getElementById(grid.getAttribute('aria-activedescendant'))).not.toBeNull();
+  });
+
+  it('lets the calendar take the full row on a phone', async () => {
+    useIsMobile.mockReturnValue(true);
+    renderView();
+    await loaded();
+    fireEvent.click(screen.getByTestId('runs-day-date'));
+    const region = await screen.findByTestId('runs-calendar');
+    expect(region.className).toContain('max-[639px]:w-full');
+    expect(region.className).toContain('max-[639px]:basis-full');
+  });
+
+  it('puts focus on the date button when Next, Today or Previous disable themselves', async () => {
+    window.location.hash = '#manage/runs?date=2026-11-01';
+    renderView();
+    await screen.findByTestId('runs-day-row-job-9001');
+    const next = screen.getByTestId('runs-day-next');
+    next.focus();
+    fireEvent.click(next);
+    await loaded();
+    expect(screen.getByTestId('runs-day-date')).toHaveFocus();
+    fireEvent.click(screen.getByTestId('runs-day-prev'));
+    await screen.findByTestId('runs-day-row-job-9001');
+    const today = screen.getByTestId('runs-day-today');
+    today.focus();
+    fireEvent.click(today);
+    await loaded();
+    expect(screen.getByTestId('runs-day-date')).toHaveFocus();
+  });
+
+  it('closes the calendar and restores focus to the date button when T is pressed inside it', async () => {
+    window.location.hash = '#manage/runs?date=2026-10-30';
+    renderView();
+    await screen.findByTestId('runs-day-row-job-9001');
+    fireEvent.click(screen.getByTestId('runs-day-date'));
+    const grid = await screen.findByTestId('runs-cal-grid');
+    press('t', {}, grid);
+    expect(screen.queryByTestId('runs-calendar')).toBeNull();
+    expect(screen.getByTestId('runs-day-date')).toHaveFocus();
+  });
+
+  it('names a block\'s status in words unless it is Done', async () => {
+    serveDays([dayRow({ id: 'job-2', jobRunId: 2, status: 'FAILED', name: 'Tide data' }), dayRow({ id: 'job-3', jobRunId: 3 })]);
+    renderView();
+    expect(await screen.findByTestId('runs-strip-block-job-2')).toHaveAccessibleName(/Tide data \(Failed\)/);
+    expect(screen.getByTestId('runs-strip-block-job-3').getAttribute('aria-label')).not.toContain('(Done)');
+  });
+
+  it('scrolls again when the block of an already-open row is pressed', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderView();
+    await loaded();
+    fireEvent.click(screen.getByTestId('runs-strip-block-cycle-568'));
+    fireEvent.click(screen.getByTestId('runs-strip-block-cycle-568'));
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('runs-day-row-cycle-568')).toHaveAttribute('aria-expanded', 'true');
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it('draws the strip at the card\'s measured pixel width, so text and blocks are real pixels', async () => {
+    let notify;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb) { notify = cb; }
+
+      observe() {}
+
+      disconnect() {}
+    });
+    renderView();
+    await loaded();
+    await act(async () => { notify([{ contentRect: { width: 420 } }]); });
+    expect(screen.getByTestId('runs-strip-svg')).toHaveAttribute('viewBox', expect.stringMatching(/^0 0 420 \d+$/));
+    vi.unstubAllGlobals();
+  });
+
+  it('lists each group under its own heading, not as header rows inside one list', async () => {
+    renderView();
+    await loaded();
+    const finished = screen.getByTestId('runs-day-group-finished');
+    expect(finished.tagName).toBe('H4');
+    const section = finished.closest('section');
+    expect(section).toHaveAttribute('aria-labelledby', finished.id);
+    expect(within(section).getAllByRole('listitem').length).toBe(2);
+    expect(screen.getByTestId('runs-day-group-upcoming').closest('section')).not.toBe(section);
+  });
+
+  it('right-aligns "Open run detail" on the facts row', async () => {
+    renderView();
+    await loaded();
+    fireEvent.click(screen.getByTestId('runs-day-row-job-1'));
+    expect(screen.getByTestId('runs-row-job-1').className).toContain('ml-auto');
+  });
+
+  it('does not say "refreshes every minute" on a past day, nor show the old day\'s time while a new date loads', async () => {
+    renderView();
+    expect(await screen.findByTestId('runs-updated')).toHaveTextContent('refreshes every minute');
+    fetchRunDay.mockReturnValueOnce(new Promise(() => {}));
+    fireEvent.click(screen.getByTestId('runs-day-prev'));
+    await screen.findByTestId('runs-day-loading');
+    expect(screen.queryByTestId('runs-updated')).toBeNull();
+    fetchRunDay.mockResolvedValue(pastDayResponse([dayRow()], { date: '2026-10-31' }));
+    fireEvent.click(screen.getByTestId('runs-day-prev'));
+    await screen.findByTestId('runs-day-row-job-9001');
+    expect(screen.getByTestId('runs-updated')).toHaveTextContent(/^Updated \d\d:\d\d$/);
+  });
+
+  it('prevents the default only when a day key actually moves the date', async () => {
+    renderView();
+    await loaded();
+    const atToday = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(atToday);
+    expect(atToday.defaultPrevented).toBe(false);
+    const moves = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(moves);
+    expect(moves.defaultPrevented).toBe(true);
+    await screen.findByTestId('runs-day-row-job-9001');
+  });
+
+  it('re-reads the Day when the live head\'s running count changes (a finished cycle stops saying Running)', async () => {
+    fetchRuns.mockResolvedValue(runsPage([], { runningCount: 1, liveCycleId: null }));
+    renderView();
+    await loaded();
+    const before = fetchRunDay.mock.calls.length;
+    fetchRuns.mockResolvedValue(runsPage([], { runningCount: 0, liveCycleId: null }));
+    fireEvent.click(screen.getByTestId('runs-refresh-btn'));
+    await waitFor(() => expect(fetchRunDay.mock.calls.length).toBeGreaterThan(before + 1));
+  });
+
+  it('drops a failure that arrives after a newer answer', async () => {
+    renderView();
+    await loaded();
+    let failOld;
+    fetchRunDay.mockReturnValueOnce(new Promise((_resolve, reject) => { failOld = reject; }));
+    fireEvent.click(screen.getByTestId('runs-refresh-btn'));
+    fetchRunDay.mockResolvedValueOnce(dayResponse(TODAY_ROWS));
+    fireEvent.click(screen.getByTestId('runs-refresh-btn'));
+    await act(async () => {});
+    await act(async () => { failOld(new Error('late')); });
+    expect(screen.queryByTestId('runs-day-stale')).toBeNull();
+    expect(screen.queryByTestId('runs-day-error')).toBeNull();
+  });
+});
+
+describe('Day view: the address moves under it (Back, an inbound link)', () => {
+  it('follows Back: open a panel, step the date, Back, and the shown date matches the hash', async () => {
+    window.location.hash = '#manage/runs?view=day&date=2026-10-30';
+    renderView();
+    await screen.findByTestId('runs-day-row-job-9001');
+    const first = window.location.hash;
+    act(() => {
+      window.location.hash = '#manage/runs/job/9001?view=day&date=2026-10-30';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    fireEvent.click(screen.getByTestId('runs-day-next'));
+    await waitFor(() => expect(screen.getByTestId('runs-day-date-text')).toHaveTextContent('31 Oct'));
+    act(() => {
+      window.history.replaceState(null, '', first);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitFor(() => expect(screen.getByTestId('runs-day-date-text')).toHaveTextContent('30 Oct'));
+    expect(fetchRunDay).toHaveBeenLastCalledWith('2026-10-30');
+  });
+
+  it('honours an inbound ?view=day&date=... while mounted, and collapses the open row', async () => {
+    renderView();
+    await loaded();
+    fireEvent.click(screen.getByTestId('runs-day-row-cycle-568'));
+    act(() => {
+      window.location.hash = '#manage/runs?view=day&date=2026-10-29';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await screen.findByTestId('runs-day-row-job-9001');
+    expect(fetchRunDay).toHaveBeenLastCalledWith('2026-10-29');
+    expect(screen.queryByTestId('runs-day-detail-cycle-568')).toBeNull();
+  });
+
+  it('ignores a hash for another tab', async () => {
+    renderView();
+    await loaded();
+    const calls = fetchRunDay.mock.calls.length;
+    act(() => {
+      window.location.hash = '#manage/scheduler?date=2026-10-29';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(fetchRunDay.mock.calls.length).toBe(calls);
   });
 });
 
