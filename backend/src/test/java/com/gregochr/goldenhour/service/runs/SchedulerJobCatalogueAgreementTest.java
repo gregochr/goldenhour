@@ -30,12 +30,12 @@ class SchedulerJobCatalogueAgreementTest {
     }
 
     @Test
-    @DisplayName("the watchdog watches only forecast cycle jobs")
+    @DisplayName("the watchdog watches exactly the forecast cycle jobs")
     void watchdog_watchesCycleJobs() {
         List<String> cycleKeys = ForecastCycleJobs.allCycleJobs().stream().map(ForecastCycleJobs.Job::key).toList();
 
         assertThat(SchedulerJobCatalogue.find("forecast_cycle_watchdog").orElseThrow().watches())
-                .isNotEmpty().isSubsetOf(cycleKeys);
+                .containsExactlyInAnyOrderElementsOf(cycleKeys);
     }
 
     @Test

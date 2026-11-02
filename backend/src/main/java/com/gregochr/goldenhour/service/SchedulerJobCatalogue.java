@@ -304,7 +304,7 @@ public final class SchedulerJobCatalogue {
                 .resultsCollectedBy("sky_rating_eval_batch_poll"));
         add(draft("batch_result_polling", "Collects forecast results", Purpose.BATCH_PLUMBING, false,
                 List.of("Anthropic Batch API"),
-                "Every minute, asks Anthropic whether any submitted forecast batches have finished, and "
+                "Asks Anthropic whether any submitted forecast batches have finished, and "
                         + "saves their ratings. Does nothing when no batch is in flight.",
                 "Costs nothing itself. The Claude cost belongs to the job that submitted the batch.")
                 .backstoppedBy("evaluation_abandonment_sweep"));
@@ -325,7 +325,7 @@ public final class SchedulerJobCatalogue {
                         + "reads; never starts or retries anything.",
                 "Runs frequently, so a late cycle is caught soon. The deadlines it checks are drawn as red "
                         + "ticks on the cycles in the day picture.")
-                .watches("near_term_batch_evaluation", "intraday_forecast_refresh"));
+                .watches("near_term_batch_evaluation", "intraday_forecast_refresh", "evening_sunrise_refresh"));
         add(draft("run_progress_cleanup", "Clears stuck progress bars", Purpose.HOUSEKEEPING, false,
                 List.of(),
                 "Removes progress entries for forecast runs that stalled more than 30 minutes ago, so the "
@@ -372,7 +372,7 @@ public final class SchedulerJobCatalogue {
                 List.of("Email"),
                 "Warns Lite accounts that haven't been used for a long time, then deletes them after a "
                         + "grace period if they don't sign in.",
-                "Paused. Even when resumed it only logs what it would do, until photocast.dormancy.dry-run "
+                "It only logs what it would do, until photocast.dormancy.dry-run "
                         + "is turned off."));
         add(draft("drive_time_refresh", "Drive times from users' homes", Purpose.TRAVEL, false,
                 List.of("OpenRouteService"),

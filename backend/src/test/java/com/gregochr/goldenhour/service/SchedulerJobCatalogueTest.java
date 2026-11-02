@@ -21,7 +21,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class SchedulerJobCatalogueTest {
 
     private static final Pattern CLOCK_TIME = Pattern.compile("\\b\\d{1,2}:\\d{2}\\b");
-    private static final Pattern INTERVAL = Pattern.compile("(?i)\\bevery \\d+ ?(min|hour|second)");
+    private static final Pattern INTERVAL = Pattern.compile("(?i)\\bevery (\\d+ ?)?(minute|min|hour|second)");
+    private static final Pattern HOURLY = Pattern.compile("(?i)\\bhourly\\b");
+    /** "hourly" there describes a mechanism (slices of work) or the data (hourly comfort), not when the job fires. */
+    private static final java.util.Set<String> HOURLY_OK = java.util.Set.of("cloud_verification_backfill",
+            "wildlife_comfort_refresh");
 
     private static Draft draft(String key) {
         return SchedulerJobCatalogue.draft(key, "alias " + key, Purpose.TESTING, false, List.of(), "what", "why");
@@ -118,11 +122,15 @@ class SchedulerJobCatalogueTest {
             assertThat(entry.purpose()).as(key).isNotNull();
             assertThat(CLOCK_TIME.matcher(entry.why()).find()).as(key + " why has a clock time").isFalse();
             assertThat(INTERVAL.matcher(entry.why()).find()).as(key + " why has an interval").isFalse();
+            assertThat(CLOCK_TIME.matcher(entry.what()).find()).as(key + " what has a clock time").isFalse();
+            assertThat(INTERVAL.matcher(entry.what()).find()).as(key + " what has an interval").isFalse();
+            assertThat(HOURLY.matcher(entry.what()).find() && !HOURLY_OK.contains(key))
+                    .as(key + " what says hourly").isFalse();
         }
     }
 
     @Test
-    @DisplayName("the cycles feed the batch poller, the watchdog watches two of them, the sweep backstops the poller")
+    @DisplayName("the cycles feed the batch poller, the watchdog watches all three, the sweep backstops the poller")
     void realCatalogue_cycleAndPlumbingEdges() {
         Entry poller = SchedulerJobCatalogue.find("batch_result_polling").orElseThrow();
         assertThat(poller.collectsResultsFrom()).containsExactly("near_term_batch_evaluation",
@@ -133,7 +141,8 @@ class SchedulerJobCatalogueTest {
         assertThat(SchedulerJobCatalogue.find("sky_rating_eval_batch_poll").orElseThrow().collectsResultsFrom())
                 .containsExactly("sky_rating_eval");
         assertThat(SchedulerJobCatalogue.find("forecast_cycle_watchdog").orElseThrow().watches())
-                .containsExactly("near_term_batch_evaluation", "intraday_forecast_refresh");
+                .containsExactly("near_term_batch_evaluation", "intraday_forecast_refresh",
+                        "evening_sunrise_refresh");
         assertThat(SchedulerJobCatalogue.find("near_term_batch_evaluation").orElseThrow().watchedBy())
                 .containsExactly("forecast_cycle_watchdog");
     }
