@@ -93,7 +93,7 @@ export default function RunsTimingView({
   const controls = (
     <div className="flex flex-col gap-2" data-testid="runs-timing-controls">
       <ChipRow>
-        <ChipGroup label="Run type">
+        <ChipGroup label="Run type" wrap>
           {TIMING_TYPES.map((t) => (
             <Chip
               key={t}

@@ -229,6 +229,7 @@ describe('Cost trends', () => {
 
   it('has single-line legend chips', async () => {
     await openCost();
+    expect(screen.getByRole('group', { name: 'Isolate a type' }).className).toContain(' flex-wrap');
     expect(screen.getByTestId('runs-cost-iso-evening').className).toContain('whitespace-nowrap');
   });
 
@@ -476,6 +477,7 @@ describe('Timing', () => {
 
     it('keeps the type chips on one line', async () => {
       await openTiming();
+      expect(screen.getByRole('group', { name: 'Run type' }).className).toContain(' flex-wrap');
       expect(screen.getByTestId('runs-timing-type-evening').className).toContain('whitespace-nowrap');
     });
 

@@ -112,7 +112,7 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
       </div>
       <div className="mt-3">
         <ChipRow testId="runs-cost-legend">
-          <ChipGroup label="Isolate a type">
+          <ChipGroup label="Isolate a type" wrap>
             <Chip label="All types" nowrap on={isolate == null} onClick={() => onIsolate(null)} testId="runs-cost-iso-all" />
             {COST_ORDER.map((type) => (
               <Chip

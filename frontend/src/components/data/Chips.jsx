@@ -31,17 +31,18 @@ ChipRow.propTypes = { children: PropTypes.node.isRequired, testId: PropTypes.str
  *
  * @param {object} props
  * @param {string} props.label the group's accessible name
+ * @param {boolean} [props.wrap] wrap the chips onto further lines at every width (default: only on a phone)
  * @param {import('react').ReactNode} props.children the {@link Chip}s
  */
-export function ChipGroup({ label, children }) {
+export function ChipGroup({ label, wrap = false, children }) {
   return (
-    <div className="flex items-center gap-1.5 max-[639px]:flex-wrap" role="group" aria-label={label}>
+    <div className={`flex items-center gap-1.5 max-[639px]:flex-wrap ${wrap ? 'flex-wrap' : ''}`} role="group" aria-label={label}>
       {children}
     </div>
   );
 }
 
-ChipGroup.propTypes = { label: PropTypes.string.isRequired, children: PropTypes.node.isRequired };
+ChipGroup.propTypes = { label: PropTypes.string.isRequired, wrap: PropTypes.bool, children: PropTypes.node.isRequired };
 
 /** The 1px divider between chip groups. Hidden on a phone: wrapped, it would strand at a line edge, and the gap suffices. */
 export function ChipDivider() {
