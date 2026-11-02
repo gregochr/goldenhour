@@ -239,7 +239,8 @@ class GridCellBackfillJobTest {
         List<LocationEntity> pending = new ArrayList<>();
         IntStream.range(0, 6).forEach(i -> pending.add(entity("Down " + i, 55.0 + i, -2.0)));
         when(locationRepository.findByGridLatIsNullOrGridLngIsNullOrderByNameAsc()).thenReturn(pending);
-        when(locationEnrichmentService.fetchGridCell(anyDouble(), eq(-2.0))).thenReturn(null);
+        IntStream.range(0, 5).forEach(i ->
+                when(locationEnrichmentService.fetchGridCell(55.0 + i, -2.0)).thenReturn(null));
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 

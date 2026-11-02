@@ -729,7 +729,8 @@ class ForecastCycleWatchdogTest {
     void reports_allCyclesOnTime() {
         nightly(cronJob(NIGHTLY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE));
         when(runs.findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
-                eq(CycleType.NIGHTLY), any(), any())).thenReturn(Optional.of(
+                eq(CycleType.NIGHTLY), eq(Instant.parse("2026-10-13T01:00:00Z")),
+                eq(clock.instant()))).thenReturn(Optional.of(
                 run(1, CycleType.NIGHTLY, Instant.parse("2026-10-13T01:00:03Z"),
                         PipelineRunStatus.COMPLETED)));
 

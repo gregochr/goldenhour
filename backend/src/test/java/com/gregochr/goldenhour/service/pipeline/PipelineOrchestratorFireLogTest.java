@@ -42,7 +42,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -157,7 +156,11 @@ class PipelineOrchestratorFireLogTest {
     void failedSubmit_storesFailed() {
         when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run());
         when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
-                eq(RUN_ID), any(), any(), anyBoolean(), any()))
+                eq(RUN_ID),
+                eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                eq(NightlyEligibilityPolicy.INSTANCE),
+                eq(false),
+                any()))
                 .thenThrow(new IllegalStateException("anthropic down"));
 
         scheduledRunnable().run();

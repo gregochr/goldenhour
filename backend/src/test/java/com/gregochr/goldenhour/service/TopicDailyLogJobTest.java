@@ -857,12 +857,13 @@ class TopicDailyLogJobTest {
     @DisplayName("every topic read failing reports FAILED")
     void reports_failedWhenEveryTopicFails() {
         IllegalStateException down = new IllegalStateException("DB unavailable");
-        when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(any(), anyCollection())).thenThrow(down);
-        when(slotAtmosphereRepository.findInDateRange(any(), any())).thenThrow(down);
+        when(forecastEvaluationRepository.findByTargetDateAndTargetTypeIn(YESTERDAY,
+                List.of(TargetType.SUNRISE, TargetType.SUNSET))).thenThrow(down);
+        when(slotAtmosphereRepository.findInDateRange(YESTERDAY, YESTERDAY)).thenThrow(down);
         when(locationRepository.findCoastalLocations()).thenThrow(down);
-        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenThrow(down);
-        when(nlcClarityService.isNlcSeason(any())).thenThrow(down);
+        when(nlcClarityService.isNlcSeason(YESTERDAY)).thenThrow(down);
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(job::runScheduled);
 
