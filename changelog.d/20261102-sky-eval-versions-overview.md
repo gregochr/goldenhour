@@ -3,7 +3,7 @@
 Every Sky Eval run now records the commit it ran on. The production image is built without `.git`, so the
 commit column has always been empty there; `deploy.yml` now passes the commit sha, time and subject line as
 build args, `backend/Dockerfile` sets them as environment variables, and `GitInfoService` reads them when
-`git.properties` is absent (new migration V215 adds `git_commit_message` and `fixture_names` to
+`git.properties` is absent (new migration V216 adds `git_commit_message` and `fixture_names` to
 `sky_rating_eval_run`). Two admin endpoints back the page redesign: `POST /api/admin/sky-rating-eval/check`
 starts one manual run per chosen model in parallel, over all fixtures or a chosen subset, and
 `GET /api/admin/sky-rating-eval/overview` serves everything the page shows (versions, sessions, lane and model
