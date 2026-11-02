@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.RunCostProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,11 +28,17 @@ import java.util.Map;
 public class ModelsController {
 
     private final ModelSelectionService modelSelectionService;
+    private final RunCostProfileService runCostProfileService;
 
     /**
-     * Get available evaluation models, per-run-type active models, and extended-thinking flags (ADMIN only).
+     * Get available evaluation models, per-run-type active models, extended-thinking flags, and the
+     * measured cost of each Run Config tab (ADMIN only).
      *
-     * @return response containing available models, configs, and extended-thinking config
+     * <p>{@code costProfiles} is keyed by run type and empty when the figures could not be computed;
+     * {@code tokenRates} is the configured price of each selectable model; {@code gbpPerUsd} is the
+     * newest rate recorded on a job run and is omitted when none exists.
+     *
+     * @return response containing available models, configs, extended-thinking config and costs
      */
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
@@ -38,11 +46,14 @@ public class ModelsController {
         List<Map<String, String>> availableWithVersions = EvaluationModel.selectable().stream()
                 .map(m -> Map.of("name", m.name(), "version", m.getVersion()))
                 .toList();
-        return ResponseEntity.ok(Map.of(
-                "available", availableWithVersions,
-                "configs", modelSelectionService.getAllConfigs(),
-                "extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs()
-        ));
+        Map<String, Object> body = new HashMap<>();
+        body.put("available", availableWithVersions);
+        body.put("configs", modelSelectionService.getAllConfigs());
+        body.put("extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs());
+        body.put("costProfiles", runCostProfileService.costProfiles());
+        body.put("tokenRates", runCostProfileService.tokenRates());
+        runCostProfileService.gbpPerUsd().ifPresent(rate -> body.put("gbpPerUsd", rate));
+        return ResponseEntity.ok(body);
     }
 
     /**

@@ -36,6 +36,7 @@ import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.RegionDriveDurationService;
 import com.gregochr.goldenhour.service.RegionService;
+import com.gregochr.goldenhour.service.RunCostProfileService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -334,4 +335,8 @@ abstract class AbstractControllerTest {
     /** Drives the background verification backfill for {@code CloudVerificationController}. */
     @MockitoBean
     protected CloudVerificationBackfillRunner cloudVerificationBackfillRunner;
+
+    /** Measures the Run Config costs for {@code ModelsController}. */
+    @MockitoBean
+    protected RunCostProfileService runCostProfileService;
 }

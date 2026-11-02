@@ -161,4 +161,15 @@ public interface JobRunRepository extends JpaRepository<JobRunEntity, Long> {
             + "ORDER BY j.startedAt DESC, j.id DESC")
     List<JobRunEntity> findByRunTypeAndBatchType(@Param("runType") RunType runType,
             @Param("batchType") ForecastBatchEntity.BatchType batchType, Pageable pageable);
+
+    /**
+     * The exchange rates recorded on job runs, newest run first, ignoring runs that recorded none.
+     * Read with a one-row page to get the latest.
+     *
+     * @param pageable the page to read
+     * @return GBP per USD values, newest first
+     */
+    @Query("SELECT j.exchangeRateGbpPerUsd FROM JobRunEntity j WHERE j.exchangeRateGbpPerUsd IS NOT NULL "
+            + "ORDER BY j.startedAt DESC, j.id DESC")
+    List<Double> findLatestExchangeRates(Pageable pageable);
 }

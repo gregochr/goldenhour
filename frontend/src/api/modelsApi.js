@@ -1,10 +1,22 @@
 import apiClient from './axiosClient.js';
 
 /**
- * Fetch available evaluation models and the active model per run type.
+ * Fetch the Run Config data: the selectable models, the active model per run type, the
+ * extended-thinking flags, and the measured cost of each tab (admin only).
  *
- * @returns {Promise<{available: string[], configs: Object<string, string>}>}
- *   available models and per-run-type active models
+ * `costProfiles` is keyed by run type and is empty when the figures could not be computed;
+ * `gbpPerUsd` is absent when no job run has recorded an exchange rate.
+ *
+ * @returns {Promise<{
+ *   available: Array<{name: string, version: string}>,
+ *   configs: Object<string, string>,
+ *   extendedThinkingConfigs: Object<string, boolean>,
+ *   costProfiles: Object<string, {windowDays: number, runsPerDay: number, callsPerRun: number,
+ *     measured: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>,
+ *     estimates: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>}>,
+ *   tokenRates: Object<string, {inputUsdPerMtok: number, outputUsdPerMtok: number}>,
+ *   gbpPerUsd: (number|undefined)
+ * }>} the Run Config payload
  */
 export async function getAvailableModels() {
   try {
