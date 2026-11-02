@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.entity.SolarEvent;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +54,12 @@ public class DynamicSchedulerService {
      * the JVM default.
      */
     private static final ZoneOffset DEFAULT_SCHEDULE_ZONE = ZoneOffset.UTC;
+
+    /** The latest UK wall-clock time a fire counts as "later today" for {@link #firesLaterTodayUk}. */
+    private static final java.time.LocalTime LAST_RELIABLE_FIRE = java.time.LocalTime.of(23, 59);
+
+    /** The UK civil zone {@link #firesLaterTodayUk} reasons in. */
+    private static final ZoneId UK_ZONE = ZoneId.of("Europe/London");
 
     /** Longest offset a solar job may use, in minutes before the event. */
     private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
@@ -528,6 +535,55 @@ public class DynamicSchedulerService {
         }
 
         return null;
+    }
+
+    /**
+     * Whether the named job is certain enough to fire later today, UK time, that a caller may rely on it
+     * as a later look at some slot.
+     *
+     * <p>True only when the job's row exists, is {@code ACTIVE}, and {@link #calculateNextFireTime} is
+     * after now and no later than 23:59 in {@code Europe/London} on today's UK civil date. A paused or
+     * config-disabled job, a missing row, a re-cron or sun-relative switch that moves the fire past
+     * bedtime or off today, and any exception reading the row all answer {@code false}. The reason is
+     * logged once per call at INFO, so the caller needs no logging of its own.
+     *
+     * @param jobKey the job to ask about
+     * @return {@code true} when the job will fire between now and 23:59 UK time today
+     */
+    public boolean firesLaterTodayUk(String jobKey) {
+        String safeKey = LogSanitizer.sanitize(jobKey);
+        try {
+            Optional<SchedulerJobConfigEntity> found = repository.findByJobKey(jobKey);
+            if (found.isEmpty()) {
+                LOG.info("Job '{}' has no scheduler row — not relying on it firing tonight", safeKey);
+                return false;
+            }
+            SchedulerJobConfigEntity config = found.get();
+            if (config.getStatus() != SchedulerJobStatus.ACTIVE) {
+                LOG.info("Job '{}' is {} — not relying on it firing tonight", safeKey, config.getStatus());
+                return false;
+            }
+            Instant next = calculateNextFireTime(config);
+            Instant now = clock.instant();
+            if (next == null || !next.isAfter(now)) {
+                LOG.info("Job '{}' has no future fire time ({}) — not relying on it firing tonight",
+                        safeKey, next);
+                return false;
+            }
+            Instant bedtime = ForecastHorizon.today(clock).atTime(LAST_RELIABLE_FIRE)
+                    .atZone(UK_ZONE).toInstant();
+            if (next.isAfter(bedtime)) {
+                LOG.info("Job '{}' next fires at {}, after {} UK today — not relying on it firing tonight",
+                        safeKey, next, LAST_RELIABLE_FIRE);
+                return false;
+            }
+            LOG.info("Job '{}' fires at {} — due tonight", safeKey, next);
+            return true;
+        } catch (RuntimeException e) {
+            LOG.info("Job '{}' could not be read ({}) — not relying on it firing tonight", safeKey,
+                    LogSanitizer.sanitize(String.valueOf(e.getMessage())));
+            return false;
+        }
     }
 
     /**

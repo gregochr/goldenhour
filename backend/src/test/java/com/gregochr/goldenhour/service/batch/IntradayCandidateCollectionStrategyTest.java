@@ -75,4 +75,27 @@ class IntradayCandidateCollectionStrategyTest {
     void pastDate_excluded() {
         assertThat(strategy.includes(TODAY.minusDays(1), TargetType.SUNSET)).isFalse();
     }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "eveningDue={0}, T+{1} {2} -> defers={3}")
+    @org.junit.jupiter.params.provider.CsvSource({
+            "true,  0, SUNSET,  false",
+            "true,  0, SUNRISE, false",
+            "true,  1, SUNRISE, true",
+            "true,  1, SUNSET,  false",
+            "true,  2, SUNRISE, false",
+            "false, 0, SUNSET,  false",
+            "false, 1, SUNRISE, false",
+            "false, 1, SUNSET,  false"})
+    @DisplayName("only T+1 sunrise is deferred, and only when tonight's evening refresh is due")
+    void defersRatedSlot_table(boolean eveningDue, int daysAhead, TargetType type, boolean expected) {
+        IntradayCandidateCollectionStrategy s = new IntradayCandidateCollectionStrategy(CLOCK, eveningDue);
+
+        assertThat(s.defersRatedSlot(TODAY.plusDays(daysAhead), type)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("the single-argument constructor never defers")
+    void singleArgConstructor_neverDefers() {
+        assertThat(strategy.defersRatedSlot(TODAY.plusDays(1), TargetType.SUNRISE)).isFalse();
+    }
 }

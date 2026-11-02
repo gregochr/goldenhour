@@ -166,6 +166,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.service.EvaluationViewService.class),
                 realForecastService, stabilityClassifier, modelSelectionService,
                 openMeteoService, solarService, freshnessResolver, stabilitySnapshotProvider,
                 travelDayService, 0.5, 0, CLOCK, BLUEBELL_SEASON);

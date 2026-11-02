@@ -21,8 +21,22 @@ import java.util.List;
  * @param evaluated      candidates re-evaluated via Claude
  *                       ({@link DispositionCategory#EVALUATED} +
  *                       {@link DispositionCategory#FORCE_EVALUATED})
+ * @param deferredToEvening already-rated T+1 sunrises left for tonight's evening refresh (also a
+ *                       {@link DispositionCategory#SKIPPED_NO_REFRESH_NEEDED}, but at any stability,
+ *                       so counted apart from {@code settledSkipped})
  */
-public record ReclassSummary(int considered, int settledSkipped, int evaluated) {
+public record ReclassSummary(int considered, int settledSkipped, int evaluated, int deferredToEvening) {
+
+    /**
+     * A summary with nothing deferred to the evening.
+     *
+     * @param considered     candidates considered
+     * @param settledSkipped candidates skipped as settled
+     * @param evaluated      candidates re-evaluated
+     */
+    public ReclassSummary(int considered, int settledSkipped, int evaluated) {
+        this(considered, settledSkipped, evaluated, 0);
+    }
 
     /**
      * Tallies a disposition list into a summary.
@@ -33,14 +47,21 @@ public record ReclassSummary(int considered, int settledSkipped, int evaluated) 
     public static ReclassSummary from(List<CandidateDisposition> dispositions) {
         int settledSkipped = 0;
         int evaluated = 0;
+        int deferred = 0;
         for (CandidateDisposition d : dispositions) {
             switch (d.category()) {
-                case SKIPPED_NO_REFRESH_NEEDED -> settledSkipped++;
+                case SKIPPED_NO_REFRESH_NEEDED -> {
+                    if (IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON.equals(d.detail())) {
+                        deferred++;
+                    } else {
+                        settledSkipped++;
+                    }
+                }
                 case EVALUATED, FORCE_EVALUATED -> evaluated++;
                 default -> { }
             }
         }
-        return new ReclassSummary(dispositions.size(), settledSkipped, evaluated);
+        return new ReclassSummary(dispositions.size(), settledSkipped, evaluated, deferred);
     }
 
     /**
@@ -51,7 +72,10 @@ public record ReclassSummary(int considered, int settledSkipped, int evaluated) 
         // every evaluated candidate was TRANSITIONAL or UNSETTLED and the label was accurate; it
         // now describes a set that is mostly SETTLED on a settled afternoon. The count itself is
         // unchanged — only the claim about what is in it was wrong.
-        return considered + " considered, " + settledSkipped + " settled-skipped, "
+        String base = considered + " considered, " + settledSkipped + " settled-skipped, "
                 + evaluated + " evaluated";
+        return deferredToEvening > 0
+                ? base + ", " + deferredToEvening + " left for tonight's evening refresh"
+                : base;
     }
 }
