@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
+import com.gregochr.goldenhour.repository.SchedulerFireLogRepository;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,8 +73,8 @@ class DynamicSchedulerHardeningTest {
     @BeforeEach
     void setUp() {
         originalZone = TimeZone.getDefault();
-        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
-                solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
+        service = new DynamicSchedulerService(repository, mock(SchedulerFireLogRepository.class), taskScheduler,
+                auroraProperties, solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
         lenient().when(auroraProperties.isEnabled()).thenReturn(true);
         for (String key : List.of("job_a", "job_b", "job_c")) {
             service.registerJobTarget(key, () -> { });

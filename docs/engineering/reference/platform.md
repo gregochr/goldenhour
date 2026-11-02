@@ -121,6 +121,17 @@ existing half-off data is left as is. The checks are check-then-write, not atomi
 - **Server**: `DISABLED_BY_CONFIG` on trigger, pause or resume is a 409 (`JobDisabledByConfigException`, handled in `GlobalExceptionHandler`), not a 500.
 - **Real clock (R-D7)**: every clock read here is `new Date()`, never `appNow()`; a set Rewind moves none of them (pinned by `SchedulerView.test.jsx`).
 
+### Scheduler fire log (scheduler-redesign-plan.md S1; backend only so far)
+
+`DynamicSchedulerService.wrapTarget` records **every fire** of a scheduled job in `scheduler_fire_log` (V215): a `RUNNING` insert at the start, one scoped `UPDATE` at the end (`completed_at`, `status`, `summary`, `pipeline_run_id`; every other column is `updatable = false`). `status` is `RUNNING | SUCCEEDED | PARTIAL | FAILED | SKIPPED` (`MISSED` will be served, never stored); `trigger` is `SCHEDULED` (an installed schedule), `MANUAL` (`triggerNow`) or `CATCH_UP` (a solar job's startup catch-up). The target still receives `manual == (trigger == MANUAL)`.
+
+- **Reporting**: a job tells the wrapper what its fire amounted to with `SchedulerFireOutcome.report(status, summary)` and `linkPipelineRun(id)`, backed by a JDK 25 `ScopedValue` bound for the job body only (last report wins; no fire bound = a DEBUG no-op; work on other threads cannot report). Nothing reported means `SUCCEEDED`, no summary. S1 ships the mechanism; jobs adopt it in S2.
+- **Failures**: a throw is logged `FAILED` with a `LogSanitizer`-sanitised, 200-character `ExceptionClass: message` and **re-thrown unchanged**. A logging failure (insert or complete) logs WARN and never stops or fails the job.
+- **No lost update**: `last_fire_time` / `last_completion_time` are scoped `@Modifying` updates (`updateLastFireTime`, `updateLastCompletionTime`), not a `findByJobKey` + whole-entity `save`, so a Pause or schedule edit committed mid-fire is no longer reverted when the fire ends. `schedule_changed_at` (read-only on the entity) is stamped by `updateScheduleChangedAt` after a schedule edit, type switch, pause and resume.
+- **Orphans**: `initSchedules` first marks `RUNNING` rows with `fired_at < now` as `FAILED` "Interrupted by a restart" (a failure of the sweep never blocks startup).
+- **Retention**: 14 days, by the daily `scheduler_fire_log_cleanup` job (03:57 UTC, `SchedulerFireLogCleanupJob`, one bulk `DELETE`).
+- **Not logged**: admin routes that run a job body off the scheduler (`startTideRefresh`, the `@Async` cloud-verification backfill) never pass through `wrapTarget`, so they leave no fire-log row.
+
 ## Operations → Run Config: measured costs (run-config-accuracy-plan.md)
 
 `components/ModelSelectionView.jsx` holds no price. `GET /api/models` serves `costProfiles` (per tab: runs per day, calls per run, a `measured` figure for each model that ran and an `estimates` figure for each selectable model that did not), `tokenRates` (from `CostProperties`) and `gbpPerUsd` (the newest `job_run.exchange_rate_gbp_per_usd`; absent means the screen shows dollars). `service/RunCostProfileService` builds them from `api_call_log` over the last 30 UK civil days, with a 10-minute memo bypassed under Rewind, and never throws to the controller (a failure serves an empty `costProfiles`, shown as "Cost figures unavailable").

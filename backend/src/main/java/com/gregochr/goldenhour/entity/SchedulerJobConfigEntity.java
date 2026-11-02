@@ -116,6 +116,15 @@ public class SchedulerJobConfigEntity {
     @Column(name = "last_completion_time")
     private Instant lastCompletionTime;
 
+    /**
+     * When this job's schedule last changed (schedule edit, type switch, pause, resume), or null if it has not
+     * since V215. Read-only here ({@code updatable = false}): written only by
+     * {@code SchedulerJobConfigRepository#updateScheduleChangedAt}, so a whole-entity save from a stale copy
+     * can never move it.
+     */
+    @Column(name = "schedule_changed_at", updatable = false)
+    private Instant scheduleChangedAt;
+
     /** Config property that controls this job (e.g. "aurora.enabled"). Null if always available. */
     @Column(name = "config_source", length = 200)
     private String configSource;

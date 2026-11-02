@@ -57,4 +57,44 @@ public interface SchedulerJobConfigRepository extends JpaRepository<SchedulerJob
     int updateScheduleType(@Param("id") Long id, @Param("scheduleType") String scheduleType,
             @Param("solarEvent") String solarEvent, @Param("offsetMinutes") Integer offsetMinutes,
             @Param("updatedAt") Instant updatedAt);
+
+    /**
+     * Records when a job last started, touching nothing else.
+     *
+     * <p>A scoped update rather than {@code findByJobKey} + {@code save}: a whole-entity save of a copy read
+     * before a long fire would revert a Pause or schedule edit committed while the job ran.
+     *
+     * @param jobKey the job key
+     * @param time   the fire start
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE SchedulerJobConfigEntity c SET c.lastFireTime = :time WHERE c.jobKey = :jobKey")
+    int updateLastFireTime(@Param("jobKey") String jobKey, @Param("time") Instant time);
+
+    /**
+     * Records when a job last finished, touching nothing else (see {@link #updateLastFireTime}).
+     *
+     * @param jobKey the job key
+     * @param time   the fire end
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE SchedulerJobConfigEntity c SET c.lastCompletionTime = :time WHERE c.jobKey = :jobKey")
+    int updateLastCompletionTime(@Param("jobKey") String jobKey, @Param("time") Instant time);
+
+    /**
+     * Records when a job's schedule last changed. {@code schedule_changed_at} is {@code updatable = false} on
+     * the entity, so this is its only writer after insert.
+     *
+     * @param jobKey the job key
+     * @param time   the change instant
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE SchedulerJobConfigEntity c SET c.scheduleChangedAt = :time WHERE c.jobKey = :jobKey")
+    int updateScheduleChangedAt(@Param("jobKey") String jobKey, @Param("time") Instant time);
 }
