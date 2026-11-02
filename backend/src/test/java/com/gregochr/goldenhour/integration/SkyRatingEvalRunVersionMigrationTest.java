@@ -8,9 +8,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves V215 against a real Postgres (Flyway runs every migration in {@link IntegrationTestBase}):
+ * Proves V216 against a real Postgres (Flyway runs every migration in {@link IntegrationTestBase}):
  * {@code sky_rating_eval_run} gains a nullable {@code git_commit_message} (500 characters) and a nullable
- * {@code fixture_names} text column, and a row written without either (every row before V215) still inserts
+ * {@code fixture_names} text column, and a row written without either (every row before V216) still inserts
  * and reads null, while a row carrying both keeps them.
  *
  * <p>CI-only: it needs the Postgres Testcontainer, and there is no Docker on the development machine (see

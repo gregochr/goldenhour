@@ -119,13 +119,13 @@ public class SkyRatingEvalRunEntity {
     @Column(name = "git_branch", length = 255)
     private String gitBranch;
 
-    /** Subject line of the commit the running build was made from; null for rows before V215 or an unknown build. */
+    /** Subject line of the commit the running build was made from; null for rows before V216 or an unknown build. */
     @Column(name = "git_commit_message", length = 500)
     private String gitCommitMessage;
 
     /**
      * Comma-separated names of the fixtures a manual quick check scored, or {@code null} for every
-     * fixture (the weekly run, and every row before V215).
+     * fixture (the weekly run, and every row before V216).
      */
     @Column(name = "fixture_names", columnDefinition = "TEXT")
     private String fixtureNames;
