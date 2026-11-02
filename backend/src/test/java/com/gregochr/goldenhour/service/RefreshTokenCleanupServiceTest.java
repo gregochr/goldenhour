@@ -15,7 +15,7 @@ import com.gregochr.goldenhour.entity.SchedulerFireStatus;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
 
 /**
@@ -73,7 +73,9 @@ class RefreshTokenCleanupServiceTest {
     @Test
     @DisplayName("purgeExpiredTokens reports SUCCEEDED with the number of tokens deleted")
     void purgeExpiredTokens_reportsCount() {
-        when(refreshTokenRepository.deleteAllByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(4L);
+        LocalDateTime before = LocalDateTime.now();
+        when(refreshTokenRepository.deleteAllByExpiresAtBefore(
+                argThat(cutoff -> isBetweenNow(cutoff, before)))).thenReturn(4L);
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::purgeExpiredTokens);
 
@@ -84,11 +86,18 @@ class RefreshTokenCleanupServiceTest {
     @Test
     @DisplayName("purgeExpiredTokens with nothing to delete reports SUCCEEDED, not a skip")
     void purgeExpiredTokens_zeroIsStillSucceeded() {
-        when(refreshTokenRepository.deleteAllByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(0L);
+        LocalDateTime before = LocalDateTime.now();
+        when(refreshTokenRepository.deleteAllByExpiresAtBefore(
+                argThat(cutoff -> isBetweenNow(cutoff, before)))).thenReturn(0L);
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::purgeExpiredTokens);
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
         assertThat(report.summary()).isEqualTo("0 expired tokens deleted");
+    }
+
+    /** True when the cutoff is the current time: no earlier than {@code before} and no later than now. */
+    private static boolean isBetweenNow(LocalDateTime cutoff, LocalDateTime before) {
+        return cutoff != null && !cutoff.isBefore(before) && !cutoff.isAfter(LocalDateTime.now());
     }
 }

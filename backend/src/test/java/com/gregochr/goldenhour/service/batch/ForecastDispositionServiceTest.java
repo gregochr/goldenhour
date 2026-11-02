@@ -28,7 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 
 /**
  * Unit tests for {@link ForecastDispositionService}. The service is a thin
@@ -343,7 +343,9 @@ class ForecastDispositionServiceTest {
     @Test
     @DisplayName("pruneStale reports SUCCEEDED with the rows deleted")
     void pruneStale_reportsRowsDeleted() {
-        when(repository.deleteByCreatedAtBefore(any(Instant.class))).thenReturn(5);
+        Instant before = Instant.now();
+        when(repository.deleteByCreatedAtBefore(argThat(cutoff -> isRetentionCutoff(cutoff, before))))
+                .thenReturn(5);
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::pruneStale);
 
@@ -354,11 +356,21 @@ class ForecastDispositionServiceTest {
     @Test
     @DisplayName("pruneStale with nothing stale reports SUCCEEDED with 0 rows deleted")
     void pruneStale_zeroRows() {
-        when(repository.deleteByCreatedAtBefore(any(Instant.class))).thenReturn(0);
+        Instant before = Instant.now();
+        when(repository.deleteByCreatedAtBefore(argThat(cutoff -> isRetentionCutoff(cutoff, before))))
+                .thenReturn(0);
 
         SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(service::pruneStale);
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
         assertThat(report.summary()).isEqualTo("0 rows deleted");
+    }
+
+    /** True when the cutoff is now minus the retention: between {@code before} and the current time, less it. */
+    private static boolean isRetentionCutoff(Instant cutoff, Instant before) {
+        Instant earliest = before.minus(ForecastDispositionService.RETENTION_DAYS, java.time.temporal.ChronoUnit.DAYS);
+        Instant latest = Instant.now().minus(ForecastDispositionService.RETENTION_DAYS,
+                java.time.temporal.ChronoUnit.DAYS);
+        return cutoff != null && !cutoff.isBefore(earliest) && !cutoff.isAfter(latest);
     }
 }

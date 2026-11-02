@@ -35,6 +35,7 @@ import java.util.concurrent.ScheduledFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -85,7 +86,9 @@ class SchedulerJobOutcomeThroughWrapperTest {
     @DisplayName("a synchronous cleanup job: the wrapper stores SUCCEEDED and the job's own one-line summary")
     void syncJob_cleanup_storesItsSummary() {
         RefreshTokenRepository tokens = mock(RefreshTokenRepository.class);
-        when(tokens.deleteAllByExpiresAtBefore(any(LocalDateTime.class))).thenReturn(3L);
+        LocalDateTime before = LocalDateTime.now();
+        when(tokens.deleteAllByExpiresAtBefore(argThat(cutoff -> cutoff != null && !cutoff.isBefore(before)
+                && !cutoff.isAfter(LocalDateTime.now())))).thenReturn(3L);
         new RefreshTokenCleanupService(tokens, scheduler).registerJob();
 
         scheduledRunnable("refresh_token_cleanup").run();
