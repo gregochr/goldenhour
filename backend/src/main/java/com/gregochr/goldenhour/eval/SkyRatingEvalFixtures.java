@@ -23,20 +23,29 @@ import java.util.List;
  * not under-rate good conditions) and flat/middling (proves it is not always-high) — because the
  * pass rate is only meaningful if both halves pass.
  *
- * <p><b>Real days, real bands.</b> Seven of the eight fixtures are real days ported verbatim from
+ * <p><b>Real days, real bands.</b> Eight of the ten fixtures are real days ported verbatim from
  * {@code PromptRegressionTest}: real Open-Meteo / production input <em>and</em> the band Chris
  * actually observed at that location. Real provenance is the most credible foundation, so
  * augmentation is taken as the day's reality, not forced — some real days carry full augmentation
  * (directional cloud + cloud-approach trend), others only what was persisted that run (Angel of the
  * North is observer-point only). {@code SkyRatingEvalFixturesTest} therefore verifies each fixture
  * deserialises <em>faithfully</em> (no silent field-name defaults), not that every one is fully
- * augmented. The lone exception is {@code middling-hazy-mixed}, hand-authored to cover a low-middle
- * band ({2,3}) no real day supplies. Two fixtures carry tide and exercise the
+ * augmented. The two exceptions are {@code middling-hazy-mixed}, hand-authored to cover a low-middle
+ * band ({2,3}) no real day supplies, and {@code far-corridor-blanket-canvas}, hand-authored to fire
+ * the one label no real day does. Three fixtures carry tide and exercise the
  * {@code CoastalPromptBuilder} path.
  *
+ * <p><b>Strong-side coverage.</b> {@code low-hauxley-4oct-worth-going} (coastal) and
+ * {@code steel-rigg-24oct-worth-going} (inland) are the two newest real "worth going" mornings,
+ * serialised from the fully-augmented inputs production actually sent and pinned to the stored
+ * production prompts by {@code SkyRatingEvalPortedFixtureFidelityTest}. Both are rated exactly 4,
+ * so a model that under-rates a good sky fails them. They partly answer the angel TODO below
+ * (strong, fully-augmented real days now exist), but the "can it return a 5?" gap is still open:
+ * both bands are exactly 4, so nothing here would catch a model that never reaches a 5.
+ *
  * <p>A new captured-real day slots in by dropping its exported {@code atmospheric_data_json} here
- * and adding a registry line — e.g. a fully-augmented strong day from current prod would be the
- * ideal upgrade over the observer-only Angel anchor.
+ * and adding a registry line. A fully-augmented spectacular (5) day from current prod would close
+ * the remaining gap.
  */
 public final class SkyRatingEvalFixtures {
 
@@ -160,7 +169,30 @@ public final class SkyRatingEvalFixtures {
                             + "copt-hill-5mar-washout caught, which is what this fixture watches "
                             + "for.",
                     RatingBand.atMost(2),
-                    "far-corridor-blanket-canvas.json"));
+                    "far-corridor-blanket-canvas.json"),
+            new SkyRatingEvalFixture(
+                    "low-hauxley-4oct-worth-going",
+                    "Real day, ported from PromptRegressionTest#lowHauxley_4Oct2026_sunrise_"
+                            + "clearHorizonHighCanvas_worthGoing (input + observed band verbatim; "
+                            + "production forecast_evaluation id 86677). Clear solar horizon (0% low) "
+                            + "under a high-cloud canvas (100% high) — Chris photographed it and "
+                            + "called it worth going — better than a 3 'maybe', not spectacular — so "
+                            + "the band is exactly {4}. Coastal "
+                            + "(tide) — exercises CoastalPromptBuilder. Restores strong-side "
+                            + "coverage: a model that under-rates a good morning fails this fixture.",
+                    RatingBand.exactly(4),
+                    "low-hauxley-4oct-worth-going.json"),
+            new SkyRatingEvalFixture(
+                    "steel-rigg-24oct-worth-going",
+                    "Real day, ported from PromptRegressionTest#steelRigg_24Oct2026_sunrise_"
+                            + "clearSolarHorizonHighCanvas_worthGoing (input + observed band verbatim; "
+                            + "production forecast_evaluation id 119939). Clear solar horizon (0% low, "
+                            + "0% mid) under a high-cloud canvas (87% high) — Chris photographed it "
+                            + "and called it worth going, a solid 4, so the band is exactly {4}. "
+                            + "Inland (no tide) — the plain prompt path. Restores strong-side "
+                            + "coverage: a model that under-rates a good morning fails this fixture.",
+                    RatingBand.exactly(4),
+                    "steel-rigg-24oct-worth-going.json"));
 
     private SkyRatingEvalFixtures() {
     }

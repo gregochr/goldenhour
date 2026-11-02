@@ -1,0 +1,176 @@
+{
+  "locationName" : "Low Hauxley",
+  "solarEventTime" : "2026-10-04T06:13:58",
+  "targetType" : "SUNRISE",
+  "cloud" : {
+    "lowCloudPercent" : 0,
+    "midCloudPercent" : 100,
+    "highCloudPercent" : 100
+  },
+  "weather" : {
+    "visibilityMetres" : 26180,
+    "windSpeedMs" : 3.90,
+    "windDirectionDegrees" : 192,
+    "precipitationMm" : 0.00,
+    "humidityPercent" : 81,
+    "weatherCode" : 3,
+    "shortwaveRadiationWm2" : 13,
+    "dewPointCelsius" : 5.6,
+    "pressureHpa" : 1013.25,
+    "snowfallCm" : null,
+    "snowDepthMetres" : null,
+    "freezingLevelMetres" : null,
+    "temperature925hPaCelsius" : null,
+    "temperature850hPaCelsius" : null,
+    "precedingPrecipitationMm" : null
+  },
+  "aerosol" : {
+    "pm25" : 4.50,
+    "dustUgm3" : 0.00,
+    "aerosolOpticalDepth" : 0.150,
+    "boundaryLayerHeightMetres" : 400
+  },
+  "comfort" : {
+    "temperatureCelsius" : 8.7,
+    "apparentTemperatureCelsius" : 5.5,
+    "precipitationProbability" : 0
+  },
+  "directionalCloud" : {
+    "solarLowCloudPercent" : 0,
+    "solarMidCloudPercent" : 10,
+    "solarHighCloudPercent" : 100,
+    "antisolarLowCloudPercent" : 100,
+    "antisolarMidCloudPercent" : 100,
+    "antisolarHighCloudPercent" : 100,
+    "farSolarLowCloudPercent" : 1,
+    "farSolarMidCloudPercent" : null,
+    "farSolarHighCloudPercent" : null,
+    "farSolarLowCloudPercentDarkHour" : null,
+    "farSolarMidCloudPercentDarkHour" : null,
+    "farSolarHighCloudPercentDarkHour" : null,
+    "farSolarCloud850hPa" : null,
+    "farSolarCloud700hPa" : null,
+    "farSolarCloud600hPa" : null,
+    "farSolarCloud500hPa" : null,
+    "farSolarCloud400hPa" : null,
+    "farSolarCloud300hPa" : null,
+    "farSolarCloud250hPa" : null,
+    "farSolarCloud200hPa" : null
+  },
+  "tide" : {
+    "tideState" : "MID",
+    "nextHighTideTime" : "2026-10-04T08:52:37",
+    "nextHighTideHeightMetres" : 1.06,
+    "nextLowTideTime" : "2026-10-04T15:05:00",
+    "nextLowTideHeightMetres" : -0.78,
+    "tideAligned" : true,
+    "nearestHighTideTime" : null,
+    "nearestLowTideTime" : null,
+    "lunarTideType" : null,
+    "lunarPhase" : null,
+    "moonAtPerigee" : null,
+    "statisticalSize" : null
+  },
+  "cloudApproach" : {
+    "solarTrend" : {
+      "slots" : [ {
+        "hoursBeforeEvent" : 3,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 0
+      }, {
+        "hoursBeforeEvent" : 2,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 0
+      }, {
+        "hoursBeforeEvent" : 1,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 0,
+        "highCloudPercent" : 61
+      }, {
+        "hoursBeforeEvent" : 0,
+        "lowCloudPercent" : 0,
+        "midCloudPercent" : 10,
+        "highCloudPercent" : 100
+      } ],
+      "building" : false,
+      "clearing" : false
+    },
+    "upwindSample" : {
+      "distanceKm" : 72,
+      "windFromBearing" : 192,
+      "currentLowCloudPercent" : 0,
+      "eventLowCloudPercent" : 0
+    }
+  },
+  "mistTrend" : {
+    "slots" : [ {
+      "hoursRelativeToEvent" : -3,
+      "visibilityMetres" : 30180,
+      "dewPointCelsius" : 5.0,
+      "temperatureCelsius" : 7.5,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : -2,
+      "visibilityMetres" : 29140,
+      "dewPointCelsius" : 5.1,
+      "temperatureCelsius" : 7.7,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : -1,
+      "visibilityMetres" : 24520,
+      "dewPointCelsius" : 4.5,
+      "temperatureCelsius" : 7.4,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 0,
+      "visibilityMetres" : 26180,
+      "dewPointCelsius" : 5.6,
+      "temperatureCelsius" : 8.7,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 1,
+      "visibilityMetres" : 24880,
+      "dewPointCelsius" : 6.5,
+      "temperatureCelsius" : 10.6,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    }, {
+      "hoursRelativeToEvent" : 2,
+      "visibilityMetres" : 25420,
+      "dewPointCelsius" : 7.4,
+      "temperatureCelsius" : 11.9,
+      "cloudCoverPercent" : null,
+      "windSpeedMs" : null
+    } ]
+  },
+  "locationOrientation" : "sunrise-optimised",
+  "surge" : {
+    "pressureRiseMetres" : -0.122,
+    "windRiseMetres" : 0.0,
+    "totalSurgeMetres" : 0.0,
+    "pressureHpa" : 1025.2,
+    "windSpeedMs" : 3.9,
+    "windDirectionDegrees" : 192.0,
+    "onshoreComponentFraction" : 0.0,
+    "riskLevel" : "NONE",
+    "surgeExplanation" : "No significant surge expected",
+    "significant" : false
+  },
+  "adjustedRangeMetres" : 1.837,
+  "astronomicalRangeMetres" : 1.837,
+  "inversionScore" : null,
+  "bluebellConditionScore" : null,
+  "stability" : null,
+  "stabilityReason" : null,
+  "pressureTrend" : null,
+  "mistScore" : null,
+  "mistPotential" : null,
+  "inversionV2" : null,
+  "coastalMist" : null
+}
