@@ -41,6 +41,9 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -111,8 +114,8 @@ class SkyRatingEvalServiceTest {
         ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
 
         assertThat(view.scheduled()).isFalse();
-        verify(exclusionRepository, never()).saveAndFlush(any());
-        verify(exclusionRepository, never()).deleteById(any());
+        verify(exclusionRepository).existsById("OPUS");
+        verifyNoMoreInteractions(exclusionRepository);
     }
 
     @Test
@@ -150,8 +153,8 @@ class SkyRatingEvalServiceTest {
 
         service().setScheduled(EvaluationModel.OPUS, true);
 
-        verify(exclusionRepository, never()).saveAndFlush(any());
-        verify(exclusionRepository, never()).deleteById(any());
+        verify(exclusionRepository).existsById("OPUS");
+        verifyNoMoreInteractions(exclusionRepository);
     }
 
     @Test
@@ -160,7 +163,7 @@ class SkyRatingEvalServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service().setScheduled(null, false))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(exclusionRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(exclusionRepository);
     }
 
     @Test
@@ -170,7 +173,8 @@ class SkyRatingEvalServiceTest {
 
         assertThat(service().runScheduled()).isEmpty();
 
-        verify(runRepository, never()).save(any());
+        verifyNoInteractions(runRepository);
+        verifyNoInteractions(evaluationService);
     }
 
     @Test
@@ -179,10 +183,14 @@ class SkyRatingEvalServiceTest {
         EvaluationDetail detail = new EvaluationDetail(
                 new SunsetEvaluation(3, 50, 60, "A controlled summary."),
                 "prompt", "raw", 100L, new TokenUsage(100, 20, 0, 0));
-        when(evaluationService.evaluateWithDetails(any(AtmosphericData.class),
-                any(EvaluationModel.class), isNull())).thenReturn(detail);
-        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(), eq(false)))
-                .thenReturn(COST_PER_CALL);
+        List<EvaluationModel> scheduled = EvaluationModel.selectable().stream()
+                .filter(m -> m != EvaluationModel.OPUS).toList();
+        for (EvaluationModel model : scheduled) {
+            when(evaluationService.evaluateWithDetails(any(AtmosphericData.class), eq(model), isNull()))
+                    .thenReturn(detail);
+            when(costCalculator.calculateCostMicroDollars(eq(model), any(), eq(false)))
+                    .thenReturn(COST_PER_CALL);
+        }
         Map<Long, SkyRatingEvalRunEntity> store = new HashMap<>();
         AtomicLong ids = new AtomicLong(0);
         when(runRepository.save(any())).thenAnswer(inv -> {
@@ -198,9 +206,14 @@ class SkyRatingEvalServiceTest {
 
         List<SkyRatingEvalRunEntity> runs = service().runScheduled();
 
-        assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel)
-                .doesNotContain(EvaluationModel.OPUS)
-                .hasSize(EvaluationModel.selectable().size() - 1);
+        assertThat(runs).extracting(SkyRatingEvalRunEntity::getModel).containsExactlyElementsOf(scheduled);
+        int callsPerModel = SkyRatingEvalFixtures.ALL.size() * SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE;
+        for (EvaluationModel model : scheduled) {
+            verify(evaluationService, times(callsPerModel))
+                    .evaluateWithDetails(any(AtmosphericData.class), eq(model), isNull());
+        }
+        verify(evaluationService, never())
+                .evaluateWithDetails(any(AtmosphericData.class), eq(EvaluationModel.OPUS), isNull());
     }
 
     private static SkyRatingEvalModelExclusionEntity exclusion(String model) {

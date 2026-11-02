@@ -34,6 +34,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -110,9 +112,9 @@ class SkyRatingEvalBatchServiceTest {
         List<SkyRatingEvalRunEntity> runs = service.runScheduledBatched();
 
         assertThat(runs).isEmpty();
-        verify(evalService, never()).startRun(any(), any(), anyInt());
-        verify(batchClient, never()).submit(any());
-        verify(evalService, never()).attachBatchId(any(), any());
+        verify(evalService).scheduledModels();
+        verifyNoMoreInteractions(evalService);
+        verifyNoInteractions(batchClient);
     }
 
     @Test
