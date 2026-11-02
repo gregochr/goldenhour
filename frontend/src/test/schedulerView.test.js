@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  countByType, describeSchedule, formatNextFire, jobMatchesFilters, jobStatusView, relativeTime, sortJobs,
+  countByType, describeCron, describeSchedule, formatNextFire, jobMatchesFilters, jobStatusView, relativeTime, sortJobs,
 } from '../utils/schedulerView.js';
 import { isCycleJob, isForecastCycleJob } from '../utils/schedulerSolar.js';
 
@@ -144,5 +144,50 @@ describe('the cycle job lists', () => {
     expect(isCycleJob('evening_sunrise_refresh')).toBe(true);
     expect(isCycleJob('tide_refresh')).toBe(false);
     expect(isForecastCycleJob('evening_sunrise_refresh')).toBe(false);
+  });
+});
+
+describe('describeCron', () => {
+  it('reads an hourly cron as "Every hour at :MM"', () => {
+    expect(describeCron('0 20 * * * *')).toBe('Every hour at :20');
+    expect(describeCron('0 5 * * * *')).toBe('Every hour at :05');
+  });
+
+  it('keeps the single-day weekly form', () => {
+    expect(describeCron('0 0 2 * * MON')).toMatch(/^Every Monday at 0\d:00 (GMT|BST)$/);
+  });
+
+  it('keeps the daily form for a plain hour list', () => {
+    expect(describeCron('0 30 3,15 * * *', 'Europe/London')).toBe('Daily at 03:30, 15:30 UK time');
+  });
+
+  it('reads a numeric single day by name', () => {
+    expect(describeCron('0 0 3 * * 1', 'Europe/London')).toBe('Every Monday at 03:00 UK time');
+  });
+
+  it.each([
+    '0 */5 * * * *',
+    '0 0,30 3 * * *',
+    '0 0-30 3 * * *',
+    '0 0 */2 * * *',
+    '0 0 2-5 * * *',
+    '0 0 3 * * MON-FRI',
+    '0 0 3 * * 1-5',
+    '0 0 3 * * MON,FRI',
+    '0 20 * * * MON',
+  ])('returns %s unchanged', (cron) => {
+    expect(describeCron(cron)).toBe(cron);
+  });
+
+  it('never outputs Invalid or NaN', () => {
+    const fields = ['*', '0', '5', '*/5', '0,30', '2-5', '*/2', 'MON', 'MON-FRI', '1-5', 'x'];
+    for (const min of fields) {
+      for (const hour of fields) {
+        for (const dow of fields) {
+          const out = describeCron(`0 ${min} ${hour} * * ${dow}`);
+          expect(out).not.toMatch(/Invalid|NaN/);
+        }
+      }
+    }
   });
 });
