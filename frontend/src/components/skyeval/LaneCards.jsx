@@ -101,7 +101,7 @@ VerdictCard.propTypes = {
 };
 
 /** The lane card's status bar: held, dropped, not checked on HEAD, or nothing to compare. */
-function StatusBar({ stats, head, onRunCheck }) {
+function StatusBar({ stats, head, onRunCheck, onSeeFixtures }) {
   const state = laneBarState(stats);
   const tag = head?.sha ? <VersionTag shortSha={head.shortSha} /> : null;
   if (!head?.sha) {
@@ -123,6 +123,9 @@ function StatusBar({ stats, head, onRunCheck }) {
         <span>
           Dropped {formatPts(stats.deltaPts)} after {tag} ({formatPct(stats.previousVersionPct)} {'→'} {formatPct(stats.onHeadPct)}).
         </span>
+        <button type="button" className={LINK_CLASS} onClick={() => onSeeFixtures(stats.model)} data-testid="sky-eval-lane-see-fixtures">
+          See which fixtures
+        </button>
       </div>
     );
   }
@@ -146,6 +149,7 @@ StatusBar.propTypes = {
   stats: PropTypes.object,
   head: PropTypes.object,
   onRunCheck: PropTypes.func.isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
 };
 
 /**
@@ -160,8 +164,9 @@ StatusBar.propTypes = {
  * @param {number} props.fixtureCount the fixture count
  * @param {Date} props.now the moment ages are measured to
  * @param {(models: string[]) => void} props.onRunCheck opens the Run a check panel prefilled
+ * @param {(model: string) => void} props.onSeeFixtures opens the Fixtures tab on that model
  */
-export function LaneCard({ lane, stats, models, head, fixtureCount, now, onRunCheck }) {
+export function LaneCard({ lane, stats, models, head, fixtureCount, now, onRunCheck, onSeeFixtures }) {
   const stale = models.filter((m) => !m.fresh && m.lastTestedAt != null && m.model !== lane.model);
   const hasHead = head?.sha != null;
   return (
@@ -197,7 +202,7 @@ export function LaneCard({ lane, stats, models, head, fixtureCount, now, onRunCh
         <Stat label="Per eval run" value={formatGbp(stats?.costPerRunGbp)} sub={`weekly, ${fixtureCount} fixtures`} testId="sky-eval-lane-stat-cost" />
       </div>
 
-      <StatusBar stats={stats} head={head} onRunCheck={onRunCheck} />
+      <StatusBar stats={stats} head={head} onRunCheck={onRunCheck} onSeeFixtures={onSeeFixtures} />
 
       <div className="flex flex-col" data-testid="sky-eval-lane-compared">
         <span className="pb-1 font-mono text-[10px] font-medium uppercase tracking-widest text-plex-text-muted">
@@ -258,4 +263,5 @@ LaneCard.propTypes = {
   fixtureCount: PropTypes.number.isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
   onRunCheck: PropTypes.func.isRequired,
+  onSeeFixtures: PropTypes.func.isRequired,
 };

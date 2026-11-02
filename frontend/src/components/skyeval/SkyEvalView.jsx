@@ -10,6 +10,7 @@ import {
 } from '../../utils/skyEval.js';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
 import ModelsTab from './ModelsTab.jsx';
+import FixturesTab from './FixturesTab.jsx';
 import RunCheckPanel from './RunCheckPanel.jsx';
 import RunsTab from './RunsTab.jsx';
 
@@ -53,6 +54,7 @@ export default function SkyEvalView() {
   const [submitError, setSubmitError] = useState(null);
   const [openSessionId, setOpenSessionId] = useState(null);
   const [availableModels, setAvailableModels] = useState(null);
+  const [fixturesModel, setFixturesModel] = useState(null);
 
   const seqRef = useRef(0);
   const inFlightRef = useRef(false);
@@ -124,6 +126,12 @@ export default function SkyEvalView() {
   const setTab = (next) => {
     setTabState(next);
     writeTab(next);
+  };
+
+  // The "See which fixtures" and "Fixtures →" links: the Fixtures tab with that model preselected.
+  const seeFixtures = (model) => {
+    setFixturesModel(model);
+    setTab('fixtures');
   };
 
   const openPanel = (models) => {
@@ -233,7 +241,10 @@ export default function SkyEvalView() {
                 key={key}
                 type="button"
                 aria-pressed={tab === key}
-                onClick={() => setTab(key)}
+                onClick={() => {
+                  if (key === 'fixtures' && tab !== 'fixtures') setFixturesModel(null);
+                  setTab(key);
+                }}
                 className={`-mb-px flex cursor-pointer items-baseline gap-2 border-b-2 pb-[9px] text-sm font-semibold focus-visible:outline-2 focus-visible:outline-plex-gold ${
                   tab === key ? 'border-plex-text text-plex-text' : 'border-transparent text-plex-text-muted hover:text-plex-text'
                 }`}
@@ -246,18 +257,15 @@ export default function SkyEvalView() {
             ))}
           </div>
 
-          {tab === 'models' && <ModelsTab overview={overview} now={now} onRunCheck={openPanel} />}
-          {tab === 'fixtures' && (
-            <p className="text-sm text-plex-text-muted" data-testid="sky-eval-fixtures-placeholder">
-              Fixture grid arrives in the next update.
-            </p>
-          )}
+          {tab === 'models' && <ModelsTab overview={overview} now={now} onRunCheck={openPanel} onSeeFixtures={seeFixtures} />}
+          {tab === 'fixtures' && <FixturesTab overview={overview} preselected={fixturesModel} />}
           {tab === 'runs' && (
             <RunsTab
               sessions={overview.sessions}
               versions={overview.versions}
               openId={openSessionId}
               onToggle={toggleSession}
+              onSeeFixtures={seeFixtures}
               now={now}
             />
           )}

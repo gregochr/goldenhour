@@ -252,6 +252,9 @@ class SkyRatingEvalOverviewServiceTest {
         assertThat(o.sessions().get(0).runs()).extracting(r -> r.id()).containsExactly(c.getId());
         assertThat(o.sessions().get(1).id()).isEqualTo(a.getId());
         assertThat(o.sessions().get(1).runs()).extracting(r -> r.id()).containsExactly(a.getId(), b.getId());
+        // each run carries its own start, not its session's
+        assertThat(o.sessions().get(1).runs()).extracting(r -> r.startedAt())
+                .containsExactly(t.toInstant(ZoneOffset.UTC), t.plusMinutes(40).toInstant(ZoneOffset.UTC));
     }
 
     @Test
