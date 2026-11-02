@@ -20,12 +20,14 @@ import com.gregochr.goldenhour.repository.SkyRatingEvalResultRepository;
 import com.gregochr.goldenhour.repository.SkyRatingEvalRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -259,28 +261,44 @@ public class SkyRatingEvalService {
      * @return the model's resulting schedule row
      * @throws IllegalArgumentException if the model is null or not selectable
      */
-    @Transactional
+    // Deliberately not @Transactional: each repository call has its own transaction, so a concurrent
+    // duplicate insert is caught here without marking an outer transaction rollback-only.
     public ScheduledModelView setScheduled(EvaluationModel model, boolean scheduled) {
         if (model == null || !model.isSelectable()) {
             throw new IllegalArgumentException("Model " + model + " cannot be scheduled; choose one of "
                     + EvaluationModel.selectable());
         }
-        boolean excluded = exclusionRepository.existsById(model);
+        boolean excluded = exclusionRepository.existsById(model.name());
         if (scheduled && excluded) {
-            exclusionRepository.deleteById(model);
+            exclusionRepository.deleteById(model.name());
         } else if (!scheduled && !excluded) {
-            exclusionRepository.save(SkyRatingEvalModelExclusionEntity.builder()
-                    .model(model)
-                    .excludedAt(LocalDateTime.now(ZoneOffset.UTC))
-                    .build());
+            try {
+                exclusionRepository.saveAndFlush(SkyRatingEvalModelExclusionEntity.builder()
+                        .model(model.name())
+                        .excludedAt(LocalDateTime.now(ZoneOffset.UTC))
+                        .build());
+            } catch (DataIntegrityViolationException e) {
+                // A concurrent request excluded the same model first: it is excluded, which is the goal.
+                LOG.debug("Sky-rating eval model {} was already excluded", model);
+            }
         }
         return new ScheduledModelView(model, scheduled);
     }
 
     private Set<EvaluationModel> excludedModels() {
-        return exclusionRepository.findAll().stream()
-                .map(SkyRatingEvalModelExclusionEntity::getModel)
-                .collect(Collectors.toSet());
+        Set<EvaluationModel> excluded = new HashSet<>();
+        List<String> unknown = new ArrayList<>();
+        for (SkyRatingEvalModelExclusionEntity row : exclusionRepository.findAll()) {
+            try {
+                excluded.add(EvaluationModel.valueOf(row.getModel()));
+            } catch (IllegalArgumentException e) {
+                unknown.add(row.getModel());
+            }
+        }
+        if (!unknown.isEmpty()) {
+            LOG.warn("Sky-rating eval exclusion rows name models that no longer exist and are ignored: {}", unknown);
+        }
+        return excluded;
     }
 
     /**

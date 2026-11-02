@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.repository;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalModelExclusionEntity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,13 +25,13 @@ class SkyRatingEvalModelExclusionRepositoryTest {
     void roundTripsAndDeletes() {
         LocalDateTime at = LocalDateTime.of(2026, 11, 2, 9, 0);
         repository.saveAndFlush(SkyRatingEvalModelExclusionEntity.builder()
-                .model(EvaluationModel.SONNET_55).excludedAt(at).build());
+                .model("SONNET_55").excludedAt(at).build());
 
-        SkyRatingEvalModelExclusionEntity found = repository.findById(EvaluationModel.SONNET_55).orElseThrow();
+        SkyRatingEvalModelExclusionEntity found = repository.findById("SONNET_55").orElseThrow();
         assertThat(found.getExcludedAt()).isEqualTo(at);
-        assertThat(repository.existsById(EvaluationModel.OPUS)).isFalse();
+        assertThat(repository.existsById("OPUS")).isFalse();
 
-        repository.deleteById(EvaluationModel.SONNET_55);
+        repository.deleteById("SONNET_55");
         repository.flush();
         assertThat(repository.findAll()).isEmpty();
     }

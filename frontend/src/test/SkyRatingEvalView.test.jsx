@@ -94,6 +94,7 @@ describe('SkyRatingEvalView', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    window.localStorage.clear();
   });
 
   it('renders controls and a per-fixture drift chart for each fixture', async () => {
@@ -329,14 +330,48 @@ describe('SkyRatingEvalView', () => {
 
       fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
       fireEvent.click(screen.getByTestId('sky-eval-schedule-HAIKU'));
-      // The second request answers first, then the first.
+      // B (HAIKU) answers first, then A (OPUS). Each response row is correct for its own model; a
+      // whole-list replace would have the late OPUS reply carry HAIKU as still ticked.
       pending.HAIKU({ data: { model: 'HAIKU', scheduled: false } });
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeDisabled());
       pending.OPUS({ data: { model: 'OPUS', scheduled: false } });
 
       await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeDisabled());
       expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked();
       expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeChecked();
       expect(screen.getByTestId('sky-eval-schedule-SONNET')).toBeChecked();
+    });
+
+    it('does not render a weekly checkbox for a model the schedule does not list', async () => {
+      getSkyRatingEvalSchedule.mockResolvedValue({ data: SCHEDULE.filter((r) => r.model !== 'HAIKU_55') });
+      render(<SkyRatingEvalView />);
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-SONNET')).toBeChecked());
+      expect(screen.queryByTestId('sky-eval-schedule-HAIKU_55')).not.toBeInTheDocument();
+      expect(screen.getByTestId('sky-eval-model-HAIKU_55')).toBeInTheDocument();
+    });
+
+    it('does not clear an unrelated error banner when a toggle succeeds', async () => {
+      getAvailableModels.mockResolvedValueOnce(AVAILABLE);
+      setSkyRatingEvalScheduled.mockResolvedValue({ data: { model: 'OPUS', scheduled: false } });
+      getSkyRatingEvalRuns.mockRejectedValue(new Error('runs down'));
+      render(<SkyRatingEvalView />);
+      expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('runs down');
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+      fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+      await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).not.toBeChecked());
+      expect(screen.getByTestId('sky-eval-error')).toHaveTextContent('runs down');
+    });
+
+    it('labels each of the three rows as a named group', async () => {
+      getSkyRatingEvalRuns.mockResolvedValue({ data: THREE_MODEL_RUNS });
+      render(<SkyRatingEvalView />);
+
+      expect(await screen.findByRole('group', { name: 'Run now' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Weekly run' })).toBeInTheDocument();
+      expect(await screen.findByRole('group', { name: 'Show on chart' })).toBeInTheDocument();
     });
 
     it('says the weekly run will be skipped when no model is ticked', async () => {

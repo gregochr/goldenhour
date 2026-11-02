@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -63,7 +64,7 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void scheduledModels_dropsAnExcludedModel_andKeepsSelectableOrder() {
-        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion(EvaluationModel.OPUS)));
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("OPUS")));
 
         List<EvaluationModel> expected = EvaluationModel.selectable().stream()
                 .filter(m -> m != EvaluationModel.OPUS).toList();
@@ -72,14 +73,14 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void scheduledModels_ignoresAnExclusionForANonSelectableModel() {
-        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion(EvaluationModel.WILDLIFE)));
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("WILDLIFE")));
 
         assertThat(service().scheduledModels()).isEqualTo(EvaluationModel.selectable());
     }
 
     @Test
     void schedule_hasOneRowPerSelectableModel_withExcludedOnesOff() {
-        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion(EvaluationModel.SONNET)));
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("SONNET")));
 
         List<ScheduledModelView> rows = service().schedule();
 
@@ -91,46 +92,65 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void setScheduled_false_insertsAnExclusionRow() {
-        when(exclusionRepository.existsById(EvaluationModel.OPUS)).thenReturn(false);
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
 
         ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
 
         assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, false));
         ArgumentCaptor<SkyRatingEvalModelExclusionEntity> saved =
                 ArgumentCaptor.forClass(SkyRatingEvalModelExclusionEntity.class);
-        verify(exclusionRepository).save(saved.capture());
-        assertThat(saved.getValue().getModel()).isEqualTo(EvaluationModel.OPUS);
+        verify(exclusionRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getModel()).isEqualTo("OPUS");
         assertThat(saved.getValue().getExcludedAt()).isNotNull();
     }
 
     @Test
     void setScheduled_false_whenAlreadyExcluded_isIdempotent() {
-        when(exclusionRepository.existsById(EvaluationModel.OPUS)).thenReturn(true);
+        when(exclusionRepository.existsById("OPUS")).thenReturn(true);
 
         ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
 
         assertThat(view.scheduled()).isFalse();
-        verify(exclusionRepository, never()).save(any());
+        verify(exclusionRepository, never()).saveAndFlush(any());
         verify(exclusionRepository, never()).deleteById(any());
     }
 
     @Test
+    void setScheduled_false_whenAConcurrentRequestInsertedFirst_stillReportsExcluded() {
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
+        when(exclusionRepository.saveAndFlush(any(SkyRatingEvalModelExclusionEntity.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+
+        ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, false);
+
+        assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, false));
+    }
+
+    @Test
+    void anExclusionRowForARetiredModelIsIgnoredByScheduledModelsAndSchedule() {
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("RETIRED_MODEL")));
+
+        assertThat(service().scheduledModels()).isEqualTo(EvaluationModel.selectable());
+        assertThat(service().schedule()).allSatisfy(row -> assertThat(row.scheduled()).isTrue());
+    }
+
+    @Test
     void setScheduled_true_deletesTheExclusionRow() {
-        when(exclusionRepository.existsById(EvaluationModel.OPUS)).thenReturn(true);
+        when(exclusionRepository.existsById("OPUS")).thenReturn(true);
 
         ScheduledModelView view = service().setScheduled(EvaluationModel.OPUS, true);
 
         assertThat(view).isEqualTo(new ScheduledModelView(EvaluationModel.OPUS, true));
-        verify(exclusionRepository).deleteById(EvaluationModel.OPUS);
+        verify(exclusionRepository).deleteById("OPUS");
     }
 
     @Test
     void setScheduled_true_whenNotExcluded_isIdempotent() {
-        when(exclusionRepository.existsById(EvaluationModel.OPUS)).thenReturn(false);
+        when(exclusionRepository.existsById("OPUS")).thenReturn(false);
 
         service().setScheduled(EvaluationModel.OPUS, true);
 
-        verify(exclusionRepository, never()).save(any());
+        verify(exclusionRepository, never()).saveAndFlush(any());
         verify(exclusionRepository, never()).deleteById(any());
     }
 
@@ -140,13 +160,13 @@ class SkyRatingEvalServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service().setScheduled(null, false))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(exclusionRepository, never()).save(any());
+        verify(exclusionRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void runScheduled_withEveryModelExcluded_createsNoRuns() {
         when(exclusionRepository.findAll()).thenReturn(
-                EvaluationModel.selectable().stream().map(SkyRatingEvalServiceTest::exclusion).toList());
+                EvaluationModel.selectable().stream().map(m -> exclusion(m.name())).toList());
 
         assertThat(service().runScheduled()).isEmpty();
 
@@ -155,7 +175,7 @@ class SkyRatingEvalServiceTest {
 
     @Test
     void runScheduled_skipsAnExcludedModel() {
-        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion(EvaluationModel.OPUS)));
+        when(exclusionRepository.findAll()).thenReturn(List.of(exclusion("OPUS")));
         EvaluationDetail detail = new EvaluationDetail(
                 new SunsetEvaluation(3, 50, 60, "A controlled summary."),
                 "prompt", "raw", 100L, new TokenUsage(100, 20, 0, 0));
@@ -183,7 +203,7 @@ class SkyRatingEvalServiceTest {
                 .hasSize(EvaluationModel.selectable().size() - 1);
     }
 
-    private static SkyRatingEvalModelExclusionEntity exclusion(EvaluationModel model) {
+    private static SkyRatingEvalModelExclusionEntity exclusion(String model) {
         return SkyRatingEvalModelExclusionEntity.builder()
                 .model(model).excludedAt(LocalDateTime.of(2026, 11, 2, 9, 0)).build();
     }

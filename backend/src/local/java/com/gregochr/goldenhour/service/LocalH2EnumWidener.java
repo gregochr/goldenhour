@@ -77,8 +77,7 @@ public class LocalH2EnumWidener implements SmartInitializingSingleton {
     static final List<Target> TARGETS = List.of(
             new Target("job_run", "run_type", RunType.class),
             new Target("pipeline_run", "cycle_type", CycleType.class),
-            new Target("sky_rating_eval_run", "model", EvaluationModel.class),
-            new Target("sky_rating_eval_model_exclusion", "model", EvaluationModel.class));
+            new Target("sky_rating_eval_run", "model", EvaluationModel.class));
 
     private final DataSource dataSource;
 

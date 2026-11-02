@@ -158,6 +158,7 @@ const SkyRatingEvalView = () => {
   // Weekly schedule: model -> scheduled. null until loaded; scheduleError set when the load failed.
   const [schedule, setSchedule] = useState(null);
   const [scheduleError, setScheduleError] = useState(null);
+  const [scheduleModels, setScheduleModels] = useState([]);
   const [togglingModels, setTogglingModels] = useState([]);
   const [chartHidden, setChartHidden] = useState(readChartHidden);
   const { config: confirmDialog, openDialog, closeDialog } = useConfirmDialog();
@@ -198,7 +199,9 @@ const SkyRatingEvalView = () => {
       try {
         const res = await getSkyRatingEvalSchedule();
         const next = {};
-        (res.data || []).forEach((row) => { next[row.model] = row.scheduled; });
+        const order = [];
+        (res.data || []).forEach((row) => { next[row.model] = row.scheduled; order.push(row.model); });
+        setScheduleModels(order);
         setSchedule(next);
       } catch (err) {
         setScheduleError(apiErrorMessage(err, err?.message || 'Failed to load the weekly schedule'));
@@ -211,7 +214,6 @@ const SkyRatingEvalView = () => {
   const toggleScheduled = async (model, next) => {
     setTogglingModels((prev) => [...prev, model]);
     setSchedule((prev) => ({ ...prev, [model]: next }));
-    setError(null);
     try {
       const res = await setSkyRatingEvalScheduled(model, next);
       setSchedule((prev) => ({ ...prev, [res.data.model]: res.data.scheduled }));
@@ -345,7 +347,10 @@ const SkyRatingEvalView = () => {
   );
 
   const scheduleReady = schedule !== null;
-  const noneScheduled = scheduleReady && models.length > 0 && models.every((m) => schedule[m] === false);
+  // The Weekly run row follows the schedule response (the server's list, in its order); only a failed
+  // load falls back to the fetched model list, disabled and unticked.
+  const weeklyModels = scheduleReady ? scheduleModels : models;
+  const noneScheduled = scheduleReady && scheduleModels.length > 0 && scheduleModels.every((m) => schedule[m] !== true);
 
   const fixtureNames = Object.keys(byFixture);
 
@@ -370,8 +375,8 @@ const SkyRatingEvalView = () => {
     <div className="space-y-6" data-testid="sky-rating-eval-view">
       {/* Controls: Run now, Weekly run, Show on chart */}
       <div className="space-y-3">
-      <div className="flex items-center gap-4 flex-wrap">
-        <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Run now</span>
+      <div className="flex items-center gap-4 flex-wrap" role="group" aria-labelledby="sky-eval-run-now-label">
+        <span id="sky-eval-run-now-label" className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Run now</span>
         <div className="flex items-center gap-3 flex-wrap">
           {models.map((m) => (
             <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
@@ -412,14 +417,14 @@ const SkyRatingEvalView = () => {
         </button>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap" data-testid="sky-eval-schedule-row">
-        <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Weekly run</span>
+      <div className="flex items-center gap-4 flex-wrap" role="group" aria-labelledby="sky-eval-weekly-label" data-testid="sky-eval-schedule-row">
+        <span id="sky-eval-weekly-label" className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Weekly run</span>
         <div className="flex items-center gap-3 flex-wrap">
-          {models.map((m) => (
+          {weeklyModels.map((m) => (
             <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">
               <input
                 type="checkbox"
-                checked={scheduleReady && schedule[m] !== false}
+                checked={scheduleReady && schedule[m] === true}
                 disabled={!scheduleReady || togglingModels.includes(m)}
                 onChange={(e) => toggleScheduled(m, e.target.checked)}
                 className="accent-plex-gold"
@@ -443,8 +448,8 @@ const SkyRatingEvalView = () => {
       </div>
 
       {modelsPresent.length > 0 && (
-        <div className="flex items-center gap-4 flex-wrap" data-testid="sky-eval-chart-row">
-          <span className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Show on chart</span>
+        <div className="flex items-center gap-4 flex-wrap" role="group" aria-labelledby="sky-eval-show-label" data-testid="sky-eval-chart-row">
+          <span id="sky-eval-show-label" className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide w-24">Show on chart</span>
           <div className="flex items-center gap-3 flex-wrap">
             {modelsPresent.map((m) => (
               <label key={m} className="flex items-center gap-1 cursor-pointer text-sm">

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.repository;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalModelExclusionEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -9,5 +8,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * Sky-Rating Eval.
  */
 public interface SkyRatingEvalModelExclusionRepository
-        extends JpaRepository<SkyRatingEvalModelExclusionEntity, EvaluationModel> {
+        extends JpaRepository<SkyRatingEvalModelExclusionEntity, String> {
 }

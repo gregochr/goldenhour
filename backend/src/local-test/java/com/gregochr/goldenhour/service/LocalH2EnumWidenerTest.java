@@ -123,12 +123,12 @@ class LocalH2EnumWidenerTest {
     }
 
     @Test
-    @DisplayName("the Sky Eval model columns are widening targets, so a new model can be stored locally")
+    @DisplayName("the Sky Eval run model column is a widening target; the exclusion table is a plain string")
     void skyEvalModelColumnsAreTargets() {
         assertThat(LocalH2EnumWidener.TARGETS).contains(
-                new Target("sky_rating_eval_run", "model", com.gregochr.goldenhour.entity.EvaluationModel.class),
-                new Target("sky_rating_eval_model_exclusion", "model",
-                        com.gregochr.goldenhour.entity.EvaluationModel.class));
+                new Target("sky_rating_eval_run", "model", com.gregochr.goldenhour.entity.EvaluationModel.class));
+        assertThat(LocalH2EnumWidener.TARGETS).extracting(Target::table)
+                .doesNotContain("sky_rating_eval_model_exclusion");
     }
 
     @Test
