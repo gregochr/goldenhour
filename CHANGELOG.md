@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.36.1] - 2026-11-02
+
+### Fixed — Tide fetch-window test no longer depends on the real date
+
+`TideFetchWindowTest` mixed a fixed August date with the wall clock and began failing once the real date passed the fixture's frontier minus seven days. `TideService` and `WorldTidesIngestionService` now take an injectable UTC `Clock` (package-private constructors; production still uses the system UTC clock), and the test pins one fixed clock. A new test covers the clamp of the delete's lower bound to the start of today.
+
+### Fixed — Run Config shows measured costs and correct batch rules
+
+Operations → Run Config no longer carries hand-typed prices. Its per-call and per-day figures are measured from the last 30 days of logged Anthropic calls (an estimate, labelled as such, for a model that has not run) and shown in pounds at the latest recorded exchange rate, dollars if there is none. The "Recommended" badge and the stale model-choice advice are gone, and the batch explanation now matches the code: the near/far split, the nightly, intraday and evening cycles, the stability ranges, the empty-batch rule, and no JFDI section. The Briefing thinking note describes adaptive thinking and the 16,000-token ceiling, and the Aurora tab says how its reply budget is set. `GET /api/models` gains `costProfiles`, `tokenRates` and `gbpPerUsd`.
+
+### Changed — The afternoon refresh no longer re-rates tomorrow's sunrise when the evening refresh will
+
+When tonight's 21:00 evening sunrise refresh is active and due, the afternoon (intraday) cycle now leaves
+a tomorrow's-sunrise slot alone if that location already has a rating for it, at any stability. The
+evening run re-rates every one of them, and the last 30 days of same-day re-ratings repeated the earlier
+stars about half the time. A slot with no rating is still rated, and if the evening refresh is paused,
+missing or not due before midnight UK time nothing changes. Saves roughly $11 a month. If the evening run
+fails, the overnight rating (up to about 20 hours old) keeps serving until the next overnight run. The
+Runs page's reclassify line gains "N left for tonight's evening refresh", and the intraday job's
+description is updated to match (V212).
+
+### Changed — Aurora ratings no longer generate unused per-location detail
+
+The aurora scoring prompt now asks Claude only for each location's name, stars and a summary of up to 90 characters. The per-location `detail` bullets, which nothing displayed, are no longer generated, and the moon-impact note moves into the summary. The output token budget per location drops from 220 to 110, cutting aurora output by roughly 55-65% and speeding up alerts.
+
 ## [v2.36.0] - 2026-11-01
 
 ### Changed — Evaluations no longer ask Claude for the unused basic-tier scores
