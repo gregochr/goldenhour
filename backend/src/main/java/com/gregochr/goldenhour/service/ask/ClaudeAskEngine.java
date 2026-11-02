@@ -354,7 +354,7 @@ public class ClaudeAskEngine implements AskEngine {
                 // static system block makes two breakpoints, under the limit of four.
                 blocks = withBreakpointOnLast(blocks);
             }
-            builder.addUserMessageOfBlockParams(blocks);
+            builder.addUserMessageOfContentBlockParams(blocks);
         }
         return builder.build();
     }

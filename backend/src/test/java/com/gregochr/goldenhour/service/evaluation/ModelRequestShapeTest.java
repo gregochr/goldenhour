@@ -83,7 +83,7 @@ class ModelRequestShapeTest {
         assertThat(params.model().asString()).isEqualTo("claude-sonnet-5-5");
         assertThat(params.maxTokens()).isEqualTo(4096L);
         assertThat(params.thinking()).isEmpty();
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         OutputConfig config = params.outputConfig().orElseThrow();
         assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
@@ -133,7 +133,7 @@ class ModelRequestShapeTest {
         assertThat(params.model().asString()).isEqualTo("claude-haiku-5-5");
         assertThat(params.maxTokens()).isEqualTo(512L);
         assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         OutputConfig config = params.outputConfig().orElseThrow();
         assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
@@ -215,7 +215,7 @@ class ModelRequestShapeTest {
         assertThat(params.model().asString()).isEqualTo("claude-haiku-5-5");
         assertThat(params.maxTokens()).isEqualTo(512L);
         assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         OutputConfig config = params.outputConfig().orElseThrow();
         assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
@@ -235,7 +235,7 @@ class ModelRequestShapeTest {
         assertThat(params.model().asString()).isEqualTo("claude-sonnet-5-5");
         assertThat(params.maxTokens()).isEqualTo(4096L);
         assertThat(params.thinking()).isEmpty();
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         OutputConfig config = params.outputConfig().orElseThrow();
         assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
@@ -418,7 +418,7 @@ class ModelRequestShapeTest {
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
                 .diagnostics(Optional.empty())
-                .usage(Usage.builder()
+                .usage(Usage.builder().speed(Usage.Speed.STANDARD)
                         .inputTokens(10)
                         .outputTokens(20)
                         .cacheCreation(CacheCreation.builder()

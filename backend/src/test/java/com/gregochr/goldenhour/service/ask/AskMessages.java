@@ -24,7 +24,7 @@ final class AskMessages {
     }
 
     static Usage usage(long input, long output) {
-        return Usage.builder()
+        return Usage.builder().speed(Usage.Speed.STANDARD)
                 .inputTokens(input)
                 .outputTokens(output)
                 .cacheCreation(CacheCreation.builder().ephemeral5mInputTokens(0).ephemeral1hInputTokens(0).build())

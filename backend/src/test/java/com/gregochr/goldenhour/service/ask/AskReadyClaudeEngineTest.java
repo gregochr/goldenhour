@@ -154,8 +154,8 @@ class AskReadyClaudeEngineTest {
     private static List<ToolResultBlockParam> toolResultsIn(MessageCreateParams params) {
         List<ToolResultBlockParam> out = new ArrayList<>();
         params.messages().forEach(m -> {
-            if (m.content().isBlockParams()) {
-                m.content().asBlockParams().stream().filter(ContentBlockParam::isToolResult)
+            if (m.content().isContentBlockParams()) {
+                m.content().asContentBlockParams().stream().filter(ContentBlockParam::isToolResult)
                         .map(ContentBlockParam::asToolResult).forEach(out::add);
             }
         });

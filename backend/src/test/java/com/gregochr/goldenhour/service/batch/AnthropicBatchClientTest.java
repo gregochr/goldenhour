@@ -704,7 +704,7 @@ class AnthropicBatchClientTest {
         assertThat(result).isSameAs(primer);
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService, times(1)).create(eq(params), options.capture());
-        assertThat(options.getValue().getTimeout().request())
+        assertThat(options.getValue().timeout().orElseThrow().request())
                 .isLessThanOrEqualTo(Duration.ofSeconds(15)).isGreaterThan(Duration.ofSeconds(10));
         verifyNoInteractions(retryRegistry);
         verifyNoInteractions(forecastBatchRepository);
@@ -722,7 +722,7 @@ class AnthropicBatchClientTest {
 
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService, times(1)).create(eq(params), options.capture());
-        assertThat(options.getValue().getTimeout().request())
+        assertThat(options.getValue().timeout().orElseThrow().request())
                 .isLessThanOrEqualTo(Duration.ofSeconds(15)).isGreaterThan(Duration.ofSeconds(10));
     }
 
@@ -760,7 +760,7 @@ class AnthropicBatchClientTest {
 
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService).retrieve(eq("msgbatch_r"), options.capture());
-        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
+        assertThat(options.getValue().timeout().orElseThrow().request()).isEqualTo(Duration.ofSeconds(7));
     }
 
     @Test
@@ -787,7 +787,7 @@ class AnthropicBatchClientTest {
 
         ArgumentCaptor<RequestOptions> options = ArgumentCaptor.forClass(RequestOptions.class);
         verify(batchService).resultsStreaming(eq("msgbatch_p"), options.capture());
-        assertThat(options.getValue().getTimeout().request()).isEqualTo(Duration.ofSeconds(7));
+        assertThat(options.getValue().timeout().orElseThrow().request()).isEqualTo(Duration.ofSeconds(7));
         verify(stream).close();
     }
 

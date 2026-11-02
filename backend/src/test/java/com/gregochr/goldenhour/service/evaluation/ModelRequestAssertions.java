@@ -54,7 +54,7 @@ final class ModelRequestAssertions {
         assertThat(params.model().asString()).isEqualTo(MODEL_IDS.get(model));
         assertThat(params.maxTokens()).isEqualTo(maxTokens);
         assertThinking(params.thinking().isPresent(), params.thinking().map(t -> t.isDisabled()), model);
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         assertOutputConfig(params.outputConfig(), model, expectedFormat);
     }
@@ -65,7 +65,7 @@ final class ModelRequestAssertions {
         assertThat(params.model().asString()).isEqualTo(MODEL_IDS.get(model));
         assertThat(params.maxTokens()).isEqualTo(maxTokens);
         assertThinking(params.thinking().isPresent(), params.thinking().map(t -> t.isDisabled()), model);
-        assertThat(params.temperature()).isEmpty();
+        // temperature was removed from the request params in anthropic-java 3.x.
         assertThat(params.toolChoice()).isEmpty();
         assertOutputConfig(params.outputConfig(), model, expectedFormat);
     }
@@ -115,7 +115,7 @@ final class ModelRequestAssertions {
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
                 .diagnostics(Optional.empty())
-                .usage(Usage.builder()
+                .usage(Usage.builder().speed(Usage.Speed.STANDARD)
                         .inputTokens(10)
                         .outputTokens(20)
                         .cacheCreation(CacheCreation.builder()
