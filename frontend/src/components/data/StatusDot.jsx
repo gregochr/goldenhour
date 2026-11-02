@@ -21,19 +21,22 @@ const TINTED_TEXT = { amber: 'text-verdict-marginal', coral: 'text-plex-coral' }
  *   tide, the text takes the tide colour too)
  * @param {boolean} [props.halo] a 3px ring round the dot, the "in flight" cue Running uses
  * @param {boolean} [props.tintText] amber and coral words take the dot's hue (the words still always show)
+ * @param {boolean} [props.hollow] a dashed hollow ring instead of a filled dot (a run still to come)
  * @param {import('react').ReactNode} props.children the status text
  * @param {string} [props.className] extra classes for the wrapper
  * @param {string} [props.testId] the wrapper's test id
  */
 export default function StatusDot({
-  tone, children, halo = false, tintText = false, className = '', testId = undefined,
+  tone, children, halo = false, tintText = false, hollow = false, className = '', testId = undefined,
 }) {
   const style = TONES[tone] ?? TONES.off;
   const text = tintText && TINTED_TEXT[tone] ? TINTED_TEXT[tone] : style.text;
+  // Hollow: a dashed ring, "not yet" (a run still to come), instead of a filled dot.
+  const dot = hollow ? 'border border-dashed border-plex-text-muted' : style.dot;
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs ${text} ${className}`} data-testid={testId}>
       <span
-        className={`size-1.5 shrink-0 rounded-full ${style.dot} ${halo ? TIDE_HALO_CLASS : ''}`}
+        className={`size-1.5 shrink-0 rounded-full ${dot} ${halo ? TIDE_HALO_CLASS : ''}`}
         aria-hidden="true"
       />
       {children}
@@ -46,6 +49,7 @@ StatusDot.propTypes = {
   children: PropTypes.node.isRequired,
   halo: PropTypes.bool,
   tintText: PropTypes.bool,
+  hollow: PropTypes.bool,
   className: PropTypes.string,
   testId: PropTypes.string,
 };

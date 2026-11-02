@@ -16,6 +16,8 @@ const RUN_STATUS = {
   DEGRADED: { label: 'Degraded', tone: 'amber', halo: false },
   PARTIAL: { label: 'Partial', tone: 'amber', halo: false },
   FAILED: { label: 'Failed', tone: 'coral', halo: false },
+  // The Day view's fifth status: a scheduler fire still to come today, drawn as a dashed hollow dot.
+  SCHEDULED: { label: 'Scheduled', tone: 'off', halo: false, hollow: true },
 };
 
 /**

@@ -576,17 +576,17 @@ describe('SchedulerView: Recent runs', () => {
     expect(screen.getByTestId('scheduler-run-job-77')).toHaveTextContent('Done');
     expect(screen.getByTestId('scheduler-run-cycle-412')).toHaveTextContent('Degraded');
     expect(screen.getByTestId('scheduler-run-job-77')).toHaveTextContent('1m 12s');
-    expect(screen.getByTestId('scheduler-all-runs-tide_refresh')).toHaveAttribute('href', '#manage/runs?kind=tide');
+    expect(screen.getByTestId('scheduler-all-runs-tide_refresh')).toHaveAttribute('href', '#manage/runs?view=day&filter=other');
   });
 
-  it('filters "All in Runs" by the job\'s own group: cycles for a cycle job, aurora for the aurora batch', async () => {
+  it('filters "All in Runs" (the Day view) by the job\'s own group: cycles for a cycle job, other for the aurora batch', async () => {
     mount([solarJob(), job({ id: 8, jobKey: 'aurora_batch_evaluation', displayName: 'Aurora batch', runGroup: 'AURORA' })]);
     await openPanel(NIGHTLY);
-    expect(await screen.findByTestId(`scheduler-all-runs-${NIGHTLY}`)).toHaveAttribute('href', '#manage/runs?kind=cycles');
+    expect(await screen.findByTestId(`scheduler-all-runs-${NIGHTLY}`)).toHaveAttribute('href', '#manage/runs?view=day&filter=cycles');
     fireEvent.click(screen.getByTestId('scheduler-row-aurora_batch_evaluation'));
     expect(await screen.findByTestId('scheduler-all-runs-aurora_batch_evaluation')).toHaveAttribute(
       'href',
-      '#manage/runs?kind=aurora',
+      '#manage/runs?view=day&filter=other',
     );
   });
 
