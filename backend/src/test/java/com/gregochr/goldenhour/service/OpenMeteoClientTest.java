@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -25,10 +27,13 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import org.springframework.web.util.UriBuilder;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -41,9 +46,11 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.times;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
@@ -854,6 +861,9 @@ class OpenMeteoClientTest {
     private static final long TEN_MINUTES_MS = 10 * 60 * 1000L;
     private static final long RATE_LIMIT_BACKOFF_MS = 61_000L;
     private static final String CONCURRENT_BODY = "{\"error\":true,\"reason\":\"Too many concurrent requests\"}";
+    private static final String FORECAST_PATH = "/v1/forecast";
+    private static final String AIR_QUALITY_PATH = "/v1/air-quality";
+    private static final int CHUNK_SIZE = OpenMeteoClient.BATCH_COORD_LIMIT;
 
     /** A client with a fake clock at {@link #COOL_OFF_T0}, recorded sleeps and no real waiting. */
     private OpenMeteoClient coolOffClient(RestClient forecastClient, RestClient airQualityClient,
@@ -878,10 +888,71 @@ class OpenMeteoClientTest {
                 new SocketTimeoutException("Read timed out"));
     }
 
-    private static void verifyRequests(RestClient client, int count) {
-        verify(client.get().uri(org.mockito.ArgumentMatchers.<Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve(), times(count)).body(String.class);
+    /** Chunk {@code index} of {@code coords}, as the client splits it. */
+    private static List<double[]> chunk(List<double[]> coords, int index) {
+        return coords.subList(index * CHUNK_SIZE, Math.min((index + 1) * CHUNK_SIZE, coords.size()));
+    }
+
+    private static String latitudeList(List<double[]> chunk) {
+        return chunk.stream().map(c -> String.valueOf(c[0])).collect(Collectors.joining(","));
+    }
+
+    /** Builds the request the client's URI function describes, against a real builder. */
+    private static URI buildRequestUri(Function<UriBuilder, URI> uriFunction) {
+        return uriFunction.apply(new DefaultUriBuilderFactory("https://api.open-meteo.com").builder());
+    }
+
+    private static String latitudeParam(URI uri) {
+        String latitude = UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst("latitude");
+        return latitude == null ? null : URLDecoder.decode(latitude, StandardCharsets.UTF_8);
+    }
+
+    /** Matches the request for exactly this endpoint path and this chunk's latitude list. */
+    private static Function<UriBuilder, URI> uriFor(String path, List<double[]> chunk) {
+        String latitudes = latitudeList(chunk);
+        return argThat(uriFunction -> {
+            if (uriFunction == null) {
+                return false;
+            }
+            URI uri = buildRequestUri(uriFunction);
+            return path.equals(uri.getPath()) && latitudes.equals(latitudeParam(uri));
+        });
+    }
+
+    /**
+     * Stubs the body returned for requests to {@code path} carrying exactly {@code chunk}'s latitudes: a
+     * Throwable is thrown, an Answer is run, anything else is a JSON body. One outcome per successive request.
+     */
+    private static void stubChunk(RestClient client, String path, List<double[]> chunk, Object... outcomes) {
+        var stubbing = when(client.get().uri(uriFor(path, chunk)).retrieve().body(String.class));
+        for (Object outcome : outcomes) {
+            if (outcome instanceof Throwable t) {
+                stubbing = stubbing.thenThrow(t);
+            } else if (outcome instanceof Answer<?> answer) {
+                stubbing = stubbing.thenAnswer(answer);
+            } else {
+                stubbing = stubbing.thenReturn((String) outcome);
+            }
+        }
+    }
+
+    /**
+     * Verifies the client sent exactly {@code expected} requests, in order, each to {@code path} with that
+     * chunk's latitude list.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void verifyRequests(RestClient client, String path, List<List<double[]>> expected) {
+        ArgumentCaptor<Function<UriBuilder, URI>> captor = ArgumentCaptor.forClass((Class) Function.class);
+        verify(client.get(), atLeast(0)).uri(captor.capture());
+        // Stubbing a chunk invokes uri(...) once with a matcher placeholder (null); real requests are the rest.
+        List<Function<UriBuilder, URI>> sent = captor.getAllValues().stream().filter(f -> f != null).toList();
+        assertThat(sent).as("requests sent").hasSize(expected.size());
+        for (int i = 0; i < expected.size(); i++) {
+            URI uri = buildRequestUri(sent.get(i));
+            assertThat(uri.getPath()).as("request %d path", i + 1).isEqualTo(path);
+            assertThat(latitudeParam(uri)).as("request %d latitudes", i + 1)
+                    .isEqualTo(latitudeList(expected.get(i)));
+        }
     }
 
     @Test
@@ -890,13 +961,14 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, readTimeout(), readTimeout(), readTimeout());
+        List<double[]> coords = buildCoords(15);
+        stubChunk(mockClient, FORECAST_PATH, coords, readTimeout(), readTimeout(), readTimeout());
 
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(sleeps).containsExactly(30_000L, 60_000L);
-        verifyRequests(mockClient, 3);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(coords, coords, coords));
     }
 
     @Test
@@ -905,15 +977,17 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient,
+        List<double[]> coords = buildCoords(5);
+        stubChunk(mockClient, FORECAST_PATH, coords,
                 new RestClientException("Error while extracting response",
                         new SocketTimeoutException("Read timed out")),
                 buildJsonArray(5, 50.0));
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(5));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
         assertThat(results).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
         assertThat(sleeps).containsExactly(30_000L);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(coords, coords));
     }
 
     @Test
@@ -922,15 +996,17 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient,
+        List<double[]> coords = buildCoords(15);
+        stubChunk(mockClient, FORECAST_PATH, coords,
                 new HttpServerErrorException(HttpStatus.BAD_GATEWAY, "Bad Gateway"),
                 new ResourceAccessException("I/O error: Connection reset", new IOException("Connection reset")),
                 new HttpServerErrorException(HttpStatus.BAD_GATEWAY, "Bad Gateway"));
 
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(sleeps).containsExactly(2_000L, 4_000L);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(coords, coords, coords));
     }
 
     @Test
@@ -940,14 +1016,16 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, buildJsonArray(20, 50.0), tooManyRequests(CONCURRENT_BODY));
+        List<double[]> coords = buildCoords(100);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), buildJsonArray(20, 50.0));
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 1), tooManyRequests(CONCURRENT_BODY));
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(100));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
         assertThat(results).hasSize(100);
         assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
         assertThat(results.subList(20, 100)).containsOnlyNulls();
-        verifyRequests(mockClient, 2);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), chunk(coords, 1)));
         assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
     }
 
@@ -959,14 +1037,15 @@ class OpenMeteoClientTest {
         List<Long> sleeps = new ArrayList<>();
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, now);
-        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
-        client.fetchForecastBriefingBatch(buildCoords(100));
-        verifyRequests(mockClient, 1);
+        List<double[]> coords = buildCoords(100);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(CONCURRENT_BODY));
+        client.fetchForecastBriefingBatch(coords);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0)));
         sleeps.clear();
         now[0] = COOL_OFF_T0 + TEN_MINUTES_MS - 1;
         List<PrefetchCall> calls = new ArrayList<>();
 
-        List<OpenMeteoForecastResponse> many = client.fetchForecastBriefingBatch(buildCoords(100), calls::add);
+        List<OpenMeteoForecastResponse> many = client.fetchForecastBriefingBatch(coords, calls::add);
 
         assertThat(many).hasSize(100).containsOnlyNulls();
         assertThat(calls).hasSize(1);
@@ -976,7 +1055,7 @@ class OpenMeteoClientTest {
                 .hasMessageContaining("too many concurrent requests")
                 .hasMessageContaining("until 13:57 UTC")
                 .satisfies(e -> assertThat(e.getMessage()).doesNotContain("429"));
-        verifyRequests(mockClient, 1);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0)));
         assertThat(sleeps).isEmpty();
     }
 
@@ -986,14 +1065,17 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
-        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY), buildJsonArray(5, 50.0));
-        client.fetchForecastBriefingBatch(buildCoords(100));
+        List<double[]> coords = buildCoords(100);
+        List<double[]> small = buildCoords(5);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(CONCURRENT_BODY));
+        stubChunk(mockClient, FORECAST_PATH, small, buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(coords);
         now[0] = COOL_OFF_T0 + TEN_MINUTES_MS;
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(5));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(small);
 
         assertThat(results).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
-        verifyRequests(mockClient, 2);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), small));
     }
 
     @ParameterizedTest(name = "minutely or unrecognised 429 body: {0}")
@@ -1005,14 +1087,16 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, tooManyRequests(body), buildJsonArray(20, 51.0));
+        List<double[]> coords = buildCoords(40);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(body));
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 1), buildJsonArray(20, 51.0));
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(buildCoords(40));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBriefingBatch(coords);
 
         assertThat(results.subList(0, 20)).containsOnlyNulls();
         assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
         assertThat(sleeps).containsExactly(RATE_LIMIT_BACKOFF_MS);
-        verifyRequests(mockClient, 2);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), chunk(coords, 1)));
     }
 
     @Test
@@ -1020,14 +1104,15 @@ class OpenMeteoClientTest {
     void refusalReason_readFromResponseBodyWhenMessageLacksIt() {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, HttpClientErrorException.create(HttpStatus.TOO_MANY_REQUESTS,
-                "Too Many Requests", HttpHeaders.EMPTY, CONCURRENT_BODY.getBytes(StandardCharsets.UTF_8),
-                StandardCharsets.UTF_8));
-        client.fetchForecastBriefingBatch(buildCoords(40));
+        List<double[]> coords = buildCoords(40);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), HttpClientErrorException.create(
+                HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY,
+                CONCURRENT_BODY.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8));
+        client.fetchForecastBriefingBatch(coords);
 
         assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
                 .isInstanceOf(OpenMeteoCoolOffException.class);
-        verifyRequests(mockClient, 1);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0)));
     }
 
     @Test
@@ -1036,19 +1121,22 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
-        stubForecastBodies(mockClient, tooManyRequests(
-                "{\"error\":true,\"reason\":\"Hourly API request limit exceeded. Try again next hour.\"}"),
-                buildJsonArray(5, 50.0));
-        client.fetchForecastBriefingBatch(buildCoords(40));
+        List<double[]> coords = buildCoords(40);
+        List<double[]> small = buildCoords(5);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(
+                "{\"error\":true,\"reason\":\"Hourly API request limit exceeded. Try again next hour.\"}"));
+        stubChunk(mockClient, FORECAST_PATH, small, buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(coords);
 
         now[0] = Instant.parse("2026-11-02T13:59:59Z").toEpochMilli();
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(small))
                 .isInstanceOf(OpenMeteoCoolOffException.class)
                 .hasMessageContaining("until 14:00 UTC")
                 .hasMessageContaining("hourly limit");
         now[0] = Instant.parse("2026-11-02T14:00:00Z").toEpochMilli();
 
-        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+        assertThat(client.fetchForecastBriefingBatch(small)).hasSize(5);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), small));
     }
 
     @Test
@@ -1057,19 +1145,22 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
-        stubForecastBodies(mockClient, tooManyRequests(
-                "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}"),
-                buildJsonArray(5, 50.0));
-        client.fetchForecastBriefingBatch(buildCoords(40));
+        List<double[]> coords = buildCoords(40);
+        List<double[]> small = buildCoords(5);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(
+                "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}"));
+        stubChunk(mockClient, FORECAST_PATH, small, buildJsonArray(5, 50.0));
+        client.fetchForecastBriefingBatch(coords);
 
         now[0] = Instant.parse("2026-11-02T23:59:59Z").toEpochMilli();
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(small))
                 .isInstanceOf(OpenMeteoCoolOffException.class)
                 .hasMessageContaining("until 00:00 UTC")
                 .hasMessageContaining("daily limit");
         now[0] = Instant.parse("2026-11-03T00:00:00Z").toEpochMilli();
 
-        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+        assertThat(client.fetchForecastBriefingBatch(small)).hasSize(5);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), small));
     }
 
     @Test
@@ -1079,25 +1170,26 @@ class OpenMeteoClientTest {
         RestClient airClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(forecastClient, airClient, new ArrayList<>(), now);
-        stubForecastBodies(airClient, tooManyRequests(
+        List<double[]> coords = buildCoords(5);
+        stubChunk(airClient, AIR_QUALITY_PATH, coords, tooManyRequests(
                 "{\"error\":true,\"reason\":\"Daily API request limit exceeded. Please try again tomorrow.\"}"));
         // The forecast request is already in flight when the daily refusal lands; it then fails hourly.
-        when(forecastClient.get().uri(org.mockito.ArgumentMatchers.<Function
-                <org.springframework.web.util.UriBuilder, java.net.URI>>any())
-                .retrieve().body(String.class)).thenAnswer(invocation -> {
-                    assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
-                            .isInstanceOf(RuntimeException.class);
-                    throw tooManyRequests("{\"reason\":\"Hourly API request limit exceeded.\"}");
-                });
+        stubChunk(forecastClient, FORECAST_PATH, coords, (Answer<String>) invocation -> {
+            assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(coords))
+                    .isInstanceOf(RuntimeException.class);
+            throw tooManyRequests("{\"reason\":\"Hourly API request limit exceeded.\"}");
+        });
 
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(RuntimeException.class);
 
         now[0] = Instant.parse("2026-11-02T14:30:00Z").toEpochMilli();
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(OpenMeteoCoolOffException.class)
                 .hasMessageContaining("until 00:00 UTC")
                 .hasMessageContaining("daily limit");
+        verifyRequests(forecastClient, FORECAST_PATH, List.of(coords));
+        verifyRequests(airClient, AIR_QUALITY_PATH, List.of(coords));
     }
 
     @Test
@@ -1106,15 +1198,16 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         long[] now = {COOL_OFF_T0};
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(), now);
-        stubForecastBodies(mockClient, readTimeout(), readTimeout(), readTimeout());
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+        List<double[]> coords = buildCoords(15);
+        stubChunk(mockClient, FORECAST_PATH, coords, readTimeout(), readTimeout(), readTimeout());
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(RuntimeException.class);
 
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(coords))
                 .isInstanceOf(OpenMeteoCoolOffException.class)
                 .hasMessageContaining("repeated timeouts")
                 .hasMessageContaining("until 13:57 UTC");
-        verifyRequests(mockClient, 3);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(coords, coords, coords));
     }
 
     @Test
@@ -1123,13 +1216,15 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, readTimeout(), buildJsonArray(5, 50.0), buildJsonArray(5, 50.0));
+        List<double[]> coords = buildCoords(5);
+        stubChunk(mockClient, FORECAST_PATH, coords, readTimeout(), buildJsonArray(5, 50.0),
+                buildJsonArray(5, 50.0));
 
-        client.fetchForecastBriefingBatch(buildCoords(5));
-        List<OpenMeteoForecastResponse> second = client.fetchForecastBriefingBatch(buildCoords(5));
+        client.fetchForecastBriefingBatch(coords);
+        List<OpenMeteoForecastResponse> second = client.fetchForecastBriefingBatch(coords);
 
         assertThat(second).hasSize(5).allSatisfy(r -> assertThat(r).isNotNull());
-        verifyRequests(mockClient, 3);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(coords, coords, coords));
     }
 
     @Test
@@ -1138,13 +1233,17 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
+        List<double[]> failing = buildCoords(15);
+        List<double[]> small = buildCoords(5);
         ResourceAccessException reset =
                 new ResourceAccessException("I/O error: Connection reset", new IOException("Connection reset"));
-        stubForecastBodies(mockClient, reset, reset, reset, buildJsonArray(5, 50.0));
-        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(buildCoords(15)))
+        stubChunk(mockClient, FORECAST_PATH, failing, reset, reset, reset);
+        stubChunk(mockClient, FORECAST_PATH, small, buildJsonArray(5, 50.0));
+        assertThatThrownBy(() -> client.fetchForecastBriefingBatch(failing))
                 .isInstanceOf(RuntimeException.class);
 
-        assertThat(client.fetchForecastBriefingBatch(buildCoords(5))).hasSize(5);
+        assertThat(client.fetchForecastBriefingBatch(small)).hasSize(5);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(failing, failing, failing, small));
     }
 
     @Test
@@ -1154,12 +1253,14 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(mockClient, null, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, readTimeout(), readTimeout());
+        List<double[]> coords = buildCoords(100);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), readTimeout());
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 1), readTimeout());
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(buildCoords(100));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
         assertThat(results).hasSize(100).containsOnlyNulls();
-        verifyRequests(mockClient, 2);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), chunk(coords, 1)));
         assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
     }
 
@@ -1169,16 +1270,20 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, readTimeout(), buildJsonArray(20, 50.0), readTimeout(),
-                buildJsonArray(20, 51.0));
+        List<double[]> coords = buildCoords(80);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), readTimeout());
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 1), buildJsonArray(20, 50.0));
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 2), readTimeout());
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 3), buildJsonArray(20, 51.0));
 
-        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(buildCoords(80));
+        List<OpenMeteoForecastResponse> results = client.fetchForecastBatch(coords);
 
         assertThat(results.subList(0, 20)).containsOnlyNulls();
         assertThat(results.subList(20, 40)).allSatisfy(r -> assertThat(r).isNotNull());
         assertThat(results.subList(40, 60)).containsOnlyNulls();
         assertThat(results.subList(60, 80)).allSatisfy(r -> assertThat(r).isNotNull());
-        verifyRequests(mockClient, 4);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0), chunk(coords, 1),
+                chunk(coords, 2), chunk(coords, 3)));
     }
 
     @Test
@@ -1187,12 +1292,13 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
+        List<double[]> coords = buildCoords(50);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(CONCURRENT_BODY));
 
-        List<OpenMeteoForecastResponse> results = client.fetchCloudOnlyBatch(buildCoords(50));
+        List<OpenMeteoForecastResponse> results = client.fetchCloudOnlyBatch(coords);
 
         assertThat(results).hasSize(50).containsOnlyNulls();
-        verifyRequests(mockClient, 1);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0)));
     }
 
     @Test
@@ -1201,13 +1307,14 @@ class OpenMeteoClientTest {
         RestClient mockClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(mockClient, null, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockClient, tooManyRequests(CONCURRENT_BODY));
-        client.fetchCloudOnlyBatch(buildCoords(50));
+        List<double[]> coords = buildCoords(50);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), tooManyRequests(CONCURRENT_BODY));
+        client.fetchCloudOnlyBatch(coords);
 
         List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
 
         assertThat(results).hasSize(45).containsOnlyNulls();
-        verifyRequests(mockClient, 1);
+        verifyRequests(mockClient, FORECAST_PATH, List.of(chunk(coords, 0)));
     }
 
     @Test
@@ -1217,15 +1324,17 @@ class OpenMeteoClientTest {
         RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(null, mockAirClient, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockAirClient, buildAirQualityJsonArray(20), tooManyRequests(CONCURRENT_BODY));
+        List<double[]> coords = buildCoords(100);
+        stubChunk(mockAirClient, AIR_QUALITY_PATH, chunk(coords, 0), buildAirQualityJsonArray(20));
+        stubChunk(mockAirClient, AIR_QUALITY_PATH, chunk(coords, 1), tooManyRequests(CONCURRENT_BODY));
 
-        List<OpenMeteoAirQualityResponse> first = client.fetchAirQualityBatchResilient(buildCoords(100));
-        List<OpenMeteoAirQualityResponse> second = client.fetchAirQualityBatchResilient(buildCoords(100));
+        List<OpenMeteoAirQualityResponse> first = client.fetchAirQualityBatchResilient(coords);
+        List<OpenMeteoAirQualityResponse> second = client.fetchAirQualityBatchResilient(coords);
 
         assertThat(first.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
         assertThat(first.subList(20, 100)).containsOnlyNulls();
         assertThat(second).hasSize(100).containsOnlyNulls();
-        verifyRequests(mockAirClient, 2);
+        verifyRequests(mockAirClient, AIR_QUALITY_PATH, List.of(chunk(coords, 0), chunk(coords, 1)));
         assertThat(sleeps).doesNotContain(RATE_LIMIT_BACKOFF_MS);
     }
 
@@ -1235,15 +1344,16 @@ class OpenMeteoClientTest {
         RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = coolOffClient(null, mockAirClient, sleeps, new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockAirClient, readTimeout(), readTimeout(), readTimeout());
+        List<double[]> coords = buildCoords(5);
+        stubChunk(mockAirClient, AIR_QUALITY_PATH, coords, readTimeout(), readTimeout(), readTimeout());
 
-        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(coords))
                 .isInstanceOf(RuntimeException.class);
 
         assertThat(sleeps).containsExactly(30_000L, 60_000L);
-        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchAirQualityBatchResilient(coords))
                 .isInstanceOf(OpenMeteoCoolOffException.class);
-        verifyRequests(mockAirClient, 3);
+        verifyRequests(mockAirClient, AIR_QUALITY_PATH, List.of(coords, coords, coords));
     }
 
     @Test
@@ -1252,13 +1362,14 @@ class OpenMeteoClientTest {
         RestClient mockAirClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
         OpenMeteoClient client = coolOffClient(null, mockAirClient, new ArrayList<>(),
                 new long[]{COOL_OFF_T0});
-        stubForecastBodies(mockAirClient, tooManyRequests(CONCURRENT_BODY));
-        assertThatThrownBy(() -> client.fetchAirQualityBatch(buildCoords(5)))
+        List<double[]> coords = buildCoords(5);
+        stubChunk(mockAirClient, AIR_QUALITY_PATH, coords, tooManyRequests(CONCURRENT_BODY));
+        assertThatThrownBy(() -> client.fetchAirQualityBatch(coords))
                 .isInstanceOf(RuntimeException.class);
 
-        assertThatThrownBy(() -> client.fetchAirQualityBatch(buildCoords(5)))
+        assertThatThrownBy(() -> client.fetchAirQualityBatch(coords))
                 .isInstanceOf(OpenMeteoCoolOffException.class);
-        verifyRequests(mockAirClient, 1);
+        verifyRequests(mockAirClient, AIR_QUALITY_PATH, List.of(coords));
     }
 
     @Test
@@ -1291,11 +1402,15 @@ class OpenMeteoClientTest {
             reads[0]++;
             return COOL_OFF_T0;
         };
-        stubForecastBodies(mockClient, buildJsonArray(20, 50.0), new RuntimeException("429 Too Many Requests"),
-                buildJsonArray(5, 52.0));
+        List<double[]> coords = buildCoords(45);
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 0), buildJsonArray(20, 50.0));
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 1), new RuntimeException("429 Too Many Requests"));
+        stubChunk(mockClient, FORECAST_PATH, chunk(coords, 2), buildJsonArray(5, 52.0));
 
-        client.fetchForecastBriefingBatch(buildCoords(45));
+        client.fetchForecastBriefingBatch(coords);
 
         assertThat(reads[0]).isZero();
+        verifyRequests(mockClient, FORECAST_PATH,
+                List.of(chunk(coords, 0), chunk(coords, 1), chunk(coords, 2)));
     }
 }
