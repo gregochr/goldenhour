@@ -292,7 +292,7 @@ describe('Fixtures grid helpers', () => {
 
     it('is soft green at .2 when every rating is in band', () => {
       expect(cellState(rf(1, 'a'))).toEqual({
-        kind: 'inband', fill: CELL_FILL.inband, fillOpacity: 0.2, text: '', misses: 0,
+        kind: 'inband', fill: CELL_FILL.inband, fillOpacity: 0.2, text: '', misses: 0, failed: 0,
       });
     });
 
@@ -306,6 +306,18 @@ describe('Fixtures grid helpers', () => {
       const c = cellState(rf(1, 'a', { inBand: 4, below: 1, above: 3 }));
       expect(c).toMatchObject({ kind: 'above', fill: '#E8593F', text: '↓1↑3', misses: 4 });
       expect(c.fillOpacity).toBeCloseTo(0.18 + 0.6 * 0.5, 10);
+    });
+
+    it('is not "all in band" when attempts failed: a grey ✕k cell, opacity counting the failures', () => {
+      const c = cellState(rf(1, 'a', { inBand: 6 }));
+      expect(c).toMatchObject({ kind: 'failed', fill: CELL_FILL.failed, text: '✕2', misses: 0, failed: 2 });
+      expect(c.fillOpacity).toBeCloseTo(0.18 + 0.6 * (2 / 8), 10);
+    });
+
+    it('keeps the miss colour with failures, counting both in the opacity and the text', () => {
+      const c = cellState(rf(1, 'a', { inBand: 4, below: 2, above: 0 }));
+      expect(c).toMatchObject({ kind: 'below', text: '↓2✕2', failed: 2 });
+      expect(c.fillOpacity).toBeCloseTo(0.18 + 0.6 * (4 / 8), 10);
     });
 
     it('is full strength at .78 when every rating missed, and tide on a tie', () => {
@@ -342,6 +354,16 @@ describe('Fixtures grid helpers', () => {
       expect(cols[12].runId).toBe(119);
     });
 
+    it('dates each run by its own startedAt, falling back to its session', () => {
+      const s = [sess(1, '2026-10-18T04:00:00Z', 'v', 'MANUAL', [
+        { id: 10, model: 'OPUS', startedAt: '2026-10-18T04:30:00Z' }, { id: 11, model: 'OPUS', startedAt: '2026-10-18T04:10:00Z' },
+        { id: 12, model: 'OPUS' },
+      ])];
+      const cols = modelRunColumns(s, [rf(10, 'x'), rf(11, 'x'), rf(12, 'x')], 'OPUS');
+      expect(cols.map((c) => c.runId)).toEqual([12, 11, 10]);
+      expect(cols[1].startedAt).toBe('2026-10-18T04:10:00Z');
+    });
+
     it('treats a blank version as unknown: a change to or from it has a border but no label', () => {
       const s = [
         sess(1, '2026-10-18T04:00:00Z', '', 'SCHEDULED', [run(10, 'OPUS')]),
@@ -350,7 +372,9 @@ describe('Fixtures grid helpers', () => {
       ];
       const cols = modelRunColumns(s, [rf(10, 'x'), rf(11, 'x'), rf(12, 'x')], 'OPUS');
       expect(cols.map((c) => c.versionChanged)).toEqual([false, true, true]);
-      expect(cols.map((c) => c.versionLabel)).toEqual(['', 'cccc', '']);
+      const stillUnknown = modelRunColumns([s[0], { ...s[2], id: 4 }], [rf(10, 'x'), rf(12, 'x')], 'OPUS');
+      expect(stillUnknown.map((c) => c.versionChanged)).toEqual([false, false]);
+      expect(cols.map((c) => c.versionLabel)).toEqual(['', 'cccc', '?']);
     });
   });
 
@@ -362,6 +386,16 @@ describe('Fixtures grid helpers', () => {
       { model: 'M', fixture: 'c', last4Misses: 1, last4Pct: 97 },
       { model: 'OTHER', fixture: 'd', last4Misses: 9, last4Pct: 50 },
     ];
+
+    it('sorts by last-4 percentage ascending so failed calls count, then misses, then registry order', () => {
+      const f = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
+      const m = [
+        { model: 'M', fixture: 'a', last4Misses: 2, last4Pct: 90 },
+        { model: 'M', fixture: 'b', last4Misses: 0, last4Pct: 60 },
+        { model: 'M', fixture: 'c', last4Misses: 2, last4Pct: 90 },
+      ];
+      expect(fixtureRows(f, m, 'M').map((r) => r.fixture.name)).toEqual(['b', 'a', 'c']);
+    });
 
     it('sorts worst misses first, registry order on ties, fixtures with no figure last', () => {
       const rows = fixtureRows(fixtures, mf, 'M');
@@ -417,9 +451,10 @@ describe('Fixtures grid helpers', () => {
     });
 
     it('picks the dot colour by side: model when all in band, tide below, coral above', () => {
-      expect(dotKind({ below: 0, above: 0 })).toBe('model');
-      expect(dotKind({ below: 3, above: 1 })).toBe('below');
-      expect(dotKind({ below: 1, above: 3 })).toBe('above');
+      expect(dotKind({ n: 8, inBand: 8, below: 0, above: 0 })).toBe('model');
+      expect(dotKind({ n: 8, inBand: 4, below: 3, above: 1 })).toBe('below');
+      expect(dotKind({ n: 8, inBand: 4, below: 1, above: 3 })).toBe('above');
+      expect(dotKind({ n: 8, inBand: 6, below: 0, above: 0 })).toBe('failed');
     });
 
     it('widens the window to 30 days and pads two days before and one after', () => {

@@ -541,9 +541,9 @@ public class SkyRatingEvalOverviewService {
         if (run.getStatus() == SkyRatingEvalStatus.RUNNING && run.getBatchId() == null && expected > 0) {
             progress = Math.min(1.0, (double) t.n / expected);
         }
-        return new Run(run.getId(), run.getModel(), run.getFixtureCount(), run.getRunsPerFixture(), t.n, t.inBand,
-                t.below, t.above, t.pct(), costGbp(ctx, run), run.getDurationMs(), run.getStatus(),
-                run.getErrorMessage(), progress);
+        return new Run(run.getId(), run.getModel(), toInstant(run.getStartedAt()), run.getFixtureCount(),
+                run.getRunsPerFixture(), t.n, t.inBand, t.below, t.above, t.pct(), costGbp(ctx, run),
+                run.getDurationMs(), run.getStatus(), run.getErrorMessage(), progress);
     }
 
     private CheckDefaults checkDefaults(Ctx ctx, Map<RunType, EvaluationModel> laneModels,

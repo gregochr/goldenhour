@@ -6,7 +6,7 @@ import {
 } from '../../utils/skyEval.js';
 
 /** Dot fill by kind; 'model' is replaced by the model's own colour. */
-const KIND_FILL = { below: CELL_FILL.below, above: CELL_FILL.above };
+const KIND_FILL = { below: CELL_FILL.below, above: CELL_FILL.above, failed: CELL_FILL.failed };
 
 /**
  * One fixture's rating history for one model: the band as a shaded rectangle (band low minus .5 to band high plus
@@ -25,6 +25,16 @@ export default function FixtureHistory({ fixture, model, columns, versions }) {
   const plotRight = HISTORY.width - HISTORY.right;
   const plotBottom = HISTORY.height - HISTORY.bottom;
   const colour = modelColour(model);
+  if (geo.points.length === 0) {
+    return (
+      <p
+        className="sticky left-0 py-2 font-mono text-[11.5px] text-plex-text-muted"
+        data-testid={`sky-eval-fixture-history-${fixture.name}`}
+      >
+        Not yet scored on {modelLabel(model)}.
+      </p>
+    );
+  }
   return (
     <div
       className="sticky left-0 w-[640px] max-w-[calc(100vw-4.5rem)] pb-3 pt-1"

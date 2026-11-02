@@ -241,7 +241,10 @@ export default function SkyEvalView() {
                 key={key}
                 type="button"
                 aria-pressed={tab === key}
-                onClick={() => setTab(key)}
+                onClick={() => {
+                  if (key === 'fixtures' && tab !== 'fixtures') setFixturesModel(null);
+                  setTab(key);
+                }}
                 className={`-mb-px flex cursor-pointer items-baseline gap-2 border-b-2 pb-[9px] text-sm font-semibold focus-visible:outline-2 focus-visible:outline-plex-gold ${
                   tab === key ? 'border-plex-text text-plex-text' : 'border-transparent text-plex-text-muted hover:text-plex-text'
                 }`}

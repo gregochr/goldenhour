@@ -151,6 +151,15 @@ describe('FixturesTab: the grid', () => {
     expect(Number(within(mixed).getByTestId('sky-eval-cell-fill').getAttribute('fill-opacity'))).toBeCloseTo(0.18 + 0.6 * (4 / 8), 10);
   });
 
+  it('does not draw a run with failed calls as all in band: a grey ✕k cell with the failure in its label', () => {
+    renderTab(gridOverview({ runFixtures: [...gridOverview().runFixtures, runFixture(12, 'charlie', { inBand: 5 })].filter((r) => !(r.runId === 12 && r.fixture === 'charlie' && r.inBand === 8)) }), 'HAIKU_55');
+    const c = cell('charlie', 12);
+    expect(c).toHaveAttribute('data-kind', 'failed');
+    expect(c).toHaveTextContent('✕3');
+    expect(within(c).getByTestId('sky-eval-cell-fill')).toHaveAttribute('fill', '#9A9086');
+    expect(c).toHaveAttribute('aria-label', expect.stringContaining('3 failed'));
+  });
+
   it('draws a fixture not yet in a run as a dot with no fill', () => {
     renderTab(gridOverview(), 'HAIKU_55');
     const c = cell('charlie', 10);
@@ -190,10 +199,29 @@ describe('FixturesTab: the grid', () => {
     expect(within(cell('alpha', 11)).queryByTestId('sky-eval-cell-version-border')).not.toBeInTheDocument();
   });
 
+  it('labels a change from a known version to an unknown one with "?"', () => {
+    const sessions = gridOverview().sessions.map((s) => (s.id === 3 ? { ...s, version: null } : s));
+    renderTab(gridOverview({ sessions }), 'HAIKU_55');
+    expect(screen.getByTestId('sky-eval-column-12')).toHaveAttribute('data-version-changed', 'true');
+    expect(within(screen.getByTestId('sky-eval-column-12')).getByTestId('sky-eval-column-version')).toHaveTextContent('?');
+  });
+
+  it('sorts a fixture with failed calls above one with no misses even with equal miss counts', () => {
+    renderTab(gridOverview({
+      modelFixtures: [
+        { model: 'HAIKU_55', fixture: 'alpha', last4Misses: 0, last4Pct: 100 },
+        { model: 'HAIKU_55', fixture: 'bravo', last4Misses: 0, last4Pct: 62.5 },
+        { model: 'HAIKU_55', fixture: 'charlie', last4Misses: 0, last4Pct: 100 },
+      ],
+    }), 'HAIKU_55');
+    expect(rowOrder()[0]).toBe('bravo');
+  });
+
   it('shows the legend, and keeps the horizontal scroll inside the grid', () => {
     renderTab();
     expect(screen.getByTestId('sky-eval-fixtures-legend')).toHaveTextContent('all ratings in band');
     expect(screen.getByTestId('sky-eval-fixtures-legend')).toHaveTextContent('new version');
+    expect(screen.getByTestId('sky-eval-fixtures-legend')).toHaveTextContent('✕ = failed calls');
     expect(screen.getByTestId('sky-eval-fixtures-scroll')).toHaveClass('overflow-x-auto');
   });
 
@@ -250,6 +278,13 @@ describe('FixturesTab: rating history', () => {
     expect(within(history).getByTestId('sky-eval-history-point-12')).toHaveAttribute('data-kind', 'below');
     expect(within(history).getAllByTestId('sky-eval-history-version-line').length).toBeGreaterThan(0);
     expect(within(history).getByTestId('sky-eval-fixture-history-svg')).toHaveAttribute('viewBox', '0 0 700 190');
+  });
+
+  it('says so, instead of drawing a chart, when the model has never scored the fixture', () => {
+    renderTab(gridOverview({ runFixtures: gridOverview().runFixtures.filter((r) => r.fixture !== 'charlie') }), 'HAIKU_55');
+    fireEvent.click(screen.getByTestId('sky-eval-fixture-toggle-charlie'));
+    expect(screen.getByTestId('sky-eval-fixture-history-charlie')).toHaveTextContent('Not yet scored on Haiku 5.5.');
+    expect(screen.queryByTestId('sky-eval-fixture-history-svg')).not.toBeInTheDocument();
   });
 
   it('leaves out runs the fixture was not in', () => {

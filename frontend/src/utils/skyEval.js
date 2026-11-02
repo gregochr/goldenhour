@@ -489,7 +489,9 @@ export const CELL = {
 };
 
 /** Cell fills as raw colours for SVG attributes: in-band green, below-the-band tide, above-the-band coral. */
-export const CELL_FILL = { inband: '#8AAE72', below: '#6FA8B0', above: '#E8593F' };
+export const CELL_FILL = {
+  inband: '#8AAE72', below: '#6FA8B0', above: '#E8593F', failed: '#9A9086',
+};
 
 /** Fill opacity of an all-in-band cell. */
 export const INBAND_OPACITY = 0.2;
@@ -570,8 +572,8 @@ export function modelRunColumns(sessions, runFixtures, model) {
     if (r.model === model && rows.has(r.id)) {
       runs.push({
         runId: r.id,
-        startedAt: s.startedAt,
-        ms: parseUtcInstant(s.startedAt)?.getTime() ?? 0,
+        startedAt: r.startedAt ?? s.startedAt,
+        ms: parseUtcInstant(r.startedAt ?? s.startedAt)?.getTime() ?? 0,
         trigger: s.trigger,
         manual: s.trigger === 'MANUAL',
         version: versionKey(s.version),
@@ -585,14 +587,14 @@ export function modelRunColumns(sessions, runFixtures, model) {
     return {
       ...r,
       versionChanged: changed,
-      versionLabel: changed && r.version ? r.version.slice(0, COMMIT_ID_CHARS) : '',
+      versionLabel: changed ? (r.version.slice(0, COMMIT_ID_CHARS) || '?') : '',
     };
   });
 }
 
 /**
- * The grid's rows: every fixture, worst last-4 misses first (registry order breaks ties; a fixture with no
- * last-4 figure sorts last).
+ * The grid's rows: every fixture, lowest last-4 in-band percentage first (so failed calls count against a fixture),
+ * then most misses, then registry order; a fixture with no last-4 figure sorts last.
  *
  * @param {Array<{name: string, bandLo: number, bandHi: number}>} fixtures the served fixtures
  * @param {Array<{model: string, fixture: string, last4Misses: number, last4Pct: number}>} modelFixtures the figures
@@ -608,8 +610,18 @@ export function fixtureRows(fixtures, modelFixtures, model) {
         fixture, misses: m ? m.last4Misses : null, pct: m ? m.last4Pct : null, index,
       };
     })
-    .sort((a, b) => (b.misses ?? -1) - (a.misses ?? -1) || a.index - b.index)
+    .sort((a, b) => (a.pct ?? Infinity) - (b.pct ?? Infinity) || (b.misses ?? -1) - (a.misses ?? -1) || a.index - b.index)
     .map(({ fixture, misses, pct }) => ({ fixture, misses, pct }));
+}
+
+/**
+ * Attempts that produced no rating: failed calls count in {@code n} only, so they are what is left over.
+ *
+ * @param {{n: number, inBand: number, below: number, above: number}} rf the run's figures
+ * @returns {number} the failed count, never negative
+ */
+export function failedCount(rf) {
+  return Math.max(0, rf.n - rf.inBand - rf.below - rf.above);
 }
 
 /**
@@ -621,18 +633,23 @@ export function fixtureRows(fixtures, modelFixtures, model) {
  *   misses: number}} the cell
  */
 export function cellState(rf) {
-  if (!rf || !(rf.n > 0)) return { kind: 'absent', fill: null, fillOpacity: 0, text: '·', misses: 0 };
+  if (!rf || !(rf.n > 0)) return { kind: 'absent', fill: null, fillOpacity: 0, text: '·', misses: 0, failed: 0 };
   const misses = rf.below + rf.above;
-  if (misses === 0) {
-    return { kind: 'inband', fill: CELL_FILL.inband, fillOpacity: INBAND_OPACITY, text: '', misses: 0 };
+  const failed = failedCount(rf);
+  if (misses === 0 && failed === 0) {
+    return {
+      kind: 'inband', fill: CELL_FILL.inband, fillOpacity: INBAND_OPACITY, text: '', misses: 0, failed: 0,
+    };
   }
-  const kind = rf.below >= rf.above ? 'below' : 'above';
+  let kind = 'failed';
+  if (misses > 0) kind = rf.below >= rf.above ? 'below' : 'above';
   return {
     kind,
     fill: CELL_FILL[kind],
-    fillOpacity: MISS_BASE_OPACITY + (MISS_RATIO_OPACITY * misses) / rf.n,
-    text: `${rf.below ? `↓${rf.below}` : ''}${rf.above ? `↑${rf.above}` : ''}`,
+    fillOpacity: MISS_BASE_OPACITY + (MISS_RATIO_OPACITY * (misses + failed)) / rf.n,
+    text: `${rf.below ? `↓${rf.below}` : ''}${rf.above ? `↑${rf.above}` : ''}${failed ? `✕${failed}` : ''}`,
     misses,
+    failed,
   };
 }
 
@@ -652,6 +669,7 @@ export function cellTitle(fixture, column, rf) {
   const parts = [`${rf.inBand}/${rf.n} in band`];
   if (rf.below) parts.push(`${rf.below} below`);
   if (rf.above) parts.push(`${rf.above} above`);
+  if (failedCount(rf)) parts.push(`${failedCount(rf)} failed`);
   if (rf.mean != null) parts.push(`mean rating ${rf.mean.toFixed(1)}`);
   parts.push(`band ${fixture.bandLo}–${fixture.bandHi}`);
   return `${fixture.name}, ${date}, ${version}: ${parts.join(', ')}`;
@@ -694,11 +712,11 @@ export function historyY(rating) {
  * The dot colour kind of a run on a fixture: model colour when every rating is in band, tide when mostly below,
  * coral when mostly above (the same rule as a grid cell).
  *
- * @param {{below: number, above: number}} rf the run's figures
- * @returns {'model'|'below'|'above'} the kind
+ * @param {{n: number, inBand: number, below: number, above: number}} rf the run's figures
+ * @returns {'model'|'failed'|'below'|'above'} the kind
  */
 export function dotKind(rf) {
-  if (rf.below + rf.above === 0) return 'model';
+  if (rf.below + rf.above === 0) return failedCount(rf) > 0 ? 'failed' : 'model';
   return rf.below >= rf.above ? 'below' : 'above';
 }
 

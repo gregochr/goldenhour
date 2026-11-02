@@ -131,6 +131,7 @@ public record SkyEvalOverview(
      *
      * @param id             the run id
      * @param model          the model
+     * @param startedAt      when this run started (runs of one session start apart, so the grid dates each run)
      * @param fixtureCount   fixtures scored
      * @param runsPerFixture repeats per fixture
      * @param ratings        attempts persisted so far (failed attempts count)
@@ -144,8 +145,8 @@ public record SkyEvalOverview(
      * @param errorMessage   the failure or partial-failure text, or null
      * @param progress       0 to 1 while a synchronous run is running, else null
      */
-    public record Run(long id, EvaluationModel model, int fixtureCount, int runsPerFixture, long ratings,
-            long inBand, long below, long above, Double inBandPct, double costGbp, Long durationMs,
+    public record Run(long id, EvaluationModel model, Instant startedAt, int fixtureCount, int runsPerFixture,
+            long ratings, long inBand, long below, long above, Double inBandPct, double costGbp, Long durationMs,
             SkyRatingEvalStatus status, String errorMessage, Double progress) {
     }
 

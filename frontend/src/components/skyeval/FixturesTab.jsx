@@ -102,6 +102,10 @@ function Legend() {
       </span>
       <span>numbers = misses out of the run{'’'}s repeats</span>
       <span className="inline-flex items-center gap-1.5">
+        <svg width="12" height="12" aria-hidden="true"><rect width="12" height="12" rx="2" fill={CELL_FILL.failed} fillOpacity="0.6" /></svg>
+        {'✕'} = failed calls
+      </span>
+      <span className="inline-flex items-center gap-1.5">
         <svg width="12" height="12" aria-hidden="true"><rect width="2" height="12" fill={VERSION_GOLD} /></svg>
         new version
       </span>
@@ -187,8 +191,8 @@ export default function FixturesTab({ overview, preselected }) {
                     type="button"
                     aria-expanded={open}
                     onClick={() => setOpenFixture(open ? null : fixture.name)}
-                    className={`${HEADER_CLASS} sticky left-0 z-10 flex min-w-0 cursor-pointer items-center gap-2 bg-plex-surface py-1 pr-2 text-left hover:bg-plex-surface-light focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:flex-col max-[639px]:items-start max-[639px]:gap-0 ${
-                      open ? 'bg-plex-surface-light' : ''
+                    className={`${HEADER_CLASS} sticky left-0 z-10 flex min-w-0 cursor-pointer items-center gap-2 py-1 pr-2 text-left hover:bg-plex-surface-light focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:flex-col max-[639px]:items-start max-[639px]:gap-0 ${
+                      open ? 'bg-plex-surface-light' : 'bg-plex-surface'
                     }`}
                     data-testid={`sky-eval-fixture-toggle-${fixture.name}`}
                   >

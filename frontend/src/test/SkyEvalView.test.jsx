@@ -218,6 +218,20 @@ describe('SkyEvalView: lane cards', () => {
     expect(within(bar).getByTestId('sky-eval-lane-see-fixtures')).toHaveTextContent('See which fixtures');
   });
 
+  it('forgets a link preselection when the Fixtures tab button is clicked later', async () => {
+    const ov = overview({
+      sessions: [session({ runs: [run({ id: 56, model: 'SONNET_55' }), run({ id: 57, model: 'HAIKU_55' })] })],
+      runFixtures: [runFixture(56, 'copt-hill-11mar-false-positive'), runFixture(57, 'copt-hill-11mar-false-positive')],
+    });
+    await mountView(ov, 'runs');
+    fireEvent.click(screen.getByTestId('sky-eval-session-toggle-56'));
+    fireEvent.click(screen.getByTestId('sky-eval-run-fixtures-57'));
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'HAIKU_55');
+    click('sky-eval-tab-models');
+    click('sky-eval-tab-fixtures');
+    expect(screen.getByTestId('sky-eval-fixtures-tab')).toHaveAttribute('data-model', 'SONNET_55');
+  });
+
   it('opens the Fixtures tab on the dropped lane model from See which fixtures', async () => {
     await mountView(overview({
       models: [
