@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   chartSeries, signedGbp, signedPercent, typeSeries, verdictBody, verdictHeadline, whyText,
 } from '../utils/runsCost.js';
+import { formatGbp } from '../utils/runsDay.js';
 import { costDay, costResponse, costType } from './runsCostTimingFixtures.js';
 
 // The Cost view's wording: the verdict sentence is the handoff's template filled from the served fields.
@@ -72,6 +73,32 @@ describe('verdictBody', () => {
     const base = costResponse();
     const data = costResponse({ verdict: { ...base.verdict, perRunMultiple: null, askLocations: null } });
     expect(text(verdictBody(data))).toContain('It runs as often as before.');
+  });
+});
+
+describe('verdict honesty', () => {
+  it('names no contributor when the top type fell, even if the total rose', () => {
+    const base = costResponse();
+    const data = costResponse({ verdict: { ...base.verdict, topDeltaGbp: -20 } });
+    const body = text(verdictBody(data));
+    expect(body).not.toContain('accounts for');
+    expect(body).not.toContain('£-');
+  });
+
+  it('says "New this period" when the top type had no prior runs', () => {
+    const base = costResponse();
+    const data = costResponse({
+      types: [costType('ASK_READY', { priorRuns: 0, runsChangePercent: null }), ...base.types.slice(1)],
+      verdict: { ...base.verdict, runsAsOften: false },
+    });
+    const body = text(verdictBody(data));
+    expect(body).toContain('New this period, cost per run 1.3×');
+    expect(body).not.toContain('Runs —');
+  });
+
+  it('formats a negative amount with a true minus before the pound sign', () => {
+    expect(formatGbp(-20)).toBe('\u2212£20.00');
+    expect(formatGbp(0)).toBe('£0.00');
   });
 });
 

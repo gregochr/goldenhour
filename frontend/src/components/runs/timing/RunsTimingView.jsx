@@ -19,9 +19,9 @@ const MEASURES = [
 ];
 
 /** One cell of the stat strip: a label, a mono value and a sub-line. */
-function Cell({ label, value, sub = '', valueClass = 'text-plex-text', testId }) {
+function Cell({ label, value, sub = '', valueClass = 'text-plex-text', className = '', testId }) {
   return (
-    <div className="min-w-0 bg-plex-surface px-4 py-3 max-[639px]:px-3" data-testid={testId}>
+    <div className={`min-w-0 bg-plex-surface px-4 py-3 max-[639px]:px-3 ${className}`} data-testid={testId}>
       <p className="text-[11.5px] text-plex-text-secondary">{label}</p>
       <p className={`mt-0.5 font-mono text-[20px] leading-tight ${valueClass}`} data-testid={`${testId}-value`}>{value}</p>
       <p className="mt-0.5 min-h-4 text-[11.5px] text-plex-text-secondary" data-testid={`${testId}-sub`}>{sub}</p>
@@ -34,6 +34,7 @@ Cell.propTypes = {
   value: PropTypes.string.isRequired,
   sub: PropTypes.string,
   valueClass: PropTypes.string,
+  className: PropTypes.string,
   testId: PropTypes.string.isRequired,
 };
 
@@ -52,7 +53,7 @@ function StatStrip({ timing }) {
         <Cell testId="runs-timing-p90" label="9 in 10 within" value={dash(stats.p90Seconds)} valueClass="text-verdict-marginal" sub={stats.p90Seconds != null ? '90th percentile' : ''} />
         <Cell testId="runs-timing-slowest" label="Slowest" value={dash(stats.slowest?.seconds)} sub={stats.slowest ? formatDay(stats.slowest.date) : ''} />
         <Cell testId="runs-timing-fastest" label="Fastest" value={dash(stats.fastest?.seconds)} sub={stats.fastest ? formatDay(stats.fastest.date) : ''} />
-        <Cell testId="runs-timing-count" label="Runs measured" value={String(stats.count)} sub={`last ${rangeDays} days · ${measured}`} />
+        <Cell testId="runs-timing-count" className="@max-[700px]:col-span-2" label="Runs measured" value={String(stats.count)} sub={`last ${rangeDays} days · ${measured}`} />
       </div>
     </div>
   );
@@ -96,6 +97,7 @@ export default function RunsTimingView({
           {TIMING_TYPES.map((t) => (
             <Chip
               key={t}
+              nowrap
               label={costTypeLabel(t)}
               count={medians[t] != null ? formatSeconds(medians[t]) : undefined}
               swatchClass={typeStyle(t).swatch}

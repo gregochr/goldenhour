@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useIsMobile } from '../../../hooks/useIsMobile.js';
 import PropTypes from 'prop-types';
 import useMeasuredWidth from '../../../hooks/useMeasuredWidth.js';
 import useRovingSlots from '../../../hooks/useRovingSlots.js';
@@ -17,6 +18,8 @@ const RIGHT = 8;
 const TOP = 8;
 const BOTTOM = 22;
 const TOOLTIP_W = 176;
+/** The hit radius of the transparent circle that carries a press on a phone. */
+const HIT_R = 10;
 const MS_PER_DAY = 86_400_000;
 const X_TICKS = 4;
 /** Headroom above the slowest dot. */
@@ -37,6 +40,7 @@ const HEADROOM = 1.05;
  * @param {Date} [props.now] the real clock: the right edge of the time axis
  */
 export default function SlowerScatter({ timing, onOpenDay, now = new Date() }) {
+  const isMobile = useIsMobile();
   const [hover, setHover] = useState(null);
   const [widthRef, measured] = useMeasuredWidth();
   const { runs, stats, type, rangeDays } = timing;
@@ -79,7 +83,8 @@ export default function SlowerScatter({ timing, onOpenDay, now = new Date() }) {
   if (hovered) {
     const slow = p90 != null && hovered.durationSeconds > p90;
     const left = x(Date.parse(hovered.startedAt)) > LEFT + plotW * 0.55;
-    const tx = left ? x(Date.parse(hovered.startedAt)) - TOOLTIP_W - 8 : x(Date.parse(hovered.startedAt)) + 8;
+    const rawX = left ? x(Date.parse(hovered.startedAt)) - TOOLTIP_W - 8 : x(Date.parse(hovered.startedAt)) + 8;
+    const tx = Math.max(LEFT, Math.min(rawX, viewW - TOOLTIP_W - 2));
     const ty = Math.min(Math.max(TOP, y(hovered.durationSeconds) - 24), HEIGHT - BOTTOM - 58);
     tooltip = (
       <g transform={`translate(${tx} ${ty})`} pointerEvents="none" data-testid="runs-scatter-tooltip">
@@ -114,35 +119,47 @@ export default function SlowerScatter({ timing, onOpenDay, now = new Date() }) {
           {runs.map((run, i) => {
             const slow = p90 != null && run.durationSeconds > p90;
             const roving = slotProps(i);
-            return (
+            const cx = x(Date.parse(run.startedAt));
+            const cy = y(run.durationSeconds);
+            const interactive = {
+              role: 'button',
+              'data-slow': slow ? 'true' : 'false',
+              'aria-label': `${formatDay(run.date)} ${formatClockUk(run.startedAt)}: ${formatSeconds(run.durationSeconds)}${slow ? ', slower than 9 in 10' : ''}. Open this day.`,
+              'data-slot': roving['data-slot'],
+              tabIndex: roving.tabIndex,
+              'data-testid': `runs-scatter-dot-${run.id}`,
+              onClick: () => onOpenDay(run.date),
+              onKeyDown: (event) => {
+                roving.onKeyDown(event);
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onOpenDay(run.date);
+                }
+              },
+              onFocus: () => {
+                roving.onFocus();
+                setHover(i);
+              },
+              onBlur: () => setHover(null),
+              onMouseEnter: () => setHover(i),
+              onMouseLeave: () => setHover(null),
+            };
+            const dotClass = `${slow ? 'fill-verdict-marginal' : typeStyle(type).fill}`;
+            // On a phone the 3px dot is far under a fingertip: a transparent 10px circle carries the press instead.
+            return isMobile ? (
+              <g key={run.id}>
+                <circle cx={cx} cy={cy} r="3" opacity="0.85" className={dotClass} data-slow={slow ? 'true' : 'false'} pointerEvents="none" />
+                <circle cx={cx} cy={cy} r={HIT_R} className="cursor-pointer fill-transparent focus-visible:stroke-plex-gold" {...interactive} />
+              </g>
+            ) : (
               <circle
                 key={run.id}
-                cx={x(Date.parse(run.startedAt))}
-                cy={y(run.durationSeconds)}
+                cx={cx}
+                cy={cy}
                 r="3"
                 opacity="0.85"
-                className={`cursor-pointer focus-visible:stroke-plex-gold ${slow ? 'fill-verdict-marginal' : typeStyle(type).fill}`}
-                role="button"
-                aria-label={`${formatDay(run.date)} ${formatClockUk(run.startedAt)}: ${formatSeconds(run.durationSeconds)}${slow ? ', slower than 9 in 10' : ''}. Open this day.`}
-                data-slot={roving['data-slot']}
-                tabIndex={roving.tabIndex}
-                data-slow={slow ? 'true' : 'false'}
-                data-testid={`runs-scatter-dot-${run.id}`}
-                onClick={() => onOpenDay(run.date)}
-                onKeyDown={(event) => {
-                  roving.onKeyDown(event);
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    onOpenDay(run.date);
-                  }
-                }}
-                onFocus={() => {
-                  roving.onFocus();
-                  setHover(i);
-                }}
-                onBlur={() => setHover(null)}
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
+                className={`cursor-pointer focus-visible:stroke-plex-gold ${dotClass}`}
+                {...interactive}
               />
             );
           })}

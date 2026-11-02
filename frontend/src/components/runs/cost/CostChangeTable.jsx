@@ -7,7 +7,7 @@ const CARD = 'rounded-xl border border-plex-border bg-plex-surface p-4 max-[639p
  * The row grid: Type, Last, Prior, Change, Why, Daily. Under 900px of the list column (a container query) the
  * right-hand columns (Prior, Why, Daily) go and only Type, Last and Change stay.
  */
-const GRID = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,2fr)_130px] items-center gap-x-3 @max-[900px]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]';
+const GRID = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,2fr)_130px] items-center gap-x-3 @max-[640px]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]';
 const SPARK_W = 130;
 const SPARK_H = 28;
 /** The prior period's half of a sparkline is drawn at this opacity. */
@@ -27,7 +27,7 @@ function Sparkline({ values, type }) {
   const bar = SPARK_W / values.length;
   const half = values.length / 2;
   return (
-    <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true" className="@max-[900px]:hidden" data-testid={`runs-cost-spark-${type.toLowerCase()}`}>
+    <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true" className="@max-[640px]:hidden" data-testid={`runs-cost-spark-${type.toLowerCase()}`}>
       {values.map((value, i) => (
         <rect
           key={i}
@@ -87,10 +87,10 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
         <div className={`${GRID} border-b border-plex-border pb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted`} role="row">
           <span role="columnheader">Type</span>
           <span role="columnheader" className="text-right">Last {n}d</span>
-          <span role="columnheader" className="text-right @max-[900px]:hidden">Prior {n}d</span>
+          <span role="columnheader" className="text-right @max-[640px]:hidden">Prior {n}d</span>
           <span role="columnheader" className="text-right">Change</span>
-          <span role="columnheader" className="@max-[900px]:hidden">Why</span>
-          <span role="columnheader" className="@max-[900px]:hidden">Daily, {2 * n} days</span>
+          <span role="columnheader" className="@max-[640px]:hidden">Why</span>
+          <span role="columnheader" className="@max-[640px]:hidden">Daily, {2 * n} days</span>
         </div>
         {data.types.map((row) => {
           const on = isolate === row.type;
@@ -118,10 +118,10 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
                 {formatGbp(row.lastGbp)}
                 {row.costComplete === false && <small className="block text-[10px] text-verdict-marginal">so far</small>}
               </span>
-              <span role="cell" className="text-right font-mono text-plex-text-secondary @max-[900px]:hidden">{formatGbp(row.priorGbp)}</span>
+              <span role="cell" className="text-right font-mono text-plex-text-secondary @max-[640px]:hidden">{formatGbp(row.priorGbp)}</span>
               <span role="cell" className="text-right"><Change delta={row.deltaGbp} percent={row.deltaPercent} testId={`runs-cost-row-${key}-change`} /></span>
-              <span role="cell" className="text-[12px] text-plex-text-secondary @max-[900px]:hidden" data-testid={`runs-cost-row-${key}-why`}>{whyText(row)}</span>
-              <span role="cell" className="@max-[900px]:hidden"><Sparkline values={typeSeries(data, row.type)} type={row.type} /></span>
+              <span role="cell" className="text-[12px] text-plex-text-secondary @max-[640px]:hidden" data-testid={`runs-cost-row-${key}-why`}>{whyText(row)}</span>
+              <span role="cell" className="@max-[640px]:hidden"><Sparkline values={typeSeries(data, row.type)} type={row.type} /></span>
             </div>
           );
         })}
@@ -131,12 +131,12 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
             {formatGbp(totals.lastGbp)}
             {totals.costComplete === false && <small className="block text-[10px] font-normal text-verdict-marginal">so far</small>}
           </span>
-          <span role="cell" className="text-right font-mono @max-[900px]:hidden">{formatGbp(totals.priorGbp)}</span>
+          <span role="cell" className="text-right font-mono @max-[640px]:hidden">{formatGbp(totals.priorGbp)}</span>
           <span role="cell" className="text-right"><Change delta={totals.deltaGbp} percent={totals.deltaPercent} testId="runs-cost-total-change" /></span>
-          <span role="cell" className="font-mono text-[12px] font-normal text-plex-text-secondary @max-[900px]:hidden" data-testid="runs-cost-total-usd">
-            {formatUsd(totals.lastUsd)} at {Number(totals.fxRate).toFixed(2)} $/{'£'}
+          <span role="cell" className="font-mono text-[12px] font-normal text-plex-text-secondary @max-[640px]:hidden" data-testid="runs-cost-total-usd">
+            {formatUsd(totals.lastUsd)}{Number(totals.fxRate) > 0 ? ` \u00b7 £1 = $${(1 / Number(totals.fxRate)).toFixed(2)}` : ''}
           </span>
-          <span role="cell" className="@max-[900px]:hidden" />
+          <span role="cell" className="@max-[640px]:hidden" />
         </div>
       </div>
     </section>

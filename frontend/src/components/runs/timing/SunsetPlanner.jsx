@@ -26,6 +26,8 @@ const MIN_AFTER = 15;
 /** The share of runs in time at or above which the result is green, and below which it is coral. */
 const GOOD_SHARE = 0.9;
 const BAD_SHARE = 0.75;
+/** Under this many pixels apart, the Start and Needed by labels are set on either side of their lines. */
+const LABEL_CLASH_PX = 60;
 
 const BUFFER_OPTIONS = PLANNER_BUFFERS.map((minutes) => ({
   value: String(minutes), label: minutes === 0 ? 'sunset' : `${minutes}m before`,
@@ -55,7 +57,10 @@ function resultTone(share) {
  * @param {object} props.timing the served {@code RunTimingResponse} for AFTERNOON, with a sunset trigger
  */
 export default function SunsetPlanner({ timing }) {
-  const current = clampOffset(timing.trigger.offsetMinutes);
+  const served = timing.trigger.offsetMinutes;
+  const current = clampOffset(served);
+  const outside = current !== served;
+  const ready = timing.measure === 'ready';
   const [offset, setOffset] = useState(current);
   const [buffer, setBuffer] = useState(30);
   const [widthRef, measured] = useMeasuredWidth();
@@ -82,6 +87,24 @@ export default function SunsetPlanner({ timing }) {
 
   const pct = replay.share == null ? 0 : Math.round(replay.share * 100);
   const bufferText = buffer === 0 ? 'by sunset' : `${buffer} min before sunset`;
+  // The words follow the measure: "answers ready" is the Ask answers; the cycle alone is when the refresh finishes.
+  const verb = ready ? 'had answers ready' : 'finished';
+  const gerund = ready ? 'answers' : 'finishing';
+  const neededLabel = ready ? 'Answers needed by' : 'Refresh finishes by';
+  // The Start and Needed by labels sit on their lines; close together the left one reads leftwards and the right one
+  // rightwards, so they never overprint.
+  const close = Math.abs(x(-offset) - x(-buffer)) < LABEL_CLASH_PX;
+  const startIsLeft = x(-offset) <= x(-buffer);
+  let startAnchor = 'middle';
+  let neededAnchor = 'end';
+  if (close) {
+    startAnchor = startIsLeft ? 'end' : 'start';
+    neededAnchor = startIsLeft ? 'start' : 'end';
+  }
+  const startShift = { end: -4, start: 4, middle: 0 }[startAnchor];
+  const neededShift = close ? { end: -4, start: 4 }[neededAnchor] : 0;
+  const startLabelX = x(-offset) + startShift;
+  const neededLabelX = x(-buffer) + neededShift;
   let today = null;
   if (replay.start && replay.sunset) {
     today = (
@@ -89,7 +112,7 @@ export default function SunsetPlanner({ timing }) {
         {' '}Today that means starting at <strong className="font-semibold">{formatClockUk(replay.start)}</strong>{' '}
         (sunset {formatClockUk(replay.sunset)})
         {replay.typical && replay.nineInTen
-          ? `, with answers around ${formatClockUk(replay.typical)} typically and by ${formatClockUk(replay.nineInTen)} 9 times in 10.`
+          ? `, with ${gerund} around ${formatClockUk(replay.typical)} typically and by ${formatClockUk(replay.nineInTen)} 9 times in 10.`
           : '.'}
       </>
     );
@@ -114,14 +137,15 @@ export default function SunsetPlanner({ timing }) {
           step={PLANNER_STEP}
           value={offset}
           onChange={(event) => setOffset(Number(event.target.value))}
+          aria-valuetext={`${formatMinutes(offset)} before sunset`}
           className="col-span-2 h-6 w-full cursor-pointer accent-plex-gold max-[639px]:h-11"
           data-testid="runs-planner-offset"
         />
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[13px] text-plex-text">Answers needed by</span>
+        <span className="text-[13px] text-plex-text">{neededLabel}</span>
         <Segmented
-          label="Answers needed by"
+          label={neededLabel}
           options={BUFFER_OPTIONS}
           value={String(buffer)}
           onChange={(value) => setBuffer(Number(value))}
@@ -138,9 +162,9 @@ export default function SunsetPlanner({ timing }) {
         >
           <rect x={x(-buffer)} y={TOP} width={Math.max(0, x(hi) - x(-buffer))} height={plotH} className="fill-plex-coral/8" />
           <line x1={x(-offset)} x2={x(-offset)} y1={TOP - 4} y2={TOP + plotH} strokeDasharray="2 3" className="stroke-plex-text-muted" />
-          <text x={x(-offset)} y={TOP - 7} fontSize="10" textAnchor="middle" className="fill-plex-text-muted font-mono">Start</text>
+          <text x={startLabelX} y={TOP - 7} fontSize="10" textAnchor={startAnchor} className="fill-plex-text-muted font-mono">Start</text>
           <line x1={x(-buffer)} x2={x(-buffer)} y1={TOP - 4} y2={TOP + plotH} className="stroke-plex-gold" />
-          <text x={x(-buffer)} y={TOP - 7} fontSize="10" textAnchor="end" className="fill-plex-gold font-mono">
+          <text x={neededLabelX} y={TOP - 7} fontSize="10" textAnchor={neededAnchor} className="fill-plex-gold font-mono">
             {buffer === 0 ? 'Needed by sunset' : 'Needed by'}
           </text>
           <line x1={x(0)} x2={x(0)} y1={TOP - 4} y2={TOP + plotH} className="stroke-plex-coral" />
@@ -151,12 +175,13 @@ export default function SunsetPlanner({ timing }) {
               cy={TOP + DOT_INSET + ((point.index * JITTER_PRIME) % Math.max(1, plotH - 2 * DOT_INSET))}
               r={DOT_R}
               opacity="0.85"
-              className={point.inTime ? 'fill-verdict-go' : 'fill-plex-coral'}
+              className={point.inTime ? 'fill-verdict-go' : 'fill-transparent stroke-plex-coral'}
+              strokeWidth={point.inTime ? undefined : '1.5'}
               data-in-time={point.inTime ? 'true' : 'false'}
               data-testid="runs-planner-dot"
             >
               <title>
-                {`${formatDay(runs[point.index].date)}: took ${formatSeconds(point.durationSeconds)}, ready ${formatMinutes(Math.abs(point.offsetFromSunset))} ${point.offsetFromSunset <= 0 ? 'before' : 'after'} sunset`}
+                {`${formatDay(runs[point.index].date)}: took ${formatSeconds(point.durationSeconds)}, ${ready ? 'ready' : 'finished'} ${formatMinutes(Math.abs(point.offsetFromSunset))} ${point.offsetFromSunset <= 0 ? 'before' : 'after'} sunset`}
               </title>
             </circle>
           ))}
@@ -177,6 +202,7 @@ export default function SunsetPlanner({ timing }) {
       <p
         className={`mt-2 rounded-lg border p-3 text-[13px] leading-relaxed text-plex-text-secondary ${resultTone(replay.share)}`}
         data-testid="runs-planner-result"
+        aria-live="polite"
         data-tone={resultTone(replay.share)}
       >
         {replay.total === 0 ? (
@@ -184,10 +210,15 @@ export default function SunsetPlanner({ timing }) {
         ) : (
           <>
             <strong className="font-semibold text-plex-text">{replay.inTime} of {replay.total} runs</strong>{' '}
-            ({pct}%) would have had answers ready {bufferText}.{today}
+            ({pct}%) would have {verb} {bufferText}.{today}
           </>
         )}
       </p>
+      {outside && (
+        <p className="mt-2 font-mono text-[11px] text-verdict-marginal" data-testid="runs-planner-outside">
+          The current trigger, {formatMinutes(served)} before sunset, is outside the slider{'’'}s range (20m to 5h); the slider starts at the nearest end.
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-plex-surface-light p-3" data-testid="runs-planner-suggestion">
         <span className="min-w-0 flex-1 text-[13px] text-plex-text" data-testid="runs-planner-suggestion-text">
           {suggestion == null ? (
@@ -213,7 +244,7 @@ export default function SunsetPlanner({ timing }) {
             onClick={() => setOffset(current)}
             data-testid="runs-planner-reset"
           >
-            Reset to current ({formatMinutes(current)})
+            Reset to current ({formatMinutes(served)}{outside ? ', outside the slider range' : ''})
           </button>
         )}
         <a
@@ -231,6 +262,7 @@ export default function SunsetPlanner({ timing }) {
 SunsetPlanner.propTypes = {
   timing: PropTypes.shape({
     trigger: PropTypes.shape({ offsetMinutes: PropTypes.number.isRequired }).isRequired,
+    measure: PropTypes.string,
     todaySunset: PropTypes.string,
     runs: PropTypes.array.isRequired,
     stats: PropTypes.object.isRequired,

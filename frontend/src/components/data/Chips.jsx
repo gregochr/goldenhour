@@ -54,16 +54,17 @@ export function ChipDivider() {
  * @param {object} props
  * @param {string} props.label the chip's text
  * @param {number|string} [props.count] the number of items it would show, or a short detail after the label (a median)
+ * @param {boolean} [props.nowrap] keep the label on one line (the row wraps instead)
  * @param {string} [props.swatchClass] a background class for a small colour square before the label (a series colour)
  * @param {boolean} props.on whether it is selected
  * @param {() => void} props.onClick called on press
  * @param {string} props.testId the chip's test id; the count's is {@code {testId}-count}
  */
-export function Chip({ label, count = undefined, swatchClass = undefined, on, onClick, testId }) {
+export function Chip({ label, count = undefined, swatchClass = undefined, nowrap = false, on, onClick, testId }) {
   return (
     <button
       type="button"
-      className={`${CHIP_BASE} ${on ? CHIP_ON : CHIP_OFF}`}
+      className={`${CHIP_BASE} ${nowrap ? 'whitespace-nowrap' : ''} ${on ? CHIP_ON : CHIP_OFF}`}
       aria-pressed={on}
       onClick={onClick}
       data-testid={testId}
@@ -79,6 +80,7 @@ Chip.propTypes = {
   label: PropTypes.string.isRequired,
   count: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   swatchClass: PropTypes.string,
+  nowrap: PropTypes.bool,
   on: PropTypes.bool.isRequired,
   onClick: PropTypes.func.isRequired,
   testId: PropTypes.string.isRequired,

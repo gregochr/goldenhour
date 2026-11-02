@@ -6,7 +6,7 @@ import {
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
 
 const NOW = new Date('2026-11-02T09:26:00Z');
-const BASE = { view: 'day', date: null, filter: 'all', range: null, type: null, measure: 'cycle' };
+const BASE = { view: 'day', date: null, filter: 'all', range: null, type: null, measure: 'ready' };
 
 beforeEach(() => {
   window.location.hash = '#manage/runs';
@@ -62,9 +62,9 @@ describe('readRunsQuery', () => {
 
 describe('the Cost and Timing keys (DD-9)', () => {
   it('reads range, type and measure', () => {
-    window.location.hash = '#manage/runs?view=timing&type=afternoon&range=60&measure=ready';
+    window.location.hash = '#manage/runs?view=timing&type=afternoon&range=60&measure=cycle';
     expect(readRunsQuery(NOW)).toEqual({
-      ...BASE, view: 'timing', range: 60, type: 'AFTERNOON', measure: 'ready',
+      ...BASE, view: 'timing', range: 60, type: 'AFTERNOON', measure: 'cycle',
     });
   });
 
@@ -79,13 +79,13 @@ describe('the Cost and Timing keys (DD-9)', () => {
 
   it('ignores an unknown type or measure', () => {
     window.location.hash = '#manage/runs?view=timing&type=NOPE&measure=wall';
-    expect(readRunsQuery(NOW)).toMatchObject({ type: null, measure: 'cycle' });
+    expect(readRunsQuery(NOW)).toMatchObject({ type: null, measure: 'ready' });
   });
 
   it('writes them, numbers as text, and removes the default measure and nulls', () => {
-    writeRunsQuery({ view: 'timing', type: 'AFTERNOON', range: 60, measure: 'ready' });
-    expect(window.location.hash).toBe('#manage/runs?view=timing&type=AFTERNOON&range=60&measure=ready');
-    writeRunsQuery({ measure: 'cycle', type: null, range: null });
+    writeRunsQuery({ view: 'timing', type: 'AFTERNOON', range: 60, measure: 'cycle' });
+    expect(window.location.hash).toBe('#manage/runs?view=timing&type=AFTERNOON&range=60&measure=cycle');
+    writeRunsQuery({ measure: 'ready', type: null, range: null });
     expect(window.location.hash).toBe('#manage/runs?view=timing');
   });
 });

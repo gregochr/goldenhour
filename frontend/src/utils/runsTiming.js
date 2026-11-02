@@ -54,6 +54,23 @@ export function binWidth(span) {
   return BIN_WIDTHS.find((width) => span / width <= MAX_BINS) ?? BIN_WIDTHS[BIN_WIDTHS.length - 1];
 }
 
+/** The bins a width makes for values from {@code lo} to {@code hi}, aligned to the width (the last value gets a bin). */
+function binCount(lo, hi, width) {
+  return Math.max(1, Math.ceil((hi - Math.floor(lo / width) * width) / width + 1e-9));
+}
+
+/**
+ * The smallest width of {@link BIN_WIDTHS} whose aligned bins number at most {@link MAX_BINS}, else the largest. Unlike
+ * {@link binWidth} this counts from the aligned start, so a span of 72s from 1s to 73s (25 aligned bins of 3s) steps up.
+ *
+ * @param {number} lo the smallest value
+ * @param {number} hi the largest value
+ * @returns {number} the width in seconds
+ */
+export function alignedBinWidth(lo, hi) {
+  return BIN_WIDTHS.find((width) => binCount(lo, hi, width) <= MAX_BINS) ?? BIN_WIDTHS[BIN_WIDTHS.length - 1];
+}
+
 /**
  * Buckets durations into equal-width bins aligned to the width. Empty input gives no bins.
  *
@@ -64,9 +81,9 @@ export function histogram(values) {
   if (values.length === 0) return { width: BIN_WIDTHS[0], start: 0, bins: [] };
   const lo = Math.min(...values);
   const hi = Math.max(...values);
-  const width = binWidth(hi - lo);
+  const width = alignedBinWidth(lo, hi);
   const start = Math.floor(lo / width) * width;
-  const count = Math.max(1, Math.ceil((hi - start) / width + 1e-9));
+  const count = binCount(lo, hi, width);
   const bins = Array.from({ length: count }, (_, i) => ({ from: start + i * width, to: start + (i + 1) * width, count: 0 }));
   values.forEach((value) => {
     bins[Math.min(count - 1, Math.floor((value - start) / width))].count += 1;

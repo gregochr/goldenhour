@@ -21,8 +21,11 @@ export const DAY_FILTERS = ['all', 'cycles', 'ask_ready', 'briefing', 'sky_eval'
 /** The display types the {@code type} key can name (the Cost isolate and the Timing type), as the server serves them. */
 export const RUN_TYPES = ['OVERNIGHT', 'AFTERNOON', 'EVENING', 'ASK_READY', 'BRIEFING', 'SKY_EVAL', 'OTHER'];
 
-/** The Timing measures: the run's own length, or start to the end of the Ask ready answers that follow. */
+/** The Timing measures: start to the end of the Ask ready answers that follow (the default), or the run's own length. */
 export const TIMING_MEASURES = ['cycle', 'ready'];
+
+/** The default measure for a cycle type: the number that matters for getting results out before the light. */
+export const DEFAULT_MEASURE = 'ready';
 
 /** The one thing localStorage remembers: the last view. */
 const VIEW_STORAGE_KEY = 'photocast.runs.view';
@@ -100,7 +103,7 @@ export function normalizeRunsQuery() {
  *
  * @param {Date} [now] the real clock
  * <p>The Cost and Timing views' keys ride beside them (DD-9): {@code range} (days, validated by the view that reads
- * it), {@code type} (a display type, or null) and {@code measure} ({@code cycle} unless {@code ready}).
+ * it), {@code type} (a display type, or null) and {@code measure} ({@code ready} unless {@code cycle}).
  *
  * @returns {{view: string, date: string|null, filter: string, range: number|null, type: string|null,
  *   measure: string}}
@@ -124,13 +127,13 @@ export function readRunsQuery(now = new Date()) {
     filter: DAY_FILTERS.includes(filter) ? filter : 'all',
     range,
     type: RUN_TYPES.includes(type) ? type : null,
-    measure: TIMING_MEASURES.includes(measure) ? measure : 'cycle',
+    measure: TIMING_MEASURES.includes(measure) ? measure : DEFAULT_MEASURE,
   };
 }
 
 /**
  * Merges changes into the Runs query and writes it with {@code replaceState}. A {@code null} or empty value removes
- * its key; {@code filter: 'all'} and {@code measure: 'cycle'} are the defaults and are removed; {@code view} is
+ * its key; {@code filter: 'all'} and {@code measure: 'ready'} are the defaults and are removed; {@code view} is
  * remembered in localStorage.
  *
  * @param {{view?: string, date?: string|null, filter?: string, range?: number|string|null, type?: string|null,
@@ -139,7 +142,7 @@ export function readRunsQuery(now = new Date()) {
 export function writeRunsQuery(patch) {
   const { path, query } = splitHash();
   Object.entries(patch).forEach(([key, value]) => {
-    const isDefault = (key === 'filter' && value === 'all') || (key === 'measure' && value === 'cycle');
+    const isDefault = (key === 'filter' && value === 'all') || (key === 'measure' && value === DEFAULT_MEASURE);
     if (value == null || value === '' || isDefault) query.delete(key);
     else query.set(key, String(value));
   });

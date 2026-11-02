@@ -63,12 +63,13 @@ export default function DurationHistogram({ timing }) {
   const from = start - width;
   const to = start + (bins.length + 1) * width;
   const x = (seconds) => LEFT + ((seconds - from) / (to - from)) * plotW;
-  const tallest = Math.max(...bins.map((bin) => bin.count)) * HEADROOM;
+  const curve = kdeCurve(values, from, to, width);
+  // The curve can peak above the tallest bar (a tight cluster across two bins), so the scale covers both.
+  const tallest = Math.max(...bins.map((bin) => bin.count), ...curve.map((p) => p.y)) * HEADROOM;
   const y = (count) => TOP + plotH - (count / tallest) * plotH;
   const countStep = Math.max(1, Math.ceil(niceScale(tallest, 4).step));
   const gridlines = [];
   for (let count = 0; count <= tallest; count += countStep) gridlines.push(count);
-  const curve = kdeCurve(values, from, to, width);
   const markers = [
     { key: 'median', label: 'Median', seconds: stats.medianSeconds, line: 'stroke-plex-text', text: 'fill-plex-text' },
     { key: 'p90', label: '9 in 10', seconds: stats.p90Seconds, line: 'stroke-verdict-marginal', text: 'fill-verdict-marginal' },

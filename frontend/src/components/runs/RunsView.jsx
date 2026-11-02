@@ -23,7 +23,7 @@ import { useRunsCost, useRunsTiming } from '../../hooks/useRunsServed.js';
 import useRunsLive from '../../hooks/useRunsLive.js';
 import { ukDateStr } from '../../utils/mapDates.js';
 import { dayTabWord } from '../../utils/runsDay.js';
-import { readRunsQuery, writeRunsQuery } from '../../utils/runsQuery.js';
+import { DEFAULT_MEASURE, readRunsQuery, writeRunsQuery } from '../../utils/runsQuery.js';
 import {
   COST_RANGES, DEFAULT_COST_RANGE, DEFAULT_TIMING_RANGE, TIMING_RANGES, TIMING_TYPES,
 } from '../../utils/runsTiming.js';
@@ -129,11 +129,12 @@ export default function RunsView({
   const timingType = TIMING_TYPES.includes(query.type) ? query.type : 'AFTERNOON';
   // Until answers ready is for the three cycles only; any other type measures the run itself.
   const timingMeasure = isCycleType(timingType) ? query.measure : 'cycle';
+  const effectiveRange = query.view === 'cost' ? costRange : timingRange;
   const cost = useRunsCost(costRange, { enabled: query.view === 'cost' });
   const timing = useRunsTiming(timingType, timingRange, timingMeasure, { enabled: query.view === 'timing' });
   const handleViewChange = useCallback((view) => {
     // The Cost and Timing parameters mean different things in each view, so a change of view clears them.
-    setQuery((q) => ({ ...q, view, range: null, type: null, measure: 'cycle' }));
+    setQuery((q) => ({ ...q, view, range: null, type: null, measure: DEFAULT_MEASURE }));
     writeRunsQuery({ view, range: null, type: null, measure: null });
   }, []);
   const handleParams = useCallback((patch) => {
@@ -143,13 +144,22 @@ export default function RunsView({
   // A day clicked in the Cost chart or the Timing scatter opens in the Day view (a day that is today is "today").
   const handleOpenDay = useCallback((date) => {
     const target = date >= ukDateStr(new Date()) ? null : date;
-    setQuery((q) => ({ ...q, view: 'day', date: target, range: null, type: null, measure: 'cycle' }));
-    writeRunsQuery({ view: 'day', date: target, range: null, type: null, measure: null });
+    setQuery((q) => ({ ...q, view: 'day', date: target, filter: 'all', range: null, type: null, measure: DEFAULT_MEASURE }));
+    writeRunsQuery({ view: 'day', date: target, filter: 'all', range: null, type: null, measure: null });
   }, []);
   const handleFilterChange = useCallback((filter) => {
     setQuery((q) => ({ ...q, filter }));
     writeRunsQuery({ filter });
   }, []);
+  // An address that names a range this view does not offer (a Cost link with range=14 opened on Timing) is rewritten to
+  // the range actually shown, so a reload or a shared link says what is on screen.
+  const queryView = query.view;
+  const queryRange = query.range;
+  useEffect(() => {
+    if ((queryView === 'cost' || queryView === 'timing') && queryRange != null && queryRange !== effectiveRange) {
+      writeRunsQuery({ range: effectiveRange });
+    }
+  }, [queryView, queryRange, effectiveRange]);
   // One refresh for the header, the progress panel and a start (F5): the live head and the view on screen.
   const refreshLive = runsLive.refresh;
   const refreshDay = day.refresh;
@@ -421,7 +431,7 @@ export default function RunsView({
       <RunsTimingView
         timing={timing}
         type={timingType}
-        onTypeChange={(type) => handleParams({ type, measure: 'cycle' })}
+        onTypeChange={(type) => handleParams({ type, measure: DEFAULT_MEASURE })}
         range={timingRange}
         onRangeChange={(range) => handleParams({ range })}
         measure={timingMeasure}

@@ -49,7 +49,7 @@ export default function ReadyByCard({ timing }) {
         <Note testId="runs-ready-fixed">
           {sunrise
             ? `${typeLabel} starts relative to sunrise, not sunset, so there is no sunset start to plan.`
-            : `${typeLabel} runs at a fixed time, so there is no sun-relative trigger to plan around.`}{' '}
+            : `${typeLabel} has no sun-relative trigger, so there is nothing to plan around.`}{' '}
           Switch it to a sunset trigger in the Scheduler to use the planner.
         </Note>
         <a href={SCHEDULER_HREF} className="btn-secondary mt-3 inline-flex items-center text-xs max-[639px]:min-h-11" data-testid="runs-ready-scheduler">

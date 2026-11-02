@@ -71,7 +71,8 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
     const lines = COST_ORDER.filter((type) => Number(hovered.byType?.[type] ?? 0) > 0);
     const height = (lines.length + 2) * LINE_H + 12;
     const left = hover > n * 0.6;
-    const tx = left ? LEFT + hover * slot - TOOLTIP_W - 4 : LEFT + (hover + 1) * slot + 4;
+    const rawX = left ? LEFT + hover * slot - TOOLTIP_W - 4 : LEFT + (hover + 1) * slot + 4;
+    const tx = Math.max(LEFT, Math.min(rawX, viewW - TOOLTIP_W - 2));
     const ty = Math.max(TOP, Math.min(TOP + 20, HEIGHT - BOTTOM - height));
     tooltip = (
       <g transform={`translate(${tx} ${ty})`} pointerEvents="none" data-testid="runs-cost-tooltip">
@@ -112,10 +113,11 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
       <div className="mt-3">
         <ChipRow testId="runs-cost-legend">
           <ChipGroup label="Isolate a type">
-            <Chip label="All types" on={isolate == null} onClick={() => onIsolate(null)} testId="runs-cost-iso-all" />
+            <Chip label="All types" nowrap on={isolate == null} onClick={() => onIsolate(null)} testId="runs-cost-iso-all" />
             {COST_ORDER.map((type) => (
               <Chip
                 key={type}
+                nowrap
                 label={costTypeLabel(type, data.types)}
                 swatchClass={typeStyle(type).swatch}
                 on={isolate === type}

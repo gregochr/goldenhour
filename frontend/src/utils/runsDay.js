@@ -138,7 +138,9 @@ export function previousDay(iso) {
 
 /** Pounds to the penny ("£1.38") from a served amount, or an em dash for none. */
 export function formatGbp(value) {
-  return value == null ? '—' : `£${Number(value).toFixed(2)}`;
+  if (value == null) return '—';
+  const n = Number(value);
+  return `${n < 0 ? '\u2212' : ''}£${Math.abs(n).toFixed(2)}`;
 }
 
 /** Dollars to the cent ("$1.85") from a served amount, or an em dash for none. */

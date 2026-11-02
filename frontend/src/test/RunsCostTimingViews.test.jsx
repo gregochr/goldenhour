@@ -176,6 +176,13 @@ describe('Cost trends', () => {
     expect(window.location.hash).toBe('#manage/runs?view=day&date=2026-10-29');
   });
 
+  it('resets the Day filter chip when a day is opened', async () => {
+    await openCost('#manage/runs?view=cost&filter=cycles');
+    fireEvent.click(screen.getByTestId('runs-cost-day-2026-10-29'));
+    await screen.findByTestId('runs-day-view');
+    expect(window.location.hash).toBe('#manage/runs?view=day&date=2026-10-29');
+  });
+
   it('opens a day from the keyboard: arrows move between days (one tab stop), Enter opens', async () => {
     await openCost();
     const last = screen.getByTestId('runs-cost-day-2026-11-01');
@@ -197,9 +204,32 @@ describe('Cost trends', () => {
     expect(screen.getByTestId('runs-cost-row-ask_ready-why')).toHaveTextContent('Runs +0% · £/run +35% · 24 locations per run, was 18');
     expect(screen.getByTestId('runs-cost-row-briefing-change')).toHaveTextContent('−£0.10−3%');
     expect(screen.getByTestId('runs-cost-total-last')).toHaveTextContent('£130.73');
-    expect(screen.getByTestId('runs-cost-total-usd')).toHaveTextContent('$175.18 at 1.34 $/£');
+    expect(screen.getByTestId('runs-cost-total-usd')).toHaveTextContent('$175.18 · £1 = $1.33');
     expect(screen.getByTestId('runs-cost-spark-ask_ready').querySelectorAll('rect')).toHaveLength(28);
     expect(screen.getByTestId('runs-cost-spark-ask_ready').querySelectorAll('rect[opacity="0.35"]')).toHaveLength(14);
+  });
+
+  it('shows the recorded dollars and the rate as £1 = $X, never "at 0.75 $/£", and omits a missing rate', async () => {
+    await openCost();
+    expect(screen.getByTestId('runs-cost-total-usd')).toHaveTextContent('$175.18 · £1 = $1.33');
+    expect(screen.getByTestId('runs-cost-total-usd').textContent).not.toContain('0.75');
+    const base = costResponse();
+    fetchRunCost.mockResolvedValue(costResponse({ totals: { ...base.totals, fxRate: null } }));
+    fireEvent.click(screen.getByTestId('runs-refresh-btn'));
+    await waitFor(() => expect(screen.getByTestId('runs-cost-total-usd').textContent).toBe('$175.18'));
+  });
+
+  it('keeps the tooltip inside the chart at the right edge', async () => {
+    await openCost();
+    fireEvent.mouseEnter(screen.getByTestId('runs-cost-day-2026-11-01'));
+    const tx = Number(/translate\(([\d.]+)/.exec(screen.getByTestId('runs-cost-tooltip').getAttribute('transform'))[1]);
+    expect(tx).toBeLessThanOrEqual(800 - 196 - 2);
+    expect(tx).toBeGreaterThanOrEqual(46);
+  });
+
+  it('has single-line legend chips', async () => {
+    await openCost();
+    expect(screen.getByTestId('runs-cost-iso-evening').className).toContain('whitespace-nowrap');
   });
 
   it('marks a total and a type with a cost still open', async () => {
@@ -272,7 +302,7 @@ describe('Timing', () => {
   it('opens on the Afternoon refresh over 60 days by the cycle measure', async () => {
     await openTiming();
     await screen.findByTestId('runs-hist-card');
-    expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 60, measure: 'cycle' });
+    expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 60, measure: 'ready' });
     expect(screen.getByTestId('runs-timing-type-afternoon')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('runs-timing-range-60')).toHaveAttribute('aria-pressed', 'true');
   });
@@ -295,7 +325,7 @@ describe('Timing', () => {
     expect(screen.getByTestId('runs-timing-slowest-sub')).toHaveTextContent('Mon 26 Oct');
     expect(screen.getByTestId('runs-timing-fastest-value')).toHaveTextContent('7m 20s');
     expect(screen.getByTestId('runs-timing-count-value')).toHaveTextContent('10');
-    expect(screen.getByTestId('runs-timing-count-sub')).toHaveTextContent('last 60 days · run duration');
+    expect(screen.getByTestId('runs-timing-count-sub')).toHaveTextContent('last 60 days · start to answers ready');
   });
 
   it('switches the type, fetching it and writing it to the address (the measure resets)', async () => {
@@ -307,10 +337,17 @@ describe('Timing', () => {
     expect(window.location.hash).toBe('#manage/runs?view=timing&type=ASK_READY');
   });
 
+  it('rewrites a range this view does not offer to the one shown', async () => {
+    await openTiming('#manage/runs?view=timing&range=14');
+    await screen.findByTestId('runs-hist-card');
+    expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 60, measure: 'ready' });
+    expect(window.location.hash).toBe('#manage/runs?view=timing&range=60');
+  });
+
   it('switches the range', async () => {
     await openTiming();
     fireEvent.click(await screen.findByTestId('runs-timing-range-120'));
-    await waitFor(() => expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 120, measure: 'cycle' }));
+    await waitFor(() => expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 120, measure: 'ready' }));
     expect(window.location.hash).toBe('#manage/runs?view=timing&range=120');
   });
 
@@ -318,9 +355,9 @@ describe('Timing', () => {
     await openTiming('#manage/runs?view=timing&type=EVENING');
     await screen.findByTestId('runs-hist-card');
     expect(screen.getByTestId('runs-timing-measure')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('runs-timing-measure-ready'));
-    await waitFor(() => expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'EVENING', days: 60, measure: 'ready' }));
-    expect(window.location.hash).toContain('measure=ready');
+    fireEvent.click(screen.getByTestId('runs-timing-measure-cycle'));
+    await waitFor(() => expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'EVENING', days: 60, measure: 'cycle' }));
+    expect(window.location.hash).toContain('measure=cycle');
     for (const type of ['ASK_READY', 'BRIEFING', 'SKY_EVAL']) {
       fireEvent.click(screen.getByTestId(`runs-timing-type-${type.toLowerCase()}`));
       expect(screen.queryByTestId('runs-timing-measure')).toBeNull();
@@ -414,6 +451,46 @@ describe('Timing', () => {
     });
   });
 
+  describe('chart geometry', () => {
+    it('never draws more than 24 bins even when 3s bins would make 25', async () => {
+      fetchRunTiming.mockResolvedValue(timingResponse({ runs: timingRuns([1, 73]) }));
+      await openTiming();
+      await screen.findByTestId('runs-hist-card');
+      expect(screen.getAllByTestId('runs-hist-bar').length).toBeLessThanOrEqual(24);
+    });
+
+    it('scales the y axis to the curve when it peaks above the tallest bar', async () => {
+      // Seven runs straddling a bin boundary: two bars of 3 and 4, the curve peaks above 4.
+      fetchRunTiming.mockResolvedValue(timingResponse({ runs: timingRuns([114, 117, 119, 121, 123, 125, 127]) }));
+      await openTiming();
+      await screen.findByTestId('runs-hist-card');
+      const kdeTop = Math.min(...screen.getByTestId('runs-hist-kde').getAttribute('points').split(' ').map((p) => Number(p.split(',')[1])));
+      expect(kdeTop).toBeGreaterThanOrEqual(44);
+    });
+
+    it('lets the last stat cell span both columns when the strip wraps to two', async () => {
+      await openTiming();
+      await screen.findByTestId('runs-hist-card');
+      expect(screen.getByTestId('runs-timing-count').className).toContain('@max-[700px]:col-span-2');
+    });
+
+    it('keeps the type chips on one line', async () => {
+      await openTiming();
+      expect(screen.getByTestId('runs-timing-type-evening').className).toContain('whitespace-nowrap');
+    });
+
+    it('adds a 10px transparent hit circle per dot on a phone, carrying the press', async () => {
+      useIsMobile.mockReturnValue(true);
+      await openTiming();
+      const hit = await screen.findByTestId('runs-scatter-dot-cycle-109');
+      expect(hit.getAttribute('r')).toBe('10');
+      expect(hit.getAttribute('class')).toContain('fill-transparent');
+      fireEvent.click(hit);
+      await screen.findByTestId('runs-day-view');
+      expect(fetchRunDay).toHaveBeenCalledWith('2026-11-01');
+    });
+  });
+
   describe('the sunset planner (Afternoon refresh)', () => {
     it('opens on the served trigger and the 30-minute buffer', async () => {
       await openTiming();
@@ -434,6 +511,54 @@ describe('Timing', () => {
         + 'Today that means starting at 12:39 (sunset 16:49), with answers around 12:58 typically and by 13:16 9 times in 10.',
       );
       expect(screen.getByTestId('runs-planner-result')).toHaveAttribute('data-tone', 'border-verdict-go');
+    });
+
+    it('words the planner from the cycle measure when it is the cycle alone', async () => {
+      fetchRunTiming.mockResolvedValue(timingResponse({ measure: 'cycle' }));
+      await openTiming('#manage/runs?view=timing&measure=cycle');
+      await screen.findByTestId('runs-planner');
+      expect(textOf('runs-planner-result')).toContain('would have finished 30 min before sunset');
+      expect(textOf('runs-planner-result')).toContain('with finishing around 12:58');
+      expect(textOf('runs-planner')).toContain('Refresh finishes by');
+      expect(textOf('runs-planner-result')).not.toContain('answers');
+    });
+
+    it('is accessible beyond colour: slider text, a live result, hollow rings for late runs', async () => {
+      await openTiming();
+      await screen.findByTestId('runs-planner');
+      expect(screen.getByTestId('runs-planner-offset')).toHaveAttribute('aria-valuetext', '4h 10m before sunset');
+      expect(screen.getByTestId('runs-planner-result')).toHaveAttribute('aria-live', 'polite');
+      fireEvent.change(screen.getByTestId('runs-planner-offset'), { target: { value: '35' } });
+      expect(screen.getByTestId('runs-planner-offset')).toHaveAttribute('aria-valuetext', '35m before sunset');
+      const late = screen.getAllByTestId('runs-planner-dot').find((d) => d.dataset.inTime === 'false');
+      expect(late.getAttribute('class')).toContain('fill-transparent');
+      expect(late.getAttribute('stroke-width')).toBe('1.5');
+    });
+
+    it('keeps the Start and Needed by labels apart when their lines are close', async () => {
+      await openTiming();
+      await screen.findByTestId('runs-planner');
+      const labels = () => ({
+        start: screen.getByText('Start', { selector: 'text' }),
+        needed: screen.getByText('Needed by', { selector: 'text' }),
+      });
+      expect(labels().start).toHaveAttribute('text-anchor', 'middle');
+      expect(labels().needed).toHaveAttribute('text-anchor', 'end');
+      // 35 minutes before sunset with answers needed 30 before: the lines are a few pixels apart.
+      fireEvent.change(screen.getByTestId('runs-planner-offset'), { target: { value: '35' } });
+      expect(labels().start).toHaveAttribute('text-anchor', 'end');
+      expect(labels().needed).toHaveAttribute('text-anchor', 'start');
+    });
+
+    it('says the current trigger is outside the slider range, and resets to the real offset', async () => {
+      fetchRunTiming.mockResolvedValue(timingResponse({ trigger: { solarEvent: 'SUNSET', offsetMinutes: 600 } }));
+      await openTiming();
+      await screen.findByTestId('runs-planner');
+      expect(screen.getByTestId('runs-planner-outside')).toHaveTextContent('10h before sunset, is outside the slider');
+      fireEvent.change(screen.getByTestId('runs-planner-offset'), { target: { value: '100' } });
+      expect(screen.getByTestId('runs-planner-reset')).toHaveTextContent('Reset to current (10h, outside the slider range)');
+      fireEvent.click(screen.getByTestId('runs-planner-reset'));
+      expect(screen.getByTestId('runs-planner-offset')).toHaveValue('300');
     });
 
     it('re-counts when the slider moves, and goes coral when under 75% would be in time', async () => {
@@ -487,12 +612,15 @@ describe('Timing', () => {
       await screen.findByTestId('runs-planner');
       expect(screen.getByTestId('runs-planner-offset')).toHaveValue('300');
       expect(screen.getByTestId('runs-planner-offset-readout')).toHaveTextContent('5h');
+      expect(screen.queryByTestId('runs-planner-reset')).toBeNull();
     });
 
     it('hides the planner when the Afternoon job is on a fixed time, and says so', async () => {
       fetchRunTiming.mockResolvedValue(timingResponse({ trigger: null, todaySunset: null }));
       await openTiming();
-      expect(await screen.findByTestId('runs-ready-fixed')).toHaveTextContent('runs at a fixed time');
+      expect(await screen.findByTestId('runs-ready-fixed')).toHaveTextContent(
+        'Afternoon refresh has no sun-relative trigger, so there is nothing to plan around.',
+      );
       expect(screen.queryByTestId('runs-planner')).toBeNull();
       expect(screen.getByTestId('runs-ready-scheduler')).toHaveAttribute('href', '#manage/scheduler/intraday_forecast_refresh');
     });
@@ -629,7 +757,7 @@ describe('the views together', () => {
     await screen.findByTestId('runs-hist-card');
     expect(window.location.hash).toBe('#manage/runs?view=timing');
     // 60 and SKY_EVAL belonged to Cost: Timing opens on its own defaults.
-    expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 60, measure: 'cycle' });
+    expect(fetchRunTiming).toHaveBeenCalledWith({ type: 'AFTERNOON', days: 60, measure: 'ready' });
     expect(window.localStorage.getItem('photocast.runs.view')).toBe('timing');
   });
 

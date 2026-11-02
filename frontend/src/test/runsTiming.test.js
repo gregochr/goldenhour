@@ -51,6 +51,23 @@ describe('histogram', () => {
   });
 });
 
+describe('histogram: at most 24 bins from the aligned start', () => {
+  it.each([[1, 73], [0, 72]])('lo=%i hi=%i steps up to a 6s bin (3s bins would be 25)', (lo, hi) => {
+    const { width, bins } = histogram([lo, hi]);
+    expect(width).toBe(6);
+    expect(bins.length).toBeLessThanOrEqual(24);
+    expect(bins.reduce((n, b) => n + b.count, 0)).toBe(2);
+  });
+
+  it('never exceeds 24 bins however the values align', () => {
+    for (let lo = 0; lo < 40; lo += 1) {
+      for (const span of [60, 72, 73, 144, 150, 360, 361, 3000]) {
+        expect(histogram([lo, lo + span]).bins.length).toBeLessThanOrEqual(24);
+      }
+    }
+  });
+});
+
 describe('kdeCurve', () => {
   it('draws no curve for fewer than two values (one has no spread to smooth)', () => {
     expect(kdeCurve([], 0, 100, 3)).toEqual([]);

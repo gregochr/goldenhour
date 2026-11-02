@@ -80,13 +80,15 @@ export function verdictBody(data) {
   add(` over the last ${rangeDays} days against `);
   add(formatGbp(totals.priorGbp), true);
   add(` before, ${formatGbp(totals.perDayLast)} a day instead of ${formatGbp(totals.perDayPrior)}.`);
-  if (Number(totals.deltaGbp) > 0 && verdict.topType) {
+  if (Number(totals.deltaGbp) > 0 && Number(verdict.topDeltaGbp) > 0 && verdict.topType) {
     add(' ');
     add(verdict.topLabel, true);
     add(` accounts for ${formatGbp(verdict.topDeltaGbp)} of the ${formatGbp(totals.deltaGbp)} rise. `);
     const top = types.find((t) => t.type === verdict.topType);
     const multiple = verdict.perRunMultiple != null ? `${Number(verdict.perRunMultiple).toFixed(1)}×` : null;
-    if (verdict.runsAsOften) {
+    if (top && top.priorRuns === 0) {
+      add(`New this period${multiple ? `, cost per run ${multiple}` : ''}`);
+    } else if (verdict.runsAsOften) {
       add(multiple ? `It runs as often as before, but each run costs ${multiple} as much` : 'It runs as often as before');
     } else {
       add(`Runs ${signedPercent(top?.runsChangePercent)}${multiple ? `, cost per run ${multiple}` : ''}`);
