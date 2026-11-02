@@ -40,7 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>Go to a location for sunrise/sunset and observe the actual conditions</li>
  *   <li>Export the stored {@code atmospheric_data_json} for that run (or fetch the Open-Meteo data
  *       and use {@code scripts/generate-regression-fixture.sh}) and drop it under
- *       {@code src/test/resources/eval/fixtures/}</li>
+ *       {@code src/main/resources/eval/fixtures/}</li>
  *   <li>Add one registry line in {@code SkyRatingEvalFixtures} with the eval band and a
  *       {@link RegressionBounds} holding your observed bounds. It then runs in both this suite and
  *       the Sky Eval; the parameterized test below picks it up with no further code</li>
