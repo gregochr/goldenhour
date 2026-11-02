@@ -34,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -181,7 +182,8 @@ class DynamicSchedulerFireLogTest {
 
         assertThatThrownBy(wrapped::run).isInstanceOf(IllegalStateException.class);
         ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
-        verify(fireLog).complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.FAILED), summary.capture(), any());
+        verify(fireLog).complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.FAILED), summary.capture(),
+                isNull());
         assertThat(summary.getValue()).startsWith("IllegalStateException: line one")
                 .doesNotContain("\n").doesNotContain("\r");
     }
@@ -196,7 +198,8 @@ class DynamicSchedulerFireLogTest {
         scheduledRunnable().run();
 
         ArgumentCaptor<String> summary = ArgumentCaptor.forClass(String.class);
-        verify(fireLog).complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.SUCCEEDED), summary.capture(), any());
+        verify(fireLog).complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.SUCCEEDED), summary.capture(),
+                isNull());
         assertThat(summary.getValue()).hasSize(200).doesNotContain("\n").startsWith("x".repeat(150));
     }
 
@@ -219,7 +222,8 @@ class DynamicSchedulerFireLogTest {
     @DisplayName("a failure to complete the log row does not throw out of the fire")
     void completeFailure_doesNotThrow() {
         stubInsert();
-        when(fireLog.complete(anyLong(), any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(fireLog.complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.SUCCEEDED), isNull(), isNull()))
+                .thenThrow(new IllegalStateException("db down"));
         service.registerJobTarget(KEY, () -> { });
 
         assertThatCode(() -> scheduledRunnable().run()).doesNotThrowAnyException();
@@ -229,7 +233,9 @@ class DynamicSchedulerFireLogTest {
     @DisplayName("a completion failure does not replace the job's own exception")
     void completeFailure_doesNotReplaceTheJobsException() {
         stubInsert();
-        when(fireLog.complete(anyLong(), any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"));
+        when(fireLog.complete(eq(LOG_ID), eq(NOW), eq(SchedulerFireStatus.FAILED),
+                eq("IllegalArgumentException: job failed"), isNull()))
+                .thenThrow(new IllegalStateException("db down"));
         IllegalArgumentException boom = new IllegalArgumentException("job failed");
         service.registerJobTarget(KEY, () -> {
             throw boom;
@@ -338,7 +344,7 @@ class DynamicSchedulerFireLogTest {
         String cycle = ForecastCycleJobs.NIGHTLY_JOB;
         SchedulerJobConfigEntity config = cronJob(cycle, SchedulerJobStatus.PAUSED);
         when(repository.findByJobKey(cycle)).thenReturn(Optional.of(config));
-        when(repository.updateScheduleType(eq(1L), eq("CRON"), eq(null), eq(null), any(Instant.class)))
+        when(repository.updateScheduleType(eq(1L), eq("CRON"), isNull(), isNull(), any(Instant.class)))
                 .thenReturn(1);
 
         service.switchScheduleType(cycle, ScheduleType.CRON, null, null);
@@ -374,7 +380,7 @@ class DynamicSchedulerFireLogTest {
     @Test
     @DisplayName("a failing orphan sweep does not stop jobs being scheduled")
     void orphanSweepFailure_doesNotBlockStartup() {
-        when(fireLog.markOrphans(any(Instant.class), any(String.class)))
+        when(fireLog.markOrphans(NOW, "Interrupted by a restart"))
                 .thenThrow(new IllegalStateException("db down"));
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of());
 
