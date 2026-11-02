@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.runs.RunCostResponse.Direction;
 import com.gregochr.goldenhour.model.runs.RunDeepKind;
 import com.gregochr.goldenhour.model.runs.RunDeepStatus;
 import com.gregochr.goldenhour.model.runs.RunDeepType;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,12 +17,13 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,18 +38,26 @@ class RunsCostServiceTest {
     private static final String PRIOR_DAY = "2026-10-10T04:00:00Z";
     private static final String LAST_DAY = "2026-10-25T04:00:00Z";
 
+    private RunsLoader loader;
     private RunsCostService service;
     private List<DeepRun> rows;
     private RunFx fx = new RunFx(List.of(), null);
 
     @BeforeEach
     void setUp() {
-        RunsLoader loader = mock(RunsLoader.class);
+        loader = mock(RunsLoader.class);
         RunsBounds bounds = mock(RunsBounds.class);
         when(bounds.today()).thenReturn(TODAY);
         service = new RunsCostService(loader, bounds);
         rows = new ArrayList<>();
-        when(loader.load(any(), any())).thenAnswer(i -> new RunsLoader.LoadedRuns(rows, fx));
+        stubLoader(14);
+    }
+
+    /** Serves the rows for exactly the window a period of n days asks for: 2n UK days up to today's midnight. */
+    private void stubLoader(int n) {
+        Instant from = ForecastHorizon.ukDayStartUtc(TODAY.minusDays(2L * n)).toInstant(ZoneOffset.UTC);
+        Instant to = ForecastHorizon.ukDayStartUtc(TODAY).toInstant(ZoneOffset.UTC);
+        when(loader.load(eq(from), eq(to))).thenAnswer(i -> new RunsLoader.LoadedRuns(rows, fx));
     }
 
     private DeepRun run(RunDeepType type, String start, Double gbp, Integer locations) {
@@ -92,6 +102,7 @@ class RunsCostServiceTest {
     @Test
     @DisplayName("no runs at all serves zeros, no top type and no sentences")
     void allZeros() {
+        stubLoader(30);
         RunCostResponse response = service.cost(null);
 
         assertThat(response.rangeDays()).isEqualTo(30);
@@ -238,6 +249,7 @@ class RunsCostServiceTest {
     void invalidRange() {
         assertThatThrownBy(() -> service.cost(7)).isInstanceOf(RunsRequestException.class);
         assertThatThrownBy(() -> service.cost(0)).isInstanceOf(RunsRequestException.class);
+        stubLoader(60);
         assertThat(service.cost(60).days()).hasSize(120);
     }
 

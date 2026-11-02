@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.service.ForecastCycleJobs;
 import com.gregochr.goldenhour.service.SolarReferencePoint;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,13 +22,13 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -43,6 +44,8 @@ class RunsTimingServiceTest {
     private static final String FIRST_HALF = "2026-10-10T13:00:00Z";
     private static final String SECOND_HALF = "2026-10-25T13:00:00Z";
     private static final int MINUTE = 60;
+    private static final Instant BEFORE_DAY = Instant.parse("2026-11-01T23:59:59Z");
+    private static final Instant DAY_END = Instant.parse("2026-11-03T00:00:00Z");
 
     private RunsTimingService service;
     private List<DeepRun> rows;
@@ -58,11 +61,14 @@ class RunsTimingServiceTest {
         when(point.lat()).thenReturn(54.776);
         when(point.lon()).thenReturn(-1.575);
         configs = mock(SchedulerJobConfigRepository.class);
-        when(configs.findByJobKey(any())).thenReturn(Optional.empty());
         scheduler = mock(DynamicSchedulerService.class);
         service = new RunsTimingService(loader, bounds, new SolarService(), point, configs, scheduler);
         rows = new ArrayList<>();
-        when(loader.load(any(), any())).thenAnswer(i -> new RunsLoader.LoadedRuns(rows, new RunFx(List.of(), null)));
+        // Thirty days ending today: from the UK midnight 29 days back to the UK midnight after today.
+        Instant from = ForecastHorizon.ukDayStartUtc(TODAY.minusDays(29)).toInstant(ZoneOffset.UTC);
+        Instant to = ForecastHorizon.ukDayStartUtc(TODAY.plusDays(1)).toInstant(ZoneOffset.UTC);
+        when(loader.load(eq(from), eq(to)))
+                .thenAnswer(i -> new RunsLoader.LoadedRuns(rows, new RunFx(List.of(), null)));
     }
 
     private DeepRun row(RunDeepType type, String start, long seconds, RunDeepStatus status, boolean manual,
@@ -327,7 +333,7 @@ class RunsTimingServiceTest {
         SchedulerJobConfigEntity nightly = config(ForecastCycleJobs.NIGHTLY_JOB, ScheduleType.CRON, null, null);
         when(configs.findByJobKey(ForecastCycleJobs.NIGHTLY_JOB)).thenReturn(Optional.of(nightly));
         Instant starts = Instant.parse("2026-11-02T01:00:00Z");
-        when(scheduler.firesBetween(eq(nightly), any(), any())).thenReturn(List.of(starts));
+        when(scheduler.firesBetween(eq(nightly), eq(BEFORE_DAY), eq(DAY_END))).thenReturn(List.of(starts));
         for (int i = 1; i <= 10; i++) {
             String day = "2026-10-" + (10 + i) + "T01:00:00Z";
             Instant at = Instant.parse(day);
@@ -355,7 +361,7 @@ class RunsTimingServiceTest {
         SchedulerJobConfigEntity evening = config(ForecastCycleJobs.EVENING_JOB, ScheduleType.CRON, null, null);
         when(configs.findByJobKey(ForecastCycleJobs.EVENING_JOB)).thenReturn(Optional.of(evening));
         Instant starts = Instant.parse("2026-11-02T20:00:00Z");
-        when(scheduler.firesBetween(eq(evening), any(), any())).thenReturn(List.of(starts));
+        when(scheduler.firesBetween(eq(evening), eq(BEFORE_DAY), eq(DAY_END))).thenReturn(List.of(starts));
         addAll(RunDeepType.EVENING, SECOND_HALF, 600, 1200);
 
         RunTimingResponse r = service.timing("EVENING", 30, null);
@@ -372,7 +378,7 @@ class RunsTimingServiceTest {
     void readyByNoFire() {
         SchedulerJobConfigEntity nightly = config(ForecastCycleJobs.NIGHTLY_JOB, ScheduleType.CRON, null, null);
         when(configs.findByJobKey(ForecastCycleJobs.NIGHTLY_JOB)).thenReturn(Optional.of(nightly));
-        when(scheduler.firesBetween(eq(nightly), any(), any())).thenReturn(List.of());
+        when(scheduler.firesBetween(eq(nightly), eq(BEFORE_DAY), eq(DAY_END))).thenReturn(List.of());
         addAll(RunDeepType.OVERNIGHT, SECOND_HALF, 600, 700);
 
         RunTimingResponse paused = service.timing("OVERNIGHT", 30, null);
@@ -381,7 +387,7 @@ class RunsTimingServiceTest {
         assertThat(paused.slackAtP90Minutes()).isNull();
 
         rows.clear();
-        when(scheduler.firesBetween(eq(nightly), any(), any()))
+        when(scheduler.firesBetween(eq(nightly), eq(BEFORE_DAY), eq(DAY_END)))
                 .thenReturn(List.of(Instant.parse("2026-11-02T01:00:00Z")));
         RunTimingResponse empty = service.timing("OVERNIGHT", 30, null);
         assertThat(empty.startsAt()).isNotNull();
