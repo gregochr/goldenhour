@@ -77,6 +77,7 @@ Still never done by a session: creating or deleting tags, cutting a release (the
 | Roles, freemium split, role gating UI pattern, planned features | `docs/engineering/reference/roles-and-gating.md` |
 | Notable migrations | `docs/engineering/reference/database-migrations.md` |
 | Configuration keys (`photocast.*`, scheduler, Ask) | `docs/engineering/reference/configuration.md` |
+| Claude spend: what was measured, changed and rejected (read before proposing a cost cut) | `docs/engineering/claude-cost-ledger.md` |
 | Dev setup, the no-Docker rule in full, test standards, UI review cadence, build ladder, solar-utils | `docs/engineering/reference/dev-and-testing.md` |
 
 Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` rather than reading whole files.
