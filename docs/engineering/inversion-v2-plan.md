@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b merged (#1526, V202), with the build-review amendments below the spec revisions. Phase 2 (the clear night) merged (#1528). Phase 3 (summit wind) built and reviewed (2026-10-30; this PR). Phase 4 not planned (§7.5). **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b merged (#1526, V202), with the build-review amendments below the spec revisions. Phase 2 (the clear night) merged (#1528). Phase 3 (summit wind) built and reviewed (2026-10-30; this PR). Phase 4 not planned (§7.5). Phase 5 (shallow seas from the fells: alert at 8, cloud at the viewpoint's height) planned and reviewed 2026-11-03, not built; it waits on a v2-only recount and three owner decisions (§4 Phase 5). **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
@@ -825,6 +825,161 @@ High cloud does not decide whether an inversion forms; it decides the light on i
 judges (mid/high cloud as canvas). The change would be one sentence in the system prompt's CLOUD
 INVERSION GUIDANCE. Recommendation: do not build unless outcome ratings show inversion mornings
 under-rated for colour. Never add high cloud to the formation score.
+
+### Phase 5: shallow seas from the fells (2026-11-03, owner asked; prompted by the 31 Oct Langdale miss)
+
+**Why.** On Sat 31 Oct 2026 a fog sea filled Great Langdale (§8), and nobody was told. Two things stand in
+the way, and either one alone is enough to block the alert:
+
+1. **The alert needs 9, and nothing reaches 9.** The hot topic (`InversionHotTopicStrategy`,
+   `STRONG_SCORE_INCLUSIVE = 9`) fires only on STRONG. Production, 1 Oct to 6 Nov 2026, every
+   inversion-scored slot (owner query, 2026-11-03): **0 days with a 9**, and **7 days with an 8**, one to
+   three sites each (4 Oct Gummer's How, Tarn Hows, Wise Een Tarn; 18 Oct Cat Bells, Latrigg, Yew Crag;
+   21 Oct Cat Bells, Innominate Tarn, Warnscale Bothy; 22 Oct Malham Tarn; 31 Oct Embsay Crag, Side Pike;
+   1 Nov Embsay Crag; 2 Nov Highshield Crags). Under v2 this is by design for the roster: a site under
+   600 m cannot pass `CLEAR` (the level above the base sits at 640–690 m), so 8 is its ceiling (§4,
+   1b spec revisions), and the raise cap stops v2 lifting a v1 score under 7 to 9. So **for every
+   roster site the alert cannot fire**. Only the three summits (264–266) can reach it.
+2. **v2's `in-cloud` cap reads the sea as the viewpoint's own cloud.** `viewpointInCloud` takes the
+   viewpoint cell's low cloud (a 0–2 km total) and visibility. A fell-top cell is mostly valley, so on
+   the 31st it reported the fog below the summit: Lingmoor 92% and 4,820 m, Side Pike 98% and 2,920 m.
+   On the replay v2 would have scored both 6, under v1's 8.
+
+**The evidence that fixes 2: cloud cover at each height.** Open-Meteo serves `cloud_cover_<level>hPa` with
+`geopotential_height_<level>hPa`. Linear interpolation in height between the two levels around the
+viewpoint gives the cloud at the viewpoint's own height. Fetched 2026-11-03 (historical-forecast, the
+valley-floor column; raw in the session scratchpad, to be saved beside `4-langdale-2026-10-31.json` at
+build):
+
+| Case | E | Levels at the slot, height m (cloud %) | Cloud at E | Today's `in-cloud` | New test (≥ 80%) |
+|---|---|---|---|---|---|
+| Lingmoor, 31 Oct 2026 08:00 (a sea, seen) | 469 | 260 (70), 468 (32), 682 (0) | 32% | **binds (wrong)** | lifted: raw 8 (`edge`), **stored 7** by the raise cap unless 5b's raise-cap rule applies (below) |
+| Side Pike, same | 362 | as above | 51% | binds | lifted, but `inside(6)` still binds |
+| Skiddaw-like, 4 Nov 2024 08:00 (in cloud, seen) | 911 | 435 (17), 648 (55), 864 (76), 1,086 (100) | 81% | binds | **binds** ✓ |
+| Latrigg, same | 368 | as above | 12% | none | none |
+| 451 m site, 15 Oct 2025 07:00 (false positive) | 451 | 262 (0), 470 (45), 683 (32) | 41% | none | none (`inside(6)` holds it) |
+| Blencathra, 15 Oct 2025 07:00 | 868 | 470 (38), 684 (11), 903 (0) | 2% | none | none |
+| Scafell Pike, 15 Oct 2025 16:00 | 978 | 675 (27), 894 (0), 1,122 (0) | 0% | none | none |
+| Helvellyn, 15 Jan 2025 09:00 | 950 | 469 (32), 682 (0), 902 (0) | 0% | none | none |
+
+So the new test changes only the case it should (interpolation checked by hand in review: Lingmoor
+31.9%, Side Pike 51.4%, Skiddaw 81.1%). **Fragile:** Skiddaw sits at 81% against an 80% line; pin it in
+the fixture test and list it with the other fragile thresholds in the calculator's Javadoc. These columns
+are the historical cells without `elevation=`, as in Phase 1a.
+
+**⚠️ The raise cap also blocks the 31st (review blocker, 2026-11-03).** `ForecastDataAugmentor` stores at
+most `old + RAISE_CAP_POINTS` (1.0) for E < 600 m. Lingmoor's v1 was 6, held there by v1's own low-cloud
+veto (`InversionScoreCalculator`: low cloud above 80% caps at 6), which reads the same viewpoint cell and
+makes the same mistake. So with the level-cloud test alone, v2 raw 8 is stored as **7**, below 5a's alert.
+Side Pike fares worse under v2 than v1 (8 → 6, `inside`), and v2 may lower freely. **So 5a and 5b
+together catch the 31st only with 5b's raise-cap rule.**
+
+**Evidence that the roster's best is 8 (topic log, `topic_daily_log`, owner query 2026-11-03).**
+`INVERSION_CALC` was `present = f` in every region, 30 Oct–2 Nov; the intensity (the best score) was 8 in
+the Lake District on 31 Oct, in the Dales on 31 Oct and 1 Nov, and in Northumberland & Tyneside on 2 Nov.
+`MIST_CALC` was present in the Lake District on 31 Oct (8.17): a valley-mist topic most likely ran that day,
+for valley-floor sites, not for the fells above the sea.
+
+**Before building: recount the 8s on v2 rows only.** The 7-in-31 figure is mostly v1 (every 31 Oct sunrise
+row was v1). Run on production and record the result here; it decides whether 5a's volume is acceptable:
+
+```sql
+SELECT s.evaluation_date, s.event_type,
+       count(*) FILTER (WHERE s.inversion_score >= 8) AS stored_8_plus,
+       count(*) FILTER (WHERE s.inversion_score_v2_raw >= 8) AS raw_8_plus,
+       string_agg(DISTINCT l.name, ', ') FILTER (WHERE s.inversion_score >= 8) AS sites
+FROM slot_atmosphere s JOIN locations l ON l.id = s.location_id
+WHERE s.inversion_score_v2_raw IS NOT NULL
+GROUP BY 1, 2 ORDER BY 1, 2;
+```
+
+#### 5a. Alert at 8, in its own words (backend; one PR)
+
+- `InversionHotTopicStrategy` fires on `effectiveInversionScore() >= 8` (a new named constant, e.g.
+  `ALERT_SCORE_INCLUSIVE = 8`; `STRONG_SCORE_INCLUSIVE` stays 9 and keeps its other readers).
+  `effectiveInversionScore()` falls back to Claude's `forecast_score` echo for an unscored slot, so an
+  echoed 8 now fires the topic too; test that path.
+- Wording follows the best score that date: 9 or more keeps today's "Strong inversion likely at elevated
+  locations"; 8 says something weaker and true for a shallow sea, e.g. "Valley cloud sea possible from the
+  fells". Final wording is the owner's. The topic never says STRONG on an 8. `PerDateHotTopicBuilder.perDate`
+  takes one fixed detail string, so the per-date wording is set with `HotTopic.withDetail` in the
+  strategy's `attachFacts` step.
+- **Unchanged:** the prompt's bands (`PromptBuilder.InversionPotential`, 9–10 STRONG, 7–8 MODERATE), the
+  0–10 scores, the 600 m design ceiling, freshness, sunrise-only, the simulation gate, and the two-question
+  rule (a stability skip or stand-down never silences it). Backend only: nothing in `frontend/src` assumes
+  an INVERSION topic means STRONG (checked: `topicPalette.js`, `windowFirstTopics.js`).
+- **Readers of the threshold** (checked in review): `InversionHotTopicStrategy` (moves to 8) and
+  `TopicDailyLogJob`'s `INVERSION_CALC` presence (stays at STRONG: it is history, and changing it would
+  break the series; add an 8+ count only if the owner wants it). `HotTopicGlanceDecorator` and
+  `AskToolSchemas` carry no STRONG wording, so nothing changes there. `HotTopicSimulationService` hard-codes
+  "Strong inversion forecast…": add an 8-tier template beside it. Coming up has no inversion condition any
+  more (`ComingUpConditionsBuilder` was deleted), so nothing to change there.
+- Look again at `TopicRarity` (INVERSION at rank 9) once the v2 recount above is in.
+- Tests: an 8 fires with the weaker wording; a 9 keeps the strong wording; a 7 does not fire; the
+  mixed-date case (8 one day, 9 the next) words each date by its own best score; an echoed 8 fires; the
+  simulation's 8 template.
+
+#### 5b. Cloud at the viewpoint's height replaces the cell test (backend; one PR, after 5a)
+
+- **Fetch.** Add to `OpenMeteoClient.INVERSION_PROFILE_PARAMS`: `cloud_cover_1000hPa`, `cloud_cover_975hPa`,
+  `cloud_cover_950hPa`, `cloud_cover_925hPa`, `cloud_cover_900hPa`, `cloud_cover_850hPa`, and
+  `geopotential_height_1000hPa` (22 → 29 variables; weight per point about 2.2 → 2.9, so roughly 66 → 87
+  call-equivalents a run; update §3 rule 6's running total). All seven ride the profile request, so a
+  refusal of any one fails the whole profile and v2 falls back to v1 everywhere: **before building, prove
+  the exact parameter string against `/v1/forecast` with `elevation=` and `past_days=1`** (the plan's own
+  fetches used historical-forecast). Nothing in the main fetch or the mist inputs changes. **Do not add
+  `temperature_1000hPa`**: it would add a point to the layer walk and move every fixture row. The 31st's
+  1000 hPa temperature (7.1–7.5 °C, still cooling with height) would not have moved its base anyway.
+- **Parse.** `OpenMeteoForecastResponse` has fields only for 850–200 hPa cloud and ignores unknown JSON, so
+  without new fields the data is silently dropped and 5b always falls back: add the seven fields.
+  `InversionProfile.from` builds levels from `PRESSURE_LEVELS_HPA` (975–850); add 1000 hPa as a level with
+  cloud and height and a null temperature. `InversionProfile.Level` gains a nullable `cloudCoverPercent`
+  (keep the older constructors). `InversionProfileTest` asserts five levels with 975 first: update it, and
+  the `Hour` Javadoc. The walk drops null-temperature levels and `summitWind`'s base is always a
+  temperature level above 1000 hPa, so neither changes (checked in review).
+- **The test.** `viewpointInCloud` becomes: at the event slot, take the levels with cloud and height at or
+  above the valley floor `h0` (not `h0 + MIN_LEVEL_ABOVE_FLOOR_M`: this is cloud, not a temperature
+  point), interpolate linearly in height to E, and say in cloud when that is **≥ 80%**
+  (`VIEWPOINT_CLOUD_PERCENT`). **When E is not bracketed by two such levels, or the slot has no level
+  cloud, fall back to today's cell test** (low ≥ 80% and visibility under 5 km), so missing data never
+  removes the cap. Known gap: a site below the 1000 hPa height (about 255–260 m on the cases above) is never
+  bracketed and always falls back, so the original failure stays for sites of about 200–260 m. Stated,
+  not fixed.
+- **The raise-cap rule (fixes the blocker).** When the level-cloud test decided the viewpoint is clear,
+  the raise cap compares against v1 computed **without v1's above-80% low-cloud veto** (the same cell
+  mistake). Lingmoor, 31 Oct: v1 without the veto is 5 (gap 0.3) + 3 (wind 0.6) + 1 (cloud outside
+  25–65%) = 9, boundary layer 30 m passes the clearance gate, 925 hPa reversal +1.1 caps at 8: **v1′ = 8,
+  stored = min(8, 8 + 1) = 8**, so 5a's alert fires. Everywhere else (the level test fell back, or it said
+  in cloud) the raise cap is unchanged. The alternative, lifting the raise cap wherever the level test was
+  decisive, is simpler but drops the first-winter guard entirely for those slots; owner's call.
+- Log the cloud at E, and whether the raise-cap rule applied, with the existing v2 log line.
+- **Tests.** Save the level-cloud JSON as new sidecar files under `docs/engineering/inversion-v2-data/`
+  and the test resources (do not re-fetch the existing fixtures). The six `InversionV2FixtureTest` rows run
+  with their sidecars and keep identical outcomes; one extra test runs them without sidecars and proves
+  the fallback. Add the 31 Oct Lingmoor and Side Pike rows, pinning **stored** as well as raw (Lingmoor
+  stored 8, Side Pike 6). Unit tests: interpolation, E exactly on a level, the bracketing fallback, E below
+  the lowest level, a level below the floor, null cloud, Skiddaw's 81%, and the raise-cap rule on and off.
+  The Brathay and Penrith mist guards (`ValleyMistInversionV2IsolationTest`) must still pass.
+- **Not in 5b:** the `inside` cap for Side Pike. The model's own deck reached about 420–470 m that
+  morning, so `inside` agrees with the model; the photographer at 395 m says the real top was lower. That
+  is model resolution, not a rule to change on one morning.
+
+**Order and gates.** The v2 recount first; then 5a (small, and it makes the roster's 8s visible at all);
+then 5b. Each PR runs the backend ladder, updates `conditions.md`, adds a `changelog.d/` entry, and is
+built by Sonnet per CLAUDE.md. Revert: 5b by `photocast.inversion.v2.enabled` (config, no deploy); 5a by
+setting the constant back (a deploy).
+
+**Decisions for the owner.** (a) the 8-tier wording; (b) the raise-cap rule as specified, or lifting the
+raise cap where the level test was decisive; (c) whether the three summits keep the STRONG wording at 9 and
+share the 8 tier's wording when they score 8 (the plan assumes yes).
+
+**Related evidence for §7 decision 3 (`overlooks_water` vs an `overlooks_valley` flag).** Hadrian's Wall,
+2 Nov 2026 SUNRISE (owner query, 2026-11-03): of 13 sites in the stretch, only the three with
+`overlooks_water` are inversion-scored: Highshield Crags 8 (v1 8, v2 8), Steel Rigg & Winshield 7 (v1 6,
+v2 raw 8, the raise cap holding it to v1 + 1), Cawfields 7 (v1 8, v2 7). Nine sites scored valley mist
+LIKELY (7.08–8.32), Sycamore Gap and Highshield highest. Crags that look down on the Tyne Gap's valley fog
+(Sycamore Gap, Housesteads, Peel Crags, Hotbank, Cuddy's) are never inversion-scored because they overlook
+no water. Not part of Phase 5; it argues for deciding §7.3.
 
 ---
 
