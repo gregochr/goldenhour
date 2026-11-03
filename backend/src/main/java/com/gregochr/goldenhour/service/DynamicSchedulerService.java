@@ -68,6 +68,12 @@ public class DynamicSchedulerService {
     /** The most fires {@link #firesBetween} lists for one job, a bound for a cron that fires every second. */
     static final int MAX_FIRES_LISTED = 100;
 
+    /** A schedule that fires more than this many times in a UK day is "repeating" rather than "scheduled". */
+    public static final int REPEATING_FIRES_PER_DAY = 6;
+
+    /** The one named zone a cron may be evaluated in besides UTC. */
+    public static final String UK_ZONE_ID = "Europe/London";
+
     /** Longest offset a solar job may use, in minutes before the event. */
     private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
 
@@ -246,6 +252,43 @@ public class DynamicSchedulerService {
      */
     public SchedulerJobConfigEntity updateSchedule(String jobKey, String cronExpression,
             Long fixedDelayMs) {
+        return updateSchedule(jobKey, cronExpression, fixedDelayMs, null);
+    }
+
+    /**
+     * A requested change of the zone a cron is evaluated in.
+     *
+     * @param timeZone {@code Europe/London}, or {@code null} / blank / {@code UTC} for UTC (stored as null)
+     */
+    public record ZoneChange(String timeZone) {
+    }
+
+    /**
+     * Updates the schedule for a job, optionally moving the zone its cron is evaluated in, and reschedules it if
+     * ACTIVE.
+     *
+     * <p>The replacement schedule is built and validated <em>before</em> anything is changed, and
+     * the new future is installed before the old one is cancelled, so a bad request leaves the
+     * previous schedule running exactly as it was and no failure leaves the job unscheduled.
+     *
+     * <p>{@code time_zone} is {@code updatable = false} on the entity, so a zone change is written by one scoped
+     * statement together with the cron and delay ({@link SchedulerJobConfigRepository#updateScheduleAndTimeZone}):
+     * the cron and the zone it is read in can never be stored out of step. A request with no
+     * {@link ZoneChange} leaves the stored zone exactly as it was.
+     *
+     * @param jobKey         the job key
+     * @param cronExpression new cron expression (for CRON jobs), or null to keep current
+     * @param fixedDelayMs   new fixed delay in ms (for FIXED_DELAY jobs), or null to keep current
+     * @param zoneChange     the new cron zone, or null to keep the current one
+     * @return the updated config entity
+     * @throws IllegalArgumentException if the cron expression is invalid, the delay is too short,
+     *         the resulting schedule would be incomplete, the zone is not {@code Europe/London} or UTC or is
+     *         given for a job that is not a CRON job, or the job's stored schedule type is not
+     *         one this build recognises (the call changes nothing)
+     * @throws java.util.NoSuchElementException if the job key is not found
+     */
+    public SchedulerJobConfigEntity updateSchedule(String jobKey, String cronExpression,
+            Long fixedDelayMs, ZoneChange zoneChange) {
         SchedulerJobConfigEntity config = repository.findByJobKey(jobKey).orElseThrow();
 
         ScheduleType type = config.getScheduleType();
@@ -257,6 +300,13 @@ public class DynamicSchedulerService {
 
         String newCron = config.getCronExpression();
         Long newDelay = config.getFixedDelayMs();
+        String newZone = config.getTimeZone();
+        if (zoneChange != null) {
+            if (type != ScheduleType.CRON) {
+                throw new IllegalArgumentException("A time zone can only be set on a CRON job");
+            }
+            newZone = normaliseScheduleZone(zoneChange.timeZone());
+        }
         if (type == ScheduleType.CRON && cronExpression != null) {
             validateCron(cronExpression);
             newCron = cronExpression;
@@ -270,24 +320,89 @@ public class DynamicSchedulerService {
         }
         // Build the replacement now, before touching the entity or the live schedule.
         Installer replacement = prepare(jobKey, type, newCron, newDelay, config.getSolarEvent(),
-                config.getSolarOffsetMinutes(), config.getTimeZone());
+                config.getSolarOffsetMinutes(), newZone);
 
-        config.setCronExpression(newCron);
-        config.setFixedDelayMs(newDelay);
-        config.setUpdatedAt(Instant.now());
-        repository.save(config);
+        SchedulerJobConfigEntity stored = config;
+        if (zoneChange != null) {
+            int updated = repository.updateScheduleAndTimeZone(config.getId(), newCron, newDelay, newZone,
+                    Instant.now());
+            if (updated != 1) {
+                throw new IllegalStateException("Job '" + jobKey + "' schedule was not updated");
+            }
+            stored = repository.findByJobKey(jobKey).orElseThrow();
+        } else {
+            config.setCronExpression(newCron);
+            config.setFixedDelayMs(newDelay);
+            config.setUpdatedAt(Instant.now());
+            repository.save(config);
+        }
         markScheduleChanged(jobKey);
 
-        if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
-            install(config, replacement);
+        if (stored.getStatus() == SchedulerJobStatus.ACTIVE) {
+            install(stored, replacement);
         }
 
         // jobKey is an admin request path variable and the cron arrives in the request body —
         // both reach the log verbatim, so neither may carry line breaks into the audit trail.
-        LOG.info("Updated schedule for '{}': type={}, cron={}, delay={}ms",
+        LOG.info("Updated schedule for '{}': type={}, cron={}, delay={}ms, zone={}",
                 LogSanitizer.sanitize(jobKey), type,
-                LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
-        return config;
+                LogSanitizer.sanitize(stored.getCronExpression()), stored.getFixedDelayMs(),
+                LogSanitizer.sanitize(stored.getTimeZone()));
+        return stored;
+    }
+
+    /**
+     * Validates a proposed zone for a cron and normalises it for storage.
+     *
+     * @param timeZone {@code Europe/London}, or {@code null} / blank / {@code UTC}
+     * @return {@code Europe/London}, or null for UTC
+     * @throws IllegalArgumentException for any other zone
+     */
+    public static String normaliseScheduleZone(String timeZone) {
+        if (timeZone == null || timeZone.isBlank() || "UTC".equals(timeZone.trim())) {
+            return null;
+        }
+        if (UK_ZONE_ID.equals(timeZone.trim())) {
+            return UK_ZONE_ID;
+        }
+        throw new IllegalArgumentException("timeZone must be " + UK_ZONE_ID + " or UTC, got '"
+                + LogSanitizer.sanitize(timeZone) + "'");
+    }
+
+    /**
+     * Validates a proposed schedule by exactly the rules {@link #updateSchedule} and {@link #switchScheduleType}
+     * apply, and builds (but never installs) its trigger. Nothing is written or scheduled.
+     *
+     * @param jobKey   the job key, for the solar trigger's logs
+     * @param type     the proposed schedule type
+     * @param cron     the cron (CRON; the stored fallback for SOLAR_OFFSET)
+     * @param delay    the fixed delay in ms (FIXED_DELAY)
+     * @param event    the solar event (SOLAR_OFFSET)
+     * @param offset   minutes before the event (SOLAR_OFFSET)
+     * @param timeZone the zone id the cron is evaluated in, null for UTC
+     * @throws IllegalArgumentException if the schedule would be refused
+     */
+    public void validateSchedule(String jobKey, ScheduleType type, String cron, Long delay, SolarEvent event,
+            Integer offset, String timeZone) {
+        if (type == ScheduleType.CRON && cron != null) {
+            validateCron(cron);
+        } else if (type == ScheduleType.FIXED_DELAY && delay != null) {
+            validateFixedDelay(delay);
+        }
+        prepare(jobKey, type, cron, delay, event, offset, timeZone);
+    }
+
+    /**
+     * Refuses {@code SOLAR_OFFSET} for a job other than the two forecast cycles.
+     *
+     * @param jobKey the job key
+     * @throws IllegalArgumentException if the job may not be solar
+     */
+    public static void requireSolarAllowed(String jobKey) {
+        if (!ForecastCycleJobs.allowed(jobKey)) {
+            throw new IllegalArgumentException("Job '" + jobKey + "' may not be switched to "
+                    + "SOLAR_OFFSET; only the two forecast cycle jobs may");
+        }
     }
 
     /**
@@ -327,10 +442,7 @@ public class DynamicSchedulerService {
         SolarEvent newEvent = null;
         Integer newOffset = null;
         if (newType == ScheduleType.SOLAR_OFFSET) {
-            if (!ForecastCycleJobs.allowed(jobKey)) {
-                throw new IllegalArgumentException("Job '" + jobKey + "' may not be switched to "
-                        + "SOLAR_OFFSET; only the two forecast cycle jobs may");
-            }
+            requireSolarAllowed(jobKey);
             newEvent = event;
             newOffset = offsetMinutes;
         }
@@ -558,7 +670,7 @@ public class DynamicSchedulerService {
             // Not yet run — next fire is approximately now + initial delay
             long initialDelay = config.getInitialDelayMs() != null
                     ? config.getInitialDelayMs() : config.getFixedDelayMs();
-            return Instant.now().plusMillis(initialDelay);
+            return clock.instant().plusMillis(initialDelay);
         }
 
         if (type == ScheduleType.SOLAR_OFFSET && config.getSolarEvent() != null
@@ -590,10 +702,66 @@ public class DynamicSchedulerService {
      * @return the fires in order, at most {@value #MAX_FIRES_LISTED}
      */
     public List<Instant> firesBetween(SchedulerJobConfigEntity config, Instant afterExcl, Instant beforeExcl) {
+        return firesWithFallback(config, afterExcl, beforeExcl).stream().map(ScheduledFire::at).toList();
+    }
+
+    /**
+     * One expected fire of a CRON or SOLAR_OFFSET job.
+     *
+     * @param at       when it fires
+     * @param fallback whether a solar job's fire for that day comes from its stored fallback cron
+     *                 ({@link SolarOffsetTrigger.Next#fallback()}); always false for a cron job
+     */
+    public record ScheduledFire(Instant at, boolean fallback) {
+    }
+
+    /**
+     * {@link #firesBetween} with the solar trigger's own fallback flag on each fire, so a caller can say which
+     * fires came from the fallback cron without redoing the trigger's arithmetic.
+     *
+     * @param config     the job config
+     * @param afterExcl  the instant after which fires count
+     * @param beforeExcl the instant before which fires count
+     * @return the fires in order, at most {@value #MAX_FIRES_LISTED}; empty exactly when {@link #firesBetween} is
+     */
+    public List<ScheduledFire> firesWithFallback(SchedulerJobConfigEntity config, Instant afterExcl,
+            Instant beforeExcl) {
         if (config.getStatus() != SchedulerJobStatus.ACTIVE) {
             return List.of();
         }
-        List<Instant> fires = new java.util.ArrayList<>();
+        return scheduleFires(config, afterExcl, beforeExcl);
+    }
+
+    /**
+     * Whether a job is "repeating" over a window: a fixed-delay job, or a cron that fires more than
+     * {@value #REPEATING_FIRES_PER_DAY} times in it. Independent of the job's status, so a paused poller is still
+     * a poller.
+     *
+     * @param config     the job config
+     * @param afterExcl  the window start
+     * @param beforeExcl the window end
+     * @return true when the job repeats
+     */
+    public boolean isRepeating(SchedulerJobConfigEntity config, Instant afterExcl, Instant beforeExcl) {
+        if (config.getScheduleType() == ScheduleType.FIXED_DELAY) {
+            return true;
+        }
+        return exceedsRepeatingThreshold(scheduleFires(config, afterExcl, beforeExcl).size());
+    }
+
+    /**
+     * The one rule that separates a repeating job from a scheduled one.
+     *
+     * @param firesInADay how many times the schedule fires in a day
+     * @return true when that is more than {@value #REPEATING_FIRES_PER_DAY}
+     */
+    public static boolean exceedsRepeatingThreshold(int firesInADay) {
+        return firesInADay > REPEATING_FIRES_PER_DAY;
+    }
+
+    private List<ScheduledFire> scheduleFires(SchedulerJobConfigEntity config, Instant afterExcl,
+            Instant beforeExcl) {
+        List<ScheduledFire> fires = new java.util.ArrayList<>();
         try {
             ScheduleType type = config.getScheduleType();
             if (type == ScheduleType.CRON && config.getCronExpression() != null) {
@@ -605,7 +773,7 @@ public class DynamicSchedulerService {
                     if (cursor == null || !cursor.toInstant().isBefore(beforeExcl)) {
                         break;
                     }
-                    fires.add(cursor.toInstant());
+                    fires.add(new ScheduledFire(cursor.toInstant(), false));
                 }
             } else if (type == ScheduleType.SOLAR_OFFSET && config.getSolarEvent() != null
                     && config.getSolarOffsetMinutes() != null) {
@@ -613,12 +781,12 @@ public class DynamicSchedulerService {
                         config.getSolarOffsetMinutes(), config.getCronExpression());
                 Instant cursor = afterExcl;
                 while (fires.size() < MAX_FIRES_LISTED) {
-                    Instant next = trigger.nextAfter(cursor, null).instant();
-                    if (!next.isAfter(cursor) || !next.isBefore(beforeExcl)) {
+                    SolarOffsetTrigger.Next next = trigger.nextAfter(cursor, null);
+                    if (!next.instant().isAfter(cursor) || !next.instant().isBefore(beforeExcl)) {
                         break;
                     }
-                    fires.add(next);
-                    cursor = next;
+                    fires.add(new ScheduledFire(next.instant(), next.fallback()));
+                    cursor = next.instant();
                 }
             }
         } catch (IllegalArgumentException e) {

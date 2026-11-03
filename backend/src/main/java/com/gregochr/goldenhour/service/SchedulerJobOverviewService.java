@@ -37,9 +37,6 @@ public class SchedulerJobOverviewService {
     /** The wider window searched when the near one holds fewer than {@value #NEXT_FIRES}: enough for a weekly job. */
     static final Duration FAR_WINDOW = Duration.ofDays(8);
 
-    /** A cron that fires more than this many times in {@link #DAY} is a repeating job, not a scheduled one. */
-    static final int REPEATING_FIRES_PER_DAY = 6;
-
     private static final Duration DAY = Duration.ofHours(24);
 
     /**
@@ -187,7 +184,8 @@ public class SchedulerJobOverviewService {
         return configs.stream()
                 .filter(c -> c.getStatus() == SchedulerJobStatus.ACTIVE)
                 .filter(c -> c.getScheduleType() != ScheduleType.FIXED_DELAY)
-                .filter(c -> scheduler.firesBetween(c, now, now.plus(DAY)).size() <= REPEATING_FIRES_PER_DAY)
+                .filter(c -> !DynamicSchedulerService.exceedsRepeatingThreshold(
+                        scheduler.firesBetween(c, now, now.plus(DAY)).size()))
                 .map(c -> new NextScheduled(c.getJobKey(), c.getDisplayName(), scheduler.calculateNextFireTime(c)))
                 .filter(n -> n.at() != null)
                 .min(Comparator.comparing(NextScheduled::at))

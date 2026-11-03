@@ -97,4 +97,24 @@ public interface SchedulerJobConfigRepository extends JpaRepository<SchedulerJob
     @Modifying(clearAutomatically = true)
     @Query("UPDATE SchedulerJobConfigEntity c SET c.scheduleChangedAt = :time WHERE c.jobKey = :jobKey")
     int updateScheduleChangedAt(@Param("jobKey") String jobKey, @Param("time") Instant time);
+
+    /**
+     * Writes a CRON or FIXED_DELAY job's cron, delay and the zone the cron is read in, together and touching
+     * nothing else. {@code time_zone} is {@code updatable = false} on the entity (it is set by migrations), so
+     * this is its only writer after insert; one statement means the cron and its zone are never stored out of step.
+     *
+     * @param id        the row id
+     * @param cron      the cron expression
+     * @param delayMs   the fixed delay in ms, or null
+     * @param timeZone  {@code Europe/London}, or null for UTC
+     * @param updatedAt the modification instant
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE SchedulerJobConfigEntity c SET c.cronExpression = :cron, c.fixedDelayMs = :delayMs, "
+            + "c.timeZone = :timeZone, c.updatedAt = :updatedAt WHERE c.id = :id")
+    int updateScheduleAndTimeZone(@Param("id") Long id, @Param("cron") String cron,
+            @Param("delayMs") Long delayMs, @Param("timeZone") String timeZone,
+            @Param("updatedAt") Instant updatedAt);
 }

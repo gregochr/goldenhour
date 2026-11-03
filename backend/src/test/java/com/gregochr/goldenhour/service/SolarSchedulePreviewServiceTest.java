@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -184,5 +185,39 @@ class SolarSchedulePreviewServiceTest {
         assertThat(morning.status()).isNull();
         assertThat(morning.ruleSource()).isEqualTo("PROPOSED");
         assertThat(LocalTime.parse(morning.latest().fireLocal())).isAfter(LocalTime.of(4, 0));
+    }
+
+    @Test
+    @DisplayName("yearRange scans the next 365 days of a rule and reproduces the preview's extremes")
+    void yearRange_scansAYear() {
+        LocalDate from = LocalDate.of(2027, 3, 5);
+
+        SolarSchedulePreviewService.YearRange range = service.yearRange(ForecastCycleJobs.NIGHTLY_JOB,
+                SolarEvent.SUNRISE, 255, "0 0 1 * * *", from);
+
+        assertThat(range.earliest().fireLocal()).isEqualTo("00:13");
+        assertThat(range.latest().fireLocal()).isEqualTo("04:15");
+        assertThat(range.earliest().date()).isBetween(LocalDate.of(2027, 6, 15), LocalDate.of(2027, 6, 21));
+        assertThat(range.latest().date()).isAfter(from);
+        assertThat(range.latest().date()).isBefore(from.plusDays(SolarSchedulePreviewService.YEAR_DAYS));
+    }
+
+    @Test
+    @DisplayName("yearRange is empty at both ends when no day has a usable fire")
+    void yearRange_noUsableDay() {
+        SolarSchedulePreviewService polar = new SolarSchedulePreviewService(configs, runs,
+                new SolarTriggerFactory(new SolarService() {
+                    @Override
+                    public LocalDateTime sunriseUtc(double lat, double lon, LocalDate date) {
+                        throw new IllegalStateException("no sun");
+                    }
+                }, new SolarReferencePoint("54.776", "-1.575")),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        SolarSchedulePreviewService.YearRange range = polar.yearRange(ForecastCycleJobs.NIGHTLY_JOB,
+                SolarEvent.SUNRISE, 255, "0 0 1 * * *", LocalDate.of(2027, 6, 1));
+
+        assertThat(range.earliest()).isNull();
+        assertThat(range.latest()).isNull();
     }
 }
