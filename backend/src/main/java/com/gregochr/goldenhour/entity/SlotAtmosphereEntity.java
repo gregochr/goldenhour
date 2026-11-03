@@ -40,8 +40,8 @@ import java.time.LocalDate;
  * {@code cached_evaluation} semantics.
  *
  * <p>All readings are nullable — inland locations have no surge, summer has no snow. The
- * {@code humidity} reading is carried because the {@code SNOW_FRESH} detector co-reads it for
- * the {@code SNOW_MIST} variant.
+ * {@code humidity} reading is carried for the record only; since the snow-mist valley-band change
+ * the {@code SNOW_MIST} variant reads the valley mist band, not humidity.
  */
 @Entity
 @Table(name = "slot_atmosphere",
@@ -96,11 +96,11 @@ public class SlotAtmosphereEntity {
     @Column(name = "freezing_level_m")
     private Double freezingLevelMetres;
 
-    /** Relative humidity percent, or null. Feeds the SNOW_MIST variant of SNOW_FRESH. */
+    /** Relative humidity percent, or null. Recorded only; SNOW_MIST no longer reads it. */
     @Column(name = "humidity")
     private Integer humidity;
 
-    /** 2 m air temperature in °C, or null. Gates the freezing-fog / hoar-frost SNOW_MIST facts. */
+    /** 2 m air temperature in °C, or null. Gates the sub-zero frost wording of SNOW_MIST. */
     @Column(name = "temperature_celsius")
     private Double temperatureCelsius;
 
