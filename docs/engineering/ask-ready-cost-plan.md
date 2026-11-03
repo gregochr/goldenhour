@@ -124,6 +124,32 @@ Each phase is one PR from `main`, built by a Sonnet agent in its own worktree an
 
 Record the findings here.
 
+**R-prep findings (2026-11-03, read-only, no API calls).**
+- *Turn 1 is almost certainly `list_windows {}`.* It is the only tool with no arguments
+  (`AskToolSchemas.java:105`), its description says to call it first (`:104`), and RULES open with it
+  (`AskPromptBuilder.java:135`). Tool traces are not persisted, so this is inferred from the fixed
+  21-token output, not seen. Its result depends only on snapshot, user and scope (`AskTools.java:879-925`),
+  so it is the same for every question in a scope and could be computed once per scope. Lever T must call
+  it on the conversation's own `AskTools` instance, because its side effects feed the validator
+  (`listedWindows` → `carriedWindows`, the trace count, and the 9,000-character budget).
+- *Static prefix about 3,200–3,350 tokens:* RULES 5,114 and USER_LESS 371 characters (about 1,500
+  tokens), plus the six Ready tool schemas at 5,306 characters (about 1,770 tokens). That is under Haiku
+  4.5's 4,096-token minimum, which confirms §2. Haiku 5.5's tokeniser counts about 30% more tokens
+  (`EvaluationModel.java:24-28`), so the same prefix may reach about 4,300–4,700 there; whether that
+  clears Haiku 5.5's minimum is unverified.
+- *Quality machinery:*
+  - `AskAnswerValidator` (`:246-316`) checks structure and picks, not prose.
+  - Six `prompt-regression` Ask suites exist, but only `AskWindowContextRegressionTest` runs a Ready
+    question (`BEST_WEEKEND`).
+  - JSON snapshot fixtures are in `src/test/resources/prompt-regression/ask/`.
+- *Haiku 5.5:*
+  - `AskProperties.setModel` rejects anything but HAIKU and SONNET (`:104-110`), so M0 has to widen it
+    or replace it.
+  - The engine, `ModelRequestSupport` and `CostCalculator` already handle HAIKU_55.
+  - One model drives both typed and Ready (`ClaudeAskEngine.java:211`).
+- *The comparison* (M) is a `prompt-regression`-tagged test-only harness on the existing engine set-up,
+  run once per model on the four fixtures.
+
 **M0 — Ask's model on Run Config (owner's request, 3 November 2026).** Ask is the one Claude caller whose
 model is not a `model_selection` row: it is the YAML key `photocast.ask.model` (`AskProperties.java:76`),
 so it is missing from Operations → Run Config and changing it needs a deploy. That breaks CLAUDE.md's
