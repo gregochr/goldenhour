@@ -40,15 +40,16 @@
   function search(){
     var q=input.value.trim().toLowerCase();
     if(q.length<2){out.innerHTML='';status.textContent='';return;}
-    if(!idx){status.textContent='Loading…';load().then(search);return;}
+    if(!idx){status.textContent='Searching the guides…';load().then(search);return;}
     var words=q.split(/\s+/).filter(Boolean);
     var hits=idx.map(function(r){
       var h=r.head.toLowerCase(),t=(r.sub||'').toLowerCase()+' '+r.text.toLowerCase(),score=0;
       for(var k=0;k<words.length;k++){var w=words[k];if(h.indexOf(w)>=0)score+=h.indexOf(w)===0?6:4;else if(t.indexOf(w)>=0)score+=1;else return null;}
       if(r.sub)score+=1;
       return {r:r,score:score};
-    }).filter(Boolean).sort(function(a,b){return b.score-a.score}).slice(0,10);
-    status.textContent=hits.length?(hits.length+(hits.length===10?'+':'')+' result'+(hits.length===1?'':'s')):'Nothing found. Try another word, such as tide, drive or aurora.';
+    }).filter(Boolean).sort(function(a,b){return b.score-a.score}).slice(0,11);
+    var more=hits.length>10;hits=hits.slice(0,10);
+    status.textContent=hits.length?(hits.length+(more?'+':'')+' result'+(hits.length===1?'':'s')):'No matching guide sections. Try ‘tide’, ‘drive time’ or ‘aurora’.';
     out.innerHTML=hits.map(function(x){
       var r=x.r,href=r.page+(embed?'?embed=1':'')+'#'+r.id;
       return '<li><a href="'+href+'"><span class="gs-where">'+esc(r.title)+(r.sub?' · '+esc(r.sub):'')+'</span><span class="gs-head">'+mark(r.head,words)+(r.pro?' <span class="pro">Pro</span>':'')+'</span><span class="gs-snip">'+mark(snippet(r.text,words),words)+'</span></a></li>';
