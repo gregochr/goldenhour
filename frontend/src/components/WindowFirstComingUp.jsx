@@ -8,6 +8,7 @@ import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 import { comingUpOutsideFacts, entrySubject, outsideLineText } from '../utils/comingUpOutside.js';
 import { scrollToEntry } from '../utils/scrollToEntry.js';
+import { isEntryOpen, readOpenOverrides, writeOpenOverrides } from '../utils/comingUpOpen.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -93,6 +94,10 @@ export default function WindowFirstComingUp({
   focusRequest = null, onFocusHandled = undefined,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
+  // The reader's own open and close presses, by entry id, kept for the session and overriding the default
+  // (collapse-and-topic-pips-plan.md §5; utils/comingUpOpen.js).
+  const [openOverrides, setOpenOverrides] = useState(readOpenOverrides);
+  useEffect(() => { writeOpenOverrides(openOverrides); }, [openOverrides]);
   const { allowedLocationIds } = useWindowFirstBriefing();
 
   const counts = events?.counts ?? EMPTY_COUNTS;
@@ -105,6 +110,13 @@ export default function WindowFirstComingUp({
     ),
     [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
   );
+  const renderedEntries = useMemo(() => monthGroups.flatMap((group) => group.entries), [monthGroups]);
+  const entryOpen = (entry) => isEntryOpen(entry, openOverrides, todayStr);
+  // "Close all" while every rendered entry is open, otherwise "Open all"; either sets every rendered entry.
+  const allOpen = renderedEntries.length > 0 && renderedEntries.every(entryOpen);
+  const setEntries = (ids, open) => setOpenOverrides((prev) => ({
+    ...prev, ...Object.fromEntries(ids.map((entryId) => [entryId, open])),
+  }));
   // S5b-2: a Lite reader whose body the server shaped by their sub-region picks. `outsideFacts` is null on every
   // other body (Pro, Admin, enforcement off), so nothing below draws and the pane is unchanged. The line sits on
   // every entry whose door row finds no matching allowed place; the ONE door goes on the first such entry,
@@ -182,6 +194,10 @@ export default function WindowFirstComingUp({
         && events?.entries?.some((entry) => entry.id === wanted)) {
       setActiveFilter('all');
     }
+    // A deep link to a closed entry opens it first: the scroll below then centres the open card.
+    if (wanted != null && status === 'ready' && events?.entries?.some((entry) => entry.id === wanted)) {
+      setOpenOverrides((prev) => (prev[wanted] === true ? prev : { ...prev, [wanted]: true }));
+    }
   }
   /**
    * <b>Phase two, an effect.</b> {@code scrollToEntry} scrolls, rings and focuses the card. It waits for the
@@ -240,6 +256,16 @@ export default function WindowFirstComingUp({
               could still move
             </span>
           </span>
+          {status === 'ready' && renderedEntries.length > 0 && (
+            <button
+              type="button"
+              className="wf-tide-strip-toggle wf-cu-toggle-all"
+              data-testid="coming-up-toggle-all"
+              onClick={() => setEntries(renderedEntries.map((entry) => entry.id), !allOpen)}
+            >
+              {allOpen ? 'Close all' : 'Open all'}
+            </button>
+          )}
         </div>
 
         {/* One always-mounted live region holding whichever of the three notes applies.
@@ -370,6 +396,8 @@ export default function WindowFirstComingUp({
                   <WindowComingUpEntry
                     key={entry.id}
                     entry={entry}
+                    open={entryOpen(entry)}
+                    onToggleOpen={() => setEntries([entry.id], !entryOpen(entry))}
                     onGoToPlan={onGoToPlan}
                     onShowOnMap={onShowOnMap}
                     outsideLine={outside?.text ?? null}

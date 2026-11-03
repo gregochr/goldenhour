@@ -60,6 +60,7 @@ function renderStrip(day, activeId, props = {}) {
       onToggleType={vi.fn()}
       onPick={vi.fn()}
       onSelectHw={onSelectHw}
+      open
       {...props}
     />,
   );
@@ -68,7 +69,7 @@ function renderStrip(day, activeId, props = {}) {
 
 const tick = () => screen.getByTestId(`wf-topic-strip-hw-tick-${FRI}`);
 
-beforeEach(() => { localStorage.setItem('mapTopicStripOpen', '1'); });
+beforeEach(() => { localStorage.clear(); });
 
 describe('MapTopicStrip: the High-water tick', () => {
   it('sits over the Big seas row\'s two columns for its day, at the served proportion along them', () => {
@@ -175,8 +176,7 @@ describe('MapTopicStrip: the High-water tick', () => {
   });
 
   it('draws no tick while the strip is collapsed (it has no grid)', () => {
-    localStorage.setItem('mapTopicStripOpen', '0');
-    renderStrip();
+    renderStrip(undefined, undefined, { open: false });
     expect(screen.queryByTestId(`wf-topic-strip-hw-${FRI}`)).toBeNull();
   });
 });

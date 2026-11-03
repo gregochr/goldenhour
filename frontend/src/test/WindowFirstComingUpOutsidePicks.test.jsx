@@ -189,6 +189,15 @@ describe('Coming up — the sub-regions door (item 12)', () => {
     expect(within(rows[1]).queryByTestId('coming-up-subregion-door')).toBeNull();
   });
 
+  it('keeps the tab\'s one door visible when its entry is closed (more than 30 days out)', () => {
+    sessionStorage.clear();
+    renderPane([entry('c1', 'coastal-spots', '2026-11-20', { endDate: '2026-12-30' })], {
+      briefing: { allowedLocationIds: [3] },
+    });
+    expect(screen.getByTestId('coming-up-entry')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('coming-up-subregion-door')).toBeInTheDocument();
+  });
+
   it('puts the door outside the card button for an over-cap, button-card entry', () => {
     renderPane([entry('c1', 'coastal-spots', '2026-08-12', { endDate: '2026-09-30' })], {
       briefing: { allowedLocationIds: [3] },

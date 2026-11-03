@@ -2,8 +2,13 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import { COMING_UP_OPEN_KEY } from '../utils/comingUpOpen.js';
 
 const TODAY = '2026-08-09';
+
+// An entry starting more than 30 days out starts CLOSED (collapse-and-topic-pips-plan.md §5); a session's
+// presses would leak between tests, so each starts clean.
+beforeEach(() => { sessionStorage.clear(); });
 
 /** A `ComingUpEntry` as P2 actually serves one. */
 const wireEntry = (over = {}) => ({
@@ -576,6 +581,10 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
   // can make the chronology recompute — a fresh `events` literal would recompute it regardless.
   const SPLIT_EVENTS = { entries: SPLIT_ENTRIES, counts: COUNTS };
   const renderSplit = (props = {}) => renderPane({ events: SPLIT_EVENTS, ...props });
+  // The October entry is past the 30-day default, so these tests open it as a reader would.
+  beforeEach(() => {
+    sessionStorage.setItem(COMING_UP_OPEN_KEY, JSON.stringify({ 'spring-tide:2026-10-11:2026-12-31': true }));
+  });
 
   it('makes a button of the entry whose date is listed and a plain card of the one that is not', () => {
     const { onShowOnMap } = renderSplit({ forecastDates: ['2026-08-12'] });

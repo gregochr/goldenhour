@@ -415,9 +415,15 @@ DayChips.propTypes = {
  * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
  * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
+ * @param {boolean}  [props.open]      whether the card shows its body (default true). Closed, only the title
+ *                                     line and the date's day are drawn (collapse-and-topic-pips-plan.md §5)
+ * @param {?function} [props.onToggleOpen] the Open / Close button's press; the pane owns the state. The button
+ *                                     is a sibling of the card, never inside it: the card is itself a button
+ *                                     when it has a single action
  */
 export default function WindowComingUpEntry({
-  entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null,
+  entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null, open = true,
+  onToggleOpen = undefined,
 }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
@@ -426,6 +432,7 @@ export default function WindowComingUpEntry({
   const isTideRun = isTideRunEntry(entry);
   const cardClassName = [
     'wf-cu-card',
+    open ? null : 'wf-cu-card-closed',
     entry.isFeature ? 'wf-cu-card-feat' : null,
     entry.isForecast ? 'wf-cu-card-fc' : null,
     // A chip run is neither a button nor a dead door: its own chips are the controls.
@@ -511,6 +518,8 @@ export default function WindowComingUpEntry({
           )}
         </span>
       </div>
+      {open && (
+        <>
       {' '}
 
       {/* Additive with `prose`, NOT exclusive-or (a corrected first attempt — see the class doc's
@@ -656,6 +665,8 @@ export default function WindowComingUpEntry({
           </span>
         </>
       )}
+        </>
+      )}
     </>
   );
 
@@ -669,14 +680,15 @@ export default function WindowComingUpEntry({
       data-testid="coming-up-entry"
       data-type={entry.type}
       data-entry-id={entry.id}
+      data-open={open ? 'true' : 'false'}
     >
       <div className="wf-cu-rail" data-testid="coming-up-rail">
         <span className="wf-cu-dbox">
-          {rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
+          {open && rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
           <span className={rail.isRange ? 'wf-cu-dn wf-cu-dn-run' : 'wf-cu-dn'}>{rail.day}</span>
-          <span className="wf-cu-mo">{rail.month}</span>
+          {open && <span className="wf-cu-mo">{rail.month}</span>}
         </span>
-        {rail.countdown && (
+        {open && rail.countdown && (
           <span className="wf-cu-cd" data-testid="coming-up-countdown">{rail.countdown}</span>
         )}
       </div>
@@ -703,6 +715,22 @@ export default function WindowComingUpEntry({
           count={outsideDoor.count}
           zeroPicks={outsideDoor.zeroPicks}
         />
+      )}
+      {/* The Open / Close button (collapse-and-topic-pips-plan.md §5), drawn over the card's top right corner by
+          CSS (absolute). A sibling of the card, because a single-action card is itself a button, and last in the
+          DOM so the sub-regions door stays right after the card. Named plainly (Close / Open): a name carrying
+          the title would collide with the card's. */}
+      {onToggleOpen && (
+        <button
+          type="button"
+          className="wf-tide-strip-toggle wf-cu-toggle"
+          data-testid="coming-up-toggle"
+          aria-expanded={open}
+          aria-label={open ? 'Close' : 'Open'}
+          onClick={onToggleOpen}
+        >
+          {open ? <span aria-hidden="true">▾</span> : (<>Open <span aria-hidden="true">▴</span></>)}
+        </button>
       )}
     </div>
   );
@@ -778,6 +806,10 @@ WindowComingUpEntry.propTypes = {
   onShowOnMap: PropTypes.func.isRequired,
   /** The S5b-2 line under the door row, or null (always null for Pro, Admin and an unshaped body). */
   outsideLine: PropTypes.string,
+  /** Whether the card shows its body; closed, only the title line and the date's day are drawn. */
+  open: PropTypes.bool,
+  /** The Open / Close button's press. Without it no button is drawn (the card cannot be closed). */
+  onToggleOpen: PropTypes.func,
   /** The S5b-2 sub-regions door this entry carries, or null. */
   outsideDoor: PropTypes.shape({
     subject: PropTypes.oneOf(['coastal', 'darkSky']).isRequired,

@@ -1501,9 +1501,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The tide strip's own collapse state (tide-window-plan.md T6 §4 #12) — `MapView` state, not
    * `sessionStorage`: the pane is never unmounted (`plan-to-map-doors-plan.md`'s D2 note), so
    * "persists for the session" needs no storage and no try/catch, and it must survive a window
-   * change on purpose (design §2's own "does not reset on window change").
+   * change on purpose (design §2's own "does not reset on window change"). Starts COLLAPSED
+   * (collapse-and-topic-pips-plan.md §1): both bottom panels open as one-line rows.
    */
-  const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
+  const [tideStripCollapsed, setTideStripCollapsed] = useState(true);
+  /**
+   * The four-day Hot topics panel's open state: the same session-only {@code MapView} state as
+   * {@code tideStripCollapsed}, and for the same reason (the pane is never unmounted). It replaces the
+   * panel's old {@code localStorage} preference and tall-frame default; starts collapsed. The phone's
+   * sheet variant keeps its own stored preference.
+   */
+  const [topicStripOpen, setTopicStripOpen] = useState(false);
+  /**
+   * Bumped on each day-dot jump from the collapsed Hot topics row; {@code WindowControl} flashes for 700ms
+   * when it changes (collapse-and-topic-pips-plan.md §2). Zero means no jump yet.
+   */
+  const [windowFlashKey, setWindowFlashKey] = useState(0);
   /**
    * The EV row id on which the reader asked for the four-day grid over an open tide strip
    * (topic-strip-tide-yield-plan §2). While it matches the window on screen ({@code tideYielded}) the
@@ -4983,6 +4996,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setTopicAnnounce(topicAnnouncement(chip, true, ringsAvailable && (chip?.places?.length ?? 0) > 0));
   }
   /**
+   * A press on a day dot of the collapsed Hot topics row: move to that day's first topic window.
+   */
+  function jumpToTopicDay(row, movedMessage = null) {
+    // A day dot on the collapsed row: the same `selectEvRow` the window control's steppers use. The panel stays
+    // collapsed and no topic is picked (the dot says where something is, not which to select). The sentence is
+    // spoken after the row-change clear, as the strip's own moves are.
+    if (!row || row.id === activeMapEvent?.id) return;
+    pendingTopicAnnounce.current = movedMessage;
+    selectEvRow(row);
+    setWindowFlashKey((k) => k + 1);
+  }
+  /**
    * A press on a day's High-water tick on the strip: move to that daylight High-water row through the same
    * {@code selectEvRow} the window control uses (so a FUTURE row hands its date to {@code onSelectDate} and
    * the parent and the pane stay in step). The strip has parked focus already. Arriving on the row
@@ -6390,6 +6415,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const windowControl = (
     <WindowControl
+      flashKey={windowFlashKey}
       shaped={shaped}
       auroraAlertNight={auroraAlertNight}
       auroraAlertLevel={auroraAlertLevel}
@@ -7580,7 +7606,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 grid={topicGrid}
                 selectedType={activeTopicChip?.type ?? null}
                 currentTypes={topicChipTypes}
-                held={tideStripModel.visible && !tideYielded}
+                open={topicStripOpen}
+                onOpenChange={setTopicStripOpen}
+                onJumpToDay={jumpToTopicDay}
+                // An OPEN tide strip holds the grid; a collapsed one (the default now) leaves both free.
+                held={tideStripModel.visible && !tideStripCollapsed && !tideYielded}
                 heldReason="the tide strip"
                 onOpenHeld={() => setTideYieldRowId(activeMapEvent?.id ?? null)}
                 onCloseYielded={() => setTideYieldRowId(null)}

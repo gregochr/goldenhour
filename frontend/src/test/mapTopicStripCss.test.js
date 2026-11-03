@@ -66,9 +66,9 @@ describe('the four-day strip stylesheet: the strip', () => {
     expect(body).not.toContain('absolute');
   });
 
-  it('lays the grid out as a 92px label column and eight equal columns, topic rows 24px', () => {
+  it('lays the grid out as a 104px label column and eight equal columns, topic rows 24px', () => {
     const body = ruleBody('.wf-tl-grid');
-    expect(body).toContain('grid-template-columns: 92px repeat(8, minmax(0, 1fr));');
+    expect(body).toContain('grid-template-columns: 104px repeat(8, minmax(0, 1fr));');
     expect(body).toContain('grid-auto-rows: 24px;');
   });
 

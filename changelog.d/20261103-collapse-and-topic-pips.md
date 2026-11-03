@@ -1,0 +1,6 @@
+### Changed — Map panels start collapsed, with hot-topic day dots and a tide aligned count; Coming up entries can be closed
+
+- Map tab (desktop and tablet): the Hot topics and Tide panels both start collapsed as one-line rows with the same `Open ▴` button. Open or closed is kept for the session only; the Hot topics panel no longer remembers a choice between visits or opens by default on a tall map.
+- The collapsed Hot topics row shows one group per forecast day (today to +3) with up to three coloured dots, the current day marked. A day with something worth seeing is a button that jumps the map to that day's first topic window (sunrise first) and flashes the window control; the current day shows which topics fall on the selected window. In the open grid the current day's header is marked, the bar on the selected window glows and the same day's other light is dashed.
+- The collapsed Tide row drops the time and reads `4 of 14 aligned`, `none of 14 aligned` or `all 14 aligned` in place of `10 dimmed`.
+- Coming up: each entry has an Open / Close button and the list has Open all / Close all. Entries tagged "In next 4 days", or starting within 30 days, start open; later ones start closed. Choices are remembered for the session, and a link to a closed entry opens it first.
