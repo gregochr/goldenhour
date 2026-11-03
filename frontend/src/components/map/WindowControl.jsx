@@ -20,6 +20,9 @@ const MENU_SCROLL_PAD_PX = 6;
 /** How long the control stays highlighted after a day-dot jump (ms); the fade is the CSS transition. */
 export const FLASH_MS = 700;
 
+/** The fade-out after the highlight (matches the CSS transition); `data-flash` reads `fading` meanwhile. */
+export const FADE_MS = 500;
+
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
  * docs/design/map-tab-v2/README.md "1. The window control".
@@ -65,12 +68,17 @@ export default function WindowControl({
 }) {
   // A day-dot jump from the collapsed Hot topics row bumps `flashKey`: the control lights up for 700ms
   // (collapse-and-topic-pips-plan.md §2). Zero (and any bare render) never flashes.
-  const [flashDoneKey, setFlashDoneKey] = useState(0);
-  const flashing = flashKey !== 0 && flashKey !== flashDoneKey;
+  // Seeded from the prop: a mount with a flash already spent (a remount) does not flash again.
+  const [flashDoneKey, setFlashDoneKey] = useState(() => flashKey);
+  const [fadeDoneKey, setFadeDoneKey] = useState(() => flashKey);
+  let flashPhase;
+  if (flashKey !== 0 && flashKey !== flashDoneKey) flashPhase = 'true';
+  else if (flashKey !== 0 && flashKey !== fadeDoneKey) flashPhase = 'fading';
   useEffect(() => {
     if (!flashKey) return undefined;
-    const timer = setTimeout(() => setFlashDoneKey(flashKey), FLASH_MS);
-    return () => clearTimeout(timer);
+    const flashTimer = setTimeout(() => setFlashDoneKey(flashKey), FLASH_MS);
+    const fadeTimer = setTimeout(() => setFadeDoneKey(flashKey), FLASH_MS + FADE_MS);
+    return () => { clearTimeout(flashTimer); clearTimeout(fadeTimer); };
   }, [flashKey]);
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -427,7 +435,7 @@ export default function WindowControl({
       data-testid="wf-win-control"
       className="wf-win-control"
       data-better={showBetter ? '' : undefined}
-      data-flash={flashing ? 'true' : undefined}
+      data-flash={flashPhase}
       onKeyDown={onKeyDown}
     >
       {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a

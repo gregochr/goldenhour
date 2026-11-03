@@ -316,6 +316,8 @@ export default function MapTopicStrip({
 
   function pressDay(d) {
     if (d.current || !d.target) return;
+    // The window moves: park focus on the strip root first (the focus rule above), as a bar press does.
+    parkFocus();
     onJumpToDay?.(d.target.row, `Window moved to ${d.target.word}`);
   }
 
@@ -358,6 +360,7 @@ export default function MapTopicStrip({
           {...common}
           aria-label={d.tooltip.lead}
           aria-current={d.current ? 'true' : undefined}
+          aria-disabled={d.current ? 'true' : undefined}
           onClick={() => pressDay(d)}
         >
           {body}

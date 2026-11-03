@@ -684,7 +684,7 @@ export default function WindowComingUpEntry({
     >
       <div className="wf-cu-rail" data-testid="coming-up-rail">
         <span className="wf-cu-dbox">
-          {rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
+          {open && rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
           <span className={rail.isRange ? 'wf-cu-dn wf-cu-dn-run' : 'wf-cu-dn'}>{rail.day}</span>
           {open && <span className="wf-cu-mo">{rail.month}</span>}
         </span>
@@ -709,7 +709,7 @@ export default function WindowComingUpEntry({
         </div>
       )}
       {/* The sub-regions door (S5b-2): also a sibling of the card, on one entry per tab. */}
-      {open && outsideDoor && (
+      {outsideDoor && (
         <ComingUpOutsideDoor
           subject={outsideDoor.subject}
           count={outsideDoor.count}

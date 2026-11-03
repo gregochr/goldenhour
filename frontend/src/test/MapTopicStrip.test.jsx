@@ -489,6 +489,24 @@ describe('MapTopicStrip: the collapsed row\'s day dots (collapse-and-topic-pips-
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it('parks focus on the strip root before it moves the window', () => {
+    const calls = [];
+    const onJumpToDay = vi.fn(() => calls.push(document.activeElement));
+    renderStrip({ open: false, onJumpToDay });
+    const button = screen.getByTestId('wf-topic-day-1');
+    button.focus();
+    fireEvent.click(button);
+    expect(calls[0]).toBe(screen.getByTestId('wf-topic-strip'));
+  });
+
+  it('marks the current day aria-disabled (still focusable, still aria-current) and other days not', () => {
+    renderStrip({ open: false });
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('wf-topic-day-0')).not.toBeDisabled();
+    expect(screen.getByTestId('wf-topic-day-1')).not.toHaveAttribute('aria-disabled');
+  });
+
   it('does nothing on the current day', () => {
     const onJumpToDay = vi.fn();
     const onOpenChange = vi.fn();

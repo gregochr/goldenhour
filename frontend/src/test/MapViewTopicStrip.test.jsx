@@ -425,6 +425,20 @@ describe('MapView: the strip collapses under the tide strip', () => {
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
   });
 
+  it('un-holds a grid the reader asked to open when they collapse the open tide strip (intended)', async () => {
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
+    // Press Open on the held grid (it yields), bring the tide strip back (the grid is held again, open state kept).
+    await act(async () => { fireEvent.click(toggle()); });
+    await press('wf-tide-strip-toggle');
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    // Collapsing the tide strip with its own toggle releases the hold: the requested grid opens.
+    await press('wf-tide-strip-toggle');
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+  });
+
   it('opens again by itself when the tide strip goes (the window no longer carries a tide)', async () => {
     const { rerender } = await renderMap({ tide: TIDE, openPanel: false });
     await openTide();

@@ -6035,10 +6035,14 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 /* A day-dot jump on the collapsed Hot topics row (collapse-and-topic-pips-plan.md §2): the control flashes
    for 700ms (the class is added on the change and removed by a timer) and fades with a .5s transition. */
-.wf-win-pill { transition: border-color 0.5s, box-shadow 0.5s; }
+/* The transition and the ring exist ONLY while `data-flash` is set, which only a desktop or tablet day-dot jump
+   does, so no rule here applies on the phone (its pill tier cross-fades are untouched). `data-flash='true'` is
+   the highlight and `'fading'` the .5s fade back. The ring is an OUTLINE, not a box-shadow, so the tier's inset
+   verdict stripe (`.wf-win-pill[data-tier]`) stays visible. */
+.wf-win-control[data-flash] .wf-win-pill { transition: border-color 0.5s; }
 .wf-win-control[data-flash='true'] .wf-win-pill {
   border-color: rgba(242, 231, 211, 0.5);
-  box-shadow: 0 0 0 3px rgba(242, 231, 211, 0.12);
+  outline: 3px solid rgba(242, 231, 211, 0.12);
 }
 .wf-win-pill:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -11034,6 +11038,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    it. A closed entry is its header line alone: tighter padding, the plain title size, and a date box that
    keeps the day only (the month and the countdown are not drawn). */
 .wf-cu-ent { position: relative; }
+.wf-cu-toggle,
+.wf-cu-toggle-all { min-height: 24px; }
 .wf-cu-toggle {
   position: absolute;
   top: 6px;

@@ -941,10 +941,17 @@ describe('WindowControl — the day-dot jump flash (collapse-and-topic-pips-plan
       act(() => { vi.advanceTimersByTime(699); });
       expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
       act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'fading');
+      act(() => { vi.advanceTimersByTime(500); });
       expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('does not flash when mounted with a flash already spent (a remount)', () => {
+    renderControl({ flashKey: 3 });
+    expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
   });
 
   it('flashes again on the next jump', () => {
@@ -952,7 +959,7 @@ describe('WindowControl — the day-dot jump flash (collapse-and-topic-pips-plan
     try {
       const { rerender, onSelect } = renderControl();
       rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} flashKey={1} />);
-      act(() => { vi.advanceTimersByTime(700); });
+      act(() => { vi.advanceTimersByTime(1200); });
       rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} flashKey={2} />);
       expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
     } finally {

@@ -85,6 +85,7 @@ describe('Coming up — the default open state', () => {
     expect(closed.querySelector('[data-testid="coming-up-action"]')).toBeNull();
     expect(closed.querySelector('[data-testid="coming-up-countdown"]')).toBeNull();
     expect(closed.querySelector('.wf-cu-mo')).toBeNull();
+    expect(closed.querySelector('.wf-cu-dow')).toBeNull();
     // The date box keeps the day.
     expect(closed.querySelector('.wf-cu-dn')).toHaveTextContent('10');
     expect(entryEl('near')).toHaveTextContent('Near prose.');
