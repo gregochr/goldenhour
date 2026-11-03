@@ -55,7 +55,7 @@ Subtitle.propTypes = { job: PropTypes.object.isRequired };
 
 /**
  * The Scheduler job panel (scheduler-redesign-plan.md S4a), the drawer's contents. Top to bottom: What it does,
- * Schedule (the rule, why it runs then, the next three fires; the editors are the existing ones until S4b), Next fires
+ * Schedule (the rule, why it runs then, the next three fires; Edit opens the S4b editors), Next fires
  * (a job that is or may become sun-relative), Last run, Claude cost, Calls out to, Connected jobs, Job actions,
  * Technical. Sections appear only when they have something to say; a job with no catalogue entry shows its stored
  * description in place of the plain-English ones.
@@ -75,7 +75,8 @@ Subtitle.propTypes = { job: PropTypes.object.isRequired };
  * @param {() => void} props.onEditCancel closes it without saving
  * @param {() => void} props.onSolarSaved called after a sun-relative rule was saved
  * @param {() => void} props.onPartial called after a half-saved solar edit, to reload the job
- * @param {(job: object, value: string) => Promise<void>} props.onInlineSave saves the inline cron or delay
+ * @param {(job: object, value: string, options?: {timeZone?: string}) => Promise<void>} props.onInlineSave saves a cron (with its
+ *   time zone) or a delay
  * @param {() => void} props.onSwitch opens the schedule switch dialog
  * @param {() => void} props.onRunNow triggers the job
  * @param {() => void} props.onPause pauses the job

@@ -5,7 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, preview, previewJob, solarIntradayJob,
   solarJob,
-  jobDetail,
+  jobDetail, schedulePreview,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -18,6 +18,7 @@ vi.mock('../api/schedulerApi', () => ({
   switchScheduleType: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
+  previewSchedule: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -28,6 +29,7 @@ import {
   switchScheduleType,
   fetchSchedulerSummary,
   fetchJobDetail,
+  previewSchedule,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -72,6 +74,7 @@ beforeEach(() => {
   useIsSplitLayout.mockReturnValue(true);
   fetchSchedulerSummary.mockResolvedValue(null);
   fetchJobDetail.mockResolvedValue(jobDetail());
+  previewSchedule.mockResolvedValue(schedulePreview());
 });
 
 describe('P2c review - switch dialog wording and after-line', () => {

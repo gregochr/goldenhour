@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  normalizeRunsQuery, readRunsQuery, writeRunsQuery,
+  normalizeRunsQuery, readRunsQuery, runsTimingHref, writeRunsQuery,
 } from '../utils/runsQuery.js';
 
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
@@ -157,5 +157,23 @@ describe('writeRunsQuery', () => {
     writeRunsQuery({ view: 'cost' });
     window.removeEventListener('hashchange', onChange);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('runsTimingHref', () => {
+  it('is a plain hash link to the Timing view of the afternoon refresh', () => {
+    expect(runsTimingHref()).toBe('#manage/runs?view=timing&type=AFTERNOON');
+  });
+
+  it('reads back through readRunsQuery as that view and type, without touching the current address', () => {
+    window.location.hash = '#manage/scheduler/intraday_forecast_refresh';
+    const href = runsTimingHref();
+    expect(window.location.hash).toBe('#manage/scheduler/intraday_forecast_refresh');
+    window.location.hash = href;
+    expect(readRunsQuery(NOW)).toEqual({ ...BASE, view: 'timing', type: 'AFTERNOON' });
+  });
+
+  it('leaves out a type the Timing view does not know', () => {
+    expect(runsTimingHref('NOPE')).toBe('#manage/runs?view=timing');
   });
 });

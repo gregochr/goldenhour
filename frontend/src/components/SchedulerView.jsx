@@ -10,6 +10,7 @@ import AllJobsTab from './scheduler/AllJobsTab.jsx';
 import SchedulerTabs, { SCHEDULER_PANEL_ID, schedulerTabId } from './scheduler/SchedulerTabs.jsx';
 import SchedulerJobPanel from './scheduler/SchedulerJobPanel.jsx';
 import { ScheduleSwitchDialog } from './SolarScheduleControls.jsx';
+import SubRegionToast from './subregions/SubRegionToast.jsx';
 import useCloseWhenFilteredOut from '../hooks/useCloseWhenFilteredOut.js';
 import useSchedulerActions from '../hooks/useSchedulerActions.js';
 import useHashSelection from '../hooks/useHashSelection.js';
@@ -25,6 +26,7 @@ import {
   jobMatchesFilters,
   jobMatchesSearch,
 } from '../utils/schedulerView.js';
+import { savedMessage } from '../utils/schedulerEdit.js';
 import { isSchedulerHash, readSchedulerQuery, writeSchedulerQuery } from '../utils/schedulerQuery.js';
 
 /** Polling interval for refreshing job statuses, the summary and the solar preview. */
@@ -86,6 +88,7 @@ export default function SchedulerView() {
   const [preview, setPreview] = useState(null);
   const [previewFailed, setPreviewFailed] = useState(false);
   const [editingJob, setEditingJob] = useState(null);
+  const [toast, setToast] = useState({ message: null, nonce: 0 });
   const [switchingJob, setSwitchingJob] = useState(null);
   const [filters, setFilters] = useState(NO_FILTERS);
   const [search, setSearch] = useState('');
@@ -143,21 +146,31 @@ export default function SchedulerView() {
     const id = ++jobsRequest.current;
     try {
       const data = await fetchSchedulerJobs();
-      if (id !== jobsRequest.current) return;
+      if (id !== jobsRequest.current) return data;
       setJobs(data);
       setError(null);
       loadedOnce.current = true;
       setLoaded(true);
+      return data;
     } catch {
-      if (id !== jobsRequest.current) return;
+      if (id !== jobsRequest.current) return null;
       setError('Failed to load scheduler jobs');
+      return null;
     } finally {
       if (id === jobsRequest.current) setLoading(false);
     }
   }, []);
 
   // A change to a job (Run now, Pause, Resume, a save) re-reads the summary too: its counts and next fire move.
-  const reload = useCallback(() => Promise.all([loadJobs(), loadSummary()]), [loadJobs, loadSummary]);
+  // It resolves with the re-read jobs (null when that read failed), which a save's toast quotes the next fire from.
+  const reload = useCallback(async () => (await Promise.all([loadJobs(), loadSummary()]))[0], [loadJobs, loadSummary]);
+
+  // The save toast (D16): "Saved. Next fire Tomorrow 12:27.", read from the job as re-read after the save.
+  const showSaved = useCallback((reloaded, jobKey) => {
+    const fresh = reloaded?.find((j) => j.jobKey === jobKey) ?? null;
+    setToast((t) => ({ message: savedMessage(fresh), nonce: t.nonce + 1 }));
+  }, []);
+  const clearToast = useCallback(() => setToast((t) => ({ ...t, message: null })), []);
 
   // Run now, Pause and Resume, held per job so a guard survives leaving the panel and coming back.
   const actions = useSchedulerActions(reload);
@@ -215,9 +228,10 @@ export default function SchedulerView() {
   const handleStatus = (status) => setFilters((f) => ({ ...f, status: f.status === status ? null : status }));
   const handleFlag = (flag) => setFilters((f) => ({ ...f, [flag]: !f[flag] }));
 
-  const handleSolarSaved = async () => {
+  const handleSolarSaved = async (jobKey) => {
     setEditingJob(null);
-    await Promise.all([reload(), loadPreview()]);
+    const [fresh] = await Promise.all([reload(), loadPreview()]);
+    showSaved(fresh, jobKey);
   };
 
   const handleSwitched = async () => {
@@ -225,13 +239,14 @@ export default function SchedulerView() {
     await Promise.all([reload(), loadPreview()]);
   };
 
-  // Rejects on failure, so the inline form can say so beside its field.
-  const handleInlineSave = async (job, value) => {
+  // Rejects on failure, so the editor can say so beside its field. The cron editor adds the {@code timeZone} its UK
+  // times were built in; the raw field and the fixed-delay presets send the value alone.
+  const handleInlineSave = async (job, value, options = {}) => {
     // Only the two types that have an inline text edit may reach here; a solar or unrecognised job never sends a fixed
     // delay (a solar job has none, and 0 would be rejected or worse).
     let payload;
     if (job.scheduleType === SCHEDULE_CRON) {
-      payload = { cronExpression: value };
+      payload = { cronExpression: value, ...(options.timeZone ? { timeZone: options.timeZone } : {}) };
     } else if (job.scheduleType === SCHEDULE_FIXED_DELAY) {
       payload = { fixedDelayMs: Number(value) };
     } else {
@@ -239,7 +254,7 @@ export default function SchedulerView() {
     }
     await updateJobSchedule(job.jobKey, payload);
     setEditingJob(null);
-    await reload();
+    showSaved(await reload(), job.jobKey);
   };
 
   const previewFor = (jobKey) => preview?.jobs?.find((p) => p.jobKey === jobKey) ?? null;
@@ -258,7 +273,7 @@ export default function SchedulerView() {
       onSelectJob={(jobKey) => select(jobKey)}
       onEditStart={() => setEditingJob(selectedJob.jobKey)}
       onEditCancel={cancelEdit}
-      onSolarSaved={handleSolarSaved}
+      onSolarSaved={() => handleSolarSaved(selectedJob.jobKey)}
       onPartial={loadJobs}
       onInlineSave={handleInlineSave}
       onSwitch={() => setSwitchingJob(selectedJob.jobKey)}
@@ -338,6 +353,8 @@ export default function SchedulerView() {
         rowTestIdPrefix="scheduler"
         testId="scheduler-split"
       />
+
+      <SubRegionToast message={toast.message} nonce={toast.nonce} onDone={clearToast} />
 
       {switchTarget && (
         <ScheduleSwitchDialog

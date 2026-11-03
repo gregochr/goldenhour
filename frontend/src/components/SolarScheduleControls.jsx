@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import SunOffsetField from './scheduler/SunOffsetField.jsx';
 import { switchScheduleType, updateJobSchedule } from '../api/schedulerApi.js';
 import {
   MAX_OFFSET_MINUTES,
@@ -247,7 +248,7 @@ ScheduleSwitchDialog.propTypes = {
  */
 export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
   const [event, setEvent] = useState(job.solarEvent === 'SUNSET' ? 'SUNSET' : 'SUNRISE');
-  const [offset, setOffset] = useState(String(job.solarOffsetMinutes ?? 0));
+  const [offset, setOffset] = useState(Number.isFinite(job.solarOffsetMinutes) ? job.solarOffsetMinutes : 0);
   const [cron, setCron] = useState(job.cronExpression || '');
   const [error, setError] = useState(null);
   const sending = useRef(false);
@@ -292,13 +293,14 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
 
   return (
     <div ref={root} className="flex flex-col gap-2" data-testid={`solar-edit-${job.jobKey}`}>
-      <RuleFields
+      <SunOffsetField
         idPrefix={`solar-edit-${job.jobKey}`}
+        jobKey={job.jobKey}
         event={event}
         offset={offset}
+        storedOffset={Number.isFinite(job.solarOffsetMinutes) ? job.solarOffsetMinutes : null}
         onEvent={setEvent}
         onOffset={setOffset}
-        offsetError={check.ok ? null : check.message}
       />
       <label
         className="flex flex-col gap-1 text-xs text-plex-text-secondary"
@@ -310,7 +312,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
           type="text"
           value={cron}
           onChange={(e) => setCron(e.target.value)}
-          className={`${INPUT_CLASSES} font-mono w-full max-w-xs`}
+          className={`${INPUT_CLASSES} font-mono w-full max-w-xs max-[639px]:min-h-11`}
           data-testid={`solar-edit-${job.jobKey}-cron`}
         />
       </label>
@@ -329,7 +331,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
           type="button"
           onClick={handleSave}
           disabled={!check.ok || Boolean(cronError)}
-          className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50"
+          className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50 max-[639px]:min-h-11"
           data-testid={`save-btn-${job.jobKey}`}
         >
           Save
@@ -337,7 +339,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-plex-text-secondary hover:text-plex-text"
+          className="text-xs text-plex-text-secondary hover:text-plex-text max-[639px]:min-h-11"
           data-testid={`cancel-btn-${job.jobKey}`}
         >
           Cancel

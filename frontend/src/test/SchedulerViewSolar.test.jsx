@@ -5,7 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, EVENING, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, pollingJob, preview, previewJob,
   solarIntradayJob, solarJob, tideJob,
-  jobDetail,
+  jobDetail, schedulePreview,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -18,6 +18,7 @@ vi.mock('../api/schedulerApi', () => ({
   switchScheduleType: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
+  previewSchedule: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -28,6 +29,7 @@ import {
   switchScheduleType,
   fetchSchedulerSummary,
   fetchJobDetail,
+  previewSchedule,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -57,6 +59,7 @@ beforeEach(() => {
   useIsSplitLayout.mockReturnValue(true);
   fetchSchedulerSummary.mockResolvedValue(null);
   fetchJobDetail.mockResolvedValue(jobDetail());
+  previewSchedule.mockResolvedValue(schedulePreview());
 });
 
 describe('SchedulerView - explicit branch per schedule type', () => {
@@ -124,17 +127,20 @@ describe('SchedulerView - explicit branch per schedule type', () => {
     expect(switchScheduleType).not.toHaveBeenCalled();
   });
 
-  it('a solar edit with an invalid offset cannot be saved', async () => {
-    mount([solarJob()]);
+  it('the slider holds a stored offset beyond 8 hours and saving without touching it sends no rule change', async () => {
+    updateJobSchedule.mockResolvedValue({});
+    mount([solarJob({ solarOffsetMinutes: 600 })]);
     await openJob();
 
     fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
-    fireEvent.change(screen.getByTestId(`solar-edit-${NIGHTLY}-offset`), { target: { value: '9999' } });
-
-    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeDisabled();
+    const slider = screen.getByTestId(`solar-edit-${NIGHTLY}-offset`);
+    expect(slider).toHaveValue('600');
+    expect(Number(slider.max)).toBeGreaterThanOrEqual(600);
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
+
+    await waitFor(() => expect(screen.getByTestId(`edit-btn-${NIGHTLY}`)).toBeInTheDocument());
     expect(switchScheduleType).not.toHaveBeenCalled();
-    expect(screen.getByTestId(`solar-edit-${NIGHTLY}-offset-error`)).toHaveTextContent('0 and 720');
+    expect(updateJobSchedule).not.toHaveBeenCalled();
   });
 });
 

@@ -18,11 +18,27 @@ export async function fetchSchedulerJobs() {
  * ADMIN only.
  *
  * @param {string} jobKey - the job key
- * @param {object} schedule - { cronExpression } or { fixedDelayMs }
+ * @param {object} schedule - { cronExpression } or { fixedDelayMs }; a cron may add {@code timeZone}
+ *   ({@code "Europe/London"} or {@code "UTC"}); omit the key to keep the job's current zone
  * @returns {Promise<object>} the updated job config
  */
 export async function updateJobSchedule(jobKey, schedule) {
   const response = await apiClient.put(`${BASE_URL}/jobs/${jobKey}/schedule`, schedule);
+  return response.data;
+}
+
+/**
+ * Dry-runs a proposed schedule: validates it exactly as a save would, saves nothing. ADMIN only. A proposal a save
+ * would refuse answers 200 with {@code valid: false} and the message; only a failed request rejects.
+ *
+ * @param {string} jobKey - the job key
+ * @param {object} body - {@code {scheduleType, solarEvent?, solarOffsetMinutes?, times?, daysOfWeek?, timeZone?,
+ *   fixedDelayMs?}}
+ * @param {{signal?: AbortSignal}} [options] - an abort signal for a request that has been superseded
+ * @returns {Promise<object>} {@code {valid, error, cronExpression, timeZone, nextFires, yearRange, neighbours}}
+ */
+export async function previewSchedule(jobKey, body, { signal } = {}) {
+  const response = await apiClient.post(`${BASE_URL}/jobs/${jobKey}/schedule-preview`, body, { signal });
   return response.data;
 }
 
