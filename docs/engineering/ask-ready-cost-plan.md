@@ -124,6 +124,24 @@ Each phase is one PR from `main`, built by a Sonnet agent in its own worktree an
 
 Record the findings here.
 
+**M0 — Ask's model on Run Config (owner's request, 3 November 2026).** Ask is the one Claude caller whose
+model is not a `model_selection` row: it is the YAML key `photocast.ask.model` (`AskProperties.java:76`),
+so it is missing from Operations → Run Config and changing it needs a deploy. That breaks CLAUDE.md's
+invariant that the database `model_selection` row decides which model a run type uses.
+- Add `model_selection` rows for `ASK` (typed questions) and `ASK_READY` (the precompute), seeded with
+  today's value (`HAIKU`), so nothing changes on deploy. `RunType` already has both values.
+- `ClaudeAskEngine` reads the model for the run type it is serving through `ModelSelectionService`, like
+  the other callers. `photocast.ask.model` is retired, or kept only as the fallback when no row exists;
+  the builder picks whichever `ModelSelectionService`'s other callers do, and the docs say which.
+- Run Config (`ModelSelectionView.jsx`) gains two tabs, "Ask" and "Ask ready answers", with the same
+  cards, measured costs and switch buttons as the others.
+- Update `docs/engineering/reference/configuration.md` and `ask-photocast.md`, and the CLAUDE.md
+  invariant line if it names Ask.
+- After M0, the M switch is a click on Run Config, not a deploy, and can be undone the same way.
+
+Context: the Briefing tab already runs on Haiku 5.5 (measured £0.0012 a call against Haiku 4.5's
+£0.0099), so Haiku 5.5 is in production use for prose today.
+
 **M — the Haiku 5.5 quality check, then the switch.**
 - Build an offline comparison: run a fixed set of Ready tasks (today's snapshot fixtures) through both
   models and compare.
@@ -131,8 +149,8 @@ Record the findings here.
     pick; no invented place or window.
   - **The owner's read:** a side-by-side page of the two answers per task.
 - It costs a few cents of real API spend, so it needs the owner's go-ahead.
-- If the owner approves the answers, `photocast.ask.model` becomes `HAIKU_55` for Ready. Typed Ask stays
-  as it is unless the owner extends it.
+- If the owner approves the answers, the owner switches the "Ask ready answers" tab on Run Config to
+  Haiku 5.5 (after M0). Typed Ask stays as it is unless the owner switches that tab too.
 - Check first that `ClaudeAskEngine` and `CostCalculator` handle `HAIKU_55` (it exists in
   `EvaluationModel`, and Haiku 5.5's cache minimum may differ; read it from the model's documentation,
   not memory).
