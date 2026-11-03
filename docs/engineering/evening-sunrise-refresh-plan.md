@@ -573,6 +573,10 @@ pass every test. If an agent reports a stop, the orchestrator decides, not a sec
 
 ### 9.10 E5 — the afternoon evaluates today's sunset only
 
+> **Superseded 2026-11-03** by `evening-tomorrow-sunset-plan.md`: tomorrow's sunset moves to the 21:00
+> evening refresh instead of being dropped, and the afternoon defers rather than removes T+1. Kept for the
+> record; do not build this brief.
+
 **When.** Only after the owner says the evening has run cleanly for long enough (at least a week of E4
 runs: each `EVENING` run COMPLETED inside its budget, the next overnight settled FULL, no watchdog mail).
 Never while `evening_sunrise_refresh` is paused: tomorrow's sunrise would then rest on the previous
