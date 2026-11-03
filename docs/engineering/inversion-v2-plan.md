@@ -893,6 +893,24 @@ WHERE s.inversion_score_v2_raw IS NOT NULL
 GROUP BY 1, 2 ORDER BY 1, 2;
 ```
 
+**Result (owner, 2026-11-03; v2 rows 31 Oct–6 Nov, of which 4–6 Nov are still forecasts and will be
+rewritten).** Sunrise only, since the topic is sunrise-only:
+
+| Sunrise | Stored ≥ 8 | Raw ≥ 8 | Sites stored ≥ 8 |
+|---|---|---|---|
+| 31 Oct | 0 | 2 | none (the raise cap held both) |
+| 1 Nov | 1 | 4 | Embsay Crag and Reservoir |
+| 2 Nov | 1 | 2 | Highshield Crags |
+| 3–5 Nov | 0 | 0 | none |
+| 6 Nov | 0 | 2 | none |
+
+So **5a alone** would have fired on 2 of 7 mornings, one site each. 5b's raise-cap rule relaxes the cap only
+where the level-cloud test found the viewpoint clear, so **5a + 5b** lies between the stored and raw
+columns: at most 4 of 7 mornings, two to four sites. Raw ≥ 8 is the upper bound. One week is a first look,
+not a rate; the build PR should log how often the raise-cap rule applies so the real figure can be read
+after a month. The two raw 8s on the 31st sunrise are v2-scored sites other than the three Langdale fells
+(all three were v1 that morning); naming them needs one more query, not needed for the decision.
+
 #### 5a. Alert at 8, in its own words (backend; one PR)
 
 - `InversionHotTopicStrategy` fires on `effectiveInversionScore() >= 8` (a new named constant, e.g.
