@@ -1104,11 +1104,15 @@ Superseded 2026-10-30: each phase goes live on merge; this evidence decides whet
 
     1. *v2 did not compute for any of them on that write*, although all three have a valley floor now
        (`inversion_score_v1` is written only when v2 scored). So these are the v1 scores, and the hand
-       v2 replay above was never tested in production. Possible causes, in the order to check:
-       the valley floors were set after the slot's last write; the profile fetch failed or ran out of
-       budget (backend log, 30–31 Oct: `Inversion v2 profile unavailable`, `Inversion profile fetch
-       failed`, `Inversion profile fetch budget … reached`, and the prefetch's `valley-floor cells
-       populated` count); or the event slot fell outside the profile.
+       v2 replay above was never tested in production. **Cause: timing, not a fault.** Every later
+       row for these sites carries a v1 score, from Lingmoor's 31 Oct SUNSET onwards (v1 7, v2 raw
+       6), and the backend logged `28/28 valley-floor cells populated` on 2026-11-03. So v2 reached
+       these sites between the 31 Oct sunrise slot's last write and the write of its sunset slot, and
+       a slot whose event has passed is not rewritten. The 30–31 Oct logs could not be read: the
+       backend container was recreated at 06:58 GMT on 3 Nov.
+    3. *v2 would likely have made the miss worse.* The hand replay puts Side Pike at 6 under v2,
+       against v1's 8 in production, through the `in-cloud` and `inside` caps (reasons 1 and 2
+       above). The replay's data is not production's forecast, so this is indicative only.
     2. *Side Pike's v1 8* means production's forecast differed from the replay. v1 caps at 6 when low
        cloud is above 80% at the viewpoint cell, so production must have had 15–80% there, then a
        weak or missing 925 hPa reversal (the 8 ceiling). 8 is MODERATE: enough for the prompt's
