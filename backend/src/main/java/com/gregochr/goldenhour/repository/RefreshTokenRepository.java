@@ -65,11 +65,17 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
     void deleteByUserId(Long userId);
 
     /**
-     * Removes expired tokens from the database.
-     * Intended for future scheduled cleanup jobs.
+     * Removes expired tokens from the database with one bulk {@code DELETE}.
      *
-     * @param now the cutoff timestamp; all tokens expiring before this will be removed
+     * <p>Carries its own transaction: the scheduled {@code refresh_token_cleanup} job runs on a scheduler
+     * thread with none, and a derived delete would fail there ("No EntityManager with actual transaction
+     * available") as well as loading every expired row first.
+     *
+     * @param now the cutoff timestamp; all tokens expiring strictly before this will be removed
      * @return the number of tokens removed
      */
-    long deleteAllByExpiresAtBefore(LocalDateTime now);
+    @Modifying(clearAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM RefreshTokenEntity t WHERE t.expiresAt < :now")
+    long deleteAllByExpiresAtBefore(@Param("now") LocalDateTime now);
 }
