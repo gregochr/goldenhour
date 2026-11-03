@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import {
@@ -152,9 +152,9 @@ describe('UserSettingsModal: opened on the sub-region picker (S5a-3, decision 10
 
     expect(await screen.findByTestId('sub-regions-inline')).toBeInTheDocument();
     expect(screen.getByTestId('sub-regions-picker')).toBeInTheDocument();
-    // The scroll is a passive effect: settle it inside an awaited act before asserting.
+    // The scroll is a passive effect that can land a task after the commit it follows: wait for it.
     await act(async () => {});
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'start' }));
   });
 
   it('opens only once: closing the picker is not undone', async () => {
