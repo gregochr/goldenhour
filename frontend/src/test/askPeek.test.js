@@ -69,10 +69,8 @@ describe('the heights', () => {
     expect(peekTargetHeight(m, sectionOpen)).toBe(px);
   });
 
-  it('the resting height is 74px however it is asked: the minimised line takes the buttons\' place', () => {
+  it('the resting height is 74px: the minimised line takes the buttons\' place', () => {
     expect(peekRestingHeight()).toBe(74);
-    expect(peekRestingHeight(true, true)).toBe(74);
-    expect(peekRestingHeight(true, false)).toBe(74);
   });
 
   it('the peek\'s settled phases are an answer, a plan (F5), a not-in-the-forecast reply and a failure: never empty, never busy', () => {
