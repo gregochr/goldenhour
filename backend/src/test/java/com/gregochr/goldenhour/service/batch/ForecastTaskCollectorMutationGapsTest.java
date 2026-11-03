@@ -51,6 +51,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
@@ -68,11 +69,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -896,7 +899,30 @@ class ForecastTaskCollectorMutationGapsTest {
                     new WeatherExtractionResult(null, new OpenMeteoForecastResponse(),
                             new OpenMeteoAirQualityResponse()));
         }
-        when(openMeteoService.prefetchWeatherBatchResilient(any(), any())).thenReturn(weather);
+        // The coordinates are pinned: one point per distinct grid cell (or bare coordinate) among the
+        // candidates' locations, so a collector that asked for none, or for the wrong places, would not
+        // receive the fixture. Only the call-report sink is left as any().
+        when(openMeteoService.prefetchWeatherBatchResilient(argThat(requestsExactly(expectedRequests())), any()))
+                .thenReturn(weather);
+    }
+
+    /** The representative coordinates the collector should request: one per cell, or per bare coordinate. */
+    private Set<List<Double>> expectedRequests() {
+        Map<String, LocationEntity> byName = new HashMap<>();
+        enabledLocations.forEach(l -> byName.put(l.getName(), l));
+        Map<String, List<Double>> byGroup = new LinkedHashMap<>();
+        for (BriefingSlot s : briefingSlots) {
+            LocationEntity l = byName.get(s.locationName());
+            String group = l.hasGridCell() ? "cell:" + l.gridCellKey()
+                    : "coord:" + OpenMeteoService.coordKey(l.getLat(), l.getLon());
+            byGroup.putIfAbsent(group, List.of(l.getLat(), l.getLon()));
+        }
+        return new java.util.HashSet<>(byGroup.values());
+    }
+
+    private static ArgumentMatcher<List<double[]>> requestsExactly(Set<List<Double>> expected) {
+        return points -> points != null && points.size() == expected.size()
+                && points.stream().map(p -> List.of(p[0], p[1])).collect(Collectors.toSet()).equals(expected);
     }
 
     private void triagePass(LocationEntity l, LocalDate date, boolean tide, BluebellExposure scoreExposure) {
