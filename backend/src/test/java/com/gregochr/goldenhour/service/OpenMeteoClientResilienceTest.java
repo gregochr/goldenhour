@@ -57,6 +57,7 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -192,22 +193,19 @@ class OpenMeteoClientResilienceTest {
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("targets")
-    @DisplayName("an empty input returns an empty list, sleeps nothing and reports one empty row")
+    @DisplayName("an empty input returns an empty list, sends no request, sleeps nothing and reports no row")
     void emptyInput_returnsEmptyList(Target target) {
         RestClient http = deepMock();
         List<Long> sleeps = new ArrayList<>();
         OpenMeteoClient client = target.client(http, sleeps);
-        stubChunk(http, target.path(), List.of(), "[]");
         List<PrefetchCall> calls = new ArrayList<>();
 
         List<?> results = target.call(client, List.of(), calls::add);
 
         assertThat(results).isEmpty();
         assertThat(sleeps).isEmpty();
-        assertThat(calls).hasSize(1);
-        assertThat(calls.get(0).coordsRequested()).isZero();
-        assertThat(calls.get(0).coordsReturned()).isZero();
-        assertThat(calls.get(0).succeeded()).isTrue();
+        assertThat(calls).isEmpty();
+        verifyNoInteractions(http);
     }
 
     @ParameterizedTest(name = "{0}")
@@ -558,13 +556,23 @@ class OpenMeteoClientResilienceTest {
     }
 
     @Test
-    @DisplayName("fetchForecastBatch with an empty input returns an empty list")
+    @DisplayName("fetchForecastBatch with an empty input returns an empty list and sends no request")
     void forecastBatch_emptyInput() {
         RestClient http = deepMock();
         OpenMeteoClient client = BRIEFING.client(http, new ArrayList<>());
-        stubChunk(http, FORECAST_PATH, List.of(), "[]");
 
         assertThat(client.fetchForecastBatch(List.of())).isEmpty();
+        verifyNoInteractions(http);
+    }
+
+    @Test
+    @DisplayName("fetchAirQualityBatch with an empty input returns an empty list and sends no request")
+    void airQualityBatch_emptyInput() {
+        RestClient http = deepMock();
+        OpenMeteoClient client = AIR.client(http, new ArrayList<>());
+
+        assertThat(client.fetchAirQualityBatch(List.of())).isEmpty();
+        verifyNoInteractions(http);
     }
 
     @Test

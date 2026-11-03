@@ -167,6 +167,15 @@ class ComingUpAssemblerEdgeCasesTest {
     }
 
     @Test
+    @DisplayName("meteor: a washed-out row with no or blank illumination reads 'bright moon', never a double space")
+    void meteorWashedOutRowWithoutIllumination() {
+        assertThat(factTexts(only(event("meteor", Map.of("washedOut", "true")))))
+                .containsExactly("bright moon — washes out all but the brightest");
+        assertThat(factTexts(only(event("meteor", Map.of("washedOut", "true", "moonIllumination", "  ")))))
+                .containsExactly("bright moon — washes out all but the brightest");
+    }
+
+    @Test
     @DisplayName("meteor: a regional event gets the 'applies to' row after the others")
     void meteorRegionRow() {
         ComingUpEntry entry = only(withRegions(event("meteor", Map.of("radiant", "Perseus")),
@@ -588,8 +597,20 @@ class ComingUpAssemblerEdgeCasesTest {
                 event(DAY.plusDays(1), DAY.plusDays(1), "supermoon", "", Map.of())));
 
         assertThat(response.entries()).hasSize(1);
-        // The dangling article for an empty partner title is a known, unfixed oddity: not pinned here.
-        assertThat(response.entries().getFirst().title()).startsWith("Spring tide run");
+        assertThat(response.entries().getFirst().title()).isEqualTo("Spring tide run");
+    }
+
+    @Test
+    @DisplayName("a merged card whose other topic has a whitespace-only title keeps the host title alone")
+    void blankOtherTitleDoesNotLeaveADanglingArticle() {
+        stubRunAtSeaham(DAY, DAY.plusDays(3));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(
+                event(DAY, DAY.plusDays(3), "spring-tide", "Spring tide run", Map.of()),
+                event(DAY.plusDays(1), DAY.plusDays(1), "supermoon", "   ", Map.of())));
+
+        assertThat(response.entries()).hasSize(1);
+        assertThat(response.entries().getFirst().title()).isEqualTo("Spring tide run");
     }
 
     // ── day ranges: the shoulder meta ───────────────────────────────────────
