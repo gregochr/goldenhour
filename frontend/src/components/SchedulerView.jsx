@@ -7,6 +7,7 @@ import {
 } from '../api/schedulerApi.js';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
 import AllJobsTab from './scheduler/AllJobsTab.jsx';
+import DayJobsTab from './scheduler/day/DayJobsTab.jsx';
 import SchedulerTabs, { SCHEDULER_PANEL_ID, schedulerTabId } from './scheduler/SchedulerTabs.jsx';
 import SchedulerJobPanel from './scheduler/SchedulerJobPanel.jsx';
 import { ScheduleSwitchDialog } from './SolarScheduleControls.jsx';
@@ -93,6 +94,7 @@ export default function SchedulerView() {
   const [filters, setFilters] = useState(NO_FILTERS);
   const [search, setSearch] = useState('');
   const [view, setView] = useState(() => readSchedulerQuery().view);
+  const [dayWord, setDayWord] = useState('Today');
 
   const jobsRequest = useRef(0);
   const summaryRequest = useRef(0);
@@ -209,6 +211,7 @@ export default function SchedulerView() {
   );
 
   const closePanel = useCallback(() => clear(), [clear]);
+  const selectJob = useCallback((jobKey) => select(jobKey), [select]);
   useCloseWhenFilteredOut({
     selectedId: selectedKey,
     items: visibleJobs,
@@ -299,7 +302,12 @@ export default function SchedulerView() {
         )}
       </div>
 
-      <SchedulerTabs view={view} onChange={changeView} total={summary?.total ?? (loaded ? jobs.length : null)} />
+      <SchedulerTabs
+        view={view}
+        onChange={changeView}
+        total={summary?.total ?? (loaded ? jobs.length : null)}
+        dayWord={dayWord}
+      />
 
       <div
         role="tabpanel"
@@ -327,9 +335,7 @@ export default function SchedulerView() {
             onSelect={(job) => select(job.jobKey)}
           />
         ) : (
-          <p className="py-6 text-sm text-plex-text-secondary" data-testid="scheduler-day-placeholder">
-            The day picture is coming soon.
-          </p>
+          <DayJobsTab jobs={jobs} onSelect={selectJob} onDayWord={setDayWord} />
         )}
       </div>
     </div>

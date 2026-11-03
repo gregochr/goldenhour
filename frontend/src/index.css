@@ -94,6 +94,11 @@
   --color-run-briefing: oklch(0.74 0.08 145);
   --color-run-other: oklch(0.62 0.015 60);
 
+  /* The Scheduler's Day picture (scheduler-redesign-plan.md D12): the sun-relative jobs' colour, and the repeating jobs'
+     ink at half strength. Cron jobs use --color-tide. Static, so they survive with no scanned consumer. */
+  --color-scheduler-sun: oklch(0.8 0.13 75);
+  --color-scheduler-repeating: rgba(242, 231, 211, 0.5);
+
   /* Sky Eval's version gold (commit tags, version lines and chips). `plex-gold` is bone, so the redesign's gold
      is its own token (docs/engineering/sky-eval-redesign-plan.md, correction 23). */
   --color-skyeval-version: #EBD9A8;

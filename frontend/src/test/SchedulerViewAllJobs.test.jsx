@@ -5,8 +5,10 @@ import {
   NIGHTLY, catalogue, day, inHours, job, jobDetail, lastFire, lastRunCycle, pollingJob, preview, previewJob, solarJob,
   summaryFor, tideJob,
 } from './schedulerFixtures.js';
+import { dayData } from './schedulerDayFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
+  fetchSchedulerDay: vi.fn(),
   fetchSchedulerJobs: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock('../api/modelsApi', () => ({ getAvailableModels: vi.fn() }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
 import {
+  fetchSchedulerDay,
   fetchSchedulerJobs,
   fetchSchedulerSummary,
   fetchJobDetail,
@@ -58,9 +61,12 @@ const rowOrder = () => screen.getAllByTestId(/^scheduler-row-/).map((row) => row
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
+  // These suites are about the All jobs tab, which the remembered tab opens (the default is Day's jobs).
+  try { window.localStorage.setItem('photocast.scheduler.view', 'all'); } catch { /* none */ }
   useIsSplitLayout.mockReturnValue(true);
   fetchSolarPreview.mockRejectedValue(new Error('preview not under test here'));
   fetchJobDetail.mockResolvedValue(jobDetail());
+  fetchSchedulerDay.mockResolvedValue(dayData());
 });
 
 afterEach(() => {
@@ -321,7 +327,7 @@ describe('SchedulerView: the All jobs rows', () => {
 });
 
 describe('SchedulerView: the tabs and the address', () => {
-  it('opens on All jobs, with a tablist whose tabs carry their sub-labels', async () => {
+  it('opens on the remembered All jobs tab, with a tablist whose tabs carry their sub-labels', async () => {
     mount();
     await screen.findByTestId('scheduler-all-jobs');
     expect(screen.getByRole('tablist', { name: 'Scheduler views' })).toBeInTheDocument();
@@ -331,24 +337,25 @@ describe('SchedulerView: the tabs and the address', () => {
     expect(screen.getByTestId('scheduler-tab-all-word')).toHaveTextContent('2');
   });
 
-  it('shows the Day\'s jobs placeholder and writes ?view=day with replaceState, adding no history entry', async () => {
+  it('shows the Day\'s jobs tab and writes ?view=day with replaceState, adding no history entry', async () => {
     mount();
     await screen.findByTestId('scheduler-all-jobs');
     const before = window.history.length;
     fireEvent.click(screen.getByRole('tab', { name: /Day's jobs/ }));
-    expect(screen.getByTestId('scheduler-day-placeholder')).toHaveTextContent('The day picture is coming soon.');
+    expect(await screen.findByTestId('scheduler-day')).toBeInTheDocument();
     expect(screen.queryByTestId('scheduler-all-jobs')).not.toBeInTheDocument();
     expect(window.location.hash).toBe('#manage/scheduler?view=day');
     expect(window.history.length).toBe(before);
     fireEvent.click(screen.getByRole('tab', { name: /All jobs/ }));
     expect(window.location.hash).toBe('#manage/scheduler?view=all');
+    expect(screen.queryByTestId('scheduler-day')).not.toBeInTheDocument();
   });
 
   it('follows the arrow keys between the tabs', async () => {
     mount();
     await screen.findByTestId('scheduler-all-jobs');
     fireEvent.keyDown(screen.getByRole('tab', { name: /All jobs/ }), { key: 'ArrowLeft' });
-    expect(screen.getByTestId('scheduler-day-placeholder')).toBeInTheDocument();
+    expect(await screen.findByTestId('scheduler-day')).toBeInTheDocument();
   });
 
   it('lets the hash win over a remembered tab, and falls back from an invalid view', async () => {
@@ -360,14 +367,14 @@ describe('SchedulerView: the tabs and the address', () => {
     window.location.hash = '#manage/scheduler?view=bogus';
     mount();
     // an invalid view falls back to the remembered tab
-    expect(await screen.findByTestId('scheduler-day-placeholder')).toBeInTheDocument();
+    expect(await screen.findByTestId('scheduler-day')).toBeInTheDocument();
   });
 
-  it('still opens when storage throws', async () => {
+  it('still opens when storage throws, on the default Day\'s jobs tab', async () => {
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     try {
       mount();
-      expect(await screen.findByTestId('scheduler-all-jobs')).toBeInTheDocument();
+      expect(await screen.findByTestId('scheduler-day')).toBeInTheDocument();
     } finally {
       spy.mockRestore();
     }

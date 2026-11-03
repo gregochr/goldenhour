@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  DEFAULT_SCHEDULER_VIEW, isSchedulerHash, readSchedulerQuery, writeSchedulerQuery,
+  DEFAULT_SCHEDULER_VIEW, dropInvalidDate, isSchedulerHash, readSchedulerQuery, writeSchedulerQuery,
 } from '../utils/schedulerQuery.js';
 
 const STORAGE_KEY = 'photocast.scheduler.view';
@@ -11,8 +11,9 @@ beforeEach(() => {
 });
 
 describe('readSchedulerQuery', () => {
-  it('opens the default tab for a bare address with nothing remembered', () => {
-    expect(readSchedulerQuery()).toEqual({ view: DEFAULT_SCHEDULER_VIEW, date: null });
+  it('opens the default tab, Day\'s jobs, for a bare address with nothing remembered', () => {
+    expect(DEFAULT_SCHEDULER_VIEW).toBe('day');
+    expect(readSchedulerQuery()).toEqual({ view: 'day', date: null });
   });
 
   it('reads the view and a valid date from the query', () => {
@@ -25,16 +26,19 @@ describe('readSchedulerQuery', () => {
     expect(readSchedulerQuery()).toEqual({ view: 'all', date: '2026-11-02' });
   });
 
-  it('lets the hash win over the remembered tab', () => {
+  it('lets the hash win over the remembered tab, both ways', () => {
     window.localStorage.setItem(STORAGE_KEY, 'day');
     window.location.hash = '#manage/scheduler?view=all';
     expect(readSchedulerQuery().view).toBe('all');
+    window.localStorage.setItem(STORAGE_KEY, 'all');
+    window.location.hash = '#manage/scheduler?view=day';
+    expect(readSchedulerQuery().view).toBe('day');
   });
 
   it('falls back to the remembered tab for an invalid view, and drops a malformed date', () => {
-    window.localStorage.setItem(STORAGE_KEY, 'day');
+    window.localStorage.setItem(STORAGE_KEY, 'all');
     window.location.hash = '#manage/scheduler?view=bogus&date=yesterday';
-    expect(readSchedulerQuery()).toEqual({ view: 'day', date: null });
+    expect(readSchedulerQuery()).toEqual({ view: 'all', date: null });
   });
 
   it('rejects a date that is not on the calendar (2026-02-31) and keeps a real one', () => {
@@ -91,5 +95,22 @@ describe('isSchedulerHash', () => {
   ])('reads %s as %s', (hash, expected) => {
     window.location.hash = hash;
     expect(isSchedulerHash()).toBe(expected);
+  });
+});
+
+describe('dropInvalidDate', () => {
+  it('removes a date that is not a date and keeps the rest of the address', () => {
+    window.location.hash = '#manage/scheduler/tide_refresh?view=day&date=2026-02-31';
+    dropInvalidDate();
+    expect(window.location.hash).toBe('#manage/scheduler/tide_refresh?view=day');
+  });
+
+  it('leaves a real date, or none, alone', () => {
+    window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
+    dropInvalidDate();
+    expect(window.location.hash).toBe('#manage/scheduler?view=day&date=2026-11-02');
+    window.location.hash = '#manage/scheduler?view=all';
+    dropInvalidDate();
+    expect(window.location.hash).toBe('#manage/scheduler?view=all');
   });
 });

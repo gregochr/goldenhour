@@ -4,6 +4,7 @@ import SchedulerView from '../components/SchedulerView.jsx';
 import { jobDetail, pollingJob, schedulePreview, solarJob, tideJob } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
+  fetchSchedulerDay: vi.fn(),
   fetchSchedulerJobs: vi.fn(),
   updateJobSchedule: vi.fn(),
   pauseJob: vi.fn(),
@@ -48,6 +49,8 @@ async function saveDelay(reloadedJob) {
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
+  // These suites are about the All jobs tab, which the remembered tab opens (the default is Day's jobs).
+  try { window.localStorage.setItem('photocast.scheduler.view', 'all'); } catch { /* none */ }
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-11-03T10:00:00Z'));
   useIsSplitLayout.mockReturnValue(true);

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  normalizeRunsQuery, readRunsQuery, runsTimingHref, writeRunsQuery,
+  normalizeRunsQuery, readRunsQuery, runsDayHref, runsTimingHref, writeRunsQuery,
 } from '../utils/runsQuery.js';
 
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
@@ -175,5 +175,23 @@ describe('runsTimingHref', () => {
 
   it('leaves out a type the Timing view does not know', () => {
     expect(runsTimingHref('NOPE')).toBe('#manage/runs?view=timing');
+  });
+});
+
+describe('runsDayHref', () => {
+  it('is a plain href to the Runs Day view for a date, never touching the current address', () => {
+    window.location.hash = '#manage/scheduler?view=day';
+    expect(runsDayHref('2026-11-01')).toBe('#manage/runs?view=day&date=2026-11-01');
+    expect(window.location.hash).toBe('#manage/scheduler?view=day');
+  });
+
+  it('reads back through readRunsQuery as that day', () => {
+    window.location.hash = runsDayHref('2026-10-30');
+    expect(readRunsQuery(NOW)).toEqual({ ...BASE, view: 'day', date: '2026-10-30' });
+  });
+
+  it('leaves the date out when it is not one', () => {
+    expect(runsDayHref('nope')).toBe('#manage/runs?view=day');
+    expect(runsDayHref(null)).toBe('#manage/runs?view=day');
   });
 });

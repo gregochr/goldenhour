@@ -4,6 +4,7 @@ import SchedulerView from '../components/SchedulerView.jsx';
 import { NIGHTLY, catalogue, job, jobDetail, lastFire, summaryFor, tideJob } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
+  fetchSchedulerDay: vi.fn(),
   fetchSchedulerJobs: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
@@ -44,6 +45,8 @@ function mount() {
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
+  // These suites are about the All jobs tab, which the remembered tab opens (the default is Day's jobs).
+  try { window.localStorage.setItem('photocast.scheduler.view', 'all'); } catch { /* none */ }
   window.scrollTo = vi.fn();
   useIsSplitLayout.mockReturnValue(true);
   fetchSolarPreview.mockRejectedValue(new Error('not under test'));

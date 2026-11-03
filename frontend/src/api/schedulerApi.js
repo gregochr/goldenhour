@@ -125,3 +125,17 @@ export async function triggerJob(jobKey) {
   const response = await apiClient.post(`${BASE_URL}/jobs/${jobKey}/trigger`);
   return response.data;
 }
+
+/**
+ * Fetches one UK civil day of the scheduler: every job's fires with their outcomes (past from the fire log, future
+ * from the schedule), the repeating jobs' tally and problems, the watchdog windows and the weekly jobs that do not
+ * fire that day. ADMIN only. A date more than 7 days from today answers 400.
+ *
+ * @param {string|null} [date] - {@code YYYY-MM-DD} (UK); omit for today as the server reads it
+ * @returns {Promise<object>} {@code {date, isToday, now, dayStart, dayEnd, sunrise, sunset, jobs, repeatingTally,
+ *   watchdog, notOnThisDay, ...}}
+ */
+export async function fetchSchedulerDay(date = null) {
+  const response = await apiClient.get(`${BASE_URL}/day`, date ? { params: { date } } : undefined);
+  return response.data;
+}

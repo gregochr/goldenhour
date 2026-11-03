@@ -4,15 +4,15 @@
  * ({@code /{jobKey}}) is {@code useHashSelection}'s and is never touched here.
  *
  * <p>Every write is a {@code replaceState}: a tab or a date is not a place to go Back to, and no write fires a
- * {@code hashchange}. The hash wins over the remembered tab. {@code date} is parsed and preserved for the Day's jobs
- * tab, which reads it; the All jobs tab never uses it.
+ * {@code hashchange}. The hash wins over the remembered tab. {@code date} is the Day's jobs tab's day (written only
+ * when it is not today); the All jobs tab preserves it and never reads it.
  */
 
 /** The tabs, in tab order. */
 export const SCHEDULER_VIEWS = ['day', 'all'];
 
-/** The tab opened when neither the hash nor storage names one (the Day's jobs tab becomes the default once it is built). */
-export const DEFAULT_SCHEDULER_VIEW = 'all';
+/** The tab opened when neither the hash nor storage names one. */
+export const DEFAULT_SCHEDULER_VIEW = 'day';
 
 /** The one thing localStorage remembers: the last tab. */
 const VIEW_STORAGE_KEY = 'photocast.scheduler.view';
@@ -86,4 +86,13 @@ export function writeSchedulerQuery(patch) {
   if (patch.view) rememberView(patch.view);
   const text = query.toString();
   window.history.replaceState(window.history.state, '', `#${path}${text === '' ? '' : `?${text}`}`);
+}
+
+/**
+ * Removes a {@code date} that is in the address but is not a date (so it reads as "today" and the address says so).
+ * A valid date, or none, is left alone.
+ */
+export function dropInvalidDate() {
+  const { query } = splitHash();
+  if (query.has('date') && validDate(query.get('date')) == null) writeSchedulerQuery({ date: null });
 }
