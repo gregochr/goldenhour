@@ -1054,4 +1054,47 @@ Superseded 2026-10-30: each phase goes live on merge; this evidence decides whet
       wet-ground window long enough for "rain then a clear night"; confirmation from the night-side
       minimum visibility. Decide only with more than one morning; record the next misty morning the
       same way.
+- **31 Oct 2026 (a Saturday), Great Langdale: the first confirmed shallow sea, and the first case after
+  v2 went live.** Daniel Kay Photography (Facebook, date and place in the post): low cloud lifting off
+  the Langdale Pikes seen from Silver How (395 m) after about 45 minutes on top, then a fog sea filling
+  Great Langdale seen from Sheep Crag; blue sky with thin high cloud, sun on the fellsides, the Pikes
+  clear above it. Time not stated (after sunrise, about 07:08 UTC). This is regime 2 above (shallow
+  valley fog, top below about 450 m) seen from the 200–600 m roster's own fells: Side Pike (id 56,
+  362 m) and Lingmoor Fell (id 153, 469 m) overlook the same valley.
+  - **Data:** `inversion-v2-data/4-langdale-2026-10-31.json` (historical-forecast API, a short-range
+    replay, not the forecast production ran the day before). The coordinates are approximate.
+  - **What the model shows, Elterwater cell (returned 65 m), 04:00–08:00:** an ELEVATED warm layer
+    every hour, base at 975 hPa (463–468 m): 04:00 +1.1, 05:00 +0.8, 06:00 +1.7, **07:00 +2.3**
+    (to 900 hPa, about 1,127 m), 08:00 +2.2 (to 925 hPa, 903 m). Surface to 975 hPa falls about
+    1.5 °C, so the cold pool is below 975 hPa and its top cannot be placed more finely. At the 08:00
+    slot: gap 0.4 °C, 10 m wind 0.6 m/s, low cloud 79%, visibility 5,260 m. Night 21:00–05:00
+    overcast (mean total 100%; v2's night measure 88.2%, all of it high cloud and the low-cloud lid;
+    mid cloud 0), and the high cloud cleared between 08:00 and 09:00. The viewpoint cells at 08:00:
+    Side Pike (returned 246 m) low cloud 98%, visibility 2,920 m; Lingmoor (returned 195 m) low 92%,
+    visibility 4,820 m.
+  - **v2 by hand, valley floor 65 m assumed** (the production valley floors for these sites are not
+    known here): moisture 4 + wind 3 + sea 2 = 9 before caps. Best layer 07:00, strength 2.3, so no
+    weak cap; ELEVATED with mid cloud 0, so no night cap; summit wind 7–8 m/s, so no wind cap.
+    - Side Pike: 362 m is below the 465 m base, so `inside(6)`; also `in-cloud(6)`. **6.**
+    - Lingmoor Fell: 469 m is between the 468 m base and the next level (682 m), so `edge(8)`; then
+      `in-cloud(6)`. **6.**
+    - v1 (what runs if no valley floor is set): both cells' low cloud is over 80%, so the low-cloud
+      veto applies. **6.**
+    - So every path gives 6, one below MODERATE: no "Valley inversions" topic and no prompt block.
+      **A miss**, if production's forecast looked like this replay.
+  - **Why it fell short** (one morning, not yet a case for retuning):
+    1. *The in-cloud cap reads the sea as the viewpoint's own cloud.* `viewpointInCloud` reads the
+       viewpoint's grid cell, which is mostly valley (returned elevations 195–246 m against summits
+       of 362–469 m). Its low cloud and visibility are the fog sea below the summit. This is the v1
+       low-cloud veto's failure (§1) reappearing through visibility.
+    2. *The lowest level is too coarse for a shallow sea.* 975 hPa is the first level, at about
+       465 m, so the base sits there whenever the cold pool lies beneath it, and a 362 m summit
+       reads `inside`. The photographer was above the sea at 395 m.
+    3. *Not a clear night.* Phase 2's Option B (a clear, calm, moist night) cannot help, because the
+       night was overcast with high cloud. Here the warm layer was measured, not inferred.
+  - **Still to confirm:** what production actually scored. Read `slot_atmosphere` for location ids 56
+    and 153, `evaluation_date = '2026-10-31'`, `event_type = 'SUNRISE'` (`inversion_score`,
+    `inversion_score_v1`, `inversion_score_v2_raw`, `inversion_scored`), and the two locations'
+    `valley_floor_m`/`valley_floor_lat`/`valley_floor_lng`. `inversion_score_v1` null means v2 did not
+    run for that site.
 - MWIS comparison log: _pending_.
