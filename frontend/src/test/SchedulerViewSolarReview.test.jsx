@@ -5,7 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, preview, previewJob, solarIntradayJob,
   solarJob,
-  jobDetail,
+  jobDetail, schedulePreview,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -18,6 +18,7 @@ vi.mock('../api/schedulerApi', () => ({
   switchScheduleType: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
+  previewSchedule: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -28,6 +29,7 @@ import {
   switchScheduleType,
   fetchSchedulerSummary,
   fetchJobDetail,
+  previewSchedule,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -72,6 +74,7 @@ beforeEach(() => {
   useIsSplitLayout.mockReturnValue(true);
   fetchSchedulerSummary.mockResolvedValue(null);
   fetchJobDetail.mockResolvedValue(jobDetail());
+  previewSchedule.mockResolvedValue(schedulePreview());
 });
 
 describe('P2c review - switch dialog wording and after-line', () => {
@@ -203,7 +206,7 @@ describe('P2c review - switch and edit requests', () => {
     const jobsBefore = fetchSchedulerJobs.mock.calls.length;
     const previewBefore = fetchSolarPreview.mock.calls.length;
 
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
     fireEvent.change(screen.getByLabelText(/Solar event/), { target: { value: 'SUNSET' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
@@ -218,7 +221,7 @@ describe('P2c review - switch and edit requests', () => {
     await openEditor();
 
     fireEvent.change(screen.getByLabelText(/Fallback cron/), { target: { value: 'nonsense' } });
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
     expect(await screen.findByTestId(`solar-edit-${NIGHTLY}-error`)).toHaveTextContent('Invalid cron expression');
@@ -231,7 +234,7 @@ describe('P2c review - switch and edit requests', () => {
     switchScheduleType.mockResolvedValueOnce({});
     mount([solarJob()]);
     await openEditor();
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
 
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
     expect(await screen.findByTestId(`solar-edit-${NIGHTLY}-error`)).toHaveTextContent(`Failed to update ${NIGHTLY}.`);
@@ -245,7 +248,7 @@ describe('P2c review - switch and edit requests', () => {
     switchScheduleType.mockReturnValue(hold.promise);
     mount([solarJob()]);
     await openEditor();
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
 
     const save = screen.getByTestId(`save-btn-${NIGHTLY}`);
     fireEvent.click(save);
@@ -266,7 +269,7 @@ describe('P2c review - switch and edit requests', () => {
     const jobsBefore = fetchSchedulerJobs.mock.calls.length;
 
     fireEvent.change(screen.getByLabelText(/Fallback cron/), { target: { value: '0 30 1 * * *' } });
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
     const error = await screen.findByTestId(`solar-edit-${NIGHTLY}-error`);
@@ -285,7 +288,7 @@ describe('P2c review - switch and edit requests', () => {
     await openEditor();
 
     fireEvent.change(screen.getByLabelText(/Fallback cron/), { target: { value: '   ' } });
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
 
     expect(screen.getByTestId(`solar-edit-${NIGHTLY}-cron-error`)).toHaveTextContent('cannot be blank');
     expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeDisabled();
@@ -405,7 +408,7 @@ describe('P2c review - focus and layout', () => {
     mount([solarJob()]);
     await openEditor();
 
-    expect(screen.getByLabelText(/Minutes before the event/)).toBe(document.activeElement);
+    expect(screen.getByLabelText(/Fire this long before the event/)).toBe(document.activeElement);
     expect(screen.getByLabelText(/Solar event/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Fallback cron/)).toBeInTheDocument();
   });
@@ -422,7 +425,7 @@ describe('P2c review - focus and layout', () => {
     switchScheduleType.mockResolvedValue({});
     mount([solarJob()]);
     await openEditor();
-    fireEvent.change(screen.getByLabelText(/Minutes before the event/), { target: { value: '240' } });
+    fireEvent.change(screen.getByLabelText(/Fire this long before the event/), { target: { value: '240' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
     await waitFor(() => expect(screen.getByTestId(`edit-btn-${NIGHTLY}`)).toBe(document.activeElement));
@@ -432,7 +435,7 @@ describe('P2c review - focus and layout', () => {
     mount([solarJob()]);
     await openEditor();
 
-    fireEvent.keyDown(screen.getByLabelText(/Minutes before the event/), { key: 'Escape' });
+    fireEvent.keyDown(screen.getByLabelText(/Fire this long before the event/), { key: 'Escape' });
     expect(screen.queryByTestId(`solar-edit-${NIGHTLY}`)).not.toBeInTheDocument();
     expect(screen.getByTestId('scheduler-panel')).toBeInTheDocument();
     fireEvent.keyDown(document, { key: 'Escape' });

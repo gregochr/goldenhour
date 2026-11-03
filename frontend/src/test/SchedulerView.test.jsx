@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import SchedulerView from '../components/SchedulerView.jsx';
 import { setRewind } from '../utils/rewind.js';
 import {
-  NIGHTLY, inHours, job, lastFire, pollingJob, solarJob, tideJob, jobDetail, summaryFor,
+  NIGHTLY, inHours, job, lastFire, pollingJob, solarJob, tideJob, jobDetail, summaryFor, schedulePreview,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -16,6 +16,7 @@ vi.mock('../api/schedulerApi', () => ({
   switchScheduleType: vi.fn(),
   fetchSchedulerSummary: vi.fn(),
   fetchJobDetail: vi.fn(),
+  previewSchedule: vi.fn(),
 }));
 vi.mock('../api/skyRatingEvalApi', () => ({
   getSkyRatingEvalSchedule: vi.fn(),
@@ -34,6 +35,7 @@ import {
   fetchSolarPreview,
   fetchSchedulerSummary,
   fetchJobDetail,
+  previewSchedule,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 import { getSkyRatingEvalSchedule } from '../api/skyRatingEvalApi';
@@ -72,6 +74,7 @@ beforeEach(() => {
   fetchSolarPreview.mockRejectedValue(new Error('preview not under test here'));
   fetchSchedulerSummary.mockResolvedValue(null);
   fetchJobDetail.mockResolvedValue(jobDetail());
+  previewSchedule.mockResolvedValue(schedulePreview());
 });
 
 afterEach(() => {
@@ -338,9 +341,12 @@ describe('SchedulerView: the panel by hash', () => {
   });
 });
 
-describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', () => {
+// An hourly cron is not a clock-times schedule: Edit keeps the raw cron field for it (S4b), unchanged.
+const RAW_CRON_JOBS = [tideJob({ cronExpression: '0 20 * * * *', nextFireTime: TIDE.nextFireTime }), POLLING];
+
+describe('SchedulerView: editing a raw cron schedule in the panel', () => {
   it('shows the input on Edit and hides it on Cancel, giving focus back to Edit', async () => {
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
 
@@ -354,7 +360,7 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
   });
 
   it('Esc steps back from the editor first, and only then closes the panel', async () => {
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
     const input = screen.getByTestId('edit-input-tide_refresh');
@@ -370,7 +376,7 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
 
   it('saves a cron through updateJobSchedule with the cron alone, then reloads the jobs', async () => {
     updateJobSchedule.mockResolvedValue({});
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
     fireEvent.change(screen.getByTestId('edit-input-tide_refresh'), { target: { value: '0 0 3 * * TUE' } });
@@ -384,20 +390,9 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
     await waitFor(() => expect(screen.queryByTestId('edit-input-tide_refresh')).not.toBeInTheDocument());
   });
 
-  it('saves a fixed delay as a number of milliseconds', async () => {
-    updateJobSchedule.mockResolvedValue({});
-    mount();
-    await openPanel('aurora_polling');
-    fireEvent.click(screen.getByTestId('edit-btn-aurora_polling'));
-    fireEvent.change(screen.getByTestId('edit-input-aurora_polling'), { target: { value: '600000' } });
-    fireEvent.click(screen.getByTestId('save-btn-aurora_polling'));
-
-    await waitFor(() => expect(updateJobSchedule).toHaveBeenCalledWith('aurora_polling', { fixedDelayMs: 600000 }));
-  });
-
   it('says so beside the field, and keeps the editor open, when the save fails', async () => {
     updateJobSchedule.mockRejectedValue(new Error('400'));
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
     fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
@@ -409,12 +404,23 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
   });
 
   it('updates the cron reading live as the expression is edited', async () => {
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
     fireEvent.change(screen.getByTestId('edit-input-tide_refresh'), { target: { value: '0 0 6 * * *' } });
 
     expect(screen.getByTestId('edit-reading-tide_refresh').textContent).toMatch(/Daily at \d{2}:\d{2} (BST|GMT)/);
+  });
+
+  it('saves a fixed delay as a number of milliseconds, picked from the presets', async () => {
+    updateJobSchedule.mockResolvedValue({});
+    mount();
+    await openPanel('aurora_polling');
+    fireEvent.click(screen.getByTestId('edit-btn-aurora_polling'));
+    fireEvent.click(screen.getByTestId('fixed-delay-aurora_polling-600000'));
+    fireEvent.click(screen.getByTestId('save-btn-aurora_polling'));
+
+    await waitFor(() => expect(updateJobSchedule).toHaveBeenCalledWith('aurora_polling', { fixedDelayMs: 600000 }));
   });
 
   it('shows no cron reading while editing a fixed-delay job', async () => {
@@ -429,12 +435,12 @@ describe('SchedulerView: editing a cron or fixed-delay schedule in the panel', (
   });
 
   it('opens a different job with no editor, and the editor is gone when the first job comes back', async () => {
-    mount();
+    mount(RAW_CRON_JOBS);
     await openPanel('tide_refresh');
     fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
     fireEvent.click(screen.getByTestId('scheduler-row-aurora_polling'));
     await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Aurora Polling'));
-    expect(screen.queryByTestId('edit-input-aurora_polling')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('fixed-delay-edit-aurora_polling')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('scheduler-row-tide_refresh'));
     await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Tide Refresh'));
     expect(screen.queryByTestId('edit-input-tide_refresh')).not.toBeInTheDocument();
@@ -651,7 +657,7 @@ describe('SchedulerView: describeCron through the list (UK time, exact values)',
   });
 
   it('the panel\'s live reading while editing also converts to UK time', async () => {
-    mount([tideJob({ cronExpression: '0 0 4 * * *' })]);
+    mount([tideJob({ cronExpression: '0 20 * * * *' })]);
     fireEvent.click(await screen.findByTestId('scheduler-row-tide_refresh'));
     fireEvent.click(await screen.findByTestId('edit-btn-tide_refresh'));
     fireEvent.change(screen.getByTestId('edit-input-tide_refresh'), { target: { value: '0 0 3 * * *' } });

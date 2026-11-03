@@ -3,13 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import JobSchedule from '../components/scheduler/JobSchedule.jsx';
 import { tideJob } from './schedulerFixtures.js';
 
-// The inline cron or delay editor on its own: a save that returns with the editor still open must not leave Save dead.
+// The raw cron field on its own (an hourly cron keeps it): a save that returns with the editor still open must not leave Save dead.
 
 function renderEditing(onInlineSave) {
   const noop = () => {};
   return render(
     <JobSchedule
-      job={tideJob()}
+      job={tideJob({ cronExpression: '0 20 * * * *' })}
       editing
       onEditStart={noop}
       onEditCancel={noop}

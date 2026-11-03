@@ -13,6 +13,9 @@ export const FORECAST_CYCLE_JOBS = ['near_term_batch_evaluation', 'intraday_fore
 /** All three forecast cycle jobs: the two above and the evening sunrise refresh (a plain cron job, never solar). */
 export const CYCLE_JOBS = [...FORECAST_CYCLE_JOBS, 'evening_sunrise_refresh'];
 
+/** The intraday refresh's job key: the one cycle whose offset the Runs Timing planner informs. */
+export const INTRADAY_JOB = 'intraday_forecast_refresh';
+
 /**
  * Whether a job runs a forecast cycle, whether or not it may be sun-relative.
  *

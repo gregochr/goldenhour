@@ -220,3 +220,17 @@ export const INTRADAY_PREVIEW = previewJob({
 });
 
 export const BOTH_PREVIEW = preview([previewJob(), INTRADAY_PREVIEW]);
+
+/** The `schedule-preview` response: a valid daily-cron answer unless said otherwise. */
+export function schedulePreview(overrides = {}) {
+  return {
+    valid: true,
+    error: null,
+    cronExpression: '0 15 6,18 * * *',
+    timeZone: 'Europe/London',
+    nextFires: [inHours(3), inHours(15), inHours(27)],
+    yearRange: null,
+    neighbours: [],
+    ...overrides,
+  };
+}

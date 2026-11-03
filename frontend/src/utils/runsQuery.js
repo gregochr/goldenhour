@@ -149,3 +149,16 @@ export function writeRunsQuery(patch) {
   if (patch.view) rememberView(patch.view);
   replaceHash(path, query);
 }
+
+/**
+ * The address of the Runs tab's Timing view for a run type, as a plain href (D14 of the scheduler redesign). Not
+ * {@link writeRunsQuery}, which rewrites the <em>current</em> path: this is a link from another screen.
+ *
+ * @param {string} [type] a display type from {@link RUN_TYPES}; the afternoon (intraday) refresh by default
+ * @returns {string} {@code #manage/runs?view=timing&type=AFTERNOON}
+ */
+export function runsTimingHref(type = 'AFTERNOON') {
+  const query = new URLSearchParams({ view: 'timing' });
+  if (RUN_TYPES.includes(type)) query.set('type', type);
+  return `#manage/runs?${query.toString()}`;
+}

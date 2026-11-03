@@ -3,6 +3,8 @@ import PropTypes from 'prop-types';
 import PanelSection from '../data/PanelSection.jsx';
 import KvList from '../data/KvList.jsx';
 import { SolarEditForm } from '../SolarScheduleControls.jsx';
+import CronTimesEditor from './CronTimesEditor.jsx';
+import FixedDelayEditor from './FixedDelayEditor.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
 import { describeSolarRuleCompact, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import { ReferenceValue } from './JobNextFires.jsx';
@@ -14,6 +16,7 @@ import {
   describeCron,
   describeFixedDelay,
 } from '../../utils/schedulerView.js';
+import { cronEditorModel } from '../../utils/schedulerEdit.js';
 import { inputClass, textButtonClass } from '../users/userFormClasses.js';
 
 /** The inline editor for a cron or fixed-delay job: one field, and under it the cron's reading, live as it is typed. */
@@ -105,7 +108,8 @@ InlineScheduleForm.propTypes = {
 
 /**
  * The panel's Schedule section: the rule in words, the fallback cron of a sun-relative job, the next fire, an Edit that
- * swaps in {@code SolarEditForm} or the inline cron/delay field, and (for a forecast cycle job) the switch between a
+ * swaps in {@code SolarEditForm}, the cron times editor (daily and weekly clock crons), the fixed-delay presets or, for
+ * any other cron, the raw cron field, and (for a forecast cycle job) the switch between a
  * fixed time and a sun-relative one.
  *
  * <p>⚠️ A job that is off in config shows no Edit and cannot be switched. A sun-relative job's editor never sends a fixed
@@ -120,8 +124,8 @@ InlineScheduleForm.propTypes = {
  * @param {() => void} props.onEditCancel closes it without saving
  * @param {() => void} props.onSolarSaved called after a sun-relative rule was saved
  * @param {() => void} props.onPartial called when a solar edit saved the cron but not the rule (reload the job)
- * @param {(job: object, value: string) => Promise<void>} props.onInlineSave saves the inline cron or delay; rejects on
- *   failure
+ * @param {(job: object, value: string, options?: {timeZone?: string}) => Promise<void>} props.onInlineSave saves a cron
+ *   (with its {@code timeZone} from the cron editor) or a delay in milliseconds; rejects on failure
  * @param {() => void} props.onSwitch opens the schedule switch dialog
  * @param {import('react').ReactNode} [props.children] read-only extras drawn under the rule (the why, the next fires)
  */
@@ -133,6 +137,15 @@ export default function JobSchedule({
   const isSolar = job.scheduleType === SCHEDULE_SOLAR;
   const isInline = job.scheduleType === SCHEDULE_CRON || job.scheduleType === SCHEDULE_FIXED_DELAY;
   const recognised = isSolar || isInline;
+  // Which cron editor opens is decided once, when Edit is pressed: a poll that re-serves the job mid-edit must never swap
+  // the times editor and the raw field (state adjusted while rendering, the pattern React documents).
+  const [frozen, setFrozen] = useState(null);
+  if (editing && frozen === null) {
+    setFrozen({ model: job.scheduleType === SCHEDULE_CRON ? cronEditorModel(job) : null });
+  } else if (!editing && frozen !== null) {
+    setFrozen(null);
+  }
+  const cronModel = frozen?.model ?? null;
   const previewEntry = preview?.jobs?.find((p) => p.jobKey === job.jobKey) ?? null;
 
   // Leaving the editor unmounts it, and with it the Edit button the reader pressed: hand focus to the new one.
@@ -173,7 +186,12 @@ export default function JobSchedule({
         <SolarEditForm job={job} onCancel={onEditCancel} onSaved={onSolarSaved} onPartial={onPartial} />
       </div>
     );
+  } else if (editing && job.scheduleType === SCHEDULE_FIXED_DELAY) {
+    body = <FixedDelayEditor job={job} onSave={onInlineSave} onCancel={onEditCancel} />;
+  } else if (editing && cronModel) {
+    body = <CronTimesEditor job={job} model={cronModel} onSave={onInlineSave} onCancel={onEditCancel} />;
   } else if (editing) {
+    // An hourly cron, or any cron describeCron cannot read as clock times: the raw field, unchanged.
     body = <InlineScheduleForm job={job} onSave={onInlineSave} onCancel={onEditCancel} />;
   } else {
     const rows = [];
