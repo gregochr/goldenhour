@@ -61,6 +61,18 @@ Read these before re-proposing any of them.
   never hold still (`input-delta.sql`): for T0 sunrise pairs no more than 8 h apart, 75% moved some cloud
   field by more than 40 points, and only 23 of 1,838 stayed within 10 points. A gate would skip almost
   nothing, and blind reuse would hide real changes.
+- **Phase 2b: the evening refresh skips slots already rated 2★ or lower. MEASURING (2026-11-03).**
+  The owner's question: a sunrise that already looks poor will not turn into a "go" by 21:00, so why
+  re-rate it? Phase 2's gate asked whether the *inputs* had changed (they nearly always have); this
+  gate asks only whether the *previous rating* was poor, which is the thing that drives the bedtime
+  decision. It is worth building only if a rating of 2★ or lower almost never comes back at 4★ or higher
+  from the evening run, and the most it can save is part of Evening T+1's ~$6 per 30 days.
+  Query: `poor-stays-poor.sql` (section 1: previous-stars to new-stars transitions for the evening and
+  for all T+1 sunrise re-ratings; section 2: requests and dollars the gate would skip, and how many
+  2★-or-lower ratings it would have hidden that came back at 3★ or at 4★ or higher). **Result: not yet
+  run.** Record the figures here when it has been, with the date and the number of evening nights.
+  Decision rule proposed: build the gate only if `hidden_jumps_to_ge_4` is 0, or under 1% of
+  `skippable_requests`, over at least 14 evening nights.
 - **Cutting cadence further: rejected.** Intraday T+1 sunset re-ratings stay the same only 51.6% of the
   time, and 5% move 2★ or more. That is real freshness, so cutting it is a product choice the owner
   declined.
