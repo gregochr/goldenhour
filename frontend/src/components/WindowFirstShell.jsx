@@ -6,6 +6,8 @@ import { ASK_PROMPT } from '../utils/askModel.js';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import MastheadTickLine from './MastheadTickLine.jsx';
+import MastheadMenu from './MastheadMenu.jsx';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
@@ -428,7 +430,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
-  light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
+  healthDot = null, healthStatusLine = null, light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
   forecastDates = null, registerCloseDialogs = null,
 }) {
@@ -482,6 +484,11 @@ export default function WindowFirstShell({
    * closed; a string — possibly empty — is open.
    */
   const [searchSeed, setSearchSeed] = useState(null);
+  // The phone masthead (compact-chrome plan): whether the ⋯ menu is open, and its button, which is
+  // also the focus fallback for the tick line when its origin slot is empty. Both unused off the phone.
+  const isMobile = useIsMobile();
+  const [mastMenuOpen, setMastMenuOpen] = useState(false);
+  const menuBtnRef = useRef(null);
   /**
    * Whether Ask PhotoCast's sheet is open (plan §2.6: whether Ask is OPEN is SHELL state).
    *
@@ -892,6 +899,9 @@ export default function WindowFirstShell({
     // ...and so is the LITE reader's Ask upsell: on 640px and up its field is drawn on Plan, Coming up
     // and Map, so a tab press would otherwise leave the popover open over the next tab.
     setAskUpsellFor(null);
+    // The phone's ⋯ menu is a layer too (compact-chrome plan R4): every route out of the masthead
+    // closes it, so settings never opens over it. Our own setter, as this body requires.
+    setMastMenuOpen(false);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -2350,6 +2360,51 @@ export default function WindowFirstShell({
         data-testid="window-first-masthead"
         className="wf-mast border-b border-plex-border"
       >
+        {isMobile ? (
+          // The phone's one 34px line (compact-chrome plan §1): the compact wordmark, today's golden
+          // times, an admin-only status dot and the ⋯ menu that now holds Settings, Change home
+          // postcode and Sign out. Every width above 639px takes the arm below, unchanged.
+          <div className="wf-mast-row" data-testid="window-first-mast-row">
+            <BrandLockup variant="compact" />
+            <div className="wf-mast-right">
+              {light && (
+                // ⚠️ Always the HOME light (R7): `/light` is keyed on the saved postcode and an away
+                // origin does not move it. Away, a small ⌂ says so, and the label stays as words.
+                <span data-testid="masthead-phone-times" className="wf-mast-times">
+                  {origin && <span aria-hidden="true" className="wf-mast-times-home">⌂</span>}
+                  <span className="sr-only">{light.label}</span>
+                  <span className="wf-mast-time" data-testid="masthead-phone-sunrise">
+                    <span aria-hidden="true" className="wf-mast-arrow">↑</span>
+                    {light.sunrise}
+                    <span className="sr-only"> sunrise</span>
+                  </span>
+                  <span className="wf-mast-time" data-testid="masthead-phone-sunset">
+                    <span aria-hidden="true" className="wf-mast-arrow">↓</span>
+                    {light.sunset}
+                    <span className="sr-only"> sunset</span>
+                  </span>
+                </span>
+              )}
+              {healthDot}
+              <MastheadMenu
+                open={mastMenuOpen}
+                onOpenChange={setMastMenuOpen}
+                buttonRef={menuBtnRef}
+                statusLine={healthStatusLine}
+                // The cog's handler and the nudge's, unchanged (the menu closes first and hands
+                // focus to ⋯, so the dialog they open records it as its opener). The postcode row
+                // also names ⋯ as the place focus returns to if the nudge is gone by the close.
+                onSettings={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
+                onChangePostcode={() => {
+                  selectTab(effectiveTab);
+                  (onSetPostcode ?? onOpenSettings)?.(() => menuBtnRef.current);
+                }}
+                onSignOut={onSignOut}
+                onWarmSettings={warmSettingsModal}
+              />
+            </div>
+          </div>
+        ) : (
         <div className="flex items-center gap-3">
           <BrandLockup variant="masthead" />
           <div className="ml-auto flex items-center gap-2">
@@ -2404,7 +2459,8 @@ export default function WindowFirstShell({
             </button>
           </div>
         </div>
-        <MastheadLight light={light} />
+        )}
+        <MastheadLight light={light} compact={isMobile} />
         {/* The tick line — the plan's origin, the way to change it, and today's times, in the one
             row the design allows for all three. It is inside the band deliberately: the rail
             footer it replaces sat outside, and a reader who has just moved the origin should not
@@ -2488,6 +2544,13 @@ export default function WindowFirstShell({
           // alone: `onOpenSearch` above is withheld on every tab but Plan, which draws it there too.
           // This prop keeps the Map's own no-search rule and the caption only the Map draws.
           isMapTab={effectiveTab === 'map'}
+          // Phone only (compact-chrome plan D-1, R2): the Map hides the row at Home — the HOME marker
+          // and reach rings show the origin there, and on the Plan tab the row is search's only way
+          // in — and every phone tab moves the times up into the masthead's one line. Desktop and
+          // tablet pass none of the three, so the row is exactly what it was.
+          hideAtHome={isMobile && effectiveTab === 'map'}
+          fallbackFocus={isMobile ? menuBtnRef : null}
+          showTimes={!isMobile}
         />
       </div>
 
@@ -3455,6 +3518,13 @@ WindowFirstShell.propTypes = {
    * which is how the admin gate reaches this arm without a role crossing into it.
    */
   healthPill: PropTypes.node,
+  /**
+   * The phone masthead's status dot and the ⋯ menu's status line (compact-chrome plan R1): the same
+   * health reading as {@code healthPill}, on the same terms — absent means none, which is how the admin
+   * gate reaches them without a role crossing in. The pill is not drawn on the phone; these are.
+   */
+  healthDot: PropTypes.node,
+  healthStatusLine: PropTypes.node,
   /**
    * Today's light for the masthead's rule. Three states in one value — undefined while the answer
    * is outstanding, null once it has arrived with no home saved, the day otherwise. Deliberately

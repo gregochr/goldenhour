@@ -1,4 +1,6 @@
-import React, { createContext, useContext } from 'react';
+import React, {
+  createContext, useContext, useMemo, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import { useHealthStatus } from '../hooks/useHealthStatus.js';
 import useAfterFirstPaint from '../hooks/useAfterFirstPaint.js';
@@ -21,6 +23,9 @@ const HealthStatusContext = createContext(EMPTY_HEALTH);
  */
 const HealthDownContext = createContext(false);
 
+/** Whether the diagnostic panel is open, and its setter; see {@link HealthStatusProvider}. */
+const HealthPanelContext = createContext({ open: false, setOpen: () => {} });
+
 /**
  * Owns the health SSE stream and publishes it through two contexts, so the 30-second health tick
  * re-renders the pill and not the app tree. The stream is held back until after first paint so it
@@ -34,10 +39,17 @@ const HealthDownContext = createContext(false);
 export function HealthStatusProvider({ children }) {
   const streamsReady = useAfterFirstPaint();
   const health = useHealthStatus(streamsReady);
+  // Whether the diagnostic panel is open — held here, beside the data, because on the phone two
+  // controls in different parts of the masthead (the dot and the ⋯ menu's status line) open the one
+  // panel. Only their consumers re-render when it flips (children keep their identity).
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panel = useMemo(() => ({ open: panelOpen, setOpen: setPanelOpen }), [panelOpen]);
   return (
     <HealthDownContext.Provider value={health.status === 'DOWN'}>
       <HealthStatusContext.Provider value={health}>
-        {children}
+        <HealthPanelContext.Provider value={panel}>
+          {children}
+        </HealthPanelContext.Provider>
       </HealthStatusContext.Provider>
     </HealthDownContext.Provider>
   );
@@ -64,4 +76,13 @@ export function useHealthStatusValue() {
  */
 export function useHealthIsDown() {
   return useContext(HealthDownContext);
+}
+
+/**
+ * The diagnostic panel's open state, shared by the phone masthead's dot and the ⋯ menu's status line.
+ *
+ * @returns {{open: boolean, setOpen: Function}} the state and its setter
+ */
+export function useHealthPanel() {
+  return useContext(HealthPanelContext);
 }

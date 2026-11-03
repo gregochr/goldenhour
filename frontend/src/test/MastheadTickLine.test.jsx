@@ -1028,3 +1028,168 @@ describe('MastheadTickLine — theme tokens it cites', () => {
     });
   });
 });
+
+/**
+ * The unset-postcode state is red on every width, and the phone Map's compact row
+ * (map-mobile-compact-plan.md C1, §6 and R2). jsdom resolves no CSS, so the observables are the
+ * attributes the stylesheet hangs the colour and the 36px line on — `mapMobileCompactCascade.test.jsx`
+ * reads the real stylesheet for the other half.
+ */
+describe('MastheadTickLine — the unset hook (README §6, every width)', () => {
+  it.each([
+    ['marks the group unset when no home is saved', { homePlace: null, light: null }, 'true'],
+    ['⚠️ and not otherwise, so the red cannot leak onto a home reader', {}, null],
+    ['and not while away, whatever the home', { origin: LAKES, homePlace: null }, null],
+    ['and not while the place is still unknown', { homePlace: undefined, light: LIGHT }, null],
+  ])('%s', (_label, props, expected) => {
+    renderTick(props);
+    const group = document.querySelector('.wf-tick-group');
+    if (expected === null) expect(group).not.toHaveAttribute('data-unset');
+    else expect(group).toHaveAttribute('data-unset', expected);
+  });
+
+  it('carries the hook with no hideAtHome too, so desktop and tablet are red as well', () => {
+    renderTick({ homePlace: null, light: null, isMapTab: false });
+    expect(screen.getByTestId('masthead-set-postcode').closest('.wf-tick-group'))
+      .toHaveAttribute('data-unset', 'true');
+  });
+});
+
+describe('MastheadTickLine — hideAtHome (the phone Map)', () => {
+  // The shell's ⋯ button, as a ref the line can resolve at the moment it needs it.
+  const menuButton = { get current() { return document.getElementById('menu-btn'); } };
+
+  function WithMenuButton({ fallback = menuButton, ...props }) {
+    return (
+      <>
+        <button type="button" id="menu-btn">⋯</button>
+        <MastheadTickLine
+          light={LIGHT}
+          origin={null}
+          homePlace="Durham"
+          onOpenSearch={undefined}
+          onGoHome={vi.fn()}
+          onSetPostcode={vi.fn()}
+          isMapTab
+          hideAtHome
+          fallbackFocus={fallback}
+          {...props}
+        />
+      </>
+    );
+  }
+
+  it('renders nothing at Home, decided by its own rule', () => {
+    renderTick({ hideAtHome: true, isMapTab: true });
+    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+  });
+
+  it('renders nothing while the place is still unknown — Home is still the origin', () => {
+    renderTick({ hideAtHome: true, isMapTab: true, homePlace: undefined, light: LIGHT });
+    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+  });
+
+  it.each([
+    ['away', { origin: LAKES }, 'window-first-origin-chip'],
+    ['unset', { homePlace: null, light: null }, 'masthead-set-postcode'],
+  ])('draws the compact row when %s', (_label, props, testId) => {
+    renderTick({ hideAtHome: true, isMapTab: true, onOpenSearch: undefined, ...props });
+    expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
+    expect(screen.getByTestId(testId === 'window-first-origin-chip' ? 'window-first-origin-statement' : testId))
+      .toBeInTheDocument();
+  });
+
+  it('puts ⌂ BEFORE the group when away, in DOM order so Tab follows the picture', () => {
+    renderTick({ hideAtHome: true, isMapTab: true, origin: LAKES });
+    const home = screen.getByTestId('window-first-origin-home');
+    const group = document.querySelector('.wf-tick-group');
+    expect(home.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('keeps ⌂ AFTER the group everywhere else (desktop and tablet unchanged)', () => {
+    renderTick({ origin: LAKES });
+    const home = screen.getByTestId('window-first-origin-home');
+    const group = document.querySelector('.wf-tick-group');
+    expect(group.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
+  });
+
+  it('⚠️ ⌂ (Away to Home) hands focus to the fallback, never <body>', () => {
+    function Away() {
+      const [origin, setOrigin] = useState(LAKES);
+      return <WithMenuButton origin={origin} onGoHome={() => setOrigin(null)} />;
+    }
+    render(<Away />);
+    const home = screen.getByTestId('window-first-origin-home');
+    home.focus();
+
+    fireEvent.click(home);
+
+    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+    expect(document.activeElement).toBe(document.getElementById('menu-btn'));
+  });
+
+  it('⚠️ a saved postcode (Unset to Home) hands focus to the fallback, never <body>', () => {
+    const { rerender } = render(<WithMenuButton homePlace={null} light={null} />);
+    screen.getByTestId('masthead-set-postcode').focus();
+
+    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} />);
+
+    expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+    expect(document.activeElement).toBe(document.getElementById('menu-btn'));
+  });
+
+  it('does not take focus from a reader who was elsewhere when the row went', () => {
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    const { rerender } = render(<WithMenuButton homePlace={null} light={null} />);
+    outside.focus();
+
+    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} />);
+
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('answers the nudge\'s resolver with the fallback once the slot is empty', () => {
+    const onSetPostcode = vi.fn();
+    const { rerender } = render(
+      <WithMenuButton homePlace={null} light={null} onSetPostcode={onSetPostcode} />,
+    );
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    const resolver = onSetPostcode.mock.calls[0][0];
+    expect(resolver(), 'while the nudge stands, the nudge')
+      .toBe(screen.getByTestId('masthead-set-postcode'));
+
+    rerender(<WithMenuButton homePlace="Durham" light={LIGHT} onSetPostcode={onSetPostcode} />);
+
+    expect(resolver(), 'once it is gone, ⋯').toBe(document.getElementById('menu-btn'));
+  });
+
+  it('without a fallback the resolver is null once the slot is empty, as before', () => {
+    const onSetPostcode = vi.fn();
+    const props = { onGoHome: vi.fn(), onSetPostcode, isMapTab: true, hideAtHome: true };
+    const { rerender } = render(
+      <MastheadTickLine {...props} light={null} origin={null} homePlace={null} />,
+    );
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    const resolver = onSetPostcode.mock.calls[0][0];
+
+    rerender(<MastheadTickLine {...props} light={LIGHT} origin={null} homePlace="Durham" />);
+
+    expect(resolver()).toBeNull();
+  });
+});
+
+describe('MastheadTickLine — showTimes (the phone moves them into the masthead)', () => {
+  it('draws the times by default and withholds them when told', () => {
+    const { unmount } = renderTick();
+    expect(screen.getByTestId('masthead-light-times')).toBeInTheDocument();
+    unmount();
+    renderTick({ showTimes: false });
+    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+    expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
+  });
+});

@@ -16,6 +16,12 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  */
 const TODAY = '2026-08-08';
 
+// The phone masthead (map-mobile-compact-plan.md C1) is a `useIsMobile()` branch in the shell. jsdom's
+// `matchMedia` defaults to the desktop answer, so every pre-existing test here keeps meaning what it
+// did; the phone twins at the bottom flip this flag.
+let mockIsMobile = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
+
 /** Stands in for the real pill — this file's subject is the slot, not what fills it. */
 const PILL = <span data-testid="health-indicator">UP</span>;
 
@@ -71,6 +77,7 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
 
 beforeEach(() => {
   localStorage.clear();
+  mockIsMobile = false;
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -255,5 +262,238 @@ describe('WindowFirstShell — the lit band', () => {
     expect(masthead).toContainElement(tick);
     expect(screen.getByTestId('masthead-light-rule')
       .compareDocumentPosition(tick) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+/**
+ * The compact PHONE masthead (map-mobile-compact-plan.md C1, README §1–§2), and the proof that
+ * every width above it is untouched.
+ *
+ * <p>Each phone test has a desktop twin asserting the opposite, because a branch that fired on both
+ * would pass the phone half alone. The desktop arm is the pre-existing control set — cog, Sign out,
+ * kicker, tick line with times — asserted again here under the SAME mocked hook.
+ */
+describe('WindowFirstShell — the compact phone masthead', () => {
+  const LIGHT = {
+    label: 'Home · NE66 1NG',
+    shortLabel: 'NE66 1NG',
+    civilDawn: '05:32',
+    sunrise: '06:04',
+    sunset: '19:58',
+    civilDusk: '20:31',
+    stops: [{ key: 'SUNRISE', position: 25.28 }, { key: 'SUNSET', position: 74.86 }],
+  };
+  const MAP = <p data-testid="map-pane">map pane</p>;
+  const LAKES = { name: 'The Lake District', baseName: 'Keswick' };
+  const DOT = <span data-testid="health-dot">dot</span>;
+  const LINE = <button type="button" data-testid="health-status-line">UP</button>;
+  const openMenu = () => fireEvent.click(screen.getByTestId('masthead-menu-button'));
+  const mapTab = () => fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+
+  describe('on the phone', () => {
+    beforeEach(() => { mockIsMobile = true; });
+
+    it('draws the compact lockup: no kicker, wordmark kept as the page heading', () => {
+      renderShell({ light: LIGHT });
+      expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'compact');
+      expect(screen.queryByText('Field guide to light')).toBeNull();
+      expect(screen.getByRole('heading', { name: /PhotoCast/ })).toBeInTheDocument();
+    });
+
+    it('renders no cog and no Sign out button at rest — they live in the ⋯ menu', () => {
+      renderShell({ light: LIGHT });
+      expect(screen.queryByTestId('window-first-settings')).toBeNull();
+      expect(screen.queryByTestId('window-first-signout')).toBeNull();
+      expect(screen.getByTestId('masthead-menu-button')).toBeInTheDocument();
+    });
+
+    it('draws the golden times as ↑/↓ with the event words for assistive tech', () => {
+      renderShell({ light: LIGHT });
+      const times = screen.getByTestId('masthead-phone-times');
+      expect(screen.getByTestId('masthead-phone-sunrise')).toHaveTextContent('↑06:04 sunrise');
+      expect(screen.getByTestId('masthead-phone-sunset')).toHaveTextContent('↓19:58 sunset');
+      expect(times).toHaveTextContent('Home · NE66 1NG');
+      // The blue hours stay off the phone, and the tick line draws no times of its own.
+      expect(times).not.toHaveTextContent('05:32');
+      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+    });
+
+    it('draws no times while the light is unanswered or no home is saved', () => {
+      renderShell({ light: undefined });
+      expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
+    });
+
+    it('R7 — always the HOME light: a small ⌂ prefixes the times while away, none at home', () => {
+      const { unmount } = renderShell({ light: LIGHT });
+      expect(screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home')).toBeNull();
+      unmount();
+      renderShell({ light: LIGHT }, { origin: LAKES });
+      const home = screen.getByTestId('masthead-phone-times').querySelector('.wf-mast-times-home');
+      expect(home).toHaveTextContent('⌂');
+      expect(home).toHaveAttribute('aria-hidden', 'true');
+      // …and the label is still there as words.
+      expect(screen.getByTestId('masthead-phone-times')).toHaveTextContent('Home · NE66 1NG');
+    });
+
+    it('draws the thinner rule', () => {
+      renderShell({ light: LIGHT });
+      expect(screen.getByTestId('masthead-light-rule')).toHaveClass('h-0.5');
+      expect(screen.getByTestId('masthead-light-rule')).not.toHaveClass('h-1');
+    });
+
+    it('draws the admin dot beside ⋯ and NO pill; draws neither for a reader handed none', () => {
+      const { unmount } = renderShell({ healthPill: PILL, healthDot: DOT });
+      const masthead = screen.getByTestId('window-first-masthead');
+      expect(masthead).toContainElement(screen.getByTestId('health-dot'));
+      expect(screen.queryByTestId('health-indicator')).toBeNull();
+      unmount();
+      renderShell();
+      expect(screen.queryByTestId('health-dot')).toBeNull();
+    });
+
+    it('places the dot ahead of the ⋯ button and outside a DOWN backend\'s greying', () => {
+      renderShell({ healthDot: DOT, contentDisabled: true });
+      const dot = screen.getByTestId('health-dot');
+      expect(dot.compareDocumentPosition(screen.getByTestId('masthead-menu-button'))
+        & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(dot.closest('.pointer-events-none')).toBeNull();
+    });
+
+    it('shows the status line in the menu for an admin and not for anyone else', () => {
+      const { unmount } = renderShell({ healthStatusLine: LINE });
+      openMenu();
+      expect(screen.getByTestId('health-status-line')).toBeInTheDocument();
+      unmount();
+      renderShell();
+      openMenu();
+      expect(screen.queryByTestId('health-status-line')).toBeNull();
+    });
+
+    it('the menu\'s Settings row runs the cog\'s handler', () => {
+      const { onOpenSettings } = renderShell();
+      openMenu();
+      fireEvent.click(screen.getByTestId('window-first-settings'));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+    });
+
+    it('the menu\'s Sign out row signs out', () => {
+      const { onSignOut } = renderShell();
+      openMenu();
+      fireEvent.click(screen.getByTestId('window-first-signout'));
+      expect(onSignOut).toHaveBeenCalledTimes(1);
+    });
+
+    it('Change home postcode runs the nudge\'s handler, naming ⋯ as the focus fallback', () => {
+      const onSetPostcode = vi.fn();
+      renderShell({ onSetPostcode });
+      openMenu();
+      fireEvent.click(screen.getByTestId('masthead-menu-postcode'));
+
+      expect(onSetPostcode).toHaveBeenCalledTimes(1);
+      const resolve = onSetPostcode.mock.calls[0][0];
+      expect(resolve()).toBe(screen.getByTestId('masthead-menu-button'));
+    });
+
+    it('Change home postcode falls back to plain Settings when no handler was given', () => {
+      const { onOpenSettings } = renderShell();
+      openMenu();
+      fireEvent.click(screen.getByTestId('masthead-menu-postcode'));
+      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes the menu when a tab is chosen (selectTab takes it down)', () => {
+      renderShell({}, { });
+      openMenu();
+      expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('tab', { name: 'Coming up' }));
+      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+    });
+
+    it('R2 — hides the origin row at Home on the Map tab, and still draws it on the other tabs', () => {
+      renderShell({ light: LIGHT, mapPane: MAP }, { });
+      // Plan tab (the default): the row is search's only way in, so it stays — without the times.
+      expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
+      expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
+      expect(screen.queryByTestId('masthead-light-times')).toBeNull();
+      mapTab();
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+    });
+
+    it('draws the compact row on the Map tab when away, with ⌂ first', () => {
+      renderShell({ light: LIGHT, mapPane: MAP }, { origin: LAKES });
+      mapTab();
+      expect(screen.getByTestId('window-first-tickline')).toHaveAttribute('data-compact', 'true');
+      expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('The Lake District');
+      expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
+    });
+
+    it('draws the red nudge row on the Map tab with no postcode', () => {
+      renderShell({ light: null, mapPane: MAP }, { homePlace: null });
+      mapTab();
+      expect(screen.getByTestId('masthead-set-postcode').closest('.wf-tick-group'))
+        .toHaveAttribute('data-unset', 'true');
+    });
+
+    it('⚠️ ⌂ on the phone Map (Away to Home) leaves focus on ⋯, not <body>', () => {
+      // The route through the real shell: `setOrigin` is the briefing context's, so this stands in
+      // for it by letting the mocked context answer a null origin after the press.
+      const setOrigin = vi.fn();
+      const { rerender, ...rest } = renderShell(
+        { light: LIGHT, mapPane: MAP }, { origin: LAKES, setOrigin },
+      );
+      mapTab();
+      const home = screen.getByTestId('window-first-origin-home');
+      home.focus();
+      fireEvent.click(home);
+      expect(setOrigin).toHaveBeenCalledWith(null);
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing')
+        .mockReturnValue({ ...ctx(), origin: null, setOrigin });
+      rerender(<WindowFirstShell {...rest} />);
+
+      expect(screen.queryByTestId('window-first-tickline')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByTestId('masthead-menu-button'));
+    });
+  });
+
+  describe('off the phone (desktop and tablet provably unchanged)', () => {
+    it('keeps the masthead lockup with its kicker, the cog, Sign out and the tick line with times', () => {
+      renderShell({ light: LIGHT, healthPill: PILL, healthDot: DOT, healthStatusLine: LINE });
+      expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'masthead');
+      expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+      expect(screen.getByTestId('window-first-settings')).toBeInTheDocument();
+      expect(screen.getByTestId('window-first-signout')).toBeInTheDocument();
+      expect(screen.getByTestId('masthead-light-times')).toHaveTextContent('06:04');
+      expect(screen.getByTestId('health-indicator')).toBeInTheDocument();
+    });
+
+    it('renders none of the phone chrome', () => {
+      renderShell({ light: LIGHT, healthDot: DOT, healthStatusLine: LINE });
+      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      expect(screen.queryByTestId('masthead-phone-times')).toBeNull();
+      expect(screen.queryByTestId('window-first-mast-row')).toBeNull();
+      expect(screen.queryByTestId('health-dot')).toBeNull();
+      expect(screen.queryByTestId('health-status-line')).toBeNull();
+    });
+
+    it('keeps the 4px rule and its sm: offsets', () => {
+      renderShell({ light: LIGHT });
+      const rule = screen.getByTestId('masthead-light-rule');
+      expect(rule).toHaveClass('h-1');
+      expect(rule).toHaveClass('sm:mt-[14px]');
+    });
+
+    it('keeps the tick line at Home on the Map tab, as the statement, with no compact hook', () => {
+      renderShell({ light: LIGHT, mapPane: MAP });
+      mapTab();
+      expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
+      expect(screen.getByTestId('window-first-tickline')).not.toHaveAttribute('data-compact');
+    });
+
+    it('is red when unset here too', () => {
+      renderShell({ light: null }, { homePlace: null });
+      expect(screen.getByTestId('masthead-set-postcode').closest('.wf-tick-group'))
+        .toHaveAttribute('data-unset', 'true');
+    });
   });
 });

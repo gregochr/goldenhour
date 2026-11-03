@@ -26,7 +26,8 @@ describe('the phone tab bar rules', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
 
   it('sit inside the max-width: 639px media query, and nowhere outside it', () => {
-    const rule = '.wf-tab { flex: 1 1 auto; min-height: 36px; position: relative; }';
+    // 34px since map-mobile-compact C1 (was 36px); the 44px hit area is pinned in mapMobileCompactCascade.
+    const rule = '.wf-tab { flex: 1 1 auto; min-height: 34px; position: relative; }';
     expect(css.split(rule)).toHaveLength(2);
     const at = css.indexOf(rule);
     const open = css.lastIndexOf('@media (max-width: 639px) {', at);

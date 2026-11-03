@@ -88,19 +88,25 @@ export function buildRuleGradient(stops) {
  * @param {object} props
  * @param {object|null} [props.light] the day's light; null when no home is saved, undefined while
  *   the answer is outstanding
+ * @param {boolean} [props.compact] the phone's 2px rule at a 6px offset
  */
-export default function MastheadLight({ light }) {
+export default function MastheadLight({ light, compact = false }) {
   return (
     <div
       data-testid="masthead-light-rule"
       aria-hidden="true"
-      className="mt-[11px] sm:mt-[14px] h-1 rounded-[2px]"
+      // `compact` is the phone's thinner rule (compact-chrome plan R8): 2px at a 6px offset. A prop
+      // rather than a smaller default so the `sm:` pair, and every other width, is untouched.
+      className={compact
+        ? 'mt-1.5 h-0.5 rounded-[2px]'
+        : 'mt-[11px] sm:mt-[14px] h-1 rounded-[2px]'}
       style={{ background: light ? buildRuleGradient(light.stops) : DIM_RULE }}
     />
   );
 }
 
 MastheadLight.propTypes = {
+  compact: PropTypes.bool,
   light: PropTypes.shape({
     stops: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string.isRequired,

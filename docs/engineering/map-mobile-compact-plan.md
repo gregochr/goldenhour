@@ -18,7 +18,7 @@ screen. One change is cross-platform: the unset-postcode nudge turns red everywh
 | phase | branch | PR | date | notes |
 |---|---|---|---|---|
 | C0 | `claude/map-screen-improvements-06044b` | — | 2026-11-03 | Vendored the bundle; this plan. No code. |
-| C1 | `feature/map-mobile-compact-c1-chrome` | — | — | §6 red nudge (all platforms), §1 phone masthead + ⋯ menu, §2 origin row, §3 tabs. |
+| C1 | `feature/map-mobile-compact-c1-chrome` | — | 2026-11-03 | Built, committed locally, not pushed: §6 red nudge (all widths), §1 phone masthead + `MastheadMenu`, §2 origin row (`hideAtHome`), §3 tabs. R1–R10 followed; the health panel is shared dot/menu-line state in `HealthStatusContext`. Not browser-verified. |
 | C2 | `feature/map-mobile-compact-c2-peek` | — | — | §4 Ask into the peek row, sheet back to 74px; §5 one-line attribution. |
 
 ---

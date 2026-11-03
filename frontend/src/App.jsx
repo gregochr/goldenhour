@@ -16,7 +16,7 @@ import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from '
 import { auroraTabOffered } from './utils/auroraTab.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { HealthStatusProvider, useHealthIsDown } from './context/HealthStatusContext.jsx';
-import HealthStatusPill from './components/HealthStatusPill.jsx';
+import HealthStatusPill, { HealthStatusDot, HealthStatusMenuLine } from './components/HealthStatusPill.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
@@ -1026,6 +1026,11 @@ function AppInner() {
               healthPill={isAdmin ? (
                 <HealthStatusPill />
               ) : null}
+              // The phone masthead's two admin-only readings of the same health data (compact-chrome
+              // plan R1): the 8px dot beside ⋯, and the ⋯ menu's status line that opens the panel the
+              // dot owns. Same gate, same reason — nothing role-shaped crosses into the shell.
+              healthDot={isAdmin ? <HealthStatusDot /> : null}
+              healthStatusLine={isAdmin ? <HealthStatusMenuLine /> : null}
               onEvaluationScoresChange={handleEvaluationScoresChange}
               onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
               locations={visibleLocations}
