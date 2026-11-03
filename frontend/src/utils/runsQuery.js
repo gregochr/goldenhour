@@ -149,13 +149,3 @@ export function writeRunsQuery(patch) {
   if (patch.view) rememberView(patch.view);
   replaceHash(path, query);
 }
-
-/**
- * The Day filter chip the Scheduler's "All in Runs" link opens, from a job's run group (F16).
- *
- * @param {string|null|undefined} runGroup the job's {@code runGroup} (CYCLES, BATCHES, TIDE, BRIEFING, AURORA, OTHER)
- * @returns {string} the filter key
- */
-export function dayFilterForGroup(runGroup) {
-  return legacyKindFilter(runGroup) ?? 'all';
-}

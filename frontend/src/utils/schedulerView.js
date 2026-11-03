@@ -1,6 +1,7 @@
 import { parseUtcInstant } from './conversions.js';
 import { UK_ZONE, ukDateStr, ukDayOffset } from './mapDates.js';
-import { describeSolarRule } from './schedulerSolar.js';
+import { describeSolarRuleCompact } from './schedulerSolar.js';
+import { formatSeconds } from './runsView.js';
 
 /**
  * Pure view-model helpers for the Scheduler tab (runs-redesign-plan.md §5.5, R4).
@@ -25,17 +26,21 @@ const DAY_NAMES = {
 };
 
 /**
- * The current UK timezone label: "BST" in summer, "GMT" in winter. {@code Intl} handles the changeover.
+ * The current UK timezone label: exactly "BST" in summer, "GMT" in winter. It is derived from London's UTC offset at
+ * that instant (0 is GMT, anything else BST), not from {@code Intl}'s short name, which some browsers spell "GMT+0" or
+ * "GMT+1".
  *
  * @param {Date} [now] the real clock
  * @returns {string} "BST" or "GMT"
  */
 export function getUKTimezoneLabel(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: UK_ZONE,
-    timeZoneName: 'short',
+    timeZone: UK_ZONE, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
   }).formatToParts(now);
-  return parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+  const n = (type) => Number(parts.find((p) => p.type === type)?.value);
+  const local = Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'));
+  const utc = Math.floor(now.getTime() / 60_000) * 60_000;
+  return local - utc === 0 ? 'GMT' : 'BST';
 }
 
 /** A UTC hour and minute, today, as a UK local "HH:MM". */
@@ -182,7 +187,7 @@ export function formatNextFire(instant, now = new Date()) {
 export function describeSchedule(job) {
   if (job.scheduleType === SCHEDULE_SOLAR) {
     return {
-      words: describeSolarRule(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete',
+      words: describeSolarRuleCompact(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete',
       type: 'Sun-relative',
       recognised: true,
     };
@@ -222,16 +227,37 @@ const TYPE_PREDICATES = {
 };
 
 /**
- * Whether a job passes the filters: its schedule type chip AND its status chip.
+ * Whether a job passes the filters: its schedule type chip AND its status chip AND, when on, the "Uses Claude" and
+ * "Last run failed" chips.
  *
  * @param {object} job a served job
- * @param {{type: string, status: string|null}} filters {@code type} is {@code all} or a schedule type; {@code status}
- *   is null or {@code PAUSED} or {@code DISABLED_BY_CONFIG}
+ * @param {{type: string, status: string|null, claude?: boolean, failed?: boolean}} filters {@code type} is
+ *   {@code all} or a schedule type; {@code status} is null or {@code PAUSED} or {@code DISABLED_BY_CONFIG}
  * @returns {boolean}
  */
 export function jobMatchesFilters(job, filters) {
   const type = TYPE_PREDICATES[filters.type] ?? TYPE_PREDICATES.all;
-  return type(job) && (filters.status == null || job.status === filters.status);
+  return type(job)
+    && (filters.status == null || job.status === filters.status)
+    && (!filters.claude || job.catalogue?.usesClaude === true)
+    && (!filters.failed || job.lastFire?.status === 'FAILED');
+}
+
+/**
+ * Whether a job matches the search box: the text in its name, its plain alias, what it does or its purpose tag.
+ * Filtering the served words for display is a display filter, not a derivation.
+ *
+ * @param {object} job a served job
+ * @param {string} text the search text
+ * @returns {boolean} true for blank text
+ */
+export function jobMatchesSearch(job, text) {
+  const needle = text.trim().toLowerCase();
+  if (needle === '') return true;
+  const c = job.catalogue;
+  // "Uses Claude" is a chip, so the search the placeholder suggests ("Claude") finds those jobs too.
+  if (needle === 'claude' && c?.usesClaude === true) return true;
+  return [job.displayName, c?.alias, c?.what, c?.purpose].some((field) => (field ?? '').toLowerCase().includes(needle));
 }
 
 /**
@@ -276,4 +302,97 @@ export function sortJobs(jobs, sort) {
     }
     return aNext === bNext ? byName(a, b) : direction * (aNext - bNext);
   });
+}
+
+/** The groups of the All jobs list, in order: the type, its heading and the subtitle under it. */
+export const JOB_GROUPS = [
+  { type: SCHEDULE_SOLAR, label: 'Sun-relative', subtitle: 'fires a set time before sunrise or sunset' },
+  { type: SCHEDULE_CRON, label: 'Cron', subtitle: 'fixed clock times' },
+  { type: SCHEDULE_FIXED_DELAY, label: 'Fixed delay', subtitle: 'repeats every few minutes, all day' },
+];
+
+/** The trailing group for a job whose schedule type this screen does not know, so it is never hidden. */
+const OTHER_GROUP = { type: 'OTHER', label: 'Other', subtitle: 'schedule type not recognised' };
+
+/**
+ * Splits jobs into the list's groups (Sun-relative, Cron, Fixed delay, then Other), each sorted by next fire. Empty
+ * groups are left out.
+ *
+ * @param {Array<object>} jobs the jobs to show
+ * @returns {Array<{type: string, label: string, subtitle: string, jobs: Array<object>}>}
+ */
+export function groupJobs(jobs) {
+  const known = JOB_GROUPS.map((group) => group.type);
+  const byNext = { key: 'next', dir: 'asc' };
+  return [...JOB_GROUPS, OTHER_GROUP]
+    .map((group) => ({
+      ...group,
+      jobs: sortJobs(
+        jobs.filter((job) => (group === OTHER_GROUP ? !known.includes(job.scheduleType) : job.scheduleType === group.type)),
+        byNext,
+      ),
+    }))
+    .filter((group) => group.jobs.length > 0);
+}
+
+/**
+ * The UK clock time of an instant, "HH:MM".
+ *
+ * @param {string|null|undefined} instant an ISO instant
+ * @returns {string} the time, or an empty string for none
+ */
+export function formatClock(instant) {
+  const d = parseUtcInstant(instant);
+  return d ? CLOCK_FORMAT.format(d) : '';
+}
+
+/**
+ * A fire's label for the panel's next fires: "Today 12:27", "Tomorrow 12:27", else "Wed 4 Nov 12:25".
+ *
+ * @param {string|null|undefined} instant the fire instant
+ * @param {Date} [now] the real clock
+ * @returns {string}
+ */
+export function formatFireLabel(instant, now = new Date()) {
+  const d = parseUtcInstant(instant);
+  if (!d) return '';
+  const clock = CLOCK_FORMAT.format(d);
+  const ahead = ukDayOffset(ukDateStr(d), now);
+  if (ahead === 0) return `Today ${clock}`;
+  if (ahead === 1) return `Tomorrow ${clock}`;
+  return `${WEEKDAY_FORMAT.format(d)} ${DAY_MONTH_FORMAT.format(d)} ${clock}`;
+}
+
+/** The served fire statuses as a label and a {@code StatusDot} tone. */
+const FIRE_STATUS_VIEW = {
+  SUCCEEDED: { label: 'OK', tone: 'go' },
+  PARTIAL: { label: 'Partial', tone: 'amber' },
+  FAILED: { label: 'Failed', tone: 'coral' },
+  SKIPPED: { label: 'Skipped', tone: 'off' },
+  RUNNING: { label: 'Running', tone: 'tide', halo: true },
+};
+
+/**
+ * The look of a fire's status.
+ *
+ * @param {string} status {@code SUCCEEDED}, {@code PARTIAL}, {@code FAILED}, {@code SKIPPED} or {@code RUNNING}
+ * @returns {{label: string, tone: string, halo?: boolean}} an unknown status reads as itself in the quiet ink
+ */
+export function fireStatusView(status) {
+  return FIRE_STATUS_VIEW[status] ?? { label: status || '—', tone: 'off' };
+}
+
+/**
+ * How long a fire took, in the one duration form the app uses ({@code formatSeconds}: "55s", "2m 5s", "1h 2m"), or
+ * "<1s". Empty for a fire still running or with no end.
+ *
+ * @param {{firedAt: string, completedAt: string|null}} fire the served last fire
+ * @returns {string}
+ */
+export function fireTook(fire) {
+  const start = instantMs(fire?.firedAt);
+  const end = instantMs(fire?.completedAt);
+  if (start == null || end == null || end < start) return '';
+  const total = Math.round((end - start) / 1000);
+  return total < 1 ? '<1s' : formatSeconds(total);
 }

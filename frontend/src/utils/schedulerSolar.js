@@ -144,6 +144,27 @@ export function describeSolarRule(event, offsetMinutes) {
 }
 
 /**
+ * The rule in the list's and panel's compact words, e.g. "4h 15m before sunrise" (the editors keep
+ * {@link describeSolarRule}'s "4 h 15 min").
+ *
+ * @param {string} event - SUNRISE or SUNSET
+ * @param {number} offsetMinutes - minutes before the event
+ * @returns {string} the rule, or an empty string when the event is not recognised
+ */
+export function describeSolarRuleCompact(event, offsetMinutes) {
+  if (event !== 'SUNRISE' && event !== 'SUNSET') return '';
+  const word = event === 'SUNRISE' ? 'sunrise' : 'sunset';
+  const offset = Number(offsetMinutes);
+  if (!Number.isFinite(offset)) return '';
+  if (offset === 0) return `At ${word}`;
+  const total = Math.round(offset);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  const span = [h > 0 ? `${h}h` : '', m > 0 ? `${m}m` : ''].filter(Boolean).join(' ');
+  return `${span} before ${word}`;
+}
+
+/**
  * Validates an offset typed into an input.
  *
  * @param {string|number} raw - the input value

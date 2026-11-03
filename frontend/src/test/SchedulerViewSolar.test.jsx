@@ -5,6 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, EVENING, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, pollingJob, preview, previewJob,
   solarIntradayJob, solarJob, tideJob,
+  jobDetail,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -15,7 +16,8 @@ vi.mock('../api/schedulerApi', () => ({
   triggerJob: vi.fn(),
   fetchSolarPreview: vi.fn(),
   switchScheduleType: vi.fn(),
-  fetchJobRuns: vi.fn(),
+  fetchSchedulerSummary: vi.fn(),
+  fetchJobDetail: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -24,7 +26,8 @@ import {
   updateJobSchedule,
   fetchSolarPreview,
   switchScheduleType,
-  fetchJobRuns,
+  fetchSchedulerSummary,
+  fetchJobDetail,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -52,7 +55,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
   useIsSplitLayout.mockReturnValue(true);
-  fetchJobRuns.mockResolvedValue([]);
+  fetchSchedulerSummary.mockResolvedValue(null);
+  fetchJobDetail.mockResolvedValue(jobDetail());
 });
 
 describe('SchedulerView - explicit branch per schedule type', () => {
@@ -68,7 +72,7 @@ describe('SchedulerView - explicit branch per schedule type', () => {
     fireEvent.click(screen.getByTestId(`scheduler-row-${NIGHTLY}`));
     await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Nightly batch evaluation'));
     const solar = screen.getByTestId('scheduler-panel');
-    expect(within(solar).getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4 h 15 min before sunrise');
+    expect(within(solar).getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
     expect(within(solar).getByTestId('scheduler-panel-schedule')).toHaveTextContent('never before 00:05 UK');
     // the fallback cron carries its zone label and its reading
     expect(within(solar).getByTestId(`solar-fallback-${NIGHTLY}`)).toHaveTextContent('(UTC)');
@@ -336,7 +340,7 @@ describe('Next fires - fed by the preview', () => {
     const nightly = await screen.findByTestId(`solar-panel-${NIGHTLY}`);
     expect(within(nightly).getByTestId(`solar-proposed-label-${NIGHTLY}`)).toHaveTextContent('Proposed rule');
     expect(within(nightly).getByTestId(`solar-rule-source-${NIGHTLY}`)).toHaveTextContent('Proposed rule');
-    expect(within(nightly).getByTestId(`solar-panel-rule-${NIGHTLY}`)).toHaveTextContent('4 h 15 min before sunrise');
+    expect(within(nightly).getByTestId(`solar-panel-rule-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
     expect(within(nightly).getByTestId(`solar-panel-rule-${NIGHTLY}`)).toHaveTextContent('never before 00:05 UK');
     expect(within(nightly).getByTestId(`solar-rule-source-${NIGHTLY}`)).toHaveTextContent(
       'this job is still on its CRON schedule',
@@ -348,7 +352,7 @@ describe('Next fires - fed by the preview', () => {
     expect(within(intraday).queryByTestId(`solar-proposed-label-${INTRADAY}`)).not.toBeInTheDocument();
     expect(within(intraday).queryByTestId(`solar-rule-source-${INTRADAY}`)).not.toBeInTheDocument();
     expect(within(intraday).queryByTestId(`solar-panel-rule-${INTRADAY}`)).not.toBeInTheDocument();
-    expect(screen.getByTestId(`solar-rule-${INTRADAY}`)).toHaveTextContent('4 h before sunset');
+    expect(screen.getByTestId(`solar-rule-${INTRADAY}`)).toHaveTextContent('4h before sunset');
   });
 
   it('shows the figures the preview carries: event and trigger times, finish, year, reference point', async () => {

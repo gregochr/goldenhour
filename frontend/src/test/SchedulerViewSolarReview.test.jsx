@@ -5,6 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, preview, previewJob, solarIntradayJob,
   solarJob,
+  jobDetail,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -15,7 +16,8 @@ vi.mock('../api/schedulerApi', () => ({
   triggerJob: vi.fn(),
   fetchSolarPreview: vi.fn(),
   switchScheduleType: vi.fn(),
-  fetchJobRuns: vi.fn(),
+  fetchSchedulerSummary: vi.fn(),
+  fetchJobDetail: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -24,7 +26,8 @@ import {
   updateJobSchedule,
   fetchSolarPreview,
   switchScheduleType,
-  fetchJobRuns,
+  fetchSchedulerSummary,
+  fetchJobDetail,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -67,7 +70,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
   useIsSplitLayout.mockReturnValue(true);
-  fetchJobRuns.mockResolvedValue([]);
+  fetchSchedulerSummary.mockResolvedValue(null);
+  fetchJobDetail.mockResolvedValue(jobDetail());
 });
 
 describe('P2c review - switch dialog wording and after-line', () => {
@@ -188,7 +192,7 @@ describe('P2c review - switch and edit requests', () => {
     ));
     expect(fetchSchedulerJobs.mock.calls.length).toBeGreaterThan(jobsBefore);
     expect(fetchSolarPreview.mock.calls.length).toBeGreaterThan(previewBefore);
-    expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4 h 15 min before sunrise');
+    expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
   });
 
   it('reloads the jobs and the preview after a solar edit is saved', async () => {
@@ -203,7 +207,7 @@ describe('P2c review - switch and edit requests', () => {
     fireEvent.change(screen.getByLabelText(/Solar event/), { target: { value: 'SUNSET' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
-    await waitFor(() => expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4 h before sunset'));
+    await waitFor(() => expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h before sunset'));
     expect(fetchSchedulerJobs.mock.calls.length).toBeGreaterThan(jobsBefore);
     expect(fetchSolarPreview.mock.calls.length).toBeGreaterThan(previewBefore);
   });

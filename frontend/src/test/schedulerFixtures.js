@@ -35,6 +35,77 @@ export function job(overrides = {}) {
     updatedAt: '2026-10-13T00:00:00Z',
     runGroup: null,
     lastRun: null,
+    catalogue: null,
+    lastFire: null,
+    nextFires: [],
+    ...overrides,
+  };
+}
+
+/** A served catalogue entry (the plain-English copy, services and edges), a quiet database-only job unless said. */
+export function catalogue(overrides = {}) {
+  return {
+    alias: 'The plain name',
+    what: 'Does one plain thing.',
+    why: 'Runs by a rule.',
+    purpose: 'Housekeeping',
+    services: [],
+    usesClaude: false,
+    collectsResultsFrom: [],
+    resultsCollectedBy: [],
+    watches: [],
+    watchedBy: [],
+    backstops: [],
+    backstoppedBy: [],
+    staggeredAfter: [],
+    staggeredBefore: [],
+    ...overrides,
+  };
+}
+
+/** The newest fire of a job, as {@code lastFire} serves it. */
+export function lastFire(overrides = {}) {
+  return {
+    firedAt: inHours(-0.25),
+    completedAt: new Date(Date.now() - 0.25 * HOUR_MS + 55_000).toISOString(),
+    status: 'SUCCEEDED',
+    summary: '3 of 3 batches submitted',
+    trigger: 'SCHEDULED',
+    ...overrides,
+  };
+}
+
+/** The served summary for a list of jobs (counted here the way the server counts). */
+export function summaryFor(jobs, overrides = {}) {
+  const count = (pick) => jobs.filter(pick).length;
+  return {
+    total: jobs.length,
+    byStatus: {
+      ACTIVE: count((j) => j.status === 'ACTIVE'),
+      PAUSED: count((j) => j.status === 'PAUSED'),
+      DISABLED_BY_CONFIG: count((j) => j.status === 'DISABLED_BY_CONFIG'),
+    },
+    byType: {
+      SOLAR_OFFSET: count((j) => j.scheduleType === 'SOLAR_OFFSET'),
+      CRON: count((j) => j.scheduleType === 'CRON'),
+      FIXED_DELAY: count((j) => j.scheduleType === 'FIXED_DELAY'),
+    },
+    usesClaude: count((j) => j.catalogue?.usesClaude),
+    lastFireFailed: count((j) => j.lastFire?.status === 'FAILED'),
+    nextScheduled: null,
+    ...overrides,
+  };
+}
+
+/** The served job detail (typical duration and 30-day Claude cost), a Claude job with a figure unless said. */
+export function jobDetail(overrides = {}) {
+  return {
+    jobKey: NIGHTLY,
+    typicalDurationSeconds: 5400,
+    typicalDurationBasis: 'runs',
+    claudeCost30d: {
+      gbp: 12.5, complete: true, runs: 30, includes: [], inclManual: false, perRun: 0.42, reason: null,
+    },
     ...overrides,
   };
 }

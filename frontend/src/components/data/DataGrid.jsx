@@ -23,7 +23,7 @@ function columnClass(column) {
 function template(columns, lean) {
   return columns
     .filter((c) => !c.cardOnly && !(lean && c.secondary))
-    .map((c) => `minmax(0,${c.width ?? '1fr'})`)
+    .map((c) => `minmax(${c.minWidth ?? '0'},${c.width ?? '1fr'})`)
     .join(' ');
 }
 
@@ -64,7 +64,9 @@ function template(columns, lean) {
  * full-width disclosure {@code <button aria-expanded>} (mono caption and a chevron) between the rows, test id
  * {@code {prefix}-group-{id}}. It is not a row: not selectable, not passed to {@code getRowId}, {@code getRowLabel}
  * or {@code onSelect}. The caller decides where it sits and whether the rows under it are in {@code rows} (Regions:
- * the "Off" group, collapsed by default, so its rows are simply left out).
+ * the "Off" group, collapsed by default, so its rows are simply left out). A group header with no {@code onToggle} is
+ * a plain, non-focusable heading instead, with an optional {@code count} and {@code subtitle} (the Scheduler's
+ * schedule-type groups). A column may set {@code minWidth} ({@code '260px'}), the floor of its track (default 0).
  *
  * @param {string} props.testIdPrefix the grid's test id; rows are {@code {prefix}-row-{id}}
  */
@@ -118,6 +120,27 @@ export default function DataGrid({
         })}
       </div>
       {rows.map((row) => {
+        if (row.groupHeader === true && !row.onToggle) {
+          // A plain heading (the Scheduler's schedule-type groups): not a control, so it is not focusable.
+          return (
+            <div
+              key={`group-${row.id}`}
+              role="heading"
+              aria-level={3}
+              className="flex min-h-9 w-full items-baseline gap-2 border-b border-plex-border/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted @max-[540px]:px-1"
+              data-testid={`${testIdPrefix}-group-${row.id}`}
+            >
+              <span>{row.label}</span>
+              {row.count != null && (
+                <>
+                  <span aria-hidden="true">{'·'}</span>
+                  <span className="font-semibold text-plex-text-secondary">{row.count}</span>
+                </>
+              )}
+              {row.subtitle && <span className="normal-case tracking-normal text-plex-text-muted">{row.subtitle}</span>}
+            </div>
+          );
+        }
         if (row.groupHeader === true) {
           return (
             <button
@@ -175,6 +198,7 @@ DataGrid.propTypes = {
     key: PropTypes.string.isRequired,
     header: PropTypes.string,
     width: PropTypes.string,
+    minWidth: PropTypes.string,
     secondary: PropTypes.bool,
     sortKey: PropTypes.string,
     card: PropTypes.oneOf(['title', 'status', 'summary']),

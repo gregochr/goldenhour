@@ -4,7 +4,7 @@ import PanelSection from '../data/PanelSection.jsx';
 import KvList from '../data/KvList.jsx';
 import { SolarEditForm } from '../SolarScheduleControls.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
-import { describeSolarRule, isForecastCycleJob } from '../../utils/schedulerSolar.js';
+import { describeSolarRuleCompact, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import { ReferenceValue } from './JobNextFires.jsx';
 import {
   SCHEDULE_CRON,
@@ -123,10 +123,11 @@ InlineScheduleForm.propTypes = {
  * @param {(job: object, value: string) => Promise<void>} props.onInlineSave saves the inline cron or delay; rejects on
  *   failure
  * @param {() => void} props.onSwitch opens the schedule switch dialog
+ * @param {import('react').ReactNode} [props.children] read-only extras drawn under the rule (the why, the next fires)
  */
 export default function JobSchedule({
   job, preview = null, previewFailed = false, editing, onEditStart, onEditCancel, onSolarSaved, onPartial,
-  onInlineSave, onSwitch,
+  onInlineSave, onSwitch, children = null,
 }) {
   const off = job.status === STATUS_OFF;
   const isSolar = job.scheduleType === SCHEDULE_SOLAR;
@@ -183,7 +184,7 @@ export default function JobSchedule({
         value: (
           <>
             <span data-testid={`solar-rule-${job.jobKey}`}>
-              {describeSolarRule(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete'}
+              {describeSolarRuleCompact(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete'}
             </span>
             , never before 00:05 UK
           </>
@@ -219,6 +220,7 @@ export default function JobSchedule({
   return (
     <PanelSection label="Schedule" action={editAction} testId="scheduler-panel-schedule">
       {body}
+      {children}
       {canSwitch && (
         <button
           type="button"
@@ -259,4 +261,5 @@ JobSchedule.propTypes = {
   onPartial: PropTypes.func.isRequired,
   onInlineSave: PropTypes.func.isRequired,
   onSwitch: PropTypes.func.isRequired,
+  children: PropTypes.node,
 };

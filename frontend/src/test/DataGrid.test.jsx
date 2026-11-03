@@ -240,4 +240,28 @@ describe('DataGrid', () => {
       expect(onSelect).toHaveBeenCalledWith(ROWS[0]);
     });
   });
+
+  describe('plain group headings and column floors', () => {
+    it('draws a header with no onToggle as a non-focusable heading with its count and subtitle', () => {
+      const header = { groupHeader: true, id: 'cron', label: 'Cron', count: 2, subtitle: 'fixed clock times' };
+      const { onSelect } = renderGrid({ rows: [header, ROWS[0]] });
+      const node = screen.getByTestId('grid-group-cron');
+      expect(node.tagName).toBe('DIV');
+      expect(node).not.toHaveAttribute('tabindex');
+      expect(node).toHaveTextContent('Cron·2fixed clock times');
+      fireEvent.click(node);
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: /Alnmouth/ })).toBeInTheDocument();
+    });
+
+    it('keeps a column\'s track floor at 0 unless it sets minWidth', () => {
+      renderGrid();
+      expect(screen.getByTestId('grid-row-1').getAttribute('style')).toContain('minmax(0,2fr)');
+    });
+
+    it('uses a column\'s minWidth as the floor of its track', () => {
+      renderGrid({ columns: COLUMNS.map((c) => (c.key === 'name' ? { ...c, minWidth: '260px' } : c)) });
+      expect(screen.getByTestId('grid-row-1').getAttribute('style')).toContain('minmax(260px,2fr)');
+    });
+  });
 });

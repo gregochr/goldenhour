@@ -4,7 +4,7 @@ import PanelSection from '../data/PanelSection.jsx';
 import KvList from '../data/KvList.jsx';
 import {
   describeSeconds,
-  describeSolarRule,
+  describeSolarRuleCompact,
   formatCivilDate,
   formatReferencePoint,
   formatUkDateTime,
@@ -101,7 +101,7 @@ DayRow.propTypes = {
  */
 function CyclePreview({ preview: job, reference = null, status }) {
   const now = new Date();
-  const rule = describeSolarRule(job.solarEvent, job.offsetMinutes);
+  const rule = describeSolarRuleCompact(job.solarEvent, job.offsetMinutes);
   const isProposed = job.ruleSource === 'PROPOSED';
   const finishInstant =
     job.today && !job.today.fallback && job.today.fireInstant && job.medianDurationSeconds != null
