@@ -25,6 +25,13 @@ export const DIAMOND_HALF_PX = 6;
 /** Marks closer together than this many px are drawn as thin ticks, not diamonds or bars (D12). */
 export const TICK_MIN_GAP_PX = 3;
 
+/** A row's height, px: 24 on desktop and tablet, 44 (a touch target) on a phone. */
+export const DESKTOP_ROW_HEIGHT = 24;
+export const PHONE_ROW_HEIGHT = 44;
+
+/** The row height for the viewport; geometry takes it as a parameter, never a constant. */
+export const rowHeightFor = (isMobile) => (isMobile ? PHONE_ROW_HEIGHT : DESKTOP_ROW_HEIGHT);
+
 /** The most "Needs a look" rows shown before "and n more". */
 export const NEEDS_A_LOOK_LIMIT = 8;
 
@@ -138,14 +145,20 @@ export function nightBands(axis, sunrise, sunset) {
 }
 
 /**
- * The shape of a scheduled fire's mark (D12): a thin tick when its neighbour is closer than 3 px, a diamond when its
- * bar would be narrower than 6 px, else a bar.
+ * The shape of a scheduled fire's mark (D12): a thin tick when the mark would touch either neighbour (the next fire
+ * closer than its own bar, the previous fire's bar reaching it, or either closer than 3px), a diamond when its bar
+ * would be narrower than 6px, else a bar. Both fires of a crowded pair are ticks.
  *
- * @param {{widthPx: number, gapPx?: number}} mark the bar's width and the gap to the next mark on the row
+ * @param {{widthPx: number, gapPrevPx?: number, gapNextPx?: number, prevWidthPx?: number}} mark the bar's width, the
+ *   gap to the previous and next mark on the row, and the previous mark's bar width
  * @returns {'tick'|'diamond'|'bar'}
  */
-export function markShape({ widthPx, gapPx = Infinity }) {
-  if (gapPx < TICK_MIN_GAP_PX) return 'tick';
+export function markShape({
+  widthPx, gapPrevPx = Infinity, gapNextPx = Infinity, prevWidthPx = 0,
+}) {
+  const hitsNext = gapNextPx < Math.max(widthPx, TICK_MIN_GAP_PX);
+  const hitsPrev = gapPrevPx < Math.max(prevWidthPx, TICK_MIN_GAP_PX);
+  if (hitsNext || hitsPrev) return 'tick';
   return widthPx < DIAMOND_MIN_BAR_PX ? 'diamond' : 'bar';
 }
 
@@ -175,11 +188,32 @@ export function formatFireDuration(fire) {
   return seconds < 1 ? '<1s' : formatSeconds(seconds);
 }
 
-/** The bar's width in px for a fire: its duration across the axis, 0 when it has none (it is then a diamond). */
-export function fireWidthPx(fire, axis, plotWidth) {
+/** Whether a fire is in flight and drawn growing to Now (only on today, where Now is on the axis). */
+const growsToNow = (fire, isToday) => isToday && fire?.status === 'RUNNING' && instantMs(fire.startedAt) != null
+  && instantMs(fire.completedAt) == null;
+
+/** Where a fire's mark starts: its slot, or for a running fire the moment it actually started. */
+export function fireStartMs(fire) {
+  return fire?.status === 'RUNNING' ? instantMs(fire.startedAt) ?? instantMs(fire.at) : instantMs(fire?.at);
+}
+
+/**
+ * The bar's width in px for a fire: its duration across the axis, 0 when it has none (it is then a diamond). A running
+ * fire on today grows from its start to Now.
+ *
+ * @param {object} fire the served fire
+ * @param {{startMs: number, endMs: number}} axis the day axis
+ * @param {number} plotWidth the plot width in px
+ * @param {{nowMs?: number, isToday?: boolean}} [clock] the clock, for a running fire
+ */
+export function fireWidthPx(fire, axis, plotWidth, { nowMs = 0, isToday = false } = {}) {
+  const span = axis.endMs - axis.startMs;
+  if (growsToNow(fire, isToday)) {
+    return Math.max(0, ((nowMs - instantMs(fire.startedAt)) / span) * plotWidth);
+  }
   const seconds = fireDurationSeconds(fire);
   if (seconds == null) return 0;
-  return (seconds * 1000 / (axis.endMs - axis.startMs)) * plotWidth;
+  return (seconds * 1000 / span) * plotWidth;
 }
 
 /**
@@ -208,33 +242,41 @@ export function fireStatusStyle(status) {
 }
 
 /** A row's mark colour by schedule type: sun-relative gold, cron tide. Whole literals for Tailwind. */
+const NEUTRAL_KIND = { fill: 'fill-plex-text-muted', stroke: 'stroke-plex-text-muted', swatch: 'bg-plex-text-muted' };
 const KIND_STYLES = {
   SOLAR_OFFSET: { fill: 'fill-scheduler-sun', stroke: 'stroke-scheduler-sun', swatch: 'bg-scheduler-sun' },
   CRON: { fill: 'fill-tide', stroke: 'stroke-tide', swatch: 'bg-tide' },
 };
 
-/** The mark colour for a schedule type (a job whose type is unknown reads as cron). */
+/** The mark colour for a schedule type; a job whose type is not (yet) known is drawn neutral, never as cron. */
 export function kindStyle(scheduleType) {
-  return KIND_STYLES[scheduleType] ?? KIND_STYLES.CRON;
+  return KIND_STYLES[scheduleType] ?? NEUTRAL_KIND;
 }
 
 /** Whether a fire is still to come (served {@code SCHEDULED}). */
 export const isFuture = (fire) => fire?.status === 'SCHEDULED';
 
 /**
- * The picture's rows: one per {@code SCHEDULED} job that fires that day (or is paused, which keeps its dashed row),
- * sorted by first fire, then name. The job's schedule type, paused state and Claude flag come from the {@code /jobs}
- * list, which the view already loads.
+ * The picture's rows: one per {@code SCHEDULED} job that fires that day, sorted by first fire, then name. The server
+ * serves no fires for a paused job, so a job the {@code /jobs} list says is paused keeps a row (with a muted "Paused")
+ * whether or not the day lists it; a paused fixed-delay job is repeating, not a row. The job's schedule type, paused
+ * state and Claude flag come from the list, which the view already loads; until it has, rows are neutral.
+ * {@code wouldBe} is where S5b puts a paused job's would-be fires.
  *
  * @param {object|null} day the served day
  * @param {Array<object>} jobs the served jobs list, joined by job key
- * @returns {Array<{jobKey: string, name: string, fires: Array<object>, scheduleType: string|null, paused: boolean,
- *   usesClaude: boolean, alias: string|null}>}
+ * @returns {Array<{jobKey: string, name: string, fires: Array<object>, wouldBe: Array<object>, scheduleType: string|null,
+ *   paused: boolean, usesClaude: boolean, alias: string|null}>}
  */
 export function buildRows(day, jobs) {
-  const byKey = new Map((jobs ?? []).map((job) => [job.jobKey, job]));
-  const rows = (day?.jobs ?? [])
-    .filter((entry) => entry.kind === 'SCHEDULED')
+  const list = jobs ?? [];
+  const byKey = new Map(list.map((job) => [job.jobKey, job]));
+  const entries = (day?.jobs ?? []).filter((entry) => entry.kind === 'SCHEDULED');
+  const known = new Set((day?.jobs ?? []).map((entry) => entry.jobKey));
+  const missing = day == null ? [] : list
+    .filter((job) => job.status === 'PAUSED' && job.scheduleType !== 'FIXED_DELAY' && !known.has(job.jobKey))
+    .map((job) => ({ jobKey: job.jobKey, displayName: job.displayName, fires: [] }));
+  const rows = [...entries, ...missing]
     .map((entry) => {
       const meta = byKey.get(entry.jobKey);
       const fires = [...(entry.fires ?? [])].sort((a, b) => (instantMs(a.at) ?? 0) - (instantMs(b.at) ?? 0));
@@ -242,6 +284,7 @@ export function buildRows(day, jobs) {
         jobKey: entry.jobKey,
         name: entry.displayName,
         fires,
+        wouldBe: [],
         scheduleType: meta?.scheduleType ?? null,
         paused: meta?.status === 'PAUSED',
         usesClaude: meta?.catalogue?.usesClaude === true,
@@ -260,8 +303,8 @@ export function lastHappened(row) {
 }
 
 /**
- * A row label's accessible name: "{name}, last run OK at 01:00, took 55s", with "uses Claude" and "paused". A row with
- * nothing run yet says when it fires next ("next fire 12:27").
+ * A row label's accessible name: "{name}, last run OK at 01:00, took 55s, missed at 04:00, paused, uses Claude, {alias}".
+ * A row with nothing run yet says when it fires next; a row whose only fire was missed says so (never "no fires").
  *
  * @param {object} row a row from {@link buildRows}
  * @returns {string}
@@ -269,15 +312,20 @@ export function lastHappened(row) {
 export function rowAriaLabel(row) {
   const parts = [row.name];
   const last = lastHappened(row);
+  const missed = row.fires.filter((fire) => fire.status === 'MISSED');
   if (last) {
     const took = formatFireDuration(last);
     parts.push(`last run ${fireStatusStyle(last.status).label.toLowerCase()} at ${formatClock(last.at)}${took ? `, took ${took}` : ''}`);
-  } else {
+  }
+  if (missed.length > 0) parts.push(`missed at ${missed.map((fire) => formatClock(fire.at)).join(' and ')}`);
+  if (!last && missed.length === 0) {
     const next = row.fires.find(isFuture);
-    parts.push(next ? `next fire ${formatClock(next.at)}` : 'no fires');
+    if (next) parts.push(`next fire ${formatClock(next.at)}`);
+    else if (!row.paused) parts.push('no fires');
   }
   if (row.paused) parts.push('paused');
   if (row.usesClaude) parts.push('uses Claude');
+  if (row.alias) parts.push(row.alias);
   return parts.join(', ');
 }
 
@@ -307,8 +355,8 @@ const NEEDS_LOOK_STATUSES = ['FAILED', 'PARTIAL', 'MISSED'];
 
 /**
  * "Needs a look": FAILED, PARTIAL and MISSED fires of the scheduled rows, plus the repeating jobs' problems, in time
- * order. The list shows the first {@code limit}; {@code more} is everything beyond them, including the problems the
- * server left out of its own cap ({@code problemsOmitted}).
+ * order. The list shows the newest {@code limit}, oldest of those first; {@code more} is the older ones, including the
+ * problems the server left out of its own cap ({@code problemsOmitted}).
  *
  * @param {object|null} day the served day
  * @param {number} [limit] the most rows shown
@@ -335,7 +383,8 @@ export function needsALook(day, limit = NEEDS_A_LOOK_LIMIT) {
     }
   });
   all.sort((a, b) => (instantMs(a.at) ?? 0) - (instantMs(b.at) ?? 0));
-  const items = all.slice(0, limit);
+  // The newest few, shown oldest first: a day's late failure must not be hidden behind a flood of early ones.
+  const items = all.slice(Math.max(0, all.length - limit));
   return { items, total: all.length + omitted, more: all.length + omitted - items.length };
 }
 

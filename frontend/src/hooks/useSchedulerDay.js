@@ -5,6 +5,9 @@ import { ukDateStr, shiftDateStr } from '../utils/mapDates.js';
 import { DAY_RANGE_DAYS, dayInRange } from '../utils/schedulerDay.js';
 import { dropInvalidDate, isSchedulerHash, readSchedulerQuery, writeSchedulerQuery } from '../utils/schedulerQuery.js';
 
+/** The note shown when midnight moves the oldest day out of the window and the reader is moved on. */
+export const OUTSIDE_WINDOW_NOTE = 'That day is now outside the 7-day window. Showing the oldest day.';
+
 /** The poll period for today's picture, and the tick that advances the Now line and notices midnight. */
 export const DAY_POLL_MS = 30_000;
 
@@ -22,7 +25,7 @@ export const DAY_POLL_MS = 30_000;
  * for a date resets to today too.
  *
  * @param {{current: HTMLElement|null}} rootRef the tab's root, for the hidden-pane check
- * @returns {object} {@code {date, today, isToday, nowMs, data, loading, error, canPrev, canNext, goPrev, goNext,
+ * @returns {object} {@code {date, today, isToday, nowMs, data, loading, error, notice, canPrev, canNext, goPrev, goNext,
  *   goToday, reload}}; {@code data} is null until the answer for the viewed day has arrived
  */
 export default function useSchedulerDay(rootRef) {
@@ -31,11 +34,26 @@ export default function useSchedulerDay(rootRef) {
   const [error, setError] = useState(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [tick, setTick] = useState(() => Date.now());
+  const [notice, setNotice] = useState(null);
   const request = useRef(0);
   const loadedOnce = useRef(false);
 
   const clockMs = tick + offsetMs;
   const today = ukDateStr(new Date(clockMs));
+
+  // Midnight (state adjusted while rendering, the pattern React documents for state that follows a value): the window
+  // moves a day. A reader on what was the oldest day is not silently sent to today: they move to the new oldest day,
+  // with a note. A stale error belongs to the old day, so the loading text can show for the new one.
+  const [seenToday, setSeenToday] = useState(today);
+  if (seenToday !== today) {
+    setSeenToday(today);
+    setError(null);
+    const oldest = shiftDateStr(today, -DAY_RANGE_DAYS);
+    if (chosen != null && chosen < oldest && dayInRange(chosen, seenToday)) {
+      setDate(oldest);
+      setNotice(OUTSIDE_WINDOW_NOTE);
+    }
+  }
   // An explicit date that is today (it is written out of the address), or outside the navigation's reach, is today.
   const date = chosen != null && chosen !== today && dayInRange(chosen, today) ? chosen : null;
   const following = date == null;
@@ -116,13 +134,22 @@ export default function useSchedulerDay(rootRef) {
     if (rolledOver) refresh();
   }, [rolledOver, tick, refresh]);
 
+  // The address follows a move made at midnight.
+  useEffect(() => {
+    if (notice != null && date != null) writeSchedulerQuery({ date });
+  }, [notice, date]);
+
   const goTo = useCallback((target) => {
     const next = target === today ? null : target;
     writeSchedulerQuery({ date: next });
+    setNotice(null);
+    // The old day's error is not this day's: let its loading text show.
+    setError(null);
     setDate(next);
   }, [today]);
 
-  const fresh = data != null && (following ? data.isToday === true : data.date === date);
+  // A reader following today needs the answer for the UK day it is now, not the one that has just ended.
+  const fresh = data != null && (following ? data.isToday === true && data.date === today : data.date === date);
   const canPrev = viewDate > shiftDateStr(today, -DAY_RANGE_DAYS);
   const canNext = viewDate < shiftDateStr(today, DAY_RANGE_DAYS);
 
@@ -134,11 +161,12 @@ export default function useSchedulerDay(rootRef) {
     data: fresh ? data : null,
     loading: !fresh && error == null,
     error,
+    notice,
     canPrev,
     canNext,
     goPrev: () => canPrev && goTo(shiftDateStr(viewDate, -1)),
     goNext: () => canNext && goTo(shiftDateStr(viewDate, 1)),
     goToday: () => goTo(today),
-    reload: () => (following ? refresh() : load(date)),
+    reload: () => load(date),
   };
 }

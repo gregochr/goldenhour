@@ -27,7 +27,7 @@ vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
 
 import {
-  fetchSchedulerDay, fetchSchedulerJobs, fetchSchedulerSummary, fetchJobDetail, fetchSolarPreview,
+  fetchSchedulerDay, fetchSchedulerJobs, fetchSchedulerSummary, fetchJobDetail, fetchSolarPreview, pauseJob,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
@@ -182,9 +182,11 @@ describe('the Day picture', () => {
     });
     await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
     expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('data-future', 'false');
-    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`)).toHaveAttribute('opacity', '1');
+    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`)).not.toHaveAttribute('fill-opacity');
     expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-1`)).toHaveAttribute('data-future', 'true');
-    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-1`)).toHaveAttribute('opacity', '0.3');
+    // Only the fill is faded to 30%; the outline stays at full strength (no opacity on the whole mark).
+    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-1`)).toHaveAttribute('fill-opacity', '0.3');
+    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-1`)).not.toHaveAttribute('opacity');
   });
 
   it('colours a sun-relative row with the sun token and a cron row with tide', async () => {
@@ -212,7 +214,8 @@ describe('the Day picture', () => {
 
   it('keeps a paused job\'s row even when it has no fires that day', async () => {
     mount({ jobs: [solarJob({ status: 'PAUSED' }), TIDE], day: dayData({ jobs: [dayJob({ fires: [] })] }) });
-    expect(await screen.findByTestId(`scheduler-row-${NIGHTLY}`)).toHaveAccessibleName('Nightly batch evaluation, no fires, paused');
+    expect(await screen.findByTestId(`scheduler-row-${NIGHTLY}`)).toHaveAccessibleName('Nightly batch evaluation, paused');
+    expect(screen.getByTestId(`scheduler-paused-${NIGHTLY}`)).toHaveTextContent('Paused');
   });
 
   it('puts a gold £ after a Claude job\'s name and only there', async () => {
@@ -230,7 +233,7 @@ describe('the Day picture', () => {
     const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
     expect(row).toHaveAttribute('role', 'button');
     expect(row).toHaveAttribute('tabindex', '0');
-    expect(row).toHaveAccessibleName('Nightly batch evaluation, last run ok at 01:00, took 55s, uses Claude');
+    expect(row).toHaveAccessibleName('Nightly batch evaluation, last run ok at 01:00, took 55s, uses Claude, The main one');
     expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('aria-hidden', 'true');
   });
 });
@@ -293,6 +296,13 @@ describe('opening a job from the picture', () => {
     const again = screen.getByTestId(`scheduler-row-${NIGHTLY}`);
     fireEvent.keyDown(again, { key: ' ' });
     expect(await screen.findByTestId('scheduler-panel')).toBeInTheDocument();
+  });
+
+  it('opens the panel when a row label is clicked', async () => {
+    mount();
+    fireEvent.click(await screen.findByTestId(`scheduler-row-${NIGHTLY}`));
+    expect(await screen.findByTestId('scheduler-panel')).toBeInTheDocument();
+    expect(window.location.hash).toContain(`#manage/scheduler/${NIGHTLY}`);
   });
 
   it('opens the panel when a row label or a mark is clicked', async () => {
@@ -495,19 +505,19 @@ describe('Needs a look', () => {
     expect(screen.queryByTestId('scheduler-look')).not.toBeInTheDocument();
   });
 
-  it('includes the repeating jobs\' problems, shows eight, and says "and n more" with the server\'s omitted ones', async () => {
+  it('includes the repeating jobs\' problems, shows the eight newest, and says "and n earlier" with the server\'s omitted ones', async () => {
     mount({
       day: dayData({ jobs: [dayJob(), dayRepeatingJob({ problems: problems(9), problemsOmitted: 41 })] }),
     });
     expect(await screen.findByTestId('scheduler-look')).toHaveTextContent('Needs a look · 50');
     expect(screen.getAllByTestId(/^scheduler-look-\d+$/)).toHaveLength(8);
     expect(screen.getByTestId('scheduler-look-open-0')).toHaveTextContent('Aurora Polling');
-    expect(screen.getByTestId('scheduler-look-more')).toHaveTextContent('and 42 more');
+    expect(screen.getByTestId('scheduler-look-more')).toHaveTextContent('and 42 earlier');
   });
 
-  it('says "and 2 more" for ten problems', async () => {
+  it('says "and 2 earlier" for ten problems', async () => {
     mount({ day: dayData({ jobs: [dayRepeatingJob({ problems: problems(10) })] }) });
-    expect(await screen.findByTestId('scheduler-look-more')).toHaveTextContent('and 2 more');
+    expect(await screen.findByTestId('scheduler-look-more')).toHaveTextContent('and 2 earlier');
   });
 
   it('opens a job\'s panel from its row by keyboard, repeating jobs included', async () => {
@@ -694,16 +704,16 @@ describe('the states', () => {
     expect(screen.queryByTestId('scheduler-day-picture')).not.toBeInTheDocument();
   });
 
-  it('shows an error when the day cannot be read, and recovers on the next read', async () => {
+  it('shows an error when the day cannot be read, and recovers on the next 30 second poll of today', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date(NOON));
     fetchSchedulerJobs.mockResolvedValue(JOBS);
     fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
-    fetchSchedulerDay.mockRejectedValue(new Error('down'));
+    fetchSchedulerDay.mockRejectedValueOnce(new Error('down')).mockResolvedValue(dayData());
     render(<SchedulerView />);
     expect(await screen.findByTestId('scheduler-day-error')).toHaveTextContent('Failed to load the day');
     expect(screen.queryByTestId('scheduler-day-loading')).not.toBeInTheDocument();
-    // The next read (the 30 second poll, here the previous-day button) succeeds and the banner goes.
-    fetchSchedulerDay.mockResolvedValue(otherDay('2026-11-02'));
-    clickPrev();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(await screen.findByTestId('scheduler-day-picture')).toBeInTheDocument();
     expect(screen.queryByTestId('scheduler-day-error')).not.toBeInTheDocument();
   });
@@ -770,5 +780,432 @@ describe('on a phone, and on the desktop it must leave alone', () => {
     expect(screen.getByTestId('scheduler-day-labels')).not.toHaveClass('sticky');
     expect(screen.getByTestId('scheduler-day-labels')).toHaveClass('w-[200px]');
     expect(screen.getByTestId('scheduler-day-scroller')).not.toHaveClass('rounded-lg');
+  });
+});
+
+/** Pins Date and the interval timers only, so waitFor and the promises keep running. */
+function pinClock(iso = NOON) {
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  vi.setSystemTime(new Date(iso));
+}
+const tickBy = (ms) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+describe('a failed or late job list on the Day tab', () => {
+  it('shows the jobs error banner, with the rows neutral (no solar or cron colour, no £)', async () => {
+    fetchSchedulerJobs.mockRejectedValue(new Error('down'));
+    fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
+    fetchSchedulerDay.mockResolvedValue(dayData());
+    render(<SchedulerView />);
+    expect(await screen.findByTestId('scheduler-error')).toHaveTextContent('Failed to load scheduler jobs');
+    await screen.findByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    const mark = screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    expect(mark).toHaveClass('fill-plex-text-muted');
+    expect(mark).not.toHaveClass('fill-tide');
+    expect(mark).not.toHaveClass('fill-scheduler-sun');
+    expect(screen.queryByTestId(`scheduler-pound-${NIGHTLY}`)).not.toBeInTheDocument();
+  });
+
+  it('says "Couldn\'t load job details." on a row click when the list failed, and leaves the address clean', async () => {
+    fetchSchedulerJobs.mockRejectedValue(new Error('down'));
+    fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
+    fetchSchedulerDay.mockResolvedValue(dayData());
+    render(<SchedulerView />);
+    fireEvent.click(await screen.findByTestId(`scheduler-row-${NIGHTLY}`));
+    expect(await screen.findByText('Couldn\'t load job details.')).toBeInTheDocument();
+    expect(screen.queryByTestId('scheduler-panel')).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('#manage/scheduler?view=day');
+  });
+
+  it('cleans up the address when a panel was asked for before the list loaded and the list then failed', async () => {
+    window.location.hash = `#manage/scheduler/${NIGHTLY}?view=day`;
+    fetchSchedulerJobs.mockRejectedValue(new Error('down'));
+    fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
+    fetchSchedulerDay.mockResolvedValue(dayData());
+    render(<SchedulerView />);
+    await waitFor(() => expect(window.location.hash).toBe('#manage/scheduler?view=day'));
+    expect(await screen.findByText('Couldn\'t load job details.')).toBeInTheDocument();
+  });
+
+  it('draws neutral until the list arrives, opens the panel for a row pressed meanwhile, and then colours the rows', async () => {
+    let arrive;
+    fetchSchedulerJobs.mockReturnValue(new Promise((resolve) => { arrive = resolve; }));
+    fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
+    fetchSchedulerDay.mockResolvedValue(dayData());
+    render(<SchedulerView />);
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`)).toHaveClass('fill-plex-text-muted');
+    expect(screen.queryByTestId(`scheduler-pound-${NIGHTLY}`)).not.toBeInTheDocument();
+    fireEvent.click(row);
+    expect(screen.queryByTestId('scheduler-panel')).not.toBeInTheDocument();
+    expect(window.location.hash).toContain(`#manage/scheduler/${NIGHTLY}`);
+    await act(async () => { arrive(JOBS); });
+    expect(await screen.findByTestId('scheduler-panel')).toBeInTheDocument();
+    expect(screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`)).toHaveClass('fill-scheduler-sun');
+    expect(screen.getByTestId(`scheduler-pound-${NIGHTLY}`)).toBeInTheDocument();
+  });
+});
+
+describe('the day is re-read after a change to a job', () => {
+  it('re-reads today\'s day after a pause from the panel', async () => {
+    pauseJob.mockResolvedValue({});
+    mount();
+    fireEvent.click(await screen.findByTestId(`scheduler-row-${NIGHTLY}`));
+    await screen.findByTestId('scheduler-panel');
+    const before = fetchSchedulerDay.mock.calls.length;
+    fireEvent.click(screen.getByTestId(`pause-btn-${NIGHTLY}`));
+    await waitFor(() => expect(pauseJob).toHaveBeenCalledWith(NIGHTLY));
+    await waitFor(() => expect(fetchSchedulerDay.mock.calls.length).toBeGreaterThan(before));
+    expect(fetchSchedulerDay).toHaveBeenLastCalledWith(null);
+  });
+
+  it('re-reads another date\'s day too, for that date', async () => {
+    pauseJob.mockResolvedValue({});
+    pinClock();
+    window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
+    mount({ day: otherDay('2026-11-02') });
+    fireEvent.click(await screen.findByTestId(`scheduler-row-${NIGHTLY}`));
+    await screen.findByTestId('scheduler-panel');
+    const before = fetchSchedulerDay.mock.calls.length;
+    fireEvent.click(screen.getByTestId(`pause-btn-${NIGHTLY}`));
+    await waitFor(() => expect(fetchSchedulerDay.mock.calls.length).toBeGreaterThan(before));
+    expect(fetchSchedulerDay).toHaveBeenLastCalledWith('2026-11-02');
+  });
+});
+
+describe('a paused job\'s row', () => {
+  it('shows a muted "Paused" in its plot and says paused in its name, for a day that lists it with no fires', async () => {
+    mount({ jobs: [solarJob({ status: 'PAUSED' }), TIDE], day: dayData({ jobs: [dayJob({ fires: [] })] }) });
+    expect(await screen.findByTestId(`scheduler-paused-${NIGHTLY}`)).toHaveTextContent('Paused');
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveAccessibleName(/paused/);
+    expect(screen.queryByTestId(`scheduler-fire-${NIGHTLY}-0`)).not.toBeInTheDocument();
+  });
+
+  it('keeps the row when the server leaves a paused job out of the day altogether', async () => {
+    mount({
+      jobs: [solarJob({ status: 'PAUSED' }), TIDE],
+      day: dayData({ jobs: [dayJob({ jobKey: 'tide_refresh', displayName: 'Tide Refresh' })] }),
+    });
+    expect(await screen.findByTestId(`scheduler-paused-${NIGHTLY}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveTextContent('Nightly batch evaluation');
+    expect(screen.getByTestId('scheduler-row-tide_refresh')).toBeInTheDocument();
+  });
+
+  it('draws no "Paused" word on a running job\'s row', async () => {
+    mount();
+    await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    expect(screen.queryByTestId(`scheduler-paused-${NIGHTLY}`)).not.toBeInTheDocument();
+  });
+});
+
+describe('Needs a look keeps the newest', () => {
+  it('keeps an 18:00 failure after twenty earlier poller failures, in ascending order, and counts the rest as earlier', async () => {
+    const poller = dayRepeatingJob({
+      problems: Array.from({ length: 20 }, (_, i) => ({ status: 'FAILED', at: `2026-11-03T${String(i % 17 + 1).padStart(2, '0')}:10:00Z`, summary: `poll ${i}` })),
+    });
+    const evening = dayJob({ jobKey: 'tide_refresh', displayName: 'Evening job', fires: [dayFire({ at: '2026-11-03T18:00:00Z', status: 'FAILED', summary: 'late failure' })] });
+    mount({ day: dayData({ jobs: [poller, evening] }) });
+    await screen.findByTestId('scheduler-look');
+    expect(screen.getAllByTestId(/^scheduler-look-\d+$/)).toHaveLength(8);
+    expect(screen.getByTestId('scheduler-look-summary-7')).toHaveTextContent('late failure');
+    expect(screen.getByTestId('scheduler-look-time-0').textContent <= screen.getByTestId('scheduler-look-time-7').textContent).toBe(true);
+    expect(screen.getByTestId('scheduler-look-more')).toHaveTextContent('and 13 earlier');
+  });
+});
+
+describe('mark geometry in the picture', () => {
+  it('keeps the status dot inside the plot for a bar that ends near the right edge, and flips the time to its left', async () => {
+    mount({
+      day: dayData({
+        jobs: [dayJob({ fires: [dayFire({ at: '2026-11-03T23:00:00Z', startedAt: '2026-11-03T23:00:00Z', completedAt: '2026-11-03T23:59:00Z' })] })],
+      }),
+    });
+    const dot = await screen.findByTestId(`scheduler-dot-${NIGHTLY}-0`);
+    expect(Number(dot.getAttribute('cx'))).toBeLessThanOrEqual(MIN_PLOT_WIDTH - 3.5);
+    expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('data-shape', 'bar');
+    expect(screen.getByTestId(`scheduler-time-${NIGHTLY}-0`)).toHaveAttribute('text-anchor', 'end');
+  });
+
+  it('keeps the time to the right of an early mark', async () => {
+    mount();
+    expect(await screen.findByTestId(`scheduler-time-${NIGHTLY}-0`)).toHaveAttribute('text-anchor', 'start');
+  });
+
+  it('draws both fires of a crowded pair as ticks, and a bar that would overlap its next fire and that fire as ticks', async () => {
+    mount({
+      day: dayData({
+        jobs: [
+          dayJob({ fires: [dayFire({ at: '2026-11-03T04:00:00Z' }), dayFire({ at: '2026-11-03T04:00:30Z' })] }),
+          dayJob({
+            jobKey: 'tide_refresh',
+            displayName: 'Tide Refresh',
+            fires: [
+              dayFire({ at: '2026-11-03T05:00:00Z', startedAt: '2026-11-03T05:00:00Z', completedAt: '2026-11-03T07:00:00Z' }),
+              dayFire({ at: '2026-11-03T06:00:00Z' }),
+            ],
+          }),
+        ],
+      }),
+    });
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('data-shape', 'tick');
+    expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-1`)).toHaveAttribute('data-shape', 'tick');
+    expect(screen.getByTestId('scheduler-fire-tide_refresh-0')).toHaveAttribute('data-shape', 'tick');
+    expect(screen.getByTestId('scheduler-fire-tide_refresh-1')).toHaveAttribute('data-shape', 'tick');
+  });
+
+  it('draws a missed fire as a dashed outline with a hollow coral dot, so it does not look like a run', async () => {
+    mount({ day: dayData({ jobs: [dayJob({ fires: [dayFire({ at: '2026-11-03T04:00:00Z', status: 'MISSED', startedAt: null, completedAt: null })] })] }) });
+    const mark = await screen.findByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    expect(mark).toHaveClass('fill-none');
+    expect(mark).toHaveAttribute('stroke-dasharray', '2 2');
+    expect(screen.getByTestId(`scheduler-dot-${NIGHTLY}-0`)).toHaveClass('fill-transparent', 'stroke-plex-coral');
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveAccessibleName(/missed at 04:00/);
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).not.toHaveAccessibleName(/no fires/);
+  });
+
+  it('draws a running fire on today as a bar growing from its start to Now', async () => {
+    mount({
+      day: dayData({
+        jobs: [dayJob({ fires: [dayFire({ at: '2026-11-03T08:00:00Z', startedAt: '2026-11-03T08:00:00Z', completedAt: null, status: 'RUNNING' })] })],
+      }),
+    });
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('data-shape', 'bar');
+    const mark = screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    // 08:00 to 12:00 is a sixth of the day: 60px of the 360px plot.
+    expect(Number(mark.getAttribute('width'))).toBeCloseTo(60, 0);
+  });
+
+  it('draws a running fire on another day as a diamond (Now is not on that axis)', async () => {
+    window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
+    mount({
+      day: otherDay('2026-11-02', {
+        jobs: [dayJob({ fires: [dayFire({ at: '2026-11-02T08:00:00Z', startedAt: '2026-11-02T08:00:00Z', completedAt: null, status: 'RUNNING' })] })],
+      }),
+    });
+    expect(await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`)).toHaveAttribute('data-shape', 'diamond');
+  });
+
+  it('hides the whole SVG from assistive technology', async () => {
+    mount();
+    expect(await screen.findByTestId('scheduler-day-svg')).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+describe('the "missed" dot', () => {
+  it('is the coral ring the legend shows in the summary bar and in Needs a look, not the grey dashed "to run" ring', async () => {
+    mount({ day: dayData({ jobs: [dayJob({ fires: [dayFire({ at: '2026-11-03T04:00:00Z', status: 'MISSED', startedAt: null, completedAt: null, summary: 'never fired' })] })] }) });
+    const summaryDot = (await screen.findByTestId('scheduler-day-count-missed')).querySelector('span[aria-hidden="true"]');
+    expect(summaryDot).toHaveClass('border-plex-coral');
+    expect(summaryDot).not.toHaveClass('border-dashed');
+    const lookDot = screen.getByTestId('scheduler-look-0').querySelector('span[aria-hidden="true"]');
+    expect(lookDot).toHaveClass('border-plex-coral');
+    expect(lookDot).not.toHaveClass('border-dashed');
+  });
+});
+
+describe('midnight', () => {
+  it('shows loading rather than yesterday\'s picture for a follower once the day has ended and the new day has not arrived', async () => {
+    pinClock('2026-11-03T23:59:00Z');
+    mount({ day: dayData({ now: '2026-11-03T23:59:00Z' }) });
+    await screen.findByTestId('scheduler-day-picture');
+    fetchSchedulerDay.mockReturnValue(new Promise(() => {}));
+    await tickBy(60_000);
+    expect(screen.getByTestId('scheduler-day-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('scheduler-day-picture')).not.toBeInTheDocument();
+  });
+
+  it('moves a reader on the oldest day to the new oldest day with a note, not silently to today', async () => {
+    pinClock('2026-11-03T23:59:00Z');
+    window.location.hash = '#manage/scheduler?view=day&date=2026-10-27';
+    mount({ day: otherDay('2026-10-27', { now: '2026-11-03T23:59:00Z' }) });
+    await screen.findByTestId('scheduler-day-label');
+    expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('Tue 27 Oct');
+    fetchSchedulerDay.mockResolvedValue(otherDay('2026-10-28', { now: '2026-11-04T00:00:30Z' }));
+    await tickBy(60_000);
+    await waitFor(() => expect(fetchSchedulerDay).toHaveBeenLastCalledWith('2026-10-28'));
+    await waitFor(() => expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('Wed 28 Oct'));
+    expect(screen.getByTestId('scheduler-day-notice')).toHaveTextContent('That day is now outside the 7-day window.');
+    expect(window.location.hash).toBe('#manage/scheduler?view=day&date=2026-10-28');
+    // Moving on by hand clears the note.
+    fireEvent.click(screen.getByTestId('scheduler-day-next'));
+    expect(screen.queryByTestId('scheduler-day-notice')).not.toBeInTheDocument();
+  });
+
+  it('clears an old day\'s error when another day starts loading, so the loading text shows', async () => {
+    fetchSchedulerJobs.mockResolvedValue(JOBS);
+    fetchSchedulerSummary.mockResolvedValue(summaryFor(JOBS));
+    fetchSchedulerDay.mockRejectedValue(new Error('down'));
+    render(<SchedulerView />);
+    await screen.findByTestId('scheduler-day-error');
+    fetchSchedulerDay.mockReturnValue(new Promise(() => {}));
+    clickPrev();
+    expect(await screen.findByTestId('scheduler-day-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('scheduler-day-error')).not.toBeInTheDocument();
+  });
+});
+
+describe('focus', () => {
+  beforeEach(() => {
+    fetchSchedulerDay.mockImplementation(async (date) => (date ? otherDay(date) : dayData()));
+  });
+
+  it('moves focus to the date when the Today button disables itself', async () => {
+    pinClock();
+    window.location.hash = '#manage/scheduler?view=day&date=2026-10-30';
+    mount({ day: otherDay('2026-10-30') });
+    await screen.findByTestId('scheduler-day-picture');
+    const today = screen.getByTestId('scheduler-day-today');
+    today.focus();
+    fireEvent.click(today);
+    await waitFor(() => expect(screen.getByTestId('scheduler-day-today')).toBeDisabled());
+    expect(screen.getByTestId('scheduler-day-label')).toHaveFocus();
+  });
+
+  it('moves focus to the date when an edge arrow disables itself', async () => {
+    pinClock();
+    window.location.hash = '#manage/scheduler?view=day&date=2026-10-28';
+    mount({ day: otherDay('2026-10-28') });
+    await screen.findByTestId('scheduler-day-picture');
+    const prev = screen.getByTestId('scheduler-day-prev');
+    prev.focus();
+    fireEvent.click(prev);
+    await waitFor(() => expect(screen.getByTestId('scheduler-day-prev')).toBeDisabled());
+    expect(screen.getByTestId('scheduler-day-label')).toHaveFocus();
+  });
+
+  it('leaves focus on an arrow that stays enabled', async () => {
+    pinClock();
+    mount();
+    await screen.findByTestId('scheduler-day-picture');
+    const prev = screen.getByTestId('scheduler-day-prev');
+    prev.focus();
+    fireEvent.click(prev);
+    await waitFor(() => expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('Yesterday'));
+    expect(screen.getByTestId('scheduler-day-prev')).toHaveFocus();
+  });
+
+  const FAILED_DAY = dayData({ jobs: [dayJob({ fires: [dayFire({ status: 'FAILED', summary: 'x' })] })] });
+
+  it('returns focus to the Needs a look row that opened the panel', async () => {
+    mount({ day: FAILED_DAY });
+    const open = await screen.findByTestId('scheduler-look-open-0');
+    open.focus();
+    fireEvent.click(open);
+    await screen.findByTestId('scheduler-panel');
+    fireEvent.click(screen.getByTestId('scheduler-panel-close'));
+    await waitFor(() => expect(screen.queryByTestId('scheduler-panel')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('scheduler-look-open-0')).toHaveFocus());
+  });
+
+  it('returns focus to the Not on this day item that opened the panel', async () => {
+    mount({ day: dayData({ notOnThisDay: [{ jobKey: 'aurora_polling', displayName: 'Aurora Polling', nextFireAt: null }] }) });
+    const item = within(await screen.findByTestId('scheduler-not-on-day-aurora_polling')).getByRole('button');
+    item.focus();
+    fireEvent.click(item);
+    await screen.findByTestId('scheduler-panel');
+    fireEvent.click(screen.getByTestId('scheduler-panel-close'));
+    await waitFor(() => expect(within(screen.getByTestId('scheduler-not-on-day-aurora_polling')).getByRole('button')).toHaveFocus());
+  });
+
+  it('returns focus to the row label that opened the panel', async () => {
+    mount();
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await screen.findByTestId('scheduler-panel');
+    fireEvent.click(screen.getByTestId('scheduler-panel-close'));
+    await waitFor(() => expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveFocus());
+  });
+
+  it('falls back to the heading when the control that opened the panel no longer exists', async () => {
+    pinClock();
+    mount({ day: FAILED_DAY });
+    const open = await screen.findByTestId('scheduler-look-open-0');
+    open.focus();
+    fireEvent.click(open);
+    await screen.findByTestId('scheduler-panel');
+    // The next poll finds the failure gone (a rerun succeeded): the Needs a look row, and its button, are removed.
+    fetchSchedulerDay.mockImplementation(async () => dayData());
+    await tickBy(30_000);
+    await waitFor(() => expect(screen.queryByTestId('scheduler-look')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('scheduler-panel-close'));
+    await waitFor(() => expect(screen.getByTestId('scheduler-heading')).toHaveFocus());
+  });
+});
+
+describe('the tab sub-label follows the address', () => {
+  it('labels the Day tab with the date in the hash even while All jobs is showing', async () => {
+    pinClock();
+    window.location.hash = '#manage/scheduler?view=all&date=2026-10-30';
+    mount();
+    await screen.findByTestId('scheduler-all-jobs');
+    expect(screen.getByTestId('scheduler-tab-day-word')).toHaveTextContent('Fri 30 Oct');
+  });
+
+  it('says Today for an out-of-range or absent date, and follows a change of the address', async () => {
+    pinClock();
+    window.location.hash = '#manage/scheduler?view=all&date=2026-12-25';
+    mount();
+    await screen.findByTestId('scheduler-all-jobs');
+    expect(screen.getByTestId('scheduler-tab-day-word')).toHaveTextContent('Today');
+    act(() => { window.location.hash = '#manage/scheduler?view=all&date=2026-11-04'; });
+    await waitFor(() => expect(screen.getByTestId('scheduler-tab-day-word')).toHaveTextContent('Tomorrow'));
+  });
+});
+
+describe('a real phone on the default Day tab', () => {
+  beforeEach(() => {
+    useIsMobile.mockReturnValue(true);
+    useIsSplitLayout.mockReturnValue(false);
+    window.location.hash = '#manage/scheduler';
+  });
+
+  it('draws every row label at least 44px tall and spaces the SVG rows 44px apart', async () => {
+    mount({ day: dayData({ jobs: [dayJob(), dayJob({ jobKey: 'tide_refresh', displayName: 'Tide Refresh' })] }) });
+    await screen.findByTestId('scheduler-day-picture');
+    ['scheduler-row-' + NIGHTLY, 'scheduler-row-tide_refresh'].forEach((id) => {
+      expect(screen.getByTestId(id)).toHaveClass('h-11');
+      expect(screen.getByTestId(id)).not.toHaveClass('h-6');
+    });
+    expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('height'))).toBe(36 + 2 * 44 + 24);
+  });
+
+  it('keeps 24px rows on a desktop', async () => {
+    useIsMobile.mockReturnValue(false);
+    mount({ day: dayData({ jobs: [dayJob(), dayJob({ jobKey: 'tide_refresh', displayName: 'Tide Refresh' })] }) });
+    await screen.findByTestId('scheduler-day-picture');
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveClass('h-6');
+    expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('height'))).toBe(36 + 2 * 24 + 24);
+  });
+
+  it('opens the full-page panel from a row, and Back returns to the picture with focus on that row', async () => {
+    mount();
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    row.focus();
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(await screen.findByTestId('scheduler-split-backbar')).toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-split-list')).toHaveAttribute('hidden');
+    expect(screen.queryByTestId('scheduler-split-scrim')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('scheduler-split-back'));
+    await waitFor(() => expect(screen.queryByTestId('scheduler-panel')).not.toBeInTheDocument());
+    expect(screen.getByTestId('scheduler-split-list')).not.toHaveAttribute('hidden');
+    expect(screen.getByTestId('scheduler-day-picture')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveFocus());
+  });
+
+  it('skips the poll while the picture is hidden behind the panel, and refreshes again once it is visible', async () => {
+    pinClock();
+    mount();
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    fireEvent.keyDown(row, { key: 'Enter' });
+    await screen.findByTestId('scheduler-split-backbar');
+    const calls = fetchSchedulerDay.mock.calls.length;
+    await tickBy(90_000);
+    expect(fetchSchedulerDay.mock.calls.length).toBe(calls);
+    fireEvent.click(screen.getByTestId('scheduler-split-back'));
+    await waitFor(() => expect(screen.queryByTestId('scheduler-panel')).not.toBeInTheDocument());
+    await tickBy(30_000);
+    expect(fetchSchedulerDay.mock.calls.length).toBeGreaterThan(calls);
   });
 });

@@ -7,6 +7,7 @@ import {
   dayWord,
   fireDurationSeconds,
   fireStatusStyle,
+  fireStartMs,
   fireWidthPx,
   formatFireDuration,
   gridlines,
@@ -17,6 +18,7 @@ import {
   onAxis,
   repeatingShape,
   rowAriaLabel,
+  rowHeightFor,
   runsLinkLabel,
   summaryCounts,
   timeToX,
@@ -151,10 +153,25 @@ describe('the mark thresholds', () => {
     expect(markShape({ widthPx: 40 })).toBe('bar');
   });
 
-  it('draws a mark closer than 3px to its neighbour as a tick, whatever its width', () => {
-    expect(markShape({ widthPx: 0, gapPx: 2.9 })).toBe('tick');
-    expect(markShape({ widthPx: 30, gapPx: 2 })).toBe('tick');
-    expect(markShape({ widthPx: 0, gapPx: 3 })).toBe('diamond');
+  it('draws a mark closer than 3px to its next neighbour as a tick, whatever its width', () => {
+    expect(markShape({ widthPx: 0, gapNextPx: 2.9 })).toBe('tick');
+    expect(markShape({ widthPx: 30, gapNextPx: 2 })).toBe('tick');
+    expect(markShape({ widthPx: 0, gapNextPx: 3 })).toBe('diamond');
+  });
+
+  it('draws a bar that would overlap its next neighbour as a tick', () => {
+    expect(markShape({ widthPx: 30, gapNextPx: 20 })).toBe('tick');
+    expect(markShape({ widthPx: 30, gapNextPx: 30 })).toBe('bar');
+  });
+
+  it('draws the last fire of a crowded pair as a tick too: its previous neighbour is too close or reaches it', () => {
+    // Two fires 2px apart: both ticks.
+    expect(markShape({ widthPx: 0, gapNextPx: 2 })).toBe('tick');
+    expect(markShape({ widthPx: 0, gapPrevPx: 2 })).toBe('tick');
+    // A 30px bar then a fire 20px after it: the bar and the second are both ticks.
+    expect(markShape({ widthPx: 30, gapNextPx: 20 })).toBe('tick');
+    expect(markShape({ widthPx: 0, gapPrevPx: 20, prevWidthPx: 30 })).toBe('tick');
+    expect(markShape({ widthPx: 0, gapPrevPx: 40, prevWidthPx: 30 })).toBe('diamond');
   });
 
   it('splits a repeating row into ticks or one band at 3px', () => {
@@ -201,7 +218,12 @@ describe('status and kind styles', () => {
   it('colours sun-relative jobs with the sun token and the rest as cron (tide)', () => {
     expect(kindStyle('SOLAR_OFFSET').fill).toBe('fill-scheduler-sun');
     expect(kindStyle('CRON').fill).toBe('fill-tide');
-    expect(kindStyle(undefined).fill).toBe('fill-tide');
+  });
+
+  it('draws a job whose type is not known (the list has not loaded) neutral, never as cron', () => {
+    expect(kindStyle(undefined).fill).toBe('fill-plex-text-muted');
+    expect(kindStyle(null).stroke).toBe('stroke-plex-text-muted');
+    expect(kindStyle('NOPE').fill).not.toBe('fill-tide');
   });
 });
 
@@ -230,6 +252,25 @@ describe('buildRows', () => {
       jobs: [dayJob({ jobKey: 'a_job', fires: [] }), dayJob({ jobKey: 'b_job', fires: [] })],
     });
     expect(buildRows(day, jobs).map((r) => r.jobKey)).toEqual(['b_job']);
+  });
+
+  it('keeps a paused job the day does not list at all (the server serves a paused job nothing), with a hook for would-be fires', () => {
+    const rows = buildRows(dayData({ jobs: [dayJob({ jobKey: 'a_job', displayName: 'A job' })] }), [
+      ...jobs,
+      { jobKey: 'weekly', displayName: 'Weekly thing', scheduleType: 'CRON', status: 'PAUSED', catalogue: null },
+      { jobKey: 'poller', displayName: 'Poller', scheduleType: 'FIXED_DELAY', status: 'PAUSED', catalogue: null },
+    ]);
+    expect(rows.map((r) => r.jobKey).sort()).toEqual(['a_job', 'b_job', 'weekly']);
+    expect(rows.find((r) => r.jobKey === 'weekly')).toMatchObject({ name: 'Weekly thing', fires: [], wouldBe: [], paused: true });
+  });
+
+  it('makes no rows from the list alone before the day has loaded', () => {
+    expect(buildRows(null, jobs)).toEqual([]);
+  });
+
+  it('has no schedule type, colour source or £ for a job before the list has loaded', () => {
+    const [row] = buildRows(dayData(), []);
+    expect(row).toMatchObject({ scheduleType: null, usesClaude: false, paused: false });
   });
 
   it('sorts a job\'s own fires by time and copes with a job the list does not know', () => {
@@ -267,6 +308,18 @@ describe('rowAriaLabel', () => {
     });
     expect(label).toBe('Tide Refresh, next fire 14:00, paused, uses Claude');
     expect(rowAriaLabel({ ...base, fires: [] })).toBe('Tide Refresh, no fires');
+    expect(rowAriaLabel({ ...base, paused: true, fires: [] })).toBe('Tide Refresh, paused');
+  });
+
+  it('ends with the job\'s alias', () => {
+    expect(rowAriaLabel({ ...base, usesClaude: true, alias: 'The tide fetch', fires: [] })).toBe('Tide Refresh, no fires, uses Claude, The tide fetch');
+  });
+
+  it('names a missed fire: after the last run, or alone when it is the only fire (never "no fires")', () => {
+    const missed = dayFire({ at: '2026-11-03T04:00:00Z', status: 'MISSED', startedAt: null, completedAt: null });
+    expect(rowAriaLabel({ ...base, fires: [dayFire({ at: '2026-11-03T01:00:00Z' }), missed] }))
+      .toBe('Tide Refresh, last run ok at 01:00, took 55s, missed at 04:00');
+    expect(rowAriaLabel({ ...base, fires: [missed] })).toBe('Tide Refresh, missed at 04:00');
   });
 });
 
@@ -309,12 +362,24 @@ describe('needsALook', () => {
     expect([total, more]).toEqual([3, 0]);
   });
 
-  it('shows at most eight and counts the rest, including problems the server left out', () => {
+  it('shows the eight newest and counts the older ones, including problems the server left out', () => {
     const many = dayRepeatingJob({ problems: Array.from({ length: 9 }, (_, i) => problem(i + 1)), problemsOmitted: 41 });
     const { items, total, more } = needsALook(dayData({ jobs: [many] }));
     expect(items).toHaveLength(8);
+    expect(items.map((i) => i.at.slice(11, 13))).toEqual(['02', '03', '04', '05', '06', '07', '08', '09']);
     expect(total).toBe(50);
     expect(more).toBe(42);
+  });
+
+  it('keeps an 18:00 failure that follows twenty earlier poller failures, shown in ascending time order', () => {
+    const poller = dayRepeatingJob({ problems: Array.from({ length: 20 }, (_, i) => problem(i % 17 + 1, `poll ${i}`)) });
+    const evening = dayJob({ jobKey: 'evening', displayName: 'Evening job', fires: [dayFire({ at: '2026-11-03T18:00:00Z', status: 'FAILED', summary: 'late' })] });
+    const { items, more } = needsALook(dayData({ jobs: [poller, evening] }));
+    expect(items).toHaveLength(8);
+    expect(items[items.length - 1]).toMatchObject({ jobKey: 'evening', summary: 'late' });
+    const times = items.map((i) => Date.parse(i.at));
+    expect([...times].sort((a, b) => a - b)).toEqual(times);
+    expect(more).toBe(13);
   });
 
   it('is empty for a clean day', () => {
@@ -349,5 +414,35 @@ describe('day words and labels', () => {
   it('steps across a clock-change boundary by calendar day', () => {
     expect(dayInRange('2026-10-25', '2026-10-30')).toBe(true);
     expect(dayWord('2026-10-26', '2026-10-25')).toBe('Tomorrow');
+  });
+});
+
+describe('row heights', () => {
+  it('is 24px on desktop and 44px on a phone', () => {
+    expect(rowHeightFor(false)).toBe(24);
+    expect(rowHeightFor(true)).toBe(44);
+  });
+});
+
+describe('a running fire', () => {
+  const axis = dayAxis(NORMAL);
+  const running = dayFire({
+    at: '2026-11-03T11:00:00Z', startedAt: '2026-11-03T11:00:00Z', completedAt: null, status: 'RUNNING',
+  });
+
+  it('grows from its start to Now on today', () => {
+    const now = Date.parse('2026-11-03T12:00:00Z');
+    expect(fireWidthPx(running, axis, 2400, { nowMs: now, isToday: true })).toBeCloseTo(100, 6);
+  });
+
+  it('is not grown to Now on another day', () => {
+    const now = Date.parse('2026-11-03T12:00:00Z');
+    expect(fireWidthPx(running, axis, 2400, { nowMs: now, isToday: false })).toBe(0);
+  });
+
+  it('starts where it actually started', () => {
+    const late = dayFire({ ...running, at: '2026-11-03T10:00:00Z' });
+    expect(fireStartMs(late)).toBe(Date.parse('2026-11-03T11:00:00Z'));
+    expect(fireStartMs(dayFire())).toBe(Date.parse('2026-11-03T01:00:00Z'));
   });
 });

@@ -8,15 +8,15 @@ const LINK = 'text-tide hover:underline focus-visible:outline-2 focus-visible:ou
 const NAME_BUTTON = 'cursor-pointer text-left font-medium text-plex-text hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11';
 
 /**
- * "Needs a look": the day's failed, partial and missed fires in time order (the scheduled rows' fires and the repeating
- * jobs' problems), at most eight, then "and n more". Each row's job name opens that job's panel; a job whose runs Runs
+ * "Needs a look": the day's failed, partial and missed fires (the scheduled rows' fires and the repeating
+ * jobs' problems): the eight newest, oldest of those first, then "and n earlier". Each row's job name opens that job's panel; a job whose runs Runs
  * records adds "Run detail →", to that day in Runs. Nothing is drawn when nothing needs a look.
  *
  * @param {object} props
  * @param {{items: Array<object>, total: number, more: number}} props.look from {@code needsALook}
  * @param {Object<string, object>} props.jobsByKey the served jobs by key, for {@code runGroup}
  * @param {string} props.date the viewed UK date, the day "Run detail" opens
- * @param {(jobKey: string) => void} props.onSelect opens a job's panel
+ * @param {(jobKey: string, opener: HTMLElement) => void} props.onSelect opens a job's panel, told which control did
  */
 export function NeedsALook({ look, jobsByKey, date, onSelect }) {
   if (look.total === 0) return null;
@@ -42,7 +42,7 @@ export function NeedsALook({ look, jobsByKey, date, onSelect }) {
               data-status={item.status}
             >
               <span className="font-mono text-plex-text-secondary" data-testid={`scheduler-look-time-${i}`}>{formatClock(item.at)}</span>
-              <button type="button" className={NAME_BUTTON} onClick={() => onSelect(item.jobKey)} data-testid={`scheduler-look-open-${i}`}>
+              <button type="button" className={NAME_BUTTON} onClick={(event) => onSelect(item.jobKey, event.currentTarget)} data-testid={`scheduler-look-open-${i}`}>
                 {item.name}
               </button>
               <StatusDot tone={status.tone} tintText hollow={status.hollow}>{status.label}</StatusDot>
@@ -58,7 +58,7 @@ export function NeedsALook({ look, jobsByKey, date, onSelect }) {
       </ul>
       {look.more > 0 && (
         <p className="border-t border-plex-border px-3 py-2 text-xs text-plex-text-muted" data-testid="scheduler-look-more">
-          {`and ${look.more} more`}
+          {`and ${look.more} earlier`}
         </p>
       )}
     </section>
@@ -84,7 +84,7 @@ NeedsALook.propTypes = {
  * @param {Array<{jobKey: string, displayName: string, nextFireAt: string|null}>} props.jobs the served list
  * @param {string} props.date the viewed UK date
  * @param {string} props.today today's UK date
- * @param {(jobKey: string) => void} props.onSelect opens a job's panel
+ * @param {(jobKey: string, opener: HTMLElement) => void} props.onSelect opens a job's panel, told which control did
  * @param {Date} props.now the clock, for "Today" and "Tomorrow" in a next-fire label
  */
 export function NotOnThisDay({ jobs, date, today, onSelect, now }) {
@@ -99,7 +99,7 @@ export function NotOnThisDay({ jobs, date, today, onSelect, now }) {
           <button
             type="button"
             className="cursor-pointer text-plex-text-secondary hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
-            onClick={() => onSelect(job.jobKey)}
+            onClick={(event) => onSelect(job.jobKey, event.currentTarget)}
           >
             {job.displayName}
           </button>

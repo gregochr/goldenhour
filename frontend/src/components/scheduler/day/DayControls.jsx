@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import StatusDot from '../../data/StatusDot.jsx';
 import { runsDayHref } from '../../../utils/runsQuery.js';
@@ -20,13 +21,34 @@ const NAV_BUTTON = 'flex size-8 cursor-pointer items-center justify-center round
  */
 export function DayNav({ date, today, canPrev, canNext, onPrev, onNext, onToday }) {
   const word = dayWord(date, today);
+  const labelRef = useRef(null);
+  const navFocused = useRef(false);
+
+  // A button that disables itself (Today on today, or an edge arrow) must not drop focus to the page: it moves to the
+  // date, which is what just changed. Only when focus was on the nav and has fallen to the page or a disabled button.
+  useLayoutEffect(() => {
+    if (!navFocused.current) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active.disabled) {
+      labelRef.current?.focus({ preventScroll: true });
+      navFocused.current = false;
+    }
+  });
+  const track = {
+    onFocus: () => { navFocused.current = true; },
+    // Focus moved on purpose (to something) is not the nav losing it; a disabled button blurs to nothing.
+    onBlur: (event) => { if (event.relatedTarget) navFocused.current = false; },
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="scheduler-day-nav">
-      <button type="button" className={NAV_BUTTON} onClick={onPrev} disabled={!canPrev} aria-label="Previous day" data-testid="scheduler-day-prev">
+      <button type="button" className={NAV_BUTTON} {...track} onClick={onPrev} disabled={!canPrev} aria-label="Previous day" data-testid="scheduler-day-prev">
         {'‹'}
       </button>
       <div
-        className="flex min-w-[140px] items-baseline justify-center gap-2 rounded-lg border border-plex-border px-3 py-1 text-sm max-[639px]:min-h-11 max-[639px]:items-center"
+        className="flex min-w-[140px] items-baseline focus-visible:outline-2 focus-visible:outline-plex-gold justify-center gap-2 rounded-lg border border-plex-border px-3 py-1 text-sm max-[639px]:min-h-11 max-[639px]:items-center"
+        ref={labelRef}
+        tabIndex={-1}
         aria-live="polite"
         data-testid="scheduler-day-label"
       >
@@ -39,12 +61,13 @@ export function DayNav({ date, today, canPrev, canNext, onPrev, onNext, onToday 
           )
           : <b className="font-semibold text-plex-text">{word}</b>}
       </div>
-      <button type="button" className={NAV_BUTTON} onClick={onNext} disabled={!canNext} aria-label="Next day" data-testid="scheduler-day-next">
+      <button type="button" className={NAV_BUTTON} {...track} onClick={onNext} disabled={!canNext} aria-label="Next day" data-testid="scheduler-day-next">
         {'›'}
       </button>
       <button
         type="button"
         className="cursor-pointer rounded-lg border border-plex-border px-3 py-1 text-sm text-plex-text hover:bg-plex-surface-light disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
+        {...track}
         onClick={onToday}
         disabled={date === today}
         data-testid="scheduler-day-today"

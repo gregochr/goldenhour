@@ -6,6 +6,7 @@ import { formatClock } from '../../../utils/schedulerView.js';
 import {
   DIAMOND_HALF_PX,
   dayAxis,
+  fireStartMs,
   fireStatusStyle,
   fireWidthPx,
   gridlines,
@@ -16,49 +17,66 @@ import {
   nightBands,
   onAxis,
   rowAriaLabel,
+  rowHeightFor,
   timeToX,
 } from '../../../utils/schedulerDay.js';
 
 /** The smallest the plot is drawn, px, whatever the container says. */
 export const MIN_PLOT_WIDTH = 360;
 
-/** Geometry, px: a row's height, the space above the first row (sun labels) and below the last (axis labels). */
-export const ROW_HEIGHT = 24;
+/** Geometry, px: the space above the first row (the sun labels) and below the last (the axis labels). */
 export const TOP_PAD = 36;
 export const BOTTOM_PAD = 24;
 
-/** Where the status dot sits beyond a mark, and the room a time label needs after it, px. */
+/** Where the status dot sits beyond a mark, its size, and the room a time label needs, px. */
 const DOT_OFFSET = 6;
 const DOT_RADIUS = 3.5;
 const LABEL_ROOM = 52;
+const LABEL_WIDTH = 34;
 
-/** A mark's dashes when its job is paused. */
-const PAUSED_DASH = '2 2';
+/** A hollow (paused or missed) mark's dashes. */
+const HOLLOW_DASH = '2 2';
 
-/** One fire's mark: bar, diamond or tick; a status dot; and the time beside it when there is room. Decorative. */
-function FireMark({ row, fire, index, x, cy, widthPx, gapPx, plotWidth, onSelect }) {
+/** The share of a future fire's fill that shows; its outline stays at full strength. */
+const FUTURE_FILL_OPACITY = 0.3;
+
+/**
+ * One fire's mark: bar, diamond or tick; a status dot kept inside the plot; and the time beside it when there is room
+ * (flipped to the left of the mark when the right would run off the plot). Decorative.
+ */
+function FireMark({ row, fire, index, x, cy, widthPx, shape, gapPrevPx, gapNextPx, plotWidth, onSelect }) {
   const kind = kindStyle(row.scheduleType);
   const status = fireStatusStyle(fire.status);
   const future = isFuture(fire);
-  const shape = markShape({ widthPx, gapPx });
-  const paint = row.paused ? `fill-none ${kind.stroke}` : `${kind.fill} ${kind.stroke}`;
+  // A paused job's marks, and a fire that never ran, are outlines: they must not read as a run.
+  const hollow = row.paused || fire.status === 'MISSED';
   const common = {
-    className: paint,
-    opacity: future ? 0.3 : 1,
-    strokeDasharray: row.paused ? PAUSED_DASH : undefined,
+    className: hollow ? `fill-none ${kind.stroke}` : `${kind.fill} ${kind.stroke}`,
+    fillOpacity: future && !hollow ? FUTURE_FILL_OPACITY : undefined,
+    strokeDasharray: hollow ? HOLLOW_DASH : undefined,
     'data-testid': `scheduler-mark-${row.jobKey}-${index}`,
   };
   let mark;
+  let right;
+  let left;
   if (shape === 'tick') {
     mark = <rect {...common} x={x - 1} y={cy - 6} width="2" height="12" />;
+    right = x + 1;
+    left = x - 1;
   } else if (shape === 'diamond') {
     const h = DIAMOND_HALF_PX;
     mark = <path {...common} d={`M${x} ${cy - h}L${x + h} ${cy}L${x} ${cy + h}L${x - h} ${cy}Z`} />;
+    right = x + h;
+    left = x - h;
   } else {
-    mark = <rect {...common} x={x} y={cy - 7} width={Math.max(1, Math.min(widthPx, plotWidth - x))} height="14" rx="3" />;
+    const w = Math.max(1, Math.min(widthPx, plotWidth - x));
+    mark = <rect {...common} x={x} y={cy - 7} width={w} height="14" rx="3" />;
+    right = x + w;
+    left = x;
   }
-  const dotX = x + Math.max(shape === 'bar' ? widthPx : 0, DIAMOND_HALF_PX) + DOT_OFFSET;
-  const showTime = gapPx > LABEL_ROOM && dotX + LABEL_ROOM < plotWidth;
+  const dotX = Math.min(right + DOT_OFFSET, plotWidth - DOT_RADIUS - 1);
+  const flip = dotX + 7 + LABEL_WIDTH > plotWidth;
+  const showTime = flip ? gapPrevPx > LABEL_ROOM : gapNextPx > LABEL_ROOM;
   return (
     <g
       aria-hidden="true"
@@ -67,7 +85,7 @@ function FireMark({ row, fire, index, x, cy, widthPx, gapPx, plotWidth, onSelect
       data-status={fire.status}
       data-shape={shape}
       data-future={future ? 'true' : 'false'}
-      onClick={() => onSelect(row.jobKey)}
+      onClick={() => onSelect(row.jobKey, null)}
     >
       {mark}
       {!(row.paused && future) && (
@@ -80,7 +98,13 @@ function FireMark({ row, fire, index, x, cy, widthPx, gapPx, plotWidth, onSelect
         />
       )}
       {showTime && (
-        <text x={dotX + 7} y={cy + 3.5} className="fill-plex-text-muted font-mono text-[10px]">
+        <text
+          x={flip ? left - DOT_OFFSET : dotX + 7}
+          y={cy + 3.5}
+          textAnchor={flip ? 'end' : 'start'}
+          className="fill-plex-text-muted font-mono text-[10px]"
+          data-testid={`scheduler-time-${row.jobKey}-${index}`}
+        >
           {formatClock(fire.at)}
         </text>
       )}
@@ -95,18 +119,19 @@ FireMark.propTypes = {
   x: PropTypes.number.isRequired,
   cy: PropTypes.number.isRequired,
   widthPx: PropTypes.number.isRequired,
-  gapPx: PropTypes.number.isRequired,
+  shape: PropTypes.oneOf(['tick', 'diamond', 'bar']).isRequired,
+  gapPrevPx: PropTypes.number.isRequired,
+  gapNextPx: PropTypes.number.isRequired,
   plotWidth: PropTypes.number.isRequired,
   onSelect: PropTypes.func.isRequired,
 };
 
 /** A row's name, the label that opens the job's panel (a button for the keyboard, Enter or Space). */
-function RowLabel({ row, onSelect }) {
-  const open = () => onSelect(row.jobKey);
+function RowLabel({ row, heightClass, onSelect }) {
   const onKeyDown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      open();
+      onSelect(row.jobKey, event.currentTarget);
     }
   };
   return (
@@ -114,9 +139,9 @@ function RowLabel({ row, onSelect }) {
       role="button"
       tabIndex={0}
       aria-label={rowAriaLabel(row)}
-      onClick={open}
+      onClick={(event) => onSelect(row.jobKey, event.currentTarget)}
       onKeyDown={onKeyDown}
-      className="flex h-6 cursor-pointer items-center gap-1 truncate pr-2 text-[13px] text-plex-text hover:text-plex-gold-light focus-visible:outline-2 focus-visible:outline-plex-gold"
+      className={`flex ${heightClass} cursor-pointer items-center gap-1 truncate pr-2 text-[13px] text-plex-text hover:text-plex-gold-light focus-visible:outline-2 focus-visible:outline-plex-gold`}
       data-testid={`scheduler-row-${row.jobKey}`}
     >
       <span className="truncate">{row.name}</span>
@@ -129,30 +154,32 @@ function RowLabel({ row, onSelect }) {
   );
 }
 
-RowLabel.propTypes = { row: PropTypes.object.isRequired, onSelect: PropTypes.func.isRequired };
+RowLabel.propTypes = { row: PropTypes.object.isRequired, heightClass: PropTypes.string.isRequired, onSelect: PropTypes.func.isRequired };
 
 /**
  * The Day's jobs picture (scheduler-redesign-plan.md D12): a label column of one button per scheduled job beside an SVG
  * of the UK civil day, 00:00 to 24:00 (23 or 25 hours on a clock-change day) with 3-hourly gridlines, the night shaded
  * from the served sunrise and sunset, dashed Sunrise and Sunset lines, and a Now line on today. Each fire is a bar (or a
- * diamond below 6px, or a tick when crowded) in the job's colour, then a status dot and the time. Future fires are drawn
- * at 30%, a paused job's marks have a dashed outline, and a Claude job carries a gold £.
+ * diamond below 6px, or a tick when it would touch a neighbour) in the job's colour, then a status dot and the time.
+ * Future fires are drawn with a 30% fill and a full outline, a paused or missed fire is an outline only, a running fire
+ * on today is a bar growing to Now, and a Claude job carries a gold £. A paused job's row says "Paused" (the server
+ * serves it no fires).
  *
- * <p>The SVG is sized from its container with a {@code ResizeObserver} (never below {@link MIN_PLOT_WIDTH}). On a phone
- * the picture sits in a horizontal scroller (about 720px wide) with the label column sticky. Marks are decorative
- * ({@code aria-hidden}); the label buttons carry the information for a keyboard or screen-reader reader.
+ * <p>The SVG is sized from its container with a {@code ResizeObserver} (never below {@link MIN_PLOT_WIDTH}). Rows are
+ * 24px, or 44px on a phone, where the picture sits in a horizontal scroller (about 720px wide) with the label column
+ * sticky. The SVG is {@code aria-hidden}; the label buttons carry the information.
  *
  * <p>Extension points for the repeating section, watchdog windows and dependency arrows (S5b): the row geometry is the
- * one place a row's y comes from, and {@code renderOverlay} draws inside the SVG, above the marks, with the same
- * {@code xOf}.
+ * one place a row's y comes from, {@code row.wouldBe} is where a paused job's would-be fires go, and
+ * {@code renderOverlay} draws inside the SVG, above the marks, with the same {@code xOf}.
  *
  * @param {object} props
  * @param {object} props.day the served day
  * @param {Array<object>} props.rows the rows from {@code buildRows}
  * @param {number} props.nowMs the clock, epoch ms, for the Now line
- * @param {(jobKey: string) => void} props.onSelect opens a job's panel
- * @param {(geometry: {xOf: (ms: number) => number, width: number, height: number, rowCenters: Object<string, number>}) =>
- *   import('react').ReactNode} [props.renderOverlay] extra SVG drawn above the marks (S5b)
+ * @param {(jobKey: string, opener: HTMLElement|null) => void} props.onSelect opens a job's panel
+ * @param {(geometry: {xOf: (ms: number) => number, width: number, height: number, rowHeight: number,
+ *   rowCenters: Object<string, number>}) => import('react').ReactNode} [props.renderOverlay] extra SVG above the marks (S5b)
  */
 export default function DayPicture({ day, rows, nowMs, onSelect, renderOverlay = undefined }) {
   const isMobile = useIsMobile();
@@ -161,9 +188,11 @@ export default function DayPicture({ day, rows, nowMs, onSelect, renderOverlay =
   const axis = dayAxis(day);
   if (!axis) return null;
 
-  const height = TOP_PAD + rows.length * ROW_HEIGHT + BOTTOM_PAD;
+  const rowHeight = rowHeightFor(isMobile);
+  const heightClass = isMobile ? 'h-11' : 'h-6';
+  const height = TOP_PAD + rows.length * rowHeight + BOTTOM_PAD;
   const xOf = (ms) => timeToX(ms, axis, width);
-  const rowCenters = Object.fromEntries(rows.map((row, i) => [row.jobKey, TOP_PAD + i * ROW_HEIGHT + ROW_HEIGHT / 2]));
+  const rowCenters = Object.fromEntries(rows.map((row, i) => [row.jobKey, TOP_PAD + i * rowHeight + rowHeight / 2]));
   const sunrise = instantMs(day.sunrise);
   const sunset = instantMs(day.sunset);
   const showNow = day.isToday === true && onAxis(nowMs, axis) && nowMs < axis.endMs;
@@ -180,11 +209,11 @@ export default function DayPicture({ day, rows, nowMs, onSelect, renderOverlay =
           className={`shrink-0 pt-9 ${isMobile ? 'sticky left-0 z-10 w-[148px] bg-plex-panel' : 'w-[200px]'}`}
           data-testid="scheduler-day-labels"
         >
-          {rows.map((row) => <RowLabel key={row.jobKey} row={row} onSelect={onSelect} />)}
+          {rows.map((row) => <RowLabel key={row.jobKey} row={row} heightClass={heightClass} onSelect={onSelect} />)}
         </div>
         <div ref={plotRef} className="min-w-0 flex-1">
-          <svg width={width} height={height} className="block" data-testid="scheduler-day-svg" focusable="false">
-            <g aria-hidden="true">
+          <svg width={width} height={height} className="block" aria-hidden="true" data-testid="scheduler-day-svg" focusable="false">
+            <g>
               {nightBands(axis, day.sunrise, day.sunset).map((band) => (
                 <rect
                   key={band.startMs}
@@ -230,31 +259,46 @@ export default function DayPicture({ day, rows, nowMs, onSelect, renderOverlay =
 
             {rows.map((row) => {
               const cy = rowCenters[row.jobKey];
-              const xs = row.fires.map((fire) => xOf(instantMs(fire.at)));
+              const xs = row.fires.map((fire) => xOf(fireStartMs(fire)));
+              const widths = row.fires.map((fire) => fireWidthPx(fire, axis, width, { nowMs, isToday: showNow }));
               return (
                 <g key={row.jobKey} data-testid={`scheduler-day-row-${row.jobKey}`}>
-                  {row.fires.map((fire, index) => (
-                    <FireMark
-                      key={`${fire.at}-${index}`}
-                      row={row}
-                      fire={fire}
-                      index={index}
-                      x={xs[index]}
-                      cy={cy}
-                      widthPx={fireWidthPx(fire, axis, width)}
-                      gapPx={index < xs.length - 1 ? xs[index + 1] - xs[index] : Infinity}
-                      plotWidth={width}
-                      onSelect={onSelect}
-                    />
-                  ))}
+                  {row.fires.length === 0 && row.wouldBe.length === 0 && row.paused && (
+                    <text x={8} y={cy + 4} className="fill-plex-text-muted text-[11px]" data-testid={`scheduler-paused-${row.jobKey}`}>
+                      Paused
+                    </text>
+                  )}
+                  {row.fires.map((fire, index) => {
+                    const gapPrevPx = index > 0 ? xs[index] - xs[index - 1] : Infinity;
+                    const gapNextPx = index < xs.length - 1 ? xs[index + 1] - xs[index] : Infinity;
+                    const shape = markShape({
+                      widthPx: widths[index], gapPrevPx, gapNextPx, prevWidthPx: index > 0 ? widths[index - 1] : 0,
+                    });
+                    return (
+                      <FireMark
+                        key={`${fire.at}-${index}`}
+                        row={row}
+                        fire={fire}
+                        index={index}
+                        x={xs[index]}
+                        cy={cy}
+                        widthPx={widths[index]}
+                        shape={shape}
+                        gapPrevPx={gapPrevPx}
+                        gapNextPx={gapNextPx}
+                        plotWidth={width}
+                        onSelect={onSelect}
+                      />
+                    );
+                  })}
                 </g>
               );
             })}
 
-            {renderOverlay?.({ xOf, width, height, rowCenters })}
+            {renderOverlay?.({ xOf, width, height, rowHeight, rowCenters })}
 
             {showNow && (
-              <g aria-hidden="true" data-testid="scheduler-day-now">
+              <g data-testid="scheduler-day-now">
                 <line x1={xOf(nowMs)} x2={xOf(nowMs)} y1={TOP_PAD - 6} y2={plotBottom} strokeWidth="1.5" className="stroke-tide" />
                 <text x={xOf(nowMs) + 4} y={plotBottom - 2} className="fill-tide font-mono text-[10px]">
                   {`Now ${formatClock(new Date(nowMs).toISOString())}`}

@@ -10,3 +10,10 @@ day into Runs. **Needs a look** lists the failed, partial and missed fires (incl
 jobs' failures) with a link to the job's panel, and **Not on this day** names the weekly jobs that do
 not fire. Today's picture refreshes every 30 seconds. On a phone the picture scrolls sideways with
 the job names pinned.
+
+Review fixes: the picture stays honest when the job list is late or fails (neutral rows, an error
+banner, a clear message on a row press), re-reads after pausing, resuming, running or saving a job,
+shows paused jobs as "Paused", keeps the newest failures in Needs a look, copes with midnight and the
+oldest day, keeps dots and times inside the plot, draws crowded and missed fires as ticks and
+outlines, grows a running fire to Now, and returns keyboard focus where it started. Rows are 44px
+tall on a phone.
