@@ -110,6 +110,33 @@ Read these before re-proposing any of them.
   (`sky-user-message-trim-plan.md`). Dropping the `headline` output field would save ~6% more, but Ask
   would have to switch to reading `summary`. Not done.
 
+## Why spend doubled, October to early November (measured 2026-11-03)
+
+The Operations cost chart showed £97.20 for the 30 days to 2 November against £49.27 for the 30 days
+before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
+
+- **Far-Term on Sonnet 5.5, confirmed, and already fixed.** Far-Term ran on Haiku until about 16
+  October, then on Sonnet 5.5 (17 October–1 November; it was taken off Haiku 4.5 on 20 October for
+  neighbouring-cell spread). Far-Term volume depends on the weather, because T+2 needs SETTLED or
+  TRANSITIONAL cells and T+3 SETTLED: it was 6 requests a night from 19 to 26 October and 348–724 from
+  27 October to 1 November, the settled spell. At Sonnet's ~$0.0029 per far request that was
+  $1.00–2.05 a night. Since 3 November it is back on Haiku 4.5 at ~$0.00085 per request (446 requests,
+  $0.38).
+- **Near-Term on Sonnet 5.5 since about 8 October** roughly tripled the near-term share, from
+  ~$0.65 a night on Haiku to $1.6–2.0. This is the known ~$53/month lever (see "Remaining levers").
+- **Ask ready answers grew from ~$0.40 a day to ~$1.00.**
+  - More precomputes: 2 a day until 11 October, 3–4 since. By hour (14 days): the overnight (02–03 UTC,
+    14 runs), the afternoon (12–13 UTC, 14), the evening (20–21 UTC, 12, ~$0.31 each) and a cheap one
+    at 15 UTC (8 runs, ~$0.03, not yet identified). **The evening refresh's Ask precompute costs about
+    $9 a month, more than the evening's sky ratings (~$6).**
+  - Bigger prompts: average input went from ~2,500 tokens to ~3,300 (12 October) and ~4,200
+    (21 October).
+  - Prompt caching started on 30 October, but each call writes more to the cache than it reads: on
+    average ~1,380 tokens written against ~860 read. Writes cost 1.25× the input price and reads 0.1×,
+    so the cache saves little, and cost per day hardly fell ($0.68–1.02).
+  - Next: decide whether the evening needs a full Ask precompute (or only the answers about tomorrow),
+    and find out why the cache prefix is written fresh on most calls. Not started.
+
 ## Watch items
 
 - Re-run `measured-costs.sql` about a week after each release that touches cost.
