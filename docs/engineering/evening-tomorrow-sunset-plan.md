@@ -1,6 +1,6 @@
 # The evening refresh takes tomorrow's sunset; the afternoon keeps today's sunset
 
-**Status: PLANNED and reviewed 2026-11-03, not started; E-D2 (SETTLED sunset at 21:00) is the owner's call.** Owner's proposal, 3 November 2026. This replaces E5 of
+**Status: PLANNED and reviewed 2026-11-03; E-D2 decided by the owner the same day (*include*); P1 not started.** Owner's proposal, 3 November 2026. This replaces E5 of
 `evening-sunrise-refresh-plan.md` (§9.10), which would have *dropped* the afternoon look at tomorrow's
 sunset. Here that look *moves* to 21:00 instead. Written against `main` at `d319c606`.
 
@@ -117,7 +117,7 @@ evening's). P1 updates the `FreshnessProperties` three-cycle note (`:112-121`) t
     October ~104 calls are the non-SETTLED share). The afternoon runs' STABILITY_RECLASSIFY detail
     already counts it ("N settled-skipped", nearly all tomorrow's sunset): read a week of those before
     deciding.
-  - **Owner's call.** The brief is written for *include* (the policy stays "every stability, never
+  - **Decided 2026-11-03 by the owner: include.** The brief is written for *include* (the policy stays "every stability, never
     skips" for both events, so `EveningEligibilityPolicy.resolve` does not change, only its Javadoc);
     *skip* is the SETTLED-sunset rule of `IntradayEligibilityPolicy` copied in, with its test.
 - **E-D3 — Keep the job key `evening_sunrise_refresh`.** It is in the database, the scheduler hash routes
