@@ -464,11 +464,11 @@ class AskPromptBuilderTest {
     void rulesStateTheCriteria() {
         String rules = flat(AskPromptBuilder.RULES);
 
-        assertThat(rules).contains("1★ and 2★ are stay home; 3★ is marginal; 4★ is game on; 5★ is go")
+        assertThat(rules).contains("1★ and 2★ are stay home; 3★ is marginal; 4★ is worth going; 5★ is go")
                 .contains("Read the spread before the best rating")
                 .contains("a stay-home window with a few exceptions, not a good window")
                 .contains("quoting the figures as returned")
-                .contains("A window whose regions were all stood down is poor everywhere")
+                .contains("A window whose regions were all ruled out by the weather is poor everywhere")
                 .contains("mostly not scored or thin is mostly unlooked-at: say that, never that it is poor")
                 .contains("Never call a window good because its best rating is 4★ or 5★ when its spread says "
                         + "otherwise")
@@ -478,13 +478,25 @@ class AskPromptBuilderTest {
     }
 
     @Test
-    @DisplayName("the hint is a hint: the stop condition is 'no game-on place anywhere the question is about', "
-            + "never 'every window is stay-home', and it excuses questions it does not fit")
+    @DisplayName("the rules ban the disliked phrases from the reader's text and explain the field names")
+    void rulesBanGameOnAndStandDownWording() {
+        String rules = flat(AskPromptBuilder.RULES);
+
+        assertThat(rules).contains("Never write \"game on\", \"game-on\", \"stand down\", \"standing down\" "
+                        + "or \"stood down\" in the summary or a pick's why")
+                .contains("field gameOn counts the places rated 4★ or better")
+                .contains("field stoodDown counts the regions or places the weather ruled out")
+                .doesNotContain("4★ is game on");
+    }
+
+    @Test
+    @DisplayName("the hint is a hint: the stop condition is 'no place worth going to anywhere the question is "
+            + "about', never 'every window is stay-home', and it excuses questions it does not fit")
     void rulesStateTheHint() {
         String rules = flat(AskPromptBuilder.RULES);
 
         assertThat(rules).contains("A good investigation usually runs: list_windows; if none of the windows the "
-                + "question is about holds a game-on place, say so and stop")
+                + "question is about holds a place worth going to, say so and stop")
                 .contains("even a couple of exceptions on a stay-home window, rank_spots in those regions and "
                         + "windows")
                 .contains("check get_hot_topics for a spring or king tide")

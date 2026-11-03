@@ -97,9 +97,9 @@ public final class AskToolSchemas {
         String base =
                 "Lists the upcoming sunrise and sunset windows, with the forecast's verdict, best "
                         + "rating, the spread of its ratings (rated count, the count at each star, how "
-                        + "many are game on, the regions holding a game-on place, and the regions "
-                        + "stood down or not scored) and its own BEST BET / ALSO GOOD pick for each, "
-                        + "then the night windows "
+                        + "many are rated 4★ or better (gameOn), the regions holding such a place, and the "
+                        + "regions ruled out by the weather (stoodDown) or not scored) "
+                        + "and its own BEST BET / ALSO GOOD pick for each, then the night windows "
                         + "(tonight's and tomorrow night's astro, and aurora where the reader may see it). "
                         + "Call this first for any question about when to go.";
         return tool(LIST_WINDOWS, withUser ? base + LATER_WINDOWS_SENTENCE : base, m(), List.of());
