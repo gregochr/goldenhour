@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -116,8 +115,9 @@ class ComingUpAssemblerEdgeCasesTest {
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, range)));
     }
 
-    private void stubAnyRunAtSeaham() {
-        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+    /** Stubs a 4.9 m peak at Seaham for exactly the run's own dates, with no stored statistics. */
+    private void stubRunAtSeaham(LocalDate start, LocalDate end) {
+        when(tideRunBuilder.peakRange(eq(datesOf(start, end)), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.9)));
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
     }
@@ -265,7 +265,7 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("a regional tide run lists range, then the region")
     void regionRowOnTideRun() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(3));
 
         ComingUpEntry entry = only(withRegions(event(DAY, DAY.plusDays(3), "spring-tide", "Spring",
                 AlmanacEvent.metaOf("range", "4.9 m")), "North East"));
@@ -276,7 +276,7 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("a supermoon-hosted merged card keeps the supermoon's region row, ahead of the run's water rows")
     void regionRowOnSupermoonHostedMergedCard() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY.plusDays(2), DAY.plusDays(2));
         AlmanacEvent run = event(DAY.plusDays(2), DAY.plusDays(2), "spring-tide", "Spring tide run",
                 AlmanacEvent.metaOf("sunriseHw", "07:40", "sunriseHwGap", "-10",
                         "sunriseHwDate", DAY.plusDays(2).toString(), "sunriseHwAligned", "true"));
@@ -471,7 +471,7 @@ class ComingUpAssemblerEdgeCasesTest {
     // ── tide high-water rows: what makes a row appear ───────────────────────
 
     private List<String> tideRows(Map<String, String> extra) {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(3));
         Map<String, String> meta = new LinkedHashMap<>(AlmanacEvent.metaOf("range", "4.9 m", "location", "Seaham"));
         meta.putAll(extra);
         return factTexts(only(event(DAY, DAY.plusDays(3), "spring-tide", "Run", meta)));
@@ -544,7 +544,8 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("one supermoon pairs with only one of two overlapping runs; the other stays standalone")
     void aSupermoonIsConsumedByTheFirstRunOnly() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(2));
+        stubRunAtSeaham(DAY.plusDays(2), DAY.plusDays(5));
         AlmanacEvent first = event(DAY, DAY.plusDays(2), "spring-tide", "First run", Map.of());
         AlmanacEvent second = event(DAY.plusDays(2), DAY.plusDays(5), "spring-tide", "Second run", Map.of());
         AlmanacEvent moon = event(DAY.plusDays(2), DAY.plusDays(2), "supermoon", "Supermoon", Map.of());
@@ -561,7 +562,8 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("two Plan-owned partners never pair with each other, so neither leaks into the feed as a card")
     void twoPartnersNeverPairWithEachOther() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(5));
+        stubRunAtSeaham(DAY.plusDays(1), DAY.plusDays(2));
         AlmanacEvent run = event(DAY, DAY.plusDays(5), "spring-tide", "Spring tide run", Map.of());
         AlmanacEvent moon = event(DAY.plusDays(1), DAY.plusDays(1), "supermoon", "Supermoon", Map.of());
         // Each partner overlaps an eligible event of the complementary type, so both are staged...
@@ -579,7 +581,7 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("a merged card whose other topic has an empty title does not fail the feed")
     void emptyOtherTitleDoesNotBreakTheMerge() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(3));
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(
                 event(DAY, DAY.plusDays(3), "spring-tide", "Spring tide run", Map.of()),
@@ -595,7 +597,7 @@ class ComingUpAssemblerEdgeCasesTest {
     @Test
     @DisplayName("a blank or absent shoulderDates value means no shoulder days are asked for or flagged")
     void blankShoulderDatesAreIgnored() {
-        stubAnyRunAtSeaham();
+        stubRunAtSeaham(DAY, DAY.plusDays(1));
         Map<LocalDate, Double> ranges = new LinkedHashMap<>();
         ranges.put(DAY, 4.0);
         ranges.put(DAY.plusDays(1), 4.4);
