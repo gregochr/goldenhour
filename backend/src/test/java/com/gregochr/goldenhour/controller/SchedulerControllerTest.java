@@ -11,6 +11,9 @@ import com.gregochr.goldenhour.model.runs.RunGroup;
 import com.gregochr.goldenhour.model.runs.RunKind;
 import com.gregochr.goldenhour.model.runs.RunListItem;
 import com.gregochr.goldenhour.model.runs.RunListStatus;
+import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulePreviewService;
+import com.gregochr.goldenhour.service.SchedulerDayService;
 import com.gregochr.goldenhour.service.SchedulerJobDetailService;
 import com.gregochr.goldenhour.service.SchedulerJobOverviewService;
 import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
@@ -24,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -33,8 +37,10 @@ import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -157,7 +163,7 @@ class SchedulerControllerTest extends AbstractControllerTest {
         SchedulerJobConfigEntity config = buildConfig("daily_briefing", ScheduleType.CRON,
                 "0 0 6,18 * * *", null, SchedulerJobStatus.ACTIVE);
         when(schedulerService.updateSchedule(eq("daily_briefing"),
-                eq("0 0 6,18 * * *"), any())).thenReturn(config);
+                eq("0 0 6,18 * * *"), isNull(), isNull())).thenReturn(config);
         when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
 
         mockMvc.perform(put("/api/admin/scheduler/jobs/daily_briefing/schedule")
@@ -171,13 +177,198 @@ class SchedulerControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("PUT /api/admin/scheduler/jobs/{jobKey}/schedule returns 400 for invalid cron")
     void updateSchedule_returns400ForInvalidCron() throws Exception {
-        when(schedulerService.updateSchedule(eq("tide_refresh"), eq("bad"), any()))
+        when(schedulerService.updateSchedule(eq("tide_refresh"), eq("bad"), isNull(), isNull()))
                 .thenThrow(new IllegalArgumentException("Invalid cron expression: bad"));
 
         mockMvc.perform(put("/api/admin/scheduler/jobs/tide_refresh/schedule")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"cronExpression\": \"bad\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    // -------------------------------------------------------------------------
+    // PUT /schedule — optional timeZone
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule passes an explicit timeZone to the service as a zone change")
+    void updateSchedule_passesTimeZone() throws Exception {
+        SchedulerJobConfigEntity config = buildConfig("daily_briefing", ScheduleType.CRON,
+                "0 0 6 * * *", null, SchedulerJobStatus.ACTIVE);
+        config.setTimeZone("Europe/London");
+        when(schedulerService.updateSchedule("daily_briefing", "0 0 6 * * *", null,
+                new DynamicSchedulerService.ZoneChange("Europe/London"))).thenReturn(config);
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/daily_briefing/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"cronExpression\": \"0 0 6 * * *\", \"timeZone\": \"Europe/London\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("Europe/London"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule with timeZone: null asks for UTC, which is a zone change to null")
+    void updateSchedule_explicitNullTimeZoneIsAChange() throws Exception {
+        SchedulerJobConfigEntity config = buildConfig("daily_briefing", ScheduleType.CRON,
+                "0 0 6 * * *", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.updateSchedule("daily_briefing", null, null,
+                new DynamicSchedulerService.ZoneChange(null))).thenReturn(config);
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/daily_briefing/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"timeZone\": null}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.timeZone").value("UTC"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule returns 400 for a timeZone the service refuses")
+    void updateSchedule_returns400ForInvalidTimeZone() throws Exception {
+        when(schedulerService.updateSchedule("daily_briefing", null, null,
+                new DynamicSchedulerService.ZoneChange("Mars/Olympus")))
+                .thenThrow(new IllegalArgumentException("timeZone must be Europe/London or UTC"));
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/daily_briefing/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"timeZone\": \"Mars/Olympus\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule returns 400 for a timeZone that is not a string, and never reaches the service")
+    void updateSchedule_returns400ForNonStringTimeZone() throws Exception {
+        mockMvc.perform(put("/api/admin/scheduler/jobs/daily_briefing/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"timeZone\": 5}"))
+                .andExpect(status().isBadRequest());
+        verify(schedulerService, never()).updateSchedule("daily_briefing", null, null,
+                new DynamicSchedulerService.ZoneChange(null));
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /day and POST /schedule-preview
+    // -------------------------------------------------------------------------
+
+    private static SchedulerDayService.Day dayOf(LocalDate date, boolean today, long failedRuns) {
+        Instant start = date.atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
+        return new SchedulerDayService.Day(date, today, Instant.parse("2027-03-05T12:00:00Z"), start,
+                start.plusSeconds(86_400), "GMT", "GMT", null, null, List.of(),
+                new SchedulerDayService.RepeatingTally(failedRuns, 0), List.of(), List.of());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /day with no date asks the service for today and serves its day")
+    void day_defaultsToToday() throws Exception {
+        when(schedulerDayService.day(null)).thenReturn(dayOf(LocalDate.of(2027, 3, 5), true, 0));
+
+        mockMvc.perform(get("/api/admin/scheduler/day"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value("2027-03-05"))
+                .andExpect(jsonPath("$.isToday").value(true))
+                .andExpect(jsonPath("$.zoneLabelAtStart").value("GMT"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /day?date= parses the UK civil date")
+    void day_parsesDate() throws Exception {
+        when(schedulerDayService.day(LocalDate.of(2027, 3, 4))).thenReturn(dayOf(LocalDate.of(2027, 3, 4), false, 2));
+
+        mockMvc.perform(get("/api/admin/scheduler/day").param("date", "2027-03-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isToday").value(false))
+                .andExpect(jsonPath("$.repeatingTally.failedRuns").value(2));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /day returns 400 for an unparsable date, and never reaches the service")
+    void day_returns400ForUnparsableDate() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/day").param("date", "yesterday"))
+                .andExpect(status().isBadRequest());
+        verify(schedulerDayService, never()).day(null);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /day returns 400 when the service refuses a date outside today +/- 7 days")
+    void day_returns400ForOutOfRangeDate() throws Exception {
+        when(schedulerDayService.day(LocalDate.of(2027, 4, 1)))
+                .thenThrow(new IllegalArgumentException("date must be within 7 days of today (2027-03-05)"));
+
+        mockMvc.perform(get("/api/admin/scheduler/day").param("date", "2027-04-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("date must be within 7 days of today (2027-03-05)"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"USER"})
+    @DisplayName("GET /day is forbidden to a non-admin")
+    void day_forbiddenToNonAdmin() throws Exception {
+        mockMvc.perform(get("/api/admin/scheduler/day")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /schedule-preview hands the body to the service and serves its preview")
+    void schedulePreview_servesPreview() throws Exception {
+        SchedulePreviewService.Proposal proposal = new SchedulePreviewService.Proposal(ScheduleType.CRON, null,
+                null, List.of("06:15", "18:15"), List.of("MON"), "Europe/London", null);
+        when(schedulePreviewService.preview("tide_refresh", proposal)).thenReturn(
+                new SchedulePreviewService.Preview(true, null, "0 15 6,18 * * MON", "Europe/London",
+                        List.of(Instant.parse("2027-03-08T06:15:00Z")), null, List.of()));
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/tide_refresh/schedule-preview")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\": \"CRON\", \"times\": [\"06:15\", \"18:15\"], "
+                                + "\"daysOfWeek\": [\"MON\"], \"timeZone\": \"Europe/London\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.valid").value(true))
+                .andExpect(jsonPath("$.cronExpression").value("0 15 6,18 * * MON"))
+                .andExpect(jsonPath("$.nextFires[0]").value("2027-03-08T06:15:00Z"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /schedule-preview returns 404 for an unknown job and 400 for a refused type")
+    void schedulePreview_errors() throws Exception {
+        SchedulePreviewService.Proposal solar = new SchedulePreviewService.Proposal(ScheduleType.SOLAR_OFFSET,
+                SolarEvent.SUNSET, 240, null, null, null, null);
+        when(schedulePreviewService.preview("ghost", solar)).thenThrow(new NoSuchElementException("ghost"));
+        when(schedulePreviewService.preview("tide_refresh", solar))
+                .thenThrow(new IllegalArgumentException("Job 'tide_refresh' may not be switched to SOLAR_OFFSET"));
+        String body = "{\"scheduleType\": \"SOLAR_OFFSET\", \"solarEvent\": \"SUNSET\", "
+                + "\"solarOffsetMinutes\": 240}";
+
+        mockMvc.perform(post("/api/admin/scheduler/jobs/ghost/schedule-preview")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/admin/scheduler/jobs/tide_refresh/schedule-preview")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /schedule-preview returns 400 for an unrecognised schedule type")
+    void schedulePreview_returns400ForUnknownType() throws Exception {
+        mockMvc.perform(post("/api/admin/scheduler/jobs/tide_refresh/schedule-preview")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"scheduleType\": \"LUNAR\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"USER"})
+    @DisplayName("POST /schedule-preview is forbidden to a non-admin")
+    void schedulePreview_forbiddenToNonAdmin() throws Exception {
+        mockMvc.perform(post("/api/admin/scheduler/jobs/tide_refresh/schedule-preview")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"scheduleType\": \"CRON\"}"))
+                .andExpect(status().isForbidden());
     }
 
     // -------------------------------------------------------------------------

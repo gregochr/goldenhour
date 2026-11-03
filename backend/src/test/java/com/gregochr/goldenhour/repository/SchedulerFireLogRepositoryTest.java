@@ -182,4 +182,86 @@ class SchedulerFireLogRepositoryTest {
         assertThat(jdbc.queryForObject("SELECT status FROM scheduler_job_config WHERE job_key = 'j1'",
                 String.class)).isEqualTo("PAUSED");
     }
+
+    private long insertDone(String key, Instant firedAt, SchedulerFireStatus status) {
+        long id = insertRunning(key, firedAt);
+        fireLog.complete(id, firedAt.plusSeconds(5), status, null, null);
+        return id;
+    }
+
+    @Test
+    @DisplayName("the window query returns the named jobs' rows in [from, to) oldest first, nothing else")
+    void windowQuery_filtersByJobsAndHalfOpenWindow() {
+        Instant from = Instant.parse("2027-03-05T00:00:00Z");
+        Instant to = Instant.parse("2027-03-06T00:00:00Z");
+        insertDone("a_job", from.minusSeconds(1), SchedulerFireStatus.SUCCEEDED);
+        long atStart = insertDone("a_job", from, SchedulerFireStatus.SUCCEEDED);
+        long later = insertDone("b_job", from.plusSeconds(3600), SchedulerFireStatus.FAILED);
+        insertDone("a_job", to, SchedulerFireStatus.SUCCEEDED);
+        insertDone("other", from.plusSeconds(60), SchedulerFireStatus.SUCCEEDED);
+
+        List<SchedulerFireLogEntity> rows = fireLog
+                .findByJobKeyInAndFiredAtGreaterThanEqualAndFiredAtLessThanOrderByFiredAtAsc(
+                        List.of("a_job", "b_job"), from, to);
+
+        assertThat(rows).extracting(SchedulerFireLogEntity::getId).containsExactly(atStart, later);
+    }
+
+    @Test
+    @DisplayName("the problem query returns only the named statuses of the named jobs in the window")
+    void problemQuery_filtersByStatus() {
+        Instant from = Instant.parse("2027-03-05T00:00:00Z");
+        Instant to = Instant.parse("2027-03-06T00:00:00Z");
+        long failed = insertDone("poll", from.plusSeconds(10), SchedulerFireStatus.FAILED);
+        long partial = insertDone("poll", from.plusSeconds(20), SchedulerFireStatus.PARTIAL);
+        insertDone("poll", from.plusSeconds(30), SchedulerFireStatus.SUCCEEDED);
+        insertDone("poll", from.plusSeconds(40), SchedulerFireStatus.SKIPPED);
+        insertDone("other", from.plusSeconds(50), SchedulerFireStatus.FAILED);
+
+        List<SchedulerFireLogEntity> rows = fireLog
+                .findByJobKeyInAndStatusInAndFiredAtGreaterThanEqualAndFiredAtLessThanOrderByFiredAtAsc(
+                        List.of("poll"), List.of(SchedulerFireStatus.FAILED, SchedulerFireStatus.PARTIAL), from, to);
+
+        assertThat(rows).extracting(SchedulerFireLogEntity::getId).containsExactly(failed, partial);
+    }
+
+    @Test
+    @DisplayName("countByJobAndStatus groups by job and status inside the window only")
+    void countByJobAndStatus_groupsTheWindow() {
+        Instant from = Instant.parse("2027-03-05T00:00:00Z");
+        Instant to = Instant.parse("2027-03-06T00:00:00Z");
+        insertDone("poll", from.plusSeconds(10), SchedulerFireStatus.SUCCEEDED);
+        insertDone("poll", from.plusSeconds(20), SchedulerFireStatus.SUCCEEDED);
+        insertDone("poll", from.plusSeconds(30), SchedulerFireStatus.FAILED);
+        insertDone("other", from.plusSeconds(40), SchedulerFireStatus.SKIPPED);
+        insertDone("poll", to, SchedulerFireStatus.SUCCEEDED);
+
+        List<SchedulerFireLogRepository.FireCount> counts = fireLog.countByJobAndStatus(from, to);
+
+        assertThat(counts).extracting(c -> c.getJobKey() + ":" + c.getStatus() + ":" + c.getTotal())
+                .containsExactlyInAnyOrder("poll:SUCCEEDED:2", "poll:FAILED:1", "other:SKIPPED:1");
+    }
+
+    @Test
+    @DisplayName("updateScheduleAndTimeZone writes cron, delay, zone and updated_at and nothing else; "
+            + "a null zone puts the job back in UTC")
+    void updateScheduleAndTimeZone_writesOnlyTheSchedule() {
+        jdbc.update("INSERT INTO scheduler_job_config (job_key, display_name, schedule_type, cron_expression, "
+                + "status, updated_at) VALUES ('j1', 'j1', 'CRON', '0 0 1 * * *', 'PAUSED', CURRENT_TIMESTAMP)");
+        Long id = jdbc.queryForObject("SELECT id FROM scheduler_job_config WHERE job_key = 'j1'", Long.class);
+
+        int updated = configs.updateScheduleAndTimeZone(id, "0 30 6 * * *", null, "Europe/London", T0);
+
+        assertThat(updated).isEqualTo(1);
+        Map<String, Object> row = jdbc.queryForMap("SELECT * FROM scheduler_job_config WHERE job_key = 'j1'");
+        assertThat(row.get("CRON_EXPRESSION")).isEqualTo("0 30 6 * * *");
+        assertThat(row.get("TIME_ZONE")).isEqualTo("Europe/London");
+        assertThat(row.get("STATUS")).isEqualTo("PAUSED");
+        assertThat(row.get("SCHEDULE_TYPE")).isEqualTo("CRON");
+
+        assertThat(configs.updateScheduleAndTimeZone(id, "0 30 6 * * *", null, null, T0)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT time_zone FROM scheduler_job_config WHERE job_key = 'j1'",
+                String.class)).isNull();
+        assertThat(configs.updateScheduleAndTimeZone(-1L, "0 30 6 * * *", null, null, T0)).isZero();
+    }
 }

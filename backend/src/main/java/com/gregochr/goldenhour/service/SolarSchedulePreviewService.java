@@ -159,12 +159,48 @@ public class SolarSchedulePreviewService {
         SolarOffsetTrigger trigger = triggerFactory.create(jobKey, event, offset, cron);
         LocalDate today = ForecastHorizon.civilDate(now);
 
+        YearRange year = scanYear(trigger, today);
+
+        return new JobPreview(jobKey, ForecastCycleJobs.cycleOf(jobKey).name(),
+                config == null ? null : config.getScheduleTypeRaw(),
+                config == null ? null : config.getStatus().name(), cron, event, offset,
+                solar ? "STORED" : "PROPOSED", dayFire(trigger.fireFor(today)),
+                dayFire(trigger.fireFor(today.plusDays(1))), year.earliest(), year.latest(),
+                medianDurationSeconds(jobKey));
+    }
+
+    /**
+     * The earliest and latest usable fire time of day over a year.
+     *
+     * @param earliest the day with the earliest fire time of day, or null when no day has a usable fire
+     * @param latest   the day with the latest fire time of day, or null when no day has a usable fire
+     */
+    public record YearRange(Extreme earliest, Extreme latest) {
+    }
+
+    /**
+     * The earliest and latest fire time of day (UK local) a solar rule produces over the next
+     * {@value #YEAR_DAYS} UK days, by {@link SolarOffsetTrigger#fireFor}: one calculation per day, so O(365).
+     *
+     * @param jobKey     the job key, for the trigger's logs
+     * @param event      the solar event
+     * @param offset     minutes before the event
+     * @param storedCron the fallback cron (not used by the scan, which counts only usable solar fires)
+     * @param from       the first UK civil date scanned
+     * @return the range; both ends null when no day has a usable fire
+     * @throws IllegalArgumentException if the offset is outside the trigger's range
+     */
+    public YearRange yearRange(String jobKey, SolarEvent event, int offset, String storedCron, LocalDate from) {
+        return scanYear(triggerFactory.create(jobKey, event, offset, storedCron), from);
+    }
+
+    private static YearRange scanYear(SolarOffsetTrigger trigger, LocalDate from) {
         Extreme earliest = null;
         Extreme latest = null;
         LocalTime earliestTime = null;
         LocalTime latestTime = null;
         for (int i = 0; i < YEAR_DAYS; i++) {
-            SolarOffsetTrigger.Fire fire = trigger.fireFor(today.plusDays(i));
+            SolarOffsetTrigger.Fire fire = trigger.fireFor(from.plusDays(i));
             if (!fire.usable()) {
                 continue;
             }
@@ -178,13 +214,7 @@ public class SolarSchedulePreviewService {
                 latest = extreme(fire, local);
             }
         }
-
-        return new JobPreview(jobKey, ForecastCycleJobs.cycleOf(jobKey).name(),
-                config == null ? null : config.getScheduleTypeRaw(),
-                config == null ? null : config.getStatus().name(), cron, event, offset,
-                solar ? "STORED" : "PROPOSED", dayFire(trigger.fireFor(today)),
-                dayFire(trigger.fireFor(today.plusDays(1))), earliest, latest,
-                medianDurationSeconds(jobKey));
+        return new YearRange(earliest, latest);
     }
 
     private static Extreme extreme(SolarOffsetTrigger.Fire fire, LocalTime local) {

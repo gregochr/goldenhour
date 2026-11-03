@@ -86,4 +86,66 @@ public interface SchedulerFireLogRepository extends JpaRepository<SchedulerFireL
      */
     List<SchedulerFireLogEntity> findTop200ByJobKeyAndStatusInAndCompletedAtIsNotNullOrderByFiredAtDesc(
             String jobKey, Collection<SchedulerFireStatus> statuses);
+
+    /**
+     * One job's number of fires with one status in a window.
+     */
+    interface FireCount {
+
+        /**
+         * The job key.
+         *
+         * @return the job key
+         */
+        String getJobKey();
+
+        /**
+         * The status counted.
+         *
+         * @return the status
+         */
+        SchedulerFireStatus getStatus();
+
+        /**
+         * How many fires.
+         *
+         * @return the count
+         */
+        long getTotal();
+    }
+
+    /**
+     * The fires of the given jobs that started in a window, oldest first, in one statement.
+     *
+     * @param jobKeys the jobs (never empty: an empty collection is a malformed {@code IN})
+     * @param from    inclusive start
+     * @param to      exclusive end
+     * @return the matching fires
+     */
+    List<SchedulerFireLogEntity> findByJobKeyInAndFiredAtGreaterThanEqualAndFiredAtLessThanOrderByFiredAtAsc(
+            Collection<String> jobKeys, Instant from, Instant to);
+
+    /**
+     * The fires of the given jobs that started in a window and ended with one of the given statuses, oldest first.
+     *
+     * @param jobKeys  the jobs (never empty)
+     * @param statuses the statuses to include
+     * @param from     inclusive start
+     * @param to       exclusive end
+     * @return the matching fires
+     */
+    List<SchedulerFireLogEntity>
+            findByJobKeyInAndStatusInAndFiredAtGreaterThanEqualAndFiredAtLessThanOrderByFiredAtAsc(
+                    Collection<String> jobKeys, Collection<SchedulerFireStatus> statuses, Instant from, Instant to);
+
+    /**
+     * How many fires each job had with each status in a window, in one GROUP BY.
+     *
+     * @param from inclusive start
+     * @param to   exclusive end
+     * @return one row per (job, status) that occurred
+     */
+    @Query("SELECT f.jobKey AS jobKey, f.status AS status, COUNT(f) AS total FROM SchedulerFireLogEntity f "
+            + "WHERE f.firedAt >= :from AND f.firedAt < :to GROUP BY f.jobKey, f.status")
+    List<FireCount> countByJobAndStatus(@Param("from") Instant from, @Param("to") Instant to);
 }

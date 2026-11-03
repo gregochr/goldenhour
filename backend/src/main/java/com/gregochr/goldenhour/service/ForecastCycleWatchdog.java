@@ -28,7 +28,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -215,7 +214,7 @@ public class ForecastCycleWatchdog {
         Instant now = clock.instant();
         LocalDate today = ForecastHorizon.civilDate(now);
         // A job with no solar rule (the evening) serves no event: never ask the calculator for one.
-        Instant event = job.rule() == null ? null : eventInstant(config, job.rule(), today);
+        Instant event = job.rule() == null ? null : eventInstant(job.rule(), today);
 
         int alerts = lastFire(config, now, today)
                 .map(fire -> checkStarted(config, cycle, now, fire, event)).orElse(0);
@@ -258,9 +257,7 @@ public class ForecastCycleWatchdog {
         if (event == null) {
             return 0;
         }
-        Instant opens = event.minus(Duration.ofMinutes(FINISH_LEAD_MINUTES));
-        Instant closes = event.plus(Duration.ofMinutes(FINISH_TAIL_MINUTES));
-        if (now.isBefore(opens) || now.isAfter(closes)) {
+        if (now.isBefore(opensAt(event)) || now.isAfter(closesAt(event))) {
             return 0;
         }
         Instant dayStart = today.atStartOfDay(LONDON).toInstant();
@@ -363,12 +360,58 @@ public class ForecastCycleWatchdog {
      * does not occur (the calculator's midnight sentinel). Timed with a zero offset, so only the
      * event itself is read; the trigger's own sane-fire-range rules are deliberately not applied.
      */
-    private Instant eventInstant(SchedulerJobConfigEntity config, ForecastCycleJobs.Rule rule,
-            LocalDate today) {
-        SolarEvent event = rule.event();
-        Instant at = triggerFactory.create(config.getJobKey(), event, 0, config.getCronExpression())
-                .fireFor(today).eventInstant();
-        return at == null || at.equals(today.atStartOfDay(ZoneOffset.UTC).toInstant()) ? null : at;
+    private Instant eventInstant(ForecastCycleJobs.Rule rule, LocalDate today) {
+        return triggerFactory.eventInstant(rule.event(), today);
+    }
+
+    /**
+     * One forecast cycle job's watchdog deadlines on a UK civil date: the numbers {@link #check} compares with the
+     * clock, so a screen can draw them without copying a constant.
+     *
+     * @param jobKey            the cycle job
+     * @param event             the solar event the cycle serves, or null for the evening refresh (it serves none)
+     * @param eventAt           that event's instant on the date, or null when it does not occur or the job serves none
+     * @param opensAt           when the "did not finish" check opens ({@code eventAt} minus
+     *                          {@value #FINISH_LEAD_MINUTES} minutes), or null with {@code eventAt}
+     * @param closesAt          when it closes ({@code eventAt} plus {@value #FINISH_TAIL_MINUTES} minutes), or null
+     *                          with {@code eventAt}
+     * @param startGraceMinutes how late the cycle's fire may be before "did not start"
+     * @param budgetMinutes     the evening refresh's wait budget, or null for the two solar-served cycles
+     */
+    public record Deadlines(String jobKey, SolarEvent event, Instant eventAt, Instant opensAt, Instant closesAt,
+            int startGraceMinutes, Long budgetMinutes) {
+    }
+
+    /**
+     * The watchdog's deadlines for one forecast cycle job on one UK civil date, whatever the job's schedule type.
+     *
+     * @param jobKey one of {@link ForecastCycleJobs#allCycleJobs()}
+     * @param date   the UK civil date
+     * @return the deadlines, or empty for any other job
+     */
+    public Optional<Deadlines> deadlines(String jobKey, LocalDate date) {
+        for (ForecastCycleJobs.Job job : ForecastCycleJobs.allCycleJobs()) {
+            if (!job.key().equals(jobKey)) {
+                continue;
+            }
+            if (job.rule() == null) {
+                return Optional.of(new Deadlines(jobKey, null, null, null, null, START_GRACE_MINUTES,
+                        eveningBudget.toMinutes()));
+            }
+            Instant event = eventInstant(job.rule(), date);
+            return Optional.of(new Deadlines(jobKey, job.rule().event(), event,
+                    event == null ? null : opensAt(event), event == null ? null : closesAt(event),
+                    START_GRACE_MINUTES, null));
+        }
+        return Optional.empty();
+    }
+
+    private static Instant opensAt(Instant event) {
+        return event.minus(Duration.ofMinutes(FINISH_LEAD_MINUTES));
+    }
+
+    private static Instant closesAt(Instant event) {
+        return event.plus(Duration.ofMinutes(FINISH_TAIL_MINUTES));
     }
 
     /**

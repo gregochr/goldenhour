@@ -207,6 +207,14 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.SchedulerJobDetailService schedulerJobDetailService;
 
+    /** What every job did on one UK day, for {@code SchedulerController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SchedulerDayService schedulerDayService;
+
+    /** The dry run of a proposed schedule, for {@code SchedulerController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.SchedulePreviewService schedulePreviewService;
+
     @MockitoBean
     protected com.gregochr.goldenhour.service.pipeline.PipelineRunComparisonService
             pipelineRunComparisonService;

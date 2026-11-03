@@ -6,11 +6,14 @@ import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SolarEvent;
 import com.gregochr.goldenhour.model.runs.RunListItem;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SchedulePreviewService;
+import com.gregochr.goldenhour.service.SchedulerDayService;
 import com.gregochr.goldenhour.service.SchedulerJobCatalogue;
 import com.gregochr.goldenhour.service.SchedulerJobDetailService;
 import com.gregochr.goldenhour.service.SchedulerJobOverviewService;
 import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
 import com.gregochr.goldenhour.service.runs.SchedulerRunsService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +45,8 @@ public class SchedulerController {
     private final SchedulerRunsService runsService;
     private final SchedulerJobOverviewService overviewService;
     private final SchedulerJobDetailService detailService;
+    private final SchedulerDayService dayService;
+    private final SchedulePreviewService previewService;
 
     /**
      * Constructs the scheduler controller.
@@ -50,15 +56,20 @@ public class SchedulerController {
      * @param runsService         the runs a scheduled job can be proved to have written
      * @param overviewService     each job's newest fire, next fires, and the page summary
      * @param detailService       one job's typical duration and Claude spend
+     * @param dayService          what every job did, or is expected to do, on one UK day
+     * @param previewService      the dry run of a proposed schedule
      */
     public SchedulerController(DynamicSchedulerService schedulerService,
             SolarSchedulePreviewService solarPreviewService, SchedulerRunsService runsService,
-            SchedulerJobOverviewService overviewService, SchedulerJobDetailService detailService) {
+            SchedulerJobOverviewService overviewService, SchedulerJobDetailService detailService,
+            SchedulerDayService dayService, SchedulePreviewService previewService) {
         this.schedulerService = schedulerService;
         this.solarPreviewService = solarPreviewService;
         this.runsService = runsService;
         this.overviewService = overviewService;
         this.detailService = detailService;
+        this.dayService = dayService;
+        this.previewService = previewService;
     }
 
     /**
@@ -118,6 +129,38 @@ public class SchedulerController {
     }
 
     /**
+     * What every job did, or is expected to do, on one UK civil day: the Scheduler "Day's jobs" picture.
+     *
+     * @param date the UK civil date ({@code YYYY-MM-DD}); today when omitted
+     * @return the day; 400 for an unparsable date or one more than 7 days from today
+     */
+    @GetMapping("/day")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SchedulerDayService.Day> day(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(dayService.day(date));
+    }
+
+    /**
+     * A dry run of a proposed schedule: validates it as saving would, and returns the next fires, the year range for
+     * a solar rule and the neighbouring jobs. Never saves.
+     *
+     * <p>Body: {@code {scheduleType, solarEvent?, solarOffsetMinutes?, times?, daysOfWeek?, timeZone?,
+     * fixedDelayMs?}}.
+     *
+     * @param jobKey the job key
+     * @param body   the proposed schedule
+     * @return the preview ({@code valid: false} with the message for a proposal saving would refuse); 404 for an
+     *         unknown job, 400 for no type or a type the job may not use
+     */
+    @PostMapping("/jobs/{jobKey}/schedule-preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SchedulePreviewService.Preview> schedulePreview(@PathVariable String jobKey,
+            @RequestBody SchedulePreviewService.Proposal body) {
+        return ResponseEntity.ok(previewService.preview(jobKey, body));
+    }
+
+    /**
      * The newest runs of one job, by the Runs list's rules ({@code RunListItem}), for the Scheduler panel's
      * "Recent runs". Only the three forecast cycle jobs, {@code tide_refresh} and
      * {@code aurora_batch_evaluation} have attributable runs; every other known job answers an empty list.
@@ -154,7 +197,8 @@ public class SchedulerController {
      * Updates the schedule expression for a job.
      *
      * @param jobKey the job key
-     * @param body   request body with optional cronExpression or fixedDelayMs
+     * @param body   request body with optional cronExpression, fixedDelayMs, and timeZone ({@code Europe/London} or
+     *               null/{@code UTC}; omit it to keep the job's current zone)
      * @return the updated job detail
      */
     @PutMapping("/jobs/{jobKey}/schedule")
@@ -166,8 +210,16 @@ public class SchedulerController {
         Long fixedDelayMs = body.get("fixedDelayMs") != null
                 ? ((Number) body.get("fixedDelayMs")).longValue() : null;
 
+        DynamicSchedulerService.ZoneChange zoneChange = null;
+        if (body.containsKey("timeZone")) {
+            Object rawZone = body.get("timeZone");
+            if (rawZone != null && !(rawZone instanceof String)) {
+                throw new IllegalArgumentException("timeZone must be a string");
+            }
+            zoneChange = new DynamicSchedulerService.ZoneChange((String) rawZone);
+        }
         SchedulerJobConfigEntity updated = schedulerService.updateSchedule(
-                jobKey, cronExpression, fixedDelayMs);
+                jobKey, cronExpression, fixedDelayMs, zoneChange);
         return ResponseEntity.ok(toDto(updated));
     }
 
