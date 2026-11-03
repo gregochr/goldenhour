@@ -125,12 +125,19 @@ export default function DataGrid({
           return (
             <div
               key={`group-${row.id}`}
+              role="heading"
+              aria-level={3}
               className="flex min-h-9 w-full items-baseline gap-2 border-b border-plex-border/60 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted @max-[540px]:px-1"
               data-testid={`${testIdPrefix}-group-${row.id}`}
             >
               <span>{row.label}</span>
-              {row.count != null && <span className="font-semibold text-plex-text-secondary">{row.count}</span>}
-              {row.subtitle && <span className="normal-case tracking-normal text-plex-text-faint">{row.subtitle}</span>}
+              {row.count != null && (
+                <>
+                  <span aria-hidden="true">{'·'}</span>
+                  <span className="font-semibold text-plex-text-secondary">{row.count}</span>
+                </>
+              )}
+              {row.subtitle && <span className="normal-case tracking-normal text-plex-text-muted">{row.subtitle}</span>}
             </div>
           );
         }

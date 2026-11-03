@@ -183,7 +183,7 @@ describe('SchedulerView: the list', () => {
     await screen.findByTestId('scheduler-row-tide_refresh');
     expect(screen.getByTestId('scheduler-row-tide_refresh')).toHaveTextContent('Cron');
     expect(screen.getByTestId('scheduler-row-aurora_polling')).toHaveTextContent('Fixed delay');
-    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveTextContent('4 h 15 min before sunrise');
+    expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
     expect(screen.getByTestId(`scheduler-row-${NIGHTLY}`)).toHaveTextContent('Sun-relative');
   });
 
@@ -250,10 +250,10 @@ describe('SchedulerView: the chips', () => {
     expect(rowOrder()).toEqual(['off']);
   });
 
-  it('shows the Fixed delay chip only when some job has that type', async () => {
+  it('shows the Fixed delay chip always, even when no job has that type', async () => {
     mount([TIDE]);
     await screen.findByTestId('scheduler-row-tide_refresh');
-    expect(screen.queryByTestId('scheduler-chip-fixed-delay')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-chip-fixed-delay-count')).toHaveTextContent('0');
   });
 
   it('closes an open panel when a chip filters its job out, and leaves it when the job still matches', async () => {

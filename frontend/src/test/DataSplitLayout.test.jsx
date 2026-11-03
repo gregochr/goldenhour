@@ -337,7 +337,7 @@ describe('DataSplitLayout', () => {
       expect(screen.getByTestId('data-split-list')).toHaveAttribute('inert');
     });
 
-    it('overlay mode closes on the scrim and on Escape-driven onClose callers, and moves focus to the title', () => {
+    it('overlay mode closes on the scrim and moves focus to the panel title when it opens', () => {
       const { onClose } = renderLayout({
         mode: 'overlay',
         panel: <h2 tabIndex={-1} data-panel-title="">Title</h2>,
@@ -353,6 +353,30 @@ describe('DataSplitLayout', () => {
       expect(screen.getByTestId('data-split-backbar')).toBeInTheDocument();
       expect(screen.queryByTestId('data-split-scrim')).not.toBeInTheDocument();
       expect(screen.getByTestId('data-split-panel').className).not.toContain('w-[520px]');
+    });
+
+    it('overlay mode puts focus back on the row that opened the panel when it closes', () => {
+      function Harness({ panel, selectionKey }) {
+        return (
+          <DataSplitLayout
+            mode="overlay"
+            list={<button type="button" data-testid="grid-row-5">row</button>}
+            panel={panel}
+            selectionKey={selectionKey}
+            onClose={vi.fn()}
+            panelLabel="x"
+            backLabel="Tab"
+            rowTestIdPrefix="grid"
+          />
+        );
+      }
+      Harness.propTypes = { panel: PropTypes.node, selectionKey: PropTypes.number };
+      const { rerender } = render(<Harness panel={null} />);
+      rerender(<Harness panel={<h2 tabIndex={-1} data-panel-title="">Entry</h2>} selectionKey={5} />);
+      expect(screen.getByRole('heading', { name: 'Entry' })).toHaveFocus();
+      document.activeElement.blur();
+      rerender(<Harness panel={null} />);
+      expect(screen.getByTestId('grid-row-5')).toHaveFocus();
     });
   });
 });

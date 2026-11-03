@@ -19,6 +19,7 @@ import { isCycleJob, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import {
   SCHEDULE_SOLAR,
   STATUS_ACTIVE,
+  STATUS_PAUSED,
   describeSchedule,
   formatNextFire,
   jobStatusView,
@@ -131,7 +132,7 @@ export default function SchedulerJobPanel({
                 {c.why}
               </p>
             )}
-            <NextFiresList fires={job.nextFires} />
+            <NextFiresList fires={job.nextFires} paused={job.status === STATUS_PAUSED} />
           </>
         )}
       </JobSchedule>

@@ -37,6 +37,13 @@ describe('readSchedulerQuery', () => {
     expect(readSchedulerQuery()).toEqual({ view: 'day', date: null });
   });
 
+  it('rejects a date that is not on the calendar (2026-02-31) and keeps a real one', () => {
+    window.location.hash = '#manage/scheduler?date=2026-02-31';
+    expect(readSchedulerQuery().date).toBeNull();
+    window.location.hash = '#manage/scheduler?date=2026-02-28';
+    expect(readSchedulerQuery().date).toBe('2026-02-28');
+  });
+
   it('survives storage that throws', () => {
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     try {

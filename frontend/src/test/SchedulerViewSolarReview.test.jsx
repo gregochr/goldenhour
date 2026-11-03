@@ -192,7 +192,7 @@ describe('P2c review - switch and edit requests', () => {
     ));
     expect(fetchSchedulerJobs.mock.calls.length).toBeGreaterThan(jobsBefore);
     expect(fetchSolarPreview.mock.calls.length).toBeGreaterThan(previewBefore);
-    expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4 h 15 min before sunrise');
+    expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
   });
 
   it('reloads the jobs and the preview after a solar edit is saved', async () => {
@@ -207,7 +207,7 @@ describe('P2c review - switch and edit requests', () => {
     fireEvent.change(screen.getByLabelText(/Solar event/), { target: { value: 'SUNSET' } });
     fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
-    await waitFor(() => expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4 h before sunset'));
+    await waitFor(() => expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h before sunset'));
     expect(fetchSchedulerJobs.mock.calls.length).toBeGreaterThan(jobsBefore);
     expect(fetchSolarPreview.mock.calls.length).toBeGreaterThan(previewBefore);
   });

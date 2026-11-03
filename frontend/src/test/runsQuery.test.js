@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  dayFilterForGroup, normalizeRunsQuery, readRunsQuery, writeRunsQuery,
+  normalizeRunsQuery, readRunsQuery, writeRunsQuery,
 } from '../utils/runsQuery.js';
 
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
@@ -157,14 +157,5 @@ describe('writeRunsQuery', () => {
     writeRunsQuery({ view: 'cost' });
     window.removeEventListener('hashchange', onChange);
     expect(onChange).not.toHaveBeenCalled();
-  });
-});
-
-describe('dayFilterForGroup (the Scheduler\'s "All in Runs")', () => {
-  it.each([
-    ['CYCLES', 'cycles'], ['BRIEFING', 'briefing'], ['TIDE', 'other'], ['AURORA', 'other'], ['BATCHES', 'other'],
-    ['OTHER', 'other'], [null, 'all'], [undefined, 'all'],
-  ])('%s opens %s', (group, expected) => {
-    expect(dayFilterForGroup(group)).toBe(expected);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  countByType, describeCron, describeSchedule, fireDuration, fireStatusView, formatClock, formatFireLabel, formatNextFire,
+  countByType, describeCron, describeSchedule, fireTook, getUKTimezoneLabel, fireStatusView, formatClock, formatFireLabel, formatNextFire,
   groupJobs, jobMatchesFilters, jobMatchesSearch, jobStatusView, relativeTime, sortJobs,
 } from '../utils/schedulerView.js';
 import { isCycleJob, isForecastCycleJob } from '../utils/schedulerSolar.js';
@@ -56,7 +56,7 @@ describe('relativeTime', () => {
 describe('describeSchedule', () => {
   it('words a sun-relative rule, a cron, a fixed delay, and names the type under each', () => {
     expect(describeSchedule({ scheduleType: 'SOLAR_OFFSET', solarEvent: 'SUNRISE', solarOffsetMinutes: 255 }))
-      .toEqual({ words: '4 h 15 min before sunrise', type: 'Sun-relative', recognised: true });
+      .toEqual({ words: '4h 15m before sunrise', type: 'Sun-relative', recognised: true });
     expect(describeSchedule({ scheduleType: 'CRON', cronExpression: '0 0 4 1 * *' }))
       .toEqual({ words: '0 0 4 1 * *', type: 'Cron', recognised: true });
     expect(describeSchedule({ scheduleType: 'FIXED_DELAY', fixedDelayMs: 300000 }))
@@ -264,15 +264,51 @@ describe('fire formatting', () => {
   });
 
   it.each([
-    [0, '<1s'], [55, '55s'], [125, '2m 05s'], [3720, '1h 02m'],
+    [0, '<1s'], [55, '55s'], [125, '2m 5s'], [3720, '1h 2m'],
   ])('reads a %i second fire as %s', (seconds, text) => {
     const firedAt = '2026-10-31T12:00:00Z';
-    expect(fireDuration({ firedAt, completedAt: new Date(Date.parse(firedAt) + seconds * 1000).toISOString() })).toBe(text);
+    expect(fireTook({ firedAt, completedAt: new Date(Date.parse(firedAt) + seconds * 1000).toISOString() })).toBe(text);
   });
 
   it('has no duration for a fire still running or with an end before its start', () => {
-    expect(fireDuration({ firedAt: '2026-10-31T12:00:00Z', completedAt: null })).toBe('');
-    expect(fireDuration({ firedAt: '2026-10-31T12:00:00Z', completedAt: '2026-10-31T11:00:00Z' })).toBe('');
-    expect(fireDuration(null)).toBe('');
+    expect(fireTook({ firedAt: '2026-10-31T12:00:00Z', completedAt: null })).toBe('');
+    expect(fireTook({ firedAt: '2026-10-31T12:00:00Z', completedAt: '2026-10-31T11:00:00Z' })).toBe('');
+    expect(fireTook(null)).toBe('');
+  });
+});
+
+describe('getUKTimezoneLabel', () => {
+  it('reads exactly BST in summer and GMT in winter, from London\'s offset', () => {
+    expect(getUKTimezoneLabel(new Date('2026-07-10T12:00:00Z'))).toBe('BST');
+    expect(getUKTimezoneLabel(new Date('2026-01-15T12:00:00Z'))).toBe('GMT');
+  });
+
+  it('labels each side of a clock change, and is not Intl\'s "GMT+0" / "GMT+1" spelling', () => {
+    expect(getUKTimezoneLabel(new Date('2026-10-25T00:30:00Z'))).toBe('BST');
+    expect(getUKTimezoneLabel(new Date('2026-10-25T01:30:00Z'))).toBe('GMT');
+    for (const instant of ['2026-07-10T12:00:00Z', '2026-01-15T12:00:00Z']) {
+      expect(getUKTimezoneLabel(new Date(instant))).toMatch(/^(GMT|BST)$/);
+    }
+  });
+
+  it('puts exactly GMT or BST in a cron reading', () => {
+    expect(describeCron('0 0 14 * * *')).toMatch(/ (GMT|BST)$/);
+  });
+});
+
+describe('jobMatchesSearch: Claude', () => {
+  it('finds a job that uses Claude by the word Claude, whole word and any case, though its text never says it', () => {
+    const job = { displayName: 'Tide', catalogue: { alias: 'a', what: 'b', purpose: 'c', usesClaude: true } };
+    expect(jobMatchesSearch(job, 'claude')).toBe(true);
+    expect(jobMatchesSearch(job, ' Claude ')).toBe(true);
+    expect(jobMatchesSearch({ ...job, catalogue: { ...job.catalogue, usesClaude: false } }, 'claude')).toBe(false);
+  });
+});
+
+describe('describeSchedule: compact sun-relative words', () => {
+  it.each([
+    [255, '4h 15m before sunrise'], [240, '4h before sunrise'], [45, '45m before sunrise'], [0, 'At sunrise'],
+  ])('reads %i minutes as %s', (offset, words) => {
+    expect(describeSchedule({ scheduleType: 'SOLAR_OFFSET', solarEvent: 'SUNRISE', solarOffsetMinutes: offset }).words).toBe(words);
   });
 });

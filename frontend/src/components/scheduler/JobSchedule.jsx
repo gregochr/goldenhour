@@ -4,7 +4,7 @@ import PanelSection from '../data/PanelSection.jsx';
 import KvList from '../data/KvList.jsx';
 import { SolarEditForm } from '../SolarScheduleControls.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
-import { describeSolarRule, isForecastCycleJob } from '../../utils/schedulerSolar.js';
+import { describeSolarRuleCompact, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import { ReferenceValue } from './JobNextFires.jsx';
 import {
   SCHEDULE_CRON,
@@ -184,7 +184,7 @@ export default function JobSchedule({
         value: (
           <>
             <span data-testid={`solar-rule-${job.jobKey}`}>
-              {describeSolarRule(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete'}
+              {describeSolarRuleCompact(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete'}
             </span>
             , never before 00:05 UK
           </>

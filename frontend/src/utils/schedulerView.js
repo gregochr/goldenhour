@@ -1,6 +1,7 @@
 import { parseUtcInstant } from './conversions.js';
 import { UK_ZONE, ukDateStr, ukDayOffset } from './mapDates.js';
-import { describeSolarRule } from './schedulerSolar.js';
+import { describeSolarRuleCompact } from './schedulerSolar.js';
+import { formatSeconds } from './runsView.js';
 
 /**
  * Pure view-model helpers for the Scheduler tab (runs-redesign-plan.md §5.5, R4).
@@ -25,17 +26,21 @@ const DAY_NAMES = {
 };
 
 /**
- * The current UK timezone label: "BST" in summer, "GMT" in winter. {@code Intl} handles the changeover.
+ * The current UK timezone label: exactly "BST" in summer, "GMT" in winter. It is derived from London's UTC offset at
+ * that instant (0 is GMT, anything else BST), not from {@code Intl}'s short name, which some browsers spell "GMT+0" or
+ * "GMT+1".
  *
  * @param {Date} [now] the real clock
  * @returns {string} "BST" or "GMT"
  */
 export function getUKTimezoneLabel(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: UK_ZONE,
-    timeZoneName: 'short',
+    timeZone: UK_ZONE, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
   }).formatToParts(now);
-  return parts.find((p) => p.type === 'timeZoneName')?.value || 'GMT';
+  const n = (type) => Number(parts.find((p) => p.type === type)?.value);
+  const local = Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'));
+  const utc = Math.floor(now.getTime() / 60_000) * 60_000;
+  return local - utc === 0 ? 'GMT' : 'BST';
 }
 
 /** A UTC hour and minute, today, as a UK local "HH:MM". */
@@ -182,7 +187,7 @@ export function formatNextFire(instant, now = new Date()) {
 export function describeSchedule(job) {
   if (job.scheduleType === SCHEDULE_SOLAR) {
     return {
-      words: describeSolarRule(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete',
+      words: describeSolarRuleCompact(job.solarEvent, job.solarOffsetMinutes) || 'Sun-relative rule incomplete',
       type: 'Sun-relative',
       recognised: true,
     };
@@ -250,6 +255,8 @@ export function jobMatchesSearch(job, text) {
   const needle = text.trim().toLowerCase();
   if (needle === '') return true;
   const c = job.catalogue;
+  // "Uses Claude" is a chip, so the search the placeholder suggests ("Claude") finds those jobs too.
+  if (needle === 'claude' && c?.usesClaude === true) return true;
   return [job.displayName, c?.alias, c?.what, c?.purpose].some((field) => (field ?? '').toLowerCase().includes(needle));
 }
 
@@ -376,19 +383,16 @@ export function fireStatusView(status) {
 }
 
 /**
- * How long a fire took: "<1s", "55s", "2m 05s", "1h 02m". Empty for a fire still running or with no end.
+ * How long a fire took, in the one duration form the app uses ({@code formatSeconds}: "55s", "2m 5s", "1h 2m"), or
+ * "<1s". Empty for a fire still running or with no end.
  *
  * @param {{firedAt: string, completedAt: string|null}} fire the served last fire
  * @returns {string}
  */
-export function fireDuration(fire) {
+export function fireTook(fire) {
   const start = instantMs(fire?.firedAt);
   const end = instantMs(fire?.completedAt);
   if (start == null || end == null || end < start) return '';
   const total = Math.round((end - start) / 1000);
-  if (total < 1) return '<1s';
-  if (total < 60) return `${total}s`;
-  const pad = (n) => String(n).padStart(2, '0');
-  if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
-  return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
+  return total < 1 ? '<1s' : formatSeconds(total);
 }

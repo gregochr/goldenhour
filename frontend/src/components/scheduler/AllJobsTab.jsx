@@ -13,7 +13,7 @@ import {
   STATUS_PAUSED,
   countByType,
   describeSchedule,
-  fireDuration,
+  fireTook,
   fireStatusView,
   formatClock,
   formatNextFire,
@@ -22,12 +22,11 @@ import {
   relativeTime,
 } from '../../utils/schedulerView.js';
 
-/** The type chips, in order; Fixed delay shows only when some job has that type. */
+/** The type chips after All, in order; every one is always shown (the design lists Fixed delay). */
 const TYPE_CHIPS = [
-  { value: 'all', label: 'All' },
   { value: SCHEDULE_SOLAR, label: 'Sun-relative' },
   { value: SCHEDULE_CRON, label: 'Cron' },
-  { value: SCHEDULE_FIXED_DELAY, label: 'Fixed delay', onlyIfAny: true },
+  { value: SCHEDULE_FIXED_DELAY, label: 'Fixed delay' },
 ];
 
 /** The status chips: each narrows the list to jobs with that status, and pressing it again clears it. */
@@ -66,7 +65,7 @@ function LastRunCell({ job }) {
   const fire = job.lastFire;
   if (!fire) return <span className="text-plex-text-muted" data-testid={testId}>{'—'}</span>;
   const status = fireStatusView(fire.status);
-  const took = fireDuration(fire);
+  const took = fireTook(fire);
   return (
     <span className="flex flex-col gap-0.5" data-testid={testId}>
       <StatusDot tone={status.tone} halo={status.halo} tintText>{status.label}</StatusDot>
@@ -111,10 +110,16 @@ function Tag({ children, gold = false, testId = undefined }) {
 
 Tag.propTypes = { children: PropTypes.node.isRequired, gold: PropTypes.bool, testId: PropTypes.string };
 
-/** A row's accessible name, reading the whole row: "Tide refresh, Saturdays at 06:00, Active, next Sat 7 Nov 06:00". */
+/**
+ * A row's accessible name, reading the whole row: "Tide refresh, Saturdays at 06:00, Active, next Sat 7 Nov 06:00",
+ * with "uses Claude" and, when it did not succeed, how the last run went ("last run failed").
+ */
 function jobRowLabel(job) {
   const next = job.status === STATUS_ACTIVE && job.nextFireTime ? `next ${formatNextFire(job.nextFireTime)}` : '';
-  return [job.displayName, describeSchedule(job).words, jobStatusView(job.status).label, next]
+  const last = job.lastFire && job.lastFire.status !== 'SUCCEEDED'
+    ? `last run ${fireStatusView(job.lastFire.status).label.toLowerCase()}` : '';
+  return [job.displayName, describeSchedule(job).words, jobStatusView(job.status).label, next, last,
+    job.catalogue?.usesClaude ? 'uses Claude' : '']
     .filter(Boolean).join(', ');
 }
 
@@ -220,14 +225,17 @@ function columns(preview) {
  * @param {(type: string) => void} props.onType picks a type chip
  * @param {(status: string) => void} props.onStatus toggles a status chip
  * @param {(flag: 'claude'|'failed') => void} props.onFlag toggles the Uses Claude or Last run failed chip
+ * @param {() => void} props.onAll clears every chip (type, status, Uses Claude, Last run failed)
  * @param {string|null} [props.selectedKey] the open job's key
  * @param {(job: object) => void} props.onSelect called when a row is activated
  */
 export default function AllJobsTab({
   allJobs, jobs, summary = null, preview = null, loading, error = null, search, onSearch, filters, onType, onStatus,
-  onFlag, selectedKey = null, onSelect,
+  onFlag, onAll, selectedKey = null, onSelect,
 }) {
   const counts = chipCounts(allJobs, summary);
+  // All is lit only when no chip at all is on; pressing it clears every chip.
+  const noChipOn = filters.type === 'all' && filters.status == null && !filters.claude && !filters.failed;
   let body;
   if (loading) {
     body = (
@@ -277,7 +285,14 @@ export default function AllJobsTab({
           />
           <ChipRow testId="scheduler-chips">
             <ChipGroup label="Schedule type" wrap>
-              {TYPE_CHIPS.filter((chip) => !chip.onlyIfAny || counts[chip.value] > 0).map((chip) => (
+              <Chip
+                label="All"
+                count={counts.all}
+                on={noChipOn}
+                onClick={onAll}
+                testId="scheduler-chip-all"
+              />
+              {TYPE_CHIPS.map((chip) => (
                 <Chip
                   key={chip.value}
                   label={chip.label}
@@ -342,6 +357,7 @@ AllJobsTab.propTypes = {
   onType: PropTypes.func.isRequired,
   onStatus: PropTypes.func.isRequired,
   onFlag: PropTypes.func.isRequired,
+  onAll: PropTypes.func.isRequired,
   selectedKey: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
 };

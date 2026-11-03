@@ -75,14 +75,21 @@ describe('SchedulerView: the page header', () => {
     expect(meta.textContent).toMatch(/^2 jobs · UK time \((BST|GMT)\) · 1 paused$/);
   });
 
-  it('names the next scheduled job and its UK time, and omits the paused part at zero', async () => {
+  it('names the next scheduled job and its UK time, and still says "0 paused"', async () => {
     const jobs = [TIDE];
     mount(jobs, summaryFor(jobs, {
       nextScheduled: { jobKey: 'tide_refresh', displayName: 'Tide Refresh', at: '2026-07-10T14:15:00Z' },
     }));
     const meta = await screen.findByTestId('scheduler-meta');
-    expect(meta.textContent).toMatch(/^1 job · UK time \((BST|GMT)\) · next scheduled: Tide Refresh at 1[45]:15$/);
-    expect(meta).not.toHaveTextContent('paused');
+    expect(meta.textContent).toMatch(/^1 job · UK time \((BST|GMT)\) · 0 paused · next scheduled: Tide Refresh at 1[45]:15$/);
+  });
+
+  it('draws no meta line at all after a failed first load', async () => {
+    fetchSchedulerJobs.mockRejectedValue(new Error('down'));
+    fetchSchedulerSummary.mockRejectedValue(new Error('down'));
+    render(<SchedulerView />);
+    await screen.findByTestId('scheduler-error');
+    expect(screen.queryByTestId('scheduler-meta')).not.toBeInTheDocument();
   });
 
   it('still heads the page, from the jobs, when the summary cannot be read', async () => {
@@ -103,9 +110,9 @@ describe('SchedulerView: the groups', () => {
     ]);
     await screen.findByTestId('scheduler-row-sun');
     expect(rowOrder()).toEqual(['sun', 'cron_soon', 'cron_late', 'aurora_polling']);
-    expect(screen.getByTestId('scheduler-group-solar_offset')).toHaveTextContent('Sun-relative1fires a set time before sunrise or sunset');
-    expect(screen.getByTestId('scheduler-group-cron')).toHaveTextContent('Cron2fixed clock times');
-    expect(screen.getByTestId('scheduler-group-fixed_delay')).toHaveTextContent('Fixed delay1repeats every few minutes, all day');
+    expect(screen.getByTestId('scheduler-group-solar_offset')).toHaveTextContent('Sun-relative·1fires a set time before sunrise or sunset');
+    expect(screen.getByTestId('scheduler-group-cron')).toHaveTextContent('Cron·2fixed clock times');
+    expect(screen.getByTestId('scheduler-group-fixed_delay')).toHaveTextContent('Fixed delay·1repeats every few minutes, all day');
   });
 
   it('lists a job whose schedule type is not recognised in a trailing Other group', async () => {
@@ -113,6 +120,12 @@ describe('SchedulerView: the groups', () => {
     await screen.findByTestId('scheduler-row-tide_refresh');
     expect(rowOrder()).toEqual(['tide_refresh', NIGHTLY]);
     expect(screen.getByTestId('scheduler-group-other')).toHaveTextContent('Other');
+  });
+
+  it('gives each group heading a heading role at level 3', async () => {
+    mount();
+    await screen.findByTestId('scheduler-row-tide_refresh');
+    expect(screen.getByRole('heading', { level: 3, name: /Cron/ })).toBeInTheDocument();
   });
 });
 
@@ -174,6 +187,58 @@ describe('SchedulerView: the new chips', () => {
   });
 });
 
+describe('SchedulerView: the All chip', () => {
+  const jobs = [TIDE, POLLING, solarJob({ catalogue: catalogue({ usesClaude: true }), lastFire: lastFire({ status: 'FAILED' }) })];
+
+  it('is lit only when no chip is on, and pressing it clears every chip', async () => {
+    mount(jobs);
+    await screen.findByTestId('scheduler-row-tide_refresh');
+    expect(screen.getByTestId('scheduler-chip-all')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('scheduler-chip-cron'));
+    fireEvent.click(screen.getByTestId('scheduler-chip-claude'));
+    expect(screen.getByTestId('scheduler-chip-all')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('scheduler-chip-paused'));
+    fireEvent.click(screen.getByTestId('scheduler-chip-failed'));
+    fireEvent.click(screen.getByTestId('scheduler-chip-all'));
+    expect(screen.getByTestId('scheduler-chip-all')).toHaveAttribute('aria-pressed', 'true');
+    ['cron', 'claude', 'paused', 'failed'].forEach((chip) => {
+      expect(screen.getByTestId(`scheduler-chip-${chip}`)).toHaveAttribute('aria-pressed', 'false');
+    });
+    expect(rowOrder()).toHaveLength(3);
+  });
+
+  it('turns a type chip off when it is pressed again', async () => {
+    mount(jobs);
+    await screen.findByTestId('scheduler-row-tide_refresh');
+    fireEvent.click(screen.getByTestId('scheduler-chip-cron'));
+    fireEvent.click(screen.getByTestId('scheduler-chip-cron'));
+    expect(screen.getByTestId('scheduler-chip-all')).toHaveAttribute('aria-pressed', 'true');
+  });
+});
+
+describe('SchedulerView: row names and the Day placeholder', () => {
+  it('adds uses Claude and a last run that did not succeed to the row\'s accessible name', async () => {
+    mount([solarJob({ catalogue: catalogue({ usesClaude: true }), lastFire: lastFire({ status: 'FAILED' }) })]);
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    expect(row).toHaveAttribute('aria-label', expect.stringContaining('4h 15m before sunrise'));
+    expect(row).toHaveAttribute('aria-label', expect.stringContaining('last run failed'));
+    expect(row).toHaveAttribute('aria-label', expect.stringContaining('uses Claude'));
+  });
+
+  it('adds no last-run words for a run that succeeded', async () => {
+    mount([job({ lastFire: lastFire() })]);
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    expect(row.getAttribute('aria-label')).not.toContain('last run');
+  });
+
+  it('makes the Day\'s jobs tabpanel focusable', async () => {
+    mount();
+    await screen.findByTestId('scheduler-all-jobs');
+    fireEvent.click(screen.getByRole('tab', { name: /Day's jobs/ }));
+    expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
+  });
+});
+
 describe('SchedulerView: search', () => {
   const JOBS = [
     { ...TIDE, catalogue: catalogue({ alias: 'The tide filler', what: 'Fetches high and low tides.', purpose: 'Places' }) },
@@ -193,6 +258,16 @@ describe('SchedulerView: search', () => {
     await screen.findByTestId('scheduler-row-mail');
     fireEvent.change(screen.getByTestId('scheduler-search'), { target: { value: text } });
     expect(rowOrder()).toEqual(expected);
+  });
+
+  it('finds the jobs that use Claude by searching "Claude", though their text does not say it', async () => {
+    mount([
+      job({ catalogue: catalogue({ what: 'Forecasts.', usesClaude: true }) }),
+      tideJob({ catalogue: catalogue({ what: 'Tides.' }) }),
+    ]);
+    await screen.findByTestId('scheduler-row-tide_refresh');
+    fireEvent.change(screen.getByTestId('scheduler-search'), { target: { value: 'Claude' } });
+    expect(rowOrder()).toEqual([NIGHTLY]);
   });
 
   it('says nothing matches, and closes the open panel when the search filters its job out', async () => {
@@ -378,16 +453,74 @@ describe('SchedulerView: the panel\'s read-only sections', () => {
       catalogue: CLAUDE, runGroup: 'CYCLES', lastRun: lastRunCycle({ id: 412 }), lastFire: lastFire({ summary: '3 of 3 batches submitted' }),
     })]);
     await openPanel(NIGHTLY);
-    expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent(/OK.*15 min ago · took 55s/);
+    // a cycle's fire ends when its batches are submitted, so "took" is not shown for it
+    expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent(/OK.*15 min ago/);
+    expect(screen.getByTestId('scheduler-panel-last-line')).not.toHaveTextContent('took');
     expect(screen.getByTestId('scheduler-panel-last-summary')).toHaveTextContent('3 of 3 batches submitted');
     expect(screen.getByTestId('scheduler-panel-open-run')).toHaveAttribute('href', '#manage/runs/cycle/412');
+    expect(screen.getByTestId('scheduler-panel-open-run')).toHaveTextContent('Latest run in Runs');
     expect(screen.queryByTestId('scheduler-panel-no-runs')).not.toBeInTheDocument();
   });
 
-  it('adds the typical duration from the detail to the last run line', async () => {
+  it('says how long a cycle typically takes, from the run-based detail', async () => {
     mount([MAIN]);
     await openPanel(NIGHTLY);
-    await waitFor(() => expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent('typically 1h 30m'));
+    await waitFor(() => expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent('a cycle typically takes 1h 30m'));
+  });
+
+  it('says "took X · typically Y", in the one duration form, for a job whose typical comes from its fires', async () => {
+    fetchJobDetail.mockResolvedValue(jobDetail({ typicalDurationSeconds: 125, typicalDurationBasis: 'fires', claudeCost30d: null }));
+    mount([tideJob({
+      catalogue: catalogue(),
+      lastFire: lastFire({ firedAt: inHours(-1), completedAt: new Date(Date.now() - 3_600_000 + 125_000).toISOString() }),
+    })]);
+    await openPanel('tide_refresh');
+    await waitFor(() => expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent('took 2m 5s · typically 2m 5s'));
+  });
+
+  it('marks a manual fire', async () => {
+    mount([tideJob({ catalogue: catalogue(), lastFire: lastFire({ trigger: 'MANUAL' }) })]);
+    await openPanel('tide_refresh');
+    expect(screen.getByTestId('scheduler-panel-trigger')).toHaveTextContent('manual');
+  });
+
+  it('shows no trigger marker for a scheduled fire', async () => {
+    mount([tideJob({ catalogue: catalogue(), lastFire: lastFire({ trigger: 'SCHEDULED' }) })]);
+    await openPanel('tide_refresh');
+    expect(screen.queryByTestId('scheduler-panel-trigger')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Runs link, and says no scheduler fire, when a run is served but the log has none', async () => {
+    mount([job({ catalogue: catalogue(), runGroup: 'CYCLES', lastRun: lastRunCycle({ id: 9 }), lastFire: null })]);
+    await openPanel(NIGHTLY);
+    expect(screen.getByTestId('scheduler-panel-last-none')).toHaveTextContent('No scheduler fire in the last 14 days.');
+    expect(screen.getByTestId('scheduler-panel-open-run')).toHaveAttribute('href', '#manage/runs/cycle/9');
+  });
+
+  it('refreshes the Last run with the poll while the panel is open', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mount([tideJob({ catalogue: catalogue(), lastFire: lastFire({ summary: 'first result' }) })]);
+      await openPanel('tide_refresh');
+      expect(screen.getByTestId('scheduler-panel-last-summary')).toHaveTextContent('first result');
+      fetchSchedulerJobs.mockResolvedValue([tideJob({ catalogue: catalogue(), lastFire: lastFire({ summary: 'second result' }) })]);
+      await act(async () => { vi.advanceTimersByTime(30_000); });
+      await waitFor(() => expect(screen.getByTestId('scheduler-panel-last-summary')).toHaveTextContent('second result'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says a paused job has no upcoming fires, where the next fires go', async () => {
+    mount([tideJob({ catalogue: catalogue(), status: 'PAUSED', nextFires: [] })]);
+    await openPanel('tide_refresh');
+    expect(screen.getByTestId('scheduler-panel-paused-note')).toHaveTextContent('Paused: no upcoming fires.');
+  });
+
+  it('reads a sun-relative rule in compact words in the panel too', async () => {
+    mount([solarJob({ catalogue: catalogue() })]);
+    await openPanel(NIGHTLY);
+    expect(screen.getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent('4h 15m before sunrise');
   });
 
   it('says individual runs are not listed in Runs yet for a job Runs does not record', async () => {
@@ -418,7 +551,7 @@ describe('SchedulerView: the panel\'s read-only sections', () => {
   it('notes an unknown cost and manual runs', async () => {
     fetchJobDetail.mockResolvedValue(jobDetail({
       claudeCost30d: {
-        gbp: 3, complete: false, runs: 2, includes: ['briefing runs'], inclManual: true, perRun: 1.5, reason: null,
+        gbp: 3, complete: false, runs: 2, includes: ['briefing', 'mystery'], inclManual: true, perRun: 1.5, reason: null,
       },
     }));
     mount([MAIN]);
@@ -426,7 +559,43 @@ describe('SchedulerView: the panel\'s read-only sections', () => {
     const notes = await screen.findByTestId('scheduler-panel-cost-notes');
     expect(notes).toHaveTextContent('Some costs are still unknown');
     expect(notes).toHaveTextContent('Includes manual runs.');
-    expect(notes).toHaveTextContent('briefing runs');
+    expect(notes).toHaveTextContent('Counts the briefing.');
+  });
+
+  it('words the counted runs in plain English, drops an unknown key and never shows a raw one', async () => {
+    fetchJobDetail.mockResolvedValue(jobDetail({
+      claudeCost30d: {
+        gbp: 3, complete: true, runs: 2, includes: ['batches', 'briefing', 'askReady', 'evalRuns', 'rawKey'], inclManual: true,
+        perRun: 1.5, reason: null,
+      },
+    }));
+    mount([MAIN]);
+    await openPanel(NIGHTLY);
+    const notes = await screen.findByTestId('scheduler-panel-cost-notes');
+    expect(notes).toHaveTextContent(
+      "Counts the batches, the briefing, Ask's ready answers and the eval runs. Includes manual runs.",
+    );
+    expect(notes).not.toHaveTextContent('rawKey');
+    expect(notes).not.toHaveTextContent('askReady');
+  });
+
+  it('says no runs, not £0.00, when the cost covers none', async () => {
+    fetchJobDetail.mockResolvedValue(jobDetail({
+      claudeCost30d: { gbp: 0, complete: true, runs: 0, includes: [], inclManual: false, perRun: null, reason: null },
+    }));
+    mount([MAIN]);
+    await openPanel(NIGHTLY);
+    expect(await screen.findByTestId('scheduler-panel-cost-no-runs')).toHaveTextContent('No runs in the last 30 days.');
+    expect(screen.queryByTestId('scheduler-panel-cost-figure')).not.toBeInTheDocument();
+  });
+
+  it('keeps £0.00 when there were runs and the cost really is zero', async () => {
+    fetchJobDetail.mockResolvedValue(jobDetail({
+      claudeCost30d: { gbp: 0, complete: true, runs: 4, includes: [], inclManual: false, perRun: 0, reason: null },
+    }));
+    mount([MAIN]);
+    await openPanel(NIGHTLY);
+    expect(await screen.findByTestId('scheduler-panel-cost-figure')).toHaveTextContent('£0.00 over the last 30 days');
   });
 
   it('says the cost could not be loaded when the detail fails', async () => {
@@ -464,7 +633,7 @@ describe('SchedulerView: the panel\'s read-only sections', () => {
     expect(screen.queryByTestId('scheduler-connected-retired_job')).not.toBeInTheDocument();
     expect(screen.queryByTestId('scheduler-edge-watches')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Batch Result Polling' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Results collected by: Batch Result Polling, open its panel' }));
     await waitFor(() => expect(screen.getByTestId('scheduler-panel-title')).toHaveTextContent('Batch Result Polling'));
     expect(window.location.hash).toContain('#manage/scheduler/batch_result_polling');
     expect(within(screen.getByTestId('scheduler-edge-collectsResultsFrom')).getByText('Collects results from')).toBeInTheDocument();

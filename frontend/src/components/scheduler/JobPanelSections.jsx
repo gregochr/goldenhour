@@ -3,14 +3,15 @@ import PanelSection from '../data/PanelSection.jsx';
 import StatusDot from '../data/StatusDot.jsx';
 import KvList from '../data/KvList.jsx';
 import {
-  fireDuration,
+  fireTook,
   fireStatusView,
   formatFireLabel,
   relativeTime,
 } from '../../utils/schedulerView.js';
 import { formatRunStarted, formatSeconds } from '../../utils/runsView.js';
+import { isCycleJob } from '../../utils/schedulerSolar.js';
 
-/** The link look the panel uses for a route elsewhere ("Open in Runs →"). */
+/** The link look the panel uses for a route elsewhere ("Latest run in Runs →"). */
 const LINK_CLASS = 'flex items-center text-[13px] text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11';
 
 /** A Runs list item's address in the Runs tab: a cycle opens its cycle panel, a job run its job-run panel. */
@@ -20,13 +21,20 @@ function runHref(item) {
 
 /**
  * The next fires under the schedule: up to three, "Tomorrow 12:27" with how far off on the right. The server serves
- * none for a job that is paused or off. Real clock (R-D7).
+ * none for a job that is paused or off, and a paused job says so. Real clock (R-D7).
  *
  * @param {object} props
  * @param {Array<string>} props.fires the served next-fire instants
+ * @param {boolean} [props.paused] true for a paused job
  */
-export function NextFiresList({ fires }) {
-  if (!fires || fires.length === 0) return null;
+export function NextFiresList({ fires, paused = false }) {
+  if (!fires || fires.length === 0) {
+    return paused ? (
+      <p className="mt-3 text-[13px] text-plex-text-secondary" data-testid="scheduler-panel-paused-note">
+        Paused: no upcoming fires.
+      </p>
+    ) : null;
+  }
   return (
     <ul className="mt-3 flex flex-col gap-1" data-testid="scheduler-panel-upcoming">
       {fires.map((instant) => (
@@ -39,12 +47,18 @@ export function NextFiresList({ fires }) {
   );
 }
 
-NextFiresList.propTypes = { fires: PropTypes.arrayOf(PropTypes.string) };
+NextFiresList.propTypes = { fires: PropTypes.arrayOf(PropTypes.string), paused: PropTypes.bool };
+
+/** The marker for a fire that was not on the schedule: Run now, or a catch-up after a missed fire. */
+const TRIGGER_MARKER = { MANUAL: 'manual', CATCH_UP: 'catch-up' };
 
 /**
- * The Last run section: the newest fire's status, when, how long it took and the job's own one-line result, with
- * "Open in Runs →" when the server can attribute a run to the job (it served {@code lastRun}); else a line saying
- * individual runs are not listed in Runs yet.
+ * The Last run section: the newest scheduler fire's status, when, how long it took and the job's own one-line result,
+ * with "Latest run in Runs →" when the server can attribute a run to the job (it served {@code lastRun}, which may
+ * not be this fire); else a line saying individual runs are not listed in Runs yet.
+ *
+ * <p>A forecast cycle's fire ends when its batches are submitted, so "took" would mislead: a cycle shows how long a
+ * cycle typically takes (the run-based median) instead. Another job shows "took {x}" and "typically {y}".
  *
  * @param {object} props
  * @param {object} props.job the served job
@@ -53,8 +67,16 @@ NextFiresList.propTypes = { fires: PropTypes.arrayOf(PropTypes.string) };
 export function LastRunSection({ job, detail }) {
   const fire = job.lastFire;
   const status = fire ? fireStatusView(fire.status) : null;
-  const took = fire ? fireDuration(fire) : '';
-  const typical = detail?.typicalDurationSeconds != null ? `typically ${formatSeconds(detail.typicalDurationSeconds)}` : '';
+  const cycle = isCycleJob(job.jobKey);
+  const took = fire && !cycle ? fireTook(fire) : '';
+  const typicalSeconds = detail?.typicalDurationSeconds;
+  let typical = '';
+  if (typicalSeconds != null) {
+    typical = cycle || detail.typicalDurationBasis === 'runs'
+      ? `a cycle typically takes ${formatSeconds(typicalSeconds)}`
+      : `typically ${formatSeconds(typicalSeconds)}`;
+  }
+  const marker = fire ? TRIGGER_MARKER[fire.trigger] : null;
   let footer = null;
   if (job.lastRun == null && !job.runGroup) {
     footer = (
@@ -65,7 +87,7 @@ export function LastRunSection({ job, detail }) {
   }
   const action = job.lastRun ? (
     <a href={runHref(job.lastRun)} className={LINK_CLASS} data-testid="scheduler-panel-open-run">
-      Open in Runs <span aria-hidden="true">&rarr;</span>
+      Latest run in Runs <span aria-hidden="true">&rarr;</span>
     </a>
   ) : null;
   return (
@@ -78,13 +100,23 @@ export function LastRunSection({ job, detail }) {
             <span className="text-plex-text-muted">
               {[relativeTime(fire.firedAt), took && `took ${took}`, typical].filter(Boolean).join(' · ')}
             </span>
+            {marker && (
+              <span
+                className="rounded border border-plex-border-light px-1.5 py-px text-[10px] uppercase leading-4 text-plex-text-secondary"
+                data-testid="scheduler-panel-trigger"
+              >
+                {marker}
+              </span>
+            )}
           </p>
           {fire.summary && (
             <p className="mt-2 text-[13px] text-plex-text" data-testid="scheduler-panel-last-summary">{fire.summary}</p>
           )}
         </>
       ) : (
-        <p className="text-[13px] text-plex-text-secondary" data-testid="scheduler-panel-last-none">No run recorded yet.</p>
+        <p className="text-[13px] text-plex-text-secondary" data-testid="scheduler-panel-last-none">
+          {job.lastRun ? 'No scheduler fire in the last 14 days.' : 'No run recorded yet.'}
+        </p>
       )}
       {footer}
     </PanelSection>
@@ -93,12 +125,26 @@ export function LastRunSection({ job, detail }) {
 
 LastRunSection.propTypes = {
   job: PropTypes.shape({
+    jobKey: PropTypes.string.isRequired,
     lastFire: PropTypes.object,
     lastRun: PropTypes.object,
     runGroup: PropTypes.string,
   }).isRequired,
   detail: PropTypes.object,
 };
+
+/** What the served {@code includes} keys mean in plain English; a key not listed here is dropped, never shown raw. */
+const INCLUDES_WORDS = {
+  batches: 'the batches',
+  briefing: 'the briefing',
+  askReady: "Ask's ready answers",
+  evalRuns: 'the eval runs',
+};
+
+/** "a", "a and b", "a, b and c". */
+function joinWords(words) {
+  return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
 
 /** The pounds figure to the penny. */
 const pounds = (value) => `£${Number(value).toFixed(2)}`;
@@ -129,7 +175,13 @@ export function ClaudeCostSection({ catalogue, detail, loading, error }) {
     body = <p className="text-xs text-plex-coral" data-testid="scheduler-panel-cost-error">Couldn&apos;t load the Claude cost.</p>;
   } else {
     const cost = detail.claudeCost30d;
-    if (cost == null || cost.gbp == null) {
+    if (cost != null && cost.gbp != null && cost.runs === 0) {
+      body = (
+        <p className="text-[13px] text-plex-text-secondary" data-testid="scheduler-panel-cost-no-runs">
+          No runs in the last 30 days.
+        </p>
+      );
+    } else if (cost == null || cost.gbp == null) {
       body = (
         <p className="text-[13px] text-plex-text-secondary" data-testid="scheduler-panel-cost-unavailable">
           {cost?.reason ?? 'No cost figure is available for this job.'}
@@ -138,8 +190,9 @@ export function ClaudeCostSection({ catalogue, detail, loading, error }) {
     } else {
       const notes = [];
       if (cost.complete === false) notes.push('Some costs are still unknown, so this is a floor.');
+      const counted = (cost.includes ?? []).map((key) => INCLUDES_WORDS[key]).filter(Boolean);
+      if (counted.length > 0) notes.push(`Counts ${joinWords(counted)}.`);
       if (cost.inclManual) notes.push('Includes manual runs.');
-      if (cost.includes?.length > 0) notes.push(`Counts ${cost.includes.join(', ')}.`);
       body = (
         <>
           <p className="text-[13px] text-plex-text" data-testid="scheduler-panel-cost-figure">
@@ -244,6 +297,7 @@ export function ConnectedJobsSection({ catalogue, jobs, onSelectJob }) {
                     key={key}
                     type="button"
                     onClick={() => onSelectJob(key)}
+                    aria-label={`${label}: ${name}, open its panel`}
                     className="cursor-pointer text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
                     data-testid={`scheduler-connected-${key}`}
                   >
@@ -274,7 +328,7 @@ ConnectedJobsSection.propTypes = {
 export function TechnicalSection({ job }) {
   const items = [{ label: 'Job key', value: job.jobKey, mono: true, testId: 'scheduler-technical-key' }];
   if (job.configSource) items.push({ label: 'Requires', value: job.configSource, mono: true, testId: 'scheduler-technical-config' });
-  if (job.description) items.push({ label: 'Description', value: job.description, mono: true, testId: 'scheduler-technical-description' });
+  if (job.description) items.push({ label: 'Stored text', value: job.description, mono: true, testId: 'scheduler-technical-description' });
   return (
     <PanelSection label="Technical" testId="scheduler-panel-technical">
       <KvList items={items} />

@@ -248,7 +248,7 @@ describe('DataGrid', () => {
       const node = screen.getByTestId('grid-group-cron');
       expect(node.tagName).toBe('DIV');
       expect(node).not.toHaveAttribute('tabindex');
-      expect(node).toHaveTextContent('Cron2fixed clock times');
+      expect(node).toHaveTextContent('Cron·2fixed clock times');
       fireEvent.click(node);
       expect(onSelect).not.toHaveBeenCalled();
       expect(screen.getByRole('button', { name: /Alnmouth/ })).toBeInTheDocument();

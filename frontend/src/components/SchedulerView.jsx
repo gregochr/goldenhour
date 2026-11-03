@@ -58,8 +58,7 @@ const jobId = (job) => job.jobKey;
 function metaText(jobs, summary) {
   const total = summary?.total ?? jobs.length;
   const paused = summary?.byStatus?.[STATUS_PAUSED] ?? jobs.filter((job) => job.status === STATUS_PAUSED).length;
-  const parts = [`${total} ${total === 1 ? 'job' : 'jobs'}`, `UK time (${getUKTimezoneLabel()})`];
-  if (paused > 0) parts.push(`${paused} paused`);
+  const parts = [`${total} ${total === 1 ? 'job' : 'jobs'}`, `UK time (${getUKTimezoneLabel()})`, `${paused} paused`];
   const next = summary?.nextScheduled;
   if (next) parts.push(`next scheduled: ${next.displayName} at ${formatClock(next.at)}`);
   return parts.join(' · ');
@@ -210,7 +209,9 @@ export default function SchedulerView() {
   // Esc steps back from the editor first, then closes the panel.
   usePanelEscape({ active: panelOpen, panelRef, onEscape: editing ? cancelEdit : closePanel });
 
-  const handleType = (type) => setFilters((f) => ({ ...f, type }));
+  // A type chip pressed again turns itself off; All (no chip on) clears every chip.
+  const handleType = (type) => setFilters((f) => ({ ...f, type: f.type === type ? 'all' : type }));
+  const handleAll = () => setFilters(NO_FILTERS);
   const handleStatus = (status) => setFilters((f) => ({ ...f, status: f.status === status ? null : status }));
   const handleFlag = (flag) => setFilters((f) => ({ ...f, [flag]: !f[flag] }));
 
@@ -276,7 +277,7 @@ export default function SchedulerView() {
         >
           Scheduler
         </h2>
-        {!loading && (
+        {(loaded || summary != null) && (
           <p className="font-mono text-[11px] text-plex-text-muted" data-testid="scheduler-meta">
             {metaText(jobs, summary)}
           </p>
@@ -285,7 +286,13 @@ export default function SchedulerView() {
 
       <SchedulerTabs view={view} onChange={changeView} total={summary?.total ?? (loaded ? jobs.length : null)} />
 
-      <div role="tabpanel" id={SCHEDULER_PANEL_ID} aria-labelledby={schedulerTabId(view)} className="min-w-0">
+      <div
+        role="tabpanel"
+        id={SCHEDULER_PANEL_ID}
+        aria-labelledby={schedulerTabId(view)}
+        tabIndex={view === 'day' ? 0 : undefined}
+        className="min-w-0"
+      >
         {view === 'all' ? (
           <AllJobsTab
             allJobs={jobs}
@@ -300,6 +307,7 @@ export default function SchedulerView() {
             onType={handleType}
             onStatus={handleStatus}
             onFlag={handleFlag}
+            onAll={handleAll}
             selectedKey={selectedJob?.jobKey ?? null}
             onSelect={(job) => select(job.jobKey)}
           />
