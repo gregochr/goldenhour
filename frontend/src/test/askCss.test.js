@@ -258,10 +258,11 @@ describe('the Ask entries, locked (a reader who is not PRO or ADMIN) — a live 
     expect(ruleBody('.wf-askf-lockrow')).toBeNull();
   });
 
-  it('retires the peek entry\'s lock wrapper, pill-sibling rule and lifted dim, and keeps the pill flex:none inside the entry', () => {
+  it('retires the peek entry\'s lock wrapper, pill-sibling rule, lifted dim and the whole entry row (C2: Ask is a 44px button, muted when locked, with no pill)', () => {
     expect(ruleBody('.wf-map-peek-ask-lockwrap')).toBeNull();
     expect(ruleBody('.wf-map-peek-ask-row > .wf-lens-pro')).toBeNull();
     expect(ruleBody('.wf-lens-locked .wf-map-peek-ask-entry:disabled')).toBeNull();
-    expect(ruleBody('.wf-map-peek-ask-entry > .wf-lens-pro')).toMatch(/flex:\s*none/);
+    expect(ruleBody('.wf-map-peek-ask-entry')).toBeNull();
+    expect(ruleBody('.wf-map-peek-ask-entry > .wf-lens-pro')).toBeNull();
   });
 });

@@ -19,7 +19,7 @@ screen. One change is cross-platform: the unset-postcode nudge turns red everywh
 |---|---|---|---|---|
 | C0 | `claude/map-screen-improvements-06044b` | — | 2026-11-03 | Vendored the bundle; this plan. No code. |
 | C1 | `feature/map-mobile-compact-c1-chrome` | — | 2026-11-03 | Built, committed locally, not pushed: §6 red nudge (all widths), §1 phone masthead + `MastheadMenu`, §2 origin row (`hideAtHome`), §3 tabs. R1–R10 followed; the health panel is shared dot/menu-line state in `HealthStatusContext`. Not browser-verified. |
-| C2 | `feature/map-mobile-compact-c2-peek` | — | — | §4 Ask into the peek row, sheet back to 74px; §5 one-line attribution. |
+| C2 | `feature/map-mobile-compact-c2-peek` | — | 2026-11-03 | Built (not yet pushed): Ask is the 3rd of four peek buttons, the entry row and 126/112/408 heights gone, sheet rests at 74; one-line tap-to-expand attribution (`AttributionToggle`). S1–S11 applied; LITE button muted, no pill. |
 
 ---
 
@@ -184,7 +184,7 @@ red nudge.
 - **S9 Attribution.** Phone `.wf-map-chrome-bl` becomes `calc(var(--psh, 74px) + 14px + 8px)` to sit
   over the one-line attribution (update `mapPhoneChromeCascade.test.jsx` ~719). Expanded, the
   attribution has an opaque background and a z-index above `.wf-map-chrome-bl`'s and below the
-  sheet's 1120. Toggle ignores presses on `<a>`. Expansion is a visual aid for pointers: the full
+  sheet's 1120. Toggle ignores presses on `<a>`. Expanding the attribution does not re-run label placement, so labels under the expanded text are hidden until the next placement; accepted as cosmetic. Expansion is a visual aid for pointers: the full
   text is already in the DOM for assistive tech, so no keyboard control is added (recorded here).
   The listener is attached in an effect keyed on `isMobile` and removed on cleanup, and the class is
   removed when leaving the phone.

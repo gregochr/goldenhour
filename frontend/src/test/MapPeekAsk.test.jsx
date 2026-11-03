@@ -1,6 +1,7 @@
 /**
- * `MapPeekAsk` — the Ask row of the phone peek sheet, its body and its minimised line
- * (`docs/engineering/ask-photocast-plan.md` §2.7, F4), on its own: what each mode draws, what the ✕
+ * `MapPeekAskButton` and `MapPeekAsk` — the Ask peek button, the Ask section's body and the minimised line
+ * of the phone peek sheet (`docs/engineering/ask-photocast-plan.md` §2.7, F4; `map-mobile-compact-plan.md`
+ * C2), on their own: what each mode draws, what the ✕
  * does, and above all where FOCUS goes — a control that unmounts when pressed takes focus to `<body>`
  * with it, after which the map's Escape rule (which runs only while focus is inside the pane) is dead.
  * Every focus claim here is asserted on `document.activeElement`, never on a key fired at a node.
@@ -22,7 +23,7 @@ vi.mock('../components/ask/AskConversation.jsx', () => ({
   ),
 }));
 
-import MapPeekAsk, { PEEK_ASK_PROMPT } from '../components/map/MapPeekAsk.jsx';
+import MapPeekAsk, { MapPeekAskButton, PEEK_ASK_LABEL } from '../components/map/MapPeekAsk.jsx';
 
 const card = (rank, over = {}) => ({
   rank,
@@ -51,34 +52,42 @@ const ask = (over = {}) => ({
   ...over,
 });
 
-/** The entry button's ref, as `MapView` owns it: a plain ref object the part writes into. */
-const entryRef = { current: null };
+/** The Ask button's ref, as `MapView` owns it: a plain ref object the part writes into. */
+const buttonRef = { current: null };
 /** The minimised line's Layers door, and the sheet's Layers button (a stub of it), as `MapView` owns them. */
 const doorRef = { current: null };
 const layersRef = { current: null };
+/** The owner's record of the refusal last seen open (`MapView` state), written by the body and read by the button. */
+let seenError = null;
 /**
- * Mounts the part in a given mode with spies for what it asks of its owner. The stub Layers button is a
- * later sibling, as the real one is (the sheet draws the buttons AFTER the Ask row), and is drawn in the
- * modes where the sheet draws it — which is what makes the door's focus hand-off observable here.
+ * Mounts the parts in a given mode with spies for what they ask of their owner, laid out as the sheet lays
+ * them: the Ask button in the button row (with a stub Layers button after it), which is drawn in every mode but
+ * minimised, then the Ask body. That is what makes the hand-offs between the button, the door and the Layers
+ * button observable here.
  */
 function Harness({
-  mode, onOpen, onClose, onOpenLayers,
+  mode, onOpen, onClose, onOpenLayers, onPress,
 }) {
   return (
     <div>
       <button type="button" data-testid="elsewhere">elsewhere</button>
+      {mode !== 'minimised' && (
+        <>
+          <MapPeekAskButton mode={mode} onPress={onPress} buttonRef={buttonRef} seenError={seenError} />
+          <button ref={layersRef} type="button" data-testid="stub-layers">Layers</button>
+        </>
+      )}
       <MapPeekAsk
         mode={mode}
         onOpen={onOpen}
         onClose={onClose}
         onOpenLayers={onOpenLayers}
-        entryRef={entryRef}
+        buttonRef={buttonRef}
+        seenError={seenError}
+        onSeenError={(value) => { seenError = value; }}
         doorRef={doorRef}
         layersRef={layersRef}
       />
-      {(mode === 'section' || mode === 'collapsed') && (
-        <button ref={layersRef} type="button" data-testid="stub-layers">Layers</button>
-      )}
     </div>
   );
 }
@@ -86,8 +95,9 @@ function Harness({
 let onOpen;
 let onClose;
 let onOpenLayers;
+let onPress;
 function draw(mode) {
-  return <Harness mode={mode} onOpen={onOpen} onClose={onClose} onOpenLayers={onOpenLayers} />;
+  return <Harness mode={mode} onOpen={onOpen} onClose={onClose} onOpenLayers={onOpenLayers} onPress={onPress} />;
 }
 let view;
 const mount = (mode) => { view = render(draw(mode)); };
@@ -99,55 +109,105 @@ beforeEach(() => {
   onOpen = vi.fn();
   onClose = vi.fn();
   onOpenLayers = vi.fn();
+  onPress = vi.fn();
+  seenError = null;
 });
 
-describe('collapsed — the row is the entry', () => {
-  it('reads "Ask PhotoCast…" and opens the Ask section on a press', () => {
+describe('the Ask button — the third peek button', () => {
+  it('reads ASK over a ✦ (hidden from the name), is named "Ask PhotoCast", and toggles on a press', () => {
     mount('collapsed');
 
-    const entry = screen.getByTestId('wf-map-peek-ask-entry');
-    expect(entry).toHaveTextContent(PEEK_ASK_PROMPT);
-    expect(entry.querySelector('.wf-map-peek-ask-k')).toBeNull();
-    expect(entry).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(entry);
-    expect(onOpen).toHaveBeenCalledTimes(1);
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).toHaveTextContent('ASK');
+    expect(button).toHaveTextContent('✦');
+    expect(button.querySelector('.wf-map-peek-v')).toHaveAttribute('aria-hidden', 'true');
+    expect(button).toHaveAccessibleName(PEEK_ASK_LABEL);
+    expect(PEEK_ASK_LABEL).toBe('Ask PhotoCast');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAttribute('aria-controls', 'wf-map-peek-ask-body');
+    expect(button).toHaveClass('wf-map-peek-btn', 'wf-map-peek-btn-ask');
+    fireEvent.click(button);
+    expect(onPress).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('ask-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('stub-conversation')).not.toBeInTheDocument();
   });
 
+  it('focuses itself on a press (S2: Safari and iOS do not), and writes its node to the owner\'s ref', () => {
+    mount('collapsed');
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(buttonRef.current).toBe(button);
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.click(button);
+
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('is pressed (aria-expanded, the on class) while the section is open, and controls the Ask body', () => {
+    mount('expanded');
+
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).toHaveAttribute('aria-expanded', 'true');
+    expect(button).toHaveClass('wf-map-peek-btn-on');
+    expect(screen.getByTestId('wf-map-peek-ask-body')).toHaveAttribute('id', 'wf-map-peek-ask-body');
+  });
+
+  // S5
   it('is disabled when Ask cannot reach its server — a real disabled button, not a hidden one', () => {
     mockAsk = ask({ availability: 'down' });
     mount('collapsed');
 
-    expect(screen.getByTestId('wf-map-peek-ask-entry')).toBeDisabled();
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask'));
+    expect(onPress).not.toHaveBeenCalled();
   });
 
-  // F1a's rule: the conversation renders `inputError` itself, so the COLLAPSED row — where the
-  // conversation is not mounted — must show it where the field would be.
-  it('shows a refusal\'s sentence where the prompt was, says it once, and names the button by both', () => {
+  // S8: a 44px box cannot carry the "Pro" pill, so the gating rule's "greyed where too small" applies.
+  it('LITE: drawn muted (data-locked), still pressable, named "Ask PhotoCast, Pro", and with no pill and no dot', () => {
+    mockAsk = ask({ availability: 'locked', inputError: 'Ask is a Pro feature.' });
+    mount('collapsed');
+
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).toHaveAttribute('data-locked', 'true');
+    expect(button).toBeEnabled();
+    expect(button).toHaveAccessibleName('Ask PhotoCast, Pro');
+    expect(button).not.toHaveAttribute('data-error');
+    expect(button.querySelector('.wf-lens-pro')).toBeNull();
+    fireEvent.click(button);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('PRO: not locked', () => {
+    mount('collapsed');
+
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).not.toHaveAttribute('data-locked');
+  });
+
+  // S4. F1a's rule: the conversation renders `inputError` itself, so while the section is CLOSED — when the
+  // conversation is not mounted — the button must carry it: a dot, the sentence in its name, and one announcement.
+  it('S4: a refusal that arrived while closed puts a dot on the button and the sentence in its name, and is said once', () => {
     mockAsk = ask({ inputError: 'Slow down a moment.' });
     mount('collapsed');
 
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent('Slow down a moment.');
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveAttribute('data-error', 'true');
-    expect(screen.getByTestId('wf-map-peek-ask-entry'))
-      .toHaveAccessibleName(`${PEEK_ASK_PROMPT} Slow down a moment.`);
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).toHaveAttribute('data-error', 'true');
+    expect(button).toHaveAccessibleName(`${PEEK_ASK_LABEL}. Slow down a moment.`);
     expect(screen.getByTestId('wf-map-peek-ask-status')).toHaveTextContent('Slow down a moment.');
   });
 
-  it('shows the refusal in the minimised row too, and shows no error when there is none', () => {
+  it('S4: the refusal is still said by the status region while the answer is minimised (the button is not drawn then)', () => {
     mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' }, inputError: 'Slow down a moment.' });
     mount('minimised');
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent('Slow down a moment.');
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toHaveTextContent('Slow down a moment.');
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
 
     mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } });
     setMode('minimised');
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent(PEEK_ASK_PROMPT);
     expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
   });
 
-  // The provider keeps `inputError` until the next question: a row that mirrored it unconditionally would
-  // keep a sentence the reader has read where the prompt belongs, and say it again on every collapse.
+  // The provider keeps `inputError` until the next question: a button that mirrored it unconditionally would
+  // keep a dot the reader has read, and say the sentence again on every collapse.
   it('a refusal the reader has SEEN in the open conversation is not shown again when the section closes', () => {
     mount('collapsed');
     mockAsk = ask({ inputError: 'Slow down a moment.' });
@@ -155,22 +215,22 @@ describe('collapsed — the row is the entry', () => {
     mockAsk = ask({ inputError: 'Slow down a moment.' });
     setMode('collapsed');
 
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent(PEEK_ASK_PROMPT);
-    expect(screen.getByTestId('wf-map-peek-ask-q')).not.toHaveAttribute('data-error');
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).not.toHaveAttribute('data-error');
+    expect(button).toHaveAccessibleName(PEEK_ASK_LABEL);
     expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
-    expect(screen.getByTestId('wf-map-peek-ask-entry')).not.toHaveAttribute('aria-label');
   });
 
   it('a refusal that arrives while the section is closed is shown, until it has been seen', () => {
     mount('collapsed');
     mockAsk = ask({ inputError: 'Slow down a moment.' });
     setMode('collapsed');
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent('Slow down a moment.');
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('data-error', 'true');
 
     setMode('expanded'); // seen
     setMode('collapsed');
 
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent(PEEK_ASK_PROMPT);
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).not.toHaveAttribute('data-error');
   });
 
   it('the same sentence refused TWICE is two refusals: clearing the first makes the second new again', () => {
@@ -182,7 +242,25 @@ describe('collapsed — the row is the entry', () => {
     mockAsk = ask({ inputError: 'Slow down a moment.' });
     setMode('collapsed');
 
-    expect(screen.getByTestId('wf-map-peek-ask-q')).toHaveTextContent('Slow down a moment.');
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('data-error', 'true');
+  });
+
+  // The button unmounts while the answer is minimised: a "seen" record kept inside it died with it.
+  it('a refusal SEEN open stays seen across the minimised line and the button remounting (expand, read, close, open Layers)', () => {
+    const settled = { phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } };
+    mockAsk = ask({ ...settled });
+    mount('collapsed');
+    mockAsk = ask({ ...settled, inputError: 'Slow down a moment.' });
+    setMode('expanded'); // the conversation shows it
+    setMode('minimised'); // closed with the Ask button; the button unmounts
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
+
+    setMode('section'); // the door opened Layers: the button remounts
+
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).not.toHaveAttribute('data-error');
+    expect(button).toHaveAccessibleName(PEEK_ASK_LABEL);
   });
 
   it('leaves the sentence to the conversation while the section is open — never a second copy for a screen reader', () => {
@@ -190,12 +268,25 @@ describe('collapsed — the row is the entry', () => {
     mount('expanded');
 
     expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).not.toHaveAttribute('data-error');
+  });
+});
+
+describe('collapsed and section — the body draws nothing of its own', () => {
+  it.each(['collapsed', 'section'])('%s: only the status region (mounted, empty) — no row, no field, no line', (mode) => {
+    mount(mode);
+
+    expect(screen.getByTestId('wf-map-peek-ask')).toHaveAttribute('data-mode', mode);
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-ask-body')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-mini')).not.toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-ask-entry')).not.toBeInTheDocument();
   });
 });
 
-describe('expanded — the row holds the field and a ✕, the conversation fills the body', () => {
-  it('draws the question field, the ✕ and the conversation for the Map, and not the entry', () => {
+describe('expanded — under the buttons: the field and a ✕, then the conversation', () => {
+  it('draws the question field, the ✕ and the conversation for the Map — with the Ask button still there, pressed', () => {
     mount('expanded');
 
     expect(screen.getByTestId('ask-input')).toBeInTheDocument();
@@ -204,7 +295,7 @@ describe('expanded — the row holds the field and a ✕, the conversation fills
     // The conversation resolves its own scope and window; the peek hands it the tab and its fallback chip.
     expect(screen.getByTestId('stub-conversation')).toHaveAttribute('data-view', 'map');
     expect(screen.getByTestId('stub-conversation')).toHaveAttribute('data-view-label', 'Map · all regions');
-    expect(screen.queryByTestId('wf-map-peek-ask-entry')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('puts the field in read-only mode (Ready questions only) rather than removing it', () => {
@@ -372,15 +463,46 @@ describe('minimised — one line', () => {
 });
 
 describe('focus never falls to <body>', () => {
-  it('opening with nothing to read puts the cursor in the field', () => {
+  // S3: the Ask button STAYS mounted and holds focus when it is pressed, so "only when focus was lost" would
+  // never fire — opening puts the cursor in the field whatever holds focus.
+  it('S3: opening with nothing to read puts the cursor in the field, with the Ask button holding focus', () => {
     mount('collapsed');
-    screen.getByTestId('wf-map-peek-ask-entry').focus();
+    screen.getByTestId('wf-map-peek-btn-ask').focus();
 
-    // The entry unmounts under the press, as it does in the browser: focus is on <body> by now.
-    act(() => { screen.getByTestId('wf-map-peek-ask-entry').blur(); });
     setMode('expanded');
 
     expect(document.activeElement).toBe(screen.getByTestId('ask-input'));
+  });
+
+  it('S3: ... and with focus on <body> or on another control (the phone Ask button need not have been what opened it)', () => {
+    mount('collapsed');
+    screen.getByTestId('elsewhere').focus();
+
+    setMode('expanded');
+
+    expect(document.activeElement).toBe(screen.getByTestId('ask-input'));
+  });
+
+  it('S3: locked, opening focuses the upsell heading, whatever holds focus', () => {
+    mockAsk = ask({ availability: 'locked', typedDisabled: true });
+    mount('collapsed');
+    screen.getByTestId('wf-map-peek-btn-ask').focus();
+
+    setMode('expanded');
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
+  });
+
+  it('S3: with a busy question, opening keeps the old rule: nothing held, so the pane\'s node; something held, left alone', () => {
+    mockAsk = ask({ phase: 'busy' });
+    mount('collapsed');
+    setMode('expanded');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
+
+    setMode('collapsed');
+    screen.getByTestId('wf-map-peek-btn-ask').focus();
+    setMode('expanded');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
   it('opening with an answer to read parks focus on the Ask node, not in a field that would raise the keyboard over it', () => {
@@ -415,25 +537,26 @@ describe('focus never falls to <body>', () => {
     expect(document.activeElement).toBe(screen.getByTestId('elsewhere'));
   });
 
-  it('the ✕ over an answer hands focus to the entry button once it exists', () => {
+  // S1: focus is handed on by DESTINATION.
+  it('S1: the ✕ over an answer (closing to the COLLAPSED buttons) hands focus to the Ask button', () => {
     mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } });
     mount('expanded');
     screen.getByTestId('wf-map-peek-ask-x').focus();
 
     fireEvent.click(screen.getByTestId('wf-map-peek-ask-x'));
-    // The owner collapses (and the provider clears): the field and ✕ go, the entry comes.
+    // The owner collapses (and the provider clears): the field and ✕ go, the buttons stay.
     mockAsk = ask();
     setMode('collapsed');
 
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
-    expect(document.activeElement).toBe(entryRef.current);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
+    expect(document.activeElement).toBe(buttonRef.current);
   });
 
-  it('Escape in the field parks focus before the owner closes the section, and the entry takes it after', () => {
+  it('S1: closing to MINIMISED hands parked focus to the line\'s door — the Ask button is not mounted then', () => {
+    mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } });
     mount('expanded');
     const field = screen.getByTestId('ask-input');
     field.focus();
-    expect(document.activeElement).toBe(field);
 
     // The native listener runs before the owner's own handler: by the time the field would unmount,
     // focus is already somewhere that survives.
@@ -441,17 +564,89 @@ describe('focus never falls to <body>', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
     setMode('minimised');
 
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+    expect(document.activeElement).toBe(doorRef.current);
   });
 
-  it('Escape on the entry button (nothing is open) moves nothing', () => {
+  it('S1: Escape in the field closing to COLLAPSED hands focus to the Ask button', () => {
+    mount('expanded');
+    const field = screen.getByTestId('ask-input');
+    field.focus();
+
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
+    setMode('collapsed');
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
+  });
+
+  it('S1: with the Ask button DISABLED (the server went away), the hand-off lands on the Layers button, never <body>', () => {
+    mount('expanded');
+    screen.getByTestId('ask-input').focus();
+    fireEvent.keyDown(screen.getByTestId('ask-input'), { key: 'Escape' });
+
+    mockAsk = ask({ availability: 'down' });
+    setMode('collapsed');
+
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toBeDisabled();
+    expect(document.activeElement).toBe(screen.getByTestId('stub-layers'));
+  });
+
+  it('Escape on the Ask button (nothing is open) moves nothing', () => {
     mount('collapsed');
-    const entry = screen.getByTestId('wf-map-peek-ask-entry');
-    entry.focus();
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    button.focus();
 
-    fireEvent.keyDown(entry, { key: 'Escape' });
+    fireEvent.keyDown(button, { key: 'Escape' });
 
-    expect(document.activeElement).toBe(entry);
+    expect(document.activeElement).toBe(button);
+  });
+
+  // S2: the four buttons stay while Ask is expanded, so a press on another section unmounts the field, the ✕
+  // or a pick card while one of them holds focus. A press focuses its own button; the section is the net for
+  // every other route (a pick chip, a tab switch).
+  it.each([
+    ['the field', () => screen.getByTestId('ask-input')],
+    ['the ✕', () => screen.getByTestId('wf-map-peek-ask-x')],
+  ])('S2: switching to another section from an expanded Ask while %s holds focus lands on the Ask button, not <body>', (_n, target) => {
+    mount('expanded');
+    target().focus();
+    expect(document.activeElement).toBe(target());
+
+    setMode('section');
+
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
+  });
+
+  it('S2: ... and closing an expanded Ask to MINIMISED while the field holds focus lands on the door', () => {
+    mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } });
+    mount('expanded');
+    screen.getByTestId('ask-input').focus();
+
+    setMode('minimised');
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+  });
+
+  it('S2: a LOCKED reader\'s upsell heading losing focus on a switch lands on the Ask button too', () => {
+    mockAsk = ask({ availability: 'locked', typedDisabled: true });
+    mount('expanded');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
+
+    setMode('section');
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
+  });
+
+  it('S2: a peek button the reader pressed (it took focus) is not overridden when the section goes', () => {
+    mount('expanded');
+    screen.getByTestId('stub-layers').focus();
+
+    setMode('section');
+
+    expect(document.activeElement).toBe(screen.getByTestId('stub-layers'));
   });
 
   it('Escape with a dialog over the map moves nothing: the pane stands down, so nothing is about to close the section', () => {
@@ -606,7 +801,7 @@ describe('the Layers door — a SIBLING of the line, never inside it', () => {
       expect(document.activeElement).toBe(screen.getByTestId('elsewhere'));
     });
 
-    it('a door unmounted by a question going busy hands focus to the Ask entry, not to <body>', () => {
+    it('a door unmounted by a question going busy hands focus to the Ask button, not to <body>', () => {
       mockAsk = ask(variants[0][1]);
       mount('minimised');
       screen.getByTestId('wf-map-peek-mini-lay').focus();
@@ -614,7 +809,7 @@ describe('the Layers door — a SIBLING of the line, never inside it', () => {
       mockAsk = ask({ phase: 'busy' });
       setMode('collapsed');
 
-      expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+      expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
     });
 
     it('the line (not the door) unmounting while focused is the expand effect\'s business, not the door\'s', () => {

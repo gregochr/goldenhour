@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { AskProvider, useAsk } from '../context/AskContext.jsx';
 import { ASK_UPSELL_BODY, ASK_UPSELL_HEADING } from '../components/ask/AskUpsell.jsx';
-import MapPeekAsk from '../components/map/MapPeekAsk.jsx';
+import MapPeekAsk, { MapPeekAskButton } from '../components/map/MapPeekAsk.jsx';
 import { resetViewport } from './askViewport.js';
 import { MAP_PANE, renderAskShell, shellCtx } from './askShellHarness.jsx';
 import {
@@ -95,7 +95,7 @@ const RULES = [
   '.wf-lens-locked',
   '.wf-ask-bar:disabled',
   '.wf-askf:disabled',
-  '.wf-map-peek-ask-entry:disabled',
+  '.wf-map-peek-btn-ask:disabled',
 ];
 function installLockRules() {
   const style = document.createElement('style');
@@ -195,7 +195,7 @@ describe('the phone bar', () => {
   });
 });
 
-describe('the phone Map peek entry', () => {
+describe('the phone Map peek Ask button', () => {
   // A stateful stand-in for MapView's gate: `mode` is `expanded` while the section is open.
   let ctxAsk;
   function Peek() {
@@ -204,12 +204,17 @@ describe('the phone Map peek entry', () => {
     ctxAsk = useAsk();
     return (
       <>
+        <MapPeekAskButton
+          mode={open ? 'expanded' : 'collapsed'}
+          onPress={() => setOpen((o) => !o)}
+          buttonRef={ref}
+        />
         <MapPeekAsk
           mode={open ? 'expanded' : 'collapsed'}
           onOpen={() => setOpen(true)}
           onClose={() => setOpen(false)}
           onOpenLayers={vi.fn()}
-          entryRef={ref}
+          buttonRef={ref}
           doorRef={{ current: null }}
           layersRef={{ current: null }}
         />
@@ -223,21 +228,22 @@ describe('the phone Map peek entry', () => {
     await act(async () => { render(<AskProvider><Peek /></AskProvider>); });
   };
   const openSection = async () => {
-    fireEvent.click(await screen.findByTestId('wf-map-peek-ask-entry'));
+    fireEvent.click(await screen.findByTestId('wf-map-peek-btn-ask'));
     await act(async () => {});
   };
 
-  it('is a live button holding the prompt, the pill and the arrow, with no lock wrapper', async () => {
+  it('is a live 44px button, drawn muted (S8: no room for the pill), named "Ask PhotoCast, Pro", with no lock wrapper', async () => {
     await mountPeek();
 
-    const entry = await screen.findByTestId('wf-map-peek-ask-entry');
+    const entry = await screen.findByTestId('wf-map-peek-btn-ask');
     expect(entry).toBeEnabled();
     expect(entry.closest('.wf-lens-locked')).toBeNull();
     expect(screen.queryByTestId('wf-map-peek-ask-locked')).toBeNull();
-    expect(Array.from(entry.children).map((c) => c.className.split(' ')[0]))
-      .toEqual(['wf-map-peek-ask-q', 'wf-lens-pro', 'wf-map-peek-ask-go']);
+    expect(entry).toHaveAttribute('data-locked', 'true');
+    // A 44px box carries no "Pro" pill: the word rides the accessible name instead.
+    expect(entry.querySelector('.wf-lens-pro')).toBeNull();
+    expect(entry).toHaveAccessibleName('Ask PhotoCast, Pro');
     expect(entry).toHaveAttribute('aria-expanded', 'false');
-    expect(entry).toHaveAccessibleName(/\bPro$/);
     expect(entry.querySelector('a')).toBeNull();
   });
 
@@ -266,7 +272,7 @@ describe('the phone Map peek entry', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
   });
 
-  it('Not now closes and returns focus to the entry, never <body> (the park() before onClose)', async () => {
+  it('Not now closes and returns focus to the Ask button, never <body> (the park() before onClose)', async () => {
     await mountPeek();
     await openSection();
 
@@ -274,12 +280,12 @@ describe('the phone Map peek entry', () => {
     await act(async () => {});
 
     expect(screen.queryByTestId('wf-map-peek-ask-upsell-inline')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
     expect(ctxAsk.availability).toBe('locked');
     expectNoAskRequest();
   });
 
-  it('Escape in the section parks focus so the entry gets it once the section closes', async () => {
+  it('Escape in the section parks focus so the Ask button gets it once the section closes', async () => {
     await mountPeek();
     await openSection();
 

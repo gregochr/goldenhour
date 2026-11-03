@@ -260,7 +260,7 @@ describe('MapView — the Lite aurora door (phone)', () => {
     await act(async () => { fireEvent.keyDown(trigger, { key: 'Escape' }); });
 
     expect(screen.queryByTestId('wf-map-peek-body')).toBeNull();
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-win'));
   });
 
   it('draws no door on the phone when no night is served', async () => {

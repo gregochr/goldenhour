@@ -103,9 +103,9 @@ import { SubRegionActionButton, SubRegionStatusLine } from './subregions/SubRegi
 import { AllDoor, RegionDoor } from './subregions/SubRegionDoors.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
 import AskCameraController from './map/AskCameraController.jsx';
-import MapPeekAsk from './map/MapPeekAsk.jsx';
+import MapPeekAsk, { MapPeekAskButton } from './map/MapPeekAsk.jsx';
+import AttributionToggle from './map/AttributionToggle.jsx';
 import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
-import { SETTLED_PHASES } from '../utils/askModel.js';
 import { askWindowOf } from '../utils/askMapContext.js';
 import { isNightType } from '../utils/askNights.js';
 import { ranksPhrase } from '../utils/askPickChip.js';
@@ -644,6 +644,30 @@ ZoomControlPositioner.propTypes = {
 };
 
 /**
+ * The Tide peek button's value: the wave and the state word stay whole; only the trailing "· N dim" clause may
+ * ellipsise when the 390px row is tight (C2 review), never the word that says what the tide is doing.
+ *
+ * @param {object} props
+ * @param {?string} props.summary {@code mapPeek.tideSummary}'s string, e.g. "Mid ↑ · 17 dim"
+ */
+function TideButtonValue({ summary = null }) {
+  const at = summary ? summary.indexOf(' · ') : -1;
+  const state = at < 0 ? summary : summary.slice(0, at);
+  const dim = at < 0 ? null : summary.slice(at);
+  return (
+    <>
+      <TideWave />
+      <span className="wf-map-peek-v-state">{state}</span>
+      {dim && <span className="wf-map-peek-v-dim">{dim}</span>}
+    </>
+  );
+}
+
+TideButtonValue.propTypes = {
+  summary: PropTypes.string,
+};
+
+/**
  * Invisible component that reports the map's viewport as `[south, west, north, east]`.
  *
  * <p>Mounted only where the viewport is read (the tide strip's in-view coastal count).
@@ -688,7 +712,7 @@ BoundsTracker.propTypes = {
  *
  * <p><b>With Ask's section expanded this is "minimise", and it is the same write</b> (F4, plan §2.7's
  * table): the section closes ({@code openMapMenu → null}) and the conversation, not this listener,
- * decides whether the reader is left with the 126px row (nothing settled) or the 112px line (an answer).
+ * decides whether the reader is left with the four buttons (nothing settled) or the minimised line (an answer).
  * The one exemption {@code open} carries is an answer still being fetched — the table is silent on it
  * and the mock leaves it open: collapsing then would hide the only sign the question is out.
  */
@@ -1180,10 +1204,10 @@ CentreOnHomeControl.propTypes = {
  *
  * <h2>…and the phone's three (F4, plan §2.7's phone paragraph and state table)</h2>
  * <ul>
- *   <li>{@code askOffered} — the peek sheet draws Ask's row (Ask is on, locked (a live door to the upsell), or
+ *   <li>{@code askOffered} — the peek sheet draws the Ask button (Ask is on, locked (a live door to the upsell), or
  *       unreachable and shown disabled; never while rewound). False draws the sheet exactly as it was before Ask.</li>
- *   <li>{@code askPhase} — {@code AskContext.phase}. Whether an answer is SETTLED decides the sheet's
- *       resting height (126 with nothing, 112 with an answer: the minimised line), and a map touch
+ *   <li>{@code askPhase} — {@code AskContext.phase}. Whether an answer is SETTLED decides whether the
+ *       buttons or the minimised line are drawn (the resting height is 74 either way), and a map touch
  *       leaves an answer that is still being fetched alone.</li>
  *   <li>{@code panelShown} — the shell is showing this pane's tab. Going false closes the Ask section
  *       (the table's "tab switch away and back": closed with nothing settled, minimised with an answer),
@@ -1573,11 +1597,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const tideUpsellRootRef = useRef(null);
   const tideUpsellOpenerRef = useRef(null);
   const tideUpsellId = useId();
-  /** The Ask row's entry button — the sheet's other focus-return routes fall back to it. */
-  const askEntryRef = useRef(null);
+  /** The Ask peek button — the sheet's other focus-return routes fall back to it (S1: never while minimised). */
+  const askButtonRef = useRef(null);
+  /** Which refusal the open Ask section last showed — read by the Ask button, written by the Ask body (`unseenRefusal`). */
+  const [askSeenError, setAskSeenError] = useState(null);
   /**
    * The minimised line's Layers door (`phone-pick-callout-plan.md` §3 P2). While an answer is minimised
-   * the three peek buttons are not drawn, so it is where focus returns when Layers, Regions or Filters
+   * the four peek buttons are not drawn, so it is where focus returns when Layers, Regions or Filters
    * close back onto the line, and the sheet's rescue target when the buttons unmount holding focus.
    */
   const askDoorRef = useRef(null);
@@ -1638,16 +1664,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * collapsed, so it is always there to focus back onto.
    */
   const layersPeekBtnRef = useRef(null);
+  const windowsPeekBtnRef = useRef(null);
   /**
    * Where focus lands when a peek section's body unmounts holding it and no answer is minimised: the Ask
-   * entry, unless that entry is DISABLED (unreachable, `down`; a locked entry is live) — `.focus()` on a disabled button does
-   * nothing and focus would fall to `<body>` — in which case the Layers peek button, which stays mounted.
-   * A stable object with a getter, so it reads the entry's state at the moment focus is handed on.
+   * button, unless it is DISABLED (unreachable, `down`; a locked button is live) or not drawn (Ask off) —
+   * `.focus()` on a disabled button does nothing and focus would fall to `<body>` — in which case the Other
+   * windows button, which is the one peek button guaranteed to stay mounted. A stable object with a getter,
+   * so it reads the button's state at the moment focus is handed on.
    */
   const askEntryFocusRef = useMemo(() => ({
     get current() {
-      const entry = askEntryRef.current;
-      return entry && !entry.disabled ? entry : layersPeekBtnRef.current;
+      const button = askButtonRef.current;
+      return button && !button.disabled ? button : windowsPeekBtnRef.current;
     },
   }), []);
   /**
@@ -1656,9 +1684,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * focus when its gate turned false, and `windowsPeekBtnRef` as the rescue target, since Other
    * windows is the one peek button guaranteed to stay mounted whatever the tide gate does.
    * `tidePeekBtnRef` is also `MapPeekTideSection`'s own next-fit jump's stable focus target (§3 M3
-   * task 3) — the same button, one ref, two callers.
+   * task 3) — the same button, one ref, two callers. (`windowsPeekBtnRef` is declared above
+   * `askEntryFocusRef`, which falls back to it.)
    */
-  const windowsPeekBtnRef = useRef(null);
   const tidePeekBtnRef = useRef(null);
   /**
    * Whether the Tide peek button currently HOLDS focus — maintained by real `focus`/`blur` DOM
@@ -2185,9 +2213,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * value itself, not on a ref-based "did it change" test, so a selection that arrives while a
    * section is open (a Plan-tab handoff landing mid-browse) collapses it exactly like a chip press
    * does — the callout this selection is about to draw must never sit placed for the RESTING sheet
-   * (74 / 126 / 112px) under an open one (356 / 408 / 470px). ⚠️ With Ask's section expanded this is
-   * "minimise" (`utils/askPeek.js`: the same write, `openMapMenu → null`, leaves the 112px line when an
-   * answer is settled and the 126px row when not) — which is why this effect needed no exemption.
+   * (74px) under an open one (356 / 470px). ⚠️ With Ask's section expanded this is
+   * "minimise" (`utils/askPeek.js`: the same write, `openMapMenu → null`, leaves the minimised line when an
+   * answer is settled and the four buttons when not) — which is why this effect needed no exemption.
    *
    * <p>Phone only: `openMapMenu` never holds a `'peek:'` value on desktop/tablet, so this is inert
    * there regardless of the `isMobile` guard.
@@ -6083,13 +6111,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     ? openMapMenu.slice(5)
     : null;
 
-  // ── The Ask row of the sheet (F4, plan §2.7's phone paragraph) ────────────────────────────────────
+  // ── The Ask button and body of the sheet (F4, plan §2.7's phone paragraph; C2 moved Ask into the row) ──
   // Three facts, one derivation (`utils/askPeek.js`): is the Ask section EXPANDED (a value of
   // `openMapMenu`, D-1's one gate), is another section open, and is an answer SETTLED (Ask's state).
-  // "Minimised" is no flag: it is a settled answer with nothing open. The row exists only on a phone,
+  // "Minimised" is no flag: it is a settled answer with nothing open. The button exists only on a phone,
   // and while Ask is offered.
   const askRowOn = isMobile && askOffered;
-  const askSettled = SETTLED_PHASES.includes(askPhase);
   const askMode = askPeekMode({
     offered: askRowOn,
     expanded: askRowOn && openMapMenu === 'peek:ask',
@@ -6097,14 +6124,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     phase: askPhase,
   });
   /** What the sheet RESTS at — `--psh`, the callout's band and the chrome's floor. See `peekRestingHeight`. */
-  const peekResting = isMobile ? peekRestingHeight(askRowOn, askSettled) : null;
+  const peekResting = isMobile ? peekRestingHeight() : null;
   /** What the sheet is heading for — the camera's inset, and the label placer's obstacle. */
   const peekTarget = peekTargetHeight(askMode, sheetSection != null);
 
   /**
    * What the phone's peek sheet covers of the frame, for the camera (F4, plan §2.7): the sheet's TARGET
-   * height — 470 with the Ask section open, 112 for the minimised line, 408 under another section — as
-   * a bottom inset, so the picks are fitted into what the reader can see. The camera clamps it to 60%
+   * height — 470 with the Ask section open, 356 under another section, 74 at rest (the minimised line
+   * included) — as a bottom inset, so the picks are fitted into what the reader can see. The camera clamps it to 60%
    * of the frame (`utils/askCamera.js`), and re-applies its last move when it changes, which is how the
    * map re-fits when the answer is minimised. Only while picks are on the map and the sheet is a phone's:
    * everywhere else it is no inset at all, which is what the camera was already being given.
@@ -6136,18 +6163,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
-   * The Ask row's entry button, or the minimised line, was pressed: open the Ask section. It is
+   * The minimised line, or the Ask peek button (via {@link toggleAskSection}), was pressed: open the Ask section. It is
    * `handlePeekPress('ask')`'s write without its toggle — same gate, same clearing of the selection (the
-   * callout and an EXPANDED sheet must never coexist; only the 112px line may) — behind the one refusal
+   * callout and an EXPANDED sheet must never coexist; only the minimised line may) — behind the one refusal
    * every Ask entry makes: it never opens over a dialog (`foreignModalOver`, the predicate every Escape
    * rule on this tab and the shell's own `openAskSheet` apply).
    */
   function openAskSection() {
     if (foreignModalOver(mapPaneRef.current)) return;
-    // Not `handlePeekPress`'s toggle: this only ever OPENS (the control that calls it is not drawn while
-    // the section is open), and a second press landing before the first has re-rendered must not shut it.
+    // Not `handlePeekPress`'s toggle: this only ever OPENS (the minimised line is not drawn while the
+    // section is open), and a second press landing before the first has re-rendered must not shut it.
     setSelectedLocationName(null);
     setOpenMapMenu('peek:ask');
+  }
+
+  /**
+   * The Ask peek button was pressed: open the Ask section, or close it when it is open — the toggle every
+   * other peek button has (C2 step 2). Closing is `setOpenMapMenu(null)`; the conversation, not the sheet,
+   * decides whether the reader is left with the four buttons or the minimised line. Opening keeps
+   * {@link openAskSection}'s refusal over a dialog; closing never needs one.
+   */
+  function toggleAskSection() {
+    if (openMapMenu === 'peek:ask') setOpenMapMenu(null);
+    else openAskSection();
   }
 
   /**
@@ -6161,7 +6199,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * below opens the callout once the pick's row has been followed, so the card describes the pick's OWN
    * window. This handler does the other half, synchronously: it turns any open peek value (Windows, Tide,
    * Layers, or an EXPANDED answer) to null, so the sheet is already at its resting height when the camera
-   * flies (`peekTarget` is then 112, not 470) and no commit holds a callout beside an open sheet. An
+   * flies (`peekTarget` is then 74, not 470) and no commit holds a callout beside an open sheet. An
    * expanded answer is minimised on purpose: the callout opens and an expanded sheet never coexist, and
    * a reader who wants the cards back taps the line.
    *
@@ -6549,8 +6587,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       data-testid="wf-map-pane"
       // The peek sheet's RESTING height, published for everything that clears it (`index.css`'s
       // lifted stack, the Leaflet corner's padding) and for `MapCallout`'s band, which reads it off
-      // this element when it paints. State-driven since Ask (F4): 74 with no Ask row, 126 with one,
-      // 112 while an answer is minimised. Phone only — unset elsewhere, so desktop and tablet
+      // this element when it paints. 74 in every resting state (the minimised line included) since C2;
+      // it was state-driven (74 / 126 / 112) while the Ask row stood above the buttons. Phone only — unset elsewhere, so desktop and tablet
       // see exactly the stylesheet's own value (none), as before.
       style={isMobile ? { '--psh': `${peekResting}px` } : undefined}
       onKeyDown={handleMapPaneKeyDown}
@@ -6807,6 +6845,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             onOpenSettings={onOpenSettings}
           />
           <ZoomControlPositioner position="bottomright" />
+          <AttributionToggle enabled={isMobile} />
           {/* The tab's own viewport, for the tide strip's in-view coastal count (tide-window-plan.md
               T6). */}
           <BoundsTracker onBounds={handleTideBounds} />
@@ -6945,9 +6984,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
               topicStripHeight={topicStripHeight}
-              // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
-              // the 112px minimised line, and the sheet changing height under a card that is already
-              // placed must repaint its band. Null off the phone.
+              // The phone sheet's resting height (74 — `--psh`): a callout may stand over the
+              // minimised line, and a sheet that changes height under a card that is already placed
+              // must repaint its band (constant since C2, kept as the one route). Null off the phone.
               bandKey={peekResting}
               // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — SOLAR windows
               // only: the rows are a daylight forecast, and on an astro or aurora night (whose
@@ -7201,11 +7240,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             collapsed (map-mobile-sheet-plan.md §3 M2 task 6). */}
         {isMobile && (
           <>
-            {/* The Layers button is not drawn while an answer has replaced the buttons (F4), so the
-                return address falls back to the minimised line's Layers door, then to the Ask row's
-                entry button, which always is. */}
-            <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
-            <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
+            {/* The Layers button is not drawn while the minimised line has replaced the buttons (F4), so the
+                return address falls back to the line's Layers door, then to the Ask button. */}
+            <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askButtonRef.current} />
+            <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askButtonRef.current} />
             {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3, its
                 fuller Auto/Always/Off gate and pulse wired at M5). The Tide button is gated on
                 `tideCuesOn` — the SAME one gate the spot-build site's `tideTier` null reads
@@ -7214,16 +7252,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               section={sheetSection}
               askMode={askMode}
               /* The door while an answer is minimised (the buttons or the open section's body unmount
-                 holding focus onto the line); the Ask entry otherwise — still reachable: a section
-                 closing with no answer standing (Escape in the Layers body) leaves the collapsed row. */
+                 holding focus onto the line); the Ask button otherwise — still reachable: a section
+                 closing with no answer standing (Escape in the Layers body) leaves the four buttons. */
               fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryFocusRef}
+              askButton={askRowOn ? (
+                <MapPeekAskButton
+                  mode={askMode}
+                  onPress={toggleAskSection}
+                  buttonRef={askButtonRef}
+                  seenError={askSeenError}
+                />
+              ) : null}
               ask={askRowOn ? (
                 <MapPeekAsk
                   mode={askMode}
                   onOpen={openAskSection}
                   onClose={() => setOpenMapMenu(null)}
                   onOpenLayers={() => handlePeekPress('lay')}
-                  entryRef={askEntryRef}
+                  buttonRef={askButtonRef}
+                  seenError={askSeenError}
+                  onSeenError={setAskSeenError}
+                  windowsRef={windowsPeekBtnRef}
                   doorRef={askDoorRef}
                   layersRef={layersPeekBtnRef}
                   planActions={askPlanActions}
@@ -7241,10 +7290,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               onTideButtonFocus={handleTideButtonFocus}
               onTideButtonBlur={handleTideButtonBlur}
               tideButtonContent={(
-                <>
-                  <TideWave />
-                  {tideSummary(activeMapEvent?.tide, tideLocked ? 0 : tideStripModel.dimmed.length)}
-                </>
+                <TideButtonValue
+                  summary={tideSummary(activeMapEvent?.tide, tideLocked ? 0 : tideStripModel.dimmed.length)}
+                />
               )}
               tideBody={(
                 <MapPeekTideSection
