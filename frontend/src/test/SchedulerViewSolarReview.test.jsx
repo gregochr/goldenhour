@@ -9,6 +9,7 @@ import {
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
+  fetchSchedulerDay: vi.fn(),
   fetchSchedulerJobs: vi.fn(),
   updateJobSchedule: vi.fn(),
   pauseJob: vi.fn(),
@@ -71,6 +72,8 @@ async function openEditor() {
 beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
+  // These suites are about the All jobs tab, which the remembered tab opens (the default is Day's jobs).
+  try { window.localStorage.setItem('photocast.scheduler.view', 'all'); } catch { /* none */ }
   useIsSplitLayout.mockReturnValue(true);
   fetchSchedulerSummary.mockResolvedValue(null);
   fetchJobDetail.mockResolvedValue(jobDetail());

@@ -162,3 +162,16 @@ export function runsTimingHref(type = 'AFTERNOON') {
   if (RUN_TYPES.includes(type)) query.set('type', type);
   return `#manage/runs?${query.toString()}`;
 }
+
+/**
+ * The address of the Runs tab's Day view for a date, as a plain href (D14 of the scheduler redesign), the link from
+ * the Scheduler's Day picture. Runs reads a date that is today or later as "today" and rewrites it out of the address.
+ *
+ * @param {string} date - an ISO date ({@code YYYY-MM-DD}); anything else links to the Day view's own default day
+ * @returns {string} {@code #manage/runs?view=day&date=2026-11-01}
+ */
+export function runsDayHref(date) {
+  const query = new URLSearchParams({ view: 'day' });
+  if (validDate(date)) query.set('date', date);
+  return `#manage/runs?${query.toString()}`;
+}

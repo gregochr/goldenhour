@@ -7,6 +7,7 @@ import {
 } from '../api/schedulerApi.js';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
 import AllJobsTab from './scheduler/AllJobsTab.jsx';
+import DayJobsTab from './scheduler/day/DayJobsTab.jsx';
 import SchedulerTabs, { SCHEDULER_PANEL_ID, schedulerTabId } from './scheduler/SchedulerTabs.jsx';
 import SchedulerJobPanel from './scheduler/SchedulerJobPanel.jsx';
 import { ScheduleSwitchDialog } from './SolarScheduleControls.jsx';
@@ -28,6 +29,8 @@ import {
 } from '../utils/schedulerView.js';
 import { savedMessage } from '../utils/schedulerEdit.js';
 import { isSchedulerHash, readSchedulerQuery, writeSchedulerQuery } from '../utils/schedulerQuery.js';
+import { dayInRange, dayWord as wordForDay } from '../utils/schedulerDay.js';
+import { ukDateStr } from '../utils/mapDates.js';
 
 /** Polling interval for refreshing job statuses, the summary and the solar preview. */
 const POLL_INTERVAL_MS = 30_000;
@@ -52,6 +55,19 @@ const HASH_OPTIONS = { parse: parseSchedulerHash, format: formatSchedulerHash, k
 
 /** The default filters: every job, no chip on. */
 const NO_FILTERS = { type: 'all', status: null, claude: false, failed: false };
+
+/** What a row click says when the job list never loaded, so no panel can open. */
+const NO_JOB_DETAILS = "Couldn't load job details.";
+
+/**
+ * The Day tab's sub-label for the date in the address: "Today" with none, or one outside the reach of the navigation
+ * (which the tab replaces with today), else the date's word ("Tomorrow", "Fri 30 Oct"). The real clock (R-D7).
+ */
+function dayWordFromHash() {
+  const date = readSchedulerQuery().date;
+  const today = ukDateStr(new Date());
+  return date != null && date !== today && dayInRange(date, today) ? wordForDay(date, today) : 'Today';
+}
 
 /** An open job's key for the close-when-filtered check; module-level so the hook's dependencies stay stable. */
 const jobId = (job) => job.jobKey;
@@ -93,6 +109,7 @@ export default function SchedulerView() {
   const [filters, setFilters] = useState(NO_FILTERS);
   const [search, setSearch] = useState('');
   const [view, setView] = useState(() => readSchedulerQuery().view);
+  const [dayWord, setDayWord] = useState(dayWordFromHash);
 
   const jobsRequest = useRef(0);
   const summaryRequest = useRef(0);
@@ -100,13 +117,17 @@ export default function SchedulerView() {
   const rootRef = useRef(null);
   const panelRef = useRef(null);
   const loadedOnce = useRef(false);
+  // The mounted Day tab's day reload, so a change to a job re-reads the picture too (null when the tab is not mounted).
+  const dayReload = useRef(null);
 
   const { selectedId: selectedKey, select, clear } = useHashSelection(TAB, HASH_OPTIONS);
 
   // Back, Forward or a pasted link can change the tab in the address; follow it (only for this tab's own addresses).
   useEffect(() => {
     const onHashChange = () => {
-      if (isSchedulerHash()) setView(readSchedulerQuery().view);
+      if (!isSchedulerHash()) return;
+      setView(readSchedulerQuery().view);
+      setDayWord(dayWordFromHash());
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -163,7 +184,12 @@ export default function SchedulerView() {
 
   // A change to a job (Run now, Pause, Resume, a save) re-reads the summary too: its counts and next fire move.
   // It resolves with the re-read jobs (null when that read failed), which a save's toast quotes the next fire from.
-  const reload = useCallback(async () => (await Promise.all([loadJobs(), loadSummary()]))[0], [loadJobs, loadSummary]);
+  // The Day picture's day is re-read as well, whichever date it shows: its fires and statuses move with the change.
+  const reload = useCallback(
+    async () => (await Promise.all([loadJobs(), loadSummary(), dayReload.current?.()]))[0],
+    [loadJobs, loadSummary],
+  );
+  const registerDayReload = useCallback((fn) => { dayReload.current = fn; }, []);
 
   // The save toast (D16): "Saved. Next fire Tomorrow 12:27.", read from the job as re-read after the save.
   const showSaved = useCallback((reloaded, jobKey) => {
@@ -209,6 +235,23 @@ export default function SchedulerView() {
   );
 
   const closePanel = useCallback(() => clear(), [clear]);
+  // A row can be pressed before the job list arrives (the panel then opens when it does); if the list failed there is
+  // nothing to open, and the reader is told rather than left with a dead row.
+  const selectJob = useCallback((jobKey) => {
+    if (!loaded && error != null) {
+      setToast((t) => ({ message: NO_JOB_DETAILS, nonce: t.nonce + 1 }));
+      return;
+    }
+    select(jobKey);
+  }, [select, loaded, error]);
+
+  // A panel asked for before the list loaded, and the list then failed, can never open: leave the address clean.
+  useEffect(() => {
+    if (view === 'day' && !loaded && error != null && selectedKey != null) {
+      clear({ replace: true });
+      (async () => setToast((t) => ({ message: NO_JOB_DETAILS, nonce: t.nonce + 1 })))();
+    }
+  }, [view, loaded, error, selectedKey, clear]);
   useCloseWhenFilteredOut({
     selectedId: selectedKey,
     items: visibleJobs,
@@ -287,6 +330,7 @@ export default function SchedulerView() {
     <div className="flex flex-col gap-4 p-4 max-[639px]:px-[14px] max-[639px]:py-3" data-testid="scheduler-list-pane">
       <div className="flex min-w-0 flex-col gap-1">
         <h2
+          tabIndex={-1}
           className="font-serif text-[26px] font-semibold leading-tight text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
           data-testid="scheduler-heading"
         >
@@ -299,7 +343,12 @@ export default function SchedulerView() {
         )}
       </div>
 
-      <SchedulerTabs view={view} onChange={changeView} total={summary?.total ?? (loaded ? jobs.length : null)} />
+      <SchedulerTabs
+        view={view}
+        onChange={changeView}
+        total={summary?.total ?? (loaded ? jobs.length : null)}
+        dayWord={dayWord}
+      />
 
       <div
         role="tabpanel"
@@ -327,9 +376,14 @@ export default function SchedulerView() {
             onSelect={(job) => select(job.jobKey)}
           />
         ) : (
-          <p className="py-6 text-sm text-plex-text-secondary" data-testid="scheduler-day-placeholder">
-            The day picture is coming soon.
-          </p>
+          <DayJobsTab
+            jobs={jobs}
+            jobsError={error}
+            selectedKey={selectedJob?.jobKey ?? null}
+            onSelect={selectJob}
+            onDayWord={setDayWord}
+            registerReload={registerDayReload}
+          />
         )}
       </div>
     </div>

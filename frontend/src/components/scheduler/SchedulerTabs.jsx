@@ -20,8 +20,9 @@ export const SCHEDULER_PANEL_ID = 'scheduler-tab-panel';
  * @param {string} props.view the active tab's key
  * @param {(view: string) => void} props.onChange called with the chosen tab's key
  * @param {number|null} [props.total] the served job total, beside All jobs
+ * @param {string} [props.dayWord] the viewed day beside Day's jobs ("Today", "Tomorrow", "Fri 30 Oct")
  */
-export default function SchedulerTabs({ view, onChange, total = null }) {
+export default function SchedulerTabs({ view, onChange, total = null, dayWord = 'Today' }) {
   const refs = useRef({});
 
   function handleKeyDown(event) {
@@ -42,7 +43,7 @@ export default function SchedulerTabs({ view, onChange, total = null }) {
     <div role="tablist" aria-label="Scheduler views" className="flex gap-5 border-b border-plex-border" data-testid="scheduler-tabs">
       {TABS.map((tab) => {
         const on = tab.key === view;
-        const word = tab.key === 'day' ? 'Today' : (total ?? '');
+        const word = tab.key === 'day' ? dayWord : (total ?? '');
         return (
           <button
             key={tab.key}
@@ -77,4 +78,5 @@ SchedulerTabs.propTypes = {
   view: PropTypes.oneOf(['day', 'all']).isRequired,
   onChange: PropTypes.func.isRequired,
   total: PropTypes.number,
+  dayWord: PropTypes.string,
 };

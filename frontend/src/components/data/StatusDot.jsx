@@ -10,6 +10,18 @@ const TONES = {
   off: { dot: 'bg-plex-text-faint', text: 'text-plex-text-muted' },
 };
 
+/**
+ * The ring a hollow dot draws, per tone: the quiet "off" tone keeps the dashed "not yet" ring (a run still to come);
+ * every other tone keeps its own colour as a solid ring (a missed run is a coral ring, not a grey one).
+ */
+const HOLLOW_RINGS = {
+  go: 'border border-plex-ok',
+  amber: 'border border-verdict-marginal',
+  coral: 'border border-plex-coral',
+  tide: 'border border-tide',
+  off: 'border border-dashed border-plex-text-muted',
+};
+
 /** The words' colour for a caller that tints them with the dot (the Runs list): amber and coral; the rest as above. */
 const TINTED_TEXT = { amber: 'text-verdict-marginal', coral: 'text-plex-coral' };
 
@@ -31,8 +43,8 @@ export default function StatusDot({
 }) {
   const style = TONES[tone] ?? TONES.off;
   const text = tintText && TINTED_TEXT[tone] ? TINTED_TEXT[tone] : style.text;
-  // Hollow: a dashed ring, "not yet" (a run still to come), instead of a filled dot.
-  const dot = hollow ? 'border border-dashed border-plex-text-muted' : style.dot;
+  // Hollow: a ring in the tone's colour (dashed for the quiet "not yet" tone) instead of a filled dot.
+  const dot = hollow ? (HOLLOW_RINGS[tone] ?? HOLLOW_RINGS.off) : style.dot;
   return (
     <span className={`inline-flex items-center gap-1.5 text-xs ${text} ${className}`} data-testid={testId}>
       <span
