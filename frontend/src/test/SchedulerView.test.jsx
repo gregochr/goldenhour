@@ -3,9 +3,8 @@ import { render, screen, fireEvent, waitFor, act, within } from '@testing-librar
 import SchedulerView from '../components/SchedulerView.jsx';
 import { setRewind } from '../utils/rewind.js';
 import {
-  NIGHTLY, inHours, job, lastRunCycle, pollingJob, solarJob, tideJob,
+  NIGHTLY, inHours, job, lastFire, pollingJob, solarJob, tideJob, jobDetail, summaryFor,
 } from './schedulerFixtures.js';
-import { jobItem } from './runsFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
   fetchSchedulerJobs: vi.fn(),
@@ -15,7 +14,8 @@ vi.mock('../api/schedulerApi', () => ({
   triggerJob: vi.fn(),
   fetchSolarPreview: vi.fn(),
   switchScheduleType: vi.fn(),
-  fetchJobRuns: vi.fn(),
+  fetchSchedulerSummary: vi.fn(),
+  fetchJobDetail: vi.fn(),
 }));
 vi.mock('../api/skyRatingEvalApi', () => ({
   getSkyRatingEvalSchedule: vi.fn(),
@@ -32,7 +32,8 @@ import {
   resumeJob,
   triggerJob,
   fetchSolarPreview,
-  fetchJobRuns,
+  fetchSchedulerSummary,
+  fetchJobDetail,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 import { getSkyRatingEvalSchedule } from '../api/skyRatingEvalApi';
@@ -48,8 +49,9 @@ const TIDE = tideJob({
 const POLLING = pollingJob({ status: 'PAUSED' });
 const BASE_JOBS = [TIDE, POLLING];
 
-function mount(jobs = BASE_JOBS) {
+function mount(jobs = BASE_JOBS, summary = undefined) {
   fetchSchedulerJobs.mockResolvedValue(jobs);
+  fetchSchedulerSummary.mockResolvedValue(summary === undefined ? summaryFor(jobs) : summary);
   return render(<SchedulerView />);
 }
 
@@ -68,7 +70,8 @@ beforeEach(() => {
   setRewind(null);
   useIsSplitLayout.mockReturnValue(true);
   fetchSolarPreview.mockRejectedValue(new Error('preview not under test here'));
-  fetchJobRuns.mockResolvedValue([]);
+  fetchSchedulerSummary.mockResolvedValue(null);
+  fetchJobDetail.mockResolvedValue(jobDetail());
 });
 
 afterEach(() => {
@@ -87,13 +90,6 @@ describe('SchedulerView: the list', () => {
   it('says "Off in config", not "Disabled by Config", for a job its config switches off', async () => {
     mount([job({ status: 'DISABLED_BY_CONFIG', configSource: 'aurora.enabled' })]);
     expect(await screen.findByTestId(`scheduler-status-${NIGHTLY}`)).toHaveTextContent('Off in config');
-  });
-
-  it('heads the list "Scheduler" with the job count and the UK time label', async () => {
-    mount();
-    const meta = await screen.findByTestId('scheduler-meta');
-    expect(screen.getByTestId('scheduler-heading')).toHaveTextContent('Scheduler');
-    expect(meta.textContent).toMatch(/^2 jobs · UK time \((BST|GMT)\)$/);
   });
 
   it('labels the header BST in summer and GMT in winter, from the real clock', async () => {
@@ -131,26 +127,6 @@ describe('SchedulerView: the list', () => {
     ]);
     await screen.findByTestId('scheduler-row-soon');
     expect(rowOrder()).toEqual(['soon', 'middle', 'late', 'off', 'paused_early']);
-  });
-
-  it('reverses the active rows on a second press of Next and keeps paused and off rows last', async () => {
-    mount([
-      job({ id: 1, jobKey: 'late', displayName: 'Late', nextFireTime: inHours(48) }),
-      job({ id: 2, jobKey: 'paused', displayName: 'Paused', status: 'PAUSED', nextFireTime: '' }),
-      job({ id: 3, jobKey: 'soon', displayName: 'Soon', nextFireTime: inHours(2) }),
-    ]);
-    fireEvent.click(await screen.findByTestId('scheduler-sort-next'));
-    expect(rowOrder()).toEqual(['late', 'soon', 'paused']);
-    expect(screen.getByTestId('scheduler-sort-next')).toHaveAttribute('aria-label', 'Next, sorted descending');
-  });
-
-  it('sorts by job name from the Job header', async () => {
-    mount([
-      job({ id: 1, jobKey: 'b', displayName: 'Bravo', nextFireTime: inHours(1) }),
-      job({ id: 2, jobKey: 'a', displayName: 'Alpha', nextFireTime: inHours(5) }),
-    ]);
-    fireEvent.click(await screen.findByTestId('scheduler-sort-name'));
-    expect(rowOrder()).toEqual(['a', 'b']);
   });
 
   it('dims a paused row and an off row', async () => {
@@ -239,35 +215,6 @@ describe('SchedulerView: the list', () => {
   it('says so when there are no jobs', async () => {
     mount([]);
     expect(await screen.findByTestId('scheduler-empty')).toHaveTextContent('No scheduled jobs.');
-  });
-});
-
-describe('SchedulerView: the Last run column', () => {
-  it('shows the last run\'s time and status when the server attributes one', async () => {
-    mount([job({ runGroup: 'CYCLES', lastRun: lastRunCycle(), lastFireTime: inHours(-3) })]);
-    const cell = await screen.findByTestId(`scheduler-last-${NIGHTLY}`);
-    // 3 hours ago: Today or, just after midnight UK, Yesterday
-    expect(cell).toHaveTextContent(/(Today|Yesterday) \d{2}:\d{2}/);
-    expect(cell).toHaveTextContent('Degraded');
-    // the last run wins over the last fire time
-    expect(cell).not.toHaveTextContent('fired');
-  });
-
-  it('falls back to the last fire time, marked "fired", for a job with no attributable run', async () => {
-    mount();
-    const cell = await screen.findByTestId('scheduler-last-tide_refresh');
-    expect(cell).toHaveTextContent('fired');
-    expect(screen.getByTestId('last-fire-tide_refresh')).toHaveTextContent('3 min ago');
-  });
-
-  it('shows an em dash for a job that has never fired and has no run', async () => {
-    mount([POLLING]);
-    expect(await screen.findByTestId('scheduler-last-aurora_polling')).toHaveTextContent('—');
-  });
-
-  it('shows a running last run with the Running words', async () => {
-    mount([job({ runGroup: 'CYCLES', lastRun: lastRunCycle({ status: 'RUNNING', endedAt: null }) })]);
-    expect(await screen.findByTestId(`scheduler-last-${NIGHTLY}`)).toHaveTextContent('Running');
   });
 });
 
@@ -386,7 +333,7 @@ describe('SchedulerView: the panel by hash', () => {
   it('shows no Next fires, and no timing notes, for a plain cron job that is no cycle', async () => {
     mount();
     await openPanel('tide_refresh');
-    expect(screen.queryByTestId('scheduler-panel-next-fires')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('scheduler-panel-upcoming')).not.toBeInTheDocument();
     expect(screen.queryByTestId('scheduler-panel-timing')).not.toBeInTheDocument();
   });
 });
@@ -564,78 +511,6 @@ describe('SchedulerView: Pause, Resume and a job that is off in config', () => {
   });
 });
 
-describe('SchedulerView: Recent runs', () => {
-  const RUNS = [
-    jobItem({ id: 77, startedAt: inHours(-2), durationSeconds: 72 }),
-    lastRunCycle({ id: 412, startedAt: inHours(-30) }),
-  ];
-
-  it('lists a mapped job\'s runs, each linking to its Runs panel, and "All in Runs" filtered to its group', async () => {
-    fetchJobRuns.mockResolvedValue(RUNS);
-    mount();
-    await openPanel('tide_refresh');
-
-    const section = await screen.findByTestId('scheduler-panel-runs');
-    await waitFor(() => expect(within(section).getAllByRole('link')).toHaveLength(3));
-    expect(fetchJobRuns).toHaveBeenCalledWith('tide_refresh', 3);
-    expect(screen.getByTestId('scheduler-run-job-77')).toHaveAttribute('href', '#manage/runs/job/77');
-    expect(screen.getByTestId('scheduler-run-cycle-412')).toHaveAttribute('href', '#manage/runs/cycle/412');
-    expect(screen.getByTestId('scheduler-run-job-77')).toHaveTextContent('Done');
-    expect(screen.getByTestId('scheduler-run-cycle-412')).toHaveTextContent('Degraded');
-    expect(screen.getByTestId('scheduler-run-job-77')).toHaveTextContent('1m 12s');
-    expect(screen.getByTestId('scheduler-all-runs-tide_refresh')).toHaveAttribute('href', '#manage/runs?view=day&filter=other');
-  });
-
-  it('filters "All in Runs" (the Day view) by the job\'s own group: cycles for a cycle job, other for the aurora batch', async () => {
-    mount([solarJob(), job({ id: 8, jobKey: 'aurora_batch_evaluation', displayName: 'Aurora batch', runGroup: 'AURORA' })]);
-    await openPanel(NIGHTLY);
-    expect(await screen.findByTestId(`scheduler-all-runs-${NIGHTLY}`)).toHaveAttribute('href', '#manage/runs?view=day&filter=cycles');
-    fireEvent.click(screen.getByTestId('scheduler-row-aurora_batch_evaluation'));
-    expect(await screen.findByTestId('scheduler-all-runs-aurora_batch_evaluation')).toHaveAttribute(
-      'href',
-      '#manage/runs?view=day&filter=other',
-    );
-  });
-
-  it('says so when a mapped job has no runs yet', async () => {
-    mount();
-    await openPanel('tide_refresh');
-    expect(await screen.findByTestId('scheduler-runs-empty')).toHaveTextContent('No runs recorded yet.');
-  });
-
-  it('says so when the runs cannot be loaded', async () => {
-    fetchJobRuns.mockRejectedValue(new Error('down'));
-    mount();
-    await openPanel('tide_refresh');
-    expect(await screen.findByTestId('scheduler-runs-error')).toBeInTheDocument();
-  });
-
-  it('has no Recent runs section for a job the server cannot attribute runs to, and never asks', async () => {
-    mount();
-    await openPanel('aurora_polling');
-    expect(screen.queryByTestId('scheduler-panel-runs')).not.toBeInTheDocument();
-    expect(fetchJobRuns).not.toHaveBeenCalled();
-  });
-
-  it('refetches the open job\'s runs on each poll, without blanking them', async () => {
-    fetchJobRuns.mockResolvedValue(RUNS);
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      mount();
-      await openPanel('tide_refresh');
-      await screen.findByTestId('scheduler-run-job-77');
-      const before = fetchJobRuns.mock.calls.length;
-
-      await act(async () => { vi.advanceTimersByTime(30_000); });
-
-      await waitFor(() => expect(fetchJobRuns.mock.calls.length).toBeGreaterThan(before));
-      expect(screen.getByTestId('scheduler-run-job-77')).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
-
 describe('SchedulerView: polling', () => {
   it('polls for job updates at the configured interval', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -692,17 +567,26 @@ describe('SchedulerView: the real clock, never the rewind clock (R-D7)', () => {
   it('keeps "Today", the last fire\'s age and the next fire on the real day when a rewind is set', async () => {
     setRewind('2026-01-15T09:00:00Z');
     mount([job({
-      runGroup: 'CYCLES',
-      lastRun: lastRunCycle({ startedAt: '2026-10-31T06:00:00Z', endedAt: '2026-10-31T08:00:00Z' }),
+      lastFire: lastFire({ firedAt: '2026-10-31T06:00:00Z', completedAt: '2026-10-31T06:00:30Z' }),
+      nextFires: ['2026-10-31T17:30:00Z', '2026-11-01T17:30:00Z'],
       nextFireTime: '2026-10-31T17:30:00Z',
-    }), tideJob({ lastFireTime: '2026-10-31T11:57:00Z', nextFireTime: '2026-11-02T06:00:00Z' })]);
+    }), tideJob({
+      lastFire: lastFire({ firedAt: '2026-10-31T11:57:00Z', completedAt: '2026-10-31T11:57:02Z' }),
+      nextFireTime: '2026-11-02T06:00:00Z',
+    })]);
 
-    expect(await screen.findByTestId(`scheduler-last-${NIGHTLY}`)).toHaveTextContent('Today 06:00');
+    expect(await screen.findByTestId(`last-fire-${NIGHTLY}`)).toHaveTextContent('6h ago · 30s');
     expect(screen.getByTestId(`scheduler-next-${NIGHTLY}`)).toHaveTextContent('17:30');
     expect(screen.getByTestId(`next-fire-${NIGHTLY}`)).toHaveTextContent('in 5h');
-    expect(screen.getByTestId('last-fire-tide_refresh')).toHaveTextContent('3 min ago');
+    expect(screen.getByTestId('last-fire-tide_refresh')).toHaveTextContent('3 min ago · 2s');
     expect(screen.getByTestId('scheduler-next-tide_refresh')).toHaveTextContent('Mon 06:00');
     expect(screen.getByTestId('scheduler-meta')).toHaveTextContent('UK time (GMT)');
+    fireEvent.click(screen.getByTestId(`scheduler-row-${NIGHTLY}`));
+    const fires = within(await screen.findByTestId('scheduler-panel-upcoming')).getAllByRole('listitem');
+    expect(fires[0]).toHaveTextContent('Today 17:30');
+    expect(fires[0]).toHaveTextContent('in 5h');
+    expect(fires[1]).toHaveTextContent('Tomorrow 17:30');
+    expect(screen.getByTestId('scheduler-panel-last-line')).toHaveTextContent('Today 06:00');
   });
 });
 

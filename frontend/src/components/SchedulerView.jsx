@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchSchedulerJobs,
+  fetchSchedulerSummary,
   updateJobSchedule,
   fetchSolarPreview,
 } from '../api/schedulerApi.js';
 import DataSplitLayout from './data/DataSplitLayout.jsx';
-import SchedulerListPane from './scheduler/SchedulerListPane.jsx';
+import AllJobsTab from './scheduler/AllJobsTab.jsx';
+import SchedulerTabs, { SCHEDULER_PANEL_ID, schedulerTabId } from './scheduler/SchedulerTabs.jsx';
 import SchedulerJobPanel from './scheduler/SchedulerJobPanel.jsx';
 import { ScheduleSwitchDialog } from './SolarScheduleControls.jsx';
 import useCloseWhenFilteredOut from '../hooks/useCloseWhenFilteredOut.js';
@@ -16,12 +18,16 @@ import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import {
   SCHEDULE_CRON,
   SCHEDULE_FIXED_DELAY,
+  STATUS_PAUSED,
   describeCron,
+  formatClock,
+  getUKTimezoneLabel,
   jobMatchesFilters,
-  sortJobs,
+  jobMatchesSearch,
 } from '../utils/schedulerView.js';
+import { isSchedulerHash, readSchedulerQuery, writeSchedulerQuery } from '../utils/schedulerQuery.js';
 
-/** Polling interval for refreshing job statuses and the solar preview. */
+/** Polling interval for refreshing job statuses, the summary and the solar preview. */
 const POLL_INTERVAL_MS = 30_000;
 
 /** The Manage tab key; the hash adds the open job's key ({@code #manage/scheduler/near_term_batch_evaluation}). */
@@ -29,7 +35,8 @@ const TAB = 'scheduler';
 
 /**
  * Reads the segments after {@code #manage/scheduler}: one job key ({@code [a-z0-9_]+}) opens that job's panel;
- * anything else (the bare tab) names none. Module-level so the hash hook's listener stays stable.
+ * anything else (the bare tab) names none. The tab and date ride the query ({@code ?view=all}), not the path
+ * (utils/schedulerQuery.js). Module-level so the hash hook's listener stays stable.
  */
 function parseSchedulerHash(segments) {
   return segments.length === 1 && /^[a-z0-9_]+$/.test(segments[0]) ? segments[0] : null;
@@ -38,28 +45,42 @@ function parseSchedulerHash(segments) {
 /** The path after the tab for a selection, the inverse of {@link parseSchedulerHash}. */
 const formatSchedulerHash = (jobKey) => jobKey;
 
-const HASH_OPTIONS = { parse: parseSchedulerHash, format: formatSchedulerHash };
+/** {@code keepQuery}: opening and closing a panel must keep {@code ?view=&date=}. */
+const HASH_OPTIONS = { parse: parseSchedulerHash, format: formatSchedulerHash, keepQuery: true };
 
-/** The default filters (every job) and sort (next fire, soonest first, paused and off last). */
-const NO_FILTERS = { type: 'all', status: null };
-const DEFAULT_SORT = { key: 'next', dir: 'asc' };
+/** The default filters: every job, no chip on. */
+const NO_FILTERS = { type: 'all', status: null, claude: false, failed: false };
 
 /** An open job's key for the close-when-filtered check; module-level so the hook's dependencies stay stable. */
 const jobId = (job) => job.jobKey;
 
+/** The page meta line: "{n} jobs · UK time (GMT) · {n} paused · next scheduled: {name} at {HH:MM}". */
+function metaText(jobs, summary) {
+  const total = summary?.total ?? jobs.length;
+  const paused = summary?.byStatus?.[STATUS_PAUSED] ?? jobs.filter((job) => job.status === STATUS_PAUSED).length;
+  const parts = [`${total} ${total === 1 ? 'job' : 'jobs'}`, `UK time (${getUKTimezoneLabel()})`];
+  if (paused > 0) parts.push(`${paused} paused`);
+  const next = summary?.nextScheduled;
+  if (next) parts.push(`next scheduled: ${next.displayName} at ${formatClock(next.at)}`);
+  return parts.join(' · ');
+}
+
 /**
- * Operations → Runs → Scheduler (runs-redesign-plan.md §5.5, R4): the scheduled jobs on the shared Data
- * list-and-panel shell. A row opens that job's panel ({@code #manage/scheduler/{jobKey}}); everything that used to
- * sit in a card's row (Edit, Pause or Resume, Run now, the sun-relative switch) lives in the panel.
+ * Operations → Runs → Scheduler (scheduler-redesign-plan.md S4a): the header (title and a meta line from the served
+ * summary), two tabs (Day's jobs, All jobs) and, over either, the job's panel as a 520px drawer
+ * ({@code DataSplitLayout mode="overlay"}). A row opens that job's panel ({@code #manage/scheduler/{jobKey}}); the
+ * tab and the Day's date ride the hash's query ({@code ?view=day|all&date=}), written with {@code replaceState}.
  *
- * <p>The server serves each job's status, next fire and, for the five jobs it can attribute runs to, its last run.
- * The solar preview feeds the panel's Next fires. Both are re-read every 30 seconds, and a poll tick is skipped
- * while the Operations pane is hidden (the pane stays mounted when the reader is on the Map or Plan tab). Each loader
- * numbers its requests and applies only the latest one issued: a slow earlier response (a poll still in flight when a
- * switch reloads) must not overwrite a newer one. Every clock read in this view is the real clock (R-D7).
+ * <p>The server serves each job's status, next fire, catalogue entry, last fire and next fires, plus a summary
+ * (counts and the soonest scheduled fire). The solar preview feeds the panel's Next fires and the list's "today" time.
+ * All three are re-read every 30 seconds, and a poll tick is skipped while the Operations pane is hidden (the pane
+ * stays mounted when the reader is on the Map or Plan tab). Each loader numbers its requests and applies only the
+ * latest one issued: a slow earlier response (a poll still in flight when a switch reloads) must not overwrite a
+ * newer one. Every clock read in this view is the real clock (R-D7).
  */
 export default function SchedulerView() {
   const [jobs, setJobs] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(null);
@@ -68,16 +89,31 @@ export default function SchedulerView() {
   const [editingJob, setEditingJob] = useState(null);
   const [switchingJob, setSwitchingJob] = useState(null);
   const [filters, setFilters] = useState(NO_FILTERS);
-  const [sort, setSort] = useState(DEFAULT_SORT);
-  const [pollCount, setPollCount] = useState(0);
+  const [search, setSearch] = useState('');
+  const [view, setView] = useState(() => readSchedulerQuery().view);
 
   const jobsRequest = useRef(0);
+  const summaryRequest = useRef(0);
   const previewRequest = useRef(0);
   const rootRef = useRef(null);
   const panelRef = useRef(null);
   const loadedOnce = useRef(false);
 
   const { selectedId: selectedKey, select, clear } = useHashSelection(TAB, HASH_OPTIONS);
+
+  // Back, Forward or a pasted link can change the tab in the address; follow it (only for this tab's own addresses).
+  useEffect(() => {
+    const onHashChange = () => {
+      if (isSchedulerHash()) setView(readSchedulerQuery().view);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  const changeView = useCallback((next) => {
+    setView(next);
+    writeSchedulerQuery({ view: next });
+  }, []);
 
   const loadPreview = useCallback(async () => {
     const id = ++previewRequest.current;
@@ -89,6 +125,18 @@ export default function SchedulerView() {
     } catch {
       if (id !== previewRequest.current) return;
       setPreviewFailed(true);
+    }
+  }, []);
+
+  // The summary is chrome (the meta line and the chip counts): a failed read keeps the last one and says nothing.
+  const loadSummary = useCallback(async () => {
+    const id = ++summaryRequest.current;
+    try {
+      const data = await fetchSchedulerSummary();
+      if (id !== summaryRequest.current) return;
+      setSummary(data ?? null);
+    } catch {
+      // Keep what is on screen.
     }
   }, []);
 
@@ -109,16 +157,18 @@ export default function SchedulerView() {
     }
   }, []);
 
+  // A change to a job (Run now, Pause, Resume, a save) re-reads the summary too: its counts and next fire move.
+  const reload = useCallback(() => Promise.all([loadJobs(), loadSummary()]), [loadJobs, loadSummary]);
+
   // Run now, Pause and Resume, held per job so a guard survives leaving the panel and coming back.
-  const actions = useSchedulerActions(loadJobs);
+  const actions = useSchedulerActions(reload);
 
   // The poll tick, and the first load: skipped only for a tick on a screen already loaded, while the Operations pane
-  // is hidden. It ticks the count the open panel's recent runs refetch on.
+  // is hidden.
   const refresh = useCallback(async () => {
     if (loadedOnce.current && rootRef.current?.closest('[hidden]') != null) return;
-    await Promise.all([loadJobs(), loadPreview()]);
-    setPollCount((count) => count + 1);
-  }, [loadJobs, loadPreview]);
+    await Promise.all([loadJobs(), loadSummary(), loadPreview()]);
+  }, [loadJobs, loadSummary, loadPreview]);
   useVisiblePoll(refresh, POLL_INTERVAL_MS);
 
   const selectedJob = useMemo(
@@ -142,8 +192,8 @@ export default function SchedulerView() {
   }
 
   const visibleJobs = useMemo(
-    () => sortJobs(jobs.filter((job) => jobMatchesFilters(job, filters)), sort),
-    [jobs, filters, sort],
+    () => jobs.filter((job) => jobMatchesFilters(job, filters) && jobMatchesSearch(job, search)),
+    [jobs, filters, search],
   );
 
   const closePanel = useCallback(() => clear(), [clear]);
@@ -151,7 +201,7 @@ export default function SchedulerView() {
     selectedId: selectedKey,
     items: visibleJobs,
     getId: jobId,
-    filterKey: `${filters.type}|${filters.status}`,
+    filterKey: `${filters.type}|${filters.status}|${filters.claude}|${filters.failed}|${search}`,
     onClose: closePanel,
   });
 
@@ -162,17 +212,16 @@ export default function SchedulerView() {
 
   const handleType = (type) => setFilters((f) => ({ ...f, type }));
   const handleStatus = (status) => setFilters((f) => ({ ...f, status: f.status === status ? null : status }));
-  const handleSort = (key) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
-  const handleSortChip = (key, dir) => setSort({ key, dir });
+  const handleFlag = (flag) => setFilters((f) => ({ ...f, [flag]: !f[flag] }));
 
   const handleSolarSaved = async () => {
     setEditingJob(null);
-    await Promise.all([loadJobs(), loadPreview()]);
+    await Promise.all([reload(), loadPreview()]);
   };
 
   const handleSwitched = async () => {
     setSwitchingJob(null);
-    await Promise.all([loadJobs(), loadPreview()]);
+    await Promise.all([reload(), loadPreview()]);
   };
 
   // Rejects on failure, so the inline form can say so beside its field.
@@ -189,7 +238,7 @@ export default function SchedulerView() {
     }
     await updateJobSchedule(job.jobKey, payload);
     setEditingJob(null);
-    await loadJobs();
+    await reload();
   };
 
   const previewFor = (jobKey) => preview?.jobs?.find((p) => p.jobKey === jobKey) ?? null;
@@ -199,12 +248,13 @@ export default function SchedulerView() {
     <SchedulerJobPanel
       key={selectedJob.jobKey}
       job={selectedJob}
+      jobs={jobs}
       preview={preview}
       previewFailed={previewFailed}
       editing={editing}
-      refreshKey={pollCount}
       actions={actions.stateOf(selectedJob.jobKey)}
       onClose={closePanel}
+      onSelectJob={(jobKey) => select(jobKey)}
       onEditStart={() => setEditingJob(selectedJob.jobKey)}
       onEditCancel={cancelEdit}
       onSolarSaved={handleSolarSaved}
@@ -217,6 +267,51 @@ export default function SchedulerView() {
     />
   ) : null;
 
+  const list = (
+    <div className="flex flex-col gap-4 p-4 max-[639px]:px-[14px] max-[639px]:py-3" data-testid="scheduler-list-pane">
+      <div className="flex min-w-0 flex-col gap-1">
+        <h2
+          className="font-serif text-[26px] font-semibold leading-tight text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+          data-testid="scheduler-heading"
+        >
+          Scheduler
+        </h2>
+        {!loading && (
+          <p className="font-mono text-[11px] text-plex-text-muted" data-testid="scheduler-meta">
+            {metaText(jobs, summary)}
+          </p>
+        )}
+      </div>
+
+      <SchedulerTabs view={view} onChange={changeView} total={summary?.total ?? (loaded ? jobs.length : null)} />
+
+      <div role="tabpanel" id={SCHEDULER_PANEL_ID} aria-labelledby={schedulerTabId(view)} className="min-w-0">
+        {view === 'all' ? (
+          <AllJobsTab
+            allJobs={jobs}
+            jobs={visibleJobs}
+            summary={summary}
+            preview={preview}
+            loading={loading}
+            error={error}
+            search={search}
+            onSearch={setSearch}
+            filters={filters}
+            onType={handleType}
+            onStatus={handleStatus}
+            onFlag={handleFlag}
+            selectedKey={selectedJob?.jobKey ?? null}
+            onSelect={(job) => select(job.jobKey)}
+          />
+        ) : (
+          <p className="py-6 text-sm text-plex-text-secondary" data-testid="scheduler-day-placeholder">
+            The day picture is coming soon.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -224,22 +319,8 @@ export default function SchedulerView() {
       data-testid="scheduler-view"
     >
       <DataSplitLayout
-        list={(
-          <SchedulerListPane
-            allJobs={jobs}
-            jobs={visibleJobs}
-            loading={loading}
-            error={error}
-            filters={filters}
-            onType={handleType}
-            onStatus={handleStatus}
-            sort={sort}
-            onSort={handleSort}
-            onSortChip={handleSortChip}
-            selectedKey={selectedJob?.jobKey ?? null}
-            onSelect={(job) => select(job.jobKey)}
-          />
-        )}
+        mode="overlay"
+        list={list}
         panel={panel}
         onClose={closePanel}
         panelLabel={selectedJob ? `${selectedJob.displayName} job` : 'Job'}

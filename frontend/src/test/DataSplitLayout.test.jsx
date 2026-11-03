@@ -316,4 +316,43 @@ describe('DataSplitLayout', () => {
       expect(onClose).not.toHaveBeenCalled();
     });
   });
+
+  describe('mode: the Scheduler\'s drawer (scheduler-redesign-plan.md D10)', () => {
+    it('keeps the default mode the split layout at 1000px and up: a grid with a 440px panel and no scrim', () => {
+      renderLayout();
+      expect(screen.getByTestId('data-split').className).toContain('min-[1000px]:grid-cols-[minmax(0,1fr)_440px]');
+      expect(screen.getByTestId('data-split-panel').className).toContain('w-[440px]');
+      expect(screen.getByTestId('data-split-panel').className).toContain('min-[1000px]:static');
+      expect(screen.getByTestId('data-split-scrim').className).toContain('min-[1000px]:hidden');
+      expect(screen.getByTestId('data-split-list')).not.toHaveAttribute('inert');
+    });
+
+    it('overlay mode is a 520px drawer under a scrim at every desktop width, with the list inert behind it', () => {
+      renderLayout({ mode: 'overlay' });
+      expect(screen.getByTestId('data-split').className).not.toContain('grid-cols');
+      const panel = screen.getByTestId('data-split-panel');
+      expect(panel.className).toContain('w-[520px]');
+      expect(panel.className).not.toContain('min-[1000px]:static');
+      expect(screen.getByTestId('data-split-scrim').className).not.toContain('min-[1000px]:hidden');
+      expect(screen.getByTestId('data-split-list')).toHaveAttribute('inert');
+    });
+
+    it('overlay mode closes on the scrim and on Escape-driven onClose callers, and moves focus to the title', () => {
+      const { onClose } = renderLayout({
+        mode: 'overlay',
+        panel: <h2 tabIndex={-1} data-panel-title="">Title</h2>,
+      });
+      expect(screen.getByRole('heading', { name: 'Title' })).toHaveFocus();
+      fireEvent.click(screen.getByTestId('data-split-scrim'));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('overlay mode leaves the phone a full page with its back bar', () => {
+      useIsMobile.mockReturnValue(true);
+      renderLayout({ mode: 'overlay' });
+      expect(screen.getByTestId('data-split-backbar')).toBeInTheDocument();
+      expect(screen.queryByTestId('data-split-scrim')).not.toBeInTheDocument();
+      expect(screen.getByTestId('data-split-panel').className).not.toContain('w-[520px]');
+    });
+  });
 });

@@ -222,16 +222,35 @@ const TYPE_PREDICATES = {
 };
 
 /**
- * Whether a job passes the filters: its schedule type chip AND its status chip.
+ * Whether a job passes the filters: its schedule type chip AND its status chip AND, when on, the "Uses Claude" and
+ * "Last run failed" chips.
  *
  * @param {object} job a served job
- * @param {{type: string, status: string|null}} filters {@code type} is {@code all} or a schedule type; {@code status}
- *   is null or {@code PAUSED} or {@code DISABLED_BY_CONFIG}
+ * @param {{type: string, status: string|null, claude?: boolean, failed?: boolean}} filters {@code type} is
+ *   {@code all} or a schedule type; {@code status} is null or {@code PAUSED} or {@code DISABLED_BY_CONFIG}
  * @returns {boolean}
  */
 export function jobMatchesFilters(job, filters) {
   const type = TYPE_PREDICATES[filters.type] ?? TYPE_PREDICATES.all;
-  return type(job) && (filters.status == null || job.status === filters.status);
+  return type(job)
+    && (filters.status == null || job.status === filters.status)
+    && (!filters.claude || job.catalogue?.usesClaude === true)
+    && (!filters.failed || job.lastFire?.status === 'FAILED');
+}
+
+/**
+ * Whether a job matches the search box: the text in its name, its plain alias, what it does or its purpose tag.
+ * Filtering the served words for display is a display filter, not a derivation.
+ *
+ * @param {object} job a served job
+ * @param {string} text the search text
+ * @returns {boolean} true for blank text
+ */
+export function jobMatchesSearch(job, text) {
+  const needle = text.trim().toLowerCase();
+  if (needle === '') return true;
+  const c = job.catalogue;
+  return [job.displayName, c?.alias, c?.what, c?.purpose].some((field) => (field ?? '').toLowerCase().includes(needle));
 }
 
 /**
@@ -276,4 +295,100 @@ export function sortJobs(jobs, sort) {
     }
     return aNext === bNext ? byName(a, b) : direction * (aNext - bNext);
   });
+}
+
+/** The groups of the All jobs list, in order: the type, its heading and the subtitle under it. */
+export const JOB_GROUPS = [
+  { type: SCHEDULE_SOLAR, label: 'Sun-relative', subtitle: 'fires a set time before sunrise or sunset' },
+  { type: SCHEDULE_CRON, label: 'Cron', subtitle: 'fixed clock times' },
+  { type: SCHEDULE_FIXED_DELAY, label: 'Fixed delay', subtitle: 'repeats every few minutes, all day' },
+];
+
+/** The trailing group for a job whose schedule type this screen does not know, so it is never hidden. */
+const OTHER_GROUP = { type: 'OTHER', label: 'Other', subtitle: 'schedule type not recognised' };
+
+/**
+ * Splits jobs into the list's groups (Sun-relative, Cron, Fixed delay, then Other), each sorted by next fire. Empty
+ * groups are left out.
+ *
+ * @param {Array<object>} jobs the jobs to show
+ * @returns {Array<{type: string, label: string, subtitle: string, jobs: Array<object>}>}
+ */
+export function groupJobs(jobs) {
+  const known = JOB_GROUPS.map((group) => group.type);
+  const byNext = { key: 'next', dir: 'asc' };
+  return [...JOB_GROUPS, OTHER_GROUP]
+    .map((group) => ({
+      ...group,
+      jobs: sortJobs(
+        jobs.filter((job) => (group === OTHER_GROUP ? !known.includes(job.scheduleType) : job.scheduleType === group.type)),
+        byNext,
+      ),
+    }))
+    .filter((group) => group.jobs.length > 0);
+}
+
+/**
+ * The UK clock time of an instant, "HH:MM".
+ *
+ * @param {string|null|undefined} instant an ISO instant
+ * @returns {string} the time, or an empty string for none
+ */
+export function formatClock(instant) {
+  const d = parseUtcInstant(instant);
+  return d ? CLOCK_FORMAT.format(d) : '';
+}
+
+/**
+ * A fire's label for the panel's next fires: "Today 12:27", "Tomorrow 12:27", else "Wed 4 Nov 12:25".
+ *
+ * @param {string|null|undefined} instant the fire instant
+ * @param {Date} [now] the real clock
+ * @returns {string}
+ */
+export function formatFireLabel(instant, now = new Date()) {
+  const d = parseUtcInstant(instant);
+  if (!d) return '';
+  const clock = CLOCK_FORMAT.format(d);
+  const ahead = ukDayOffset(ukDateStr(d), now);
+  if (ahead === 0) return `Today ${clock}`;
+  if (ahead === 1) return `Tomorrow ${clock}`;
+  return `${WEEKDAY_FORMAT.format(d)} ${DAY_MONTH_FORMAT.format(d)} ${clock}`;
+}
+
+/** The served fire statuses as a label and a {@code StatusDot} tone. */
+const FIRE_STATUS_VIEW = {
+  SUCCEEDED: { label: 'OK', tone: 'go' },
+  PARTIAL: { label: 'Partial', tone: 'amber' },
+  FAILED: { label: 'Failed', tone: 'coral' },
+  SKIPPED: { label: 'Skipped', tone: 'off' },
+  RUNNING: { label: 'Running', tone: 'tide', halo: true },
+};
+
+/**
+ * The look of a fire's status.
+ *
+ * @param {string} status {@code SUCCEEDED}, {@code PARTIAL}, {@code FAILED}, {@code SKIPPED} or {@code RUNNING}
+ * @returns {{label: string, tone: string, halo?: boolean}} an unknown status reads as itself in the quiet ink
+ */
+export function fireStatusView(status) {
+  return FIRE_STATUS_VIEW[status] ?? { label: status || '—', tone: 'off' };
+}
+
+/**
+ * How long a fire took: "<1s", "55s", "2m 05s", "1h 02m". Empty for a fire still running or with no end.
+ *
+ * @param {{firedAt: string, completedAt: string|null}} fire the served last fire
+ * @returns {string}
+ */
+export function fireDuration(fire) {
+  const start = instantMs(fire?.firedAt);
+  const end = instantMs(fire?.completedAt);
+  if (start == null || end == null || end < start) return '';
+  const total = Math.round((end - start) / 1000);
+  if (total < 1) return '<1s';
+  if (total < 60) return `${total}s`;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
+  return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
 }

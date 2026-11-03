@@ -44,13 +44,21 @@ export const PANEL_TITLE_ATTR = 'data-panel-title';
  *   moves to the panel title each time, so a keyboard or screen-reader user is not left on a control that is gone
  * @param {string} [props.rowTestIdPrefix] the grid's test id prefix; its rows are {@code {prefix}-row-{id}}
  * @param {string} [props.testId] the layout's test id; the panel and scrim derive theirs from it
+ * @param {'split'|'overlay'} [props.mode] {@code 'split'} (the default, every tab but the Scheduler) is the behaviour
+ *   above. {@code 'overlay'} is the Scheduler's drawer: at every desktop width the panel is a 520px drawer over the
+ *   right of the list under a scrim, and the list keeps its full width (scheduler-redesign-plan.md D10). Esc, the
+ *   scrim and focus return work as in the overlay above; the phone page is unchanged.
  */
 export default function DataSplitLayout({
   list, panel = null, onClose, panelLabel, backLabel, backAction = null, panelRef = undefined,
   selectionKey = null, rowTestIdPrefix = undefined, testId = 'data-split', onBack = undefined, focusKey = undefined,
+  mode = 'split',
 }) {
   const isMobile = useIsMobile();
-  const isSplit = useIsSplitLayout();
+  const isSplitViewport = useIsSplitLayout();
+  const drawer = mode === 'overlay';
+  // A drawer never splits, so the list behind it is inert at every width.
+  const isSplit = isSplitViewport && !drawer;
   const open = Boolean(panel);
   const ownRef = useRef(null);
   const asideRef = panelRef ?? ownRef;
@@ -94,12 +102,17 @@ export default function DataSplitLayout({
     openFocusKey.current = open ? effectiveFocusKey : null;
   }, [open, selectionKey, effectiveFocusKey, isMobile, asideRef, rowTestIdPrefix]);
 
-  const rootClass = open && !isMobile
-    ? 'relative max-[999px]:min-h-[34rem] min-[1000px]:grid min-[1000px]:grid-cols-[minmax(0,1fr)_440px]'
-    : 'relative';
+  let rootClass = 'relative';
+  if (open && !isMobile) {
+    rootClass = drawer
+      ? 'relative min-h-[34rem]'
+      : 'relative max-[999px]:min-h-[34rem] min-[1000px]:grid min-[1000px]:grid-cols-[minmax(0,1fr)_440px]';
+  }
+  const drawerPanel = 'absolute inset-y-0 right-0 z-20 w-[520px] max-w-full border-l border-plex-border bg-plex-panel shadow-[-12px_0_32px_rgba(0,0,0,.45)]';
+  const splitPanel = 'absolute inset-y-0 right-0 z-20 w-[440px] max-w-full border-l border-plex-border bg-plex-panel shadow-[-12px_0_32px_rgba(0,0,0,.45)] min-[1000px]:static min-[1000px]:w-auto min-[1000px]:shadow-none';
   const panelClass = isMobile
     ? 'min-w-0 bg-plex-panel pb-[var(--safe-b)] pl-[var(--safe-l)] pr-[var(--safe-r)]'
-    : 'absolute inset-y-0 right-0 z-20 w-[440px] max-w-full border-l border-plex-border bg-plex-panel shadow-[-12px_0_32px_rgba(0,0,0,.45)] min-[1000px]:static min-[1000px]:w-auto min-[1000px]:shadow-none';
+    : (drawer ? drawerPanel : splitPanel);
   // Overlay and split: the content rides in a box that sticks to the top and is no taller than the viewport (or the
   // card, when that is shorter), so the panel stays in view as the list scrolls and its body scrolls inside it.
   const stickyClass = isMobile ? '' : 'sticky top-0 flex max-h-[min(100dvh,100%)] min-h-0 flex-col';
@@ -116,7 +129,7 @@ export default function DataSplitLayout({
       </div>
       {open && !isMobile && (
         <div
-          className="absolute inset-0 z-10 bg-[rgba(10,7,6,0.66)] min-[1000px]:hidden"
+          className={`absolute inset-0 z-10 bg-[rgba(10,7,6,0.66)] ${drawer ? '' : 'min-[1000px]:hidden'}`}
           aria-hidden="true"
           onClick={onClose}
           data-testid={`${testId}-scrim`}
@@ -162,4 +175,5 @@ DataSplitLayout.propTypes = {
   testId: PropTypes.string,
   onBack: PropTypes.func,
   focusKey: PropTypes.string,
+  mode: PropTypes.oneOf(['split', 'overlay']),
 };

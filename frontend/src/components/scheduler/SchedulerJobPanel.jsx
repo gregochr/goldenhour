@@ -6,108 +6,70 @@ import JobSchedule from './JobSchedule.jsx';
 import JobNextFires, { SunTimingNotes } from './JobNextFires.jsx';
 import JobActions from './JobActions.jsx';
 import SkyEvalWeeklyModels from './SkyEvalWeeklyModels.jsx';
-import useJobRecentRuns from '../../hooks/useJobRecentRuns.js';
+import {
+  CallsOutSection,
+  ClaudeCostSection,
+  ConnectedJobsSection,
+  LastRunSection,
+  NextFiresList,
+  TechnicalSection,
+} from './JobPanelSections.jsx';
+import useJobDetail from '../../hooks/useJobDetail.js';
 import { isCycleJob, isForecastCycleJob } from '../../utils/schedulerSolar.js';
 import {
   SCHEDULE_SOLAR,
+  STATUS_ACTIVE,
   describeSchedule,
   formatNextFire,
   jobStatusView,
   relativeTime,
 } from '../../utils/schedulerView.js';
-import { runStatusView } from '../../utils/runStatus.js';
-import { formatRunStarted, formatSeconds } from '../../utils/runsView.js';
-import { dayFilterForGroup } from '../../utils/runsQuery.js';
 
-/** A recent run's address in the Runs tab: a cycle opens its cycle panel, a job run its job-run panel. */
-function runHref(item) {
-  return `#manage/runs/${item.kind === 'CYCLE' ? 'cycle' : 'job'}/${item.id}`;
-}
-
-/** The "Recent runs" row text: "{started} · {duration}", the status riding after it. */
-function runSummary(item) {
-  const duration = item.status === 'RUNNING' ? 'running' : formatSeconds(item.durationSeconds);
-  return [formatRunStarted(item.startedAt), duration].filter((part) => part !== '' && part !== '—').join(' · ');
-}
-
-/**
- * The panel's Recent runs section, for a job whose runs the server can attribute: up to three, newest first, each a
- * link to its Runs panel, and "All in Runs" to the Day view filtered to the job's group.
- */
-function JobRecentRuns({ job, refreshKey }) {
-  const { runs, loading, error } = useJobRecentRuns(job.jobKey, true, refreshKey);
-  const allInRuns = (
-    <a
-      href={`#manage/runs?view=day&filter=${dayFilterForGroup(job.runGroup)}`}
-      className="flex items-center text-[13px] text-tide hover:underline focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
-      data-testid={`scheduler-all-runs-${job.jobKey}`}
-    >
-      All in Runs
-    </a>
-  );
-  let body;
-  if (loading) {
-    body = <p className="text-xs text-plex-text-muted" data-testid="scheduler-runs-loading">Loading runs{'…'}</p>;
-  } else if (runs == null && error) {
-    body = <p className="text-xs text-plex-coral" data-testid="scheduler-runs-error">Couldn&apos;t load recent runs.</p>;
-  } else if (runs == null || runs.length === 0) {
-    body = <p className="text-xs text-plex-text-secondary" data-testid="scheduler-runs-empty">No runs recorded yet.</p>;
-  } else {
-    body = (
-      <ul className="flex flex-col" data-testid="scheduler-runs-list">
-        {runs.map((item) => {
-          const status = runStatusView(item.status);
-          return (
-            <li key={`${item.kind}-${item.id}`} className="border-b border-plex-border/60 last:border-b-0">
-              <a
-                href={runHref(item)}
-                className="flex min-h-10 items-center justify-between gap-3 py-1.5 text-[13px] text-plex-text hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
-                data-testid={`scheduler-run-${item.kind === 'CYCLE' ? 'cycle' : 'job'}-${item.id}`}
-              >
-                <span className="min-w-0 font-mono text-[12.5px]">{runSummary(item)}</span>
-                <StatusDot tone={status.tone} halo={status.halo} tintText>{status.label}</StatusDot>
-              </a>
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
-  return (
-    <PanelSection label="Recent runs" action={allInRuns} testId="scheduler-panel-runs">
-      {body}
-    </PanelSection>
-  );
-}
-
-JobRecentRuns.propTypes = {
-  job: PropTypes.shape({ jobKey: PropTypes.string.isRequired, runGroup: PropTypes.string.isRequired }).isRequired,
-  refreshKey: PropTypes.number.isRequired,
-};
-
-/** The meta line: "{type} · {status} · next {time} ({relative})". */
+/** The meta line for a job with no catalogue entry: "{type} · {status} · next {time} ({relative})". */
 function metaLine(job) {
   const status = jobStatusView(job.status);
   const parts = [describeSchedule(job).type, status.label];
-  if (job.status === 'ACTIVE' && job.nextFireTime) {
+  if (job.status === STATUS_ACTIVE && job.nextFireTime) {
     parts.push(`next ${formatNextFire(job.nextFireTime)} (${relativeTime(job.nextFireTime, { future: true })})`);
   }
   return parts.join(' · ');
 }
 
+/** The header's second line: "{alias} · {purpose tag}" for a catalogued job, else the schedule meta line. */
+function Subtitle({ job }) {
+  const c = job.catalogue;
+  if (!c) return <span data-testid="scheduler-panel-meta">{metaLine(job)}</span>;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="scheduler-panel-meta">
+      <span>{c.alias}</span>
+      <span aria-hidden="true">{'·'}</span>
+      <span className="rounded border border-plex-border-light px-1.5 py-px font-mono text-[10px] uppercase leading-4 tracking-[0.06em]">
+        {c.purpose}
+      </span>
+    </span>
+  );
+}
+
+Subtitle.propTypes = { job: PropTypes.object.isRequired };
+
 /**
- * The Scheduler job panel (runs-redesign-plan.md §5.5): Schedule, Next fires (a job that is or may become
- * sun-relative), Recent runs (a job whose runs the server can attribute), the "How sun-relative timing works"
- * disclosure (the cycle jobs) and Job actions. Sections appear only when they have something to say.
+ * The Scheduler job panel (scheduler-redesign-plan.md S4a), the drawer's contents. Top to bottom: What it does,
+ * Schedule (the rule, why it runs then, the next three fires; the editors are the existing ones until S4b), Next fires
+ * (a job that is or may become sun-relative), Last run, Claude cost, Calls out to, Connected jobs, Job actions,
+ * Technical. Sections appear only when they have something to say; a job with no catalogue entry shows its stored
+ * description in place of the plain-English ones.
+ *
+ * <p>The detail (typical duration, Claude cost) is fetched once when the panel opens.
  *
  * @param {object} props
  * @param {object} props.job the served job
+ * @param {Array<object>} props.jobs every served job, for the Connected jobs' names
  * @param {object|null} props.preview the solar preview, or null while unavailable
  * @param {boolean} props.previewFailed true when the preview could not be loaded
  * @param {boolean} props.editing whether this job's schedule editor is open
- * @param {number} props.refreshKey changes on each jobs poll, so Recent runs keep up
  * @param {object} props.actions this job's Run now, Pause and Resume state (kept by the view, per job)
  * @param {() => void} props.onClose closes the panel
+ * @param {(jobKey: string) => void} props.onSelectJob switches the panel to a connected job
  * @param {() => void} props.onEditStart opens the schedule editor
  * @param {() => void} props.onEditCancel closes it without saving
  * @param {() => void} props.onSolarSaved called after a sun-relative rule was saved
@@ -119,22 +81,31 @@ function metaLine(job) {
  * @param {() => void} props.onResume resumes it
  */
 export default function SchedulerJobPanel({
-  job, preview = null, previewFailed = false, editing, refreshKey, actions, onClose, onEditStart,
+  job, jobs, preview = null, previewFailed = false, editing, actions, onClose, onSelectJob, onEditStart,
   onEditCancel, onSolarSaved, onPartial, onInlineSave, onSwitch, onRunNow, onPause, onResume,
 }) {
+  const { detail, loading: detailLoading, error: detailError } = useJobDetail(job.jobKey);
   const solar = job.scheduleType === SCHEDULE_SOLAR;
   const showNextFires = solar || isForecastCycleJob(job.jobKey);
+  const c = job.catalogue;
+  const status = jobStatusView(job.status);
   return (
     <PanelShell
       title={job.displayName}
-      subtitle={<span data-testid="scheduler-panel-meta">{metaLine(job)}</span>}
+      subtitle={<Subtitle job={job} />}
       onClose={onClose}
       testIdPrefix="scheduler-panel"
     >
-      {job.description && (
-        <p className="border-b border-plex-border px-[18px] py-3 text-[13px] text-plex-text-secondary max-[639px]:px-4">
-          {job.description}
-        </p>
+      {c ? (
+        <PanelSection label="What it does" testId="scheduler-panel-what">
+          <p className="text-[14px] leading-relaxed text-plex-text" data-testid="scheduler-panel-what-text">{c.what}</p>
+        </PanelSection>
+      ) : (
+        job.description && (
+          <p className="border-b border-plex-border px-[18px] py-3 text-[13px] text-plex-text-secondary max-[639px]:px-4">
+            {job.description}
+          </p>
+        )
       )}
       <JobSchedule
         job={job}
@@ -147,14 +118,34 @@ export default function SchedulerJobPanel({
         onPartial={onPartial}
         onInlineSave={onInlineSave}
         onSwitch={onSwitch}
-      />
+      >
+        {!editing && (
+          <>
+            {job.status !== STATUS_ACTIVE && (
+              <p className="mt-3" data-testid="scheduler-panel-status">
+                <StatusDot tone={status.tone} tintText>{status.label}</StatusDot>
+              </p>
+            )}
+            {c?.why && (
+              <p className="mt-3 text-[13px] leading-relaxed text-plex-text-secondary" data-testid="scheduler-panel-why">
+                {c.why}
+              </p>
+            )}
+            <NextFiresList fires={job.nextFires} />
+          </>
+        )}
+      </JobSchedule>
       {showNextFires && (
         <JobNextFires jobKey={job.jobKey} status={job.status} preview={preview} failed={previewFailed} showReference={!solar} />
       )}
       {job.jobKey === 'sky_rating_eval' && <SkyEvalWeeklyModels />}
-      {job.runGroup && <JobRecentRuns job={job} refreshKey={refreshKey} />}
+      <LastRunSection job={job} detail={detail} />
+      {c && <ClaudeCostSection catalogue={c} detail={detail} loading={detailLoading} error={detailError} />}
+      {c && <CallsOutSection services={c.services ?? []} />}
+      {c && <ConnectedJobsSection catalogue={c} jobs={jobs} onSelectJob={onSelectJob} />}
       {(solar || isCycleJob(job.jobKey)) && <SunTimingNotes jobKey={job.jobKey} />}
       <JobActions job={job} actions={actions} onRunNow={onRunNow} onPause={onPause} onResume={onResume} />
+      <TechnicalSection job={job} />
     </PanelShell>
   );
 }
@@ -167,14 +158,16 @@ SchedulerJobPanel.propTypes = {
     scheduleType: PropTypes.string,
     status: PropTypes.string,
     nextFireTime: PropTypes.string,
-    runGroup: PropTypes.string,
+    nextFires: PropTypes.arrayOf(PropTypes.string),
+    catalogue: PropTypes.object,
   }).isRequired,
+  jobs: PropTypes.arrayOf(PropTypes.object).isRequired,
   preview: PropTypes.object,
   previewFailed: PropTypes.bool,
   editing: PropTypes.bool.isRequired,
-  refreshKey: PropTypes.number.isRequired,
   actions: PropTypes.object.isRequired,
   onClose: PropTypes.func.isRequired,
+  onSelectJob: PropTypes.func.isRequired,
   onEditStart: PropTypes.func.isRequired,
   onEditCancel: PropTypes.func.isRequired,
   onSolarSaved: PropTypes.func.isRequired,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  countByType, describeCron, describeSchedule, formatNextFire, jobMatchesFilters, jobStatusView, relativeTime, sortJobs,
+  countByType, describeCron, describeSchedule, fireDuration, fireStatusView, formatClock, formatFireLabel, formatNextFire,
+  groupJobs, jobMatchesFilters, jobMatchesSearch, jobStatusView, relativeTime, sortJobs,
 } from '../utils/schedulerView.js';
 import { isCycleJob, isForecastCycleJob } from '../utils/schedulerSolar.js';
 
@@ -189,5 +190,89 @@ describe('describeCron', () => {
         }
       }
     }
+  });
+});
+
+describe('groupJobs', () => {
+  const j = (jobKey, scheduleType, nextFireTime = '') => ({ jobKey, displayName: jobKey, scheduleType, status: 'ACTIVE', nextFireTime });
+
+  it('orders the groups Sun-relative, Cron, Fixed delay, Other, sorts each by next fire and drops empty ones', () => {
+    const groups = groupJobs([
+      j('d', 'FIXED_DELAY', '2026-10-31T12:01:00Z'),
+      j('c2', 'CRON', '2026-11-01T01:00:00Z'),
+      j('c1', 'CRON', '2026-10-31T13:00:00Z'),
+      j('x', 'MYSTERY'),
+    ]);
+    expect(groups.map((g) => g.type)).toEqual(['CRON', 'FIXED_DELAY', 'OTHER']);
+    expect(groups[0].jobs.map((x) => x.jobKey)).toEqual(['c1', 'c2']);
+    expect(groups[0].subtitle).toBe('fixed clock times');
+  });
+});
+
+describe('jobMatchesFilters: the Claude and failed chips', () => {
+  const base = { type: 'all', status: null, claude: false, failed: false };
+
+  it('keeps only jobs that use Claude when that chip is on', () => {
+    expect(jobMatchesFilters({ catalogue: { usesClaude: true } }, { ...base, claude: true })).toBe(true);
+    expect(jobMatchesFilters({ catalogue: { usesClaude: false } }, { ...base, claude: true })).toBe(false);
+    expect(jobMatchesFilters({ catalogue: null }, { ...base, claude: true })).toBe(false);
+  });
+
+  it('keeps only jobs whose last fire failed when that chip is on', () => {
+    expect(jobMatchesFilters({ lastFire: { status: 'FAILED' } }, { ...base, failed: true })).toBe(true);
+    expect(jobMatchesFilters({ lastFire: { status: 'PARTIAL' } }, { ...base, failed: true })).toBe(false);
+    expect(jobMatchesFilters({ lastFire: null }, { ...base, failed: true })).toBe(false);
+  });
+
+  it('passes a filter set with neither flag (the old shape) as before', () => {
+    expect(jobMatchesFilters({ scheduleType: 'CRON', status: 'ACTIVE' }, { type: 'CRON', status: null })).toBe(true);
+  });
+});
+
+describe('jobMatchesSearch', () => {
+  const job = { displayName: 'Tide Refresh', catalogue: { alias: 'The tide filler', what: 'Fetches tides.', purpose: 'Places' } };
+
+  it('matches the name, alias, what and purpose, ignoring case, and everything for blank text', () => {
+    expect(['refresh', 'FILLER', 'fetches', 'places', '  ', ''].map((t) => jobMatchesSearch(job, t))).toEqual(Array(6).fill(true));
+    expect(jobMatchesSearch(job, 'sunrise')).toBe(false);
+  });
+
+  it('searches the name alone for a job with no catalogue', () => {
+    expect(jobMatchesSearch({ displayName: 'Mail', catalogue: null }, 'mail')).toBe(true);
+    expect(jobMatchesSearch({ displayName: 'Mail', catalogue: null }, 'tides')).toBe(false);
+  });
+});
+
+describe('fire formatting', () => {
+  it('formats the UK clock of an instant, empty for none', () => {
+    expect(formatClock('2026-07-10T14:15:00Z')).toBe('15:15');
+    expect(formatClock('')).toBe('');
+  });
+
+  it('labels a fire Today, Tomorrow or by weekday and date', () => {
+    expect(formatFireLabel('2026-10-31T17:30:00Z', NOW)).toBe('Today 17:30');
+    expect(formatFireLabel('2026-11-01T12:27:00Z', NOW)).toBe('Tomorrow 12:27');
+    expect(formatFireLabel('2026-11-04T12:25:00Z', NOW)).toBe('Wed 4 Nov 12:25');
+    expect(formatFireLabel(null, NOW)).toBe('');
+  });
+
+  it.each([
+    ['SUCCEEDED', 'OK', 'go'], ['PARTIAL', 'Partial', 'amber'], ['FAILED', 'Failed', 'coral'],
+    ['SKIPPED', 'Skipped', 'off'], ['RUNNING', 'Running', 'tide'], ['WEIRD', 'WEIRD', 'off'],
+  ])('reads fire status %s as %s in the %s tone', (status, label, tone) => {
+    expect(fireStatusView(status)).toMatchObject({ label, tone });
+  });
+
+  it.each([
+    [0, '<1s'], [55, '55s'], [125, '2m 05s'], [3720, '1h 02m'],
+  ])('reads a %i second fire as %s', (seconds, text) => {
+    const firedAt = '2026-10-31T12:00:00Z';
+    expect(fireDuration({ firedAt, completedAt: new Date(Date.parse(firedAt) + seconds * 1000).toISOString() })).toBe(text);
+  });
+
+  it('has no duration for a fire still running or with an end before its start', () => {
+    expect(fireDuration({ firedAt: '2026-10-31T12:00:00Z', completedAt: null })).toBe('');
+    expect(fireDuration({ firedAt: '2026-10-31T12:00:00Z', completedAt: '2026-10-31T11:00:00Z' })).toBe('');
+    expect(fireDuration(null)).toBe('');
   });
 });

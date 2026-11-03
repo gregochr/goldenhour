@@ -76,16 +76,25 @@ export async function resumeJob(jobKey) {
 }
 
 /**
- * Fetches a job's newest runs by the Runs list's rules (ADMIN only). Only the three forecast cycle jobs,
- * {@code tide_refresh} and {@code aurora_batch_evaluation} have attributable runs; any other job answers an empty
- * list, and an unknown job a 404.
+ * Fetches the page-level summary: the job total, counts by status and schedule type, how many jobs use Claude, how
+ * many last failed, and the soonest non-repeating fire. ADMIN only.
+ *
+ * @returns {Promise<object>} {@code {total, byStatus, byType, usesClaude, lastFireFailed, nextScheduled}}
+ */
+export async function fetchSchedulerSummary() {
+  const response = await apiClient.get(`${BASE_URL}/jobs/summary`);
+  return response.data;
+}
+
+/**
+ * Fetches the expensive facts of one job for its panel (never polled): its typical duration and its Claude spend over
+ * the last 30 days. ADMIN only.
  *
  * @param {string} jobKey - the job key
- * @param {number} [limit=3] - how many runs (the server clamps to 10)
- * @returns {Promise<Array>} list items, newest first
+ * @returns {Promise<object>} {@code {jobKey, typicalDurationSeconds, typicalDurationBasis, claudeCost30d}}
  */
-export async function fetchJobRuns(jobKey, limit = 3) {
-  const response = await apiClient.get(`${BASE_URL}/jobs/${jobKey}/runs`, { params: { limit } });
+export async function fetchJobDetail(jobKey) {
+  const response = await apiClient.get(`${BASE_URL}/jobs/${jobKey}/detail`);
   return response.data;
 }
 

@@ -5,6 +5,7 @@ import { formatUkDateTime } from '../utils/schedulerSolar.js';
 import {
   BOTH_PREVIEW, EVENING, INTRADAY, INTRADAY_PREVIEW, NIGHTLY, day, inHours, job, pollingJob, preview, previewJob,
   solarIntradayJob, solarJob, tideJob,
+  jobDetail,
 } from './schedulerFixtures.js';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -15,7 +16,8 @@ vi.mock('../api/schedulerApi', () => ({
   triggerJob: vi.fn(),
   fetchSolarPreview: vi.fn(),
   switchScheduleType: vi.fn(),
-  fetchJobRuns: vi.fn(),
+  fetchSchedulerSummary: vi.fn(),
+  fetchJobDetail: vi.fn(),
 }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
 
@@ -24,7 +26,8 @@ import {
   updateJobSchedule,
   fetchSolarPreview,
   switchScheduleType,
-  fetchJobRuns,
+  fetchSchedulerSummary,
+  fetchJobDetail,
 } from '../api/schedulerApi';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 
@@ -52,7 +55,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.location.hash = '#manage/scheduler';
   useIsSplitLayout.mockReturnValue(true);
-  fetchJobRuns.mockResolvedValue([]);
+  fetchSchedulerSummary.mockResolvedValue(null);
+  fetchJobDetail.mockResolvedValue(jobDetail());
 });
 
 describe('SchedulerView - explicit branch per schedule type', () => {
