@@ -12,6 +12,7 @@ export function dayFire(overrides = {}) {
     completedAt: '2026-11-03T01:00:55Z',
     trigger: 'SCHEDULED',
     fallback: false,
+    runLinked: false,
     ...overrides,
   };
 }

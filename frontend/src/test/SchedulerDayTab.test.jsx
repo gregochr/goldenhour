@@ -746,12 +746,15 @@ describe('the picture\'s width', () => {
   });
 
   it('follows the container when it is wider', async () => {
+    // Date pinned to the served noon: the offset and the tick then agree exactly, so the Now line is exactly central.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     await screen.findByTestId('scheduler-day-svg');
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 912.6 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(912);
     // The Now line at noon is the middle of the axis.
-    expect(Number(screen.getByTestId('scheduler-day-now').querySelector('line').getAttribute('x1'))).toBeCloseTo(456, 0);
+    expect(Number(screen.getByTestId('scheduler-day-now').querySelector('line').getAttribute('x1'))).toBe(456);
   });
 });
 

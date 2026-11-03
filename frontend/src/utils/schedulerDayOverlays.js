@@ -116,6 +116,28 @@ export function repeatingLayout(row, axis, plotWidth) {
   return { shape: repeatingShape(closest), ticks: visible };
 }
 
+/**
+ * A repeating job's nominal interval in ms: a fixed delay's own, a cron's median gap between its served ticks (or its
+ * "every N minutes" when none were served), else Infinity (unknown, so nothing is judged against it).
+ *
+ * @param {object} row a row from {@link buildRepeatingRows}
+ * @returns {number}
+ */
+export function repeatingIntervalMs(row) {
+  if (row.schedule?.scheduleType === 'FIXED_DELAY') return row.schedule.delayMs > 0 ? row.schedule.delayMs : Infinity;
+  if (row.ticks != null && row.ticks.length > 1) {
+    const gaps = row.ticks.slice(1).map((ms, i) => ms - row.ticks[i]).sort((a, b) => a - b);
+    return gaps[Math.floor(gaps.length / 2)];
+  }
+  const parts = (row.schedule?.cronExpression ?? '').split(' ');
+  if (parts.length >= 6 && parts[0] === '0' && parts.slice(2).every((part) => part === '*')) {
+    if (parts[1] === '*') return MS_PER_MINUTE;
+    const step = /^\*\/(\d{1,2})$/.exec(parts[1]);
+    if (step) return Number(step[1]) * MS_PER_MINUTE;
+  }
+  return Infinity;
+}
+
 /** A repeating row's accessible name: "{name}, every 5 min, 2 problems, paused, uses Claude, {alias}". */
 export function repeatingAriaLabel(row) {
   const parts = [row.name];
@@ -128,52 +150,62 @@ export function repeatingAriaLabel(row) {
   return parts.join(', ');
 }
 
-/** The words for a watchdog window's solar event ("Sunrise"), or the evening refresh's wait budget. */
+/** The words for a watchdog window's event: "Sunrise", or the evening refresh's "2 h budget from the first batch". */
 function watchdogEvent(entry) {
   if (entry.event) return `${entry.event.charAt(0)}${entry.event.slice(1).toLowerCase()}`;
-  return entry.budgetMinutes != null ? `Wait budget ${entry.budgetMinutes} min` : '';
+  if (entry.budgetMinutes == null) return '';
+  const minutes = entry.budgetMinutes;
+  const budget = minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
+  return `${budget} budget from the first batch`;
 }
 
 /**
- * The watchdog windows to draw, each keyed to its cycle job's row. A solar cycle's window is the served
- * {@code opensAt} to {@code closesAt}, the deadline being {@code closesAt}. The evening refresh serves only a wait
- * budget, so its deadline is each of its served fires plus {@code budgetMinutes} (the window runs from the fire).
+ * Whether a fire can carry a watchdog window: it ran (or is still to run), so there is a cycle for the watchdog to
+ * watch. Never a SKIPPED, MISSED or PAUSED fire, nor a FAILED one with no pipeline run behind it.
+ *
+ * @param {{status: string, runLinked?: boolean}} fire a served fire
+ * @returns {boolean}
+ */
+export function carriesWatchdog(fire) {
+  if (fire.status === 'FAILED') return fire.runLinked === true;
+  return ['SUCCEEDED', 'PARTIAL', 'RUNNING', 'SCHEDULED'].includes(fire.status);
+}
+
+/**
+ * The watchdog windows to draw, each keyed to its cycle job's row and to the one fire it belongs to ({@code ownerAtMs}:
+ * the newest eligible fire at or before the window's end). A solar cycle's window is the served {@code opensAt} to
+ * {@code closesAt}. The evening refresh's deadline is the served {@code deadlineAt} (the watchdog's own rule, from the
+ * run's first batch), never worked out here; with none, nothing is drawn, and its window runs from the owning fire.
  *
  * @param {object|null} day the served day
- * @param {Array<object>} rows the scheduled rows ({@code buildRows}), for the evening refresh's fires
- * @returns {Array<{jobKey: string, startMs: number, deadlineMs: number, event: string, text: string, budgetOnly: boolean}>}
+ * @param {Array<object>} rows the scheduled rows ({@code buildRows}), whose fires own the windows
+ * @returns {Array<{jobKey: string, startMs: number, deadlineMs: number, ownerAtMs: number, event: string,
+ *   text: string, budgetOnly: boolean}>}
  */
 export function watchdogWindows(day, rows) {
   const windows = [];
   (day?.watchdog ?? []).forEach((entry) => {
-    const event = watchdogEvent(entry);
+    const row = rows.find((r) => r.jobKey === entry.jobKey);
+    if (!row) return;
     const opens = instantMs(entry.opensAt);
     const closes = instantMs(entry.closesAt);
-    if (opens != null && closes != null) {
-      windows.push({
-        jobKey: entry.jobKey,
-        startMs: opens,
-        deadlineMs: closes,
-        event,
-        budgetOnly: false,
-        text: `Watchdog window ${formatClock(entry.opensAt)}–${formatClock(entry.closesAt)}`,
-      });
-    } else if (entry.budgetMinutes != null) {
-      const row = rows.find((r) => r.jobKey === entry.jobKey);
-      (row?.fires ?? []).filter((fire) => fire.status !== 'MISSED').forEach((fire) => {
-        const start = instantMs(fire.at);
-        if (start == null) return;
-        const deadline = start + entry.budgetMinutes * MS_PER_MINUTE;
-        windows.push({
-          jobKey: entry.jobKey,
-          startMs: start,
-          deadlineMs: deadline,
-          event,
-          budgetOnly: true,
-          text: `Watchdog window ${formatClock(fire.at)}–${formatClock(new Date(deadline).toISOString())}`,
-        });
-      });
-    }
+    const deadline = opens != null && closes != null ? closes : instantMs(entry.deadlineAt);
+    if (deadline == null) return;
+    const owner = row.fires
+      .filter(carriesWatchdog)
+      .filter((fire) => (instantMs(fire.at) ?? Infinity) <= deadline)
+      .reduce((newest, fire) => (newest == null || instantMs(fire.at) > instantMs(newest.at) ? fire : newest), null);
+    if (!owner) return;
+    const start = opens ?? instantMs(owner.at);
+    windows.push({
+      jobKey: entry.jobKey,
+      startMs: start,
+      deadlineMs: deadline,
+      ownerAtMs: instantMs(owner.at),
+      event: watchdogEvent(entry),
+      budgetOnly: opens == null,
+      text: `Watchdog window ${formatClock(new Date(start).toISOString())}–${formatClock(new Date(deadline).toISOString())}`,
+    });
   });
   return windows;
 }
@@ -310,14 +342,15 @@ export function rowTip(row, watchdogs = []) {
   };
 }
 
-/** A repeating row's tooltip: how often it runs, its problems, and its alias. */
-export function repeatingRowTip(row) {
+/** A repeating row's tooltip: how often it runs, its problems ("today" only on today), and its alias. */
+export function repeatingRowTip(row, isToday = true) {
   const problems = row.problems.length + row.problemsOmitted;
+  const when = isToday ? 'today' : 'on this day';
   return {
     name: row.name,
     status: row.paused ? { label: 'Paused', tone: 'off' } : null,
     time: row.cadence,
-    note: problems > 0 ? `${problems} ${problems === 1 ? 'problem' : 'problems'} today` : '',
+    note: problems > 0 ? `${problems} ${problems === 1 ? 'problem' : 'problems'} ${when}` : '',
     alias: row.alias ?? '',
   };
 }

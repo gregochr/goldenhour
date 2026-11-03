@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { PANEL_EDIT_FORM_ATTR, visibleDialogOpen } from '../../../hooks/usePanelEscape.js';
 
 /** The tooltip's widest, px, and the gap between the anchor and the box. */
 const TIP_MAX_WIDTH = 260;
+const TIP_MAX_WIDTH_PHONE = 200;
 const TIP_GAP = 14;
 const TIP_EDGE = 4;
 const TIP_BASE_HEIGHT = 28;
@@ -20,35 +22,52 @@ const TONE_TEXT = {
 /** The element id the tooltip carries, which a focused row points at with {@code aria-describedby}. */
 export const DAY_TOOLTIP_ID = 'scheduler-day-tooltip';
 
+/** Whether an Escape belongs to something else: a text field, a visible dialog, or the panel's edit form. */
+function escapeBelongsElsewhere(target) {
+  if (visibleDialogOpen() || document.querySelector(`[${PANEL_EDIT_FORM_ATTR}]`)) return true;
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return true;
+  return target.tagName === 'INPUT' && !['checkbox', 'radio', 'button'].includes(target.type);
+}
+
 /**
- * The picture's one open tooltip: which thing it is for, where it is anchored (px in the plot's own space) and what it
- * says. Hover and keyboard focus show it for the thing under them; leaving or blurring hides it only if it is still
- * that thing's; Escape hides it before anything else sees the key, so it never also closes the job panel.
+ * The picture's one open tooltip, as the id of the thing it is for. Hover and keyboard focus show it for the thing
+ * under them; leaving or blurring hides it only if it is still that thing's. Its content is never kept: the caller
+ * looks the id up in what it is drawing now, so a poll that replaces the data cannot leave a stale tooltip.
  *
- * <p>The Escape rule: the listener is on the document in the capture phase and calls {@code preventDefault}, so
- * {@code usePanelEscape} (which ignores a {@code defaultPrevented} key) leaves the panel open. It exists only while a
- * tooltip is showing.
+ * <p>{@code scope} is whatever must not change while a tooltip is open (the selected job, the zoom, the served day):
+ * when any of it changes the tooltip is closed.
  *
- * @returns {{tip: {id: string, x: number, y: number, content: object}|null, show: Function, hide: Function}}
+ * <p>Escape closes it first, so it never also closes the job panel: a capture-phase document listener (present only
+ * while a tooltip is open) calls {@code preventDefault}, which {@code usePanelEscape} honours. It stands aside when the
+ * key belongs to something else: focus in a text field, a visible dialog, or the panel's edit form being open.
+ *
+ * @param {...unknown} scope values compared by identity
+ * @returns {{id: string|null, anchorX: number|null, show: (id: string, anchorX?: number) => void,
+ *   hide: (id?: string) => void}} {@code anchorX} is an x the shower fixed at that moment (a row label's, which depends
+ *   on how far the scroller is scrolled), else null to use the mark's own
  */
-export function useDayTooltip() {
-  const [tip, setTip] = useState(null);
-  const show = useCallback((id, x, y, content) => setTip({ id, x, y, content }), []);
-  const hide = useCallback((id) => setTip((current) => (id == null || current?.id === id ? null : current)), []);
-  const open = tip != null;
+export function useDayTooltip(...scope) {
+  const [state, setState] = useState(null);
+  const current = state != null && state.scope.length === scope.length && state.scope.every((v, i) => v === scope[i]);
+  const id = current ? state.id : null;
+  const anchorX = current ? state.anchorX : null;
+  const show = (next, anchor = null) => setState({ id: next, anchorX: anchor, scope });
+  const hide = (which) => setState((held) => (which == null || held?.id === which ? null : held));
+  const open = id != null;
 
   useEffect(() => {
     if (!open) return undefined;
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (event.key !== 'Escape' || event.defaultPrevented || escapeBelongsElsewhere(event.target)) return;
       event.preventDefault();
-      setTip(null);
+      setState(null);
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [open]);
 
-  return { tip, show, hide };
+  return { id, anchorX, show, hide };
 }
 
 /** Which blocks the tooltip prints, in order (used to estimate its height before it is measured). */
@@ -72,13 +91,15 @@ function linesOf(content) {
  * @param {{id: string, x: number, y: number, content: object}} props.tip the open tooltip
  * @param {number} props.width the plot's width, px
  * @param {number} props.height the plot's height, px
+ * @param {boolean} [props.compact] a phone: the box is narrower, so it fits beside the sticky label column
  */
-export default function DayTooltip({ tip, width, height }) {
+export default function DayTooltip({ tip, width, height, compact = false }) {
   const ref = useRef(null);
   const { content } = tip;
   const lines = linesOf(content);
   const estimate = TIP_BASE_HEIGHT + TIP_LINE_HEIGHT * (lines.length + (content.watchdogEvent ? 1 : 0));
-  const left = Math.max(TIP_EDGE, Math.min(tip.x + 12, width - TIP_MAX_WIDTH - TIP_EDGE));
+  const maxWidth = compact ? TIP_MAX_WIDTH_PHONE : TIP_MAX_WIDTH;
+  const left = Math.max(TIP_EDGE, Math.min(tip.x + 12, width - maxWidth - TIP_EDGE));
   const below = tip.y + TIP_GAP;
   const top = below + estimate <= height ? below : Math.max(0, tip.y - TIP_GAP - estimate);
 
@@ -94,7 +115,7 @@ export default function DayTooltip({ tip, width, height }) {
       ref={ref}
       id={DAY_TOOLTIP_ID}
       role="tooltip"
-      className="pointer-events-none absolute left-(--tip-x) top-(--tip-y) z-20 w-max max-w-[260px] rounded-lg border border-plex-border bg-plex-panel px-3 py-2 text-[12px] leading-4 text-plex-text shadow-lg"
+      className="pointer-events-none absolute left-(--tip-x) top-(--tip-y) z-20 w-max max-w-[260px] max-[639px]:max-w-[200px] rounded-lg border border-plex-border bg-plex-panel px-3 py-2 text-[12px] leading-4 text-plex-text shadow-lg"
       data-testid="scheduler-day-tooltip"
     >
       <div className="font-medium" data-testid="scheduler-tip-name">{content.name}</div>
@@ -126,4 +147,5 @@ DayTooltip.propTypes = {
   }).isRequired,
   width: PropTypes.number.isRequired,
   height: PropTypes.number.isRequired,
+  compact: PropTypes.bool,
 };

@@ -14,8 +14,11 @@ const HOLLOW_DASH = '2 2';
 /** The share of a future fire's fill that shows; its outline stays at full strength. */
 const FUTURE_FILL_OPACITY = 0.3;
 
-/** The share of a future repeating tick or band that shows (the design's 35%). */
+/** The share of a future repeating tick that shows (the design's 35%). */
 const FUTURE_REPEATING_OPACITY = 0.35;
+
+/** The band's strength over the repeating ink (which is itself half strength): about the design's 45%. */
+const BAND_OPACITY = 0.9;
 
 /** A watchdog window's band and deadline half-height, px. */
 const WATCHDOG_HALF_HEIGHT = 9;
@@ -164,14 +167,12 @@ WouldBeMark.propTypes = {
 /**
  * A repeating row's marks. Ticks (2px by 12px, the repeating ink, full strength once past and faint while still to
  * come) when the server listed the slots and they are at least 3px apart; otherwise one band across the axis with its
- * "every 5 min" words, split at Now so the part still to come is faint. A paused job says "Paused" instead of drawing
+ * "every 5 min" words. A paused job says "Paused" instead of drawing
  * its slots. Problems are overlaid at their times in coral (failed) or amber (partial), whichever the layout.
  */
-export function RepeatingMarks({ row, layout, xOf, width, cy, nowMs, onSelect, tipFor }) {
+export function RepeatingMarks({ row, layout, xOf, width, cy, nowMs, onSelect, problemTips }) {
   const past = (ms) => ms <= nowMs;
-  const nowX = Math.min(width, Math.max(0, xOf(nowMs)));
   const band = layout.shape === 'band';
-  const todayInView = nowX > 0 && nowX < width;
   let drawn;
   if (row.paused) {
     drawn = (
@@ -180,34 +181,19 @@ export function RepeatingMarks({ row, layout, xOf, width, cy, nowMs, onSelect, t
       </text>
     );
   } else if (band) {
-    // Entirely past, entirely to come, or split at Now.
-    const allPast = !todayInView && xOf(nowMs) >= width;
-    const allFuture = !todayInView && !allPast;
+    // One continuous band, as the design draws it (about 45% ink: the token is already half strength).
     drawn = (
       <g data-testid={`scheduler-band-${row.jobKey}`}>
-        {(allPast || todayInView) && (
-          <rect
-            x={0}
-            y={cy - 3}
-            width={allPast ? width : nowX}
-            height="6"
-            rx="3"
-            className="fill-scheduler-repeating"
-            data-testid={`scheduler-band-past-${row.jobKey}`}
-          />
-        )}
-        {(allFuture || todayInView) && (
-          <rect
-            x={allFuture ? 0 : nowX}
-            y={cy - 3}
-            width={allFuture ? width : width - nowX}
-            height="6"
-            rx="3"
-            className="fill-scheduler-repeating"
-            fillOpacity={FUTURE_REPEATING_OPACITY}
-            data-testid={`scheduler-band-future-${row.jobKey}`}
-          />
-        )}
+        <rect
+          x={0}
+          y={cy - 3}
+          width={width}
+          height="6"
+          rx="3"
+          className="fill-scheduler-repeating"
+          fillOpacity={BAND_OPACITY}
+          data-testid={`scheduler-band-rect-${row.jobKey}`}
+        />
         <text
           x={width - 4}
           y={cy - 6}
@@ -263,7 +249,7 @@ export function RepeatingMarks({ row, layout, xOf, width, cy, nowMs, onSelect, t
             data-testid={`scheduler-problem-${row.jobKey}-${i}`}
             data-status={problem.status}
             data-tone={style.tone}
-            {...tipFor(`problem:${row.jobKey}:${i}`, x, problem)}
+            {...problemTips[i]}
           />
         );
       })}
@@ -279,7 +265,7 @@ RepeatingMarks.propTypes = {
   cy: PropTypes.number.isRequired,
   nowMs: PropTypes.number.isRequired,
   onSelect: PropTypes.func.isRequired,
-  tipFor: PropTypes.func.isRequired,
+  problemTips: PropTypes.arrayOf(PropTypes.object).isRequired,
 };
 
 /** A watchdog window's faint band, from when its check opens to its deadline (clamped to the axis). Hover shows it. */

@@ -51,8 +51,9 @@ import java.util.stream.Collectors;
  *
  * <p><b>Paused jobs and ticks.</b> A paused scheduled job lists its would-be fires (status PAUSED, never MISSED) from
  * {@link DynamicSchedulerService#firesIgnoringStatus}, the same arithmetic with the status guard dropped; a job off
- * in config lists none. A repeating cron job also lists its slot instants as {@code ticks} (null for a fixed-delay job
- * or a cron too busy to list, which the client draws as a band).
+ * in config lists none (a repeating job off in config is not served at all). A repeating cron job also lists its
+ * slot instants as {@code ticks} (null for a fixed-delay job or a cron too busy to list, which the client draws as a
+ * band).
  *
  * <p><b>MISSED.</b> An expected fire is MISSED when it is more than {@value #MISSED_GRACE_MINUTES} minutes in the
  * past, no log row that was not an admin "Run now" lies within {@value #MATCH_TOLERANCE_MINUTES} minutes of it, and
@@ -122,9 +123,11 @@ public class SchedulerDayService {
      * @param completedAt when it ended, or null while running, for a SCHEDULED or MISSED fire
      * @param trigger     {@code SCHEDULED}, {@code MANUAL} or {@code CATCH_UP}; null for a SCHEDULED or MISSED fire
      * @param fallback    whether a solar job's fire for that day came from its stored fallback cron
+     * @param runLinked   whether the fire is linked to a pipeline run (a forecast cycle that really ran), so a screen
+     *                    can tell a FAILED cycle with a run from a FAILED one without
      */
     public record Fire(Instant at, DayFireStatus status, String summary, Instant startedAt, Instant completedAt,
-            String trigger, boolean fallback) {
+            String trigger, boolean fallback, boolean runLinked) {
     }
 
     /**
@@ -162,9 +165,8 @@ public class SchedulerDayService {
      *                        {@value #MAX_PROBLEMS} (the newest); null for a scheduled job
      * @param problemsOmitted how many older problems were left out of {@code problems}; null for a scheduled job
      * @param ticks           a repeating cron job's slot instants that day, in order, when there are fewer than
-     *                        {@value DynamicSchedulerService#MAX_FIRES_LISTED} (empty for a job that is off in
-     *                        config); null for a fixed-delay job, a cron too busy to list (the client draws a
-     *                        band) and a scheduled job
+     *                        {@value DynamicSchedulerService#MAX_FIRES_LISTED}; null for a fixed-delay job, a cron
+     *                        too busy to list (the client draws a band) and a scheduled job
      */
     public record DayJob(String jobKey, String displayName, Kind kind, List<Fire> fires, RepeatingSchedule schedule,
             Long expectedCount, Map<String, Long> counts, List<Problem> problems, Integer problemsOmitted,
@@ -204,7 +206,8 @@ public class SchedulerDayService {
      * @param sunset            sunset there, or null
      * @param jobs              every job
      * @param repeatingTally    the failed-run tally of the repeating jobs
-     * @param watchdog          the forecast-cycle watchdog's windows for the day
+     * @param watchdog          the forecast-cycle watchdog's windows for the day (the evening entry carries
+     *                          {@code deadlineAt}, its real deadline from the day's run, or null)
      * @param notOnThisDay      active jobs with no fire on the day
      */
     public record Day(LocalDate date, boolean isToday, Instant now, Instant dayStart, Instant dayEnd,
@@ -291,6 +294,9 @@ public class SchedulerDayService {
         long failedRuns = 0;
         int jobsWithFailures = 0;
         for (SchedulerJobConfigEntity config : repeating) {
+            if (config.getStatus() == SchedulerJobStatus.DISABLED_BY_CONFIG) {
+                continue;
+            }
             Map<SchedulerFireStatus, Long> byStatus = counts.getOrDefault(config.getJobKey(), Map.of());
             jobs.add(repeatingJob(config, byStatus, problemsByJob.getOrDefault(config.getJobKey(), List.of()),
                     now, dayStart, dayEnd));
@@ -300,11 +306,31 @@ public class SchedulerDayService {
         }
 
         List<ForecastCycleWatchdog.Deadlines> windows = ForecastCycleJobs.allCycleJobs().stream()
-                .flatMap(job -> watchdog.deadlines(job.key(), date).stream()).toList();
+                .flatMap(job -> watchdog.deadlines(job.key(), date).stream())
+                .map(window -> window.budgetMinutes() == null ? window
+                        : window.withDeadlineAt(eveningDeadline(window.jobKey(), rowsByJob, runs)))
+                .toList();
         return new Day(date, date.equals(today), now, dayStart, dayEnd, zoneLabel(dayStart),
                 zoneLabel(dayEnd.minusSeconds(1)), solar.eventInstant(SolarEvent.SUNRISE, date),
                 solar.eventInstant(SolarEvent.SUNSET, date), jobs, new RepeatingTally(failedRuns, jobsWithFailures),
                 windows, notOnThisDay);
+    }
+
+    /**
+     * The evening run's real deadline for the day, by the watchdog's own rule, from the run linked to the job's
+     * newest fire that has one (a SKIPPED fire's run is not the cycle). Null with no such run.
+     */
+    private Instant eveningDeadline(String jobKey, Map<String, List<SchedulerFireLogEntity>> rowsByJob,
+            Map<Long, PipelineRunEntity> runs) {
+        List<SchedulerFireLogEntity> rows = rowsByJob.getOrDefault(jobKey, List.of());
+        for (int i = rows.size() - 1; i >= 0; i--) {
+            SchedulerFireLogEntity row = rows.get(i);
+            PipelineRunEntity run = row.getPipelineRunId() == null ? null : runs.get(row.getPipelineRunId());
+            if (run != null && row.getStatus() != SchedulerFireStatus.SKIPPED) {
+                return watchdog.eveningDeadline(run);
+            }
+        }
+        return null;
     }
 
     /** One expected fire of a scheduled job. */
@@ -365,16 +391,20 @@ public class SchedulerDayService {
         Instant changedAt = config.getScheduleChangedAt();
         for (DaySlot slot : slots) {
             if (slot.at().isAfter(now)) {
-                fires.add(new Fire(slot.at(), DayFireStatus.SCHEDULED, null, null, null, null, slot.fallback()));
+                fires.add(new Fire(slot.at(), DayFireStatus.SCHEDULED, null, null, null, null, slot.fallback(),
+                        false));
             } else if (slot.at().isBefore(missedBefore) && !satisfied(slot, rows)
                     && (changedAt == null || slot.at().isAfter(changedAt))) {
-                fires.add(new Fire(slot.at(), DayFireStatus.MISSED, null, null, null, null, slot.fallback()));
+                fires.add(new Fire(slot.at(), DayFireStatus.MISSED, null, null, null, null, slot.fallback(),
+                        false));
             }
         }
-        // A paused job: the slots it would have had that no log row stands for, never MISSED, past or future.
+        // A paused job: the slots it would have had that no log row stands for, never MISSED, past or future, but
+        // only from when its schedule last changed (a pause is one): a slot before the pause was not paused.
         for (DaySlot slot : wouldBe) {
-            if (!satisfied(slot, rows)) {
-                fires.add(new Fire(slot.at(), DayFireStatus.PAUSED, null, null, null, null, slot.fallback()));
+            if (!satisfied(slot, rows) && (changedAt == null || slot.at().isAfter(changedAt))) {
+                fires.add(new Fire(slot.at(), DayFireStatus.PAUSED, null, null, null, null, slot.fallback(),
+                        false));
             }
         }
         fires.sort(Comparator.comparing(Fire::at));
@@ -411,7 +441,7 @@ public class SchedulerDayService {
             }
         }
         return new Fire(row.getFiredAt(), status, summary, row.getFiredAt(), completedAt,
-                row.getTriggerKind().name(), fallback);
+                row.getTriggerKind().name(), fallback, run != null);
     }
 
     private static DayFireStatus fromPipeline(PipelineRunStatus status) {
@@ -444,15 +474,12 @@ public class SchedulerDayService {
 
     /**
      * A repeating cron job's slot instants on the day, from the scheduler's own arithmetic ignoring status (a paused
-     * poller still has its ticks; one that is off in config has none). Null for a fixed-delay job, and for a cron
-     * whose list reached the scheduler's cap (it may have been cut short, so the client draws a band instead).
+     * poller still has its ticks; a job that is off in config is not served at all). Null for a fixed-delay job, and
+     * for a cron whose list reached the scheduler's cap (it may have been cut short, so the client draws a band).
      */
     private List<Instant> ticks(SchedulerJobConfigEntity config, Instant dayStart, Instant dayEnd) {
         if (config.getScheduleType() == ScheduleType.FIXED_DELAY) {
             return null;
-        }
-        if (config.getStatus() == SchedulerJobStatus.DISABLED_BY_CONFIG) {
-            return List.of();
         }
         List<DynamicSchedulerService.ScheduledFire> fires =
                 scheduler.firesIgnoringStatus(config, dayStart.minusSeconds(1), dayEnd);

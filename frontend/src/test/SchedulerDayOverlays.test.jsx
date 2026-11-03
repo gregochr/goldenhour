@@ -133,13 +133,15 @@ describe('the Repeating section', () => {
     expect(screen.queryByTestId('scheduler-band-hourly_poll')).not.toBeInTheDocument();
   });
 
-  it('draws a band with "every 1 min" when the server listed no ticks, split at Now', async () => {
+  it('draws one band at about 45% ink, across the whole axis, with "every 1 min", when the server listed no ticks', async () => {
     mount();
     const band = await screen.findByTestId('scheduler-band-aurora_polling');
     expect(screen.getByTestId('scheduler-day-row-aurora_polling')).toHaveAttribute('data-layout', 'band');
     expect(screen.getByTestId('scheduler-band-label-aurora_polling')).toHaveTextContent('every 1 min');
-    expect(within(band).getByTestId('scheduler-band-past-aurora_polling')).toHaveAttribute('width', String(xAt(12)));
-    expect(within(band).getByTestId('scheduler-band-future-aurora_polling')).toHaveAttribute('fill-opacity', '0.35');
+    const rect = within(band).getByTestId('scheduler-band-rect-aurora_polling');
+    expect(rect).toHaveAttribute('width', String(W));
+    expect(rect).toHaveAttribute('fill-opacity', '0.9');
+    expect(rect).toHaveClass('fill-scheduler-repeating');
     expect(screen.queryByTestId('scheduler-ticks-aurora_polling')).not.toBeInTheDocument();
   });
 
@@ -253,8 +255,10 @@ describe('watchdog windows', () => {
     jobKey: NIGHTLY, event: 'SUNRISE', eventAt: '2026-11-03T07:03:00Z', opensAt: '2026-11-03T06:43:00Z', closesAt: '2026-11-03T08:03:00Z',
     startGraceMinutes: 30, budgetMinutes: null,
   };
+  // The watchdog's own deadline is 18:25 (90 minutes from a first batch at 16:55), not the 17:00 fire plus 90 minutes.
   const BUDGET = {
     jobKey: EVENING, event: null, eventAt: null, opensAt: null, closesAt: null, startGraceMinutes: 30, budgetMinutes: 90,
+    deadlineAt: '2026-11-03T18:25:00Z',
   };
 
   it('draws a faint band from opensAt to closesAt with a red deadline line at closesAt, on the cycle\'s row', async () => {
@@ -290,17 +294,63 @@ describe('watchdog windows', () => {
     expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Watchdog window 06:43–08:03');
   });
 
-  it('draws the evening refresh\'s deadline at its fire plus the wait budget (budget only, no opensAt)', async () => {
-    mount({
-      day: dayData({ jobs: [dayJob({ jobKey: EVENING, displayName: 'Evening refresh', fires: [fire('2026-11-03T17:00:00Z', { status: 'SCHEDULED', startedAt: null, completedAt: null })] })], watchdog: [BUDGET] }),
-    });
+  const eveningDay = (fires, entry = BUDGET) => dayData({
+    jobs: [dayJob({ jobKey: EVENING, displayName: 'Evening refresh', fires })],
+    watchdog: [entry],
+  });
+
+  it('draws the evening refresh\'s deadline at the served deadlineAt, not at its fire plus the budget', async () => {
+    mount({ day: eveningDay([fire('2026-11-03T17:00:00Z')]) });
     const band = await screen.findByTestId(`scheduler-watchdog-${EVENING}`);
     expect(band).toHaveAttribute('data-budget-only', 'true');
     expect(Number(band.getAttribute('x'))).toBeCloseTo(xAt(17), 5);
-    expect(Number(screen.getByTestId(`scheduler-watchdog-deadline-${EVENING}`).getAttribute('x'))).toBeCloseTo(xAt(18.5) - 1, 5);
+    // 18:25, not 18:30.
+    expect(Number(screen.getByTestId(`scheduler-watchdog-deadline-${EVENING}`).getAttribute('x'))).toBeCloseTo(xAt(18 + 25 / 60) - 1, 5);
     hover(`scheduler-watchdog-deadline-${EVENING}`);
-    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Watchdog window 17:00–18:30');
-    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Wait budget 90 min');
+    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Watchdog window 17:00–18:25');
+    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('90 min budget from the first batch');
+  });
+
+  it('draws nothing for the evening refresh when no deadlineAt was served (no run yet)', async () => {
+    mount({ day: eveningDay([fire('2026-11-03T17:00:00Z', { status: 'SCHEDULED', startedAt: null, completedAt: null })], { ...BUDGET, deadlineAt: null }) });
+    await screen.findByTestId(`scheduler-row-${EVENING}`);
+    expect(screen.queryByTestId(`scheduler-watchdog-${EVENING}`)).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`scheduler-watchdog-deadline-${EVENING}`)).not.toBeInTheDocument();
+  });
+
+  it('draws no window on a SKIPPED, MISSED or FAILED-without-a-run fire', async () => {
+    const cases = [{ status: 'SKIPPED' }, { status: 'MISSED', startedAt: null, completedAt: null }, { status: 'FAILED', runLinked: false }];
+    for (const overrides of cases) {
+      mount({ day: eveningDay([fire('2026-11-03T17:00:00Z', overrides)]) });
+      await screen.findByTestId(`scheduler-row-${EVENING}`);
+      expect(screen.queryByTestId(`scheduler-watchdog-${EVENING}`)).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('draws the window on a FAILED fire that has a run', async () => {
+    mount({ day: eveningDay([fire('2026-11-03T17:00:00Z', { status: 'FAILED', runLinked: true })]) });
+    expect(await screen.findByTestId(`scheduler-watchdog-${EVENING}`)).toBeInTheDocument();
+  });
+
+  it('puts the watchdog text only on the fire the window belongs to, whole day and close-up alike', async () => {
+    const day = dayData({
+      jobs: [dayJob({ fires: [fire('2026-11-03T03:00:00Z'), fire('2026-11-03T09:00:00Z')] })],
+      watchdog: [SOLAR_WINDOW],
+    });
+    mount({ day });
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    // The 03:00 fire is the one just before the 06:43 to 08:03 window; the 09:00 fire is after it.
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Watchdog window 06:43–08:03');
+    fireEvent.mouseLeave(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`));
+    hover(`scheduler-fire-${NIGHTLY}-1`);
+    expect(screen.queryByTestId('scheduler-tip-watchdog')).not.toBeInTheDocument();
+    fireEvent.mouseLeave(screen.getByTestId(`scheduler-fire-${NIGHTLY}-1`));
+
+    fireEvent.click(screen.getByTestId('scheduler-day-zoom-closeup'));
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByTestId('scheduler-tip-watchdog')).toHaveTextContent('Watchdog window 06:43–08:03');
   });
 
   it('draws none for a cycle with no row, or when the event does not occur that day', async () => {
@@ -522,6 +572,215 @@ describe('tooltips', () => {
   });
 });
 
+describe('arrows: which fires link, and how far', () => {
+  const nightDay = (status, extra = {}) => dayData({
+    jobs: [
+      dayJob({ fires: [fire('2026-11-03T03:00:00Z', { status, ...extra })] }),
+      dayRepeatingJob({
+        ticks: [1, 2, 3, 4, 5, 15, 16].map((h) => `2026-11-03T${String(h).padStart(2, '0')}:00:00Z`),
+        schedule: { scheduleType: 'CRON', cronExpression: '0 0 * * * *', delayMs: null, timeZone: 'UTC' },
+      }),
+    ],
+  });
+  const collectArrow = () => screen.queryByTestId(`scheduler-arrow-collect-${NIGHTLY}-aurora_polling-0`);
+
+  it('links only from fires that ran or will run: SUCCEEDED, PARTIAL, RUNNING, SCHEDULED', async () => {
+    for (const status of ['SUCCEEDED', 'PARTIAL', 'RUNNING', 'SCHEDULED']) {
+      mount({ jobs: [SOLAR, POLLING], day: nightDay(status) });
+      await screen.findByTestId('scheduler-ticks-aurora_polling');
+      expect(collectArrow(), status).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('never links from a SKIPPED or FAILED fire, or a missed one', async () => {
+    for (const status of ['SKIPPED', 'FAILED', 'MISSED']) {
+      mount({ jobs: [SOLAR, POLLING], day: nightDay(status) });
+      await screen.findByTestId('scheduler-ticks-aurora_polling');
+      expect(collectArrow(), status).not.toBeInTheDocument();
+      cleanup();
+    }
+  });
+
+  it('drops a collect arrow whose next tick is more than one interval away: no jump from 03:00 to 15:00', async () => {
+    // Hourly ticks, but none from 06:00 to 14:00: from the 03:00 fire the next tick is 04:00 (fine); from a fire at
+    // 05:30 the next tick would be 15:00, ten hours on.
+    const day = dayData({
+      jobs: [
+        dayJob({ fires: [fire('2026-11-03T03:00:00Z'), fire('2026-11-03T05:30:00Z')] }),
+        dayRepeatingJob({
+          ticks: [1, 2, 3, 4, 5, 15, 16].map((h) => `2026-11-03T${String(h).padStart(2, '0')}:00:00Z`),
+          schedule: { scheduleType: 'CRON', cronExpression: '0 0 * * * *', delayMs: null, timeZone: 'UTC' },
+        }),
+      ],
+    });
+    mount({ jobs: [SOLAR, POLLING], day });
+    await screen.findByTestId('scheduler-ticks-aurora_polling');
+    expect(screen.getByTestId(`scheduler-arrow-collect-${NIGHTLY}-aurora_polling-0`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`scheduler-arrow-collect-${NIGHTLY}-aurora_polling-1`)).not.toBeInTheDocument();
+  });
+
+  it('allows a fire\'s own duration on top of the interval', async () => {
+    // A 90-minute run ending 04:30; the next hourly tick is 05:00, well inside an hour plus the duration.
+    const day = dayData({
+      jobs: [
+        dayJob({ fires: [fire('2026-11-03T03:00:00Z', { completedAt: '2026-11-03T04:30:00Z' })] }),
+        dayRepeatingJob({
+          ticks: [1, 2, 3, 4, 5].map((h) => `2026-11-03T${String(h).padStart(2, '0')}:00:00Z`),
+          schedule: { scheduleType: 'CRON', cronExpression: '0 0 * * * *', delayMs: null, timeZone: 'UTC' },
+        }),
+      ],
+    });
+    mount({ jobs: [SOLAR, POLLING], day });
+    await screen.findByTestId('scheduler-ticks-aurora_polling');
+    expect(collectArrow()).toBeInTheDocument();
+  });
+
+  it('draws a stagger arrow only when the next fire is about the declared 30 minutes on, and not 2 hours on', async () => {
+    const staggerDay = (intradayAt) => dayData({
+      jobs: [
+        dayJob({ jobKey: 'tide_refresh', displayName: 'Tide Refresh', fires: [fire('2026-11-03T02:00:00Z')] }),
+        dayJob({ jobKey: INTRADAY, displayName: 'Intraday refresh', fires: [fire(intradayAt)] }),
+      ],
+    });
+    const stagger = () => screen.queryByTestId('scheduler-arrow-stagger-tide_refresh-intraday_forecast_refresh-0');
+    mount({ day: staggerDay('2026-11-03T02:40:00Z') });
+    await screen.findByTestId('scheduler-fire-tide_refresh-0');
+    expect(stagger()).toBeInTheDocument();
+    cleanup();
+    mount({ day: staggerDay('2026-11-03T04:00:00Z') });
+    await screen.findByTestId('scheduler-fire-tide_refresh-0');
+    expect(stagger()).not.toBeInTheDocument();
+  });
+});
+
+describe('tooltips: their life', () => {
+  it('closes when the zoom changes', async () => {
+    mount();
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('scheduler-day-zoom-closeup'));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes when the selected job changes', async () => {
+    mount();
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    hover('scheduler-fire-tide_refresh-0');
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId(`scheduler-row-${NIGHTLY}`), { key: 'Enter' });
+    await screen.findByTestId('scheduler-panel');
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes when a click on a mark opens the panel, even for the job already selected', async () => {
+    mount();
+    fireEvent.keyDown(await screen.findByTestId(`scheduler-row-${NIGHTLY}`), { key: 'Enter' });
+    await screen.findByTestId('scheduler-panel');
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('closes when a poll replaces the day, rather than showing words from the data that has gone', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date('2026-11-03T12:00:00Z'));
+    mount();
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('3 of 3 batches submitted');
+
+    fetchSchedulerDay.mockResolvedValue(dayData({
+      jobs: [dayJob({ fires: [fire('2026-11-03T03:00:00Z', { summary: 'A different outcome' })] })],
+    }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    // A fresh hover reads the current data.
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('A different outcome');
+    expect(screen.getByRole('tooltip')).not.toHaveTextContent('3 of 3 batches submitted');
+  });
+
+  it('leaves Escape to the cron editor while a hover tooltip is open: the edit is cancelled, the panel stays', async () => {
+    const rawCron = tideJob({ cronExpression: '0 20 * * * *', catalogue: catalogue({ alias: 'The tide fetcher' }) });
+    mount({ jobs: [SOLAR, rawCron, INTRADAY_JOB, POLLING] });
+    fireEvent.keyDown(await screen.findByTestId('scheduler-row-tide_refresh'), { key: 'Enter' });
+    await screen.findByTestId('scheduler-panel');
+    fireEvent.click(screen.getByTestId('edit-btn-tide_refresh'));
+    const input = screen.getByTestId('edit-input-tide_refresh');
+    hover('scheduler-fire-tide_refresh-0');
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByTestId('edit-input-tide_refresh')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-panel')).toBeInTheDocument();
+  });
+
+  it('stands aside for Escape typed in a text field, and for an open dialog', async () => {
+    mount();
+    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
+    hover(`scheduler-fire-${NIGHTLY}-0`);
+    const field = document.createElement('input');
+    field.type = 'text';
+    document.body.appendChild(field);
+    try {
+      const notHandled = fireEvent.keyDown(field, { key: 'Escape' });
+      expect(notHandled).toBe(true);
+      expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    } finally {
+      field.remove();
+    }
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.appendChild(dialog);
+    try {
+      expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(true);
+      expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    } finally {
+      dialog.remove();
+    }
+    // With neither, Escape closes the tooltip and takes the key.
+    expect(fireEvent.keyDown(document.body, { key: 'Escape' })).toBe(false);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('says "today" in a repeating row\'s tooltip only on today, else "on this day"', async () => {
+    window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-03T12:00:00Z'));
+    mount({
+      day: {
+        ...DAY, date: '2026-11-02', isToday: false, dayStart: '2026-11-02T00:00:00Z', dayEnd: '2026-11-03T00:00:00Z', sunrise: '2026-11-02T07:05:00Z', sunset: '2026-11-02T16:28:00Z',
+      },
+    });
+    const row = await screen.findByTestId('scheduler-row-aurora_polling');
+    act(() => { row.focus(); });
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('2 problems on this day');
+  });
+
+  it('anchors a row label\'s tooltip to the visible part of the phone scroller, beside the sticky label column', async () => {
+    useIsMobile.mockReturnValue(true);
+    mount();
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    screen.getByTestId('scheduler-day-scroller').scrollLeft = 120;
+    act(() => { row.focus(); });
+    const tip = await screen.findByRole('tooltip');
+    // 120 scrolled, 8 in, 12 beside the anchor.
+    expect(tip.style.getPropertyValue('--tip-x')).toBe('140px');
+    expect(tip.className).toContain('max-[639px]:max-w-[200px]');
+  });
+
+  it('anchors it at the plot\'s left edge when nothing is scrolled', async () => {
+    useIsMobile.mockReturnValue(true);
+    mount();
+    const row = await screen.findByTestId(`scheduler-row-${NIGHTLY}`);
+    act(() => { row.focus(); });
+    expect((await screen.findByRole('tooltip')).style.getPropertyValue('--tip-x')).toBe('20px');
+  });
+});
+
 describe('the close-up', () => {
   const closeUp = () => fireEvent.click(screen.getByTestId('scheduler-day-zoom-closeup'));
   const wide = (overrides = {}) => dayData({
@@ -583,16 +842,19 @@ describe('the close-up', () => {
     expect(screen.getByTestId(`scheduler-arrow-collect-${NIGHTLY}-aurora_polling-0`)).toBeInTheDocument();
   });
 
-  it('widens the bars: the same 55-second fire is three times the width of a whole-day mark per unit of time', async () => {
-    mount({ day: wide() });
-    await screen.findByTestId(`scheduler-fire-${NIGHTLY}-0`);
-    const dayX = Number(screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`).getAttribute('x') ?? Number.NaN);
+  it('widens the bars: a 30-minute fire is wider on the 3-hour close-up than on the 24-hour day, and starts a third in', async () => {
+    const longFire = fire('2026-11-03T03:00:00Z', { completedAt: '2026-11-03T03:30:00Z' });
+    mount({ day: wide({ jobs: [dayJob({ fires: [longFire] })] }) });
+    const whole = await screen.findByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    expect(whole.tagName).toBe('rect');
+    const wholeWidth = Number(whole.getAttribute('width'));
+    expect(wholeWidth).toBeCloseTo((30 / 1440) * W, 5);
     closeUp();
-    // At 03:00 on a 3-hour axis the fire starts a third of the way in.
-    const mark = screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`);
-    const start = mark.tagName === 'path' ? Number(/^M([\d.]+)/.exec(mark.getAttribute('d'))[1]) : Number(mark.getAttribute('x'));
-    expect(start).toBeCloseTo(W / 3, 5);
-    expect(Number.isNaN(dayX) || dayX !== start).toBe(true);
+    const zoomed = screen.getByTestId(`scheduler-mark-${NIGHTLY}-0`);
+    expect(zoomed.tagName).toBe('rect');
+    expect(Number(zoomed.getAttribute('x'))).toBeCloseTo(W / 3, 5);
+    expect(Number(zoomed.getAttribute('width'))).toBeCloseTo((30 / 180) * W, 5);
+    expect(Number(zoomed.getAttribute('width'))).toBeGreaterThan(wholeWidth * 5);
   });
 
   it('draws a ticked repeating job\'s ticks inside the window only', async () => {

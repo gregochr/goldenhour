@@ -96,8 +96,10 @@ export default function useSchedulerDay(rootRef) {
       const served = await fetchSchedulerDay(requested);
       if (id !== request.current) return;
       const servedNow = Date.parse(served?.now);
-      setOffsetMs(Number.isNaN(servedNow) ? 0 : servedNow - Date.now());
-      setTick(Date.now());
+      // One read of the clock, so the offset and the tick agree to the millisecond.
+      const readAt = Date.now();
+      setOffsetMs(Number.isNaN(servedNow) ? 0 : servedNow - readAt);
+      setTick(readAt);
       setData(served ?? null);
       setError(null);
       loadedOnce.current = true;

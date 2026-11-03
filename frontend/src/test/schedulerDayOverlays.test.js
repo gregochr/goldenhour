@@ -7,7 +7,9 @@ import {
   collectArrowPath,
   relatedKeys,
   repeatingAriaLabel,
+  repeatingIntervalMs,
   repeatingLayout,
+  repeatingRowTip,
   staggerArrowPath,
   watchdogWindows,
 } from '../utils/schedulerDayOverlays.js';
@@ -154,40 +156,66 @@ describe('repeatingLayout', () => {
 });
 
 describe('watchdogWindows', () => {
-  const rows = buildRows(dayData({ jobs: [dayJob({ jobKey: 'evening_sunrise_refresh', fires: [dayFire({ at: '2026-11-03T17:00:00Z' })] })] }), []);
+  const NIGHT = 'near_term_batch_evaluation';
+  const rowsOf = (jobKey, fires) => buildRows(dayData({ jobs: [dayJob({ jobKey, fires })] }), []);
+  const SOLAR_ENTRY = {
+    jobKey: NIGHT, event: 'SUNRISE', eventAt: '2026-11-03T07:03:00Z', opensAt: '2026-11-03T06:43:00Z', closesAt: '2026-11-03T08:03:00Z',
+    startGraceMinutes: 30, budgetMinutes: null, deadlineAt: null,
+  };
+  const EVENING_ENTRY = {
+    jobKey: 'evening_sunrise_refresh', event: null, eventAt: null, opensAt: null, closesAt: null, startGraceMinutes: 30,
+    budgetMinutes: 90, deadlineAt: '2026-11-03T18:25:00Z',
+  };
+  const evening = (fires) => rowsOf('evening_sunrise_refresh', fires);
 
-  it('is the served opensAt to closesAt for a solar cycle, with its event', () => {
-    const day = dayData({
-      watchdog: [{ jobKey: 'near_term_batch_evaluation', event: 'SUNRISE', eventAt: '2026-11-03T07:03:00Z', opensAt: '2026-11-03T06:43:00Z', closesAt: '2026-11-03T08:03:00Z', startGraceMinutes: 30, budgetMinutes: null }],
-    });
-    const windows = watchdogWindows(day, rows);
+  it('is the served opensAt to closesAt for a solar cycle, with its event, owned by the fire just before it', () => {
+    const windows = watchdogWindows(dayData({ watchdog: [SOLAR_ENTRY] }), rowsOf(NIGHT, [dayFire({ at: '2026-11-03T03:00:00Z' })]));
     expect(windows).toHaveLength(1);
-    expect(windows[0]).toMatchObject({ jobKey: 'near_term_batch_evaluation', event: 'Sunrise', budgetOnly: false, text: 'Watchdog window 06:43–08:03' });
+    expect(windows[0]).toMatchObject({ jobKey: NIGHT, event: 'Sunrise', budgetOnly: false, text: 'Watchdog window 06:43–08:03' });
     expect(iso(windows[0].deadlineMs)).toBe('2026-11-03T08:03:00.000Z');
+    expect(iso(windows[0].ownerAtMs)).toBe('2026-11-03T03:00:00.000Z');
   });
 
-  it('is each fire plus the budget for the evening refresh, which serves only a budget', () => {
-    const day = dayData({
-      watchdog: [{ jobKey: 'evening_sunrise_refresh', event: null, eventAt: null, opensAt: null, closesAt: null, startGraceMinutes: 30, budgetMinutes: 90 }],
-    });
-    const windows = watchdogWindows(day, rows);
+  it('belongs to one fire: the newest eligible fire at or before the window closes, not every fire on the row', () => {
+    const rows = rowsOf(NIGHT, [
+      dayFire({ at: '2026-11-03T03:00:00Z' }),
+      dayFire({ at: '2026-11-03T07:00:00Z' }),
+      dayFire({ at: '2026-11-03T09:00:00Z' }),
+    ]);
+    const [owned] = watchdogWindows(dayData({ watchdog: [SOLAR_ENTRY] }), rows);
+    expect(iso(owned.ownerAtMs)).toBe('2026-11-03T07:00:00.000Z');
+  });
+
+  it('draws the evening refresh deadline from the served deadlineAt only, never fire plus budget', () => {
+    const windows = watchdogWindows(dayData({ watchdog: [EVENING_ENTRY] }), evening([dayFire({ at: '2026-11-03T17:00:00Z' })]));
     expect(windows).toHaveLength(1);
-    expect(windows[0]).toMatchObject({ budgetOnly: true, event: 'Wait budget 90 min', text: 'Watchdog window 17:00–18:30' });
-    expect(iso(windows[0].deadlineMs)).toBe('2026-11-03T18:30:00.000Z');
+    // 17:00 plus 90 minutes would be 18:30; the watchdog's own deadline (first batch plus budget) is 18:25.
+    expect(iso(windows[0].deadlineMs)).toBe('2026-11-03T18:25:00.000Z');
+    expect(windows[0]).toMatchObject({ budgetOnly: true, event: '90 min budget from the first batch', text: 'Watchdog window 17:00–18:25' });
   });
 
-  it('draws nothing for an event that does not occur, and none for a budget job with no row or only a missed fire', () => {
+  it('says "2 h" for a budget of whole hours, and draws nothing when no deadlineAt was served', () => {
+    const fires = [dayFire({ at: '2026-11-03T17:00:00Z' })];
+    const [hours] = watchdogWindows(dayData({ watchdog: [{ ...EVENING_ENTRY, budgetMinutes: 120 }] }), evening(fires));
+    expect(hours.event).toBe('2 h budget from the first batch');
+    expect(watchdogWindows(dayData({ watchdog: [{ ...EVENING_ENTRY, deadlineAt: null }] }), evening(fires))).toEqual([]);
+  });
+
+  it('draws none for an event that does not occur, or a cycle with no row', () => {
     const none = dayData({
-      watchdog: [
-        { jobKey: 'a', event: 'SUNRISE', eventAt: null, opensAt: null, closesAt: null, startGraceMinutes: 30, budgetMinutes: null },
-        { jobKey: 'ghost', event: null, eventAt: null, opensAt: null, closesAt: null, startGraceMinutes: 30, budgetMinutes: 90 },
-      ],
+      watchdog: [{ ...SOLAR_ENTRY, opensAt: null, closesAt: null, eventAt: null }, { ...SOLAR_ENTRY, jobKey: 'phantom' }],
     });
-    expect(watchdogWindows(none, rows)).toEqual([]);
-    const missed = buildRows(dayData({ jobs: [dayJob({ jobKey: 'evening_sunrise_refresh', fires: [dayFire({ status: 'MISSED' })] })] }), []);
-    expect(watchdogWindows(dayData({
-      watchdog: [{ jobKey: 'evening_sunrise_refresh', event: null, opensAt: null, closesAt: null, budgetMinutes: 90 }],
-    }), missed)).toEqual([]);
+    expect(watchdogWindows(none, rowsOf(NIGHT, [dayFire()]))).toEqual([]);
+  });
+
+  it('draws none on SKIPPED, MISSED or PAUSED fires, nor on a FAILED fire with no run; a FAILED fire with a run owns one', () => {
+    const entry = dayData({ watchdog: [SOLAR_ENTRY] });
+    ['SKIPPED', 'MISSED', 'PAUSED'].forEach((status) => {
+      expect(watchdogWindows(entry, rowsOf(NIGHT, [dayFire({ at: '2026-11-03T03:00:00Z', status })]))).toEqual([]);
+    });
+    expect(watchdogWindows(entry, rowsOf(NIGHT, [dayFire({ at: '2026-11-03T03:00:00Z', status: 'FAILED', runLinked: false })]))).toEqual([]);
+    expect(watchdogWindows(entry, rowsOf(NIGHT, [dayFire({ at: '2026-11-03T03:00:00Z', status: 'FAILED', runLinked: true })]))).toHaveLength(1);
+    expect(watchdogWindows(entry, rowsOf(NIGHT, [dayFire({ at: '2026-11-03T03:00:00Z', status: 'SCHEDULED', startedAt: null, completedAt: null })]))).toHaveLength(1);
   });
 });
 
@@ -229,6 +257,25 @@ describe('arrow paths', () => {
 
   it('runs a stagger arrow from just past the first fire to just before the second', () => {
     expect(staggerArrowPath(100, 50, 200, 74)).toBe('M104 50 C 191 50, 167 74, 191 74');
+  });
+});
+
+describe('repeatingIntervalMs and repeatingRowTip', () => {
+  const hours = (list) => list.map((h) => Date.parse(`2026-11-03T${String(h).padStart(2, '0')}:00:00Z`));
+
+  it('is a fixed delay\'s own interval, a cron\'s median tick gap, or its minute step; unknown is Infinity', () => {
+    expect(repeatingIntervalMs({ schedule: { scheduleType: 'FIXED_DELAY', delayMs: 300_000 } })).toBe(300_000);
+    expect(repeatingIntervalMs({ schedule: { scheduleType: 'CRON' }, ticks: hours([1, 2, 3, 6]) })).toBe(3_600_000);
+    expect(repeatingIntervalMs({ schedule: { scheduleType: 'CRON', cronExpression: '0 */5 * * * *' }, ticks: null })).toBe(300_000);
+    expect(repeatingIntervalMs({ schedule: { scheduleType: 'CRON', cronExpression: '0 * * * * *' }, ticks: null })).toBe(60_000);
+    expect(repeatingIntervalMs({ schedule: { scheduleType: 'CRON', cronExpression: '0 0 */2 * * *' }, ticks: null })).toBe(Infinity);
+  });
+
+  it('says "today" in a repeating row\'s tooltip only on today, else "on this day"', () => {
+    const row = { name: 'Poll', cadence: 'every 1 min', paused: false, alias: null, problems: [{}, {}], problemsOmitted: 0 };
+    expect(repeatingRowTip(row, true).note).toBe('2 problems today');
+    expect(repeatingRowTip(row, false).note).toBe('2 problems on this day');
+    expect(repeatingRowTip(row).note).toBe('2 problems today');
   });
 });
 

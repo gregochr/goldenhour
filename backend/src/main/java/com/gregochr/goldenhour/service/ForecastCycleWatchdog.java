@@ -322,13 +322,8 @@ public class ForecastCycleWatchdog {
                 && run.getFailureReason().startsWith(SAFETY_TIMEOUT_PREFIX)) {
             return "the run was failed by the safety timeout (" + run.getFailureReason() + ")";
         }
-        List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(run.getId())
-                .stream()
-                .filter(b -> b.getBatchType() == BatchType.FORECAST)
-                .toList();
-        Instant start = batches.stream().map(ForecastBatchEntity::getSubmittedAt)
-                .filter(Objects::nonNull).min(Comparator.naturalOrder())
-                .orElse(run.getTriggerTime());
+        List<ForecastBatchEntity> batches = forecastBatches(run);
+        Instant start = eveningStart(run, batches);
         if (now.isBefore(start.plus(eveningBudget))) {
             return null;
         }
@@ -336,6 +331,32 @@ public class ForecastCycleWatchdog {
         return pending == 0 ? null
                 : pending + " forecast batch(es) still not finished at Anthropic after the "
                         + eveningBudget.toMinutes() + "-minute budget";
+    }
+
+    private List<ForecastBatchEntity> forecastBatches(PipelineRunEntity run) {
+        return forecastBatchRepository.findByPipelineRunId(run.getId()).stream()
+                .filter(b -> b.getBatchType() == BatchType.FORECAST)
+                .toList();
+    }
+
+    /** When the evening budget starts: the first FORECAST batch's submit, else the run's trigger time. */
+    private static Instant eveningStart(PipelineRunEntity run, List<ForecastBatchEntity> batches) {
+        return batches.stream().map(ForecastBatchEntity::getSubmittedAt)
+                .filter(Objects::nonNull).min(Comparator.naturalOrder())
+                .orElse(run.getTriggerTime());
+    }
+
+    /**
+     * The instant the evening run's wait budget ends, by the same rule {@link #check} applies: the budget runs from
+     * the first FORECAST batch's {@code submittedAt}, falling back to the run's trigger time. For a screen that draws
+     * the deadline, so it never re-derives it.
+     *
+     * @param run the evening cycle's run
+     * @return the deadline, or null when the run has no batch and no trigger time
+     */
+    public Instant eveningDeadline(PipelineRunEntity run) {
+        Instant start = eveningStart(run, forecastBatches(run));
+        return start == null ? null : start.plus(eveningBudget);
     }
 
     /** What is still outstanding for a run, or null when it is finished. */
@@ -377,9 +398,21 @@ public class ForecastCycleWatchdog {
      *                          with {@code eventAt}
      * @param startGraceMinutes how late the cycle's fire may be before "did not start"
      * @param budgetMinutes     the evening refresh's wait budget, or null for the two solar-served cycles
+     * @param deadlineAt        the evening run's actual deadline ({@link #eveningDeadline}), set only by a caller that
+     *                          has the day's run; null from {@link #deadlines} and when there is no run
      */
     public record Deadlines(String jobKey, SolarEvent event, Instant eventAt, Instant opensAt, Instant closesAt,
-            int startGraceMinutes, Long budgetMinutes) {
+            int startGraceMinutes, Long budgetMinutes, Instant deadlineAt) {
+
+        /**
+         * This entry with the evening run's deadline.
+         *
+         * @param deadline the deadline, or null
+         * @return a copy carrying it
+         */
+        public Deadlines withDeadlineAt(Instant deadline) {
+            return new Deadlines(jobKey, event, eventAt, opensAt, closesAt, startGraceMinutes, budgetMinutes, deadline);
+        }
     }
 
     /**
@@ -396,12 +429,12 @@ public class ForecastCycleWatchdog {
             }
             if (job.rule() == null) {
                 return Optional.of(new Deadlines(jobKey, null, null, null, null, START_GRACE_MINUTES,
-                        eveningBudget.toMinutes()));
+                        eveningBudget.toMinutes(), null));
             }
             Instant event = eventInstant(job.rule(), date);
             return Optional.of(new Deadlines(jobKey, job.rule().event(), event,
                     event == null ? null : opensAt(event), event == null ? null : closesAt(event),
-                    START_GRACE_MINUTES, null));
+                    START_GRACE_MINUTES, null, null));
         }
         return Optional.empty();
     }

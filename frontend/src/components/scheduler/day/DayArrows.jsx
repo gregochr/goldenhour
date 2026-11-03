@@ -1,12 +1,22 @@
 import PropTypes from 'prop-types';
-import { fireStartMs, fireWidthPx, onAxis } from '../../../utils/schedulerDay.js';
-import { collectArrowPath, repeatingLayout, staggerArrowPath } from '../../../utils/schedulerDayOverlays.js';
+import { fireDurationSeconds, fireStartMs, fireWidthPx, onAxis } from '../../../utils/schedulerDay.js';
+import {
+  collectArrowPath,
+  repeatingIntervalMs,
+  repeatingLayout,
+  staggerArrowPath,
+} from '../../../utils/schedulerDayOverlays.js';
 
 /** How far past a fire's end the "results collected by" arrow lands on a band (the design's 10px). */
 const BAND_LANDING_PX = 10;
 
-/** Fires that did something to link from: not a paused would-be, not a missed slot. */
-const hasRun = (fire) => fire.status !== 'MISSED' && fire.status !== 'PAUSED';
+/** Fires an arrow may start from: they ran or will run. Never a SKIPPED or FAILED one (it submitted nothing), a missed slot or a paused would-be. */
+const LINKABLE = ['SUCCEEDED', 'PARTIAL', 'RUNNING', 'SCHEDULED'];
+const hasRun = (fire) => LINKABLE.includes(fire.status);
+
+/** The declared stagger between two jobs, and how far from it the next fire may be and still be "followed by". */
+const STAGGER_MS = 30 * 60_000;
+const STAGGER_TOLERANCE_MS = 15 * 60_000;
 
 /**
  * The dependency arrows (scheduler-redesign-plan.md D12): only the links the catalogue declares, between rows that are
@@ -14,10 +24,11 @@ const hasRun = (fire) => fire.status !== 'MISSED' && fire.status !== 'PAUSED';
  *
  * <ul>
  *   <li>{@code collect} ("results collected by"), solid: from the foot of each of the submitting job's fires on the
- *       axis down to the collecting job's row, landing at its next tick (or at the end of the fire plus a few px on a
- *       band). A collecting row with no later tick, or paused, gets none.
+ *       axis down to the collecting poller's row, landing at its next tick (or at the end of the fire plus a few px on
+ *       a band). None when the poller is paused, has no later tick, or its next tick is more than one interval plus
+ *       the fire's duration away. Never from a SKIPPED or FAILED fire.
  *   <li>{@code stagger} ("followed 30 min later by"), dashed: from the end of each fire of the first job to the next
- *       fire of the second.
+ *       fire of the second, only when that is within the declared 30 minutes plus a 15 minute tolerance.
  * </ul>
  *
  * <p>A link touching the selected job is gold and thicker; the others fade while something is selected. Decorative
@@ -41,8 +52,10 @@ export default function DayArrows({ links, rows, repeatingRows, rowCenters, xOf,
 
   // A scheduled row's fires that did something, each with where it starts and ends on the picture.
   const spans = (row) => row.fires.filter(hasRun).filter((fire) => onAxis(fireStartMs(fire), axis)).map((fire) => {
-    const x = xOf(fireStartMs(fire));
-    return { fire, x, endX: Math.min(x + fireWidthPx(fire, axis, width, clock), width) };
+    const startMs = fireStartMs(fire);
+    const x = xOf(startMs);
+    const durationMs = (fireDurationSeconds(fire) ?? 0) * 1000;
+    return { fire, startMs, endMs: startMs + durationMs, durationMs, x, endX: Math.min(x + fireWidthPx(fire, axis, width, clock), width) };
   });
 
   const arrows = [];
@@ -54,22 +67,19 @@ export default function DayArrows({ links, rows, repeatingRows, rowCenters, xOf,
     if (fromY == null || toY == null) return;
     const hi = selectedKey != null && (selectedKey === link.from || selectedKey === link.to);
     const faded = selectedKey != null && !hi;
-    spans(source).forEach(({ endX }, i) => {
+    const sourceSpans = spans(source);
+    sourceSpans.forEach(({ endX, endMs, durationMs, startMs }, i) => {
       if (link.kind === 'collect') {
+        // Only to a repeating poller: a fire's results are collected at the poller's next tick, never a whole day on.
         const target = repeating.get(link.to);
+        if (!target || target.paused) return;
+        const layout = repeatingLayout(target, axis, width);
         let landing = null;
-        if (target) {
-          if (target.paused) return;
-          const layout = repeatingLayout(target, axis, width);
-          if (layout.shape === 'band') {
-            landing = Math.min(endX + BAND_LANDING_PX, width);
-          } else {
-            const next = layout.ticks.map(xOf).find((tx) => tx >= endX);
-            if (next != null) landing = next;
-          }
-        } else if (scheduled.get(link.to)) {
-          const next = spans(scheduled.get(link.to)).map((s) => s.x).find((tx) => tx >= endX);
-          if (next != null) landing = next;
+        if (layout.shape === 'band') {
+          landing = Math.min(endX + BAND_LANDING_PX, width);
+        } else {
+          const next = layout.ticks.find((ms) => ms >= endMs);
+          if (next != null && next - endMs <= repeatingIntervalMs(target) + durationMs) landing = xOf(next);
         }
         if (landing == null) return;
         arrows.push({
@@ -78,9 +88,8 @@ export default function DayArrows({ links, rows, repeatingRows, rowCenters, xOf,
       } else {
         const targetRow = scheduled.get(link.to);
         if (!targetRow) return;
-        const sourceStart = spans(source)[i].x;
-        const next = spans(targetRow).find((s) => s.x > sourceStart);
-        if (!next) return;
+        const next = spans(targetRow).find((s) => s.startMs > startMs);
+        if (!next || next.startMs - startMs > STAGGER_MS + STAGGER_TOLERANCE_MS) return;
         arrows.push({
           key: `stagger-${link.from}-${link.to}-${i}`, kind: link.kind, link, hi, faded, d: staggerArrowPath(endX, fromY, next.x, toY),
         });

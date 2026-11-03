@@ -137,7 +137,8 @@ export default function DayPicture({
   const isMobile = useIsMobile();
   const plotRef = useRef(null);
   const width = useElementWidth(plotRef, MIN_PLOT_WIDTH);
-  const tooltip = useDayTooltip();
+  const scrollerRef = useRef(null);
+  const tooltip = useDayTooltip(selectedKey, zoom, day);
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const picture = pictureAxis(day, zoom);
   if (!picture) return null;
@@ -167,24 +168,43 @@ export default function DayPicture({
   const allKeys = [...drawnRows, ...repeatingRows].map((row) => row.jobKey);
   const related = relatedKeys(selectedKey, links, allKeys);
   const dimmed = (key) => related != null && !related.has(key);
-  const windows = watchdogWindows(day, rows).filter((w) => w.deadlineMs >= axis.startMs && w.startMs <= axis.endMs);
+  // Every window of the day gives the tooltips their words (so a fire says the same on the whole day and the close-up);
+  // only the ones that reach the axis are drawn.
+  const allWindows = watchdogWindows(day, rows);
+  const windows = allWindows.filter((w) => w.deadlineMs >= axis.startMs && w.startMs <= axis.endMs);
   const windowsOf = (key) => windows.filter((w) => w.jobKey === key);
+  const allWindowsOf = (key) => allWindows.filter((w) => w.jobKey === key);
 
-  const tipFor = (id, x, y, content) => ({
-    onMouseEnter: () => tooltip.show(id, x, y, content),
-    onMouseLeave: () => tooltip.hide(id),
-  });
-  const labelTip = (id, y, content) => ({
-    onFocus: () => tooltip.show(id, LABEL_TIP_X, y, content),
-    onBlur: () => tooltip.hide(id),
-    onMouseEnter: () => tooltip.show(id, LABEL_TIP_X, y, content),
-    onMouseLeave: () => tooltip.hide(id),
-  });
+  // Every tooltip this render can show, by id: the open one is looked up here, so its content is always built from the
+  // data being drawn now, never from a copy taken when it opened.
+  const tips = new Map();
+  const tipFor = (id, x, y, content) => {
+    tips.set(id, { x, y, content });
+    return { onMouseEnter: () => tooltip.show(id), onMouseLeave: () => tooltip.hide(id) };
+  };
+  // A row label's tooltip sits at the left edge of the part of the plot that is visible: the sticky label column covers
+  // the first scrolled-off pixels, so on a phone that is the scroller's scrollLeft, not 0.
+  const labelAnchor = () => (scrollerRef.current?.scrollLeft ?? 0) + LABEL_TIP_X;
+  const labelTip = (id, y, content) => {
+    tips.set(id, { x: LABEL_TIP_X, y, content });
+    return {
+      onFocus: () => tooltip.show(id, labelAnchor()),
+      onBlur: () => tooltip.hide(id),
+      onMouseEnter: () => tooltip.show(id, labelAnchor()),
+      onMouseLeave: () => tooltip.hide(id),
+    };
+  };
+  // A click on a mark opens the panel: the tooltip over it has done its job.
+  const selectFromMark = (jobKey, opener) => {
+    tooltip.hide();
+    onSelect(jobKey, opener);
+  };
   const rowId = (row) => `row:${row.jobKey}`;
   const clipId = `${uid}-clip`;
 
   return (
     <div
+      ref={scrollerRef}
       className={`overflow-x-auto ${isMobile ? 'rounded-lg border border-plex-border' : ''}`}
       data-testid="scheduler-day-scroller"
     >
@@ -202,8 +222,8 @@ export default function DayPicture({
               onSelect={onSelect}
               selected={selectedKey === row.jobKey}
               dimmed={dimmed(row.jobKey)}
-              described={tooltip.tip?.id === rowId(row)}
-              tip={labelTip(rowId(row), rowCenters[row.jobKey], rowTip(row, windowsOf(row.jobKey)))}
+              described={tooltip.id === rowId(row)}
+              tip={labelTip(rowId(row), rowCenters[row.jobKey], rowTip(row, allWindowsOf(row.jobKey)))}
             />
           ))}
           {hasRepeating && (
@@ -223,8 +243,8 @@ export default function DayPicture({
               onSelect={onSelect}
               selected={selectedKey === row.jobKey}
               dimmed={dimmed(row.jobKey)}
-              described={tooltip.tip?.id === rowId(row)}
-              tip={labelTip(rowId(row), rowCenters[row.jobKey], repeatingRowTip(row))}
+              described={tooltip.id === rowId(row)}
+              tip={labelTip(rowId(row), rowCenters[row.jobKey], repeatingRowTip(row, day.isToday === true))}
             />
           ))}
         </div>
@@ -298,7 +318,8 @@ export default function DayPicture({
                 const wouldBe = row.wouldBe.map((fire, index) => ({ fire, index })).filter(({ fire }) => inWindow(fire));
                 const wouldBeXs = wouldBe.map(({ fire }) => xOf(fireStartMs(fire)));
                 const rowWindows = windowsOf(row.jobKey);
-                const windowFor = (fire) => rowWindows.find((w) => !w.budgetOnly || w.startMs === fireStartMs(fire)) ?? null;
+                // A window belongs to one fire (the one inside or just before it), not to every fire on the row.
+                const windowFor = (fire) => allWindowsOf(row.jobKey).find((w) => w.ownerAtMs === instantMs(fire.at)) ?? null;
                 const dim = dimmed(row.jobKey);
                 return (
                   <g
@@ -335,7 +356,7 @@ export default function DayPicture({
                         cy={cy}
                         plotWidth={width}
                         gapNextPx={i < wouldBeXs.length - 1 ? wouldBeXs[i + 1] - wouldBeXs[i] : Infinity}
-                        onSelect={onSelect}
+                        onSelect={selectFromMark}
                         tip={tipFor(`wouldbe:${row.jobKey}:${index}`, wouldBeXs[i], cy, wouldBeTip(row, fire))}
                       />
                     ))}
@@ -358,7 +379,7 @@ export default function DayPicture({
                           gapPrevPx={gapPrevPx}
                           gapNextPx={gapNextPx}
                           plotWidth={width}
-                          onSelect={onSelect}
+                          onSelect={selectFromMark}
                           tip={tipFor(`fire:${row.jobKey}:${index}`, xs[i], cy, fireTip(row, fire, windowFor(fire)))}
                         />
                       );
@@ -392,8 +413,8 @@ export default function DayPicture({
                       width={width}
                       cy={cy}
                       nowMs={nowMs}
-                      onSelect={onSelect}
-                      tipFor={(id, x, problem) => tipFor(id, x, cy, problemTip(row, problem))}
+                      onSelect={selectFromMark}
+                      problemTips={row.problems.map((problem, i) => tipFor(`problem:${row.jobKey}:${i}`, xOf(problem.atMs), cy, problemTip(row, problem)))}
                     />
                   </g>
                 );
@@ -426,7 +447,20 @@ export default function DayPicture({
               </g>
             )}
           </svg>
-          {tooltip.tip && <DayTooltip tip={tooltip.tip} width={width} height={height} />}
+          {/* Read last: by here every mark and label above has registered its tooltip for this render. */}
+          {tooltip.id != null && tips.has(tooltip.id) && (
+            <DayTooltip
+              tip={{
+                id: tooltip.id,
+                x: tooltip.anchorX ?? tips.get(tooltip.id).x,
+                y: tips.get(tooltip.id).y,
+                content: tips.get(tooltip.id).content,
+              }}
+              width={width}
+              height={height}
+              compact={isMobile}
+            />
+          )}
         </div>
       </div>
     </div>
