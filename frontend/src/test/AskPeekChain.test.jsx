@@ -880,7 +880,7 @@ describe('C2 — the Ask button, on the real chain', () => {
 
   it('S2: switching from an expanded Ask to Other windows, Tide or Layers leaves focus on the pressed button, never <body>', async () => {
     await renderMap();
-    for (const id of ['win', 'lay']) {
+    for (const id of ['win', 'lay']) { // Tide needs a coast in view: it is exercised in MapPeekSheet.test.jsx
       await openAsk();
       expect(screen.getByTestId('ask-input')).toBeInTheDocument();
 
@@ -904,6 +904,9 @@ describe('C2 — the Ask button, on the real chain', () => {
 
     expect(mode()).toBe('minimised');
     expect(document.activeElement).not.toBe(document.body);
+    // Where it landed: on the chip that was pressed, or failing that on the line's door — a real control of the sheet or map.
+    expect([pickChips().find((c) => c.dataset.askRank === '2'), screen.getByTestId('wf-map-peek-mini-lay')])
+      .toContain(document.activeElement);
   });
 
   it('the Ask button and the Other windows / Tide / Layers buttons share one sheet: Ask is third, Layers last', async () => {

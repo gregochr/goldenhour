@@ -644,6 +644,30 @@ ZoomControlPositioner.propTypes = {
 };
 
 /**
+ * The Tide peek button's value: the wave and the state word stay whole; only the trailing "· N dim" clause may
+ * ellipsise when the 390px row is tight (C2 review), never the word that says what the tide is doing.
+ *
+ * @param {object} props
+ * @param {?string} props.summary {@code mapPeek.tideSummary}'s string, e.g. "Mid ↑ · 17 dim"
+ */
+function TideButtonValue({ summary = null }) {
+  const at = summary ? summary.indexOf(' · ') : -1;
+  const state = at < 0 ? summary : summary.slice(0, at);
+  const dim = at < 0 ? null : summary.slice(at);
+  return (
+    <>
+      <TideWave />
+      <span className="wf-map-peek-v-state">{state}</span>
+      {dim && <span className="wf-map-peek-v-dim">{dim}</span>}
+    </>
+  );
+}
+
+TideButtonValue.propTypes = {
+  summary: PropTypes.string,
+};
+
+/**
  * Invisible component that reports the map's viewport as `[south, west, north, east]`.
  *
  * <p>Mounted only where the viewport is read (the tide strip's in-view coastal count).
@@ -1575,6 +1599,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const tideUpsellId = useId();
   /** The Ask peek button — the sheet's other focus-return routes fall back to it (S1: never while minimised). */
   const askButtonRef = useRef(null);
+  /** Which refusal the open Ask section last showed — read by the Ask button, written by the Ask body (`unseenRefusal`). */
+  const [askSeenError, setAskSeenError] = useState(null);
   /**
    * The minimised line's Layers door (`phone-pick-callout-plan.md` §3 P2). While an answer is minimised
    * the four peek buttons are not drawn, so it is where focus returns when Layers, Regions or Filters
@@ -7234,6 +7260,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   mode={askMode}
                   onPress={toggleAskSection}
                   buttonRef={askButtonRef}
+                  seenError={askSeenError}
                 />
               ) : null}
               ask={askRowOn ? (
@@ -7243,6 +7270,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   onClose={() => setOpenMapMenu(null)}
                   onOpenLayers={() => handlePeekPress('lay')}
                   buttonRef={askButtonRef}
+                  seenError={askSeenError}
+                  onSeenError={setAskSeenError}
+                  windowsRef={windowsPeekBtnRef}
                   doorRef={askDoorRef}
                   layersRef={layersPeekBtnRef}
                   planActions={askPlanActions}
@@ -7260,10 +7290,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               onTideButtonFocus={handleTideButtonFocus}
               onTideButtonBlur={handleTideButtonBlur}
               tideButtonContent={(
-                <>
-                  <TideWave />
-                  {tideSummary(activeMapEvent?.tide, tideLocked ? 0 : tideStripModel.dimmed.length)}
-                </>
+                <TideButtonValue
+                  summary={tideSummary(activeMapEvent?.tide, tideLocked ? 0 : tideStripModel.dimmed.length)}
+                />
               )}
               tideBody={(
                 <MapPeekTideSection

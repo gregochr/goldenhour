@@ -57,6 +57,8 @@ const buttonRef = { current: null };
 /** The minimised line's Layers door, and the sheet's Layers button (a stub of it), as `MapView` owns them. */
 const doorRef = { current: null };
 const layersRef = { current: null };
+/** The owner's record of the refusal last seen open (`MapView` state), written by the body and read by the button. */
+let seenError = null;
 /**
  * Mounts the parts in a given mode with spies for what they ask of their owner, laid out as the sheet lays
  * them: the Ask button in the button row (with a stub Layers button after it), which is drawn in every mode but
@@ -71,7 +73,7 @@ function Harness({
       <button type="button" data-testid="elsewhere">elsewhere</button>
       {mode !== 'minimised' && (
         <>
-          <MapPeekAskButton mode={mode} onPress={onPress} buttonRef={buttonRef} />
+          <MapPeekAskButton mode={mode} onPress={onPress} buttonRef={buttonRef} seenError={seenError} />
           <button ref={layersRef} type="button" data-testid="stub-layers">Layers</button>
         </>
       )}
@@ -81,6 +83,8 @@ function Harness({
         onClose={onClose}
         onOpenLayers={onOpenLayers}
         buttonRef={buttonRef}
+        seenError={seenError}
+        onSeenError={(value) => { seenError = value; }}
         doorRef={doorRef}
         layersRef={layersRef}
       />
@@ -106,6 +110,7 @@ beforeEach(() => {
   onClose = vi.fn();
   onOpenLayers = vi.fn();
   onPress = vi.fn();
+  seenError = null;
 });
 
 describe('the Ask button — the third peek button', () => {
@@ -238,6 +243,24 @@ describe('the Ask button — the third peek button', () => {
     setMode('collapsed');
 
     expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('data-error', 'true');
+  });
+
+  // The button unmounts while the answer is minimised: a "seen" record kept inside it died with it.
+  it('a refusal SEEN open stays seen across the minimised line and the button remounting (expand, read, close, open Layers)', () => {
+    const settled = { phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } };
+    mockAsk = ask({ ...settled });
+    mount('collapsed');
+    mockAsk = ask({ ...settled, inputError: 'Slow down a moment.' });
+    setMode('expanded'); // the conversation shows it
+    setMode('minimised'); // closed with the Ask button; the button unmounts
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-ask-status')).toBeEmptyDOMElement();
+
+    setMode('section'); // the door opened Layers: the button remounts
+
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).not.toHaveAttribute('data-error');
+    expect(button).toHaveAccessibleName(PEEK_ASK_LABEL);
   });
 
   it('leaves the sentence to the conversation while the section is open — never a second copy for a screen reader', () => {

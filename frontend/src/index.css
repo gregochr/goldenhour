@@ -5336,7 +5336,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      `.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl` (the `--tsh`-driven bottom, tide-window-plan.md
      §3 T7) both lived here — the strip's content is now the peek sheet's Tide section
      (`MapPeekTideSection`, ".wf-map-peek-tide-*" below) and `.wf-map-chrome-bl`'s phone bottom is
-     therefore the plain, unconditional `calc(var(--psh, 74px) + 27px + 8px)` set above (M2 task 8, `--psh` since Ask) —
+     therefore the plain, unconditional `calc(var(--psh, 74px) + 14px + 8px)` set above (M2 task 8, `--psh` since Ask; 27px before C2's one-line attribution) —
      `--tsh`/`wf-tide-strip-on` are no longer written at all, and the counts footer's desktop lift is
      `MapView`'s measured `footerLift`, not a CSS rule. The counts
      footer's `sr-only` clip (also set above) was already unconditional since M2, so nothing about
@@ -5513,7 +5513,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-map-peek-v-verdict {
   flex: none;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
 }
 .wf-map-peek-v-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-map-peek-v-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
@@ -5692,7 +5692,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    `#8FC0C7`/`#6FA8B0` (the tide-window increment's own §4 #12 ruling, kept rather than
    re-litigated). The active state overrides `.wf-map-peek-btn-on`'s gold treatment by SPECIFICITY
    (a compound two-class selector beats one class) — the same trick `.wf-map-peek-btn-lay`'s own
-   `flex: 0 0 58px` already relies on — never a second modifier class. */
+   `flex: 0 0 44px` already relies on — never a second modifier class. */
 .wf-map-peek-btn-tide {
   border-color: rgba(111, 168, 176, .4);
   background: rgba(111, 168, 176, .08);
@@ -5700,6 +5700,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-map-peek-btn-tide.wf-map-peek-btn-on {
   border-color: rgba(111, 168, 176, .8);
   background: rgba(111, 168, 176, .16);
+}
+/* The Tide value never cuts its state word: the wave and the word are `flex: none`, and only the trailing
+   "· N dim" clause may ellipsise when the 390px row is tight (C2 review). */
+.wf-map-peek-btn-tide .wf-map-peek-v svg,
+.wf-map-peek-v-state { flex: none; }
+.wf-map-peek-v-dim {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wf-map-peek-btn-tide .wf-map-peek-v {
   font-family: var(--font-mono);

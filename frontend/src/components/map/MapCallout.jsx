@@ -416,7 +416,7 @@ export default function MapCallout({
       };
     });
     // ⚠️ **The peek sheet is a FIXED obstacle on the phone, never a measured one**
-    // (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8): the callout and an OPEN (356/408/470px) sheet
+    // (map-mobile-sheet-plan.md §5 D-7, §3 M2 task 8): the callout and an OPEN (356/470px) sheet
     // never coexist on this tab in either order, so the band only ever has to clear the sheet's
     // RESTING height — reading `--psh` off the pane rather than measuring `.wf-map-peek`'s own
     // DOM rect keeps this floor from ever momentarily reading the OPEN figure mid-transition, the

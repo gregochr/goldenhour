@@ -184,7 +184,7 @@ red nudge.
 - **S9 Attribution.** Phone `.wf-map-chrome-bl` becomes `calc(var(--psh, 74px) + 14px + 8px)` to sit
   over the one-line attribution (update `mapPhoneChromeCascade.test.jsx` ~719). Expanded, the
   attribution has an opaque background and a z-index above `.wf-map-chrome-bl`'s and below the
-  sheet's 1120. Toggle ignores presses on `<a>`. Expansion is a visual aid for pointers: the full
+  sheet's 1120. Toggle ignores presses on `<a>`. Expanding the attribution does not re-run label placement, so labels under the expanded text are hidden until the next placement; accepted as cosmetic. Expansion is a visual aid for pointers: the full
   text is already in the DOM for assistive tech, so no keyboard control is added (recorded here).
   The listener is attached in an effect keyed on `isMobile` and removed on cleanup, and the class is
   removed when leaving the phone.

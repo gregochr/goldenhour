@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useId, useLayoutEffect, useRef,
 } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
@@ -31,17 +31,19 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * {@code inputError} then lives on in the provider until the next question, so a button that mirrored it
  * unconditionally would keep the dot long after it was read, and announce it a second time on every
  * collapse. "Seen" is whatever the open conversation last showed, forgotten when the sentence goes (so the
- * same refusal twice is two refusals). State adjusted during render, the documented form; both callers
- * receive the same {@code expanded} and the same context, so their copies never disagree.
+ * same refusal twice is two refusals).
+ *
+ * <p>⚠️ The "seen" value lives in {@code MapView} state, written by {@link MapPeekAsk} (always mounted) in an
+ * effect and read here as a prop — never inside the button, which unmounts while the answer is minimised: a
+ * record that died with it brought the dot back for a refusal the reader had already read (expand, read, close
+ * to the line, open Layers, the button remounts).
  *
  * @param {boolean} expanded whether the Ask section is open
  * @param {?string} inputError {@code AskContext.inputError}
+ * @param {?string} seenError the refusal the open section last showed
  * @returns {?string} the unseen sentence, or null
  */
-function useUnseenRefusal(expanded, inputError) {
-  const [seenError, setSeenError] = useState(null);
-  if (expanded && seenError !== inputError) setSeenError(inputError);
-  if (!inputError && seenError !== null) setSeenError(null);
+function unseenRefusal(expanded, inputError, seenError) {
   return !expanded && inputError && inputError !== seenError ? inputError : null;
 }
 
@@ -66,12 +68,16 @@ function useUnseenRefusal(expanded, inputError) {
  * @param {function(): void} props.onPress toggles the Ask section
  * @param {{current: ?HTMLElement}} props.buttonRef the button's node — where the Ask section hands focus
  *        back to when it closes onto the four buttons, and the sheet's focus fallback
+ * @param {?string} [props.seenError] the owner's record of the refusal last seen open, written by
+ *        {@link MapPeekAsk} so it outlives this button's unmounting
  */
-export function MapPeekAskButton({ mode, onPress, buttonRef }) {
+export function MapPeekAskButton({
+  mode, onPress, buttonRef, seenError = null,
+}) {
   const { availability, inputError } = useAsk();
   const expanded = mode === 'expanded';
   const locked = availability === 'locked';
-  const unseenError = useUnseenRefusal(expanded, inputError);
+  const unseenError = unseenRefusal(expanded, inputError, seenError);
   let label = PEEK_ASK_LABEL;
   if (locked) label = `${PEEK_ASK_LABEL}, Pro`;
   else if (unseenError) label = `${PEEK_ASK_LABEL}. ${unseenError}`;
@@ -104,6 +110,7 @@ MapPeekAskButton.propTypes = {
   mode: PropTypes.oneOf(['collapsed', 'expanded', 'minimised', 'section']).isRequired,
   onPress: PropTypes.func.isRequired,
   buttonRef: objectRefShape.isRequired,
+  seenError: PropTypes.string,
 };
 
 /**
@@ -197,12 +204,17 @@ FocusLossGuard.propTypes = {
  *        the door is pressed
  * @param {{current: ?HTMLElement}} props.buttonRef the Ask peek button's node ({@link MapPeekAskButton}) —
  *        where focus goes when the section closes onto the four buttons
+ * @param {{current: ?HTMLElement}} [props.windowsRef] the Other windows button's node — the fallback when
+ *        the Ask button is disabled
+ * @param {?string} [props.seenError] the owner's record of the refusal last seen open, which the button reads
+ * @param {function(?string): void} [props.onSeenError] writes that record
  * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
  *        the doors out of "Plan this" (F5): {@code MapView}'s, since the shell's own are out of the
  *        pane's reach. "Open in Plan ›" moves the tab, so the pane goes hidden and the section closes
  */
 export default function MapPeekAsk({
-  mode, onOpen, onClose, onOpenLayers, buttonRef, doorRef, layersRef, planActions = undefined,
+  mode, onOpen, onClose, onOpenLayers, buttonRef, doorRef, layersRef, windowsRef = undefined,
+  seenError = null, onSeenError = undefined, planActions = undefined,
 }) {
   const ask = useAsk();
   const wrapRef = useRef(null);
@@ -216,7 +228,13 @@ export default function MapPeekAsk({
   } = ask;
   const locked = availability === 'locked';
   const settled = SETTLED_PHASES.includes(phase);
-  const unseenError = useUnseenRefusal(expanded, inputError);
+  const unseenError = unseenRefusal(expanded, inputError, seenError);
+  // Record what the open conversation showed, and forget it when the sentence goes (an effect: the owner's state).
+  useEffect(() => {
+    if (!onSeenError) return;
+    if (expanded && seenError !== inputError) onSeenError(inputError);
+    else if (!inputError && seenError !== null) onSeenError(null);
+  }, [expanded, inputError, seenError, onSeenError]);
 
   /** Focus to a node that survives the control being pressed. */
   const park = useCallback(() => wrapRef.current?.focus({ preventScroll: true }), []);
@@ -224,12 +242,13 @@ export default function MapPeekAsk({
   /**
    * Where focus goes when the section is gone (S1), by DESTINATION: the minimised line's door when the answer
    * is what remains (the Ask button is not mounted then), the Ask button when the four buttons are (the
-   * Layers button when Ask is unreachable and so disabled, which cannot take focus).
+   * Other windows button when Ask is unreachable and so disabled, which cannot take focus — the same fallback
+   * as {@code MapView}'s {@code askEntryFocusRef}; the Layers button when no Windows ref was given).
    */
   const handOnTarget = () => {
     if (mode === 'minimised') return doorRef.current;
     const button = buttonRef.current;
-    return button && !button.disabled ? button : layersRef.current;
+    return button && !button.disabled ? button : (windowsRef ?? layersRef).current;
   };
 
   // Opening: land somewhere deliberate (S3). Closing: hand a parked focus on to the destination.
@@ -388,6 +407,9 @@ MapPeekAsk.propTypes = {
   buttonRef: objectRefShape.isRequired,
   doorRef: objectRefShape.isRequired,
   layersRef: objectRefShape.isRequired,
+  windowsRef: PropTypes.shape({ current: PropTypes.any }),
+  seenError: PropTypes.string,
+  onSeenError: PropTypes.func,
   planActions: planActionsShape,
 };
 

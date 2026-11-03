@@ -144,6 +144,33 @@ describe('MapPeekSheet — every peek button takes focus on a press (S2)', () =>
   });
 });
 
+describe('MapPeekSheet — switching from an expanded Ask to Tide (S2)', () => {
+  it('a Tide press with the Ask field holding focus leaves focus on the Tide button, not <body>', () => {
+    function Wrapper() {
+      const [section, setSection] = React.useState(null);
+      return (
+        <MapPeekSheet
+          section={section}
+          askMode={section ? 'section' : 'expanded'}
+          onPressWindows={() => {}}
+          onPressLayers={() => {}}
+          onPressTide={() => setSection('tide')}
+          tideVisible
+          ask={section ? <span /> : <input data-testid="field" />}
+          tideBody={<div />}
+        />
+      );
+    }
+    render(<Wrapper />);
+    screen.getByTestId('field').focus();
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-tide'));
+
+    expect(screen.queryByTestId('field')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-tide'));
+  });
+});
+
 describe('MapPeekSheet — focus is rescued when the minimised line takes the buttons (F4, C2)', () => {
   const doorRef = { current: null };
   const sheet = (askMode) => (

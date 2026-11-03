@@ -115,6 +115,17 @@ describe('the four-button row (map-mobile-compact-plan.md C2, README §4)', () =
     expect(declared('.wf-map-peek-btn-tide .wf-map-peek-v', 'font-size')).toBe('11px');
   });
 
+  it('the Other windows verdict is 9.5px, and the Tide value keeps its wave and state word whole (only "· N dim" may clip)', () => {
+    expect(declared('.wf-map-peek-v-verdict', 'font-size')).toBe('9.5px');
+    expect(declared('.wf-map-peek-v-state', 'flex')).toBe('none');
+    expect(bodies('.wf-map-peek-btn-tide .wf-map-peek-v svg')).toHaveLength(1);
+    expect(declared('.wf-map-peek-btn-tide .wf-map-peek-v svg', 'flex')).toBe('none');
+    expect(declared('.wf-map-peek-v-dim', 'text-overflow')).toBe('ellipsis');
+    expect(declared('.wf-map-peek-v-dim', 'overflow')).toBe('hidden');
+    expect(declared('.wf-map-peek-v-dim', 'min-width')).toBe('0');
+    expect(declared('.wf-map-peek-v-state', 'text-overflow')).toBeNull();
+  });
+
   it('the verdict never cuts and the day text may (README Verify 5, still true at 12px)', () => {
     expect(declared('.wf-map-peek-v-verdict', 'flex')).toBe('none');
     expect(declared('.wf-map-peek-v-day', 'text-overflow')).toBe('ellipsis');
