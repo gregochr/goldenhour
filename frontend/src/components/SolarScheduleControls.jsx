@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import SunOffsetField from './scheduler/SunOffsetField.jsx';
+import { SLIDER_MIN, snapToGrid } from '../utils/schedulerEdit.js';
 import { switchScheduleType, updateJobSchedule } from '../api/schedulerApi.js';
 import {
   MAX_OFFSET_MINUTES,
@@ -248,13 +249,23 @@ ScheduleSwitchDialog.propTypes = {
  */
 export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
   const [event, setEvent] = useState(job.solarEvent === 'SUNSET' ? 'SUNSET' : 'SUNRISE');
-  const [offset, setOffset] = useState(Number.isFinite(job.solarOffsetMinutes) ? job.solarOffsetMinutes : 0);
+  // The stored offset stays exactly as stored until the admin moves the slider or changes the event; with none stored the
+  // slider starts at its minimum, and says so.
+  const stored = Number.isFinite(job.solarOffsetMinutes) ? job.solarOffsetMinutes : null;
+  const [offset, setOffset] = useState(stored ?? SLIDER_MIN);
+  const [saving, setSaving] = useState(false);
   const [cron, setCron] = useState(job.cronExpression || '');
   const [error, setError] = useState(null);
   const sending = useRef(false);
   const root = useRef(null);
   const check = validateOffset(offset);
   const cronError = cron.trim() ? null : 'Enter the fallback cron; it cannot be blank.';
+  const changed = event !== job.solarEvent || offset !== stored || cron.trim() !== job.cronExpression;
+  const saveDisabled = !check.ok || Boolean(cronError) || !changed || saving;
+  const handleEvent = (next) => {
+    setEvent(next);
+    setOffset((current) => snapToGrid(current));
+  };
 
   // Opening the editor replaces the row the reader pressed Edit on: put focus in its first field.
   useEffect(() => {
@@ -262,8 +273,9 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
   }, []);
 
   const handleSave = async () => {
-    if (sending.current || !check.ok || cronError) return;
+    if (sending.current || saveDisabled) return;
     sending.current = true;
+    setSaving(true);
     setError(null);
     let cronSaved = false;
     try {
@@ -279,6 +291,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
         });
       }
       onSaved();
+      setSaving(false);
     } catch (err) {
       const message = errorMessage(err, `Failed to update ${job.jobKey}.`);
       if (cronSaved) {
@@ -288,6 +301,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
         setError(message);
       }
       sending.current = false;
+      setSaving(false);
     }
   };
 
@@ -298,8 +312,10 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
         jobKey={job.jobKey}
         event={event}
         offset={offset}
-        storedOffset={Number.isFinite(job.solarOffsetMinutes) ? job.solarOffsetMinutes : null}
-        onEvent={setEvent}
+        storedOffset={stored}
+        offsetError={check.ok ? null : check.message}
+        disabled={saving}
+        onEvent={handleEvent}
         onOffset={setOffset}
       />
       <label
@@ -312,6 +328,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
           type="text"
           value={cron}
           onChange={(e) => setCron(e.target.value)}
+          disabled={saving}
           className={`${INPUT_CLASSES} font-mono w-full max-w-xs max-[639px]:min-h-11`}
           data-testid={`solar-edit-${job.jobKey}-cron`}
         />
@@ -330,7 +347,7 @@ export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
         <button
           type="button"
           onClick={handleSave}
-          disabled={!check.ok || Boolean(cronError)}
+          disabled={saveDisabled}
           className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50 max-[639px]:min-h-11"
           data-testid={`save-btn-${job.jobKey}`}
         >

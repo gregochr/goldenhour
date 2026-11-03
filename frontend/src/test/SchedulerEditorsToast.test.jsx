@@ -144,3 +144,33 @@ describe('the save toast', () => {
     expect(screen.queryByTestId('sub-region-toast')).not.toBeInTheDocument();
   });
 });
+
+describe('Escape from each editor', () => {
+  async function openEditor(job) {
+    fetchSchedulerJobs.mockResolvedValue([job]);
+    render(<SchedulerView />);
+    await openPanel(job.jobKey);
+    fireEvent.click(screen.getByTestId(`edit-btn-${job.jobKey}`));
+  }
+
+  it('cancels the edit from the slider, leaving the panel open', async () => {
+    await openEditor(solarJob());
+    fireEvent.keyDown(screen.getByTestId('solar-edit-near_term_batch_evaluation-offset'), { key: 'Escape' });
+    expect(screen.queryByTestId('solar-edit-near_term_batch_evaluation')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-panel')).toBeInTheDocument();
+  });
+
+  it('cancels the edit from a day toggle', async () => {
+    await openEditor(tideJob({ cronExpression: '0 0 2 * * MON', timeZone: 'Europe/London' }));
+    fireEvent.keyDown(screen.getByTestId('cron-day-tide_refresh-mon'), { key: 'Escape' });
+    expect(screen.queryByTestId('cron-edit-tide_refresh')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-panel')).toBeInTheDocument();
+  });
+
+  it('cancels the edit from a delay preset', async () => {
+    await openEditor(ACTIVE_POLLING);
+    fireEvent.keyDown(screen.getByTestId('fixed-delay-aurora_polling-600000'), { key: 'Escape' });
+    expect(screen.queryByTestId('fixed-delay-edit-aurora_polling')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-panel')).toBeInTheDocument();
+  });
+});

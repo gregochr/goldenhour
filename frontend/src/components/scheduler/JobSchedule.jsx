@@ -137,8 +137,15 @@ export default function JobSchedule({
   const isSolar = job.scheduleType === SCHEDULE_SOLAR;
   const isInline = job.scheduleType === SCHEDULE_CRON || job.scheduleType === SCHEDULE_FIXED_DELAY;
   const recognised = isSolar || isInline;
-  // The cron editor reads this into its own state when it opens, so a job re-served mid-edit never rewrites the times.
-  const cronModel = editing && job.scheduleType === SCHEDULE_CRON ? cronEditorModel(job) : null;
+  // Which cron editor opens is decided once, when Edit is pressed: a poll that re-serves the job mid-edit must never swap
+  // the times editor and the raw field (state adjusted while rendering, the pattern React documents).
+  const [frozen, setFrozen] = useState(null);
+  if (editing && frozen === null) {
+    setFrozen({ model: job.scheduleType === SCHEDULE_CRON ? cronEditorModel(job) : null });
+  } else if (!editing && frozen !== null) {
+    setFrozen(null);
+  }
+  const cronModel = frozen?.model ?? null;
   const previewEntry = preview?.jobs?.find((p) => p.jobKey === job.jobKey) ?? null;
 
   // Leaving the editor unmounts it, and with it the Edit button the reader pressed: hand focus to the new one.

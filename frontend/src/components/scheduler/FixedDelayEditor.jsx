@@ -20,17 +20,20 @@ export default function FixedDelayEditor({ job, onSave, onCancel }) {
   const stored = String(job.fixedDelayMs);
   const [value, setValue] = useState(stored);
   const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
   const sending = useRef(false);
   const root = useRef(null);
 
-  // Opening the editor replaces the row the reader pressed Edit on: put focus on the chosen delay.
+  // Opening the editor replaces the row the reader pressed Edit on: put focus on the chosen delay (the first preset when none is chosen).
   useEffect(() => {
-    root.current?.querySelector('[aria-pressed="true"]')?.focus();
+    const group = root.current;
+    (group?.querySelector('[aria-pressed="true"]') ?? group?.querySelector('button'))?.focus();
   }, []);
 
   const handleSave = async () => {
     if (sending.current || value === stored) return;
     sending.current = true;
+    setSaving(true);
     setError(null);
     try {
       await onSave(job, value);
@@ -38,6 +41,7 @@ export default function FixedDelayEditor({ job, onSave, onCancel }) {
       setError(`Couldn't save ${job.displayName}'s schedule.`);
     } finally {
       sending.current = false;
+      setSaving(false);
     }
   };
 
@@ -54,12 +58,13 @@ export default function FixedDelayEditor({ job, onSave, onCancel }) {
         options={delayOptions(job.fixedDelayMs)}
         value={value}
         onChange={setValue}
+        disabled={saving}
         testId={`fixed-delay-${job.jobKey}`}
       />
       <EditorFooter
         jobKey={job.jobKey}
         error={error}
-        saveDisabled={value === stored}
+        saveDisabled={value === stored || saving}
         onSave={handleSave}
         onCancel={onCancel}
       />

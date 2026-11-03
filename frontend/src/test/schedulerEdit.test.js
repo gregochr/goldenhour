@@ -1,29 +1,34 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cronEditorModel, delayOptions, neighboursText, parseClockCron, parseTimesInput, savedMessage, sliderBounds,
+  SLIDER_BOUNDS, cronEditorModel, delayOptions, formatOffsetSpan, isOnGrid, neighboursText, parseClockCron,
+  parseTimesInput, savedMessage, snapToGrid,
 } from '../utils/schedulerEdit.js';
 
 // The pure helpers behind the Scheduler's schedule editors (scheduler-redesign-plan.md S4b).
 
-describe('sliderBounds', () => {
-  it('is 30 minutes to 8 hours in 5-minute steps for an ordinary stored offset', () => {
-    expect(sliderBounds(255)).toEqual({ min: 30, max: 480, step: 5 });
-    expect(sliderBounds(null)).toEqual({ min: 30, max: 480, step: 5 });
+describe('the slider grid', () => {
+  it('is always 30 minutes to 8 hours in 5-minute steps', () => {
+    expect(SLIDER_BOUNDS).toEqual({ min: 30, max: 480, step: 5 });
   });
 
-  it('widens to hold an offset above 8 hours', () => {
-    expect(sliderBounds(600).max).toBe(600);
+  it('snaps to the nearest step, clamped to the range', () => {
+    expect(snapToGrid(37)).toBe(35);
+    expect(snapToGrid(38)).toBe(40);
+    expect(snapToGrid(503)).toBe(480);
+    expect(snapToGrid(0)).toBe(30);
+    expect(snapToGrid(255)).toBe(255);
   });
 
-  it('widens to hold an offset below 30 minutes', () => {
-    expect(sliderBounds(10).min).toBe(10);
-    expect(sliderBounds(0).min).toBe(0);
+  it('knows which offsets the grid can hold', () => {
+    expect([255, 30, 480].every(isOnGrid)).toBe(true);
+    expect([37, 503, 0, 25].some(isOnGrid)).toBe(false);
   });
 
-  it('shifts the grid so an offset that is not a multiple of 5 still sits on a step', () => {
-    const { min, step } = sliderBounds(243);
-    expect(min).toBeLessThanOrEqual(30);
-    expect((243 - min) % step).toBe(0);
+  it('writes a stored span in the compact words', () => {
+    expect(formatOffsetSpan(243)).toBe('4h 3m');
+    expect(formatOffsetSpan(240)).toBe('4h');
+    expect(formatOffsetSpan(37)).toBe('37m');
+    expect(formatOffsetSpan(0)).toBe('0m');
   });
 });
 
@@ -70,6 +75,14 @@ describe('cronEditorModel', () => {
     expect(cronEditorModel(job)).toEqual({ times: ['00:30'], days: ['TUE'] });
   });
 
+  it('converts every hour at the ONE offset in force at the next fire, across the October clock change', () => {
+    // 00:30Z on 25 Oct 2026 is still BST (the clocks go back at 01:00Z): both hours use +1, not +1 and +0.
+    const before = { cronExpression: '0 30 0,12 * * *', timeZone: 'UTC', nextFires: ['2026-10-25T00:30:00Z'] };
+    expect(cronEditorModel(before)).toEqual({ times: ['01:30', '13:30'], days: null });
+    const after = { cronExpression: '0 30 0,12 * * *', timeZone: 'UTC', nextFires: ['2026-10-26T00:30:00Z'] };
+    expect(cronEditorModel(after)).toEqual({ times: ['00:30', '12:30'], days: null });
+  });
+
   it('is null for a cron that is not clock times', () => {
     expect(cronEditorModel({ cronExpression: '0 20 * * * *', timeZone: 'UTC' })).toBeNull();
   });
@@ -113,6 +126,11 @@ describe('neighboursText', () => {
       { displayName: 'Aurora Batch', at: '2026-11-04T02:20:00Z', minutesApart: 5 },
     ]);
     expect(text).toBe('Neighbours: Tide Refresh 02:00 (15 min apart) · Aurora Batch 02:20 (5 min apart)');
+  });
+
+  it('says "at the same time" for a gap of 0', () => {
+    expect(neighboursText([{ displayName: 'Tide Refresh', at: '2026-11-04T02:00:00Z', minutesApart: 0 }]))
+      .toBe('Neighbours: Tide Refresh 02:00 (at the same time)');
   });
 
   it('says so when nothing is near', () => {

@@ -38,6 +38,9 @@ async function settle() {
   await waitFor(() => expect(previewSchedule).toHaveBeenCalled(), { timeout: 2000 });
 }
 
+/** Types new times into the cron editor. */
+const typeTimes = (value) => fireEvent.change(screen.getByTestId('cron-times-tide_refresh'), { target: { value } });
+
 const DAILY = (overrides = {}) => tideJob({
   cronExpression: '0 15 6,18 * * *', timeZone: 'Europe/London', ...overrides,
 });
@@ -73,12 +76,35 @@ describe('the sun-relative editor', () => {
     expect([slider.min, slider.max, slider.step]).toEqual(['30', '480', '5']);
   });
 
-  it.each([600, 10, 243])('still represents a stored offset of %i minutes, unchanged', (stored) => {
-    renderEditing(solarJob({ solarOffsetMinutes: stored }));
-    const slider = screen.getByTestId('solar-edit-near_term_batch_evaluation-offset');
-    expect(slider).toHaveValue(String(stored));
-    expect(Number(slider.min)).toBeLessThanOrEqual(stored);
-    expect(Number(slider.max)).toBeGreaterThanOrEqual(stored);
+  it.each([[600, '480', '(stored: 10h)'], [10, '30', '(stored: 10m)'], [243, '245', '(stored: 4h 3m)']])(
+    'keeps the grid for a stored %i: the thumb at %s, the stored value beside the readout',
+    (stored, thumb, note) => {
+      renderEditing(solarJob({ solarOffsetMinutes: stored }));
+      const slider = screen.getByTestId('solar-edit-near_term_batch_evaluation-offset');
+      expect([slider.min, slider.max, slider.step]).toEqual(['30', '480', '5']);
+      expect(slider).toHaveValue(thumb);
+      expect(screen.getByTestId('solar-edit-near_term_batch_evaluation-offset-readout')).toHaveTextContent(note);
+      expect(slider).toHaveAttribute('aria-valuetext', expect.stringContaining('before sunrise'));
+    },
+  );
+
+  it('has a visible label, and keeps the readout out of the live regions', () => {
+    renderEditing(solarJob());
+    expect(screen.getByLabelText('Fire this long before the event')).toBe(
+      screen.getByTestId('solar-edit-near_term_batch_evaluation-offset'),
+    );
+    expect(screen.getByTestId('solar-edit-near_term_batch_evaluation-offset-readout')).toHaveAttribute('aria-live', 'off');
+  });
+
+  it('announces only the settled preview: "Checking…" sits outside the live region', async () => {
+    renderEditing(solarJob());
+    const live = screen.getByTestId('solar-edit-near_term_batch_evaluation-preview');
+    expect(live).toHaveAttribute('aria-live', 'polite');
+    const checking = screen.getByTestId('solar-edit-near_term_batch_evaluation-checking');
+    expect(checking).toHaveAttribute('aria-hidden', 'true');
+    expect(live).not.toContainElement(checking);
+    expect(live).toBeEmptyDOMElement();
+    await waitFor(() => expect(live.textContent).not.toBe(''), { timeout: 2000 });
   });
 
   it('shows the served preview: today\'s time and the year\'s range in UK time', async () => {
@@ -121,6 +147,7 @@ describe('the sun-relative editor', () => {
   it('says so when the preview request fails, and Save still works', async () => {
     previewSchedule.mockRejectedValue(new Error('down'));
     renderEditing(solarJob());
+    fireEvent.change(screen.getByTestId('solar-edit-near_term_batch_evaluation-offset'), { target: { value: '240' } });
 
     expect(await screen.findByText("Couldn't check this schedule.", {}, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByTestId('save-btn-near_term_batch_evaluation')).toBeEnabled();
@@ -183,19 +210,21 @@ describe('the cron times editor', () => {
   });
 
   it('saves the cron the server built, with Europe/London, never one built here', async () => {
-    previewSchedule.mockResolvedValue(schedulePreview({ cronExpression: '0 15 6,18 * * *' }));
+    previewSchedule.mockResolvedValue(schedulePreview({ cronExpression: '0 15 7,18 * * *' }));
     const { onInlineSave } = renderEditing(DAILY());
+    typeTimes('07:15, 18:15');
     await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
     fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
 
     await waitFor(() => expect(onInlineSave).toHaveBeenCalledTimes(1));
     expect(onInlineSave).toHaveBeenCalledWith(
-      expect.objectContaining({ jobKey: 'tide_refresh' }), '0 15 6,18 * * *', { timeZone: 'Europe/London' },
+      expect.objectContaining({ jobKey: 'tide_refresh' }), '0 15 7,18 * * *', { timeZone: 'Europe/London' },
     );
   });
 
   it('keeps Save off until the preview has answered', async () => {
     renderEditing(DAILY());
+    typeTimes('07:15, 18:15');
     expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
     await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
   });
@@ -220,16 +249,36 @@ describe('the cron times editor', () => {
     ['06:15, soon', '"soon" isn\'t a time'],
     ['25:00', 'Times run from 00:00 to 23:59'],
     ['12:75', 'Times run from 00:00 to 23:59'],
-  ])('says what is wrong with %j at once, and sends no request', async (typed, message) => {
+  ])('says what is wrong with %j once typing pauses, in a polite status, and sends no request', async (typed, message) => {
     renderEditing(DAILY());
     await settle();
     previewSchedule.mockClear();
-    fireEvent.change(screen.getByTestId('cron-times-tide_refresh'), { target: { value: typed } });
+    typeTimes(typed);
 
-    expect(screen.getByTestId('cron-notice-tide_refresh')).toHaveTextContent(message);
+    // Not while the keys are still going, and Save is already off.
+    expect(screen.getByTestId('cron-message-tide_refresh')).toBeEmptyDOMElement();
     expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
+    await waitFor(() => expect(screen.getByTestId('cron-message-tide_refresh')).toHaveTextContent(message), { timeout: 2000 });
+    const status = screen.getByTestId('cron-message-tide_refresh');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('cron-times-tide_refresh').getAttribute('aria-describedby')).toContain(status.id);
     await new Promise((resolve) => { setTimeout(resolve, PREVIEW_DEBOUNCE_MS + 100); });
     expect(previewSchedule).not.toHaveBeenCalled();
+  });
+
+  it('shows the format message at once when the field loses focus', async () => {
+    renderEditing(DAILY());
+    typeTimes('soon');
+    fireEvent.blur(screen.getByTestId('cron-times-tide_refresh'));
+    expect(screen.getByTestId('cron-message-tide_refresh')).toHaveTextContent("isn't a time");
+  });
+
+  it('is named by its visible label only, with no alert role on the message', () => {
+    renderEditing(DAILY());
+    const input = screen.getByLabelText('Times (UK time), comma-separated');
+    expect(input).toBe(screen.getByTestId('cron-times-tide_refresh'));
+    expect(input).not.toHaveAttribute('aria-label');
+    expect(screen.getByTestId('cron-edit-tide_refresh').querySelector('[role="alert"]')).toBeNull();
   });
 
   it('needs at least one day when the day toggles are shown', () => {
@@ -237,8 +286,18 @@ describe('the cron times editor', () => {
     fireEvent.click(screen.getByTestId('cron-day-tide_refresh-mon'));
     fireEvent.click(screen.getByTestId('cron-day-tide_refresh-wed'));
 
-    expect(screen.getByTestId('cron-notice-tide_refresh')).toHaveTextContent('Choose at least one day.');
+    expect(screen.getByTestId('cron-message-tide_refresh')).toHaveTextContent('Choose at least one day.');
     expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
+  });
+
+  it('sends no preview request while no day is chosen', async () => {
+    renderEditing(WEEKLY());
+    await settle();
+    previewSchedule.mockClear();
+    fireEvent.click(screen.getByTestId('cron-day-tide_refresh-mon'));
+    fireEvent.click(screen.getByTestId('cron-day-tide_refresh-wed'));
+    await new Promise((resolve) => { setTimeout(resolve, PREVIEW_DEBOUNCE_MS + 100); });
+    expect(previewSchedule).not.toHaveBeenCalled();
   });
 
   it('lists the neighbours the preview serves', async () => {
@@ -263,6 +322,7 @@ describe('the cron times editor', () => {
     previewSchedule.mockRejectedValueOnce(new Error('down'));
     previewSchedule.mockResolvedValue(schedulePreview({ cronExpression: '0 15 6,18 * * *' }));
     const { onInlineSave } = renderEditing(DAILY());
+    typeTimes('07:15, 18:15');
 
     expect(await screen.findByText("Couldn't check this schedule.", {}, { timeout: 2000 })).toBeInTheDocument();
     expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled();
@@ -273,9 +333,76 @@ describe('the cron times editor', () => {
     ));
   });
 
+  it('disables Save for a Europe/London job whose times and days are as stored', async () => {
+    renderEditing(WEEKLY());
+    await settle();
+    await screen.findByTestId('cron-neighbours-tide_refresh', {}, { timeout: 2000 });
+    expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
+    expect(screen.queryByTestId('cron-utc-notice-tide_refresh')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('cron-day-tide_refresh-fri'));
+    await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
+    fireEvent.click(screen.getByTestId('cron-day-tide_refresh-fri'));
+    expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
+  });
+
+  it('says a UTC job moves to UK time on save, and lets unchanged times save as that conversion', async () => {
+    previewSchedule.mockResolvedValue(schedulePreview({ cronExpression: '0 0 2 * * *' }));
+    const { onInlineSave } = renderEditing(tideJob({
+      cronExpression: '0 0 1 * * *', timeZone: 'UTC', nextFires: ['2026-07-01T00:00:00Z'],
+    }));
+    expect(screen.getByTestId('cron-utc-notice-tide_refresh')).toHaveTextContent(
+      'This job runs on UTC today. Saving moves it to UK time, so its fires follow the clocks.',
+    );
+    await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
+    fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
+
+    await waitFor(() => expect(onInlineSave).toHaveBeenCalledWith(
+      expect.objectContaining({ jobKey: 'tide_refresh' }), '0 0 2 * * *', { timeZone: 'Europe/London' },
+    ));
+    expect(previewSchedule.mock.calls[0][1].timeZone).toBe('Europe/London');
+  });
+
+  it('treats a job with no stored zone as UTC', () => {
+    renderEditing(tideJob({ cronExpression: '0 0 1 * * *', timeZone: null }));
+    expect(screen.getByTestId('cron-utc-notice-tide_refresh')).toBeInTheDocument();
+  });
+
+  it('keeps the editor it opened with when the job is re-served mid-edit', async () => {
+    const utc = tideJob({ cronExpression: '0 0 1 * * *', timeZone: 'UTC', nextFires: ['2026-07-01T00:00:00Z'] });
+    const props = {
+      editing: true, onEditStart: noop, onEditCancel: noop, onSolarSaved: noop, onPartial: noop,
+      onInlineSave: vi.fn(), onSwitch: noop,
+    };
+    const { rerender } = render(<JobSchedule job={utc} {...props} />);
+    fireEvent.change(screen.getByTestId('cron-times-tide_refresh'), { target: { value: '03:00' } });
+
+    // A poll: the next fire moved into winter, and the cron is now one the times editor would not open for.
+    rerender(<JobSchedule job={{ ...utc, nextFires: ['2026-12-01T01:00:00Z'], cronExpression: '0 20 * * * *' }} {...props} />);
+
+    expect(screen.getByTestId('cron-times-tide_refresh')).toHaveValue('03:00');
+    expect(screen.queryByTestId('edit-input-tide_refresh')).not.toBeInTheDocument();
+  });
+
+  it('makes every field read-only while a save is in flight', async () => {
+    let release;
+    const onInlineSave = vi.fn(() => new Promise((resolve) => { release = resolve; }));
+    renderEditing(WEEKLY(), { onInlineSave });
+    typeTimes('07:00');
+    await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
+    fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
+
+    await waitFor(() => expect(screen.getByTestId('cron-times-tide_refresh')).toBeDisabled());
+    expect(screen.getByTestId('cron-day-tide_refresh-mon')).toBeDisabled();
+    expect(screen.getByTestId('save-btn-tide_refresh')).toBeDisabled();
+    release();
+    await waitFor(() => expect(screen.getByTestId('cron-times-tide_refresh')).toBeEnabled());
+  });
+
   it('keeps the editor open and says so when the check fails again at Save', async () => {
     previewSchedule.mockRejectedValue(new Error('down'));
     const { onInlineSave } = renderEditing(DAILY());
+    typeTimes('07:15, 18:15');
     await screen.findByText("Couldn't check this schedule.", {}, { timeout: 2000 });
     fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
 
@@ -288,6 +415,7 @@ describe('the cron times editor', () => {
   it('keeps today\'s failed-save copy when the save itself is refused', async () => {
     const onInlineSave = vi.fn().mockRejectedValue(new Error('400'));
     renderEditing(DAILY(), { onInlineSave });
+    typeTimes('07:15, 18:15');
     await waitFor(() => expect(screen.getByTestId('save-btn-tide_refresh')).toBeEnabled(), { timeout: 2000 });
     fireEvent.click(screen.getByTestId('save-btn-tide_refresh'));
 
@@ -342,6 +470,29 @@ describe('the fixed-delay editor', () => {
 
     fireEvent.click(screen.getByTestId('fixed-delay-aurora_polling-300000'));
     expect(screen.getByTestId('save-btn-aurora_polling')).toBeEnabled();
+  });
+
+  it('focuses the chosen preset, or the first when no delay is stored', () => {
+    renderEditing(pollingJob());
+    expect(screen.getByTestId('fixed-delay-aurora_polling-300000')).toBe(document.activeElement);
+  });
+
+  it.each([null, 0])('focuses the first preset when the stored delay is %s', (stored) => {
+    renderEditing(pollingJob({ fixedDelayMs: stored }));
+    expect(screen.getByTestId('fixed-delay-aurora_polling-60000')).toBe(document.activeElement);
+    expect(screen.getByTestId('save-btn-aurora_polling')).toBeDisabled();
+  });
+
+  it('makes the presets read-only while a save is in flight', async () => {
+    let release;
+    const onInlineSave = vi.fn(() => new Promise((resolve) => { release = resolve; }));
+    renderEditing(pollingJob(), { onInlineSave });
+    fireEvent.click(screen.getByTestId('fixed-delay-aurora_polling-600000'));
+    fireEvent.click(screen.getByTestId('save-btn-aurora_polling'));
+
+    await waitFor(() => expect(screen.getByTestId('fixed-delay-aurora_polling-60000')).toBeDisabled());
+    release();
+    await waitFor(() => expect(screen.getByTestId('fixed-delay-aurora_polling-60000')).toBeEnabled());
   });
 
   it('says so, in the job\'s name, when the save fails', async () => {

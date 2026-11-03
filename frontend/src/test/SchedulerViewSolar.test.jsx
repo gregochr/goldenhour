@@ -127,20 +127,85 @@ describe('SchedulerView - explicit branch per schedule type', () => {
     expect(switchScheduleType).not.toHaveBeenCalled();
   });
 
-  it('the slider holds a stored offset beyond 8 hours and saving without touching it sends no rule change', async () => {
-    updateJobSchedule.mockResolvedValue({});
-    mount([solarJob({ solarOffsetMinutes: 600 })]);
+  it.each([[37, '35', '(stored: 37m)'], [503, '480', '(stored: 8h 23m)']])(
+    'keeps the 30 to 480 grid for a stored %i and shows the stored value beside the readout',
+    async (stored, thumb, note) => {
+      mount([solarJob({ solarOffsetMinutes: stored })]);
+      await openJob();
+      fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+      const slider = screen.getByTestId(`solar-edit-${NIGHTLY}-offset`);
+      expect([slider.min, slider.max, slider.step]).toEqual(['30', '480', '5']);
+      expect(slider).toHaveValue(thumb);
+      expect(screen.getByTestId(`solar-edit-${NIGHTLY}-offset-readout`)).toHaveTextContent(note);
+    },
+  );
+
+  it('does not save an off-grid offset nobody touched: Save is off and nothing is sent', async () => {
+    mount([solarJob({ solarOffsetMinutes: 37 })]);
     await openJob();
-
     fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
-    const slider = screen.getByTestId(`solar-edit-${NIGHTLY}-offset`);
-    expect(slider).toHaveValue('600');
-    expect(Number(slider.max)).toBeGreaterThanOrEqual(600);
-    fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
 
-    await waitFor(() => expect(screen.getByTestId(`edit-btn-${NIGHTLY}`)).toBeInTheDocument());
+    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeDisabled();
+    fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
     expect(switchScheduleType).not.toHaveBeenCalled();
     expect(updateJobSchedule).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('sub-region-toast')).not.toBeInTheDocument();
+  });
+
+  it('one move of the slider lands on the grid, and 480 is reachable', async () => {
+    switchScheduleType.mockResolvedValue({});
+    mount([solarJob({ solarOffsetMinutes: 37 })]);
+    await openJob();
+    fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+    fireEvent.change(screen.getByTestId(`solar-edit-${NIGHTLY}-offset`), { target: { value: '480' } });
+
+    expect(screen.queryByText(/stored:/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
+    await waitFor(() => expect(switchScheduleType).toHaveBeenCalledWith(NIGHTLY, {
+      scheduleType: 'SOLAR_OFFSET', solarEvent: 'SUNRISE', solarOffsetMinutes: 480,
+    }));
+  });
+
+  it('changing only the event puts an off-grid offset on the grid', async () => {
+    switchScheduleType.mockResolvedValue({});
+    mount([solarJob({ solarOffsetMinutes: 37 })]);
+    await openJob();
+    fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+    fireEvent.change(screen.getByTestId(`solar-edit-${NIGHTLY}-event`), { target: { value: 'SUNSET' } });
+    fireEvent.click(screen.getByTestId(`save-btn-${NIGHTLY}`));
+
+    await waitFor(() => expect(switchScheduleType).toHaveBeenCalledWith(NIGHTLY, {
+      scheduleType: 'SOLAR_OFFSET', solarEvent: 'SUNSET', solarOffsetMinutes: 35,
+    }));
+  });
+
+  it('with no stored offset the slider starts at 30 and says so', async () => {
+    mount([solarJob({ solarOffsetMinutes: null })]);
+    await openJob();
+    fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+
+    expect(screen.getByTestId(`solar-edit-${NIGHTLY}-offset`)).toHaveValue('30');
+    expect(screen.getByTestId(`solar-edit-${NIGHTLY}-offset-readout`)).toHaveTextContent('30m before sunrise');
+    expect(screen.getByTestId(`solar-edit-${NIGHTLY}-no-stored`)).toHaveTextContent('No offset is stored');
+    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeEnabled();
+  });
+
+  it("keeps validateOffset's gate: a stored offset the server would refuse cannot be saved until it is moved", async () => {
+    mount([solarJob({ solarOffsetMinutes: 9999 })]);
+    await openJob();
+    fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+
+    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeDisabled();
+    expect(screen.getByTestId(`solar-edit-${NIGHTLY}-offset-error`)).toHaveTextContent('0 and 720');
+    fireEvent.change(screen.getByTestId(`solar-edit-${NIGHTLY}-offset`), { target: { value: '300' } });
+    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeEnabled();
+  });
+
+  it('a solar editor with nothing changed has Save off', async () => {
+    mount([solarJob()]);
+    await openJob();
+    fireEvent.click(await screen.findByTestId(`edit-btn-${NIGHTLY}`));
+    expect(screen.getByTestId(`save-btn-${NIGHTLY}`)).toBeDisabled();
   });
 });
 

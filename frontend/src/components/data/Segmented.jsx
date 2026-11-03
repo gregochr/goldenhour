@@ -10,9 +10,10 @@ import PropTypes from 'prop-types';
  * @param {Array<{value: string, label: string}>} props.options the buttons, in order
  * @param {string} props.value the chosen option's value
  * @param {(value: string) => void} props.onChange called with the pressed option's value
+ * @param {boolean} [props.disabled] true to make every button inert (a save in flight)
  * @param {string} props.testId the group's test id; each button is {@code {testId}-{value lower case}}
  */
-export default function Segmented({ label, options, value, onChange, testId }) {
+export default function Segmented({ label, options, value, onChange, testId, disabled = false }) {
   return (
     <div
       className="inline-flex shrink-0 self-start overflow-hidden rounded-lg border border-plex-border"
@@ -27,8 +28,9 @@ export default function Segmented({ label, options, value, onChange, testId }) {
             key={option.value}
             type="button"
             aria-pressed={on}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
-            className={`cursor-pointer px-3 py-1.5 font-mono text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold max-[639px]:min-h-11 ${
+            className={`cursor-pointer px-3 py-1.5 font-mono text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-60 max-[639px]:min-h-11 ${
               index > 0 ? 'border-l border-plex-border' : ''
             } ${on ? 'bg-plex-gold/10 text-plex-text' : 'text-plex-text-secondary hover:text-plex-text'}`}
             data-testid={`${testId}-${option.value.toLowerCase()}`}
@@ -50,4 +52,5 @@ Segmented.propTypes = {
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
   testId: PropTypes.string.isRequired,
+  disabled: PropTypes.bool,
 };

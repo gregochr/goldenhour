@@ -9,11 +9,20 @@ import { UK_ZONE } from '../../utils/mapDates.js';
 import { describeCron } from '../../utils/schedulerView.js';
 import { inputClass } from '../users/userFormClasses.js';
 
+/** How long the times field must sit idle before a format message is shown (or on blur): not one per keystroke. */
+const MESSAGE_IDLE_MS = 600;
+
+/** Whether two lists hold the same members, in any order. */
+const sameMembers = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+
 /**
  * The editor for a cron job that fires at daily or weekly clock times (scheduler-redesign-plan.md S4b, D8): UK
  * times typed comma-separated, and for a weekly job day toggles. The times go to {@code schedule-preview}; the
  * server builds the cron, and Save sends <em>that</em> cron with {@code timeZone: Europe/London}. The client never
  * converts a UK time to a cron field.
+ *
+ * <p>A job still on UTC says so above Save: saving moves it to UK time. A job already on UK time with the times and days
+ * as stored has nothing to save, so Save is off; a UTC job with unchanged times may save (that is the conversion).
  *
  * <p>Save is off while the proposal is mistyped, not yet checked, or refused by the server (its sentence is shown,
  * for instance for times that do not share one minute). If the check itself failed ("Couldn't check this schedule.")
@@ -31,6 +40,9 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
   const [text, setText] = useState(model.times.join(', '));
   const [days, setDays] = useState(model.days ?? []);
   const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [messageIdle, setMessageIdle] = useState(true);
+  const idleTimer = useRef(null);
   const sending = useRef(false);
   const root = useRef(null);
   const weekly = model.days != null;
@@ -38,7 +50,19 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
   // Opening the editor replaces the row the reader pressed Edit on: put focus in its field.
   useEffect(() => {
     root.current?.querySelector('input')?.focus();
+    return () => clearTimeout(idleTimer.current);
   }, []);
+
+  const handleText = (value) => {
+    setText(value);
+    setMessageIdle(false);
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => setMessageIdle(true), MESSAGE_IDLE_MS);
+  };
+  const handleBlur = () => {
+    clearTimeout(idleTimer.current);
+    setMessageIdle(true);
+  };
 
   const parsed = useMemo(() => parseTimesInput(text), [text]);
   let clientMessage = null;
@@ -54,12 +78,16 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
 
   const { status, preview } = useSchedulePreview(job.jobKey, body);
   const refused = status === 'ready' && !preview.valid;
-  const saveDisabled = body == null || status === 'pending' || refused;
+  const onUtc = job.timeZone !== UK_ZONE;
+  const unchanged = parsed.ok && sameMembers(parsed.times, model.times)
+    && (!weekly || sameMembers(days, model.days));
+  const saveDisabled = body == null || status === 'pending' || refused || saving || (!onUtc && unchanged);
 
-  let notice = null;
-  if (clientMessage) notice = clientMessage;
-  else if (refused) notice = preview.error;
-  else if (status === 'failed') notice = "Couldn't check this schedule.";
+  // The time-format message waits for the field to go idle (or lose focus); the day message answers a toggle at once.
+  const shownMessage = !parsed.ok && !messageIdle ? null : clientMessage;
+  let serverNotice = null;
+  if (!clientMessage && refused) serverNotice = preview.error;
+  else if (!clientMessage && status === 'failed') serverNotice = "Couldn't check this schedule.";
 
   const toggleDay = (code) => {
     setDays((current) => (current.includes(code) ? current.filter((d) => d !== code) : [...current, code]));
@@ -68,6 +96,7 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
   const handleSave = async () => {
     if (sending.current || saveDisabled) return;
     sending.current = true;
+    setSaving(true);
     setError(null);
     try {
       let cron = status === 'ready' ? preview.cronExpression : null;
@@ -85,11 +114,14 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
       setError(`Couldn't save ${job.displayName}'s schedule.`);
     } finally {
       sending.current = false;
+      setSaving(false);
     }
   };
 
   const ready = status === 'ready' && preview.valid;
   const inputId = `cron-times-${job.jobKey}`;
+  const messageId = `cron-message-${job.jobKey}`;
+  const liveId = `cron-live-${job.jobKey}`;
   return (
     <div
       ref={root}
@@ -103,9 +135,11 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
           id={inputId}
           type="text"
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          aria-label={`${job.displayName} times`}
-          aria-invalid={notice != null && (clientMessage != null || refused)}
+          onChange={(e) => handleText(e.target.value)}
+          onBlur={handleBlur}
+          disabled={saving}
+          aria-invalid={clientMessage != null || refused}
+          aria-describedby={`${messageId} ${liveId}`}
           className={`${inputClass} font-mono`}
           data-testid={`cron-times-${job.jobKey}`}
         />
@@ -119,8 +153,9 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
                 key={code}
                 type="button"
                 aria-pressed={on}
+                disabled={saving}
                 onClick={() => toggleDay(code)}
-                className={`cursor-pointer rounded border px-2.5 py-1 font-mono text-[11px] focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11 max-[639px]:min-w-11 ${
+                className={`cursor-pointer rounded border px-2.5 py-1 font-mono text-[11px] focus-visible:outline-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-60 max-[639px]:min-h-11 max-[639px]:min-w-11 ${
                   on ? 'border-plex-gold bg-plex-gold/10 text-plex-text' : 'border-plex-border text-plex-text-secondary hover:text-plex-text'
                 }`}
                 data-testid={`cron-day-${job.jobKey}-${code.toLowerCase()}`}
@@ -131,31 +166,42 @@ export default function CronTimesEditor({ job, model, onSave, onCancel }) {
           })}
         </div>
       )}
-      {notice && (
-        <p
-          className={`text-xs ${status === 'failed' && !clientMessage ? 'text-verdict-marginal' : 'text-plex-coral'}`}
-          role="alert"
-          data-testid={`cron-notice-${job.jobKey}`}
-        >
-          {notice}
+      <div id={messageId} role="status" className="text-xs text-plex-coral" data-testid={`cron-message-${job.jobKey}`}>
+        {shownMessage}
+      </div>
+      {status === 'pending' && body != null && (
+        <p className="text-xs text-plex-text-muted" aria-hidden="true" data-testid={`cron-checking-${job.jobKey}`}>
+          Checking&hellip;
         </p>
       )}
-      {ready && (
-        <>
-          <p className="text-xs text-plex-text-muted" data-testid={`cron-reading-${job.jobKey}`}>
-            {describeCron(preview.cronExpression, preview.timeZone)}
+      <div id={liveId} aria-live="polite" className="flex flex-col gap-2" data-testid={`cron-live-${job.jobKey}`}>
+        {serverNotice && (
+          <p
+            className={`text-xs ${refused ? 'text-plex-coral' : 'text-verdict-marginal'}`}
+            data-testid={`cron-notice-${job.jobKey}`}
+          >
+            {serverNotice}
           </p>
-          <p className="text-xs text-plex-text-secondary" data-testid={`cron-neighbours-${job.jobKey}`}>
-            {neighboursText(preview.neighbours)}
-          </p>
-        </>
-      )}
-      {status === 'pending' && body != null && (
-        <p className="text-xs text-plex-text-muted" data-testid={`cron-checking-${job.jobKey}`}>Checking&hellip;</p>
-      )}
+        )}
+        {ready && (
+          <>
+            <p className="text-xs text-plex-text-muted" data-testid={`cron-reading-${job.jobKey}`}>
+              {describeCron(preview.cronExpression, preview.timeZone)}
+            </p>
+            <p className="text-xs text-plex-text-secondary" data-testid={`cron-neighbours-${job.jobKey}`}>
+              {neighboursText(preview.neighbours)}
+            </p>
+          </>
+        )}
+      </div>
       <p className="text-xs text-plex-text-muted" data-testid={`cron-note-${job.jobKey}`}>
         Saved times are UK time and follow the clocks.
       </p>
+      {onUtc && (
+        <p className="text-xs text-verdict-marginal" data-testid={`cron-utc-notice-${job.jobKey}`}>
+          This job runs on UTC today. Saving moves it to UK time, so its fires follow the clocks.
+        </p>
+      )}
       <EditorFooter jobKey={job.jobKey} error={error} saveDisabled={saveDisabled} onSave={handleSave} onCancel={onCancel} />
     </div>
   );
@@ -165,6 +211,7 @@ CronTimesEditor.propTypes = {
   job: PropTypes.shape({
     jobKey: PropTypes.string.isRequired,
     displayName: PropTypes.string,
+    timeZone: PropTypes.string,
   }).isRequired,
   model: PropTypes.shape({
     times: PropTypes.arrayOf(PropTypes.string).isRequired,

@@ -25,20 +25,42 @@ export const SLIDER_MAX = 480;
 /** The sun-relative slider's step in minutes. */
 export const SLIDER_STEP = 5;
 
+/** The slider's fixed range. A stored offset the grid cannot hold never moves it (see {@link snapToGrid}). */
+export const SLIDER_BOUNDS = Object.freeze({ min: SLIDER_MIN, max: SLIDER_MAX, step: SLIDER_STEP });
+
 /**
- * The slider's bounds for a stored offset. A stored offset the standard 30 to 480 grid cannot hold (outside the range,
- * or not a multiple of 5) extends the range, and an off-grid one shifts the grid's base, so the thumb always sits at
- * the stored value and the editor never changes a value the admin did not touch.
+ * The on-grid offset nearest a value, clamped to 30 to 480: where the slider's thumb sits for a stored offset the grid
+ * cannot hold, and the value the offset becomes once the admin moves the slider or changes the event.
  *
- * @param {number|null|undefined} stored the job's stored offset in minutes
- * @returns {{min: number, max: number, step: number}} the range input's attributes
+ * @param {number} offset minutes
+ * @returns {number} a multiple of 5 from 30 to 480
  */
-export function sliderBounds(stored) {
-  const value = Number.isFinite(stored) ? Math.round(stored) : null;
-  if (value == null) return { min: SLIDER_MIN, max: SLIDER_MAX, step: SLIDER_STEP };
-  // The largest value at or below SLIDER_MIN on the same 5-minute grid as the stored one.
-  const base = SLIDER_MIN - ((((SLIDER_MIN - value) % SLIDER_STEP) + SLIDER_STEP) % SLIDER_STEP);
-  return { min: Math.min(base, value), max: Math.max(SLIDER_MAX, value), step: SLIDER_STEP };
+export function snapToGrid(offset) {
+  const steps = Math.round((offset - SLIDER_MIN) / SLIDER_STEP);
+  return Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, SLIDER_MIN + steps * SLIDER_STEP));
+}
+
+/**
+ * Whether the slider's grid can hold an offset exactly.
+ *
+ * @param {number} offset minutes
+ * @returns {boolean} true for a multiple of 5 from 30 to 480
+ */
+export function isOnGrid(offset) {
+  return Number.isInteger(offset) && snapToGrid(offset) === offset;
+}
+
+/**
+ * A duration in the compact words the panel uses, without the event: 243 gives "4h 3m", 0 gives "0m".
+ *
+ * @param {number} minutes whole minutes
+ * @returns {string} the span
+ */
+export function formatOffsetSpan(minutes) {
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return [h > 0 ? `${h}h` : '', m > 0 || h === 0 ? `${m}m` : ''].filter(Boolean).join(' ');
 }
 
 /** The Spring cron's day-of-week field as day codes: {@code *} is null days, a list of names or digits its codes. */
@@ -84,20 +106,18 @@ const UK_PARTS = new Intl.DateTimeFormat('en-GB', {
   hourCycle: 'h23',
 });
 
-/** A UTC clock time on the UTC day of {@code reference}, as UK {@code {time, dayShift}} (+1 when it is UK tomorrow). */
-function utcToUk(hour, minute, reference) {
-  const at = new Date(reference);
-  at.setUTCHours(hour, minute, 0, 0);
+/** UK's offset from UTC in minutes at an instant (60 in summer time, 0 in winter). */
+function ukOffsetMinutes(instant) {
+  const at = new Date(instant);
   const p = Object.fromEntries(UK_PARTS.formatToParts(at).map((part) => [part.type, part.value]));
-  const ukDay = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day));
-  const utcDay = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
-  return { time: `${p.hour}:${p.minute}`, dayShift: Math.round((ukDay - utcDay) / 86_400_000) };
+  const local = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute));
+  return Math.round((local - Math.floor(at.getTime() / 60_000) * 60_000) / 60_000);
 }
 
 /**
  * What the cron editor opens with, in UK time, or null when the stored cron is not a daily or weekly clock schedule
  * (the raw field is used instead). A cron that runs in {@code Europe/London} is shown as it is; a UTC one is converted
- * at the offset in force at the job's next fire. A UTC cron whose times fall on different UK days is null.
+ * at the one offset in force at the job's next fire. A UTC cron whose times fall on different UK days is null.
  *
  * @param {object} job the served job
  * @param {Date} [now] the real clock, the reference when the job has no next fire
@@ -109,8 +129,13 @@ export function cronEditorModel(job, now = new Date()) {
   if (job.timeZone === UK_ZONE) {
     return { times: parsed.hours.map((h) => `${pad(h)}:${pad(parsed.minute)}`), days: parsed.days };
   }
-  const reference = job.nextFires?.[0] || job.nextFireTime || now;
-  const converted = parsed.hours.map((h) => utcToUk(h, parsed.minute, reference));
+  // Every hour is converted at the ONE offset in force at the reference instant (the next fire), not each at its own.
+  const offset = ukOffsetMinutes(job.nextFires?.[0] || job.nextFireTime || now);
+  const converted = parsed.hours.map((h) => {
+    const total = h * 60 + parsed.minute + offset;
+    const wrapped = ((total % 1440) + 1440) % 1440;
+    return { time: `${pad(Math.floor(wrapped / 60))}:${pad(wrapped % 60)}`, dayShift: Math.floor(total / 1440) };
+  });
   const shift = converted[0].dayShift;
   if (converted.some((c) => c.dayShift !== shift)) return null;
   const days = parsed.days == null
@@ -188,7 +213,10 @@ export function delayOptions(currentMs) {
  */
 export function neighboursText(neighbours) {
   if (!neighbours || neighbours.length === 0) return 'Nothing within 30 minutes.';
-  const entries = neighbours.map((n) => `${n.displayName} ${formatClock(n.at)} (${n.minutesApart} min apart)`);
+  const entries = neighbours.map((n) => {
+    const gap = n.minutesApart === 0 ? 'at the same time' : `${n.minutesApart} min apart`;
+    return `${n.displayName} ${formatClock(n.at)} (${gap})`;
+  });
   return `Neighbours: ${entries.join(' · ')}`;
 }
 
