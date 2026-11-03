@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
@@ -196,9 +197,20 @@ public class SolarSchedulePreviewService {
     }
 
     private Long medianDurationSeconds(String jobKey) {
+        return medianDurationSeconds(ForecastCycleJobs.cycleOf(jobKey));
+    }
+
+    /**
+     * The median duration of a cycle's last {@value #DURATION_SAMPLE} COMPLETED pipeline runs, the one "typical"
+     * figure the preview and the Scheduler job detail both serve.
+     *
+     * @param cycleType the cycle
+     * @return the median in whole seconds, or null when the cycle has no completed run
+     */
+    public Long medianDurationSeconds(CycleType cycleType) {
         List<Long> seconds = pipelineRuns
                 .findTop14ByCycleTypeAndStatusOrderByTriggerTimeDesc(
-                        ForecastCycleJobs.cycleOf(jobKey), PipelineRunStatus.COMPLETED).stream()
+                        cycleType, PipelineRunStatus.COMPLETED).stream()
                 .filter(run -> run.getTriggerTime() != null && run.getCompletedAt() != null)
                 .map(run -> Duration.between(run.getTriggerTime(), run.getCompletedAt()).getSeconds())
                 .sorted(Comparator.naturalOrder())

@@ -161,6 +161,19 @@ class SolarSchedulePreviewServiceTest {
     }
 
     @Test
+    @DisplayName("the public median serves any cycle, the evening one included, and null with no runs")
+    void publicMedian_servesAnyCycle() {
+        Instant t = Instant.parse("2027-03-05T01:00:00Z");
+        when(runs.findTop14ByCycleTypeAndStatusOrderByTriggerTimeDesc(CycleType.EVENING,
+                PipelineRunStatus.COMPLETED)).thenReturn(List.of(run(t, 30), run(t, 90), run(t, 60)));
+        when(runs.findTop14ByCycleTypeAndStatusOrderByTriggerTimeDesc(CycleType.NIGHTLY,
+                PipelineRunStatus.COMPLETED)).thenReturn(List.of());
+
+        assertThat(service.medianDurationSeconds(CycleType.EVENING)).isEqualTo(60L);
+        assertThat(service.medianDurationSeconds(CycleType.NIGHTLY)).isNull();
+    }
+
+    @Test
     @DisplayName("a missing row still previews under the proposed rule, with no stored type or status")
     void missingRow_stillPreviews() {
         when(configs.findByJobKey(ForecastCycleJobs.NIGHTLY_JOB)).thenReturn(Optional.empty());
