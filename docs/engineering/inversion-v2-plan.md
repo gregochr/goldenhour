@@ -1,6 +1,6 @@
 # Cloud inversion v2: measure the warm layer where the fells are (2026-10-28)
 
-**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b merged (#1526, V202), with the build-review amendments below the spec revisions. Phase 2 (the clear night) merged (#1528). Phase 3 (summit wind) built and reviewed (2026-10-30; this PR). Phase 4 not planned (§7.5). Phase 5 (shallow seas from the fells: alert at 8, cloud at the viewpoint's height) planned and reviewed 2026-11-03, not built; it waits on a v2-only recount and three owner decisions (§4 Phase 5). **Owner decision
+**Status:** Phase 0 and 1a done (§8). Phase 1-pre (location heights) merged (#1520, V201). Phase 1b merged (#1526, V202), with the build-review amendments below the spec revisions. Phase 2 (the clear night) merged (#1528). Phase 3 (summit wind) built and reviewed (2026-10-30; this PR). Phase 4 not planned (§7.5). Phase 5 (shallow seas from the fells: alert at 8, cloud at the viewpoint's height) planned and reviewed 2026-11-03; v2-only recount done and the three owner decisions taken the same day (§4 Phase 5); not built. **Owner decision
 2026-10-30: no shadow period.** Phases 1b–3 ship LIVE, each with two safety nets instead: the old score is
 still computed and logged beside the new one (so the comparison still happens, after the switch rather
 than before it), and a config switch (`photocast.inversion.v2.enabled`, default on) puts the old score back
@@ -853,7 +853,7 @@ build):
 
 | Case | E | Levels at the slot, height m (cloud %) | Cloud at E | Today's `in-cloud` | New test (≥ 80%) |
 |---|---|---|---|---|---|
-| Lingmoor, 31 Oct 2026 08:00 (a sea, seen) | 469 | 260 (70), 468 (32), 682 (0) | 32% | **binds (wrong)** | lifted: raw 8 (`edge`), **stored 7** by the raise cap unless 5b's raise-cap rule applies (below) |
+| Lingmoor, 31 Oct 2026 08:00 (a sea, seen) | 469 | 260 (70), 468 (32), 682 (0) | 32% | **binds (wrong)** | lifted: raw 8 (`edge`), **stored 7** by the raise cap, **8** under 5b's raise-cap rule (below) |
 | Side Pike, same | 362 | as above | 51% | binds | lifted, but `inside(6)` still binds |
 | Skiddaw-like, 4 Nov 2024 08:00 (in cloud, seen) | 911 | 435 (17), 648 (55), 864 (76), 1,086 (100) | 81% | binds | **binds** ✓ |
 | Latrigg, same | 368 | as above | 12% | none | none |
@@ -917,9 +917,13 @@ after a month. The two raw 8s on the 31st sunrise are v2-scored sites other than
   `ALERT_SCORE_INCLUSIVE = 8`; `STRONG_SCORE_INCLUSIVE` stays 9 and keeps its other readers).
   `effectiveInversionScore()` falls back to Claude's `forecast_score` echo for an unscored slot, so an
   echoed 8 now fires the topic too; test that path.
-- Wording follows the best score that date: 9 or more keeps today's "Strong inversion likely at elevated
-  locations"; 8 says something weaker and true for a shallow sea, e.g. "Valley cloud sea possible from the
-  fells". Final wording is the owner's. The topic never says STRONG on an 8. `PerDateHotTopicBuilder.perDate`
+- Wording (**decided 2026-11-03**): the title stays "Cloud inversion". 9 or more keeps today's "Strong
+  inversion likely at elevated locations"; 8 says **"Inversion possible: valley cloud may sit below
+  elevated viewpoints"** (region-neutral: the 8s include the Dales and Northumberland, not only fells).
+  The topic never says "likely" or "strong" on an 8.
+- **Summits share the 8 tier (decided 2026-11-03).** One rule by score for every site. On a date with
+  both, the card keeps the two groups apart: the 9s under the strong line, the 8s under the "possible"
+  line, never an 8 site listed under "Strong inversion likely". `PerDateHotTopicBuilder.perDate`
   takes one fixed detail string, so the per-date wording is set with `HotTopic.withDetail` in the
   strategy's `attachFacts` step.
 - **Unchanged:** the prompt's bands (`PromptBuilder.InversionPotential`, 9–10 STRONG, 7–8 MODERATE), the
@@ -963,20 +967,23 @@ after a month. The two raw 8s on the 31st sunrise are v2-scored sites other than
   removes the cap. Known gap: a site below the 1000 hPa height (about 255–260 m on the cases above) is never
   bracketed and always falls back, so the original failure stays for sites of about 200–260 m. Stated,
   not fixed.
-- **The raise-cap rule (fixes the blocker).** When the level-cloud test decided the viewpoint is clear,
-  the raise cap compares against v1 computed **without v1's above-80% low-cloud veto** (the same cell
-  mistake). Lingmoor, 31 Oct: v1 without the veto is 5 (gap 0.3) + 3 (wind 0.6) + 1 (cloud outside
-  25–65%) = 9, boundary layer 30 m passes the clearance gate, 925 hPa reversal +1.1 caps at 8: **v1′ = 8,
-  stored = min(8, 8 + 1) = 8**, so 5a's alert fires. Everywhere else (the level test fell back, or it said
-  in cloud) the raise cap is unchanged. The alternative, lifting the raise cap wherever the level test was
-  decisive, is simpler but drops the first-winter guard entirely for those slots; owner's call.
-- Log the cloud at E, and whether the raise-cap rule applied, with the existing v2 log line.
+- **The raise-cap rule (fixes the blocker; option B, decided 2026-11-03).** When the level-cloud test
+  decided the viewpoint is clear (E bracketed, cloud at E under 80%), the raise cap is **skipped** for that
+  slot; everywhere else (the test fell back to the cell, or it said in cloud) the raise cap is unchanged.
+  Lingmoor, 31 Oct: raw 8 (`edge`), **stored 8**, so 5a's alert fires. Why B and not recomputing v1
+  without its low-cloud veto (option A, the first draft): A's remaining guard is chiefly v1's 925 hPa
+  against the viewpoint cell's own 2 m temperature, the very comparison v2 replaced; and under v2 a site
+  below 600 m cannot exceed 8 anyway, so B can at most lift a 6 or 7 to 8, and only where v2 measured a
+  warm layer from the valley floor and the viewpoint stands above the cloud. Record the skip in the caps
+  text (e.g. `raise-skipped(level-clear)`) so it is visible in the v2 log line.
+- Log the cloud at E, and whether the raise cap was skipped, with the existing v2 log line; the build's
+  first month of these lines is the real alert rate.
 - **Tests.** Save the level-cloud JSON as new sidecar files under `docs/engineering/inversion-v2-data/`
   and the test resources (do not re-fetch the existing fixtures). The six `InversionV2FixtureTest` rows run
   with their sidecars and keep identical outcomes; one extra test runs them without sidecars and proves
   the fallback. Add the 31 Oct Lingmoor and Side Pike rows, pinning **stored** as well as raw (Lingmoor
   stored 8, Side Pike 6). Unit tests: interpolation, E exactly on a level, the bracketing fallback, E below
-  the lowest level, a level below the floor, null cloud, Skiddaw's 81%, and the raise-cap rule on and off.
+  the lowest level, a level below the floor, null cloud, Skiddaw's 81%, and the raise cap skipped (level test clear) and kept (fell back, or in cloud).
   The Brathay and Penrith mist guards (`ValleyMistInversionV2IsolationTest`) must still pass.
 - **Not in 5b:** the `inside` cap for Side Pike. The model's own deck reached about 420–470 m that
   morning, so `inside` agrees with the model; the photographer at 395 m says the real top was lower. That
@@ -987,9 +994,10 @@ then 5b. Each PR runs the backend ladder, updates `conditions.md`, adds a `chang
 built by Sonnet per CLAUDE.md. Revert: 5b by `photocast.inversion.v2.enabled` (config, no deploy); 5a by
 setting the constant back (a deploy).
 
-**Decisions for the owner.** (a) the 8-tier wording; (b) the raise-cap rule as specified, or lifting the
-raise cap where the level test was decisive; (c) whether the three summits keep the STRONG wording at 9 and
-share the 8 tier's wording when they score 8 (the plan assumes yes).
+**Decisions for the owner (all decided 2026-11-03, owner accepted the recommendations).** (a) The 8-tier
+wording: "Inversion possible: valley cloud may sit below elevated viewpoints", under the existing "Cloud
+inversion" title. (b) The raise cap: option B, skipped where the level-cloud test decided the viewpoint is
+clear. (c) The summits share the 8 tier, with 9s and 8s kept in separate groups on a shared date.
 
 **Related evidence for §7 decision 3 (`overlooks_water` vs an `overlooks_valley` flag).** Hadrian's Wall,
 2 Nov 2026 SUNRISE (owner query, 2026-11-03): of 13 sites in the stretch, only the three with
