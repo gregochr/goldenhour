@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — phone Map tab, compact chrome</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.7);--ink-3:rgba(242,231,211,.5);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--away:#8FB6D9;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.hd{max-width:1100px;margin:0 auto 18px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:88ch;margin-top:6px;text-wrap:pretty}
+.hd ol{font-size:13px;color:var(--ink-2);max-width:88ch;margin:10px 0 0 18px;display:grid;gap:4px}
+.hd b{color:var(--ink);font-weight:600}
+.demobar{max-width:1100px;margin:0 auto 16px;display:flex;gap:7px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);align-items:center}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px}
+.demobar button.on{border-color:rgba(201,162,75,.6);color:#EBD9A8}
+.phones{max-width:1100px;margin:0 auto;display:flex;gap:48px;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;gap:14px;width:390px}
+.cap .t{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--home)}
+.cap h2{font-size:16px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.cap p{font-size:12.5px;color:var(--ink-2);margin-top:4px;text-wrap:pretty}
+.meter{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;align-items:center;gap:10px}
+.meter .bar{flex:1;height:6px;border-radius:3px;background:var(--border);overflow:hidden}
+.meter .bar i{display:block;height:100%;background:var(--home);transition:width .3s}
+.meter b{color:var(--ink);font-weight:600}
+
+.phone{position:relative;width:390px;height:844px;border-radius:44px;overflow:hidden;background:var(--bg);box-shadow:0 0 0 9px #241c17,0 0 0 10px #3a2c23,0 26px 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.sb{height:46px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;font-size:15px;font-weight:600;background:#1B1411}
+.sb .isl{width:112px;height:30px;border-radius:16px;background:#000}
+.sb .r{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.safari{height:82px;flex:none;background:#1a1512;display:flex;align-items:flex-start;justify-content:center;gap:12px;padding-top:12px}
+.safari i{width:44px;height:44px;border-radius:50%;background:#2e2723}
+.safari span{width:240px;height:44px;border-radius:22px;background:#2e2723;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:8px 14px 0;border-bottom:1px solid var(--border);flex:none;position:relative}
+.spine{position:relative;padding-left:17px;min-width:0}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:8px;background:repeating-linear-gradient(180deg,var(--border-light) 0 6px,transparent 6px 12px);border-right:1px solid var(--border)}
+.cw{font-family:var(--serif);font-weight:600;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.ck{font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--coral)}
+.rule{height:3px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.up{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.45);border-radius:8px;background:rgba(138,174,114,.08)}
+.up i{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.tabs{display:flex;gap:5px;padding:0 14px;background:#1B1411;flex:none;border-bottom:1px solid var(--border)}
+.tab{font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom:0;background:var(--panel);border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab.ops{border-style:dashed}
+
+/* today */
+.T .mast{padding:12px 14px 0}
+.T .ctop{display:flex;align-items:center;gap:8px}
+.T .cw{font-size:22px}
+.T .ck{font-size:8.5px;margin-top:6px;max-width:110px;line-height:1.5}
+.T .mr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.T .up{font-size:10.5px;padding:7px 9px}
+.T .cog{width:30px;height:30px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:12px}
+.T .so{width:64px;height:44px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:10px;color:var(--ink-3);line-height:1.3;display:flex;align-items:center;justify-content:center;text-align:center}
+.T .rule{margin-top:10px}
+.T .og{margin-top:6px;border:1px solid rgba(242,231,211,.4);border-radius:10px;display:flex;align-items:center;gap:8px;padding:5px 10px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)}
+.T .og b{color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.T .og .cp{flex:0 0 80px;color:var(--ink-3);line-height:1.45}
+.T .tms{display:flex;justify-content:flex-end;gap:10px;padding:5px 0 7px;font-family:var(--mono);font-size:10px;color:var(--marginal)}
+.T .tabs{padding-top:10px}
+.T .tab{font-size:14.5px;padding:9px 0;flex:1}
+.T .tab.on{flex:0 0 74px}
+
+/* proposed */
+.P .ctop{display:flex;align-items:center;gap:10px;height:34px}
+.P .cw{font-size:20px}
+.P .sun{margin-left:auto;display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:10.5px;color:var(--marginal);white-space:nowrap}
+.P .sun span{display:flex;align-items:center;gap:3px}
+.P .sun s{text-decoration:none;font-size:9px;opacity:.85}
+.P .dot{width:8px;height:8px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go);flex:none}
+.P .menu{width:40px;height:40px;margin-right:-6px;display:flex;align-items:center;justify-content:center;flex:none}
+.P .menu span{width:30px;height:30px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);font-size:15px;letter-spacing:.05em}
+.P .menu.on span{border-color:rgba(201,162,75,.6);color:#EBD9A8}
+.P .rule{margin-top:6px;height:2px}
+.P .og{display:none;align-items:center;gap:6px;height:36px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase}
+.P .og.on{display:flex}
+.P .og .grp{flex:1;min-width:0;height:28px;display:flex;align-items:center;gap:7px;padding:0 9px;border-radius:8px}
+.P .og b{font-weight:600;white-space:nowrap;flex:none}
+.P .og .cp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.P .og.away .grp{border:1px solid rgba(143,182,217,.7);background:rgba(143,182,217,.07);color:var(--away)}
+.P .og.away .cp{color:rgba(143,182,217,.75)}
+.P .og .hm{width:32px;height:28px;flex:none;border:1px solid rgba(143,182,217,.7);border-radius:8px;color:var(--away);font-size:12px}
+.P .og.unset .grp{border:1px solid rgba(200,69,47,.75);background:rgba(200,69,47,.12);color:#EE8064}
+.P .og.unset .hm{display:none}
+.P .mpop{position:absolute;z-index:900;right:10px;top:48px;width:210px;background:#1E1712;border:1px solid var(--border-light);border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.6);padding:6px;display:none;flex-direction:column}
+.P .mpop.on{display:flex}
+.P .mpop button{min-height:44px;text-align:left;padding:0 10px;border-radius:8px;font-size:14px}
+.P .mpop button:hover{background:var(--surface)}
+.P .mpop .st{display:flex;align-items:center;gap:7px;padding:8px 10px 10px;border-bottom:1px solid var(--border);margin-bottom:4px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.P .mpop .st b{color:var(--go);font-weight:600}
+.P .tabs{padding-top:6px}
+.P .tab{font-size:13px;padding:7px 0;flex:1 1 auto;padding-left:9px;padding-right:9px}
+
+.mw{position:relative;flex:1;min-height:0;background:#161310;overflow:hidden}
+.map{position:absolute;inset:0}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.leaflet-bottom{bottom:var(--shh,74px);z-index:510}
+.T .leaflet-control-attribution{background:rgba(20,16,13,.75)!important;color:rgba(242,231,211,.4)!important;font-family:var(--sans);font-size:12px!important;line-height:1.5;padding:2px 6px!important;max-width:390px;white-space:normal}
+.P .leaflet-control-attribution{background:rgba(20,16,13,.55)!important;color:rgba(242,231,211,.42)!important;font-family:var(--sans);font-size:8.5px!important;line-height:14px;padding:0 6px!important;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.P .leaflet-control-attribution.full{white-space:normal;max-width:370px}
+.leaflet-control-attribution a{color:inherit!important}
+.lc{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;background:rgba(14,11,9,.86);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--ink);transform:translate(-50%,-50%);width:max-content}
+.lc i{width:6px;height:6px;flex:none}
+.lc b{font-weight:600}
+.lc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
+.lc.dim{opacity:.36}
+.lc .tw{width:12px;height:7px;color:var(--tide)}
+.hmk{display:flex;flex-direction:column;align-items:center;gap:2px;transform:translate(-50%,-9px);width:max-content;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;color:var(--home);text-shadow:0 1px 3px #000}
+.hmk i{width:14px;height:14px;border-radius:50%;border:2.5px solid var(--home);background:rgba(22,19,16,.8)}
+.hmk.away{color:var(--away)}.hmk.away i{border-color:var(--away)}
+.leaflet-div-icon{background:none;border:none}
+.ringl{font-family:var(--mono);font-size:9.5px;color:var(--ink-2);background:rgba(14,11,9,.8);padding:1px 5px;border-radius:4px;transform:translate(-50%,-50%);width:max-content}
+
+.pill{position:absolute;z-index:500;top:10px;left:10px;right:10px;display:flex;gap:6px}
+.pill .st{width:44px;height:44px;flex:none;border-radius:10px;background:rgba(20,15,12,.92);border:1px solid var(--border-light);font-size:15px;color:var(--ink-2)}
+.pill .mid{flex:1;min-width:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:10px;background:rgba(20,15,12,.94);border:1px solid rgba(224,165,66,.55);box-shadow:inset 3px 0 0 var(--vc),0 6px 18px rgba(0,0,0,.45)}
+.ev{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;padding:2px 6px;border-radius:4px;flex:none}
+.ev.SUNSET{color:#EE8064;border:1px solid rgba(232,89,63,.5);background:rgba(232,89,63,.1)}
+.ev.SUNRISE{color:var(--dawn);border:1px solid rgba(143,168,196,.5);background:rgba(143,168,196,.1)}
+.pill .d{font-size:14px;font-weight:600;white-space:nowrap}
+.pill .tt{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.vd{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;white-space:nowrap}
+.v-worth{color:var(--go)}.v-maybe{color:var(--marginal)}.v-poor{color:#E0735E}
+.tg{width:16px;height:9px;flex:none;color:var(--tide)}
+
+.sh{position:absolute;z-index:520;left:0;right:0;bottom:0;background:rgba(22,17,13,.97);border-top:1px solid var(--border-light);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;height:var(--shh);transition:height .26s cubic-bezier(.3,.7,.2,1)}
+.sh.open{height:356px}
+.sh .hdl{height:14px;flex:none;display:flex;justify-content:center;align-items:center}
+.sh .hdl i{width:36px;height:4px;border-radius:2px;background:var(--border-light)}
+.askbar{margin:0 10px 8px;height:48px;flex:none;border:1px solid var(--border-light);border-radius:12px;display:flex;align-items:center;padding:0 5px 0 14px;font-size:15px;color:var(--ink-3)}
+.askbar i{margin-left:auto;width:38px;height:38px;border-radius:9px;background:#3A2C23;display:flex;align-items:center;justify-content:center;font-style:normal;color:var(--ink)}
+.pk{display:flex;gap:6px;padding:0 10px 10px;flex:none}
+.pb{flex:1;min-width:0;height:46px;border:1px solid var(--border);border-radius:10px;background:var(--panel);display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:0 9px;text-align:left}
+.pb.on{border-color:rgba(201,162,75,.6);background:rgba(201,162,75,.1)}
+.pb .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.pb .v{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:flex;align-items:center;gap:5px}
+.pb.tide{border-color:rgba(111,168,176,.4);background:rgba(111,168,176,.08)}
+.pb.tide.on{border-color:rgba(111,168,176,.8);background:rgba(111,168,176,.16)}
+.pb.tide .v{color:#8FC0C7;font-family:var(--mono);font-size:11.5px}
+.pb.sq{flex:0 0 44px;align-items:center;padding:0}
+.P .pk{gap:5px;padding:0 8px 10px}
+.P .pb{padding:0 7px}
+.P .pb .k{font-size:8px;letter-spacing:.08em}
+.P .pb .v{font-size:12px;gap:4px}
+.P .pb.tide .v{font-size:11px}
+.P .pb .v>span:first-child{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pb.ask .v{color:#EBD9A8;font-size:14px}
+.sbody{flex:1;min-height:0;overflow:auto;padding:12px 14px 14px;border-top:1px solid var(--border);display:none}
+.sh.open .sbody{display:block}
+.pane{display:none;flex-direction:column;gap:10px}
+.pane.on{display:flex}
+.pane h3{font-size:16px;font-weight:700;letter-spacing:-.01em}
+.pane .askin{height:48px;border:1px solid rgba(201,162,75,.6);border-radius:12px;display:flex;align-items:center;padding:0 5px 0 14px;font-size:15px;color:var(--ink-3)}
+.pane .askin i{margin-left:auto;width:38px;height:38px;border-radius:9px;background:#3A2C23;display:flex;align-items:center;justify-content:center;font-style:normal;color:var(--ink)}
+.sug{display:flex;flex-direction:column;gap:6px}
+.sug span{font-size:13px;color:var(--ink-2);border:1px solid var(--border);border-radius:9px;padding:9px 11px}
+.note{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);line-height:1.6}
+.wr{display:flex;align-items:center;gap:9px;padding:0 4px;min-height:48px;border-bottom:1px solid var(--border);text-align:left;width:100%}
+.wr:last-child{border-bottom:0}
+.wr.on{background:rgba(201,162,75,.09);box-shadow:inset 3px 0 0 var(--home)}
+.wr .d{font-size:13.5px;font-weight:600}
+.wr .tt{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">Map tab · iPhone only · proposal</div>
+<h1>Give the map the screen</h1>
+<p>Today the masthead, origin row, tabs, Ask bar and attribution together leave the map under half of the screen. These changes apply below the mobile breakpoint only; desktop and iPad keep the full masthead, including the origin row and sun times.</p>
+<ol>
+<li><b>One-line masthead.</b> The tagline goes. Sun times move up next to the wordmark. Status becomes a dot; the version and Sign out move into the ⋯ menu.</li>
+<li><b>Origin row only when it says something.</b> At home it's hidden, since the HOME marker and rings already show it. Away or unset, it comes back as one line.</li>
+<li><b>Shorter tabs</b>, 13px and 34px tall.</li>
+<li><b>Ask moves into the peek row</b> as its own button. Tapping it opens the sheet with the input focused.</li>
+<li><b>Attribution on one line</b>, truncated, tap to expand.</li>
+</ol>
+</div>
+<div class="demobar"><span>Origin:</span><button data-o="home" class="on">Home</button><button data-o="away">Away (Whitby)</button><button data-o="unset">No postcode</button></div>
+<div class="phones">
+<div class="col"><div class="phone T" id="pt"></div><div class="meter" id="mt"></div><div class="cap"><div class="t">Today</div><h2>As shipped</h2><p>Recreated from the iPhone screenshot.</p></div></div>
+<div class="col"><div class="phone P" id="pp"></div><div class="meter" id="mp"></div><div class="cap"><div class="t">Proposed</div><h2>Compact chrome</h2><p>Try the ⋯ menu, the Ask button and the attribution line. Switch the origin above to see the row return.</p></div></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const WIN=[{d:'Tonight',ev:'SUNSET',t:'16:25',v:'maybe'},{d:'Tomorrow',ev:'SUNRISE',t:'07:12',v:'worth'},{d:'Tomorrow',ev:'SUNSET',t:'16:23',v:'poor'},{d:'Thursday',ev:'SUNRISE',t:'07:14',v:'maybe'}];
+const VL={worth:'WORTH IT',maybe:'MAYBE',poor:'POOR'};
+const SP=[['Alnmouth',55.388,-1.611,4,1],['Summerhill Force and Gibson’s Cave',54.62,-2.11,3,0],['Redcar',54.618,-1.07,3,1],['Saltburn',54.583,-0.973,4,1],['Bamburgh',55.607,-1.71,5,1],['Roseberry Topping',54.505,-1.107,4,0],['Whitby',54.486,-0.615,4,1],['Durham Cathedral',54.773,-1.576,3,0]].map(a=>({n:a[0],ll:[a[1],a[2]],s:a[3],coast:!!a[4]}));
+const COL=s=>s>=5?'#8AAE72':s>=4?'#B7B25A':s>=3?'#E0A542':'#C8452F';
+const TG='<svg class="tg" viewBox="0 0 16 9"><path d="M1 5.5C3 1.5 5 1.5 7 5.5S11 9.5 15 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+const HOME=[54.72,-1.47],AWAY=[54.486,-0.615];
+let origin='home';
+
+function shellT(el){el.innerHTML=`<div class="sb"><span>07:43</span><span class="isl"></span><span class="r">●●● 47</span></div>
+<div class="mast"><div class="ctop"><div class="spine"><div class="cw">PhotoCast</div><div class="ck">Field guide to light</div></div><div class="mr"><span class="up"><i></i>UP v2.36.0</span><span class="cog">⚙</span><span class="so">Sign<br>out</span></div></div><div class="rule"></div>
+<div class="og"><span>⌂</span><b class="ogp"></b><span class="cp">Drive times from here</span></div><div class="tms"><span>07:10</span><span>16:29</span></div></div>
+<div class="tabs"><span class="tab">◉ Glance</span><span class="tab">Coming up</span><span class="tab on">◍ Map</span><span class="tab ops">Operations</span></div>
+<div class="mw" style="--shh:130px"><div class="map"></div><div class="pill"><button class="st">‹</button><button class="mid"></button><button class="st">›</button></div>
+<div class="sh"><div class="hdl"><i></i></div><div class="askbar">Ask PhotoCast…<i>↑</i></div><div class="pk">
+<button class="pb"><span class="k">Other windows</span><span class="v">Tomorrow AM <span class="v-worth" style="font-family:var(--mono);font-size:10px">WORTH IT</span></span></button>
+<button class="pb tide"><span class="k">Tide at this light</span><span class="v">${TG}Mid ↑ · 17 dim</span></button>
+<button class="pb sq"><span class="k">Layers</span><span class="v">☰</span></button></div></div></div>
+<div class="safari"><i></i><span>photocast.online</span><i></i></div>`}
+
+function shellP(el){el.innerHTML=`<div class="sb"><span>07:43</span><span class="isl"></span><span class="r">●●● 47</span></div>
+<div class="mast"><div class="ctop"><div class="spine"><div class="cw">PhotoCast</div></div><div class="sun"><span><s>↑</s>07:10</span><span><s>↓</s>16:29</span></div><span class="dot" title="Up"></span><button class="menu" data-a="menu"><span>⋯</span></button></div><div class="rule"></div>
+<div class="og"></div>
+<div class="mpop"><div class="st"><span class="dot"></span><b>UP</b> · v2.36.0</div><button>Settings</button><button>Change home postcode</button><button>Sign out</button></div></div>
+<div class="tabs"><span class="tab">◉ Glance</span><span class="tab">Coming up</span><span class="tab on">◍ Map</span><span class="tab ops">Operations</span></div>
+<div class="mw" style="--shh:74px"><div class="map"></div><div class="pill"><button class="st">‹</button><button class="mid"></button><button class="st">›</button></div>
+<div class="sh"><div class="hdl"><i></i></div><div class="pk">
+<button class="pb" data-p="win"><span class="k">Other windows</span><span class="v"><span>Tmrw AM</span><span class="v-worth" style="font-family:var(--mono);font-size:9.5px;flex:none">WORTH IT</span></span></button>
+<button class="pb tide" data-p="tide"><span class="k">Tide</span><span class="v">${TG}Mid ↑ · 17 dim</span></button>
+<button class="pb sq ask" data-p="ask"><span class="k">Ask</span><span class="v">✦</span></button>
+<button class="pb sq" data-p="lay"><span class="k">Layers</span><span class="v">☰</span></button></div>
+<div class="sbody">
+<div class="pane" data-p="ask"><div class="askin">Ask PhotoCast…<i>↑</i></div><div class="sug"><span>Where's best for sunset tonight within an hour?</span><span>Is tomorrow's sunrise worth the drive to Bamburgh?</span></div></div>
+<div class="pane" data-p="win"><h3>Tonight, or tomorrow?</h3><div>${WIN.map((w,i)=>`<div class="wr${i?'':' on'}"><span class="ev ${w.ev}">${w.ev}</span><span class="d">${w.d}</span><span class="tt">${w.t}</span><span class="vd v-${w.v}">${VL[w.v]}</span></div>`).join('')}</div></div>
+<div class="pane" data-p="tide"><h3>Tide at this light</h3><div class="note">Unchanged from the peek-sheet handoff.</div></div>
+<div class="pane" data-p="lay"><h3>Layers</h3><div class="note">Unchanged from the peek-sheet handoff.</div></div>
+</div></div></div>
+<div class="safari"><i></i><span>photocast.online</span><i></i></div>`}
+
+function makePhone(id,kind){
+ const el=document.getElementById(id);(kind==='T'?shellT:shellP)(el);
+ const st={open:null,menu:false};
+ const map=L.map(el.querySelector('.map'),{zoomControl:false,attributionControl:true}).setView([54.95,-1.45],8.3);
+ map.attributionControl.setPrefix('Leaflet');
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:16,className:'basewarm',attribution:'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors, GIS User Community'}).addTo(map);
+ const ol=L.layerGroup().addTo(map);
+ const w=WIN[0],mid=el.querySelector('.pill .mid');mid.style.setProperty('--vc','var(--marginal)');
+ mid.innerHTML=`<span class="ev ${w.ev}">${w.ev}</span><span class="d">${w.d}</span><span class="tt">${w.t}</span><span class="vd v-${w.v}">${VL[w.v]} ▾</span>`;
+ SP.forEach(p=>L.marker(p.ll,{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc"><i style="background:${COL(p.s)}"></i><b>${p.n}</b>${p.coast?TG.replace('tg','tw'):''}<em>${p.s}★</em></div>`})}).addTo(map));
+ function draw(){ol.clearLayers();const o=origin==='away'?AWAY:HOME;if(origin==='unset')return;
+  [[45,40000],[90,75000]].forEach(([m,r])=>{L.circle(o,{radius:r,color:'#C9A24B',weight:1,opacity:.45,fill:false,interactive:false}).addTo(ol);
+   L.marker([o[0]+r/111000*.72,o[1]+r/111000*1.1],{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="ringl">${m<60?m+' min':'1h 30min'}</div>`})}).addTo(ol)});
+  L.marker(o,{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="hmk${origin==='away'?' away':''}"><i></i>${origin==='away'?'WHITBY':'HOME'}</div>`})}).addTo(ol)}
+ function render(){draw();
+  if(kind==='T'){el.querySelector('.ogp').textContent=origin==='away'?'Whitby, North Yorkshire':origin==='unset'?'Set your home postcode':'Home · Cassop-cum-Quarrington, County Durham'}
+  else{const og=el.querySelector('.og');og.className='og'+(origin==='home'?'':' on '+origin);
+   og.innerHTML=origin==='away'?`<button class="hm" title="Back to home">⌂</button><div class="grp"><span>◉</span><b>Whitby</b><span class="cp">· drive times from here</span><span style="margin-left:auto">⌕</span></div>`:`<div class="grp"><span>◉</span><b>Set your home postcode</b><span style="margin-left:auto">›</span></div>`;
+   el.querySelector('.sh').classList.toggle('open',!!st.open);
+   el.querySelectorAll('.pb').forEach(b=>b.classList.toggle('on',b.dataset.p===st.open));
+   el.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.dataset.p===st.open));
+   el.querySelector('.pb[data-p=win] .k').textContent=st.open==='win'?'Close':'Other windows';
+   el.querySelector('.mpop').classList.toggle('on',st.menu);el.querySelector('.menu').classList.toggle('on',st.menu)}
+  requestAnimationFrame(()=>{setTimeout(()=>{map.invalidateSize();meter()},30)})}
+ function meter(){const mw=el.querySelector('.mw'),sh=parseFloat(getComputedStyle(mw).getPropertyValue('--shh')),att=el.querySelector('.leaflet-control-attribution'),
+  vis=Math.round(mw.offsetHeight-54-sh-(att?att.offsetHeight:0)),pct=Math.round(vis/844*100);
+  document.getElementById(kind==='T'?'mt':'mp').innerHTML=`<span>Map visible</span><span class="bar"><i style="width:${pct}%"></i></span><span><b>${vis}pt</b> · ${pct}%</span>`}
+ if(kind==='P'){el.addEventListener('click',e=>{const t=e.target.closest('button,.leaflet-control-attribution');if(!t){if(st.menu){st.menu=false;render()}return}
+   if(t.classList.contains('leaflet-control-attribution')){e.preventDefault();t.classList.toggle('full');meter();return}
+   if(t.dataset.a==='menu')st.menu=!st.menu;else if(t.dataset.p){st.open=st.open===t.dataset.p?null:t.dataset.p;st.menu=false}else st.menu=false;
+   render();if(st.open==='ask')el.querySelector('.askin').animate([{boxShadow:'0 0 0 0 rgba(201,162,75,.6)'},{boxShadow:'0 0 0 6px rgba(201,162,75,0)'}],{duration:900})});
+  map.on('mousedown dragstart zoomstart',()=>{if(st.open||st.menu){st.open=null;st.menu=false;render()}})}
+ render();return{render};
+}
+const P=[makePhone('pt','T'),makePhone('pp','P')];
+document.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>{origin=b.dataset.o;document.querySelectorAll('[data-o]').forEach(x=>x.classList.toggle('on',x===b));P.forEach(p=>p.render())});
+</script>
+</body>
+</html>
