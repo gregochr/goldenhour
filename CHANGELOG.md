@@ -5,6 +5,116 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.37.0] - 2026-11-03
+
+### Added — Scheduler job descriptions, summary and detail endpoints
+
+The Scheduler's job list now carries, for every job, a plain-English description (an alias, what the
+job does, why it runs when it does, a purpose tag, the outside services it calls, whether it spends
+Claude money, and how it connects to other jobs: who collects its batch results, who watches it, what
+backstops it, what it is staggered against), its newest fire from the run history, and its next three
+fires. A job the catalogue does not know (production rows are hand-editable) simply has no
+description; it is never an error. A new `GET /api/admin/scheduler/jobs/summary` serves the header
+counts (jobs by status and type, how many use Claude, how many last failed, and the next
+non-repeating job), and `GET /api/admin/scheduler/jobs/{jobKey}/detail` serves a job's typical
+duration and its Claude spend over the last 30 days, priced the same way as the Runs cost view
+(forecast cycles include their chained briefing and ask-ready runs). Admin only; backend only for now.
+
+### Added — Scheduler: schedule editors with a live preview and a save confirmation
+
+Editing a job's schedule in the Scheduler panel now has three purpose-built editors. A **sun-relative**
+job gets a slider (30 minutes to 8 hours, in 5-minute steps, read aloud as "4h 15m before sunrise") and
+a sunrise/sunset select, with a live line from the server: what that rule means today and how far it
+moves across the year in UK time. The afternoon refresh also links to Runs → Timing, to choose the
+offset from real run times. A **cron** job that fires at daily or weekly clock times takes comma-separated
+24-hour UK times (and day toggles for a weekly job); the server builds the cron, the editor warns about
+other jobs firing within 30 minutes ("Neighbours: …" or "Nothing within 30 minutes."), refuses times that
+do not share one minute, and saves them as UK time so they follow the clocks. A **fixed-delay** job picks
+from 1, 5, 10, 30 minutes or 1 hour; a delay outside those is kept as its own option until another is
+chosen. If the preview itself cannot be reached the editor says so and still lets you save. After a save
+a toast reads "Saved. Next fire Tomorrow 12:27." from the job as the server then reports it. Hourly crons
+and anything else not made of clock times keep the raw cron field.
+
+### Added — Scheduler: the Day's jobs picture
+
+The Scheduler now opens on **Day's jobs**: one row per scheduled job across the UK day, with each
+fire drawn as a mark in the job's colour (sun-relative gold, cron teal), a status dot (OK, partial,
+failed, running, missed or still to run) and its time, future fires faded, paused jobs dashed and a
+gold £ after the jobs that call Claude. Sunrise, sunset and a Now line sit on the day, with the night
+shaded, and the day is correct on the 23- and 25-hour clock-change days. Step a day back or forward
+(up to a week either way) or return to Today; the summary bar counts how the day went and links the
+day into Runs. **Needs a look** lists the failed, partial and missed fires (including the repeating
+jobs' failures) with a link to the job's panel, and **Not on this day** names the weekly jobs that do
+not fire. Today's picture refreshes every 30 seconds. On a phone the picture scrolls sideways with
+the job names pinned.
+
+Review fixes: the picture stays honest when the job list is late or fails (neutral rows, an error
+banner, a clear message on a row press), re-reads after pausing, resuming, running or saving a job,
+shows paused jobs as "Paused", keeps the newest failures in Needs a look, copes with midnight and the
+oldest day, keeps dots and times inside the plot, draws crowded and missed fires as ticks and
+outlines, grows a running fire to Now, and returns keyboard focus where it started. Rows are 44px
+tall on a phone.
+
+### Added — Repeating jobs, watchdog windows, arrows and a close-up on the Scheduler's Day picture
+
+The Day's jobs picture now draws the whole day. Under the scheduled rows, a "Repeating through the day"
+section shows each polling job as ticks (or a band labelled "every 1 min" when there are too many to
+draw), with failed and partial runs marked in coral and amber. A paused job's would-be fires appear
+as dashed outlines, the forecast cycles show their watchdog window with a red deadline line, and thin
+arrows join a job to the poller that collects its results (and to the job staggered after it); a chip
+turns the arrows off, and selecting a job turns its arrows gold and dims the rest. Hovering a mark or
+focusing a row shows a tooltip with its status, time, duration, outcome and plain name, and Escape
+closes it without closing the panel. "Whole day" / "02:00-05:00 close-up" zooms into the crowded
+overnight slot and is remembered. The day endpoint gains a `PAUSED` fire status and a `ticks` list
+for repeating cron jobs, both backward compatible.
+
+### Added — Scheduler day view data and schedule preview
+
+The Scheduler gets the data behind its day picture and its schedule editors, backend only for now.
+`GET /api/admin/scheduler/day?date=` (admin, a UK date within a week of today) serves, for one day,
+every job's fires with their outcome (succeeded, partial, failed, skipped, running, still to come, or
+missed when an expected fire left no trace), the fallback flag for a solar job that used its stored
+cron, a compact summary for the jobs that repeat (expected count so far, counts by outcome, and the
+failed or partial runs), the day's sunrise and sunset, the forecast-cycle watchdog's windows, and the
+weekly jobs that do not fire that day. Cycle fires take their end time and outcome from the pipeline
+run they started. `POST /api/admin/scheduler/jobs/{jobKey}/schedule-preview` is a dry run: it turns a
+list of UK times into the cron, validates it exactly as saving would, and returns the next three
+fires, the year's earliest and latest time for a solar rule, and any other job firing within 30
+minutes. `PUT /api/admin/scheduler/jobs/{jobKey}/schedule` now accepts an optional `timeZone`
+(`Europe/London` or UTC) so a cron can be edited in UK time; leaving it out keeps the job's zone. A
+fixed-delay job's displayed next fire now follows the application clock rather than the wall clock.
+
+### Changed — Scheduler: All jobs tab with plain-English descriptions and a richer job panel
+
+The Scheduler now opens on an **All jobs** tab: every job is grouped by how it is scheduled
+(sun-relative, cron, fixed delay), with a plain-English paragraph on what it does, a purpose tag, a
+£ Claude tag where it spends money, its schedule, its next fire and how its last run went. You can
+search by name, alias, description or purpose, and filter by Paused, Off in config, Uses Claude and
+Last run failed. The header shows the job count, the UK time zone, how many are paused and the next
+scheduled job. A job's panel is now a drawer over the list and reads top to bottom: what it does,
+its schedule and why it runs then, the next three fires, its last run and one-line result, its
+Claude spend over 30 days, what it calls out to, how it connects to other jobs (each a link) and the
+existing Run now and Pause controls. A **Day's jobs** tab is a placeholder until the day picture
+arrives. The tab and date live in the address (`?view=all`), and older job links still work.
+
+### Fixed — expired refresh tokens are purged again
+
+The scheduled `refresh_token_cleanup` job failed on every fire with "No EntityManager with actual transaction available" because its derived delete ran without a transaction, so expired refresh tokens were never removed. The delete is now one bulk `DELETE` that carries its own transaction.
+
+### Added — Scheduler jobs report their outcome
+
+Every scheduled job now tells the scheduler's fire log what its fire amounted to, instead of
+every fire that did not throw being recorded as `SUCCEEDED`. A job reports one of `SUCCEEDED`
+(it did its job, including "nothing to do"), `SKIPPED` (a deliberate guard: already running, a
+feature switched off, a cycle submission dropped by the cycle guard), `PARTIAL` (some items
+failed while others succeeded) or `FAILED` (it caught and swallowed a whole-job failure), with a
+one-line plain-English summary such as "3 rows deleted", "No batches in flight", "1 of 3 batches
+submitted · 480 requests lost" or "NLCNET scrape failed: connect timed out". Forecast cycles also
+link their fire to the pipeline run. Summaries carry counts only, never account details. Behaviour,
+retries and logging of the jobs are unchanged; the only non-reporting edit is that
+`RefreshTokenRepository.deleteAllByExpiresAtBefore` now returns the number of tokens it removed.
+Scheduler redesign phase S2.
+
 ## [v2.36.5] - 2026-11-02
 
 ### Added — Sky Eval: runs record their version, and a served overview and quick-check endpoint
