@@ -218,7 +218,12 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     }
 
     private static boolean isStrong(SlotSignals row) {
-        return row.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE;
+        return reportedScore(row) >= STRONG_SCORE_INCLUSIVE;
+    }
+
+    /** The score as displayed and banded: rounded, never truncated; shared by tier and wording. */
+    private static int reportedScore(SlotSignals row) {
+        return (int) Math.round(row.effectiveInversionScore());
     }
 
     /**
@@ -249,7 +254,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         // and Claude's echo is already a whole-number Integer widened to double, so this never
         // actually changes a value; it exists so the display rule can't drift from the one the
         // prompt already applies.
-        int reported = (int) Math.round(top.effectiveInversionScore());
+        int reported = reportedScore(top);
         String value = reported + "/10 · " + bandLabel(reported);
         GlanceLine glance = new GlanceLine(
                 GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, reported + GLANCE_DENOMINATOR, null,

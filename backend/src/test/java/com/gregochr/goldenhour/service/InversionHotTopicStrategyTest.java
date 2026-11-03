@@ -267,6 +267,35 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
+    @DisplayName("a date with 8.6 and 9.0 lists both under the strong line (8.6 displays as 9)")
+    void detect_roundedNine_keptWithStrongSites() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "Rounded Region", 8.6),
+                signal(FROM, "Nine Region", 9.0)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).isEqualTo("Strong inversion likely at elevated locations");
+        assertThat(topics.get(0).regions()).containsExactly("Rounded Region", "Nine Region");
+    }
+
+    @Test
+    @DisplayName("a date with 8.4 alone fires with the possible wording (8.4 displays as 8)")
+    void detect_roundedEight_possibleWording() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 8.4)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).startsWith("Inversion possible");
+        assertThat(factWithKey(topics.get(0), "inversion").value()).isEqualTo("8/10 · moderate");
+    }
+
+    @Test
     @DisplayName("one date with two 8 sites lists both under the possible line")
     void detect_sameDateTwoEights_bothListed() {
         when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
