@@ -15,7 +15,9 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import {
+  act, fireEvent, render, screen,
+} from '@testing-library/react';
 
 const labelProps = vi.hoisted(() => ({ spots: [] }));
 
@@ -179,6 +181,10 @@ async function renderMap(days = DAYS, locations = LOCATIONS) {
       />,
     );
   });
+  // The tide strip now starts collapsed (collapse-and-topic-pips-plan.md §1): these tests read the open strip.
+  if (screen.queryByTestId('wf-tide-strip-collapsed')) {
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-tide-strip-toggle')); });
+  }
 }
 
 beforeEach(() => {

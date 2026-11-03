@@ -190,6 +190,9 @@ async function renderMap(props = {}) {
       />,
     );
   });
+  // The tide strip now starts collapsed (collapse-and-topic-pips-plan.md §1): these tests read the open strip.
+  const collapsed = screen.queryByTestId('wf-tide-strip-collapsed');
+  if (collapsed) await act(async () => { fireEvent.click(screen.getByTestId('wf-tide-strip-toggle')); });
   return result;
 }
 

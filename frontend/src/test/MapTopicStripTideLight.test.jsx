@@ -119,6 +119,7 @@ function renderStrip(grid, props = {}) {
       currentTypes={[]}
       onToggleType={vi.fn()}
       onPick={vi.fn()}
+      open
       {...props}
     />,
   );
@@ -267,6 +268,7 @@ describe('MapTopicStrip: the tide row', () => {
         currentTypes={[]}
         onToggleType={vi.fn()}
         onPick={vi.fn()}
+        open
       />,
     );
 

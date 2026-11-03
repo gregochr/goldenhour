@@ -7,7 +7,9 @@
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  act, render, screen, fireEvent, within,
+} from '@testing-library/react';
 import WindowControl from '../components/map/WindowControl.jsx';
 import { rampHex } from '../utils/scoreRamp.js';
 import { unratedRulesFor, setsVerdictHue } from './unratedStylesheet.js';
@@ -921,6 +923,41 @@ describe('WindowControl — the week menu\'s big-seas marker (big-seas plan F1)'
     const rows = openMenu(EVENTS);
     expect(screen.queryByTestId('wf-win-row-bigseas')).toBeNull();
     expect(rows.every((r) => !/big seas/.test(r.textContent))).toBe(true);
+  });
+});
+
+describe('WindowControl — the day-dot jump flash (collapse-and-topic-pips-plan.md §2)', () => {
+  it('does not flash on first render or with no key', () => {
+    renderControl();
+    expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
+  });
+
+  it('flashes when the key changes, and clears after 700ms', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender, onSelect } = renderControl();
+      rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} flashKey={1} />);
+      expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
+      act(() => { vi.advanceTimersByTime(699); });
+      expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flashes again on the next jump', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender, onSelect } = renderControl();
+      rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} flashKey={1} />);
+      act(() => { vi.advanceTimersByTime(700); });
+      rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} flashKey={2} />);
+      expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

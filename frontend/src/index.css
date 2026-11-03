@@ -4479,6 +4479,20 @@ button.wf-hc.also.on:hover {
   font-size: 9.5px;
   color: var(--color-plex-text-muted);
   flex-wrap: wrap;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+/* The aligned count (collapse-and-topic-pips-plan.md §4): its own `flex: none` span so it never truncates. */
+.wf-tide-strip-count {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-badge-tide);
+  white-space: nowrap;
+}
+.wf-tide-strip-count[data-kind='none'] {
+  font-weight: 400;
+  color: var(--color-plex-text-muted);
 }
 /* The strip used to publish `--tsh` (its own `offsetHeight`) and a `wf-tide-strip-on` class on
    `.wf-map-tab` for a CSS lift of the bottom-CENTRE counts footer (T6 #6, §7 check 4). No CSS reads
@@ -4544,11 +4558,147 @@ button.wf-hc.also.on:hover {
   outline-offset: 1px;
 }
 .wf-tl-cv { margin-left: auto; }
+
+/* ── The panel's collapsed row and day dots (collapse-and-topic-pips-plan.md §1, §2) ──
+   The collapsed panel is the tide strip's collapsed row: label (`.wf-tide-strip-kicker`), day groups, and the
+   shared `.wf-tide-strip-toggle` button pinned right. The tooltip rides above a day group, so a collapsed
+   panel does not clip its overflow (the rounded corners need no clip: the row has no background of its own). */
+.wf-topic-strip[data-open='false']:not([data-variant]) { overflow: visible; }
+.wf-tl-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  min-height: 38px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.wf-tl-collapsed-open { cursor: pointer; }
+.wf-tl-days { display: flex; gap: 4px; min-width: 0; }
+.wf-tl-none {
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.wf-tl-day {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-plex-text-muted);
+}
+button.wf-tl-day { cursor: pointer; }
+button.wf-tl-day:hover,
+button.wf-tl-day:focus-visible {
+  border-color: var(--color-plex-border-light);
+  background: rgba(242, 231, 211, 0.07);
+  color: var(--color-plex-text);
+  outline: none;
+}
+.wf-tl-day[data-current='true'] {
+  background: rgba(242, 231, 211, 0.1);
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+.wf-tl-day[data-current='true']::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+}
+.wf-tl-dots { display: flex; gap: 2px; padding: 2px 3px; }
+.wf-tl-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wf-tc);
+}
+.wf-tl-dot[data-state='on'] {
+  box-shadow: 0 0 0 1.5px rgba(20, 15, 12, 0.95), 0 0 8px var(--wf-tc);
+}
+.wf-tl-dot[data-state='other'] {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--wf-tc);
+  opacity: 0.8;
+}
+.wf-tl-dot-empty {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
+}
+.wf-tl-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 4px 8px;
+  background: var(--color-plex-bg);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The first group sits at the panel's left edge: anchor its tooltip there so it is not pushed off the map. */
+.wf-tl-day[data-edge='left'] .wf-tl-tip { left: 0; transform: none; }
+.wf-tl-tip span { color: var(--color-plex-text-muted); }
+button.wf-tl-day:hover .wf-tl-tip,
+button.wf-tl-day:focus-visible .wf-tl-tip { display: block; }
+/* The open grid, panel only: the current day's header and the active window's bar (the sheet is unchanged). */
+.wf-topic-strip:not([data-variant]) .wf-tl-d {
+  padding: 3px 0 5px;
+  margin-bottom: 5px;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] {
+  background: rgba(242, 231, 211, 0.1);
+  border-radius: 5px;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] i,
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] b {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true']::after {
+  content: '';
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+}
+.wf-tl-b[data-light='window'] {
+  background: color-mix(in srgb, var(--wf-tc) 42%, transparent);
+  border-color: var(--wf-tc);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--wf-tc) 60%, transparent);
+}
+.wf-tl-b[data-light='other'] {
+  background: none;
+  border-style: dashed;
+}
 /* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
-   row after them is 24px. 92 + 8 x 41 = the 420px the 440px panel leaves inside its padding. */
+   row after them is 24px. 104 + 8 x 39.25 = the 418px the 440px panel leaves inside its borders and padding
+   (the name column is 104px since collapse-and-topic-pips-plan.md §2, with an ellipsis). */
 .wf-tl-grid {
   display: grid;
-  grid-template-columns: 92px repeat(8, minmax(0, 1fr));
+  grid-template-columns: 104px repeat(8, minmax(0, 1fr));
   grid-template-rows: auto auto;
   grid-auto-rows: 24px;
   row-gap: 4px;
@@ -4617,6 +4767,7 @@ button.wf-hc.also.on:hover {
   white-space: nowrap;
   cursor: pointer;
 }
+.wf-tl-n > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wf-tl-n[aria-disabled='true'] { cursor: default; opacity: 0.6; }
 .wf-tl-n[data-selected='true'] { color: var(--wf-tc); }
 .wf-tl-g { font-size: 11px; }
@@ -5881,6 +6032,13 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
+}
+/* A day-dot jump on the collapsed Hot topics row (collapse-and-topic-pips-plan.md §2): the control flashes
+   for 700ms (the class is added on the change and removed by a timer) and fades with a .5s transition. */
+.wf-win-pill { transition: border-color 0.5s, box-shadow 0.5s; }
+.wf-win-control[data-flash='true'] .wf-win-pill {
+  border-color: rgba(242, 231, 211, 0.5);
+  box-shadow: 0 0 0 3px rgba(242, 231, 211, 0.12);
 }
 .wf-win-pill:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -10871,6 +11029,22 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   min-width: 0;
   transition: background 0.14s, border-color 0.14s;
 }
+/* Closable entries (collapse-and-topic-pips-plan.md §5). The shared `.wf-tide-strip-toggle` button sits over the
+   card's top right corner (a sibling of the card, which may itself be a button); the title row reserves room for
+   it. A closed entry is its header line alone: tighter padding, the plain title size, and a date box that
+   keeps the day only (the month and the countdown are not drawn). */
+.wf-cu-ent { position: relative; }
+.wf-cu-toggle {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+}
+.wf-cu-ent:has(> .wf-cu-toggle) .wf-cu-ttl { padding-right: 64px; }
+.wf-cu-card-closed { padding-top: 7px; padding-bottom: 7px; }
+.wf-cu-card.wf-cu-card-closed .wf-cu-nm { font-size: 13.5px; font-weight: 600; }
+.wf-cu-card.wf-cu-card-closed .wf-cu-gi { font-size: 12.5px; }
+.wf-cu-ent[data-open='false'] .wf-cu-dbox { padding: 3px 0 4px; }
 .wf-cu-card:hover {
   background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 10%, transparent);
   border-color: var(--color-plex-border-light);

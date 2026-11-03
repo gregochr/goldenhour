@@ -458,6 +458,27 @@ export function stripModel({
 }
 
 /**
+ * The collapsed tide row's aligned count: how many of the coastal spots in view have the tide this
+ * window wants (the spots that are NOT dimmed), out of all of them.
+ *
+ * <p>Wording (collapse-and-topic-pips-plan.md §4): {@code "4 of 14 aligned"}, {@code "none of 14 aligned"}
+ * (muted) or {@code "all 14 aligned"}. Null when there is nothing honest to say: no coastal spot in view, or
+ * no served tide tier on any of them ({@code fitKnown === false}).
+ *
+ * @param {?{namedCoastal: ?Array, dimmed: ?Array, fitKnown: ?boolean}} model {@link stripModel}'s result
+ * @returns {?{kind: 'some'|'none'|'all', text: string, aligned: number, total: number}} the count, or null
+ */
+export function alignedCount(model) {
+  if (!model || model.fitKnown === false) return null;
+  const total = model.namedCoastal?.length ?? 0;
+  if (total === 0) return null;
+  const aligned = Math.max(0, total - (model.dimmed?.length ?? 0));
+  if (aligned === 0) return { kind: 'none', text: `none of ${total} aligned`, aligned, total };
+  if (aligned === total) return { kind: 'all', text: `all ${total} aligned`, aligned, total };
+  return { kind: 'some', text: `${aligned} of ${total} aligned`, aligned, total };
+}
+
+/**
  * The served clock time for the SUNRISE or SUNSET row sharing {@code date} — a lookup over the
  * already-built EV list, never a formula: {@code BriefingWindowTide} states WHERE the sun rises
  * and sets on the day's tide axis ({@code sunrisePosition}/{@code sunsetPosition}, T2) but not the

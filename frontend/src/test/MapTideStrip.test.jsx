@@ -692,6 +692,41 @@ describe('MapTideStrip — collapse', () => {
     expect(screen.queryByTestId('wf-tide-strip-footer')).not.toBeInTheDocument();
   });
 
+  describe('the collapsed row\'s aligned count (collapse-and-topic-pips-plan.md §4)', () => {
+    const collapsedWith = (model) => render(
+      <MapTideStrip
+        model={model} tide={tideFixture()} activeRow={{ ...activeRow, time: '16:23' }} collapsed mapPaneRef={mapPane()}
+      />,
+    );
+
+    it('says K of N aligned, drops the time and never says dimmed', () => {
+      collapsedWith(baseModel({ dimmed: new Array(10).fill(0) }));
+      const row = screen.getByTestId('wf-tide-strip-collapsed');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('6 of 16 aligned');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveAttribute('data-kind', 'some');
+      expect(row).not.toHaveTextContent('16:23');
+      expect(row).not.toHaveTextContent('dimmed');
+      expect(row).toHaveTextContent('2.6 m');
+    });
+
+    it('says none of N aligned when every spot is dimmed, and all N aligned when none is', () => {
+      const { unmount } = collapsedWith(baseModel({ dimmed: new Array(16).fill(0) }));
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('none of 16 aligned');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveAttribute('data-kind', 'none');
+      unmount();
+      collapsedWith(baseModel({ dimmed: [] }));
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('all 16 aligned');
+    });
+
+    it('draws no count when the fit is unknown or no coastal spot is in view', () => {
+      const { unmount } = collapsedWith(baseModel({ fitKnown: false }));
+      expect(screen.queryByTestId('wf-tide-strip-aligned')).toBeNull();
+      unmount();
+      collapsedWith(baseModel({ namedCoastal: [] }));
+      expect(screen.queryByTestId('wf-tide-strip-aligned')).toBeNull();
+    });
+  });
+
   it('calls onToggleCollapse on the toggle button, in both directions', () => {
     const onToggleCollapse = vi.fn();
     const ref = mapPane();

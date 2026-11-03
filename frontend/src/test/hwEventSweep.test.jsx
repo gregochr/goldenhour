@@ -453,6 +453,8 @@ describe('hwEventSweep: a FUTURE High-water row keeps the parent date and the pa
 
   it('from the strip\'s tick: the same hand-off, announced once', async () => {
     await renderMap({ startDate: TODAY, autoEventType: 'SUNSET' });
+    // The panel starts collapsed (collapse-and-topic-pips-plan.md §1): open it to reach the tick.
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-topic-strip-toggle')); });
     await act(async () => { fireEvent.click(screen.getByTestId(`wf-topic-strip-hw-tick-${FRI}`)); });
     expect(onSelectDate).toHaveBeenCalledWith(FRI, { isNight: false });
     expect(pill()).toHaveTextContent('High water');

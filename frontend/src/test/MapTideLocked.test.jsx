@@ -332,6 +332,9 @@ describe('Map tide lock — the desktop teaser (§5.2)', () => {
     mockRole = 'ADMIN';
     await renderMap({ tideLocked: false });
     expect(screen.queryByTestId('wf-tide-strip-locked')).toBeNull();
+    // Collapsed by default now: the row first, then the full strip once opened.
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-tide-strip-toggle')); });
     expect(screen.getByTestId('wf-tide-strip-toggle')).toBeInTheDocument();
     expect(screen.getByTestId('wf-tide-strip-chart')).toBeInTheDocument();
     expect(screen.getByTestId('wf-tide-strip-footer')).toHaveTextContent(/dimmed/i);

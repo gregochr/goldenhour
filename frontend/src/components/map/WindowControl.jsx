@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { auroraChipLevel } from '../../utils/auroraChipLevel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
@@ -16,6 +16,9 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
 
 /** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
 const MENU_SCROLL_PAD_PX = 6;
+
+/** How long the control stays highlighted after a day-dot jump (ms); the fade is the CSS transition. */
+export const FLASH_MS = 700;
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -58,8 +61,17 @@ export default function WindowControl({
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
-  shaped = false, auroraAlertNight = null, auroraAlertLevel = null,
+  shaped = false, auroraAlertNight = null, auroraAlertLevel = null, flashKey = 0,
 }) {
+  // A day-dot jump from the collapsed Hot topics row bumps `flashKey`: the control lights up for 700ms
+  // (collapse-and-topic-pips-plan.md §2). Zero (and any bare render) never flashes.
+  const [flashDoneKey, setFlashDoneKey] = useState(0);
+  const flashing = flashKey !== 0 && flashKey !== flashDoneKey;
+  useEffect(() => {
+    if (!flashKey) return undefined;
+    const timer = setTimeout(() => setFlashDoneKey(flashKey), FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [flashKey]);
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
   const open = isControlled ? openProp : openState;
@@ -415,6 +427,7 @@ export default function WindowControl({
       data-testid="wf-win-control"
       className="wf-win-control"
       data-better={showBetter ? '' : undefined}
+      data-flash={flashing ? 'true' : undefined}
       onKeyDown={onKeyDown}
     >
       {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a
@@ -753,6 +766,8 @@ WindowControl.propTypes = {
   /** The night the aurora alert describes, and its level: that night's aurora chip follows the level. */
   auroraAlertNight: PropTypes.string,
   auroraAlertLevel: PropTypes.string,
+  /** Changes on each day-dot jump from the Hot topics row; the control flashes for {@link FLASH_MS}. */
+  flashKey: PropTypes.number,
   events: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string.isRequired,
     kind: PropTypes.string.isRequired,

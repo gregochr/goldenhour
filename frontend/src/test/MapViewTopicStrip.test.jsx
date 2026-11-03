@@ -87,7 +87,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
-import { TOPIC_STRIP_OPEN_KEY, TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
+import { TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
 import { windowKey } from '../utils/windowKeys.js';
 import { FRIDAY_HW } from './bigSeasFixtures.js';
 
@@ -204,11 +204,20 @@ function Pane({
   );
 }
 
-async function renderMap(props = {}) {
+/**
+ * Renders the map. Both bottom panels start collapsed now (collapse-and-topic-pips-plan.md §1), so on the
+ * desktop the Hot topics panel is opened here unless {@code openPanel} is false; the tide strip stays as it
+ * starts (collapsed) and a test that wants it open presses {@code wf-tide-strip-toggle}.
+ */
+async function renderMap({ openPanel = true, ...props } = {}) {
   let result;
   await act(async () => {
     result = render(<Pane hotTopics={HOT_TOPICS} {...props} />);
   });
+  const header = screen.queryByTestId('wf-topic-strip-toggle');
+  if (openPanel && !mockIsMobile && header?.getAttribute('aria-expanded') === 'false') {
+    await act(async () => { fireEvent.click(header); });
+  }
   return result;
 }
 
@@ -280,7 +289,6 @@ describe('MapView: the tide at the light (Pro and Admin)', () => {
 
   it('marks the window, writes the detail line and puts the clause on the chip for a Pro reader', async () => {
     await renderMap({ tide: LIGHT_TIDE });
-    await act(async () => { fireEvent.click(toggle()); });
 
     expect(screen.getByTestId('wf-topic-strip-mark-KING_TIDE-1')).toHaveTextContent('HW');
     expect(screen.getByTestId('wf-topic-strip-tide-detail')).toHaveTextContent(
@@ -291,7 +299,6 @@ describe('MapView: the tide at the light (Pro and Admin)', () => {
 
   it('draws none of it for a LITE reader, who keeps the locked row and the plain chip', async () => {
     await renderMap({ tide: LIGHT_TIDE, tideLocked: true });
-    await act(async () => { fireEvent.click(toggle()); });
 
     expect(screen.queryByTestId('wf-topic-strip-grid')).not.toBeNull();
     expect(screen.queryAllByTestId(/^wf-topic-strip-mark-/)).toHaveLength(0);
@@ -302,9 +309,37 @@ describe('MapView: the tide at the light (Pro and Admin)', () => {
 });
 
 describe('MapView: the strip collapses under the tide strip', () => {
-  it('holds the grid closed under an open tide strip: header enabled, preference kept, flex order kept', async () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
-    await renderMap({ tide: TIDE });
+  /** Both panels start collapsed; the reader opens the tide strip, which then holds the grid. */
+  const openTide = () => press('wf-tide-strip-toggle');
+
+  it('starts both panels collapsed: the Hot topics row and the tide row', async () => {
+    await renderMap({ tide: TIDE, openPanel: false });
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle()).toHaveTextContent('Open');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+  });
+
+  it('opens the grid without touching a collapsed tide strip (they no longer hold each other)', async () => {
+    await renderMap({ tide: TIDE, openPanel: false });
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-topic-strip-held-reason')).toBeNull();
+  });
+
+  it('keeps the grid open when the window changes, with the tide strip collapsed', async () => {
+    await renderMap({ tide: TIDE, tideSat: TIDE });
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    await press('wf-win-next');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise Saturday');
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
+  });
+
+  it('holds the grid closed under an open tide strip: header enabled, flex order kept', async () => {
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
     const chromeBl = screen.getByTestId('wf-map-chrome-bl');
     const tideStrip = screen.getByTestId('wf-tide-strip');
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
@@ -315,43 +350,43 @@ describe('MapView: the strip collapses under the tide strip', () => {
     // Flex order: the topic strip comes BEFORE the tide strip.
     expect(strip().compareDocumentPosition(tideStrip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(chromeBl.lastElementChild).toBe(tideStrip);
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
   });
 
   it('a press on the held header opens the grid and collapses the tide strip, focus staying on the header', async () => {
-    await renderMap({ tide: TIDE });
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
     toggle().focus();
     await act(async () => { fireEvent.click(toggle()); });
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     expect(document.activeElement).toBe(toggle());
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
   });
 
-  it('the tide strip\'s Open puts the tide strip back and holds the grid again, its preference still 1', async () => {
-    await renderMap({ tide: TIDE });
+  it('the tide strip\'s Open puts the tide strip back and holds the grid again', async () => {
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
     await act(async () => { fireEvent.click(toggle()); });
     await press('wf-tide-strip-toggle');
     expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
     expect(screen.getByTestId('wf-tide-strip-toggle')).not.toHaveTextContent('Open');
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
   });
 
   it('closing the yielded grid brings the tide strip back open', async () => {
-    await renderMap({ tide: TIDE });
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
     await act(async () => { fireEvent.click(toggle()); });
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     await act(async () => { fireEvent.click(toggle()); });
     expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
   });
 
   it('the yield is per window: another tidal window is held again with the tide strip open', async () => {
-    await renderMap({ tide: TIDE, tideSat: TIDE });
+    await renderMap({ tide: TIDE, tideSat: TIDE, openPanel: false });
+    await openTide();
     await act(async () => { fireEvent.click(toggle()); });
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     // Thursday sunset -> Saturday sunrise (the other tidal window).
@@ -361,8 +396,6 @@ describe('MapView: the strip collapses under the tide strip', () => {
     expect(screen.queryByTestId('wf-tide-strip-collapsed')).toBeNull();
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
-    // The reader's own tide-strip state was never touched by the yield.
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
     // Back on the first window the yield was cleared as the window moved away: it does not revive.
     await press('wf-win-prev');
     expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent('Sunrise Saturday');
@@ -373,7 +406,8 @@ describe('MapView: the strip collapses under the tide strip', () => {
   });
 
   it('a bar press in the yielded grid that moves to another tidal window keeps the grid open', async () => {
-    await renderMap({ tide: TIDE, tideSat: TIDE });
+    await renderMap({ tide: TIDE, tideSat: TIDE, openPanel: false });
+    await openTide();
     await act(async () => { fireEvent.click(toggle()); });
     await press('wf-topic-bar-KING_TIDE-4');
     expect(screen.getByTestId('wf-topic-bar-KING_TIDE-4')).toHaveAttribute('data-current', 'true');
@@ -383,8 +417,8 @@ describe('MapView: the strip collapses under the tide strip', () => {
   });
 
   it('a reader who collapses the tide strip with its own toggle does not pop the grid open', async () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
-    await renderMap({ tide: TIDE });
+    await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
     await press('wf-tide-strip-toggle');
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
@@ -392,11 +426,51 @@ describe('MapView: the strip collapses under the tide strip', () => {
   });
 
   it('opens again by itself when the tide strip goes (the window no longer carries a tide)', async () => {
-    const { rerender } = await renderMap({ tide: TIDE });
+    const { rerender } = await renderMap({ tide: TIDE, openPanel: false });
+    await openTide();
+    // Press Open on the held grid (it yields), then bring the tide strip back: the grid is held, its open state kept.
+    await act(async () => { fireEvent.click(toggle()); });
+    await press('wf-tide-strip-toggle');
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     await act(async () => { rerender(<Pane hotTopics={HOT_TOPICS} tide={null} />); });
     expect(screen.queryByTestId('wf-tide-strip')).toBeNull();
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('MapView: the day dots on the collapsed Hot topics row', () => {
+  // Thursday 22 Oct: King tide Thursday (both lights) and Saturday; dust Thursday sunset; aurora Thursday night.
+  const dayButton = (i) => screen.getByTestId(`wf-topic-day-${i}`);
+
+  it('marks the window\'s day, and a press on another day moves the window there and flashes the control', async () => {
+    await renderMap({ tide: TIDE, tideSat: TIDE, openPanel: false });
+    expect(dayButton(0)).toHaveAttribute('data-current', 'true');
+    expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
+    // Saturday (index 2) is the first day after Thursday with a topic and an EV row: sunrise first.
+    await act(async () => { fireEvent.click(dayButton(2)); });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise Saturday');
+    expect(dayButton(2)).toHaveAttribute('data-current', 'true');
+    expect(dayButton(0)).not.toHaveAttribute('data-current');
+    expect(screen.getByTestId('wf-win-control')).toHaveAttribute('data-flash', 'true');
+    // The panel stays collapsed; no topic is picked.
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(screen.getByTestId('map-status')).toHaveTextContent('Window moved to Sat sunrise');
+    expect(screen.queryByTestId('wf-topic-chip-KING_TIDE')?.getAttribute('aria-pressed') ?? 'false').toBe('false');
+  });
+
+  it('does nothing on the current day', async () => {
+    await renderMap({ openPanel: false });
+    await act(async () => { fireEvent.click(dayButton(0)); });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunset');
+    expect(screen.getByTestId('wf-win-control')).not.toHaveAttribute('data-flash');
+  });
+
+  it('takes ‹ back to the previous window as usual', async () => {
+    await renderMap({ tide: TIDE, tideSat: TIDE, openPanel: false });
+    await act(async () => { fireEvent.click(dayButton(2)); });
+    await press('wf-win-prev');
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent('Sunrise Saturday');
   });
 });
 
@@ -788,11 +862,10 @@ describe('MapView: the phone\'s hot-topics section in the peek sheet (M4)', () =
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBeNull();
   });
 
-  it('keeps its own storage key: the panel\'s stored choice does not open the sheet strip', async () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+  it('keeps its own storage key: the retired panel key does not open the sheet strip', async () => {
+    localStorage.setItem('mapTopicStripOpen', '1');
     await renderMap();
     await openWindows();
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');
