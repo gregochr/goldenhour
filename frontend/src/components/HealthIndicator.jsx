@@ -95,8 +95,18 @@ function formatDuration(ms) {
 export default function HealthIndicator({
   status, degraded, checkedAt, build, services,
   database, session, appVersion, startedAt,
+  trigger = 'pill', open: openProp, onOpenChange,
 }) {
-  const [open, setOpen] = useState(false);
+  // Uncontrolled by default. The phone masthead controls it (compact-chrome plan R1): its trigger is
+  // an 8px dot, and the ⋯ menu's status line opens the same panel, so the open state lives above both.
+  const [innerOpen, setInnerOpen] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : innerOpen;
+  const setOpen = useCallback((next) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    if (!controlled) setInnerOpen(value);
+    onOpenChange?.(value);
+  }, [open, controlled, onOpenChange]);
   const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
   const pillRef = useRef(null);
   const panelRef = useRef(null);
@@ -157,7 +167,7 @@ export default function HealthIndicator({
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', computePosition);
     };
-  }, [open, computePosition]);
+  }, [open, computePosition, setOpen]);
 
   if (!status) return null;
 
@@ -211,8 +221,31 @@ export default function HealthIndicator({
 
   const serviceEntries = services ? Object.entries(services) : [];
 
+  const isDot = trigger === 'dot';
+
   return (
     <>
+      {isDot ? (
+        // The phone's trigger: an 8px dot with glow inside a 24px hit area (WCAG 2.5.8), no words.
+        // The status is the accessible name, which is all the pill's label ever said.
+        <button
+          ref={pillRef}
+          type="button"
+          className="wf-mast-dot"
+          data-testid="health-dot"
+          data-status={label}
+          onClick={() => setOpen((prev) => !prev)}
+          aria-expanded={open}
+          aria-controls="health-panel"
+          aria-label={`System status: ${label}`}
+        >
+          <span
+            aria-hidden="true"
+            className="wf-mast-dot-disc"
+            data-status={label}
+          />
+        </button>
+      ) : (
       <button
         ref={pillRef}
         type="button"
@@ -243,6 +276,7 @@ export default function HealthIndicator({
           </span>
         )}
       </button>
+      )}
 
       {open && (
         <div
@@ -335,6 +369,45 @@ export default function HealthIndicator({
 }
 
 /**
+ * The ⋯ menu's status line on the phone: `● UP · v2.37.0`, pressed to open the diagnostic panel the
+ * pill opens on wider screens (compact-chrome plan D-2, R1). Absent while the status is unknown, so
+ * the menu never offers a line that says nothing; the version is hidden when it is `'dev'`, as in the
+ * pill.
+ *
+ * @param {object} props
+ * @param {?string} props.status UP, DEGRADED or DOWN; null while unknown
+ * @param {?string} props.appVersion the running build's version
+ * @param {Function} props.onPress called when the line is pressed
+ * @returns {JSX.Element|null} the line
+ */
+export function HealthStatusLine({ status, appVersion, onPress }) {
+  if (!status) return null;
+  const label = status === 'UP' || status === 'DEGRADED' ? status : 'DOWN';
+  return (
+    <button
+      type="button"
+      className="wf-mast-menu-status"
+      data-testid="health-status-line"
+      aria-haspopup="dialog"
+      aria-label={`System status: ${label}. Show details`}
+      onClick={onPress}
+    >
+      <span aria-hidden="true" className="wf-mast-dot-disc" data-status={label} />
+      <span aria-hidden="true" className="wf-mast-status-word" data-status={label}>{label}</span>
+      {appVersion && appVersion !== 'dev' && (
+        <span aria-hidden="true" className="opacity-70">{`· ${appVersion}`}</span>
+      )}
+    </button>
+  );
+}
+
+HealthStatusLine.propTypes = {
+  status: PropTypes.string,
+  appVersion: PropTypes.string,
+  onPress: PropTypes.func.isRequired,
+};
+
+/**
  * Small coloured status badge (UP/DOWN/UNKNOWN).
  */
 function StatusBadge({ status }) {
@@ -373,4 +446,9 @@ HealthIndicator.propTypes = {
   }),
   appVersion: PropTypes.string,
   startedAt: PropTypes.string,
+  /** `pill` (default) or the phone masthead's `dot`. */
+  trigger: PropTypes.oneOf(['pill', 'dot']),
+  /** Controlled open state; omit for the uncontrolled pill. */
+  open: PropTypes.bool,
+  onOpenChange: PropTypes.func,
 };

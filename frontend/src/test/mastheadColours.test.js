@@ -13,8 +13,12 @@ import { fileURLToPath } from 'node:url';
  * <p>What that leaves is the drift, which is what this file is for. It reads the stylesheet as text
  * rather than through the cascade because jsdom does not resolve `var()`, and because the failure
  * being caught is a source edit: someone retunes `--color-plex-coral` — a knob the token's own
- * comment already frets about — and the kicker and nudge link move while the sunrise and sunset
- * stops two lines beneath them do not. One band, two corals, and nothing else in the suite notices.
+ * comment already frets about — and the kicker moves while the sunrise and sunset stops two lines
+ * beneath it do not. One band, two corals, and nothing else in the suite notices.
+ *
+ * <p>The unset-postcode nudge is no longer coral (map-mobile-compact README §6): it is the red group
+ * `#EE8064` / hover `#F49A84`, literals in `index.css` that the tick line must not shadow with a
+ * Tailwind colour of its own. They are pinned at the bottom of this file.
  */
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
@@ -48,18 +52,28 @@ describe('masthead rule colours vs the tokens they copy', () => {
     expect(jsLiteral(component, stop)).toBe(cssToken(css, token));
   });
 
-  it('keeps the amber constant and its Tailwind hover class on one value', () => {
-    // Tailwind's scanner reads raw source and cannot follow a template literal, so the hover class
-    // has to spell the hex out. The duplication is forced by the toolchain; this is what stops it
-    // becoming a divergence — change GOLDEN alone and the link hovers to the old amber.
-    const golden = /const GOLDEN = '(#[0-9A-Fa-f]{6})'/.exec(component)[1].toUpperCase();
-    const hover = /const GOLDEN_HOVER = 'hover:text-\[(#[0-9A-Fa-f]{6})\]'/.exec(tickLine)[1].toUpperCase();
-
-    expect(hover).toBe(golden);
-    // …and the tick line must IMPORT the constant rather than re-declare it, or the equality above
-    // would be comparing two independent literals that happen to agree today.
+  it('has the tick line IMPORT the amber rather than re-declare it', () => {
+    // The nudge's amber hover class is gone (the nudge hovers to a lighter red now), so the old
+    // cross-file equality has nothing to compare. What remains is the import: the two golden clock
+    // times paint with `GOLDEN`, and a second literal in the tick line could drift from the rule's.
     expect(tickLine).toContain("import { GOLDEN } from './shared/MastheadLight.jsx';");
     expect(tickLine).not.toMatch(/^const GOLDEN = /m);
+    expect(tickLine).not.toContain('GOLDEN_HOVER');
+  });
+
+  it('pins the unset nudge to the red group, in the stylesheet and nowhere else', () => {
+    // Spec §6: text and pin #EE8064 (the SUNSET tag's ink), hover #F49A84, border and fill on the
+    // GROUP. The tick line must not carry a Tailwind colour that would beat the group's rule, and the
+    // old coral-only `.wf-tick-nudge` colour must stay deleted.
+    expect(css).toMatch(/\.wf-tick-group\[data-unset='true'\] \.wf-tick-nudge \{ color: #EE8064; \}/);
+    expect(css).toMatch(
+      /\.wf-tick-group\[data-unset='true'\]:hover \.wf-tick-nudge \{ color: #F49A84; \}/,
+    );
+    expect(css).toMatch(/\.wf-tick-group\[data-unset='true'\] \{[^}]*border-color: rgba\(200, 69, 47, 0\.75\)/);
+    expect(css).toMatch(/\.wf-tick-group\[data-unset='true'\] \{[^}]*background: rgba\(200, 69, 47, 0\.12\)/);
+    expect(css).not.toMatch(/\.wf-tick-nudge \{ color: var\(--color-plex-coral\)/);
+    expect(tickLine).not.toMatch(/wf-tick-nudge[^'"`]*(?:hover:)?text-\[/);
+    expect(tickLine).toContain("data-unset={noHome ? 'true' : undefined}");
   });
 
   it('reads a token that really is declared, so the parse cannot silently pass', () => {

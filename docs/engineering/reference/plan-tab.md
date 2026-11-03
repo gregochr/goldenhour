@@ -59,7 +59,7 @@ already names this paragraph's gate.
 Clicking a card opens **one popup** (`WindowSheetDialog`) holding everything the deleted accordion
 held — big field with greedily-placed location chips, region rail, an always-rendered prose slot,
 topic rows, the tide row, the ranked spot strip. The origin control, the search trigger and the light
-times are the masthead's **tick line** (`MastheadTickLine`). ⚠️ **Search is the Plan tab's alone**:
+times are the masthead's **tick line** (`MastheadTickLine`; on the phone the times move up into the masthead's own line and the Plan tab keeps the row, which is search's only way in — see `map-tab.md`, *Phone masthead*). ⚠️ **Search is the Plan tab's alone**:
 its entries are the masthead's ⌕ and origin buttons and nothing else (`/` was search's key until Ask PhotoCast's F2 and is Ask's now — see the *Ask PhotoCast* bullet), and on every other tab the shell hands the tick line no `onOpenSearch`, so it
 draws the origin as a statement and no ⌕ — withheld, not refused (plan-matrix §3 rule 14). Until
 2026-09-16 both buttons opened search on Coming up and Operations, and a pick opened the popup or the

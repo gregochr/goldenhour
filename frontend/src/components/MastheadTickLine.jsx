@@ -5,17 +5,6 @@ import { watchDeparture } from '../utils/watchDeparture.js';
 import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../utils/postcodeNudge.js';
 
 /**
- * The same amber as a Tailwind class, for the nudge link's hover.
- *
- * <p>Imported beside {@link GOLDEN} rather than re-declared. Tailwind's scanner reads raw source
- * text and cannot follow a template literal, so an arbitrary-value class has to contain the hex —
- * the duplication is
- * forced by the toolchain, not chosen. Keeping the two literals one line apart is what stops them
- * drifting, and `mastheadColours.test.js` asserts they are equal ACROSS the two files.
- */
-const GOLDEN_HOVER = 'hover:text-[#E0A542]';
-
-/**
  * One clock time in the row, carrying two different words for two different readers.
  *
  * <p><b>Assistive technology gets the EVENT; sighted readers get the KIND.</b> The rule above is
@@ -215,6 +204,16 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
  * closes, and it needs somewhere else to put the reader. See `App`'s settings mount.
  *
+ * <h2>The phone Map's compact row</h2>
+ *
+ * <p>{@code hideAtHome} (compact-chrome plan §2, R2) makes the row draw NOTHING at Home on the phone
+ * Map — the HOME marker and reach rings say where the plan is from — and a single 36px line when
+ * away or unset, ⌂ first. The row still mounts, so its focus hand-off above keeps working: with the
+ * origin slot empty it falls back to {@code fallbackFocus} (the shell's ⋯ button), and the nudge's
+ * resolver does the same, so neither the ⌂ route (Away to Home) nor a saved postcode (Unset to Home)
+ * can leave a reader on {@code <body>}. {@code showTimes} is off on the phone, where the times live
+ * in the masthead's own line. The unset state is red on EVERY width ({@code data-unset}).
+ *
  * @param {object}    props
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
  * @param {?object}   props.origin      the away origin ({@code {name, baseName}}), or null for home
@@ -228,7 +227,7 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
-  isMapTab = false,
+  isMapTab = false, hideAtHome = false, fallbackFocus = null, showTimes = true,
 }) {
   // Whichever of the three elements the origin slot holds now. See the class comment's last
   // section: the handoff below and the nudge's resolver both read it.
@@ -258,9 +257,11 @@ export default function MastheadTickLine({
     departed.current = null;
     const focused = document.activeElement;
     const nowhere = !focused || focused === document.body || focused === document.documentElement;
-    if (nowhere) originSlot.current?.focus();
+    // The slot can be empty here on the phone Map, where Home draws no row at all (`hideAtHome`):
+    // the shell's ⋯ button is then the nearest control, and `<body>` is never the answer.
+    if (nowhere) (originSlot.current ?? fallbackFocus?.current)?.focus();
   });
-  const originSlotNow = useCallback(() => originSlot.current, []);
+  const originSlotNow = () => originSlot.current ?? fallbackFocus?.current ?? null;
 
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
@@ -280,8 +281,38 @@ export default function MastheadTickLine({
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
 
+  // The phone Map's Home draws no row (compact-chrome plan R2): the HOME marker and reach rings show
+  // the origin. Decided HERE, off `noHome` and `away`, so the shell never re-derives either; every
+  // hook above has already run, and the focus hand-off falls back to `fallbackFocus`.
+  if (hideAtHome && !away && !noHome) return null;
+
+  // ⌂ sits LEFT of the group on the compact row (spec §2) and right of it everywhere else; the DOM
+  // order follows the visual order so Tab does.
+  const homeButton = away && (
+    // ⚠️ Its own press removes it — going home ends "away" — so it is watched for leaving with
+    // focus, and the reader is handed to the origin slot rather than dropped on `<body>` (the
+    // class comment's last section).
+    <button
+      type="button"
+      ref={trackHome}
+      data-testid="window-first-origin-home"
+      className="wf-tick-home"
+      onClick={onGoHome}
+      tabIndex={searchOpen ? -1 : undefined}
+      // Named for what it does rather than for the glyph, and it names the destination because
+      // "back" alone is meaningless out of context in a list of links.
+      aria-label="Plan from home again"
+    >
+      <Pin away={false} />
+    </button>
+  );
+
   return (
-    <div data-testid="window-first-tickline" className="wf-tick">
+    <div
+      data-testid="window-first-tickline"
+      className="wf-tick"
+      data-compact={hideAtHome ? 'true' : undefined}
+    >
       {/* ⚠️ The bordered group and the ⌂ beside it are ONE flex item, which is a wrap fix rather
           than a wrapper for its own sake. `.wf-tick` wraps (it must — an away label names two
           places and a phone has 330px), and a flex line breaks on hypothetical main sizes, so as
@@ -289,9 +320,13 @@ export default function MastheadTickLine({
           detached from the origin it undoes. `PlanOriginChip` held the same pair inside one
           `inline-flex` for the same reason; the port flattened it and the guarantee went with it. */}
       <span className="wf-tick-origin-set">
+        {hideAtHome && homeButton}
         <span
           className="wf-tick-group"
           data-away={away ? 'true' : 'false'}
+          // The unset-postcode state is red on every width (compact-chrome plan §6); the hook is on
+          // the GROUP so the border and fill move with the label.
+          data-unset={noHome ? 'true' : undefined}
           data-statement={statement ? 'true' : 'false'}
         >
           {noHome ? (
@@ -307,7 +342,7 @@ export default function MastheadTickLine({
               // changed underneath it, so neither rendered string appeared in the name and a
               // speech-input reader saying what they could see hit nothing.
               aria-label={SET_POSTCODE_LONG}
-              className={`wf-tick-origin wf-tick-nudge ${GOLDEN_HOVER}`}
+              className="wf-tick-origin wf-tick-nudge"
             >
               <Pin away={false} />
               <span aria-hidden="true" className="wf-tick-place">
@@ -401,27 +436,10 @@ export default function MastheadTickLine({
           )}
         </span>
 
-        {/* ⚠️ Its own press removes it — going home ends "away" — so it is watched for leaving with
-            focus, and the reader is handed to the origin slot rather than dropped on `<body>` (the
-            class comment's last section). */}
-        {away && (
-          <button
-            type="button"
-            ref={trackHome}
-            data-testid="window-first-origin-home"
-            className="wf-tick-home"
-            onClick={onGoHome}
-            tabIndex={searchOpen ? -1 : undefined}
-            // Named for what it does rather than for the glyph, and it names the destination because
-            // "back" alone is meaningless out of context in a list of links.
-            aria-label="Plan from home again"
-          >
-            <Pin away={false} />
-          </button>
-        )}
+        {!hideAtHome && homeButton}
       </span>
 
-      {light && (
+      {light && showTimes && (
         <span data-testid="masthead-light-times" className="wf-tick-times">
           {/* Drawn only when away — see the class comment. `sr-only` rather than absent at home,
               because the rule above is `aria-hidden` and this row is still the entire accessible
@@ -490,4 +508,19 @@ MastheadTickLine.propTypes = {
    * prop's. The empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s derivation.
    */
   isMapTab: PropTypes.bool,
+  /**
+   * The phone Map's compact row (compact-chrome plan §2, R2): draws nothing at Home — this row's
+   * own `noHome`/`away` rules decide, never the caller — and a single 36px line when away or unset.
+   */
+  hideAtHome: PropTypes.bool,
+  /**
+   * Where focus goes when the origin slot is empty (the row is hidden at Home): a ref to the
+   * shell's ⋯ button. Also what the nudge's resolver answers with once the home is saved.
+   */
+  fallbackFocus: PropTypes.shape({ current: PropTypes.any }),
+  /**
+   * Whether the clock times are drawn here. The phone moves them into the masthead's one line, so
+   * the shell turns them off; every other width keeps them.
+   */
+  showTimes: PropTypes.bool,
 };

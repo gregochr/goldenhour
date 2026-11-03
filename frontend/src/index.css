@@ -940,14 +940,24 @@
   color: var(--color-plex-text);
 }
 .wf-tick-group[data-away='true'] .wf-tick-place { color: #8FB6D9; }
-/* The nudge keeps the coral the masthead's own prompt used, so the one thing on this row that is a
-   call to action rather than a statement still reads as one. Measured on the masthead's lower stop:
-   #E8593F is 5.14:1.
-   ⚠️ On the BUTTON, not on `.wf-tick-place`. The component's `GOLDEN_HOVER` Tailwind class sets
-   `color` on the button and `.wf-tick-place`'s own declaration would beat an inherited value — so
-   with the colour one level down, the hover moved the pin (which uses `currentColor`) and left the
-   words unchanged, which is the opposite of what its comment promises. */
-.wf-tick-nudge { color: var(--color-plex-coral); }
+/* The unset-postcode state is RED on every width (map-mobile-compact README §6): the call to action on
+   this row is now the whole GROUP — border, fill, label and pin — not the label alone, so a reader with
+   no postcode sees a red box rather than a coral word. `#EE8064` is the SUNSET tag's ink and passes AA
+   on the masthead; hover brightens the border and the text. Hung off `data-unset` on the group
+   (`MastheadTickLine`), at a specificity that beats `.wf-tick-group:hover`'s white wash.
+   ⚠️ The colour is on the BUTTON, not on `.wf-tick-place`, whose own declaration would beat an
+   inherited value: with it one level down the hover moved the pin (`currentColor`) and left the words
+   unchanged. `.wf-tick-place` inherits below, and `mastheadColours.test.js` pins both literals. */
+.wf-tick-group[data-unset='true'] {
+  border-color: rgba(200, 69, 47, 0.75);
+  background: rgba(200, 69, 47, 0.12);
+}
+.wf-tick-group[data-unset='true']:hover {
+  border-color: rgba(200, 69, 47, 0.95);
+  background: rgba(200, 69, 47, 0.12);
+}
+.wf-tick-group[data-unset='true'] .wf-tick-nudge { color: #EE8064; }
+.wf-tick-group[data-unset='true']:hover .wf-tick-nudge { color: #F49A84; }
 .wf-tick-nudge .wf-tick-place { color: inherit; }
 .wf-tick-pin {
   flex: 0 0 auto;
@@ -1297,7 +1307,141 @@
        a tier. */
     --wf-lens-reserve: 160px;
   }
-  .wf-mast { padding: 14px var(--wf-gutter) 0; }
+  /* The compact phone masthead (map-mobile-compact README §1; plan C1): 8px above ONE 34px line, then
+     the 2px rule. Every phone tab, since a header that changes shape with the tab is worse than either
+     shape. The line is `WindowFirstShell`'s `.wf-mast-row`: the compact wordmark, then the right-hand
+     group (golden times, the admin's status dot, the ⋯ menu). */
+  .wf-mast { padding: 8px var(--wf-gutter) 0; }
+  .wf-mast-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+  }
+  .wf-mast-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  .wf-mast-times {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: #E0A542;
+    white-space: nowrap;
+  }
+  .wf-mast-time { display: inline-flex; align-items: center; gap: 3px; }
+  .wf-mast-arrow { font-size: 9px; opacity: 0.85; }
+  /* Away only: the times are still the HOME light, and the small house says so. */
+  .wf-mast-times-home { font-size: 10px; opacity: 0.85; }
+  /* The status dot: 8px with glow inside a 24px hit area (WCAG 2.5.8). */
+  .wf-mast-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin: 0 -8px;
+    flex: none;
+  }
+  .wf-mast-dot-disc {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
+  /* The status tones, by `data-status` (the pill's `MASTHEAD_TONE`: verdict tokens for the disc, the
+     lifted badge tokens for the word). The glow is the masthead dot's only; the menu line's disc has
+     none, as the mock draws it. */
+  .wf-mast-dot-disc[data-status='UP'] { background-color: var(--color-verdict-go); }
+  .wf-mast-dot-disc[data-status='DEGRADED'] { background-color: var(--color-verdict-marginal); }
+  .wf-mast-dot-disc[data-status='DOWN'] { background-color: var(--color-verdict-standdown); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='UP'] { box-shadow: 0 0 6px var(--color-verdict-go); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='DEGRADED'] { box-shadow: 0 0 6px var(--color-verdict-marginal); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='DOWN'] { box-shadow: 0 0 6px var(--color-verdict-standdown); }
+  .wf-mast-status-word[data-status='UP'] { color: var(--color-badge-go); }
+  .wf-mast-status-word[data-status='DEGRADED'] { color: var(--color-badge-maybe); }
+  .wf-mast-status-word[data-status='DOWN'] { color: var(--color-badge-poor); }
+  /* The ⋯ menu: a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
+     from a pseudo-element so layout sees 30 and the box's edge sits on the gutter. */
+  .wf-mast-menu { position: relative; flex: none; }
+  .wf-mast-menu-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid #3A2C23;
+    border-radius: 8px;
+    color: var(--color-plex-text-secondary);
+    font-size: 15px;
+    letter-spacing: 0.05em;
+    line-height: 1;
+  }
+  .wf-mast-menu-btn::before { content: ''; position: absolute; inset: -5px; }
+  .wf-mast-menu-btn[data-open='true'] {
+    border-color: rgba(201, 162, 75, 0.6);
+    color: #EBD9A8;
+  }
+  /* The catcher swallows the press that dismisses the menu, so it never reaches the map under it.
+     Both sit inside `.wf-mast`'s stacking context, which is what keeps them over the map's chrome. */
+  .wf-mast-menu-catcher { position: fixed; inset: 0; z-index: 1; background: transparent; }
+  .wf-mast-menu-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: -4px;
+    z-index: 2;
+    width: 210px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    background: #1E1712;
+    border: 1px solid var(--color-plex-border-light);
+    border-radius: 12px;
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+  }
+  .wf-mast-menu-row,
+  .wf-mast-menu-status {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 10px;
+    border-radius: 8px;
+    text-align: left;
+    color: var(--color-plex-text);
+  }
+  .wf-mast-menu-row { font-size: 14px; }
+  .wf-mast-menu-row:hover,
+  .wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
+  .wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
+  /* The app's status node can render nothing (status still unknown); the strip must go with it. */
+  .wf-mast-menu-status-wrap:empty { display: none; }
+  .wf-mast-menu-status {
+    gap: 7px;
+    min-height: 44px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-plex-text-secondary);
+  }
+  /* The compact origin row (README §2) — the Map tab at Away or Unset, the only states it draws:
+     one 36px line, ⌂ (32×28) first, then the group at 28px, the place name ellipsised. */
+  .wf-tick[data-compact='true'] {
+    flex-wrap: nowrap;
+    height: 36px;
+    padding: 0;
+    gap: 0;
+  }
+  .wf-tick[data-compact='true'] .wf-tick-origin-set { flex: 1 1 auto; width: 100%; gap: 6px; }
+  .wf-tick[data-compact='true'] .wf-tick-group { flex: 1 1 auto; height: 28px; }
+  .wf-tick[data-compact='true'] .wf-tick-origin { min-height: 0; }
+  .wf-tick[data-compact='true'] .wf-tick-home { min-width: 32px; min-height: 28px; height: 28px; }
   /* The design's phone sizes: 34px controls, and the `/` chip goes — a phone has no keyboard to
      press it with and the row needs every pixel the chip was taking.
 
@@ -1322,15 +1466,21 @@
   .wf-tick-origin-set { gap: 6px; }
   /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
      zeroed a focus-ring reservation while its paired negative margin still applied. */
-  .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
-  .wf-tab { padding: 8px 11px; font-size: 12px; }
+  .wf-tabs { padding: 6px var(--wf-gutter) 4px; }
+  .wf-tab { padding: 7px 11px; font-size: 13px; }
   /* At a Glance → "Glance" rename (coming-up-glance-plan.md R1): the tabs share the bar's width
-     instead of huddling left, and each keeps a 36px body plus 4px of hit area ABOVE it (40px in
-     all, from the pseudo-element, inside the bar's 10px top padding). It extends upward only: the
-     bar's `margin-bottom: -4px` puts the pane's top edge under the tab's foot. `overflow-x: auto`
-     above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched. */
-  .wf-tab { flex: 1 1 auto; min-height: 36px; position: relative; }
-  .wf-tab::before { content: ''; position: absolute; inset: -4px 0 0; }
+     instead of huddling left. Compact tabs (map-mobile-compact README §3, plan R9): a 34px body
+     (13px type, 7px padding) with the hit area grown back to 44px by the pseudo-element — 6px ABOVE
+     the body, inside the bar's 6px top padding, and 4px BELOW it, inside the bar's 4px bottom
+     padding (the bar's `margin-bottom: -4px` puts the pane's top edge under the tab's foot, so the
+     extension stays inside the bar's own box and `overflow-x: auto` clips nothing). That is 44px on
+     Plan, Coming up and Operations. ⚠️ On the MAP tab the bottom 4px lies under the map container,
+     which paints over `.wf-tabrow` there, so the real target is about 41px (6 + 34 + the part of
+     the 4px not covered). The geometry is kept; the claim is "≥ 40px, ~41px on Map". `overflow-x:
+     auto` above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched.
+     `mapMobileCompactCascade.test.jsx` pins the arithmetic. */
+  .wf-tab { flex: 1 1 auto; min-height: 34px; position: relative; }
+  .wf-tab::before { content: ''; position: absolute; inset: -6px 0 -4px; }
   /* `flex: 1 1 auto` above would cancel the admin tab's `margin-left: auto` push to the right. */
   .wf-tab-gated { flex-grow: 0; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
