@@ -45,7 +45,7 @@ A change to the guide copy is then a landing deploy (`release-landing.sh`), not 
   `'*'`. That payload is harmless, but the app's listener must check `event.origin` against the
   guide origin and `event.source` against its own iframe, and use `title` only as text.
 
-## Phases (one PR each, in order)
+## Phases (one PR each, in order: G1 → owner deploys the landing site → G2 → G3)
 
 ### G1 — the guide on the landing site (landing-only, deployable on its own)
 
@@ -107,71 +107,136 @@ A change to the guide copy is then a landing deploy (`release-landing.sh`), not 
 
 ### G2 — the panel and the three header doors (app)
 
-- `nginx.conf` (app): `frame-src https://challenges.cloudflare.com https://photocast.online`;
-  update the CSP comment block. Add a `nginxConf.test.js` assertion that `$csp`'s `frame-src`
-  lists both.
-- `src/utils/guide.js`: `GUIDE_ORIGIN` (from `import.meta.env.VITE_GUIDE_ORIGIN`, default
-  `https://photocast.online`), `TAB_GUIDE = { plan: 'at-a-glance', 'coming-up': 'coming-up', map:
-  'map' }` (operations: none, the button is hidden), `guideUrl(page, hash, { embed })`, and
-  `GUIDE_SECTIONS`, the frozen list of every `page#section` the app opens (single source for the
-  doors in G3 and G4, and pinned by a test against the ids in `landing/guide/*.html`, read from
-  disk as `nginxConf.test.js` reads `nginx.conf`, so renaming an id in the guide fails the
-  frontend suite).
-- `src/context/GuideContext.jsx`: `GuideProvider` wrapping `AppInner`'s root div; `useGuide()` →
-  `{ open, page, hash, openGuide(page, hash?), closeGuide() }`. Absent provider → no-op functions
-  (so isolated component tests need no provider).
-- `src/components/guide/GuidePanel.jsx`, rendered as the last child of `AppInner`'s root:
-  - Desktop/tablet (`!useIsMobile()`): `<aside aria-label="PhotoCast guide" data-guide-surface>`,
-    fixed right, 440px (max 100vw), full height below safe area, slide-in transform. **Not
-    `role="dialog"`**: `shellForeignDialog` would refuse Ask while it is up, BottomSheet would
-    lose its Escape, and `aria-modal` would stand down every Map Escape rule. Header: the title
-    (from the guide's postMessage, else the page name from `utils/guide.js`), "Open in new tab ↗"
-    (`target=_blank rel=noopener`, the non-embed URL), ✕. Esc closes when focus is inside the
-    panel chrome (a keypress inside the iframe never reaches the app; say so in the doc comment).
-    No scrim on desktop (non-modal).
-  - Phone: `BottomSheet size="tall" closeOnEscape label="PhotoCast guide"` with the same header
-    (no "Open in new tab"). Scrim tap closes. It is modal, so the at-most-two rule applies:
-    `openGuide` on phone first closes the shell's dialogs (`closeShellDialogs`) unless it was
-    called from Settings (Settings + guide = two).
-  - The iframe: `src = guideUrl(page, hash, {embed:true})`, `title="PhotoCast guide"`,
-    `sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"`,
-    `referrerPolicy="strict-origin"`, `loading="lazy"` off (it is opened on demand). Changing
-    `page`/`hash` while open reloads the frame.
-  - `message` listener: accept only `event.origin === GUIDE_ORIGIN`, `event.source ===
-    iframe.contentWindow`, `data.type === 'photocast-guide'`, `typeof data.title === 'string'`;
-    render the title as text, trimmed of a trailing full stop, capped at 80 chars.
-  - Focus: opening moves focus to the panel's ✕ (desktop) or follows BottomSheet; closing returns
-    it to the door that opened it (record `document.activeElement` in `openGuide`).
-- Ask dock: while the desktop panel is open the dock closes, and it re-opens on close if it was
-  open before. Do it in the shell (`askDockOpen` + a `guideSuspendedDock` flag read from
-  `useGuide()`), not by adding the dock to `selectTab`.
-- `hooks/useOutsideDismiss.js`: a press inside `[data-guide-surface]` does not dismiss a Map
-  panel (as `[data-ask-surface]` does). Test it.
-- `selectTab` does not close the desktop panel (it is non-modal and follows the reader); the
-  masthead `?` then follows the tab (if open, switching tab loads the new tab's page). Phone: the
-  sheet is a dialog, so `selectTab` closes it — wire it through the same route the shell uses for
-  its other dialogs, keeping `selectTab`'s body to shell setters only (it runs during render).
-- Doors:
-  - Masthead `?` (desktop/tablet between ⚙ and Sign out, styled like ⚙; phone in
-    `.wf-mast-right` beside ⋯), `aria-label="Guide for this tab"`, `aria-expanded`,
-    `aria-controls`, hidden on operations. Toggles: open → close.
-  - Ask dock header: a `?` before ✕ (`ask-photocast`). Ask sheet: the `header` prop gains the
-    same `?`.
-  - Settings header: a `?` beside the ×, opening `settings`.
-- `src/components/guide/GuideLink.jsx`: 24px round `?` with a 44px hit area (padding or `::before`),
-  props `page`, `section`, `label` (required, becomes `aria-label` and `title`),
-  `stopPropagation` on click (it lives inside clickable rows), `data-testid="guide-link"`. Built and
-  tested here, used in G3.
-- Role gating: every role sees the guide (it is help, not a feature). Rewind: unchanged.
-- Tests: GuidePanel (desktop aside vs phone sheet via the `useIsMobile` mock, title from a
-  trusted message, ignored from a wrong origin or source, ✕/Esc close, focus return), the masthead
-  button per tab and hidden on operations, the dock suspend/restore, useOutsideDismiss, the
-  GUIDE_SECTIONS-vs-landing-ids pin, the CSP assertion.
-- Browser check: run `landing/` with a plain static server (`python3 -m http.server 8090
-  --directory landing`) and the app with `VITE_GUIDE_ORIGIN=http://localhost:8090`; a plain
-  static server sends no frame-ancestors, so local framing works.
+**Release order: the owner deploys G1's landing site before any app release that contains G2.**
+Until then `/guide/` refuses to be framed and every door opens a blank panel.
 
-### G3 — the 13 in-context `?` links (app)
+#### Three presentations, chosen at press time
+
+The handoff's "440px drawer over the content" does not survive this app's layering (review of
+2026-11-03): over a Modal it sits under the scrim, a screen reader cannot reach it past an
+`aria-modal` layer, at 1280px it covers the masthead cluster holding its own toggle, at tablet
+width it covers most of the page, and under the tablet Ask sheet it is inert. So `openGuide`
+decides how to present from the state at the moment of the press:
+
+1. **Docked column** — desktop and wide (`useAskSurface()` is `'desktop'` or `'wide'`, i.e.
+   ≥1024px) **and no `[role=dialog][aria-modal=true]` is in the DOM**. The guide takes the Ask
+   dock's slot in the shell's docked row (`wf-shell--docked`, 360/380px; the guide may use up to
+   440px where the row has room), below the masthead, so the masthead stays reachable. It is an
+   `<aside aria-label="PhotoCast guide" data-guide-surface>`, **not** `role="dialog"`
+   (`shellForeignDialog` would refuse Ask while it is up, and `aria-modal` would stand down every
+   Map Escape rule). Guide and Ask dock are **mutually exclusive both ways**: opening the guide
+   hides the dock (remember `dockWasOpen`), opening the dock closes the guide. Closing the guide
+   restores the dock if `dockWasOpen`, with the dock's mount autofocus suppressed (an `autoFocus`
+   prop on AskDock, default true), and focus goes back to the guide's door. When the door was
+   inside the dock (dock header `?`, empty-state `?`), its node is gone, so focus returns to the
+   restored dock's field instead (use autofocus for that case). On Operations (no dock row), the
+   docked guide closes on entering the tab.
+2. **Stacked dialog** — desktop/wide while one aria-modal layer is up (Settings, the popup, the
+   four-day sheet, the Operations modal): a right-hand panel portalled to `document.body`,
+   `role="dialog" aria-modal="true" aria-label="PhotoCast guide"`, with a scrim, on a new z rung
+   above Modal's 50 and the peek's 60 (add it to the ladder comment in `index.css` ~:800-825;
+   below BottomSheet's 9999). The layer under it is told it is stacked (below).
+3. **Sheet** — phone and tablet (`useAskSurface()` is `'phone'` or `'tablet'`, <1024px):
+   `BottomSheet size="tall" closeOnEscape label="PhotoCast guide"`. It portals to `body`, so the
+   tablet Ask sheet's `inert` on the app container does not reach it. BottomSheet's own ✕ is the
+   close (no second ✕); the header carries the title only. The iframe fills the tall scroller:
+   no padding, no overflow on the scroller (scrolling is the iframe's), `flex: 1`.
+
+**Two-deep rule** for 2 and 3: at press time count `[role=dialog][aria-modal=true]`. Fewer than
+two: open stacked over it. Two or more: call `closeShellDialogs` first and count again; if the
+count is now below two, open stacked; if it is still two or more (Settings over the Operations
+modal), do nothing and leave focus where it was. There is no "called from Settings"
+special case: while Settings is open the shell has already closed its own dialogs.
+
+**Stacked protocol.** `useGuide()` exposes `guideModal` (true for presentations 2 and 3). Every
+layer that can sit under it reads it and, while true, passes `stacked` (Modal's existing prop:
+inert, no `aria-modal`) and withholds its own `closeOnEscape`, exactly as
+`UserSettingsModal` does for `subRegionsStacked`:
+- `UserSettingsModal`: `stacked = subRegionsStacked || guideModal`, and the same for `closeOnEscape`.
+- The shell's Modals (popup, four-day sheet, pick/sheet dialogs, Operations modal): fold
+  `guideModal` into their existing `stacked` / Escape terms.
+- The Ask sheet (`BottomSheet`): if BottomSheet has no `stacked` support, its last-dialog Escape
+  rule already defers to the later-mounted guide sheet; verify and test, and add `inert` on the
+  lower sheet only if the existing BottomSheet stacking supports it.
+Escape in presentation 1 is a native keydown listener on the aside node that closes the guide
+and calls `stopPropagation` (as `AskDock.jsx:156-166`), and works only while focus is in the
+panel chrome: a keypress inside the iframe never reaches the app (say so in the doc comment).
+
+#### State, focus and the frame
+
+- `src/utils/guide.js`: `GUIDE_ORIGIN = new URL(import.meta.env.VITE_GUIDE_ORIGIN ||
+  'https://photocast.online').origin` (normalised, so a trailing slash still matches),
+  `GUIDE_PAGES` (page id → display name), `TAB_GUIDE = { plan: 'at-a-glance', 'coming-up':
+  'coming-up', map: 'map' }` (no Operations entry), `guideUrl(page, hash, { embed })`, and
+  `GUIDE_SECTIONS`, the frozen list of every `page#section` the app opens (G3 uses it).
+- A Vitest pin reads `landing/guide/*.html` from disk (as `landingNginxConf.test.js` reads
+  `../landing/nginx.conf`) and checks every `GUIDE_SECTIONS` id and every `GUIDE_PAGES` page
+  exists. G1 makes CI run the frontend suite on a `landing/guide/` change, so renaming an id
+  fails the PR that renames it.
+- `src/context/GuideContext.jsx`: `GuideProvider` around `AppInner`'s root; it receives
+  `closeShellDialogs` and the active tab as props. `useGuide()` → `{ open, presentation, page,
+  hash, guideModal, openGuide(page, hash?, { returnFocus? }), closeGuide() }`. No provider →
+  no-op functions. `returnFocus` is a function returning the node to focus on close (default: the
+  element focused at press time). A door inside a popover that unmounts on focus-out (G3's
+  `ProUpsellDoor`) passes its trigger: `returnFocus: () => triggerRef.current`. Presentation 3
+  passes the same function as BottomSheet's `restoreFallback`, so there is one owner of the
+  return target.
+- Each `openGuide` bumps a nonce that keys the iframe, so reopening the same `page#hash` after
+  navigating inside the guide reloads it at the right place.
+- `message` listener: accept only `event.origin === GUIDE_ORIGIN`, `event.source ===
+  iframe.contentWindow`, `data.type === 'photocast-guide'`; take `title` (string, trailing full
+  stop trimmed, capped at 80 chars, rendered as text) and `page` (only if it is a `GUIDE_PAGES`
+  id) and `hash`. The tracked current page drives the header title and "Open in new tab ↗".
+- iframe: `title="PhotoCast guide"`, `sandbox="allow-scripts allow-same-origin allow-popups
+  allow-popups-to-escape-sandbox"`, `referrerPolicy="strict-origin"`.
+- Header (1 and 2): title, "Open in new tab ↗" (`target=_blank rel=noopener`, the non-embed URL
+  of the tracked page), ✕. Opening moves focus to ✕.
+- Tab changes: GuideProvider closes presentations 2 and 3 in an effect keyed on App's
+  `activePlanTab` (fed by `onTabChange`), never from `selectTab`, which runs during render and
+  may hold shell setters only. Presentation 1 follows the reader: if its tracked page is the old
+  tab's `TAB_GUIDE` page, it loads the new tab's page; otherwise it stays; entering Operations
+  closes it.
+- `hooks/useOutsideDismiss.js`: a press inside `[data-guide-surface]` does not dismiss a Map
+  panel, as `[data-ask-surface]` does (presses inside the iframe never reach the parent's
+  `mousedown` anyway; say so).
+- `nginx.conf` (app): `frame-src https://challenges.cloudflare.com https://photocast.online`,
+  update the CSP comment block (note that production's `frame-src` is fixed, so a non-default
+  `VITE_GUIDE_ORIGIN` only works in dev). `nginxConf.test.js` asserts `$csp`'s `frame-src`.
+
+#### The three header doors
+
+- Masthead `?`: desktop and tablet between ⚙ and Sign out, styled as ⚙, `aria-label="Guide for
+  this tab"`, `aria-expanded`, `aria-controls`; hidden on Operations; a toggle (open → close).
+  **Phone: a "Guide" row in the ⋯ `MastheadMenu`** (via its `press()` helper), not a fourth
+  control in the 34px `.wf-mast-right`.
+- Ask: a `?` before ✕ in the dock header (`AskDock.jsx` ~:181-196) and in the Ask sheet's
+  `header` prop (`AskSheet.jsx`), opening `ask-photocast`.
+- Settings: a `?` beside the × (`UserSettingsModal.jsx` ~:1183-1186), opening `settings`.
+- Every role sees the guide (it is help, not a feature). Rewind: unchanged.
+
+#### Tests and checks
+
+GuidePanel in each presentation (surface and modal-count mocks), the two-deep rule (0, 1, 2
+layers), the stacked protocol on Settings (inert/no aria-modal and Escape withheld while the guide
+is a dialog over it; Escape closes only the guide), the dock exclusivity and restore without
+autofocus, focus return including a door that unmounted, the message filter (wrong origin, wrong
+source, unknown page), nonce reload, the tab-change close, `useOutsideDismiss`, the masthead door
+per tab and its absence on Operations, the MastheadMenu row, the section pin, the CSP assertion.
+Browser check: serve `landing/` with `python3 -m http.server 8090 --directory landing` (no
+frame-ancestors, so local framing works), run the app with `VITE_GUIDE_ORIGIN=http://localhost:8090`,
+and check desktop 1280, tablet 768 and phone 390, with and without Settings open.
+
+### G3 — the in-context `?` links and the Lite-lock links (app, one PR)
+
+G3 and G4 of the first draft touch the same files with one mechanism, so they ship together.
+`GuideLink` is built here (not in G2, where it would ship unused).
+
+`src/components/guide/GuideLink.jsx`: a 24px round `?` with a 44px hit area, props `page`,
+`section`, `label` (required; `aria-label` and `title`), `stopPropagation` on click (it lives in
+clickable rows and cards), `data-testid="guide-link"`. `GuideWhy` is the text twin, "What does this
+do?", the same colour, underline on hover. Both take page and section from `GUIDE_SECTIONS`.
+
+#### The `?` links
 
 One `GuideLink` each, page and section from `GUIDE_SECTIONS`:
 
@@ -196,10 +261,9 @@ A door inside a Map panel must not close that panel when pressed (it is inside t
 root, so `useOutsideDismiss` already lets it be). Phone-only rows keep phone-only layout. Each site
 gets a test that the link renders and calls `openGuide` with its page and section.
 
-### G4 — "What does this do?" beside each Lite lock (app)
+#### "What does this do?" beside each Lite lock
 
-A plain text button (`wf-guide-why`, the `?` link's colour, underline on hover), shown only where
-the reader is locked out (the existing `locked`/`!isPro` term, never a new client role read):
+`GuideWhy`, shown only where the reader is locked out (the existing `locked`/`!isPro` term, never a new client role read):
 
 | Lite lock | Where | Opens |
 |---|---|---|
@@ -209,18 +273,21 @@ the reader is locked out (the existing `locked`/`!isPro` term, never a new clien
 | Best bet | `ProUpsellDoor` popover body (heat-strip foot) | `at-a-glance#bestbet` |
 | Fiery Sky / Golden Hour | `ProUpsellDoor` in `LocationFourDaySheet.jsx` | `reading-the-forecast#fiery` |
 | Tide panel | `TideUpsellContent` (popover and phone peek) | `map#tide` |
-| Coming up tide row withheld | `WindowComingUpEntry.jsx` `wf-cu-locked` | `coming-up#tides` |
-| Aurora door, banner, peek | `ProUpsellDoor` AURORA_* (Lite banner, window menu, peek) | `night-sky#aurora-map` |
+| Coming up tide row withheld | `WindowComingUpEntry.jsx` `wf-cu-locked` (inside a clickable card: stopPropagation) | `coming-up#tides` |
+| Sub-region doors | `subregions/SubRegionDoors.jsx` (each door) and `subregions/ComingUpOutsideDoor.jsx` | `settings#sub-regions` |
+| Aurora door, banner, peek, viewline | `ProUpsellDoor` AURORA_* at `LiteAuroraBanner.jsx`, `map/WindowControl.jsx` (menu), `map/MapPeekSheet.jsx`, and the viewline upsell chip in `MapView.jsx` | `night-sky#aurora-map` |
 | Ask upsell | `AskUpsellContent` | `ask-photocast` |
 | Legend "outside your sub-regions" | `MapLegendPanel.jsx` (and its phone Layers and heat-strip twins) | `settings#sub-regions` |
 | Settings Drive times / Local radius | `UserSettingsModal.jsx`, outside the greyed `pointer-events-none` wrapper | `settings#drive` / `settings#radius` |
 
-`ProUpsellDoor` gains an optional `guide={{page, section}}` prop that puts the link at the end of
-its popover body, so the four door sites change by one prop. The "tide fit in callouts" lock in
+`ProUpsellDoor` gains an optional `guide={{page, section}}` prop that puts a `GuideWhy` at the end
+of its popover body and passes `returnFocus: () => triggerRef.current` (the popover closes on
+focus-out, so the link itself is gone by the time the guide closes; do not route this through
+`unmountFocusRef`, which fires only when the door unmounts). Six sites take the prop: the
+heat-strip Best bet, `LocationFourDaySheet.jsx`, and the four aurora doors above. The "tide fit in callouts" lock in
 the handoff has no visible element (`TideFitBlock` renders nothing for Lite), so it gets no link.
-Opening the guide from inside an upsell popover closes that popover first (the popover is a
-transient layer; leaving it open over a desktop drawer is fine, but on phone it would be a third
-layer). Tests per site, and a LITE vs PRO test that the link appears only when locked.
+The upsell popovers are `role="dialog"` without `aria-modal`, so they do not count toward G2's
+two-deep rule; they close themselves on focus-out when the guide takes focus. Tests per site, and a LITE vs PRO test that the link appears only when locked.
 
 ## The section-id contract
 
