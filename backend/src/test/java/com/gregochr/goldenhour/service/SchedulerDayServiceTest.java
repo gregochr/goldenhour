@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import com.gregochr.goldenhour.entity.ScheduleType;
@@ -57,6 +58,7 @@ class SchedulerDayServiceTest {
     private SchedulerJobConfigRepository configs;
     private SchedulerFireLogRepository fireLog;
     private PipelineRunRepository pipelineRuns;
+    private ForecastBatchRepository batchRepo;
     private final List<SchedulerJobConfigEntity> all = new ArrayList<>();
 
     /** A (job, status, count) row of the GROUP BY. */
@@ -69,6 +71,7 @@ class SchedulerDayServiceTest {
         configs = mock(SchedulerJobConfigRepository.class);
         fireLog = mock(SchedulerFireLogRepository.class);
         pipelineRuns = mock(PipelineRunRepository.class);
+        batchRepo = mock(ForecastBatchRepository.class);
         when(configs.findAllByOrderByIdAsc()).thenReturn(all);
     }
 
@@ -78,7 +81,7 @@ class SchedulerDayServiceTest {
                 mock(SchedulerFireLogRepository.class), mock(TaskScheduler.class), mock(AuroraProperties.class),
                 factory, mock(SolarCatchUpPolicy.class), clock);
         ForecastCycleWatchdog watchdog = new ForecastCycleWatchdog(configs, pipelineRuns,
-                mock(ForecastBatchRepository.class), factory, mock(AdminAlertService.class), scheduler, clock,
+                batchRepo, factory, mock(AdminAlertService.class), scheduler, clock,
                 Duration.ofMinutes(90));
         return new SchedulerDayService(scheduler, fireLog, pipelineRuns, watchdog, factory, clock);
     }
@@ -227,9 +230,9 @@ class SchedulerDayServiceTest {
                 new SchedulerDayService.Fire(Instant.parse("2027-03-05T02:00:01Z"),
                         SchedulerDayService.DayFireStatus.SUCCEEDED, "summary of SUCCEEDED",
                         Instant.parse("2027-03-05T02:00:01Z"), Instant.parse("2027-03-05T02:00:05Z"), "SCHEDULED",
-                        false),
+                        false, false),
                 new SchedulerDayService.Fire(Instant.parse("2027-03-05T18:00:00Z"),
-                        SchedulerDayService.DayFireStatus.SCHEDULED, null, null, null, null, false));
+                        SchedulerDayService.DayFireStatus.SCHEDULED, null, null, null, null, false, false));
         assertThat(job.schedule()).isNull();
         assertThat(job.counts()).isNull();
         assertThat(job.problems()).isNull();
@@ -268,7 +271,7 @@ class SchedulerDayServiceTest {
         SchedulerDayService.DayJob job = jobOf(service(NOON).day(null), "a_job");
 
         assertThat(job.fires()).containsExactly(new SchedulerDayService.Fire(Instant.parse("2027-03-05T02:00:00Z"),
-                SchedulerDayService.DayFireStatus.MISSED, null, null, null, null, false));
+                SchedulerDayService.DayFireStatus.MISSED, null, null, null, null, false, false));
     }
 
     @Test
@@ -382,7 +385,8 @@ class SchedulerDayServiceTest {
     }
 
     @Test
-    @DisplayName("a paused or off-in-config job lists no fires: nothing SCHEDULED, nothing MISSED")
+    @DisplayName("a paused job lists its would-be fires as PAUSED (none MISSED, none SCHEDULED); an off-in-config "
+            + "job lists nothing and is not 'not on this day'")
     void pausedJobs() {
         all.add(job("paused", ScheduleType.CRON).cronExpression("0 0 2,18 * * *")
                 .status(SchedulerJobStatus.PAUSED).build());
@@ -392,9 +396,40 @@ class SchedulerDayServiceTest {
 
         SchedulerDayService.Day day = service(NOON).day(null);
 
-        assertThat(jobOf(day, "paused").fires()).isEmpty();
+        assertThat(jobOf(day, "paused").fires()).extracting(SchedulerDayService.Fire::at,
+                SchedulerDayService.Fire::status).containsExactly(
+                tuple(Instant.parse("2027-03-05T02:00:00Z"), SchedulerDayService.DayFireStatus.PAUSED),
+                tuple(Instant.parse("2027-03-05T18:00:00Z"), SchedulerDayService.DayFireStatus.PAUSED));
         assertThat(jobOf(day, "off").fires()).isEmpty();
         assertThat(day.notOnThisDay()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a paused job's slot that a log row stands for shows that run, not a would-be fire")
+    void pausedJob_loggedSlotIsTheRun() {
+        all.add(job("paused", ScheduleType.CRON).cronExpression("0 0 2,18 * * *")
+                .status(SchedulerJobStatus.PAUSED).build());
+        rowsFor(List.of("paused"), DAY_START, DAY_END, row("paused", Instant.parse("2027-03-05T02:00:00Z"),
+                SchedulerFireStatus.SUCCEEDED, SchedulerFireTrigger.SCHEDULED));
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(statuses(jobOf(day, "paused"))).containsExactly(SchedulerDayService.DayFireStatus.SUCCEEDED,
+                SchedulerDayService.DayFireStatus.PAUSED);
+    }
+
+    @Test
+    @DisplayName("a job paused at 10:00 does not label its 06:00 slot PAUSED, only the slots after the pause")
+    void pausedJob_slotsBeforeThePauseAreNotPaused() {
+        all.add(job("paused", ScheduleType.CRON).cronExpression("0 0 6,18 * * *")
+                .status(SchedulerJobStatus.PAUSED).scheduleChangedAt(Instant.parse("2027-03-05T10:00:00Z")).build());
+        rowsFor(List.of("paused"), DAY_START, DAY_END);
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(jobOf(day, "paused").fires()).extracting(SchedulerDayService.Fire::at,
+                SchedulerDayService.Fire::status).containsExactly(
+                tuple(Instant.parse("2027-03-05T18:00:00Z"), SchedulerDayService.DayFireStatus.PAUSED));
     }
 
     @Test
@@ -536,7 +571,7 @@ class SchedulerDayServiceTest {
                 ForecastCycleJobs.NIGHTLY_JOB);
 
         assertThat(job.fires()).containsExactly(new SchedulerDayService.Fire(expected,
-                SchedulerDayService.DayFireStatus.SCHEDULED, null, null, null, null, false));
+                SchedulerDayService.DayFireStatus.SCHEDULED, null, null, null, null, false, false));
     }
 
     @Test
@@ -579,7 +614,7 @@ class SchedulerDayServiceTest {
         SchedulerDayService.DayJob job = jobOf(service(NOON, brokenToday).day(null), ForecastCycleJobs.NIGHTLY_JOB);
 
         assertThat(job.fires()).containsExactly(new SchedulerDayService.Fire(Instant.parse("2027-03-05T03:00:00Z"),
-                SchedulerDayService.DayFireStatus.MISSED, null, null, null, null, true));
+                SchedulerDayService.DayFireStatus.MISSED, null, null, null, null, true, false));
     }
 
     // -------------------------------------------------------------------------
@@ -812,6 +847,164 @@ class SchedulerDayServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // Repeating ticks
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("an hourly-ish repeating cron lists every slot of the day as ticks, in order")
+    void repeating_ticksListed() {
+        cron("hourly_poll", "0 0 * * * *");
+        problemsFor(List.of("hourly_poll"), DAY_START, DAY_END);
+
+        List<Instant> ticks = jobOf(service(NOON).day(null), "hourly_poll").ticks();
+
+        assertThat(ticks).hasSize(24);
+        assertThat(ticks.get(0)).isEqualTo(Instant.parse("2027-03-05T00:00:00Z"));
+        assertThat(ticks.get(23)).isEqualTo(Instant.parse("2027-03-05T23:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("a cron too busy to list (every minute) has null ticks, so the client draws a band; a scheduled "
+            + "job has none")
+    void repeating_ticksNullWhenBusy() {
+        cron("every_minute", "0 * * * * *");
+        cron("scheduled_job", "0 0 2 * * *");
+        problemsFor(List.of("every_minute"), DAY_START, DAY_END);
+        rowsFor(List.of("scheduled_job"), DAY_START, DAY_END);
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(jobOf(day, "every_minute").ticks()).isNull();
+        assertThat(jobOf(day, "scheduled_job").ticks()).isNull();
+    }
+
+    @Test
+    @DisplayName("a fixed-delay job has null ticks")
+    void repeating_ticksNullForFixedDelay() {
+        delayJob("poller", 600_000L);
+        problemsFor(List.of("poller"), DAY_START, DAY_END);
+
+        assertThat(jobOf(service(NOON).day(null), "poller").ticks()).isNull();
+    }
+
+    @Test
+    @DisplayName("a paused repeating cron stays REPEATING with expectedCount 0 and still lists its ticks; one off in "
+            + "config is not served at all")
+    void repeating_pausedAndOff() {
+        all.add(job("paused_poll", ScheduleType.CRON).cronExpression("0 0 * * * *")
+                .status(SchedulerJobStatus.PAUSED).build());
+        all.add(job("off_poll", ScheduleType.CRON).cronExpression("0 0 * * * *")
+                .status(SchedulerJobStatus.DISABLED_BY_CONFIG).build());
+        problemsFor(List.of("paused_poll", "off_poll"), DAY_START, DAY_END);
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(jobOf(day, "paused_poll").kind()).isEqualTo(SchedulerDayService.Kind.REPEATING);
+        assertThat(jobOf(day, "paused_poll").expectedCount()).isZero();
+        assertThat(jobOf(day, "paused_poll").ticks()).hasSize(24);
+        assertThat(day.jobs()).extracting(SchedulerDayService.DayJob::jobKey).doesNotContain("off_poll");
+    }
+
+    @Test
+    @DisplayName("the ticks follow the UK clock-change days: 23 slots on the spring day, 25 on the autumn day")
+    void repeating_ticksOnClockChangeDays() {
+        all.add(job("london_hourly", ScheduleType.CRON).cronExpression("0 0 * * * *").timeZone("Europe/London")
+                .build());
+        problemsFor(List.of("london_hourly"), Instant.parse("2027-03-28T00:00:00Z"),
+                Instant.parse("2027-03-28T23:00:00Z"));
+        problemsFor(List.of("london_hourly"), Instant.parse("2027-10-30T23:00:00Z"),
+                Instant.parse("2027-11-01T00:00:00Z"));
+
+        assertThat(jobOf(service(Instant.parse("2027-03-30T12:00:00Z")).day(LocalDate.of(2027, 3, 28)),
+                "london_hourly").ticks()).hasSize(23);
+        assertThat(jobOf(service(Instant.parse("2027-11-02T12:00:00Z")).day(LocalDate.of(2027, 10, 31)),
+                "london_hourly").ticks()).hasSize(25);
+    }
+
+    // -------------------------------------------------------------------------
+    // The evening refresh's served deadline
+    // -------------------------------------------------------------------------
+
+    private static final Instant EVENING_FIRE = Instant.parse("2027-03-05T21:00:02Z");
+
+    private PipelineRunEntity eveningRun() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.EVENING, EVENING_FIRE);
+        run.setId(RUN_ID);
+        run.setStatus(PipelineRunStatus.COMPLETED);
+        run.setCompletedAt(Instant.parse("2027-03-05T21:50:00Z"));
+        return run;
+    }
+
+    private SchedulerFireLogEntity eveningRow(SchedulerFireStatus status, boolean linked) {
+        SchedulerFireLogEntity row = row(ForecastCycleJobs.EVENING_JOB, EVENING_FIRE, status,
+                SchedulerFireTrigger.SCHEDULED);
+        if (linked) {
+            row.setPipelineRunId(RUN_ID);
+        }
+        return row;
+    }
+
+    private ForecastBatchEntity forecastBatch(String submittedAt) {
+        ForecastBatchEntity batch = new ForecastBatchEntity("msgbatch_e", ForecastBatchEntity.BatchType.FORECAST, 3,
+                Instant.parse("2027-03-05T20:00:00Z"));
+        batch.setSubmittedAt(Instant.parse(submittedAt));
+        return batch;
+    }
+
+    private ForecastCycleWatchdog.Deadlines eveningWindow(SchedulerDayService.Day day) {
+        return day.watchdog().stream().filter(w -> w.jobKey().equals(ForecastCycleJobs.EVENING_JOB)).findFirst()
+                .orElseThrow();
+    }
+
+    @Test
+    @DisplayName("the evening deadline is served from the linked run's first forecast batch, not fire time plus budget")
+    void evening_deadlineFromTheRunsFirstBatch() {
+        cron(ForecastCycleJobs.EVENING_JOB, "0 0 21 * * *");
+        rowsFor(List.of(ForecastCycleJobs.EVENING_JOB), DAY_START, DAY_END, eveningRow(SchedulerFireStatus.SUCCEEDED,
+                true));
+        when(pipelineRuns.findAllById(List.of(RUN_ID))).thenReturn(List.of(eveningRun()));
+        when(batchRepo.findByPipelineRunId(RUN_ID)).thenReturn(List.of(forecastBatch("2027-03-05T21:25:00Z")));
+
+        SchedulerDayService.Day day = service(Instant.parse("2027-03-05T23:30:00Z")).day(null);
+
+        // 21:25 plus the 90 minute budget, not 21:00:02 plus 90 minutes.
+        assertThat(eveningWindow(day).deadlineAt()).isEqualTo(Instant.parse("2027-03-05T22:55:00Z"));
+        assertThat(eveningWindow(day).budgetMinutes()).isEqualTo(90L);
+        assertThat(jobOf(day, ForecastCycleJobs.EVENING_JOB).fires().get(0).runLinked()).isTrue();
+    }
+
+    @Test
+    @DisplayName("with no batch the evening deadline falls back to the run's trigger time plus the budget")
+    void evening_deadlineFallsBackToTrigger() {
+        cron(ForecastCycleJobs.EVENING_JOB, "0 0 21 * * *");
+        rowsFor(List.of(ForecastCycleJobs.EVENING_JOB), DAY_START, DAY_END, eveningRow(SchedulerFireStatus.SUCCEEDED,
+                true));
+        when(pipelineRuns.findAllById(List.of(RUN_ID))).thenReturn(List.of(eveningRun()));
+        when(batchRepo.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+
+        SchedulerDayService.Day day = service(Instant.parse("2027-03-05T23:30:00Z")).day(null);
+
+        assertThat(eveningWindow(day).deadlineAt()).isEqualTo(Instant.parse("2027-03-05T22:30:02Z"));
+    }
+
+    @Test
+    @DisplayName("the evening deadline is null with no linked run, and from a SKIPPED fire's run")
+    void evening_deadlineNullWithoutARun() {
+        cron(ForecastCycleJobs.EVENING_JOB, "0 0 21 * * *");
+        rowsFor(List.of(ForecastCycleJobs.EVENING_JOB), DAY_START, DAY_END,
+                eveningRow(SchedulerFireStatus.FAILED, false));
+
+        SchedulerDayService.Day unlinked = service(Instant.parse("2027-03-05T23:30:00Z")).day(null);
+        assertThat(eveningWindow(unlinked).deadlineAt()).isNull();
+        assertThat(jobOf(unlinked, ForecastCycleJobs.EVENING_JOB).fires().get(0).runLinked()).isFalse();
+
+        rowsFor(List.of(ForecastCycleJobs.EVENING_JOB), DAY_START, DAY_END,
+                eveningRow(SchedulerFireStatus.SKIPPED, true));
+        when(pipelineRuns.findAllById(List.of(RUN_ID))).thenReturn(List.of(eveningRun()));
+        assertThat(eveningWindow(service(Instant.parse("2027-03-05T23:30:00Z")).day(null)).deadlineAt()).isNull();
+    }
+
+    // -------------------------------------------------------------------------
     // Watchdog windows
     // -------------------------------------------------------------------------
 
@@ -824,10 +1017,10 @@ class SchedulerDayServiceTest {
         Instant sunset = solar.eventInstant(SolarEvent.SUNSET, DAY);
         assertThat(day.watchdog()).containsExactly(
                 new ForecastCycleWatchdog.Deadlines(ForecastCycleJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, sunrise,
-                        sunrise.minus(Duration.ofMinutes(20)), sunrise.plus(Duration.ofMinutes(60)), 30, null),
+                        sunrise.minus(Duration.ofMinutes(20)), sunrise.plus(Duration.ofMinutes(60)), 30, null, null),
                 new ForecastCycleWatchdog.Deadlines(ForecastCycleJobs.INTRADAY_JOB, SolarEvent.SUNSET, sunset,
-                        sunset.minus(Duration.ofMinutes(20)), sunset.plus(Duration.ofMinutes(60)), 30, null),
+                        sunset.minus(Duration.ofMinutes(20)), sunset.plus(Duration.ofMinutes(60)), 30, null, null),
                 new ForecastCycleWatchdog.Deadlines(ForecastCycleJobs.EVENING_JOB, null, null, null, null, 30,
-                        90L));
+                        90L, null));
     }
 }

@@ -167,15 +167,15 @@ DaySummaryBar.propTypes = {
 };
 
 /**
- * The legend entries. {@code drawn} is false for the marks the Repeating section, watchdog windows and arrows will draw
- * (S5b): they join the legend when they are on the picture, so it never names something the reader cannot see.
+ * The legend entries. {@code drawn} false keeps an entry out of the legend until its mark is on the picture, so the
+ * legend never names something the reader cannot see (every entry is drawn since S5b).
  */
 const LEGEND = [
   { key: 'sun', drawn: true, swatch: 'bg-scheduler-sun', label: 'sun-relative' },
   { key: 'cron', drawn: true, swatch: 'bg-tide', label: 'cron' },
-  { key: 'repeating', drawn: false, swatch: 'bg-scheduler-repeating', label: 'repeating' },
+  { key: 'repeating', drawn: true, swatch: 'bg-scheduler-repeating', label: 'repeating' },
   { key: 'paused', drawn: true, swatch: 'border border-dashed border-plex-text-muted', label: 'paused' },
-  { key: 'watchdog', drawn: false, swatch: 'bg-plex-coral', label: 'watchdog deadline' },
+  { key: 'watchdog', drawn: true, swatch: 'bg-plex-coral', label: 'watchdog deadline' },
 ];
 
 /** The status dots, in the design's order. */
@@ -187,8 +187,15 @@ const LEGEND_DOTS = [
   { key: 'to-run', dot: 'border border-plex-text-muted', label: 'to run' },
 ];
 
-/** The legend under the controls: the mark colours, the gold £, and the status dots. Wraps on a phone. */
-export function DayLegend() {
+/**
+ * The legend under the controls: the mark colours, the gold £, the status dots, and the "Dependency arrows" chip (an
+ * {@code aria-pressed} toggle, on by default). Wraps on a phone, where the chip is a 44px target.
+ *
+ * @param {object} props
+ * @param {boolean} props.arrows whether the dependency arrows are drawn
+ * @param {() => void} props.onToggleArrows flips them
+ */
+export function DayLegend({ arrows, onToggleArrows }) {
   return (
     <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px] text-plex-text-secondary" data-testid="scheduler-day-legend">
       {LEGEND.filter((item) => item.drawn).map((item) => (
@@ -204,6 +211,26 @@ export function DayLegend() {
           {item.label}
         </li>
       ))}
+      <li className="sm:ml-auto">
+        <button
+          type="button"
+          aria-pressed={arrows}
+          onClick={onToggleArrows}
+          className={`cursor-pointer rounded-full border px-3 py-1 font-mono text-[11px] focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11 ${
+            arrows
+              ? 'border-skyeval-version/50 bg-skyeval-version/10 text-skyeval-version'
+              : 'border-plex-border text-plex-text-secondary hover:text-plex-text'
+          }`}
+          data-testid="scheduler-arrows-chip"
+        >
+          {arrows ? '✓ Dependency arrows' : 'Dependency arrows'}
+        </button>
+      </li>
     </ul>
   );
 }
+
+DayLegend.propTypes = {
+  arrows: PropTypes.bool.isRequired,
+  onToggleArrows: PropTypes.func.isRequired,
+};

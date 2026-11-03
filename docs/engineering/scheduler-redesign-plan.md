@@ -162,6 +162,12 @@ Last run failed; panel copy "Individual runs of this job aren't listed in Runs y
 Claude" (+ "; batch costs are counted against the job that submitted them" for pollers), "Nothing outside
 PhotoCast. Database only."
 
+**Recorded deviations (S5b):** the tooltip omits the design's "~£ per run": that figure exists only in
+`/jobs/{key}/detail` (the panel), not in the `/jobs` and `/day` data the picture holds, and loading it per mark
+would add a request per hover for a number the panel already shows. The repeating band is one band at about 45 %
+(not split at Now), as in the prototype.
+
+
 ## 4. Phases (one PR each; each branched from updated `main` after the previous merged)
 
 | Phase | Scope | Side |

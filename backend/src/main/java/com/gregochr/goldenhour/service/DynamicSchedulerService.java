@@ -733,6 +733,22 @@ public class DynamicSchedulerService {
     }
 
     /**
+     * The fires a job's schedule describes, whatever its status: {@link #firesWithFallback}'s arithmetic (it is the
+     * same {@code scheduleFires}) without the "only an ACTIVE job fires" guard. For the Day picture's paused
+     * would-be fires and a repeating job's ticks. Callers decide which statuses they ask about; a job that is off in
+     * config is theirs to leave out.
+     *
+     * @param config     the job config
+     * @param afterExcl  the instant after which fires count
+     * @param beforeExcl the instant before which fires count
+     * @return the fires in order, at most {@value #MAX_FIRES_LISTED}; empty for a fixed-delay or unreadable schedule
+     */
+    public List<ScheduledFire> firesIgnoringStatus(SchedulerJobConfigEntity config, Instant afterExcl,
+            Instant beforeExcl) {
+        return scheduleFires(config, afterExcl, beforeExcl);
+    }
+
+    /**
      * Whether a job is "repeating" over a window: a fixed-delay job, or a cron that fires more than
      * {@value #REPEATING_FIRES_PER_DAY} times in it. Independent of the job's status, so a paused poller is still
      * a poller.
