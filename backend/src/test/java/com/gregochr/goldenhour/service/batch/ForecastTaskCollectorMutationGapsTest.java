@@ -63,6 +63,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.MonthDay;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -73,10 +74,9 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyDouble;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -127,7 +127,7 @@ class ForecastTaskCollectorMutationGapsTest {
 
     private final List<BriefingSlot> briefingSlots = new ArrayList<>();
     private final List<LocationEntity> enabledLocations = new ArrayList<>();
-    private final Map<String, ForecastStability> stabilityByCell = new HashMap<>();
+    private final Map<String, OpenMeteoForecastResponse.Hourly> hourlyByName = new HashMap<>();
     private final List<LocationEntity> prefetched = new ArrayList<>();
     private LocalDate today = JAN;
 
@@ -138,18 +138,6 @@ class ForecastTaskCollectorMutationGapsTest {
         originalLevel = collectorLogger.getLevel();
         collectorLogger.setLevel(Level.INFO);
         collectorLogger.addAppender(logs);
-        // Production: near term SONNET, far term HAIKU.
-        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
-                .thenReturn(EvaluationModel.SONNET);
-        lenient().when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
-                .thenReturn(EvaluationModel.HAIKU);
-        lenient().when(freshnessResolver.maxAgeFor(any())).thenReturn(Duration.ofHours(6));
-        lenient().when(freshnessResolver.maxAgeFor(anyInt(), any())).thenReturn(Duration.ofHours(6));
-        lenient().when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
-                .thenAnswer(inv -> new GridCellStabilityResult(
-                        inv.getArgument(0), inv.getArgument(1), inv.getArgument(2),
-                        stabilityByCell.getOrDefault(inv.<String>getArgument(0),
-                                ForecastStability.TRANSITIONAL), "stub", 0));
     }
 
     @AfterEach
@@ -163,6 +151,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("empty pre-fetch: nothing is triaged, classified or published, and the report says 0/N")
     void emptyPrefetch_abortsBeforeAnyTriage() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         slot(a, JAN, Verdict.GO, false);
@@ -176,8 +165,10 @@ class ForecastTaskCollectorMutationGapsTest {
         assertThat(result.weatherPrefetch().locationsRequested()).isEqualTo(2);
         assertThat(result.weatherPrefetch().locationsReturned()).isZero();
         assertThat(result.weatherPrefetch().abortReason()).isEqualTo("0/2 locations returned");
+        // any(): a never() verify - triage must not run for any candidate at all.
         verify(forecastService, never()).fetchWeatherAndTriage(any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any());
+        // any(): a never() verify - no snapshot may be published whatever it holds.
         verify(stabilitySnapshotProvider, never()).update(any());
         verifyNoInteractions(stabilityClassifier);
         assertThat(messages()).anyMatch(m -> m.contains("weather pre-fetch returned 0/2 locations"));
@@ -186,6 +177,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("partial pre-fetch above the ratio proceeds with every candidate, warns 2/3, and reports no abort")
     void partialPrefetch_continuesAndWarns() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         LocationEntity c = loc(3, "Gamma", 56.0, -1.0, false);
@@ -210,6 +202,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a complete pre-fetch does not log the partial warning")
     void completePrefetch_doesNotWarnPartial() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         for (LocationEntity l : List.of(a, b)) {
@@ -228,6 +221,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a pre-fetch ratio exactly at the threshold (1/2 at 0.5) is not degraded")
     void prefetchRatioExactlyAtThreshold_proceeds() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         for (LocationEntity l : List.of(a, b)) {
@@ -246,6 +240,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a pre-fetch ratio just below the threshold (1/3 at 0.5) aborts with the ratio in the reason")
     void prefetchRatioBelowThreshold_aborts() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         LocationEntity c = loc(3, "Gamma", 56.0, -1.0, false);
@@ -262,6 +257,7 @@ class ForecastTaskCollectorMutationGapsTest {
         assertThat(result.weatherPrefetch().locationsReturned()).isEqualTo(1);
         assertThat(result.weatherPrefetch().abortReason())
                 .isEqualTo("1/3 locations returned, ratio 0.33 below threshold 0.50");
+        // any(): a never() verify - triage must not run for any candidate at all.
         verify(forecastService, never()).fetchWeatherAndTriage(any(), any(), any(), any(), any(), any(),
                 any(), any(), any(), any());
     }
@@ -271,6 +267,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("every candidate triaged out: empty buckets, one SKIPPED_TRIAGED row each, no abort reason")
     void nothingIncluded_returnsDispositionsAndCleanReport() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         for (LocationEntity l : List.of(a, b)) {
@@ -294,6 +291,7 @@ class ForecastTaskCollectorMutationGapsTest {
         assertThat(result.weatherPrefetch().aborted()).isFalse();
         assertThat(triageSummary()).isEqualTo("Triage complete — 0 included (near=0, far=0, bluebell=0, "
                 + "woodland=0, forced=0), 2 skipped (triage=2, stability=0, error=0)");
+        // any(): a never() verify - no pending row may be written for any evaluation.
         verify(forecastService, never()).persistPendingEvaluation(any());
     }
 
@@ -302,6 +300,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("one near and one far task together are two included, not zero")
     void nearAndFar_areBothCounted() {
+        today = JAN;
         LocationEntity near = loc(1, "Near", 54.0, -1.0, false);
         LocationEntity far = loc(2, "Far", 55.0, -1.0, false);
         LocalDate t2 = JAN.plusDays(2);
@@ -325,6 +324,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("an open-fell site in season is one near sky task plus one paired bluebell task, two included")
     void openFellPair_isCountedAsTwo() {
+        today = APR;
         LocationEntity fell = bluebellLoc(1, "Fell", 54.0, -1.0, BluebellExposure.OPEN_FELL);
         slot(fell, APR, Verdict.GO, false);
         triagePass(fell, APR, false, BluebellExposure.OPEN_FELL);
@@ -348,6 +348,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a near sky task and a woodland task together are two included, not zero")
     void nearAndWoodland_areBothCounted() {
+        today = JAN;
         LocationEntity sky = loc(1, "Sky", 54.0, -1.0, false);
         LocationEntity wood = woodlandLoc(2, "Wood", 55.0, -1.0, false);
         slot(sky, JAN, Verdict.GO, false);
@@ -374,6 +375,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a force-evaluated far candidate records FORCE_EVALUATED with its detail; ordinary ones record none")
     void forcedDisposition_carriesDetail_andOrdinaryOnesDoNot() {
+        today = JAN;
         LocationEntity ordinary = loc(1, "Ordinary", 54.0, -1.0, false);
         LocationEntity forced = loc(2, "Forced", 55.0, -1.0, true);
         LocalDate t3 = JAN.plusDays(3);
@@ -381,7 +383,7 @@ class ForecastTaskCollectorMutationGapsTest {
         slot(forced, t3, Verdict.GO, true);
         triagePass(ordinary, JAN, false, null);
         triagePass(forced, t3, false, null);
-        stabilityByCell.put(forced.gridCellKey(), ForecastStability.UNSETTLED);
+        stabilityOf(forced, ForecastStability.UNSETTLED);
         prefetched.addAll(List.of(ordinary, forced));
         stubBriefingAndPrefetch();
 
@@ -409,13 +411,14 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a force-evaluated bluebell-wood task keeps its forced marker, and is counted as forced")
     void forcedBluebellWood_isCountedAsForced() {
+        today = APR;
         LocationEntity wood = woodlandLoc(1, "BlueWood", 54.0, -1.0, true);
         wood.setGridLat(54.0);
         wood.setGridLng(-1.0);
         LocalDate t3 = APR.plusDays(3);
         slot(wood, t3, Verdict.GO, true);
         triagePass(wood, t3, false, BluebellExposure.WOODLAND);
-        stabilityByCell.put(wood.gridCellKey(), ForecastStability.UNSETTLED);
+        stabilityOf(wood, ForecastStability.UNSETTLED);
         prefetched.add(wood);
         stubBriefingAndPrefetch();
 
@@ -437,13 +440,14 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a force-evaluated canopy task is counted as forced in the woodland lane")
     void forcedWoodland_isCountedAsForced() {
+        today = JAN;
         LocationEntity wood = woodlandLoc(1, "Canopy", 54.0, -1.0, false);
         wood.setGridLat(54.0);
         wood.setGridLng(-1.0);
         LocalDate t3 = JAN.plusDays(3);
         slot(wood, t3, Verdict.GO, true);
         triagePass(wood, t3, false, null);
-        stabilityByCell.put(wood.gridCellKey(), ForecastStability.UNSETTLED);
+        stabilityOf(wood, ForecastStability.UNSETTLED);
         prefetched.add(wood);
         stubBriefingAndPrefetch();
 
@@ -462,6 +466,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("in season, a BLUEBELL site with no exposure takes the sky lane and the warning names it")
     void bluebellSiteWithNullExposure_inSeason_warnsAndStaysInSkyLane() {
+        today = APR;
         LocationEntity site = bluebellLoc(1, "NoExposure", 54.0, -1.0, null);
         slot(site, APR, Verdict.GO, false);
         triagePass(site, APR, false, null);
@@ -481,6 +486,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("the null-exposure warning is silent when the exposure is set")
     void bluebellSiteWithExposure_doesNotWarn() {
+        today = APR;
         LocationEntity site = bluebellLoc(1, "HasExposure", 54.0, -1.0, BluebellExposure.OPEN_FELL);
         slot(site, APR, Verdict.GO, false);
         triagePass(site, APR, false, BluebellExposure.OPEN_FELL);
@@ -495,6 +501,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("the null-exposure warning is silent out of season")
     void bluebellSiteWithNullExposure_outOfSeason_doesNotWarn() {
+        today = JAN;
         LocationEntity site = bluebellLoc(1, "OffSeason", 54.0, -1.0, null);
         slot(site, JAN, Verdict.GO, false);
         triagePass(site, JAN, false, null);
@@ -510,6 +517,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("the null-exposure warning is silent for a site that is not typed BLUEBELL")
     void nonBluebellSiteWithNullExposure_doesNotWarn() {
+        today = APR;
         LocationEntity plain = loc(1, "Plain", 54.0, -1.0, false);
         plain.setLocationType(Set.of(LocationType.LANDSCAPE));
         LocationEntity untyped = loc(2, "Untyped", 55.0, -1.0, false);
@@ -530,6 +538,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a bluebell wood in season is rated by the bluebell lane alone, even when sky triage stands it down")
     void bluebellWood_inSeason_triagedSlotStillGoesToBluebellLane() {
+        today = APR;
         LocationEntity wood = woodlandLoc(1, "Wood", 54.0, -1.0, true);
         slot(wood, APR, Verdict.GO, false);
         stub(CollectorTriageStubs.triageOf(forecastService, wood, APR, TargetType.SUNRISE,
@@ -543,6 +552,7 @@ class ForecastTaskCollectorMutationGapsTest {
         assertThat(result.nearInland()).isEmpty();
         assertThat(result.dispositions()).singleElement()
                 .satisfies(d -> assertThat(d.category()).isEqualTo(DispositionCategory.EVALUATED));
+        // any(): a never() verify - no pending row may be written for any evaluation.
         verify(forecastService, never()).persistPendingEvaluation(any());
     }
 
@@ -551,6 +561,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("bucketing is by data: tide data goes coastal, none goes inland, across near and far")
     void tideDataDecidesCoastalBucket_acrossNearAndFar() {
+        today = JAN;
         LocationEntity nearIn = loc(1, "NearIn", 54.0, -1.0, false);
         LocationEntity nearCo = loc(2, "NearCo", 55.0, -1.0, false);
         LocationEntity farIn = loc(3, "FarIn", 56.0, -1.0, false);
@@ -587,6 +598,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("the near-term boundary: T+1 is near, T+2 is far")
     void nearTermBoundary_isTPlusOne() {
+        today = JAN;
         LocationEntity t1Loc = loc(1, "Tomorrow", 54.0, -1.0, false);
         LocationEntity t2Loc = loc(2, "DayAfter", 55.0, -1.0, false);
         slot(t1Loc, JAN.plusDays(1), Verdict.GO, false);
@@ -605,6 +617,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a location typed coastal that carries no tide data is bucketed inland, and the collector says so")
     void tideLessCoastalLocation_isInlandAndWarns() {
+        today = JAN;
         LocationEntity site = loc(1, "TideLess", 54.0, -1.0, false);
         slot(site, JAN, Verdict.GO, false);
         triagePass(site, JAN, false, null);
@@ -623,6 +636,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("an inland location that is not coastal gets no tide-less warning")
     void inlandLocation_getsNoTideLessWarning() {
+        today = JAN;
         LocationEntity site = loc(1, "Inland", 54.0, -1.0, false);
         slot(site, JAN, Verdict.GO, false);
         triagePass(site, JAN, false, null);
@@ -637,6 +651,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a coastal location that does carry tide data is bucketed coastal and needs no coastal lookup")
     void coastalLocationWithTide_getsNoTideLessWarning() {
+        today = JAN;
         LocationEntity site = loc(1, "Coast", 54.0, -1.0, false);
         slot(site, JAN, Verdict.GO, false);
         triagePass(site, JAN, true, null);
@@ -647,6 +662,7 @@ class ForecastTaskCollectorMutationGapsTest {
 
         assertThat(names(result.nearCoastal())).containsExactly("Coast");
         assertThat(messages()).noneMatch(m -> m.contains("TIDE-LESS COASTAL"));
+        // any(): a never() verify - the coastal lookup must not be made for any location.
         verify(locationService, never()).isCoastal(any());
     }
 
@@ -655,6 +671,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("a mixed cycle: every lane, skip reason and forced rescue is bucketed, recorded and summed correctly")
     void mixedCycle_bucketsRecordsAndSummarises() {
+        today = APR;
         LocalDate t1 = APR.plusDays(1);
         LocalDate t2 = APR.plusDays(2);
         LocalDate t3 = APR.plusDays(3);
@@ -695,10 +712,10 @@ class ForecastTaskCollectorMutationGapsTest {
         triagePass(farCoastal, t2, true, null);
         triagePass(unsettled, t3, false, null);
         triagePass(forced, t3, false, null);
-        stabilityByCell.put(farSettled.gridCellKey(), ForecastStability.SETTLED);
-        stabilityByCell.put(farCoastal.gridCellKey(), ForecastStability.TRANSITIONAL);
-        stabilityByCell.put(unsettled.gridCellKey(), ForecastStability.UNSETTLED);
-        stabilityByCell.put(forced.gridCellKey(), ForecastStability.UNSETTLED);
+        stabilityOf(farSettled, ForecastStability.SETTLED);
+        stabilityOf(farCoastal, ForecastStability.TRANSITIONAL);
+        stabilityOf(unsettled, ForecastStability.UNSETTLED);
+        stabilityOf(forced, ForecastStability.UNSETTLED);
         prefetched.addAll(enabledLocations);
         stubBriefingAndPrefetch();
 
@@ -738,6 +755,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("[BATCH ELIG] reads 'none' for a side with no entries")
     void eligSummary_noExclusions_readsNone() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         slot(a, JAN, Verdict.GO, false);
         triagePass(a, JAN, false, null);
@@ -752,6 +770,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("evening deferral: rated T+1 sunrises are skipped as NO_REFRESH_NEEDED and counted excluded")
     void eveningDeferral_isRecordedAndSummarised() {
+        today = JAN;
         LocationEntity a = loc(1, "Alpha", 54.0, -1.0, false);
         LocationEntity b = loc(2, "Beta", 55.0, -1.0, false);
         LocalDate t1 = JAN.plusDays(1);
@@ -785,6 +804,7 @@ class ForecastTaskCollectorMutationGapsTest {
     @Test
     @DisplayName("region-filtered: tide splits coastal from inland; canopy, far-out and triaged are dropped")
     void regionFiltered_splitsAndExcludes() {
+        today = JAN;
         LocationEntity inland = loc(1, "Inland", 54.0, -1.0, false);
         LocationEntity coastal = loc(2, "Coastal", 55.0, -1.0, false);
         LocationEntity canopy = woodlandLoc(3, "Canopy", 56.0, -1.0, false);
@@ -794,13 +814,17 @@ class ForecastTaskCollectorMutationGapsTest {
             slot(l, JAN, Verdict.GO, false);
             prefetched.add(l);
         }
-        triagePass(inland, JAN, false, null);
-        triagePass(coastal, JAN, true, null);
+        ForecastPreEvalResult inlandPre = preEval(inland, JAN, false, null, false);
+        ForecastPreEvalResult coastalPre = preEval(coastal, JAN, true, null, false);
+        stub(CollectorTriageStubs.triageOf(forecastService, inland, JAN, TargetType.SUNRISE,
+                EvaluationModel.SONNET), inlandPre);
+        stub(CollectorTriageStubs.triageOf(forecastService, coastal, JAN, TargetType.SUNRISE,
+                EvaluationModel.SONNET), coastalPre);
         triagePass(canopy, JAN, false, null);
         stub(CollectorTriageStubs.triageOf(forecastService, beyond, JAN, TargetType.SUNRISE,
                 EvaluationModel.SONNET), preEvalAt(beyond, JAN, 5));
         triageStandDown(triaged, JAN, "cloud");
-        stubBriefingAndPrefetch();
+        stubBriefingAndPrefetch(false);
 
         RegionFilteredBatchTasks result = collector(JAN, 0.5, 0).collectRegionFilteredBatches(null);
 
@@ -809,7 +833,11 @@ class ForecastTaskCollectorMutationGapsTest {
         assertThat(result.inland().get(0).model()).isEqualTo(EvaluationModel.SONNET);
         assertThat(result.weatherPrefetch().locationsRequested()).isEqualTo(5);
         assertThat(result.weatherPrefetch().locationsReturned()).isEqualTo(5);
-        verify(forecastService, org.mockito.Mockito.times(2)).persistPendingEvaluation(any());
+        // Exactly the two kept slots are persisted; nothing else is (canopy, far-out and triaged are dropped).
+        verify(forecastService).persistPendingEvaluation(inlandPre);
+        verify(forecastService).persistPendingEvaluation(coastalPre);
+        verify(forecastService, never()).persistPendingEvaluation(
+                argThat(pre -> pre != inlandPre && pre != coastalPre));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -877,8 +905,29 @@ class ForecastTaskCollectorMutationGapsTest {
                 List.of()));
     }
 
-    /** Stubs the briefing (one region per day, one SUNRISE summary) and the weather pre-fetch. */
+    /** Stubs the briefing, the model lookups, the freshness lookups and the weather pre-fetch (scheduled path). */
     private void stubBriefingAndPrefetch() {
+        stubBriefingAndPrefetch(true);
+    }
+
+    /**
+     * Stubs the briefing (one region per day, one SUNRISE summary), the model lookups, the freshness lookups and
+     * the weather pre-fetch.
+     *
+     * @param scheduledPath {@code false} for the region-filtered path, which never asks for the far-term model
+     */
+    private void stubBriefingAndPrefetch(boolean scheduledPath) {
+        // Production: near term SONNET, far term HAIKU.
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM)).thenReturn(EvaluationModel.SONNET);
+        if (scheduledPath) {
+            when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
+        }
+        // With no stability snapshot in memory every region reads as UNSETTLED; the candidate pass asks
+        // for that threshold once for its log, then once per briefing day at that day's horizon.
+        when(freshnessResolver.maxAgeFor(ForecastStability.UNSETTLED)).thenReturn(Duration.ofHours(6));
+        briefingSlots.stream().map(s -> s.solarEventTime().toLocalDate()).distinct().forEach(d ->
+                when(freshnessResolver.maxAgeFor((int) ChronoUnit.DAYS.between(today, d),
+                        ForecastStability.UNSETTLED)).thenReturn(Duration.ofHours(6)));
         Map<LocalDate, List<BriefingSlot>> byDate = new LinkedHashMap<>();
         for (BriefingSlot s : briefingSlots) {
             byDate.computeIfAbsent(s.solarEventTime().toLocalDate(), d -> new ArrayList<>()).add(s);
@@ -896,12 +945,13 @@ class ForecastTaskCollectorMutationGapsTest {
         Map<String, WeatherExtractionResult> weather = new HashMap<>();
         for (LocationEntity l : prefetched) {
             weather.put(OpenMeteoService.coordKey(l.getLat(), l.getLon()),
-                    new WeatherExtractionResult(null, new OpenMeteoForecastResponse(),
+                    new WeatherExtractionResult(null, forecastResponseFor(l),
                             new OpenMeteoAirQualityResponse()));
         }
         // The coordinates are pinned: one point per distinct grid cell (or bare coordinate) among the
         // candidates' locations, so a collector that asked for none, or for the wrong places, would not
-        // receive the fixture. Only the call-report sink is left as any().
+        // receive the fixture. Only the call-report sink is left as any(): it is a pure sink, and the calls
+        // it receives are asserted by the existing pre-fetch report tests.
         when(openMeteoService.prefetchWeatherBatchResilient(argThat(requestsExactly(expectedRequests())), any()))
                 .thenReturn(weather);
     }
@@ -923,6 +973,24 @@ class ForecastTaskCollectorMutationGapsTest {
     private static ArgumentMatcher<List<double[]>> requestsExactly(Set<List<Double>> expected) {
         return points -> points != null && points.size() == expected.size()
                 && points.stream().map(p -> List.of(p[0], p[1])).collect(Collectors.toSet()).equals(expected);
+    }
+
+    private OpenMeteoForecastResponse.Hourly hourlyFor(LocationEntity l) {
+        return hourlyByName.computeIfAbsent(l.getName(), n -> new OpenMeteoForecastResponse.Hourly());
+    }
+
+    private OpenMeteoForecastResponse forecastResponseFor(LocationEntity l) {
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        response.setHourly(hourlyFor(l));
+        return response;
+    }
+
+    /** Stubs the grid-cell classification of one gridded location: its cell, grid point and fetched hourly data. */
+    private void stabilityOf(LocationEntity l, ForecastStability stability) {
+        when(stabilityClassifier.classify(eq(l.gridCellKey()), eq(l.getGridLat().doubleValue()),
+                eq(l.getGridLng().doubleValue()), same(hourlyFor(l))))
+                .thenReturn(new GridCellStabilityResult(l.gridCellKey(), l.getGridLat(), l.getGridLng(),
+                        stability, "stub", 0));
     }
 
     private void triagePass(LocationEntity l, LocalDate date, boolean tide, BluebellExposure scoreExposure) {
