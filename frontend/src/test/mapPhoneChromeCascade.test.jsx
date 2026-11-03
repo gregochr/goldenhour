@@ -107,13 +107,13 @@ function inject(slice) {
 }
 
 /**
- * The peek sheet's three RESTING heights (`utils/askPeek.js`'s `peekRestingHeight`; `MapView` writes the
- * one in force inline as `--psh`): no Ask row, the Ask row above the buttons, an answer minimised to
- * its one line. Since Ask (F4) every rule that clears the sheet reads `var(--psh, 74px)` — and jsdom
- * resolves no `var()` (the sibling files' own note), so what a rule comes to at each height is stated
- * by substituting the figure, in the one place the cascade would.
+ * The peek sheet's RESTING height (`utils/askPeek.js`'s `peekRestingHeight`; `MapView` writes it inline as
+ * `--psh`). There is ONE since C2 (map-mobile-compact-plan.md D-4): the Ask row left the sheet and the
+ * minimised answer's line takes the buttons' place, so 126 and 112 are gone. Every rule that clears the
+ * sheet reads `var(--psh, 74px)` — and jsdom resolves no `var()` (the sibling files' own note), so what a
+ * rule comes to is stated by substituting the figure, in the one place the cascade would.
  */
-const RESTING_HEIGHTS = [74, 126, 112];
+const RESTING_HEIGHTS = [74];
 
 /** `slice` with every `var(--psh, 74px)` replaced by `px` — a custom property jsdom cannot resolve. */
 function atPsh(slice, px) {
@@ -395,7 +395,7 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
         computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
       );
       const blBottom = parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom);
-      const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass, documented in index.css
+      const MEASURED_ATTRIBUTION_HEIGHT = 14; // C2's one line: 8.5px text on a 14px line, documented in index.css
       const CLEARANCE_GAP = 8;
       expect(attributionBottom).toBe(psh);
       expect(blBottom).toBeGreaterThanOrEqual(attributionBottom + MEASURED_ATTRIBUTION_HEIGHT + CLEARANCE_GAP);
@@ -623,7 +623,7 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
   describe('THE SWEEP — full pairwise disjointness across the whole lifted stack, everything active at once', () => {
     const FRAME_HEIGHT = 780;
     const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl
-    const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass: y 677–704
+    const MEASURED_ATTRIBUTION_HEIGHT = 14; // C2's one line (was 27 wrapped): 14px line-height, nowrap
 
     /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
      * `heightPx` tall — both measured downward from the frame's TOP, matching
@@ -716,11 +716,11 @@ describe('the phone tide strip is retired (map-mobile-sheet-plan.md §3 M3)', ()
     expect(css).not.toMatch(/\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-chrome-bl/);
   });
 
-  it.each([[74, '109px'], [126, '161px'], [112, '147px']])('the phone `.wf-map-chrome-bl` bottom is the sheet\'s resting height plus attribution plus the clearance, unaffected by `.wf-tide-strip-on` — %ipx → %s', (psh, bottom) => {
+  it.each([[74, '96px']])('the phone `.wf-map-chrome-bl` bottom is the sheet\'s resting height plus the one-line attribution plus the clearance, unaffected by `.wf-tide-strip-on` — %ipx → %s', (psh, bottom) => {
     const slice = extractRulesIncludingMedia('.wf-map-chrome-bl');
-    // calc(var(--psh, 74px) + 27px + 8px) — the sheet's own RESTING height, plus attribution's real
-    // height, plus this stack's standing clearance (M2 task 8's formula, `--psh`-driven since Ask).
-    expect(slice).toContain('calc(var(--psh, 74px) + 27px + 8px)');
+    // calc(var(--psh, 74px) + 14px + 8px) — the sheet's own RESTING height, plus attribution's ONE line
+    // (C2 S9: 14px, was a wrapped 27px), plus this stack's standing clearance.
+    expect(slice).toContain('calc(var(--psh, 74px) + 14px + 8px)');
     const cleanup = inject(atPsh(slice, psh));
     try {
       for (const ancestors of [['wf-map-tab'], ['wf-map-tab wf-tide-strip-on']]) {
@@ -744,6 +744,97 @@ describe('the phone tide strip is retired (map-mobile-sheet-plan.md §3 M3)', ()
         expect(style.overflow).toBe('hidden');
         expect(style.clipPath).toBe('inset(50%)');
       }
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// map-mobile-compact-plan.md C2 step 5 / S9; docs/design/map-mobile-compact/README.md §5.
+describe('the phone attribution is ONE tappable line, below the sheet (C2)', () => {
+  const ATTRIBUTION = ['.leaflet-control-attribution', '.leaflet-bottom.leaflet-right'];
+
+  it('is one line on the phone: 8.5px / 14px, nowrap, ellipsis, clipped, max 240px, a pointer', () => {
+    const slice = extractRulesIncludingMedia(ATTRIBUTION);
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('leaflet-control-attribution', ['wf-map-tab']);
+      expect(style.fontSize).toBe('8.5px');
+      expect(style.lineHeight).toBe('14px');
+      expect(style.whiteSpace).toBe('nowrap');
+      expect(style.overflow).toBe('hidden');
+      expect(style.textOverflow).toBe('ellipsis');
+      expect(style.maxWidth).toBe('240px');
+      expect(style.cursor).toBe('pointer');
+      expect(style.padding).toBe('0px 6px');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('is untouched off the phone / outside `.wf-map-tab`: the P3 9px, with no nowrap, clip or cap', () => {
+    const slice = extractRulesIncludingMedia(ATTRIBUTION);
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('leaflet-control-attribution');
+      expect(style.fontSize).toBe('9px');
+      expect(style.whiteSpace).not.toBe('nowrap');
+      expect(style.maxWidth).not.toBe('240px');
+      expect(style.cursor).not.toBe('pointer');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('every phone attribution rule sits inside the (max-width: 639px) query — desktop and tablet are provably unchanged', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const phone = sliceTopLevelBlocks(css).filter((b) => b.selector.startsWith('@media') && b.selector.includes('max-width: 639px'));
+    const inPhone = phone.map((b) => b.bodyInner).join('\n');
+    expect(inPhone).toContain('.wf-map-tab .leaflet-control-attribution {');
+    expect(inPhone).toContain('.wf-attr-full');
+    expect(inPhone).toContain('.wf-attr-open');
+    // …and nothing outside a media block mentions the toggle classes.
+    const outside = sliceTopLevelBlocks(css).filter((b) => !b.selector.startsWith('@media')).map((b) => b.selector).join('\n');
+    expect(outside).not.toMatch(/wf-attr-(full|open)/);
+  });
+
+  it('expanded (`wf-attr-full`): wraps, grows to 370px, and is OPAQUE', () => {
+    const slice = extractRulesIncludingMedia(ATTRIBUTION);
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('leaflet-control-attribution wf-attr-full', ['wf-map-tab']);
+      expect(style.whiteSpace).toBe('normal');
+      expect(style.maxWidth).toBe('370px');
+      expect(style.background).toBe('rgb(20, 16, 13)');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('expanded: z-index sits ABOVE `.wf-map-chrome-bl` (1100) and BELOW the sheet (1120), on the control and on its corner', () => {
+    const slice = extractRulesIncludingMedia([...ATTRIBUTION, '.wf-map-chrome-bl', '.wf-map-peek']);
+    const cleanup = inject(slice);
+    try {
+      const control = Number(computedStyleFor('leaflet-control-attribution wf-attr-full', ['wf-map-tab']).zIndex);
+      const corner = Number(computedStyleFor('leaflet-bottom leaflet-right wf-attr-open', ['wf-map-tab']).zIndex);
+      const chromeBl = Number(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).zIndex);
+      const sheet = Number(computedStyleFor('wf-map-peek').zIndex);
+      expect(chromeBl).toBe(1100);
+      expect(sheet).toBe(1120);
+      for (const z of [control, corner]) {
+        expect(z).toBeGreaterThan(chromeBl);
+        expect(z).toBeLessThan(sheet);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('collapsed, the corner takes no z-index of its own (only the expanded one is raised)', () => {
+    const slice = extractRulesIncludingMedia(ATTRIBUTION);
+    const cleanup = inject(slice);
+    try {
+      expect(computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).zIndex).toBe('auto');
     } finally {
       cleanup();
     }

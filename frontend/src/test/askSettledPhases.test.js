@@ -18,7 +18,6 @@ const CONSUMERS = [
   'components/ask/AskClearAnswer.jsx',
   'utils/askPeek.js',
   'components/map/MapPeekAsk.jsx',
-  'components/MapView.jsx',
 ];
 
 const PHASES = ['answer', 'plan', 'cant', 'error'];

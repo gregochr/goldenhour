@@ -45,7 +45,17 @@ function makeMap() {
   document.body.appendChild(container);
   Object.defineProperty(container, 'offsetWidth', { value: 800, configurable: true });
   const panes = {};
+  // Leaflet's attribution control in its corner, as `AttributionToggle` finds it (C2).
+  const corner = document.createElement('div');
+  corner.className = 'leaflet-bottom leaflet-right';
+  const attribution = document.createElement('div');
+  attribution.className = 'leaflet-control-attribution leaflet-control';
+  corner.appendChild(attribution);
+  container.appendChild(corner);
   return {
+    attribution,
+    corner,
+    attributionControl: { getContainer: () => attribution },
     flyToBoundsCalls: [],
     flyToCalls: [],
     zoom: 9,
@@ -327,7 +337,7 @@ const psh = () => screen.getByTestId('wf-map-pane').style.getPropertyValue('--ps
 const buttonsShown = () => screen.queryByTestId('wf-map-peek-btn-win') !== null;
 /** A hand on the map: Leaflet's `dragstart`, which the sheet's own listener answers. */
 const dragMap = () => act(async () => { fakeMap.container.dispatchEvent(new Event('dragstart')); });
-const openAsk = () => act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-entry')); });
+const openAsk = () => act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask')); });
 
 /** Types a question into the sheet's field and sends it; the provider's `ask` answers with the fixture. */
 async function typeQuestion(text = 'Where is good?') {
@@ -338,13 +348,20 @@ async function typeQuestion(text = 'Where is good?') {
 }
 
 describe('the row, on the real chain', () => {
-  it('is the Ask row above the three buttons, at 126, when Ask is on', async () => {
+  it('is the Ask button, third of four, in a sheet that rests at 74, when Ask is on', async () => {
     await renderMap();
 
     expect(mode()).toBe('collapsed');
-    expect(psh()).toBe('126px');
-    expect(screen.getByTestId('wf-map-peek-ask-entry')).toHaveTextContent('Ask PhotoCast…');
+    expect(psh()).toBe('74px');
+    const button = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(button).toHaveTextContent('ASK');
+    expect(button).toHaveAccessibleName('Ask PhotoCast');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(button).toHaveAttribute('aria-controls', 'wf-map-peek-ask-body');
     expect(buttonsShown()).toBe(true);
+    // Other windows · Tide · Ask · Layers: Ask sits before Layers.
+    const keys = [...document.querySelectorAll('.wf-map-peek-row > button')].map((b) => b.dataset.testid);
+    expect(keys.indexOf('wf-map-peek-btn-ask')).toBe(keys.indexOf('wf-map-peek-btn-lay') - 1);
   });
 
   it('is not there when the server says Ask is off: the sheet is the sheet it was, at 74', async () => {
@@ -354,7 +371,7 @@ describe('the row, on the real chain', () => {
 
     expect(mode()).toBe('off');
     expect(psh()).toBe('74px');
-    expect(screen.queryByTestId('wf-map-peek-ask-entry')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
     expect(buttonsShown()).toBe(true);
   });
 
@@ -373,7 +390,9 @@ describe('the row, on the real chain', () => {
     await openAsk();
 
     expect(mode()).toBe('expanded');
-    expect(buttonsShown()).toBe(false);
+    // The four buttons stay above the section (D-5), with Ask pressed.
+    expect(buttonsShown()).toBe(true);
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('aria-expanded', 'true');
     expect(await screen.findByTestId('ask-ready-list')).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByTestId('ask-input'));
   });
@@ -405,16 +424,16 @@ describe('an answer, from landing to clearing', () => {
     await dragMap();
 
     expect(mode()).toBe('minimised');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
     const line = screen.getByTestId('wf-map-peek-mini');
     expect(line).toHaveTextContent('Saltburn');
     expect(line).toHaveTextContent('2 picks');
     expect(line).toHaveAccessibleName(/^Pick 1, Saltburn, .* 2 picks\. Show the answer$/);
-    // The conversation is kept, not cleared, and the camera was told the sheet came down to 112.
+    // The conversation is kept, not cleared, and the camera was told the sheet came down to 74.
     expect(ask$.phase).toBe('answer');
     await waitFor(() => expect(fitBounds).toHaveBeenCalled());
     expect(fitBounds.mock.calls.at(-1)[1].animate).toBe(false);
-    expect(fitBounds.mock.calls.at(-1)[1].paddingBottomRight[1]).toBe(60 + 112);
+    expect(fitBounds.mock.calls.at(-1)[1].paddingBottomRight[1]).toBe(60 + 74);
     expect(pickChips()).toHaveLength(2);
   });
 
@@ -456,7 +475,7 @@ describe('an answer, from landing to clearing', () => {
     expect(ask$.selectedPick).toBe(2);
     expect(await screen.findByTestId('map-callout')).toHaveTextContent('Whitby');
     await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
   });
 
   it('a pick chip pressed with the answer EXPANDED minimises it under the pick\'s callout; the card is the chosen one', async () => {
@@ -521,14 +540,14 @@ describe('an answer, from landing to clearing', () => {
 
     expect(await screen.findByTestId('map-callout')).toHaveTextContent('Roseberry');
     expect(mode()).toBe('minimised');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
   });
 
-  it('the ✕ clears the answer, brings the three buttons back, unnumbers the map — and focus lands on the Ask row, not <body>', async () => {
+  it('the ✕ clears the answer, leaves the four buttons, unnumbers the map — and focus lands on the Ask button, not <body>', async () => {
     await renderMap();
     await openAsk();
     await typeQuestion();
-    expect(buttonsShown()).toBe(false);
+    expect(buttonsShown()).toBe(true);
     screen.getByTestId('wf-map-peek-ask-x').focus();
 
     await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-x')); });
@@ -536,12 +555,12 @@ describe('an answer, from landing to clearing', () => {
     expect(ask$.phase).toBe('empty');
     expect(mode()).toBe('collapsed');
     expect(buttonsShown()).toBe(true);
-    expect(psh()).toBe('126px');
+    expect(psh()).toBe('74px');
     expect(pickChips()).toHaveLength(0);
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
-  it('Escape in the field closes the open section onto the entry — and the pane\'s own Escape is still alive after it', async () => {
+  it('Escape in the field closes the open section onto the Ask button — and the pane\'s own Escape is still alive after it', async () => {
     await renderMap();
     await openAsk();
     screen.getByTestId('ask-input').focus();
@@ -549,12 +568,12 @@ describe('an answer, from landing to clearing', () => {
     await act(async () => { fireEvent.keyDown(screen.getByTestId('ask-input'), { key: 'Escape' }); });
 
     expect(mode()).toBe('collapsed');
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
     // The pane's rule runs only while focus is inside the pane: an ordinary chip's callout is cleared by
     // the next Escape, from where focus now is.
     await act(async () => { fireEvent.click(chips().find((c) => c.textContent.includes('Roseberry'))); });
     expect(await screen.findByTestId('map-callout')).toBeInTheDocument();
-    screen.getByTestId('wf-map-peek-ask-entry').focus();
+    screen.getByTestId('wf-map-peek-btn-ask').focus();
     await act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); });
     await waitFor(() => expect(screen.queryByTestId('map-callout')).toBeNull());
   });
@@ -617,7 +636,7 @@ describe('a tab switch, through the pane\'s own ResizeObserver (the real source 
 });
 
 describe('Escape from an expanded answer, from where focus really is', () => {
-  it('minimises it, keeps the answer, and focus lands on the Ask row — whose Escape then clears the selection', async () => {
+  it('minimises it, keeps the answer, and focus lands on the line\'s Layers door (the Ask button is not mounted) — whose Escape then clears the selection', async () => {
     await renderMap();
     await openAsk();
     await typeQuestion();
@@ -627,7 +646,8 @@ describe('Escape from an expanded answer, from where focus really is', () => {
 
     expect(mode()).toBe('minimised');
     expect(ask$.phase).toBe('answer');
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
     await act(async () => { fireEvent.click(chips().find((c) => c.textContent.includes('Roseberry'))); });
     expect(await screen.findByTestId('map-callout')).toBeInTheDocument();
     await act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); });
@@ -805,7 +825,7 @@ describe('Plan this, in the expanded Ask section (F5)', () => {
 
     expect(ask$.phase).toBe('empty');
     expect(mode()).toBe('collapsed');
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
   it('"Back to the answer" keeps the section open and puts focus on the card that opened the plan', async () => {
@@ -817,5 +837,111 @@ describe('Plan this, in the expanded Ask section (F5)', () => {
     expect(ask$.phase).toBe('answer');
     expect(ask$.selectedPick).toBe(2);
     expect(document.activeElement).toBe(screen.getByTestId('ask-plan-this-2'));
+  });
+});
+
+// map-mobile-compact-plan.md C2: the Ask button toggles, the four buttons stay under an open section, and
+// focus never falls to <body> on any way out of it.
+describe('C2 — the Ask button, on the real chain', () => {
+  it('toggles: a second press closes the section, and focus stays on the Ask button', async () => {
+    await renderMap();
+    await openAsk();
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('aria-expanded', 'true');
+
+    await openAsk();
+
+    expect(mode()).toBe('collapsed');
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toHaveAttribute('aria-expanded', 'false');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
+  });
+
+  it('S3: pressing Ask puts the cursor in the field even though the Ask button, which holds focus, stays mounted', async () => {
+    await renderMap();
+
+    await openAsk();
+
+    expect(document.activeElement).toBe(screen.getByTestId('ask-input'));
+  });
+
+  it('S1: closing an answered section with the Ask button lands on the line\'s Layers door (the button is not mounted then)', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+
+    // The press moves focus to the button first (as every peek button does), then the section closes.
+    await openAsk();
+
+    expect(mode()).toBe('minimised');
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+    expect(ask$.phase).toBe('answer');
+  });
+
+  it('S2: switching from an expanded Ask to Other windows, Tide or Layers leaves focus on the pressed button, never <body>', async () => {
+    await renderMap();
+    for (const id of ['win', 'lay']) {
+      await openAsk();
+      expect(screen.getByTestId('ask-input')).toBeInTheDocument();
+
+      await act(async () => { fireEvent.click(screen.getByTestId(`wf-map-peek-btn-${id}`)); });
+
+      expect(mode()).toBe('section');
+      expect(screen.queryByTestId('ask-input')).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByTestId(`wf-map-peek-btn-${id}`));
+      // close that section again
+      await act(async () => { fireEvent.click(screen.getByTestId(`wf-map-peek-btn-${id}`)); });
+    }
+  });
+
+  it('S2: a pick card\'s own route out (the chip minimises the answer) never leaves focus on <body>', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    screen.getByTestId('ask-pick-1').focus();
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.dataset.askRank === '2')); });
+
+    expect(mode()).toBe('minimised');
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it('the Ask button and the Other windows / Tide / Layers buttons share one sheet: Ask is third, Layers last', async () => {
+    await renderMap();
+
+    const ids = [...document.querySelectorAll('.wf-map-peek-row > button')].map((b) => b.dataset.testid);
+    expect(ids.at(-2)).toBe('wf-map-peek-btn-ask');
+    expect(ids.at(-1)).toBe('wf-map-peek-btn-lay');
+    expect(ids[0]).toBe('wf-map-peek-btn-win');
+  });
+});
+
+describe('C2 — the one-line attribution, tap to expand (phone only)', () => {
+  it('on a phone a tap toggles the full text on the control and the raised corner; a link tap does not', async () => {
+    await renderMap();
+    const link = document.createElement('a');
+    link.href = '#esri';
+    fakeMap.attribution.appendChild(link);
+
+    fireEvent.click(fakeMap.attribution);
+    expect(fakeMap.attribution).toHaveClass('wf-attr-full');
+    expect(fakeMap.corner).toHaveClass('wf-attr-open');
+
+    fireEvent.click(link);
+    expect(fakeMap.attribution).toHaveClass('wf-attr-full');
+
+    fireEvent.click(fakeMap.attribution);
+    expect(fakeMap.attribution).not.toHaveClass('wf-attr-full');
+    expect(fakeMap.corner).not.toHaveClass('wf-attr-open');
+  });
+
+  it('on a tablet or desktop nothing listens: the control is exactly what Leaflet drew', async () => {
+    mockIsMobile = false;
+    await renderMap();
+
+    fireEvent.click(fakeMap.attribution);
+
+    expect(fakeMap.attribution).not.toHaveClass('wf-attr-full');
+    expect(fakeMap.corner).not.toHaveClass('wf-attr-open');
   });
 });

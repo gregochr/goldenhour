@@ -157,16 +157,16 @@ describe('between two questions on the phone Plan sheet', () => {
     expectThreadKept();
   });
 
-  it('(c) the phone Map peek’s Ask row mounting, collapsing and unmounting does not clear the conversation', async () => {
-    // The real MapView is Leaflet's; the row it mounts is driven here under the real provider. Its only
+  it('(c) the phone Map peek’s Ask section mounting, collapsing and unmounting does not clear the conversation', async () => {
+    // The real MapView is Leaflet's; the Ask body it mounts is driven here under the real provider. Its only
     // `clear()` is the ✕ pressed on a settled answer, never a mount, a collapse or an unmount.
     installViewport(390);
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(shellCtx(matrixCtx()));
     getAskSettings.mockResolvedValue(settings({ limit: 30, left: 30 }));
-    const entryRef = { current: null };
+    const refs = { buttonRef: { current: null }, doorRef: { current: null }, layersRef: { current: null } };
     const peek = (mode) => (
       <AskProvider>
-        <MapPeekAsk mode={mode} onOpen={vi.fn()} onClose={vi.fn()} entryRef={entryRef} />
+        <MapPeekAsk mode={mode} onOpen={vi.fn()} onClose={vi.fn()} onOpenLayers={vi.fn()} {...refs} />
       </AskProvider>
     );
     const { rerender, unmount } = render(peek('expanded'));

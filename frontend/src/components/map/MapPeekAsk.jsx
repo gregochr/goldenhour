@@ -11,8 +11,11 @@ import AskConversation from '../ask/AskConversation.jsx';
 import AskInputRow from '../ask/AskInputRow.jsx';
 import { objectRefShape, planActionsShape } from '../ask/askShapes.js';
 
-/** The collapsed row's prompt: the one Ask prompt, same as every other entry. */
-export const PEEK_ASK_PROMPT = ASK_PROMPT;
+/** The Ask button's accessible name: the one Ask prompt, without its ellipsis. */
+export const PEEK_ASK_LABEL = ASK_PROMPT.replace('…', '');
+
+/** The id the Ask button's {@code aria-controls} names (S6): the Ask section's body. */
+export const PEEK_ASK_BODY_ID = 'wf-map-peek-ask-body';
 
 /** The view chip's words before the Map pane has published a context (no briefing yet). */
 const FALLBACK_VIEW_LABEL = 'Map · all regions';
@@ -21,58 +24,170 @@ const FALLBACK_VIEW_LABEL = 'Map · all regions';
 const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
 
 /**
- * Ask PhotoCast's row of the phone peek sheet, and everything that hangs off it
- * (`docs/engineering/ask-photocast-plan.md` §2.7's phone paragraph, F4): the top row of
- * {@code MapPeekSheet}, the Ask section's body, and the one-line minimised answer.
+ * A refusal's sentence that arrived while the Ask section was closed and has not been seen — shared by
+ * the Ask button (its dot and name) and the status region, which live in different parts of the sheet.
+ *
+ * <p>⚠️ The conversation, while the section is open, renders the sentence itself (and announces it);
+ * {@code inputError} then lives on in the provider until the next question, so a button that mirrored it
+ * unconditionally would keep the dot long after it was read, and announce it a second time on every
+ * collapse. "Seen" is whatever the open conversation last showed, forgotten when the sentence goes (so the
+ * same refusal twice is two refusals). State adjusted during render, the documented form; both callers
+ * receive the same {@code expanded} and the same context, so their copies never disagree.
+ *
+ * @param {boolean} expanded whether the Ask section is open
+ * @param {?string} inputError {@code AskContext.inputError}
+ * @returns {?string} the unseen sentence, or null
+ */
+function useUnseenRefusal(expanded, inputError) {
+  const [seenError, setSeenError] = useState(null);
+  if (expanded && seenError !== inputError) setSeenError(inputError);
+  if (!inputError && seenError !== null) setSeenError(null);
+  return !expanded && inputError && inputError !== seenError ? inputError : null;
+}
+
+/**
+ * The Ask peek button — the third of the sheet's four (Other windows · Tide · Ask · Layers;
+ * `docs/engineering/map-mobile-compact-plan.md` C2, D-6, S4–S8). 44px wide, key {@code ASK}, glyph ✦.
+ *
+ * <p>Drawn by this module (it reads Ask's availability, lock and refusal) and placed by
+ * {@code MapPeekSheet} through its {@code askButton} slot. It toggles: closed it opens the Ask section, open
+ * it closes it ({@code MapView}'s {@code onPress}), like its siblings. It focuses itself on press (S2).
+ * <ul>
+ *   <li>{@code disabled} while Ask is unreachable ({@code 'down'}), as the old entry row was (S5);</li>
+ *   <li>a refusal that arrived while the section was closed: {@code data-error="true"} (a small coral dot)
+ *       and the sentence in its {@code aria-label} (S4); the status region still announces it once;</li>
+ *   <li>LITE (locked): a 44px box cannot carry the "Pro" pill, so it is drawn muted ({@code data-locked})
+ *       yet stays pressable and opens the worded upsell section; {@code aria-label} "Ask PhotoCast, Pro"
+ *       (S8).</li>
+ * </ul>
+ *
+ * @param {object} props
+ * @param {'collapsed'|'expanded'|'minimised'|'section'} props.mode {@code askPeekMode}'s answer
+ * @param {function(): void} props.onPress toggles the Ask section
+ * @param {{current: ?HTMLElement}} props.buttonRef the button's node — where the Ask section hands focus
+ *        back to when it closes onto the four buttons, and the sheet's focus fallback
+ */
+export function MapPeekAskButton({ mode, onPress, buttonRef }) {
+  const { availability, inputError } = useAsk();
+  const expanded = mode === 'expanded';
+  const locked = availability === 'locked';
+  const unseenError = useUnseenRefusal(expanded, inputError);
+  let label = PEEK_ASK_LABEL;
+  if (locked) label = `${PEEK_ASK_LABEL}, Pro`;
+  else if (unseenError) label = `${PEEK_ASK_LABEL}. ${unseenError}`;
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      data-testid="wf-map-peek-btn-ask"
+      className={`wf-map-peek-btn wf-map-peek-btn-ask${expanded ? ' wf-map-peek-btn-on' : ''}`}
+      aria-expanded={expanded}
+      aria-controls={PEEK_ASK_BODY_ID}
+      aria-label={label}
+      data-locked={locked ? 'true' : undefined}
+      data-error={unseenError && !locked ? 'true' : undefined}
+      disabled={availability === 'down'}
+      onClick={(event) => {
+        // Safari (and iOS) do not focus a button a pointer pressed (S2): take focus, so the field that an
+        // expanded section is about to unmount does not take it to <body>, and a close lands here.
+        event.currentTarget.focus({ preventScroll: true });
+        onPress();
+      }}
+    >
+      <span className="wf-map-peek-k">ASK</span>
+      <span className="wf-map-peek-v" aria-hidden="true">&#10022;</span>
+    </button>
+  );
+}
+
+MapPeekAskButton.propTypes = {
+  mode: PropTypes.oneOf(['collapsed', 'expanded', 'minimised', 'section']).isRequired,
+  onPress: PropTypes.func.isRequired,
+  buttonRef: objectRefShape.isRequired,
+};
+
+/**
+ * Reports, from its layout-effect CLEANUP, that the expanded Ask content unmounted while a control inside it
+ * held focus (S2): the field, the ✕, a pick card, a link. The cleanup of a component that is being deleted
+ * runs while its host nodes are still in the document, so {@code document.activeElement} is still the
+ * control; a cleanup on {@code MapPeekAsk} itself would run after the deletion. Focus parked on the Ask
+ * pane's own node is not "lost" (it is the deliberate hand-off), nor is a peek button the reader pressed.
+ */
+function FocusLossGuard({ onLost }) {
+  const report = useRef(onLost);
+  useEffect(() => { report.current = onLost; });
+  useLayoutEffect(() => () => {
+    const active = document.activeElement;
+    const pane = active?.closest?.('.wf-map-peek-ask');
+    if (pane && active !== pane) report.current?.();
+  }, []);
+  return null;
+}
+
+FocusLossGuard.propTypes = {
+  onLost: PropTypes.func.isRequired,
+};
+
+/**
+ * Ask PhotoCast's part of the phone peek sheet, under the button row
+ * (`docs/engineering/ask-photocast-plan.md` §2.7's phone paragraph, F4; `map-mobile-compact-plan.md` C2):
+ * the Ask section's body and the one-line minimised answer. The Ask BUTTON is {@link MapPeekAskButton}.
  *
  * <p>It is a sheet PART, not a surface of its own: {@code MapView} owns every open/closed decision
  * (the one gate, {@code openMapMenu}) and tells this component the {@code mode} the sheet is in
  * ({@code utils/askPeek.js}); this component draws that mode and reports the reader's presses.
  * <ul>
- *   <li><b>collapsed / section / minimised</b> — the row is a BUTTON, "Ask PhotoCast… ↑", that opens the Ask
- *       section. A refusal's sentence ({@code inputError}) that arrived while the section was closed and
- *       has not been seen is shown in its place: the conversation is not mounted then
- *       ({@code AskConversation} renders the sentence itself while it is open, so the field never does). Minimised adds the one line under it.</li>
- *   <li><b>expanded</b> — the row holds the question field ({@code AskInputRow}, the same piece the
- *       sheet and the dock repeat) and a ✕; the conversation fills the body below it.</li>
+ *   <li><b>collapsed / section</b> — nothing but the status region, which stays mounted. A refusal's
+ *       sentence ({@code inputError}) that arrived while the section was closed and has not been seen is said
+ *       there once, and shown on the Ask button as a dot: the conversation is not mounted then
+ *       ({@code AskConversation} renders the sentence itself while it is open, so the field never does).</li>
+ *   <li><b>expanded</b> — under the four buttons, the field row ({@code AskInputRow}, the same piece the
+ *       sheet and the dock repeat, and a ✕), then the conversation filling the body (D-5).</li>
+ *   <li><b>minimised</b> — the one line, in place of the four buttons (D-4).</li>
  * </ul>
  * The ✕ ends what is settled ("New conversation") and closes the section, or just
  * closes it while there is nothing settled to clear — never while an answer is still being fetched,
  * since clearing then would drop a charged answer (the rule {@code AskClearAnswer} keeps).
  *
  * <h2>Focus never falls to {@code <body>}</h2>
- * <p>Four controls here unmount when pressed — the entry button and the minimised line (the field
- * takes their place), the field and ✕ (the entry button takes theirs) and the minimised line's Layers
- * door (the Layers section's own buttons take its place) — and the map's Escape rule,
- * which runs only while focus is inside the pane, goes quiet once focus is on {@code <body>}: the
- * defect the Map's panels had five times. So: opening focuses the field when there is nothing to read
- * and the pane's own node ({@code tabIndex -1}, a programmatic-only target) when there is, only when
- * focus has actually been lost (a control the reader already holds keeps it; no pick-chip route expands the
- * answer any more — a chip opens the pick's callout over the minimised line, `MapView.handleSelectAskPick`); and everything that closes the
- * section from inside it first parks focus on that same node, and an effect hands it on to the entry
- * button once the button exists. Escape parks through a native listener, which runs before the pane's
- * own handler closes the section.
+ * <p>Controls here unmount when pressed or when the section closes — the field, the ✕ and the pick cards
+ * (the four buttons are already there), the minimised line and its Layers door (the field or the Layers
+ * section takes their place) — and the map's Escape rule, which runs only while focus is inside the pane,
+ * goes quiet once focus is on {@code <body>}: the defect the Map's panels had five times. So:
+ * <ul>
+ *   <li><b>Opening</b> focuses the field whatever holds focus when there is nothing to read (S3: the Ask
+ *       button stays mounted and pressed, so "only when focus was lost" would never fire), and the pane's
+ *       own node ({@code tabIndex -1}, a programmatic-only target) when there is something settled, only
+ *       when focus has actually been lost. Locked: the upsell's heading.</li>
+ *   <li><b>Closing from inside</b> (✕, Not now, Escape) first parks focus on the pane's node, and an effect
+ *       hands it on by DESTINATION (S1): to the minimised line's Layers door when the answer is what remains
+ *       (the Ask button is not mounted then), to the Ask button when the four buttons are. Escape parks
+ *       through a native listener, which runs before the pane's own handler closes the section.</li>
+ *   <li><b>Switching away</b> (a Windows, Tide or Layers press, S2) is covered by each peek button focusing
+ *       itself on press; the {@code FocusLossGuard} is the net for every route that is not a press (a pick
+ *       chip, a tab switch), handing focus on by the same destination.</li>
+ * </ul>
  *
- * <p>The door is the one control whose focus goes ELSEWHERE than here: pressed, it hands focus to the
- * Layers peek button (the section's own button, mounted in the same commit — a later sibling, so its ref
- * is not yet attached when this component's LAYOUT effects run, hence a passive effect), and a door
- * unmounted by anything else while it held focus (a typed question going busy) hands it to the entry
- * button. Both only when focus has actually been lost.
+ * <p>The door is the one control whose focus goes ELSEWHERE: pressed, it hands focus to the Layers peek
+ * button (the section's own button, mounted in the same commit — a later sibling, so its ref is not yet
+ * attached when this component's LAYOUT effects run, hence a passive effect), and a door unmounted by anything
+ * else while it held focus (a typed question going busy) hands it to the Ask button. Both only when focus has
+ * actually been lost.
  *
  * <p>The field is mounted only while the section is open, so a typed draft does not outlive it — the
  * sheet's and the dock's rule too.
  *
  * <h2>Locked (a LITE reader): the section is the upsell</h2>
- * <p>The entry is a live button like PRO's, with the "Pro" pill inside it, and pressing it opens the same
+ * <p>The Ask button is live like PRO's (drawn muted, S8) and pressing it opens the same
  * section ({@code 'peek:ask'}); {@code MapPeekAsk} then draws {@code AskUpsellContent} inline, as the phone
  * Tide section does, in place of the field and the conversation (none of those mounts, so no
  * {@code /api/ask*} request can be made) and a {@code Not now} that closes it. There is no ✕. Focus goes
- * to the heading on open, and every close parks it on the pane's node so it ends on the entry button.
+ * to the heading on open, and every close parks it on the pane's node so it ends on the Ask button.
  * (`docs/engineering/ask-upsell-plan.md` §4.4.)
  *
  * @param {object} props
  * @param {'collapsed'|'expanded'|'minimised'|'section'} props.mode {@code askPeekMode}'s answer
- * @param {function(): void} props.onOpen opens the Ask section
+ * @param {function(): void} props.onOpen opens the Ask section (the minimised line's press)
  * @param {function(): void} props.onClose closes it (the answer, if any, is kept: minimised)
  * @param {function(): void} props.onOpenLayers the minimised line's Layers door: opens the Layers section
  *        with the answer kept ({@code MapView} clears a standing callout first, as the Layers button does)
@@ -80,15 +195,14 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  *        Regions or Filters close back onto the minimised line
  * @param {{current: ?HTMLElement}} props.layersRef the Layers peek button's node — where focus goes when
  *        the door is pressed
- * @param {{current: ?HTMLElement}} props.entryRef the entry button's node — the sheet's other
- *        focus-return routes (the Regions and Filters sheets, which close back onto the Layers button
- *        and find it gone while an answer has replaced the buttons) fall back to it
+ * @param {{current: ?HTMLElement}} props.buttonRef the Ask peek button's node ({@link MapPeekAskButton}) —
+ *        where focus goes when the section closes onto the four buttons
  * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
  *        the doors out of "Plan this" (F5): {@code MapView}'s, since the shell's own are out of the
  *        pane's reach. "Open in Plan ›" moves the tab, so the pane goes hidden and the section closes
  */
 export default function MapPeekAsk({
-  mode, onOpen, onClose, onOpenLayers, entryRef, doorRef, layersRef, planActions = undefined,
+  mode, onOpen, onClose, onOpenLayers, buttonRef, doorRef, layersRef, planActions = undefined,
 }) {
   const ask = useAsk();
   const wrapRef = useRef(null);
@@ -102,57 +216,64 @@ export default function MapPeekAsk({
   } = ask;
   const locked = availability === 'locked';
   const settled = SETTLED_PHASES.includes(phase);
-  // ⚠️ A refusal's sentence is shown in the collapsed row only while the reader has not yet SEEN it. The
-  // conversation, while the section is open, renders it itself (and announces it); `inputError` then
-  // lives on in the provider until the next question, so a row that mirrored it unconditionally would
-  // keep the sentence where the prompt belongs long after it was read, and announce it a second time on
-  // every collapse. "Seen" is whatever the open conversation last showed, forgotten when the sentence
-  // goes (so the same refusal twice is two refusals). State adjusted during render, the documented form.
-  const [seenError, setSeenError] = useState(null);
-  if (expanded && seenError !== inputError) setSeenError(inputError);
-  if (!inputError && seenError !== null) setSeenError(null);
-  const unseenError = !expanded && inputError && inputError !== seenError ? inputError : null;
+  const unseenError = useUnseenRefusal(expanded, inputError);
 
   /** Focus to a node that survives the control being pressed. */
   const park = useCallback(() => wrapRef.current?.focus({ preventScroll: true }), []);
 
-  // Opening: land somewhere deliberate when the pressed control has taken focus with it. Closing: hand
-  // a parked focus on to the entry button, which exists by now.
+  /**
+   * Where focus goes when the section is gone (S1), by DESTINATION: the minimised line's door when the answer
+   * is what remains (the Ask button is not mounted then), the Ask button when the four buttons are (the
+   * Layers button when Ask is unreachable and so disabled, which cannot take focus).
+   */
+  const handOnTarget = () => {
+    if (mode === 'minimised') return doorRef.current;
+    const button = buttonRef.current;
+    return button && !button.disabled ? button : layersRef.current;
+  };
+
+  // Opening: land somewhere deliberate (S3). Closing: hand a parked focus on to the destination.
   useEffect(() => {
     if (expanded && !wasExpanded.current) {
       const active = document.activeElement;
       if (locked) {
-        // The upsell's heading, whatever held focus: the pressed entry button is gone.
+        // The upsell's heading, whatever held focus: the reader asked to read the upsell.
         headingRef.current?.focus({ preventScroll: true });
+      } else if (phase === 'empty' && !typedDisabled) {
+        // Whatever holds focus: the pressed Ask button stays mounted, so "only when it was lost" would
+        // never fire. Something settled keeps the old rule below.
+        inputRef.current?.focus({ preventScroll: true });
       } else if (!active || active === document.body) {
-        if (phase === 'empty' && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
-        else park();
+        park();
       }
     }
     if (!expanded && wasExpanded.current && document.activeElement === wrapRef.current) {
-      entryRef.current?.focus({ preventScroll: true });
+      handOnTarget()?.focus({ preventScroll: true });
     }
     wasExpanded.current = expanded;
     // `phase`/`typedDisabled` are read at the moment of opening only; the transition is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 
-  // The door unmounts when pressed (the line becomes the Layers section) and when a typed question goes
-  // busy; it reports, from its layout-effect cleanup, that it held focus. Acted on after the commit that
-  // removed it, and only if focus was truly lost: Layers when the section is what replaced the line, the
-  // entry row otherwise.
+  // The expanded content unmounted with focus inside it (S2), or the door unmounted under its own press (it
+  // becomes the Layers section) or when a typed question went busy; each reports, from a layout-effect
+  // cleanup, that it held focus. Acted on after the commit that removed it, and only if focus was truly lost:
+  // Layers when the section is what replaced the line, the destination of the close otherwise.
+  const contentLostFocus = useRef(false);
+  const reportContentLost = useCallback(() => { contentLostFocus.current = true; }, []);
   const doorLostFocus = useRef(false);
   const reportDoorLost = useCallback(() => { doorLostFocus.current = true; }, []);
   useEffect(() => {
-    if (!doorLostFocus.current) return;
+    if (!doorLostFocus.current && !contentLostFocus.current) return;
+    const doorLost = doorLostFocus.current;
     doorLostFocus.current = false;
-    // Defensive: the door is gone, so focus is on <body> unless something else in the same commit has already
+    contentLostFocus.current = false;
+    // Defensive: the node is gone, so focus is on <body> unless something else in the same commit has already
     // taken it (a child effect that focused somewhere deliberate), which this must not undo.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    // The line is unmounted only when the mode has left `minimised`, so the door never needs to be a target.
-    const target = mode === 'section' ? layersRef : entryRef;
-    target.current?.focus({ preventScroll: true });
+    const target = doorLost && mode === 'section' ? layersRef.current : handOnTarget();
+    target?.focus({ preventScroll: true });
   });
 
   // A native listener, not a React prop: the a11y lint refuses key handlers on a non-interactive node,
@@ -179,17 +300,18 @@ export default function MapPeekAsk({
     onClose();
   };
 
-  // ⚠️ FIRST branch: a locked reader's expanded section is the upsell, never the field or the conversation.
-  if (expanded && locked) {
-    return (
-      <div
-        ref={wrapRef}
-        tabIndex={-1}
-        className="wf-map-peek-ask"
-        data-testid="wf-map-peek-ask"
-        data-mode={mode}
-      >
-        <div className="wf-map-peek-ask-body" data-testid="wf-map-peek-ask-body">
+  return (
+    <div
+      ref={wrapRef}
+      tabIndex={-1}
+      className="wf-map-peek-ask"
+      data-testid="wf-map-peek-ask"
+      data-mode={mode}
+    >
+      {expanded && <FocusLossGuard onLost={reportContentLost} />}
+      {/* ⚠️ FIRST branch: a locked reader's expanded section is the upsell, never the field or the conversation. */}
+      {expanded && locked && (
+        <div className="wf-map-peek-ask-body" id={PEEK_ASK_BODY_ID} data-testid="wf-map-peek-ask-body">
           <div className="wf-ask-upsell-inline" data-testid="wf-map-peek-ask-upsell-inline">
             <AskUpsellContent
               headingId="wf-map-peek-ask-upsell-heading"
@@ -206,46 +328,10 @@ export default function MapPeekAsk({
             </button>
           </div>
         </div>
-        <span key="status" role="status" className="sr-only" data-testid="wf-map-peek-ask-status" />
-      </div>
-    );
-  }
-
-  // Locked (the reader is not PRO or ADMIN): the same live button, with the "Pro" pill inside it.
-  const entryButton = (
-    <button
-      ref={entryRef}
-      type="button"
-      className="wf-map-peek-ask-entry"
-      data-testid="wf-map-peek-ask-entry"
-      aria-expanded="false"
-      // Undefined while locked: an aria-label would replace the content and drop "Pro" from the name.
-      aria-label={unseenError && !locked ? `${PEEK_ASK_PROMPT} ${unseenError}` : undefined}
-      disabled={availability === 'down'}
-      onClick={onOpen}
-    >
-      <span
-        className="wf-map-peek-ask-q"
-        data-error={unseenError ? 'true' : undefined}
-        data-testid="wf-map-peek-ask-q"
-      >
-        {unseenError ?? PEEK_ASK_PROMPT}
-      </span>
-      {locked && <span className="wf-lens-pro" data-testid="wf-map-peek-ask-entry-pill">Pro</span>}
-      <span className="wf-map-peek-ask-go" aria-hidden="true">↑</span>
-    </button>
-  );
-  return (
-    <div
-      ref={wrapRef}
-      tabIndex={-1}
-      className="wf-map-peek-ask"
-      data-testid="wf-map-peek-ask"
-      data-mode={mode}
-    >
-      <div className="wf-map-peek-ask-row">
-        {expanded ? (
-          <>
+      )}
+      {expanded && !locked && (
+        <>
+          <div className="wf-map-peek-ask-row">
             <div className="wf-map-peek-ask-field" data-testid="wf-map-peek-ask-field">
               <AskInputRow inputRef={inputRef} view="map" viewLabel={FALLBACK_VIEW_LABEL} />
             </div>
@@ -260,22 +346,19 @@ export default function MapPeekAsk({
               <span aria-hidden="true">✕</span>
             </button>
             {settled && <span id={hintId} className="sr-only">{NEW_CONVERSATION_HINT}</span>}
-          </>
-        ) : (
-          entryButton
-        )}
-      </div>
-      {expanded && (
-        <div
-          className="wf-map-peek-ask-body"
-          data-testid="wf-map-peek-ask-body"
-        >
-          <AskConversation
-            view="map"
-            viewLabel={FALLBACK_VIEW_LABEL}
-            planActions={planActions}
-          />
-        </div>
+          </div>
+          <div
+            className="wf-map-peek-ask-body"
+            id={PEEK_ASK_BODY_ID}
+            data-testid="wf-map-peek-ask-body"
+          >
+            <AskConversation
+              view="map"
+              viewLabel={FALLBACK_VIEW_LABEL}
+              planActions={planActions}
+            />
+          </div>
+        </>
       )}
       {mode === 'minimised' && (
         <MinimisedLine
@@ -288,8 +371,8 @@ export default function MapPeekAsk({
       )}
       {/* The refusal's sentence, said once: while the section is open the conversation's own region
           carries it (and a sentence it showed is not said again here), so this one holds only a refusal
-          that arrived while the section was closed. Mounted empty and always, so a fill is a change (keyed, so
-          the locked branch's copy is the same node and survives an open and a close). */}
+          that arrived while the section was closed — which the Ask button also wears, as a dot and in its
+          name. Mounted empty and always, so a fill is a change. */}
       <span key="status" role="status" className="sr-only" data-testid="wf-map-peek-ask-status">
         {unseenError ?? ''}
       </span>
@@ -302,26 +385,26 @@ MapPeekAsk.propTypes = {
   onOpen: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   onOpenLayers: PropTypes.func.isRequired,
-  entryRef: objectRefShape.isRequired,
+  buttonRef: objectRefShape.isRequired,
   doorRef: objectRefShape.isRequired,
   layersRef: objectRefShape.isRequired,
   planActions: planActionsShape,
 };
 
 /**
- * The 112px state's one line (design State 6): the chosen pick's rank, spot and time and "N picks ▴"
+ * The minimised state's one line (design State 6): the chosen pick's rank, spot and time and "N picks ▴"
  * — or, for an answer with no picks, the not-in-the-forecast reply or the failure, in a line of their
  * own words. Every word is read off the cards the conversation already holds (served facts, joined by
  * {@code buildPickCards}); nothing is derived here.
  *
  * <p>A ROW of two sibling buttons (`phone-pick-callout-plan.md` §3 P2), in all three variants: the line
  * itself, which opens the answer, and the Layers door, which opens the peek sheet's Layers section with
- * the answer kept (Show, Regions, Filters, Tide mode — an answer replaces the Other windows · Tide ·
+ * the answer kept (Show, Regions, Filters, Tide mode — the line replaces the Other windows · Tide · Ask ·
  * Layers buttons, so without the door the filters are reachable only through the window pill). The door is
  * a SIBLING, never a child: a button inside a button is invalid HTML and its press would also fire the
  * expand. It is the Layers peek button in miniature (the {@code LAYERS} caption over {@code ☰}, the same
- * accessible name and {@code aria-controls}), 58 x 44px with the Ask-✕'s border and radius. One row
- * wrapper owns the line's 10px side margin and 44px height, so the sheet stays 112px. The wrapper is the
+ * accessible name and {@code aria-controls}), 44 x 44px like that button, with the Ask-✕'s border and radius.
+ * One row wrapper owns the line's 8px side margin and 44px height, so the sheet stays at its resting 74px. The wrapper is the
  * same element in every variant, so a variant change (a pick selected, a plan opened) does not remount
  * the door.
  *

@@ -19,7 +19,7 @@ screen. One change is cross-platform: the unset-postcode nudge turns red everywh
 |---|---|---|---|---|
 | C0 | `claude/map-screen-improvements-06044b` | — | 2026-11-03 | Vendored the bundle; this plan. No code. |
 | C1 | `feature/map-mobile-compact-c1-chrome` | — | 2026-11-03 | Built, committed locally, not pushed: §6 red nudge (all widths), §1 phone masthead + `MastheadMenu`, §2 origin row (`hideAtHome`), §3 tabs. R1–R10 followed; the health panel is shared dot/menu-line state in `HealthStatusContext`. Not browser-verified. |
-| C2 | `feature/map-mobile-compact-c2-peek` | — | — | §4 Ask into the peek row, sheet back to 74px; §5 one-line attribution. |
+| C2 | `feature/map-mobile-compact-c2-peek` | — | 2026-11-03 | Built (not yet pushed): Ask is the 3rd of four peek buttons, the entry row and 126/112/408 heights gone, sheet rests at 74; one-line tap-to-expand attribution (`AttributionToggle`). S1–S11 applied; LITE button muted, no pill. |
 
 ---
 

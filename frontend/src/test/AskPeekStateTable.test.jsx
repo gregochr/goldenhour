@@ -304,7 +304,7 @@ async function mapEvent(kind) {
   await act(async () => { own[kind]({}); });
 }
 
-const openAsk = () => fireEvent.click(screen.getByTestId('wf-map-peek-ask-entry'));
+const openAsk = () => fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask'));
 const expandMinimised = () => fireEvent.click(screen.getByTestId('wf-map-peek-mini'));
 const pressPill = () => fireEvent.click(screen.getByTestId('wf-win-pill'));
 const escape = () => fireEvent.keyDown(screen.getByTestId('wf-map-pane'), { key: 'Escape' });
@@ -329,27 +329,29 @@ const mountLocked = async (over = {}) => {
   await act(async () => { view = render(<MapView {...props()} />); });
 };
 
-describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', () => {
-  it('draws the row at 126px with a live entry that carries the pill inside it', async () => {
+describe('a reader who is not PRO or ADMIN: the locked Ask button opens the upsell', () => {
+  it('draws a live, muted Ask button (S8) in the 74px sheet: no room for the pill, so "Pro" is in its name', async () => {
     await mountLocked();
 
-    const entry = screen.getByTestId('wf-map-peek-ask-entry');
+    const entry = screen.getByTestId('wf-map-peek-btn-ask');
     expect(entry).toBeEnabled();
-    expect(entry.contains(screen.getByTestId('wf-map-peek-ask-entry-pill'))).toBe(true);
+    expect(entry).toHaveAttribute('data-locked', 'true');
+    expect(entry.querySelector('.wf-lens-pro')).toBeNull();
+    expect(entry).toHaveAccessibleName('Ask PhotoCast, Pro');
     expect(screen.queryByTestId('wf-map-peek-ask-locked')).not.toBeInTheDocument();
     expect(mode()).toBe('collapsed');
-    expect(psh()).toBe('126px');
+    expect(psh()).toBe('74px');
   });
 
-  it('keeps "Pro" in the entry\'s name even with an unseen refusal sentence (no aria-label)', async () => {
+  it('keeps "Pro" in the button\'s name, and draws no refusal dot, even with an unseen refusal sentence', async () => {
     await mountLocked({ inputError: 'Ask is a Pro feature.' });
 
-    const entry = screen.getByTestId('wf-map-peek-ask-entry');
-    expect(entry).not.toHaveAttribute('aria-label');
-    expect(entry).toHaveAccessibleName(/\bPro$/);
+    const entry = screen.getByTestId('wf-map-peek-btn-ask');
+    expect(entry).toHaveAccessibleName('Ask PhotoCast, Pro');
+    expect(entry).not.toHaveAttribute('data-error');
   });
 
-  it('pressing the entry opens the expanded section with the inline upsell and no conversation', async () => {
+  it('pressing the Ask button opens the expanded section with the inline upsell and no conversation', async () => {
     await mountLocked();
 
     openAsk();
@@ -361,7 +363,7 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
     expect(screen.queryByTestId('wf-map-peek-ask-field')).not.toBeInTheDocument();
     expect(screen.queryByTestId('stub-conversation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-ask-x')).not.toBeInTheDocument();
-    expect(buttonsShown()).toBe(false);
+    expect(buttonsShown()).toBe(true);
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-upsell-heading'));
     expect(mockAsk.askTyped).not.toHaveBeenCalled();
     expect(mockAsk.openReady).not.toHaveBeenCalled();
@@ -380,7 +382,7 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
     expect(screen.getByTestId('wf-map-peek-ask-status')).toBe(status);
   });
 
-  it('Not now closes the section back to the collapsed row with focus on the entry', async () => {
+  it('Not now closes the section back to the four buttons with focus on the Ask button', async () => {
     await mountLocked();
     openAsk();
     await act(async () => {});
@@ -390,10 +392,10 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
 
     expect(mode()).toBe('collapsed');
     expect(mockAsk.clear).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
-  it('the pane\'s Escape closes it and focus ends on the entry', async () => {
+  it('the pane\'s Escape closes it and focus ends on the Ask button', async () => {
     await mountLocked();
     openAsk();
     await act(async () => {});
@@ -403,10 +405,10 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
     await act(async () => {});
 
     expect(mode()).toBe('collapsed');
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
-  it('a map touch closes it and moves no focus (no minimised-line assertion: with an empty askPhase it would prove nothing; the CLEARED effect in AskContextAvailability.test.jsx is the real guard)', async () => {
+  it('a map touch closes it, and the upsell heading that held focus hands it to the Ask button, never <body> (S2; no minimised-line assertion: with an empty askPhase it would prove nothing; the CLEARED effect in AskContextAvailability.test.jsx is the real guard)', async () => {
     await mountLocked();
     openAsk();
     await act(async () => {});
@@ -414,8 +416,9 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
     await mapEvent('touchstart');
 
     expect(mode()).toBe('collapsed');
-    // Nothing on a touch moves focus to the entry (only a keyboard close parks it there).
-    expect(document.activeElement).not.toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    // The heading unmounted holding focus: the section's guard hands it to the Ask button (collapsed).
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
   it('makes no camera move of its own: the Ask camera is given no picks and no inset', async () => {
@@ -429,7 +432,7 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
     expect(cameraCalls.every((c) => c.inset.bottom === 0)).toBe(true);
   });
 
-  it('Escape in the Layers body lands focus on the (now live) entry, as for PRO, never <body>', async () => {
+  it('Escape in the Layers body lands focus on the (now live) Ask button, as for PRO, never <body>', async () => {
     await mountLocked();
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     const regions = screen.getByTestId('wf-map-peek-lay-regions');
@@ -439,12 +442,12 @@ describe('a reader who is not PRO or ADMIN: the locked row opens the upsell', ()
 
     expect(mode()).toBe('collapsed');
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 });
 
 describe('the sheet at rest', () => {
-  it('draws no Ask row, and the sheet before Ask existed, when Ask is not offered', async () => {
+  it('draws no Ask button, and the sheet before Ask existed, when Ask is not offered', async () => {
     await mount('empty', { askOffered: false });
 
     expect(mode()).toBe('off');
@@ -453,25 +456,25 @@ describe('the sheet at rest', () => {
     expect(psh()).toBe('74px');
   });
 
-  it('draws the Ask row above the three buttons, at 126px, with nothing settled', async () => {
+  it('draws the four buttons, Ask among them, at 74px, with nothing settled', async () => {
     await mount('empty');
 
     expect(mode()).toBe('collapsed');
-    expect(screen.getByTestId('wf-map-peek-ask-entry')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-btn-ask')).toBeInTheDocument();
     expect(buttonsShown()).toBe(true);
-    expect(psh()).toBe('126px');
+    expect(psh()).toBe('74px');
   });
 
-  it('rests at 112px, as one line, with an answer settled — and the answer has taken the buttons\' place', async () => {
+  it('rests at 74px, as one line, with an answer settled — and the line has taken the buttons\' place', async () => {
     await mount('answer');
 
     expect(mode()).toBe('minimised');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
     expect(screen.getByTestId('wf-map-peek-mini')).toBeInTheDocument();
     expect(buttonsShown()).toBe(false);
   });
 
-  it('rests at 112px for a "not in the forecast" reply and for a failure too — the line says what they say', async () => {
+  it('rests at 74px for a "not in the forecast" reply and for a failure too — the line says what they say', async () => {
     await mount('cant');
     expect(mode()).toBe('minimised');
     expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Not in the forecast');
@@ -512,7 +515,7 @@ describe('the sheet at rest', () => {
 
 describe('§2.7 table — row: map touch / drag / zoom', () => {
   it.each(['mousedown', 'touchstart', 'dragstart', 'zoomstart'])(
-    '%s with the suggestions showing: collapses to 126',
+    '%s with the suggestions showing: collapses to the four buttons',
     async (kind) => {
       await mount('empty');
       openAsk();
@@ -521,13 +524,13 @@ describe('§2.7 table — row: map touch / drag / zoom', () => {
       await mapEvent(kind);
 
       expect(mode()).toBe('collapsed');
-      expect(psh()).toBe('126px');
+      expect(psh()).toBe('74px');
       expect(buttonsShown()).toBe(true);
     },
   );
 
   it.each(['mousedown', 'touchstart', 'dragstart', 'zoomstart'])(
-    '%s with an answer expanded: minimises to 112 (the answer is kept)',
+    '%s with an answer expanded: minimises to the line (the answer is kept)',
     async (kind) => {
       await mount('answer');
       expandMinimised();
@@ -536,7 +539,7 @@ describe('§2.7 table — row: map touch / drag / zoom', () => {
       await mapEvent(kind);
 
       expect(mode()).toBe('minimised');
-      expect(psh()).toBe('112px');
+      expect(psh()).toBe('74px');
       expect(mockAsk.clear).not.toHaveBeenCalled();
     },
   );
@@ -549,7 +552,7 @@ describe('§2.7 table — row: map touch / drag / zoom', () => {
       await mapEvent(kind);
 
       expect(mode()).toBe('minimised');
-      expect(psh()).toBe('112px');
+      expect(psh()).toBe('74px');
     },
   );
 
@@ -618,28 +621,28 @@ describe('§2.7 table — row: ordinary chip press', () => {
     expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
   });
 
-  it('with the answer minimised: the callout opens over the 112px line, and its band is told the height', async () => {
+  it('with the answer minimised: the callout opens over the minimised line, and its band is told the height', async () => {
     await mount('answer');
 
     await pressOrdinaryChip();
 
     expect(mode()).toBe('minimised');
     expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
-    // D-7 is broken in exactly this state, so the card's band must be measured against 112 — and
+    // D-7 is broken in exactly this state, so the card's band must be measured against 74 — and
     // repaint when that changes (`bandKey`, which is what a stale band is repainted on).
-    expect(calloutCalls.at(-1).bandKey).toBe(112);
-    expect(psh()).toBe('112px');
+    expect(calloutCalls.at(-1).bandKey).toBe(74);
+    expect(psh()).toBe('74px');
   });
 
   it('the callout\'s band follows the sheet when it changes height under a placed card', async () => {
     await mount('answer');
     await pressOrdinaryChip();
-    expect(calloutCalls.at(-1).bandKey).toBe(112);
+    expect(calloutCalls.at(-1).bandKey).toBe(74);
 
-    await setPhase('empty'); // the answer is cleared elsewhere: the sheet comes down to 126
+    await setPhase('empty'); // the answer is cleared elsewhere: the sheet comes down to the four buttons
 
-    expect(calloutCalls.at(-1).bandKey).toBe(126);
-    expect(psh()).toBe('126px');
+    expect(calloutCalls.at(-1).bandKey).toBe(74);
+    expect(psh()).toBe('74px');
   });
 });
 
@@ -687,7 +690,7 @@ async function mountPicks(phase, { cards = CARDS, ...over } = {}) {
 const calloutEvents = () => calloutCalls.map((c) => c.event?.eventType);
 
 // docs/engineering/phone-pick-callout-plan.md §3 P1 (2026-10-17) superseded F4's rule here: a pick chip no
-// longer expands the answer — it opens the pick's own callout over the 112px line.
+// longer expands the answer — it opens the pick's own callout over the minimised line.
 describe('§2.7 table — row: pick chip press (phone, P1)', () => {
   it('with an answer expanded: minimises at once, the callout opens only once the window has followed, and it is the pick\'s place', async () => {
     const onSelect = await mountPicks('answer');
@@ -697,14 +700,14 @@ describe('§2.7 table — row: pick chip press (phone, P1)', () => {
 
     expect(onSelect).toHaveBeenCalledExactlyOnceWith(2, { callout: true });
     expect(mode()).toBe('minimised');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
 
     await providerChooses(2, { callout: true });
 
     expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
     expect(mode()).toBe('minimised');
-    expect(calloutCalls.at(-1).bandKey).toBe(112);
+    expect(calloutCalls.at(-1).bandKey).toBe(74);
   });
 
   it('with the answer minimised: stays minimised, and the callout opens over the line', async () => {
@@ -806,7 +809,7 @@ describe('§2.7 table — row: pick chip press (phone, P1)', () => {
 
     const after = cameraCalls.slice(before).map((c) => c.inset.bottom);
     expect(after.length).toBeGreaterThan(0);
-    expect(after.every((bottom) => bottom === 112)).toBe(true);
+    expect(after.every((bottom) => bottom === 74)).toBe(true);
   });
 
   // An ordinary chip tap never moves the camera: the chip was on screen to be tapped, and a flight would put
@@ -1053,7 +1056,7 @@ describe('§2.7 table — row: window pill / a peek button', () => {
     expect(buttonsShown()).toBe(true);
   });
 
-  it('a peek button (Layers) opens its section over the Ask row, and a press on the Ask row gives it way', async () => {
+  it('a peek button (Layers) opens its section, and a press on the Ask button gives it way', async () => {
     await mount('empty');
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     expect(screen.getByTestId('wf-map-peek-layers')).toBeInTheDocument();
@@ -1066,7 +1069,7 @@ describe('§2.7 table — row: window pill / a peek button', () => {
 });
 
 describe('§2.7 table — row: that section closes', () => {
-  it('with the answer kept: back to the 112 line', async () => {
+  it('with the answer kept: back to the minimised line', async () => {
     await mount('answer');
     pressPill();
     expect(mode()).toBe('section');
@@ -1075,10 +1078,10 @@ describe('§2.7 table — row: that section closes', () => {
 
     expect(mode()).toBe('minimised');
     expect(screen.getByTestId('wf-map-peek-mini')).toBeInTheDocument();
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
   });
 
-  it('with an answer that was EXPANDED when the pill was pressed: back to the 112 line, not to the answer', async () => {
+  it('with an answer that was EXPANDED when the pill was pressed: back to the minimised line, not to the answer', async () => {
     await mount('answer');
     expandMinimised();
     pressPill();
@@ -1088,7 +1091,7 @@ describe('§2.7 table — row: that section closes', () => {
     expect(mode()).toBe('minimised');
   });
 
-  it('with nothing settled: back to the 126px row', async () => {
+  it('with nothing settled: back to the four buttons', async () => {
     await mount('empty');
     pressPill();
 
@@ -1120,7 +1123,7 @@ describe('§2.7 table — row: ✕ in the ask row', () => {
 
     expect(mode()).toBe('collapsed');
     expect(buttonsShown()).toBe(true);
-    expect(psh()).toBe('126px');
+    expect(psh()).toBe('74px');
   });
 
   it('while an answer is being fetched: closes the section and clears nothing (a charged answer is not binned)', async () => {
@@ -1135,7 +1138,7 @@ describe('§2.7 table — row: ✕ in the ask row', () => {
   });
 });
 
-describe('§2.7 table — row: tap the 112 line', () => {
+describe('§2.7 table — row: tap the minimised line', () => {
   it('expands the answer', async () => {
     await mount('answer');
 
@@ -1143,7 +1146,7 @@ describe('§2.7 table — row: tap the 112 line', () => {
 
     expect(mode()).toBe('expanded');
     expect(screen.getByTestId('wf-map-peek-ask-body')).toBeInTheDocument();
-    expect(buttonsShown()).toBe(false);
+    expect(buttonsShown()).toBe(true);
   });
 });
 
@@ -1204,7 +1207,7 @@ describe('one gate: openMapMenu', () => {
     expect(mode()).toBe('collapsed');
   });
 
-  it('an answer landing while the sheet is collapsed rests as the 112 line, and the camera is told its height', async () => {
+  it('an answer landing while the sheet is collapsed rests as the minimised line, and the camera is told its height', async () => {
     await mount('empty', withPicks);
     expect(mode()).toBe('collapsed');
 
@@ -1212,7 +1215,7 @@ describe('one gate: openMapMenu', () => {
 
     expect(mode()).toBe('minimised');
     expect(cameraCalls.at(-1).inset).toEqual({
-      top: 0, right: 0, bottom: 112, left: 0,
+      top: 0, right: 0, bottom: 74, left: 0,
     });
   });
 
@@ -1231,7 +1234,7 @@ describe('one gate: openMapMenu', () => {
 });
 
 describe('answers arriving, and focus, around the buttons', () => {
-  it('an answer landing while ANOTHER section is open waits behind it: the section stays, and closing it rests at 112', async () => {
+  it('an answer landing while ANOTHER section is open waits behind it: the section stays, and closing it rests at the line', async () => {
     await mount('empty');
     pressPill();
     expect(mode()).toBe('section');
@@ -1239,16 +1242,16 @@ describe('answers arriving, and focus, around the buttons', () => {
     await setPhase('answer');
 
     expect(mode()).toBe('section');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
     pressPill();
     expect(mode()).toBe('minimised');
   });
 
-  it('a settled answer with NO picks on the map still rests at 112, and covers nothing the camera or labels must avoid', async () => {
+  it('a settled answer with NO picks on the map still rests at the line, and covers nothing the camera or labels must avoid', async () => {
     await mount('answer', { askPicks: [], askAnswerId: null });
 
     expect(mode()).toBe('minimised');
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
     expect(cameraCalls.at(-1).inset).toEqual({
       top: 0, right: 0, bottom: 0, left: 0,
     });
@@ -1334,11 +1337,11 @@ describe('the Layers door (phone, P2)', () => {
     expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-peek-mini')).not.toBeInTheDocument();
     expect(mockAsk.clear).not.toHaveBeenCalled();
-    expect(psh()).toBe('112px');
+    expect(psh()).toBe('74px');
   });
 
   // The mutant that wrote `setOpenMapMenu('peek:lay')` directly would leave the callout standing beside an
-  // open 408px sheet, which D-7 forbids in either order.
+  // open 356px sheet, which D-7 forbids in either order.
   it('clears a standing callout first: an ordinary chip → its callout → the door → no callout, and Layers open', async () => {
     await mount('answer');
     await pressOrdinaryChip();
@@ -1399,7 +1402,7 @@ describe('the Layers door (phone, P2)', () => {
     expect(regionsJumpCalls.at(-1).restoreFallback()).toBe(door());
   });
 
-  it('a question going busy while the door holds focus lands focus on the Ask entry — the line is unmounted', async () => {
+  it('a question going busy while the door holds focus lands focus on the Ask button — the line is unmounted', async () => {
     await mount('answer');
     door().focus();
     expect(document.activeElement).toBe(door());
@@ -1408,7 +1411,7 @@ describe('the Layers door (phone, P2)', () => {
 
     expect(mode()).toBe('collapsed');
     expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
   // Focus INSIDE the open section's body (Regions, Tide mode…) when the section closes: the body
@@ -1427,7 +1430,7 @@ describe('the Layers door (phone, P2)', () => {
     expect(document.activeElement).toBe(door());
   });
 
-  it('the same with NO answer standing: focus lands on the Ask entry, never <body>', async () => {
+  it('the same with NO answer standing: focus lands on the Ask button, never <body>', async () => {
     await mount('empty');
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     const regions = screen.getByTestId('wf-map-peek-lay-regions');
@@ -1437,7 +1440,7 @@ describe('the Layers door (phone, P2)', () => {
 
     expect(mode()).toBe('collapsed');
     expect(document.activeElement).not.toBe(document.body);
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-ask'));
   });
 
   // The class test in the door's unmount report: the line also unmounts when the PILL opens Windows over a
@@ -1467,8 +1470,8 @@ describe('the Layers door (phone, P2)', () => {
 describe('the camera is told what the sheet covers (F4)', () => {
   it.each([
     ['answer expanded', async () => { expandMinimised(); }, 470],
-    ['answer minimised', async () => {}, 112],
-    ['another section open over the answer', async () => { pressPill(); }, 408],
+    ['answer minimised', async () => {}, 74],
+    ['another section open over the answer', async () => { pressPill(); }, 356],
   ])('%s: a bottom inset of %i', async (_name, act1, bottom) => {
     await mount('answer', withPicks);
     await act1();
@@ -1492,7 +1495,7 @@ describe('the camera is told what the sheet covers (F4)', () => {
     expect(lastLabels().bottomInset).toBe(0);
 
     await setPhase('answer', withPicks);
-    expect(lastLabels().bottomInset).toBe(112);
+    expect(lastLabels().bottomInset).toBe(74);
     expandMinimised();
     expect(lastLabels().bottomInset).toBe(470);
   });

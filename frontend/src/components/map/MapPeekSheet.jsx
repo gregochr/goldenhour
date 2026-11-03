@@ -18,9 +18,9 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
  *
  * <p>Replaces the phone's floating map controls (the window pill's own dropdown, the tide strip,
  * `.wf-map-chrome-tr`'s Regions/Heat-Pins/Filters bar) with one bottom sheet that starts collapsed
- * (three summary buttons: 74px, or 126px with Ask's row above them) and opens to one section at a
- * time (356px, or 408px with the Ask row; Ask's own section is 470px and, minimised, 112px — see
- * `utils/askPeek.js` for every figure and `MapPeekAsk` for the row).
+ * (four summary buttons — Other windows · Tide · Ask · Layers — at 74px, which is also what a minimised
+ * answer's one line rests at) and opens to one section at a time (356px; Ask's own section is 470px — see
+ * `utils/askPeek.js` for every figure and `MapPeekAsk` for the Ask button and body).
  *
  * <h2>Why this is a NEW component rather than {@code BottomSheet}</h2>
  *
@@ -30,6 +30,14 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
  * (`utils/mapForeignModal.js`) would read it as a foreign dialog and stand down for it. The peek
  * sheet is the opposite on all counts: always mounted, in-frame, backdrop-free (the map must stay
  * touchable while it is open), and not a dialog at all (plan §1 #2).
+ *
+ * <h2>Phone only, and the four-button row</h2>
+ *
+ * <p>The Ask button (`map-mobile-compact-plan.md` C2) is 44px wide, like Layers, and is handed in through the
+ * {@code askButton} slot because {@code MapPeekAsk} owns it (it reads Ask's availability, lock and refusal);
+ * the Ask BODY (the field, the conversation) and the minimised line come in through {@code ask} and are
+ * drawn BELOW the button row (S7). Every button focuses itself on press (S2): Safari and iOS do not focus
+ * a button a pointer pressed, and switching section from an expanded Ask unmounts the field that held focus.
  *
  * <h2>The sheet owns no data</h2>
  *
@@ -46,7 +54,8 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
  * {@code stripModel.visible} (M5 replaces it with the fuller {@code tideVisible(...)} rule without
  * touching this component at all). Its key line NEVER swaps to `CLOSE` the way the Windows
  * button's does — the design's own peek-row table gives Tide one fixed key,
- * {@code TIDE AT THIS LIGHT}, unlike Other windows' `OTHER WINDOWS ⇄ CLOSE` pair.
+ * {@code TIDE} (was {@code TIDE AT THIS LIGHT} before the compact design's 390px row), unlike Other
+ * windows' `OTHER WINDOWS ⇄ CLOSE` pair.
  *
  * <p>⚠️ {@code data-testid="wf-map-peek"}, deliberately NOT {@code wf-peek}: `WindowSpotPeek.jsx`
  * already owns that class in `index.css` (`position: fixed`, a 280px width, an entry animation and
@@ -92,17 +101,19 @@ import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../sha
  *        the counterpart to `onTideButtonFocus`.
  * @param {('off'|'collapsed'|'expanded'|'minimised'|'section')} [props.askMode='off'] the sheet's Ask
  *        state (`utils/askPeek.js#askPeekMode`, derived by `MapView`: this component still holds none).
- *        `'off'` is the sheet before Ask existed (its transition is the README's .28s now, not .26s). Otherwise {@code ask} is drawn above
- *        the three buttons, and while the Ask section is {@code 'expanded'} or the answer is
- *        {@code 'minimised'} the answer REPLACES the buttons (design README: "answer replaces the
- *        Window/Tide/Layers buttons") — they come back when the answer is cleared or another section
- *        is opened. It is `data-ask` on the root, which is what the stylesheet's heights key on.
- * @param {React.ReactNode} [props.ask] `MapPeekAsk` — the entry row, the Ask section's body and the
- *        minimised line, in one node, since the three share focus handling.
+ *        `'off'` is the sheet before Ask existed (its transition is the README's .28s now, not .26s): no Ask
+ *        button, no Ask body. Otherwise the four buttons are drawn, with {@code askButton} third, and
+ *        {@code ask} BELOW them — the Ask section's field and conversation while {@code 'expanded'}. Only the
+ *        {@code 'minimised'} answer REPLACES the buttons, with its one line (`map-mobile-compact-plan.md`
+ *        D-4/D-5). It is `data-ask` on the root, which is what the stylesheet's 470px keys on.
+ * @param {React.ReactNode} [props.askButton] `MapPeekAskButton` — the Ask peek button, placed between Tide
+ *        and Layers; withheld with the rest of the row while the answer is minimised.
+ * @param {React.ReactNode} [props.ask] `MapPeekAsk` — the Ask section's body and the minimised line, in one
+ *        node, since the two share focus handling.
  * @param {?{current: ?HTMLElement}} [props.fallbackFocusRef] where focus goes when the button row is
  *        removed while one of its buttons — or, when the section closes, a control inside the open body —
  *        holds it: the minimised line's Layers door when the answer is minimised (`MapView` chooses), the
- *        Ask row's entry button otherwise — see `PeekButtonRow` and `PeekBody`.
+ *        Ask button (else the Other windows button) otherwise — see `PeekButtonRow` and `PeekBody`.
  */
 export default function MapPeekSheet({
   section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
@@ -111,7 +122,7 @@ export default function MapPeekSheet({
   windowsBody = null, tideBody = null, layersBody = null,
   layersButtonRef = null, windowsButtonRef = null, tideButtonRef = null,
   onTideButtonFocus = null, onTideButtonBlur = null,
-  askMode = 'off', ask = null, fallbackFocusRef = null,
+  askMode = 'off', askButton = null, ask = null, fallbackFocusRef = null,
 }) {
   const open = section != null;
   // Set by the button row when it unmounts WHILE holding focus (see `PeekButtonRow`); acted on once the
@@ -123,9 +134,8 @@ export default function MapPeekSheet({
     const active = document.activeElement;
     if (!active || active === document.body) fallbackFocusRef?.current?.focus({ preventScroll: true });
   });
-  // The answer takes the buttons' place (expanded) or the line's room (minimised); with Ask off
-  // there is no answer, so the buttons are always drawn.
-  const buttonsShown = askMode !== 'expanded' && askMode !== 'minimised';
+  // Only the minimised answer's one line takes the buttons' place; an expanded Ask keeps them above its body.
+  const buttonsShown = askMode !== 'minimised';
   return (
     <section
       data-testid="wf-map-peek"
@@ -134,7 +144,6 @@ export default function MapPeekSheet({
       data-ask={askMode}
     >
       <div className="wf-map-peek-hdl" aria-hidden="true"><i /></div>
-      {askMode !== 'off' && ask}
       {buttonsShown && (
         <PeekButtonRow onUnmountWithFocus={() => { focusLostRef.current = true; }}>
           <button
@@ -144,7 +153,7 @@ export default function MapPeekSheet({
             className={`wf-map-peek-btn${section === 'win' ? ' wf-map-peek-btn-on' : ''}`}
             aria-expanded={section === 'win'}
             aria-controls="wf-map-peek-body"
-            onClick={onPressWindows}
+            onClick={(event) => pressAndFocus(event, onPressWindows)}
           >
             {/* Tapping the ACTIVE button collapses; the design's own "OTHER WINDOWS" ⇄ "CLOSE"
                 swap (README "Peek row" table) is the reader's only cue that a second tap closes it,
@@ -160,17 +169,18 @@ export default function MapPeekSheet({
               className={`wf-map-peek-btn wf-map-peek-btn-tide${section === 'tide' ? ' wf-map-peek-btn-on' : ''}${tidePulse ? ' wf-map-peek-btn-pulse' : ''}`}
               aria-expanded={section === 'tide'}
               aria-controls="wf-map-peek-body"
-              onClick={onPressTide}
+              onClick={(event) => pressAndFocus(event, onPressTide)}
               onAnimationEnd={onTidePulseEnd}
               onFocus={onTideButtonFocus}
               onBlur={onTideButtonBlur}
             >
               {/* Fixed key — unlike Other windows, Tide never swaps to CLOSE (design README "Peek
                   row" table gives it one key throughout). */}
-              <span className="wf-map-peek-k">TIDE AT THIS LIGHT</span>
+              <span className="wf-map-peek-k">TIDE</span>
               <span className="wf-map-peek-v">{tideButtonContent}</span>
             </button>
           )}
+          {askMode !== 'off' && askButton}
           <button
             ref={layersButtonRef}
             type="button"
@@ -178,13 +188,14 @@ export default function MapPeekSheet({
             className={`wf-map-peek-btn wf-map-peek-btn-lay${section === 'lay' ? ' wf-map-peek-btn-on' : ''}`}
             aria-expanded={section === 'lay'}
             aria-controls="wf-map-peek-body"
-            onClick={onPressLayers}
+            onClick={(event) => pressAndFocus(event, onPressLayers)}
           >
             <span className="wf-map-peek-k">LAYERS</span>
             <span className="wf-map-peek-v" aria-hidden="true">&#9776;</span>
           </button>
         </PeekButtonRow>
       )}
+      {askMode !== 'off' && ask}
       {/* Rendered only when open — the design's own rule ("Body (visible only when open)"), and
           what makes a section swap tear the PREVIOUS section's content down rather than leaving two
           panes stacked in the DOM. */}
@@ -200,15 +211,28 @@ export default function MapPeekSheet({
 }
 
 /**
- * The three peek buttons' row, which is UNMOUNTED whenever Ask's answer replaces it (an answer lands,
- * the Ask section opens, a section closes back onto the minimised line). A focused control that is
+ * A peek button was pressed: take focus first (S2), then run its handler. Safari and iOS do not focus a
+ * button a pointer pressed, so a field, ✕ or pick card inside an expanded Ask that the press is about to
+ * unmount would otherwise take focus to {@code <body>} with it; a button that already holds focus (a key)
+ * is unaffected.
+ *
+ * @param {object} event the click
+ * @param {?Function} handler the button's own press handler
+ */
+function pressAndFocus(event, handler) {
+  event.currentTarget.focus({ preventScroll: true });
+  handler?.(event);
+}
+
+/**
+ * The peek buttons' row, which is UNMOUNTED whenever Ask's minimised answer replaces it (an answer lands,
+ * a section closes back onto the minimised line). A focused control that is
  * removed takes focus to {@code <body>} with it, after which the pane's Escape rule — which runs only
  * while focus is inside the pane — goes quiet: the defect this tab's panels have had five times. So the
  * row reports, from its layout-effect CLEANUP (which runs before the DOM is removed, while the focused
  * button is still {@code document.activeElement}; no blur event is reliable for a removed node), that
  * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the minimised
- * line's Layers door, or the Ask row's entry button in every other mode the row can vanish into — once
- * the commit has landed.
+ * line's Layers door, the only mode the row can vanish into — once the commit has landed.
  *
  * <p>The row's own class is the test for "was focus inside me", so it needs no ref (a ref is already
  * detached by the time a cleanup could read it) and no listener.
@@ -229,7 +253,7 @@ function PeekButtonRow({ onUnmountWithFocus, children }) {
  * above does not see it (focus is not inside the row). Same mechanism: report from the layout-effect
  * cleanup, while the focused node is still {@code document.activeElement}, and {@code MapPeekSheet}
  * hands focus to {@code fallbackFocusRef} once the commit has landed — the minimised line's Layers door
- * with an answer standing, the Ask row's entry button otherwise.
+ * with an answer standing, the Ask button otherwise.
  */
 function PeekBody({ onUnmountWithFocus, children }) {
   const report = useRef(onUnmountWithFocus);
@@ -282,9 +306,10 @@ MapPeekSheet.propTypes = {
   onTideButtonFocus: PropTypes.func,
   onTideButtonBlur: PropTypes.func,
   askMode: PropTypes.oneOf(['off', 'collapsed', 'expanded', 'minimised', 'section']),
+  askButton: PropTypes.node,
   ask: PropTypes.node,
   /** Where focus goes when the buttons unmount while holding it — the minimised line's Layers door
-   * (answer minimised) or the Ask row's entry button. */
+   * (answer minimised) or the Ask button. */
   fallbackFocusRef: PropTypes.shape({ current: PropTypes.any }),
 };
 

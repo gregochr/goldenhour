@@ -281,7 +281,7 @@ function forcedDot(x, y, frameWidth, frameHeight) {
  *   map (F4). Seeded as one more obstacle, from the sheet's TARGET height rather than its live rect
  *   (which, mid-transition, is neither where it was nor where it is going), and re-placed when it
  *   changes. 0 — the default, and what every other caller gets — seeds nothing. The pick the sheet
- *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
+ *   would hide is the failure: a numbered card with its marker under the minimised line is worse than one
  *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
  *   thing a label may sit under
  * @param {number|string} [props.chromeKey] a repaint key for the TWO chrome groups the placer reads as

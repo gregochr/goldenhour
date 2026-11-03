@@ -1,6 +1,7 @@
 /**
  * The phone peek sheet's Ask states — pure, no React and no Leaflet (`docs/engineering/ask-photocast-plan.md`
- * §2.7's phone paragraph and state table, F4).
+ * §2.7's phone paragraph and state table, F4; the Ask button joined the peek row in
+ * `docs/engineering/map-mobile-compact-plan.md` C2).
  *
  * <h2>Three facts decide the sheet, and only one of them is stored here</h2>
  *
@@ -14,15 +15,17 @@
  *       ({@code AskContext.phase}), not the sheet's.</li>
  * </ul>
  * <b>"Minimised" is not a flag.</b> It is "a settled answer exists and neither the Ask section nor
- * any other section is open" — which is why every cell of the table that ends in the 112px line is the
- * same write ({@code openMapMenu → null}) as the cell that ends in the 126px collapsed row; the
+ * any other section is open" — which is why every cell of the table that ends in the minimised line is
+ * the same write ({@code openMapMenu → null}) as the cell that ends in the collapsed buttons; the
  * conversation, not the sheet, decides which of the two the reader sees. A tab switch away and back
  * keeps the answer minimised by the same construction: it has only to close the expanded section.
  *
  * <h2>The heights</h2>
  *
- * <p>The numbers live here AND in `index.css` (the sheet's own rules); {@code askPeekCss.test.js} reads
- * the stylesheet and asserts the two agree, so a change to one fails against the other. They are
+ * <p>There are three: the sheet RESTS at 74px in every state (the four buttons, or the minimised line
+ * in their place), a section opens it to 356px, and the Ask section to 470px (real answers carry pick
+ * cards). The numbers live here AND in `index.css` (the sheet's own rules); {@code askPeekCss.test.js}
+ * reads the stylesheet and asserts the two agree, so a change to one fails against the other. They are
  * published to the rest of the map through {@code --psh} (the callout's band) and the camera's inset.
  *
  * <p>"Settled" is {@code askModel}'s {@code SETTLED_PHASES} — the conversation's own list, not a
@@ -33,21 +36,12 @@ import { SETTLED_PHASES } from './askModel.js';
 /**
  * Every height the sheet takes, in px (all clamped to {@code calc(100% - 64px)} by the stylesheet, so
  * the window pill — {@code top: 10px; height: 44px} — is never covered).
- *
- * <p>{@code plain} and {@code open} are the pre-Ask sheet, unchanged: with Ask off (the flag, an
- * unreachable server, a rewind) the sheet has no Ask row and is exactly what it was.
  */
 export const PEEK_HEIGHT = Object.freeze({
-  /** No Ask row: the three buttons alone (the sheet before Ask existed). */
-  plain: 74,
-  /** The Ask row above the three buttons. */
-  collapsed: 126,
-  /** The handle, the Ask row and one 44px line under it: rank, spot, time, "N picks ▴". */
-  minimised: 112,
-  /** A section open with no Ask row (the sheet before Ask existed). */
+  /** The sheet at rest: the four buttons, or the minimised answer's one line in their place. */
+  resting: 74,
+  /** A section open: Other windows, Tide or Layers. */
   open: 356,
-  /** A section open with the Ask row above the buttons (the mock raises it by the row's 52px). */
-  openWithAsk: 408,
   /** The Ask section: the field, the conversation, the answer. */
   ask: 470,
 });
@@ -56,15 +50,15 @@ export const PEEK_HEIGHT = Object.freeze({
  * The sheet's Ask state.
  *
  * <ul>
- *   <li>{@code 'off'} — no Ask row at all (Ask is not offered, or this is not a phone);</li>
- *   <li>{@code 'collapsed'} — the Ask entry row above the three buttons, nothing settled;</li>
- *   <li>{@code 'expanded'} — the Ask section is open (the field, then the conversation);</li>
- *   <li>{@code 'minimised'} — a settled answer, nothing else open: the entry row and the one line;</li>
- *   <li>{@code 'section'} — another section is open (Windows, Tide, Layers), under the entry row.</li>
+ *   <li>{@code 'off'} — Ask is not offered (or this is not a phone): no Ask button, no Ask body;</li>
+ *   <li>{@code 'collapsed'} — the four buttons, nothing settled;</li>
+ *   <li>{@code 'expanded'} — the Ask section is open (the field, then the conversation, under the buttons);</li>
+ *   <li>{@code 'minimised'} — a settled answer, nothing else open: the one line, in place of the buttons;</li>
+ *   <li>{@code 'section'} — another section is open (Windows, Tide, Layers).</li>
  * </ul>
  *
  * @param {object} facts
- * @param {boolean} facts.offered the Ask row exists (Ask is on or unreachable, on a phone, on the tab)
+ * @param {boolean} facts.offered the Ask button exists (Ask is on or unreachable, on a phone, on the tab)
  * @param {boolean} facts.expanded {@code openMapMenu === 'peek:ask'}
  * @param {?string} facts.section the other open section's name, or null
  * @param {string} facts.phase {@code AskContext.phase}
@@ -88,13 +82,8 @@ export function askPeekMode({
  * @returns {number} px
  */
 export function peekTargetHeight(mode, sectionOpen) {
-  switch (mode) {
-    case 'expanded': return PEEK_HEIGHT.ask;
-    case 'minimised': return PEEK_HEIGHT.minimised;
-    case 'collapsed': return PEEK_HEIGHT.collapsed;
-    case 'section': return PEEK_HEIGHT.openWithAsk;
-    default: return sectionOpen ? PEEK_HEIGHT.open : PEEK_HEIGHT.plain;
-  }
+  if (mode === 'expanded') return PEEK_HEIGHT.ask;
+  return sectionOpen || mode === 'section' ? PEEK_HEIGHT.open : PEEK_HEIGHT.resting;
 }
 
 /**
@@ -104,11 +93,11 @@ export function peekTargetHeight(mode, sectionOpen) {
  * never need publishing — and the destination of an open sheet is the right figure to hold while it is
  * open, since that is where it goes the moment the reader touches the map.
  *
- * @param {boolean} offered the Ask row exists
- * @param {boolean} settled the conversation has a settled answer on screen
+ * <p>One figure in every state since the Ask row left the sheet (C2, D-4): the minimised line takes the
+ * buttons' place and the sheet stays 74px. The function remains so {@code --psh} keeps one route.
+ *
  * @returns {number} px
  */
-export function peekRestingHeight(offered, settled) {
-  if (!offered) return PEEK_HEIGHT.plain;
-  return settled ? PEEK_HEIGHT.minimised : PEEK_HEIGHT.collapsed;
+export function peekRestingHeight() {
+  return PEEK_HEIGHT.resting;
 }

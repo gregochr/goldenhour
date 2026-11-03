@@ -325,7 +325,7 @@ async function planOnTheMap(onOpenSettings = vi.fn()) {
   await waitFor(() => expect(ask$?.availability).toBe('on'));
   fireEvent.click(tab('Map'));
   await screen.findByTestId('wf-map-peek');
-  await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-entry')); });
+  await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-ask')); });
   ask.mockResolvedValue(ownResponse({
     picks: [
       pick({

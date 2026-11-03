@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   askPeekMode, PEEK_HEIGHT, peekRestingHeight, peekTargetHeight,
 } from '../utils/askPeek.js';
@@ -49,40 +47,32 @@ describe('askPeekMode', () => {
 });
 
 describe('the heights', () => {
-  it('are the figures of the plan: 74 plain, 126 collapsed, 112 minimised, 408 open with the row, 470 Ask', () => {
-    expect(PEEK_HEIGHT).toEqual({
-      plain: 74, collapsed: 126, minimised: 112, open: 356, openWithAsk: 408, ask: 470,
-    });
+  it('are the three figures of the compact plan: 74 at rest, 356 a section open, 470 the Ask section', () => {
+    expect(PEEK_HEIGHT).toEqual({ resting: 74, open: 356, ask: 470 });
+  });
+
+  it('no longer carry the Ask row\'s 126 / 112 / 408 (C2 removed the row)', () => {
+    expect(Object.values(PEEK_HEIGHT)).not.toContain(126);
+    expect(Object.values(PEEK_HEIGHT)).not.toContain(112);
+    expect(Object.values(PEEK_HEIGHT)).not.toContain(408);
   });
 
   it.each([
     ['off', false, 74],
     ['off', true, 356],
-    ['collapsed', false, 126],
-    ['minimised', false, 112],
-    ['section', true, 408],
+    ['collapsed', false, 74],
+    ['minimised', false, 74],
+    ['section', true, 356],
     ['expanded', false, 470],
+    ['expanded', true, 470],
   ])('the target for %s (a section open: %s) is %ipx', (m, sectionOpen, px) => {
     expect(peekTargetHeight(m, sectionOpen)).toBe(px);
   });
 
-  it.each([
-    [false, false, 74],
-    [false, true, 74],
-    [true, false, 126],
-    [true, true, 112],
-  ])('the resting height with Ask offered %s and an answer settled %s is %ipx', (offered, settled, px) => {
-    expect(peekRestingHeight(offered, settled)).toBe(px);
-  });
-
-  // 126 = the three buttons' 74 + the Ask row's 44 + its 8px margin; both numbers live in the stylesheet.
-  it('are arithmetically the row on top of the sheet that was', () => {
-    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-    const entry = /\.wf-map-peek-ask-entry\s*\{[^}]*height:\s*(\d+)px/.exec(css);
-    const row = /\.wf-map-peek-ask-row\s*\{[^}]*margin:\s*0 10px (\d+)px/.exec(css);
-    expect(entry, '.wf-map-peek-ask-entry height').not.toBeNull();
-    expect(row, '.wf-map-peek-ask-row margin').not.toBeNull();
-    expect(PEEK_HEIGHT.plain + Number(entry[1]) + Number(row[1])).toBe(PEEK_HEIGHT.collapsed);
+  it('the resting height is 74px however it is asked: the minimised line takes the buttons\' place', () => {
+    expect(peekRestingHeight()).toBe(74);
+    expect(peekRestingHeight(true, true)).toBe(74);
+    expect(peekRestingHeight(true, false)).toBe(74);
   });
 
   it('the peek\'s settled phases are an answer, a plan (F5), a not-in-the-forecast reply and a failure: never empty, never busy', () => {

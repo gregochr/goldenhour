@@ -40,7 +40,7 @@ describe('MapPeekSheet — collapsed/open height class', () => {
   });
 });
 
-describe('MapPeekSheet — the Ask row (F4: the sheet derives nothing, it draws the mode it is told)', () => {
+describe('MapPeekSheet — the Ask button and body (C2: four buttons, Ask third; the sheet derives nothing, it draws the mode it is told)', () => {
   const draw = (askMode, extra = {}) => render(
     <MapPeekSheet
       section={null}
@@ -49,39 +49,54 @@ describe('MapPeekSheet — the Ask row (F4: the sheet derives nothing, it draws 
       onPressTide={() => {}}
       tideVisible
       askMode={askMode}
+      askButton={<button type="button" data-testid="wf-map-peek-btn-ask">ask</button>}
       ask={<div data-testid="ask-part">ask</div>}
       {...extra}
     />,
   );
+  const rowKeys = () => [...document.querySelectorAll('.wf-map-peek-row > button')].map((b) => b.dataset.testid);
 
-  it('with Ask off is the sheet before Ask existed: no Ask part even if one is handed in, the buttons always', () => {
+  it('with Ask off is the sheet before Ask existed: no Ask button or part even if handed in, the other buttons always', () => {
     draw('off');
 
     expect(screen.queryByTestId('ask-part')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-btn-ask')).not.toBeInTheDocument();
     expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', 'off');
-    expect(screen.getByTestId('wf-map-peek-btn-win')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-peek-btn-tide')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-peek-btn-lay')).toBeInTheDocument();
+    expect(rowKeys()).toEqual(['wf-map-peek-btn-win', 'wf-map-peek-btn-tide', 'wf-map-peek-btn-lay']);
   });
 
-  it.each(['collapsed', 'section'])('%s: the Ask part sits ABOVE the three buttons, which are all drawn', (mode) => {
+  it.each(['collapsed', 'section', 'expanded'])('%s: FOUR buttons — Other windows, Tide, Ask, Layers — in that order', (mode) => {
     draw(mode);
 
     expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', mode);
-    const ask = screen.getByTestId('ask-part');
-    const win = screen.getByTestId('wf-map-peek-btn-win');
-    expect(ask.compareDocumentPosition(win) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('wf-map-peek-btn-tide')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-map-peek-btn-lay')).toBeInTheDocument();
+    expect(rowKeys()).toEqual([
+      'wf-map-peek-btn-win', 'wf-map-peek-btn-tide', 'wf-map-peek-btn-ask', 'wf-map-peek-btn-lay',
+    ]);
   });
 
-  it.each(['expanded', 'minimised'])('%s: the answer REPLACES the three buttons', (mode) => {
+  it('Ask sits between Tide and Layers even when Tide is withheld (three buttons: Other windows, Ask, Layers)', () => {
+    draw('collapsed', { tideVisible: false });
+
+    expect(rowKeys()).toEqual(['wf-map-peek-btn-win', 'wf-map-peek-btn-ask', 'wf-map-peek-btn-lay']);
+  });
+
+  // S7: today's `{ask}` sat above the row.
+  it.each(['collapsed', 'section', 'expanded'])('%s: the Ask body is drawn BELOW the button row, not above it', (mode) => {
     draw(mode);
 
+    const part = screen.getByTestId('ask-part');
+    const row = document.querySelector('.wf-map-peek-row');
+    expect(row.compareDocumentPosition(part) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('minimised: the one line REPLACES the whole button row (Ask included); only the Ask part is drawn', () => {
+    draw('minimised');
+
     expect(screen.getByTestId('ask-part')).toBeInTheDocument();
-    expect(screen.queryByTestId('wf-map-peek-btn-win')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('wf-map-peek-btn-lay')).not.toBeInTheDocument();
+    expect(document.querySelector('.wf-map-peek-row')).toBeNull();
+    for (const id of ['win', 'tide', 'ask', 'lay']) {
+      expect(screen.queryByTestId(`wf-map-peek-btn-${id}`)).not.toBeInTheDocument();
+    }
   });
 
   it('defaults to off — every caller before F4 is the sheet it was', () => {
@@ -90,39 +105,78 @@ describe('MapPeekSheet — the Ask row (F4: the sheet derives nothing, it draws 
     expect(screen.getByTestId('wf-map-peek')).toHaveAttribute('data-ask', 'off');
   });
 
-  it('another section open over the Ask row keeps its body and the open class (the 408px state)', () => {
+  it('another section open keeps its body and the open class (356px, the same with or without Ask)', () => {
     draw('section', { section: 'win', windowsBody: <div data-testid="win-body" /> });
 
     expect(screen.getByTestId('wf-map-peek').className).toContain('wf-map-peek-open');
     expect(screen.getByTestId('win-body')).toBeInTheDocument();
     expect(screen.getByTestId('ask-part')).toBeInTheDocument();
   });
+
+  it('the Ask body comes before the open section\'s body, both under the row', () => {
+    draw('section', { section: 'win', windowsBody: <div data-testid="win-body" /> });
+
+    const part = screen.getByTestId('ask-part');
+    const body = screen.getByTestId('wf-map-peek-body');
+    expect(part.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
-describe('MapPeekSheet — focus is rescued when the answer takes the buttons (F4)', () => {
-  const entryRef = { current: null };
+// S2: every peek button focuses itself on a press — Safari and iOS do not focus a button a pointer pressed, and
+// an expanded Ask keeps the row, so a press unmounts the field that held focus.
+describe('MapPeekSheet — every peek button takes focus on a press (S2)', () => {
+  it.each([
+    ['win', 'onPressWindows'], ['tide', 'onPressTide'], ['lay', 'onPressLayers'],
+  ])('the %s button holds focus when its handler runs', (id, prop) => {
+    let heldAtPress = null;
+    const handlers = {
+      onPressWindows: () => {}, onPressLayers: () => {}, onPressTide: () => {},
+    };
+    handlers[prop] = () => { heldAtPress = document.activeElement; };
+    render(<MapPeekSheet section={null} tideVisible {...handlers} />);
+    const button = screen.getByTestId(`wf-map-peek-btn-${id}`);
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.click(button);
+
+    expect(heldAtPress).toBe(button);
+    expect(document.activeElement).toBe(button);
+  });
+});
+
+describe('MapPeekSheet — focus is rescued when the minimised line takes the buttons (F4, C2)', () => {
+  const doorRef = { current: null };
   const sheet = (askMode) => (
     <MapPeekSheet
       section={null}
       onPressWindows={() => {}}
       onPressLayers={() => {}}
       askMode={askMode}
-      fallbackFocusRef={entryRef}
+      fallbackFocusRef={doorRef}
       ask={(
-        <button type="button" data-testid="entry" ref={(node) => { entryRef.current = node; }}>entry</button>
+        <button type="button" data-testid="door" ref={(node) => { doorRef.current = node; }}>door</button>
       )}
     />
   );
 
-  it.each(['minimised', 'expanded'])('a focused peek button unmounting into %s hands focus to the fallback', (mode) => {
+  it('a focused peek button unmounting into minimised hands focus to the fallback (the door)', () => {
     const view = render(sheet('collapsed'));
     screen.getByTestId('wf-map-peek-btn-lay').focus();
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
 
-    view.rerender(sheet(mode));
+    view.rerender(sheet('minimised'));
 
     expect(screen.queryByTestId('wf-map-peek-btn-lay')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(screen.getByTestId('entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('door'));
+  });
+
+  it('expanded KEEPS the buttons, so a focused button stays focused (nothing to rescue)', () => {
+    const view = render(sheet('collapsed'));
+    screen.getByTestId('wf-map-peek-btn-lay').focus();
+
+    view.rerender(sheet('expanded'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
   });
 
   it('does nothing when focus was not inside the row (the reader was somewhere else, or nowhere)', () => {
@@ -274,7 +328,7 @@ describe('MapPeekSheet — the Tide button (map-mobile-sheet-plan.md §3 M3 task
     expect(screen.queryByTestId('wf-map-peek-btn-tide')).not.toBeInTheDocument();
   });
 
-  it('renders with a FIXED key ("TIDE AT THIS LIGHT") that never swaps to CLOSE, even while its own section is open', () => {
+  it('renders with a FIXED key ("TIDE") that never swaps to CLOSE, even while its own section is open', () => {
     const onPressTide = vi.fn();
     const { rerender } = render(
       <MapPeekSheet
@@ -284,7 +338,8 @@ describe('MapPeekSheet — the Tide button (map-mobile-sheet-plan.md §3 M3 task
       />,
     );
     const btn = screen.getByTestId('wf-map-peek-btn-tide');
-    expect(btn.textContent).toContain('TIDE AT THIS LIGHT');
+    expect(btn.textContent).toContain('TIDE');
+    expect(btn.textContent).not.toContain('AT THIS LIGHT');
     expect(btn).toHaveAttribute('aria-expanded', 'false');
     expect(btn).toHaveAttribute('aria-controls', 'wf-map-peek-body');
     fireEvent.click(btn);
@@ -298,7 +353,8 @@ describe('MapPeekSheet — the Tide button (map-mobile-sheet-plan.md §3 M3 task
       />,
     );
     const openBtn = screen.getByTestId('wf-map-peek-btn-tide');
-    expect(openBtn.textContent).toContain('TIDE AT THIS LIGHT');
+    expect(openBtn.textContent).toContain('TIDE');
+    expect(openBtn.textContent).not.toContain('CLOSE');
     expect(openBtn).toHaveAttribute('aria-expanded', 'true');
     expect(openBtn.className).toContain('wf-map-peek-btn-on');
   });
