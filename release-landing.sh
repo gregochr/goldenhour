@@ -80,8 +80,9 @@ check_ssh() {
 }
 
 # Every local file the pages and stylesheet reference, one per line (relative to landing/).
-list_referenced() {
-    local sha="$1" f
+list_referenced() { list_referenced_raw "$1" | sort -u; }
+list_referenced_raw() {
+    local sha="$1" f dir
     {
         for f in $(git ls-tree --name-only "$sha" landing/ | sed 's#^landing/##' | grep '\.html$' || true); do
             git show "$sha:landing/$f" | grep -oE '(src|href)="[^"]*"' | sed -E 's/^(src|href)="//; s/"$//'
@@ -89,6 +90,21 @@ list_referenced() {
         git show "$sha:landing/photocast.css" | grep -oE 'url\([^)]*\)' | sed -E "s/^url\(//; s/\)\$//; s/[\"']//g"
     } | sed -E 's/[#?].*$//; s#^\./##' \
       | grep -vE '^$|^https?:|^//|^mailto:|^tel:|^data:' | sort -u
+    # The guide pages (and guide.css) live under landing/guide/, recursively: each reference is
+    # resolved against the referencing file's directory (../photocast.css -> photocast.css,
+    # shots/a.webp -> guide/shots/a.webp).
+    for f in $(git ls-tree -r --name-only "$sha" landing/guide/ | sed 's#^landing/##' \
+                 | grep -E '\.html$|(^|/)guide\.css$' || true); do
+        dir="${f%/*}"
+        {
+            git show "$sha:landing/$f" | grep -oE '(src|href)="[^"]*"|url\([^)]*\)' \
+                | sed -E 's/^(src|href)="//; s/"$//; s/^url\(//; s/\)$//; s/["'"'"']//g'
+        } | sed -E 's/[#?].*$//; s#^\./##' \
+          | grep -vE '^$|^https?:|^//|^mailto:|^tel:|^data:|^/' \
+          | awk -v d="$dir" '{ p = d "/" $0
+                while (match(p, /[^\/.][^\/]*\/\.\.\//)) p = substr(p, 1, RSTART - 1) substr(p, RSTART + RLENGTH)
+                print p }' | sort -u
+    done | sort -u
 }
 
 # Fail if a referenced file is missing at SHA or has no COPY line in the Dockerfile at SHA.
@@ -102,7 +118,12 @@ preflight_assets() {
         if ! git cat-file -e "$sha:landing/$name" 2>/dev/null; then
             printf '  %s: referenced but not in landing/ at %s\n' "$name" "${sha:0:8}"; bad=1
         fi
-        if ! grep -qE "^COPY ${name//./\\.} " <<< "$dockerfile"; then
+        if [[ "$name" == guide/* ]]; then
+            # Everything under guide/ ships through the one directory COPY line.
+            if ! grep -qE "^COPY guide/ " <<< "$dockerfile"; then
+                printf '  %s: no "COPY guide/ " line in landing/Dockerfile\n' "$name"; bad=1
+            fi
+        elif ! grep -qE "^COPY ${name//./\\.} " <<< "$dockerfile"; then
             printf '  %s: no "COPY %s " line in landing/Dockerfile\n' "$name" "$name"; bad=1
         fi
     done
@@ -118,6 +139,8 @@ smoke_paths() {
     local sha="$1"
     {
         echo "/"
+        echo "/guide/"
+        git ls-tree -r --name-only "$sha" landing/guide/ | sed 's#^landing/#/#' | grep '\.html$' || true
         list_referenced "$sha" | sed 's#^#/#'
         git ls-tree --name-only "$sha" landing/ | sed 's#^landing/#/#' | grep '\.html$' || true
     } | sort -u
@@ -164,6 +187,32 @@ smoke() {
     return $fail
 }
 '
+
+# Status codes cannot tell a guide page from the index fallback, so check the headers that make the
+# page frameable by the app and by nobody else: guide_check <base-url>. Run on the host after a deploy
+# (REMOTE_SMOKE carries it) and, by eval, against the public URL (the only check that sees Cloudflare
+# adding or stripping a header).
+GUIDE_CHECK='
+guide_check() {
+    local base="$1" h code fail=0
+    h=$(curl -s -D - -o /dev/null -m 15 "$base/guide/map.html" | tr -d "\r" || true)
+    if grep -qi "^content-security-policy:.*frame-ancestors https://app.photocast.online" <<< "$h"; then
+        echo "  /guide/map.html CSP          frame-ancestors app.photocast.online"
+    else
+        echo "  /guide/map.html CSP          MISSING frame-ancestors https://app.photocast.online"; fail=1
+    fi
+    if grep -qi "^x-frame-options:" <<< "$h"; then
+        echo "  /guide/map.html X-Frame      PRESENT (must be absent)"; fail=1
+    else
+        echo "  /guide/map.html X-Frame      absent"
+    fi
+    code=$(curl -s -o /dev/null -m 15 -w "%{http_code}" "$base/guide" || true)
+    printf "  %-28s %s\n" "/guide (want 301)" "$code"
+    [ "$code" = "301" ] || fail=1
+    return $fail
+}
+'
+REMOTE_SMOKE="$REMOTE_SMOKE$GUIDE_CHECK"
 
 # ---------------------------------------------------------------- hidden test hook
 if [[ -n "$PREFLIGHT_ONLY" ]]; then
@@ -294,7 +343,7 @@ cd landing
 docker compose build --no-cache </dev/null
 docker compose up -d --force-recreate </dev/null
 echo "Smoke test:"
-if ! smoke "$css" "$@"; then
+if ! smoke "$css" "$@" || ! guide_check http://localhost:8085; then
     echo "SMOKE_FAILED"
     exit 4
 fi
@@ -326,8 +375,10 @@ for p in / /photocast.css; do
     printf '  %-16s %s\n' "$p" "$code"
     [[ "$code" == "200" ]] || PUBLIC_BAD=1
 done
+eval "$GUIDE_CHECK"
+guide_check "$PUBLIC_URL" || PUBLIC_BAD=1
 if [[ $PUBLIC_BAD -ne 0 ]]; then
-    warn "public URL not returning 200: check the Cloudflare Tunnel on the host (the host itself passed its smoke test)"
+    warn "public URL failed a check: the status codes (Cloudflare Tunnel on the host) or the /guide/ framing headers (Cloudflare adding or stripping one); the host itself passed its smoke test"
 fi
 
 echo

@@ -80,9 +80,15 @@ jobs:
           echo "$CHANGED" | sed 's/^/  /'
 
           # Documentation is *.md anywhere, or anything under docs/; the landing site is
-          # anything under landing/ (root only, so backend/landing/ still counts as code).
+          # anything under landing/ (root only, so backend/landing/ still counts as code), EXCEPT
+          # landing/guide/ (the frontend suite pins its section ids), landing/nginx.conf,
+          # landing/Dockerfile and landing/security-headers.conf (the framing headers are checked
+          # by the frontend suite and the landing nginx -t step), which count as code.
+          # release-landing.sh sits at the repo root, so it is already code.
           # Deliberately narrow: .github/workflows/** is code, and so is everything else.
-          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|^landing/|\.md$)' || true)
+          NON_DOC=$(echo "$CHANGED" | grep -vE '(^docs/|\.md$|^landing/)' || true)
+          LANDING_CODE=$(echo "$CHANGED" | grep -E '^landing/(guide/|nginx\.conf$|Dockerfile$|security-headers\.conf$)' || true)
+          NON_DOC=$(printf '%s\n%s' "$NON_DOC" "$LANDING_CODE" | sed '/^$/d')
 
           if [ -z "$NON_DOC" ]; then
             echo "Documentation or the landing site only — the suite proves nothing here, skipping it."
