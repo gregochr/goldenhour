@@ -489,10 +489,10 @@ public class PipelineOrchestrator {
     }
 
     /**
-     * Evening refresh entry point: one look at tomorrow's sunrise at 21:00 UK time, so the bedtime
-     * decision rests on a forecast hours fresher than the afternoon's. Bound to the
+     * Evening refresh entry point: one look at tomorrow's sunrise and sunset at 21:00 UK time, so the
+     * bedtime decisions rest on a forecast hours fresher than the afternoon's. Bound to the
      * {@code evening_sunrise_refresh} schedule (seeded PAUSED). It differs from the other cycles in
-     * its strategy (tomorrow's sunrise alone, bypassing the cache gate), its policy (every stability),
+     * its strategy (tomorrow's sunrise and sunset, bypassing the cache gate), its policy (every stability),
      * its own wait budget and in giving no failure evidence ({@link CycleType#EVENING}).
      */
     public void runEveningCycle() {

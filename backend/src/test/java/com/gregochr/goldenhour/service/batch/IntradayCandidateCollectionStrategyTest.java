@@ -81,12 +81,13 @@ class IntradayCandidateCollectionStrategyTest {
             "true,  0, SUNSET,  false",
             "true,  0, SUNRISE, false",
             "true,  1, SUNRISE, true",
-            "true,  1, SUNSET,  false",
+            "true,  1, SUNSET,  true",
             "true,  2, SUNRISE, false",
+            "true,  2, SUNSET,  false",
             "false, 0, SUNSET,  false",
             "false, 1, SUNRISE, false",
             "false, 1, SUNSET,  false"})
-    @DisplayName("only T+1 sunrise is deferred, and only when tonight's evening refresh is due")
+    @DisplayName("only T+1 sunrise and sunset are deferred, and only when tonight's evening refresh is due")
     void defersRatedSlot_table(boolean eveningDue, int daysAhead, TargetType type, boolean expected) {
         IntradayCandidateCollectionStrategy s = new IntradayCandidateCollectionStrategy(CLOCK, eveningDue);
 

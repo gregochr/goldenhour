@@ -21,7 +21,7 @@ import java.util.List;
  * @param evaluated      candidates re-evaluated via Claude
  *                       ({@link DispositionCategory#EVALUATED} +
  *                       {@link DispositionCategory#FORCE_EVALUATED})
- * @param deferredToEvening already-rated T+1 sunrises left for tonight's evening refresh (also a
+ * @param deferredToEvening already-rated T+1 sunrises and sunsets left for tonight's evening refresh (also a
  *                       {@link DispositionCategory#SKIPPED_NO_REFRESH_NEEDED}, but at any stability,
  *                       so counted apart from {@code settledSkipped})
  */

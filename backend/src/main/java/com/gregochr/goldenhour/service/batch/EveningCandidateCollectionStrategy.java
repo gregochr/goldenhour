@@ -7,17 +7,17 @@ import java.time.Clock;
 import java.time.LocalDate;
 
 /**
- * Candidate-collection strategy for the {@code EVENING} refresh cycle: tomorrow's sunrise, alone.
+ * Candidate-collection strategy for the {@code EVENING} refresh cycle: tomorrow's sunrise and sunset.
  *
- * <p>The evening exists for one decision, whether to set an alarm, so it looks at the one event that
- * decision turns on, at 21:00 UK time, hours after the afternoon cycle's look and before the overnight
- * one. Nothing else is in scope: tonight's sunset is nearly over, and every later event is the
- * afternoon's and the overnight cycle's job.
+ * <p>The evening exists for the decisions made at bedtime, whether to set an alarm and what to plan
+ * for tomorrow evening, so it looks at the two events those turn on, at 21:00 UK time, hours after
+ * the afternoon cycle's look and before the overnight one. Nothing else is in scope: tonight's sunset
+ * is nearly over (the afternoon's last look), and every later event is the overnight cycle's job.
  *
  * <p>It <b>bypasses the CACHED gate</b> ({@link #bypassesCacheGate()}). The gate asks whether a
  * region's last result is fresh enough to reuse, but in summer the afternoon's batch can land within
  * the T+1 cap of the evening's start, which would make the evening skip its own slots as "cached".
- * The evening is a deliberate refresh of one event, so it does not ask.
+ * The evening is a deliberate refresh of two events, so it does not ask.
  *
  * <p>"Today" is resolved in {@code Europe/London} from the injected {@link Clock} at construction, so
  * a single cycle sees a stable reference date and tests can pin it.
@@ -38,7 +38,8 @@ public final class EveningCandidateCollectionStrategy implements CandidateCollec
 
     @Override
     public boolean includes(LocalDate date, TargetType targetType) {
-        return date.equals(today.plusDays(1)) && targetType == TargetType.SUNRISE;
+        return date.equals(today.plusDays(1))
+                && (targetType == TargetType.SUNRISE || targetType == TargetType.SUNSET);
     }
 
     @Override

@@ -26,6 +26,9 @@ import java.time.LocalDate;
  * — is excluded. The briefing window covers ≥4 days, so all three in-scope
  * events are present to be filtered.
  *
+ * <p>When tonight's 21:00 evening refresh is due, an already-rated T+1 sunrise or sunset is left for it
+ * ({@link #defersRatedSlot}), so the afternoon is then the last look at today's sunset.
+ *
  * <p>"Today" is resolved in {@code Europe/London} (matching the collector's own
  * {@code daysAhead} computation) from the injected {@link Clock} at construction
  * time, so a single cycle sees a stable reference date and tests can pin it.
@@ -35,9 +38,8 @@ import java.time.LocalDate;
  */
 public final class IntradayCandidateCollectionStrategy implements CandidateCollectionStrategy {
 
-    /** The disposition detail of a T+1 sunrise left for tonight's evening refresh. */
-    public static final String EVENING_DEFERRAL_REASON =
-            "tonight's evening refresh re-rates tomorrow's sunrise";
+    /** The disposition detail of a T+1 sunrise or sunset left for tonight's evening refresh. */
+    public static final String EVENING_DEFERRAL_REASON = "tonight's evening refresh re-rates it";
 
     private final LocalDate today;
     private final boolean eveningRefreshDue;
@@ -57,9 +59,9 @@ public final class IntradayCandidateCollectionStrategy implements CandidateColle
      *
      * @param clock the cycle's clock; its instant is interpreted in
      *              {@code Europe/London} to derive the reference date
-     * @param eveningRefreshDue whether tonight's evening sunrise refresh will run (resolved once per
+     * @param eveningRefreshDue whether tonight's evening refresh will run (resolved once per
      *                          cycle by the orchestrator); when {@code true} an already-rated T+1
-     *                          sunrise is left for it
+     *                          sunrise or sunset is left for it
      */
     public IntradayCandidateCollectionStrategy(Clock clock, boolean eveningRefreshDue) {
         this.today = ForecastHorizon.today(clock);
@@ -78,17 +80,19 @@ public final class IntradayCandidateCollectionStrategy implements CandidateColle
     }
 
     /**
-     * Tomorrow's sunrise is re-rated by tonight's 21:00 evening refresh at every stability, so when
-     * that refresh is due the afternoon look at a slot that already has a rating adds only noise (the
+     * Tomorrow's sunrise and sunset are re-rated by tonight's 21:00 evening refresh at every
+     * stability, so when that refresh is due the afternoon look at a slot that already has a rating
+     * adds only noise (the
      * last 30 days' same-day re-ratings repeat the earlier stars about half the time and move two
      * stars or more about 5% of the time, whatever the gap). A slot with no rating is still rated, so
      * no region waits for 21:00 to show a score.
      *
-     * <p>The accepted risk: if the evening run fails, the overnight rating (up to about 20 hours old)
-     * keeps serving until the next overnight run.
+     * <p>The accepted risk: if the evening run fails, the overnight rating (about 20 hours old for the
+     * sunrise, about 37 for the sunset) keeps serving until the next overnight run.
      */
     @Override
     public boolean defersRatedSlot(LocalDate date, TargetType targetType) {
-        return eveningRefreshDue && date.equals(today.plusDays(1)) && targetType == TargetType.SUNRISE;
+        return eveningRefreshDue && date.equals(today.plusDays(1))
+                && (targetType == TargetType.SUNRISE || targetType == TargetType.SUNSET);
     }
 }

@@ -43,6 +43,21 @@ class ReclassSummaryTest {
     }
 
     @Test
+    @DisplayName("sunrise and sunset deferrals are both counted in deferredToEvening")
+    void from_countsSunriseAndSunsetDeferrals() {
+        ReclassSummary summary = ReclassSummary.from(List.of(
+                new CandidateDisposition(1L, "Bamburgh", DATE, TargetType.SUNRISE, 1,
+                        DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
+                        IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON),
+                new CandidateDisposition(1L, "Bamburgh", DATE, TargetType.SUNSET, 1,
+                        DispositionCategory.SKIPPED_NO_REFRESH_NEEDED,
+                        IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON)));
+
+        assertThat(summary.deferredToEvening()).isEqualTo(2);
+        assertThat(summary.settledSkipped()).isZero();
+    }
+
+    @Test
     @DisplayName("the detail names the evening deferral rather than calling it settled-skipped")
     void detail_namesEveningDeferral() {
         ReclassSummary summary = new ReclassSummary(10, 1, 4, 5);

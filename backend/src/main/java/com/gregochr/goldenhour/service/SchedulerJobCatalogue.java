@@ -276,16 +276,16 @@ public final class SchedulerJobCatalogue {
                 .resultsCollectedBy("batch_result_polling"));
         add(draft("intraday_forecast_refresh", "The afternoon refresh", Purpose.FORECAST, true,
                 List.of("Open-Meteo", "Anthropic Batch API"),
-                "A second look before tonight's sunset. Re-rates tonight's sunset and tomorrow's sunrise "
-                        + "and sunset where the weather is still changing, skips places that are settled, then "
-                        + "rebuilds the briefing.",
-                "Fires a set time before sunset so there's still time to change plans. If tomorrow's "
-                        + "sunrise already has a rating, it leaves it for the evening refresh.")
+                "The last look before tonight's sunset. Re-rates tonight's sunset everywhere, then "
+                        + "rebuilds the briefing. Tomorrow's sunrise and sunset are left to the evening refresh.",
+                "Fires a set time before sunset, so there's still time to change plans. If the evening "
+                        + "refresh is paused, or a place has no rating yet for tomorrow, it rates tomorrow too, "
+                        + "skipping a settled sunset.")
                 .resultsCollectedBy("batch_result_polling"));
-        add(draft("evening_sunrise_refresh", "Tomorrow's sunrise, at bedtime", Purpose.FORECAST, true,
+        add(draft("evening_sunrise_refresh", "Tomorrow, at bedtime", Purpose.FORECAST, true,
                 List.of("Open-Meteo", "Anthropic Batch API"),
-                "Re-rates tomorrow's sunrise only, so the decision to set an early alarm is based on a "
-                        + "fresh forecast.",
+                "Re-rates tomorrow's sunrise and sunset at bedtime, so tonight's decisions (an early "
+                        + "alarm, tomorrow evening's plan) rest on a fresh forecast.",
                 "At a set bedtime hour in UK time all year (it follows the clocks, unlike most jobs, which "
                         + "run on GMT).")
                 .resultsCollectedBy("batch_result_polling"));

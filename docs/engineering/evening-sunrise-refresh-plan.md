@@ -1,5 +1,7 @@
 # Plan: an evening refresh of tomorrow's sunrise
 
+> **Superseded in part (2026-11-03):** E5 (§9.10) is replaced by `evening-tomorrow-sunset-plan.md`: the evening refresh now also re-rates tomorrow's sunset and the afternoon defers it, rather than dropping T+1 from the afternoon.
+
 **Status: E1–E3 BUILT 2026-10-20** (E1 #1254, E2 #1255, E3a #1256, E3b #1257, E3c this docs sweep); the job ships PAUSED and **E4, the switch-on, is the owner's**. E5 was widened by the owner the same day (§4 E-D7); E4 started 2026-10-20 (first evening run clean, §5.1); E5's brief is §9.10, not started. Written against `main` at `214a49ed`; revised the same day
 against `dca621cc` after an adversarial review of the plan (§8), which changed the failure-counting
 design (E-D5), added a decision the first draft missed (E-D8), corrected the timing figures, and

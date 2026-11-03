@@ -267,7 +267,7 @@ class RunsDayServiceTest {
 
         assertThat(day.runs()).hasSize(1);
         assertThat(row(day, "job-" + briefing.getId()).subline())
-                .isEqualTo("Runs at the end of Evening sunrise refresh");
+                .isEqualTo("Runs at the end of Evening refresh");
     }
 
     // ── Days and boundaries ───────────────────────────────────────────────────
@@ -621,7 +621,7 @@ class RunsDayServiceTest {
         assertThat(row.durationSeconds()).isNull();
         assertThat(row.costMicroDollars()).isNull();
         assertThat(row.facts().expectedFinish()).isNull();
-        assertThat(day.summary().nextUp().name()).isEqualTo("Evening sunrise refresh");
+        assertThat(day.summary().nextUp().name()).isEqualTo("Evening refresh");
         assertThat(day.summary().finished()).isZero();
         assertThat(day.summary().spendGbp()).isEqualByComparingTo(BigDecimal.ZERO);
     }

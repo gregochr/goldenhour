@@ -12,7 +12,7 @@ import java.time.ZoneOffset;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Unit tests for {@link EveningCandidateCollectionStrategy}: tomorrow's sunrise and nothing else,
+ * Unit tests for {@link EveningCandidateCollectionStrategy}: tomorrow's sunrise and tomorrow's sunset and nothing else,
  * with "today" fixed when the strategy is built.
  */
 class EveningCandidateCollectionStrategyTest {
@@ -24,15 +24,30 @@ class EveningCandidateCollectionStrategyTest {
     private final EveningCandidateCollectionStrategy strategy = new EveningCandidateCollectionStrategy(CLOCK);
 
     @Test
-    @DisplayName("tomorrow's sunrise is the only slot admitted")
-    void tomorrowSunrise_isTheOnlySlot() {
+    @DisplayName("tomorrow's sunrise and sunset are the only slots admitted")
+    void tomorrowSunriseAndSunset_areTheOnlySlots() {
         assertThat(strategy.includes(TODAY.plusDays(1), TargetType.SUNRISE)).isTrue();
-        assertThat(strategy.includes(TODAY.plusDays(1), TargetType.SUNSET)).isFalse();
+        assertThat(strategy.includes(TODAY.plusDays(1), TargetType.SUNSET)).isTrue();
         assertThat(strategy.includes(TODAY, TargetType.SUNRISE)).isFalse();
         assertThat(strategy.includes(TODAY, TargetType.SUNSET)).isFalse();
         assertThat(strategy.includes(TODAY.plusDays(2), TargetType.SUNRISE)).isFalse();
+        assertThat(strategy.includes(TODAY.plusDays(2), TargetType.SUNSET)).isFalse();
         assertThat(strategy.includes(TODAY.minusDays(1), TargetType.SUNRISE)).isFalse();
+        assertThat(strategy.includes(TODAY.minusDays(1), TargetType.SUNSET)).isFalse();
         assertThat(strategy.includes(TODAY.plusDays(1), TargetType.HOURLY)).isFalse();
+    }
+
+    @Test
+    @DisplayName("on the clock-change day the window is still tomorrow's two events")
+    void clockChangeDay() {
+        // 2026-10-24 22:30 UTC is 23:30 BST on the 24th; the clocks go back overnight to the 25th.
+        EveningCandidateCollectionStrategy built = new EveningCandidateCollectionStrategy(
+                Clock.fixed(Instant.parse("2026-10-24T22:30:00Z"), ZoneOffset.UTC));
+
+        assertThat(built.includes(LocalDate.of(2026, 10, 25), TargetType.SUNRISE)).isTrue();
+        assertThat(built.includes(LocalDate.of(2026, 10, 25), TargetType.SUNSET)).isTrue();
+        assertThat(built.includes(LocalDate.of(2026, 10, 24), TargetType.SUNSET)).isFalse();
+        assertThat(built.includes(LocalDate.of(2026, 10, 26), TargetType.SUNSET)).isFalse();
     }
 
     @Test
@@ -44,6 +59,7 @@ class EveningCandidateCollectionStrategyTest {
         clock.set(Instant.parse("2026-10-22T09:00:00Z"));
 
         assertThat(built.includes(TODAY.plusDays(1), TargetType.SUNRISE)).isTrue();
+        assertThat(built.includes(TODAY.plusDays(1), TargetType.SUNSET)).isTrue();
         assertThat(built.includes(LocalDate.of(2026, 10, 23), TargetType.SUNRISE)).isFalse();
     }
 
@@ -54,11 +70,13 @@ class EveningCandidateCollectionStrategyTest {
         EveningCandidateCollectionStrategy built = new EveningCandidateCollectionStrategy(lateBst);
 
         assertThat(built.includes(LocalDate.of(2026, 6, 17), TargetType.SUNRISE)).isTrue();
+        assertThat(built.includes(LocalDate.of(2026, 6, 17), TargetType.SUNSET)).isTrue();
         assertThat(built.includes(LocalDate.of(2026, 6, 16), TargetType.SUNRISE)).isFalse();
+        assertThat(built.includes(LocalDate.of(2026, 6, 16), TargetType.SUNSET)).isFalse();
     }
 
     @Test
-    @DisplayName("it bypasses the cache gate: a deliberate refresh of one event")
+    @DisplayName("it bypasses the cache gate: a deliberate refresh of two events")
     void bypassesTheCacheGate() {
         assertThat(strategy.bypassesCacheGate()).isTrue();
     }

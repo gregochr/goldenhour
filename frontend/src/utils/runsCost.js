@@ -17,7 +17,7 @@ const FALLBACK_LABELS = {
   SKY_EVAL: 'Sky eval',
   OVERNIGHT: 'Overnight cycle',
   AFTERNOON: 'Afternoon refresh',
-  EVENING: 'Evening sunrise refresh',
+  EVENING: 'Evening refresh',
   BRIEFING: 'Daily briefing',
   OTHER: 'Other',
 };

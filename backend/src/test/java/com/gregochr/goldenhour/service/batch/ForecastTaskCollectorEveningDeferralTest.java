@@ -66,7 +66,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Pins WHERE the intraday evening-refresh deferral happens: after weather fetch and triage, never
- * before. A rated T+1 sunrise that triage stands down must still record {@code SKIPPED_TRIAGED}
+ * before. A rated T+1 sunrise or sunset that triage stands down must still record {@code SKIPPED_TRIAGED}
  * (the disposition that retracts a stale rating); one that passes triage is left to the evening
  * ({@code SKIPPED_NO_REFRESH_NEEDED}) with no Claude request built; everything else is unchanged.
  */
@@ -81,6 +81,8 @@ class ForecastTaskCollectorEveningDeferralTest {
     private static final LocalDate TOMORROW = TODAY.plusDays(1);
     private static final String REGION = "North East";
     private static final String DURHAM = "Durham UK";
+    /** The exact event set the deferral loads live ratings for: never {@code any()}. */
+    private static final Set<TargetType> BOTH_EVENTS = Set.of(TargetType.SUNRISE, TargetType.SUNSET);
 
     @Mock private LocationService locationService;
     @Mock private BriefingService briefingService;
@@ -97,6 +99,7 @@ class ForecastTaskCollectorEveningDeferralTest {
 
     private ForecastTaskCollector collector;
     private ForecastPreEvalResult preEval;
+    private boolean withBluebellScore;
 
     @BeforeEach
     void setUp() {
@@ -121,7 +124,7 @@ class ForecastTaskCollectorEveningDeferralTest {
         assertThat(result.isEmpty()).isTrue();
         CandidateDisposition row = onlyRow(result);
         assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_NO_REFRESH_NEEDED);
-        assertThat(row.detail()).isEqualTo("tonight's evening refresh re-rates tomorrow's sunrise");
+        assertThat(row.detail()).isEqualTo("tonight's evening refresh re-rates it");
         assertThat(row.locationId()).isEqualTo(42L);
         assertThat(row.daysAhead()).isEqualTo(1);
         verify(openMeteoService).prefetchWeatherBatchResilient(any(), any());
@@ -162,7 +165,7 @@ class ForecastTaskCollectorEveningDeferralTest {
         stub(TOMORROW, TargetType.SUNRISE, false, 1);
         stubPersist();
         when(evaluationViewService.getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE)))
+                TOMORROW, TOMORROW, BOTH_EVENTS))
                 .thenThrow(new IllegalStateException("db down"));
 
         assertThat(collect(true).nearInland()).hasSize(1);
@@ -177,7 +180,7 @@ class ForecastTaskCollectorEveningDeferralTest {
 
         assertThat(collect(true).nearInland()).hasSize(1);
         verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+                TOMORROW, TOMORROW, BOTH_EVENTS);
     }
 
     @Test
@@ -190,7 +193,7 @@ class ForecastTaskCollectorEveningDeferralTest {
         assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
         assertThat(row.detail()).isEqualTo("heavy cloud");
         verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+                TOMORROW, TOMORROW, BOTH_EVENTS);
     }
 
     @Test
@@ -202,7 +205,7 @@ class ForecastTaskCollectorEveningDeferralTest {
         collect(true);
 
         verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+                TOMORROW, TOMORROW, BOTH_EVENTS);
     }
 
     @Test
@@ -213,7 +216,7 @@ class ForecastTaskCollectorEveningDeferralTest {
 
         assertThat(collect(false).nearInland()).hasSize(1);
         verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE));
+                TOMORROW, TOMORROW, BOTH_EVENTS);
     }
 
     @Test
@@ -224,7 +227,110 @@ class ForecastTaskCollectorEveningDeferralTest {
 
         assertThat(collect(true).nearInland()).hasSize(1);
         verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
-                TODAY, TODAY, Set.of(TargetType.SUNRISE));
+                TODAY, TODAY, BOTH_EVENTS);
+    }
+
+    @Test
+    @DisplayName("a rated T+1 sunset that passes triage is deferred to the evening, at any stability")
+    void ratedSunsetPassingTriage_isDeferred() {
+        stub(TOMORROW, TargetType.SUNSET, false, 1, ForecastStability.UNSETTLED, location());
+        stubLiveView(TargetType.SUNSET, Map.of(DURHAM, rated()));
+
+        ScheduledBatchTasks result = collect(true);
+
+        assertThat(result.isEmpty()).isTrue();
+        CandidateDisposition row = onlyRow(result);
+        assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_NO_REFRESH_NEEDED);
+        assertThat(row.detail()).isEqualTo(IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON);
+        assertThat(row.eventType()).isEqualTo(TargetType.SUNSET);
+        assertThat(ReclassSummary.from(result.dispositions()).deferredToEvening()).isEqualTo(1);
+        verify(forecastService, never()).persistPendingEvaluation(preEval);
+    }
+
+    @Test
+    @DisplayName("a T+1 sunset with no live rating is evaluated, not left for 21:00")
+    void unratedSunset_isEvaluated() {
+        stub(TOMORROW, TargetType.SUNSET, false, 1, ForecastStability.UNSETTLED, location());
+        stubPersist();
+        stubLiveView(TargetType.SUNSET, Map.of());
+
+        ScheduledBatchTasks result = collect(true);
+
+        assertThat(result.nearInland()).hasSize(1);
+        assertThat(onlyRow(result).category()).isEqualTo(DispositionCategory.EVALUATED);
+    }
+
+    @Test
+    @DisplayName("a rated T+1 sunset that triage stands down is still SKIPPED_TRIAGED, view never read")
+    void ratedSunsetTriagedOut_staysTriaged() {
+        stub(TOMORROW, TargetType.SUNSET, true, 1, ForecastStability.UNSETTLED, location());
+
+        CandidateDisposition row = onlyRow(collect(true));
+
+        assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_TRIAGED);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, BOTH_EVENTS);
+    }
+
+    @Test
+    @DisplayName("a SETTLED T+1 sunset is skipped by the eligibility policy, not counted as a deferral")
+    void settledSunset_isSkippedByThePolicyNotDeferred() {
+        stub(TOMORROW, TargetType.SUNSET, false, 1, ForecastStability.SETTLED, location());
+
+        ScheduledBatchTasks result = collect(true);
+
+        CandidateDisposition row = onlyRow(result);
+        assertThat(row.category()).isEqualTo(DispositionCategory.SKIPPED_NO_REFRESH_NEEDED);
+        assertThat(row.detail()).isNotEqualTo(IntradayCandidateCollectionStrategy.EVENING_DEFERRAL_REASON);
+        assertThat(ReclassSummary.from(result.dispositions()).deferredToEvening()).isZero();
+        assertThat(ReclassSummary.from(result.dispositions()).settledSkipped()).isEqualTo(1);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, BOTH_EVENTS);
+    }
+
+    @Test
+    @DisplayName("a woodland (canopy) T+1 sunset is not deferred: it is rated even with a live rating")
+    void woodlandSunset_isNotDeferred() {
+        LocationEntity wood = location();
+        wood.setLocationType(Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND));
+        stub(TOMORROW, TargetType.SUNSET, false, 1, ForecastStability.UNSETTLED, wood);
+
+        ScheduledBatchTasks result = collect(true);
+
+        assertThat(result.woodland()).hasSize(1);
+        assertThat(onlyRow(result).category()).isEqualTo(DispositionCategory.EVALUATED);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                TOMORROW, TOMORROW, BOTH_EVENTS);
+    }
+
+    @Test
+    @DisplayName("a woodland site in bluebell season (bluebell lane) is not deferred either")
+    void bluebellWoodInSeasonSunset_isNotDeferred() {
+        // Season is 10 April to 20 May; use the 10th/11th so the candidate date is in season.
+        Clock springClock = Clock.fixed(Instant.parse("2026-05-10T14:00:00Z"), ZoneOffset.UTC);
+        LocalDate day = LocalDate.of(2026, 5, 11);
+        ForecastTaskCollector springCollector = new ForecastTaskCollector(
+                locationService, briefingService, briefingEvaluationService, evaluationViewService,
+                forecastService, stabilityClassifier, modelSelectionService,
+                openMeteoService, solarService, freshnessResolver,
+                stabilitySnapshotProvider, travelDayService,
+                0.5, 0, springClock,
+                new SeasonalWindow(MonthDay.of(4, 10), MonthDay.of(5, 20), "BLUEBELL"));
+        LocationEntity wood = location();
+        wood.setLocationType(Set.of(com.gregochr.goldenhour.entity.LocationType.WOODLAND,
+                com.gregochr.goldenhour.entity.LocationType.BLUEBELL));
+        wood.setBluebellExposure(com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND);
+        withBluebellScore = true;
+        stub(day, TargetType.SUNSET, false, 1, ForecastStability.UNSETTLED, wood);
+
+        ScheduledBatchTasks result = springCollector.collectScheduledBatches(
+                new IntradayCandidateCollectionStrategy(springClock, true),
+                IntradayEligibilityPolicy.INSTANCE);
+
+        assertThat(result.bluebell()).hasSize(1);
+        assertThat(onlyRow(result).category()).isEqualTo(DispositionCategory.EVALUATED);
+        verify(evaluationViewService, never()).getLiveScoresForEnrichmentBulk(
+                day, day, BOTH_EVENTS);
     }
 
     // ── fixture ───────────────────────────────────────────────────────────────
@@ -241,9 +347,13 @@ class ForecastTaskCollectorEveningDeferralTest {
     }
 
     private void stubLiveView(Map<String, BriefingEvaluationResult> forDurham) {
+        stubLiveView(TargetType.SUNRISE, forDurham);
+    }
+
+    private void stubLiveView(TargetType type, Map<String, BriefingEvaluationResult> forDurham) {
         when(evaluationViewService.getLiveScoresForEnrichmentBulk(
-                TOMORROW, TOMORROW, Set.of(TargetType.SUNRISE)))
-                .thenReturn(Map.of(CacheKeyFactory.build(REGION, TOMORROW, TargetType.SUNRISE), forDurham));
+                TOMORROW, TOMORROW, BOTH_EVENTS))
+                .thenReturn(Map.of(CacheKeyFactory.build(REGION, TOMORROW, type), forDurham));
     }
 
     private static BriefingEvaluationResult rated() {
@@ -255,7 +365,11 @@ class ForecastTaskCollectorEveningDeferralTest {
     }
 
     private LocationEntity stub(LocalDate date, TargetType type, boolean triaged, int daysAhead) {
-        LocationEntity loc = location();
+        return stub(date, type, triaged, daysAhead, ForecastStability.SETTLED, location());
+    }
+
+    private LocationEntity stub(LocalDate date, TargetType type, boolean triaged, int daysAhead,
+            ForecastStability stability, LocationEntity loc) {
         when(briefingService.getCachedBriefing()).thenReturn(briefing(date, type, loc.getName()));
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
@@ -277,7 +391,7 @@ class ForecastTaskCollectorEveningDeferralTest {
         when(stabilityClassifier.classify(any(), anyDouble(), anyDouble(), any()))
                 .thenReturn(new GridCellStabilityResult(
                         loc.gridCellKey(), loc.getGridLat(), loc.getGridLng(),
-                        ForecastStability.SETTLED, "stable", 3));
+                        stability, "stable", 3));
         return loc;
     }
 
@@ -314,11 +428,16 @@ class ForecastTaskCollectorEveningDeferralTest {
     private ForecastPreEvalResult preEval(LocationEntity loc, LocalDate date, TargetType type,
             boolean triaged, int daysAhead) {
         LocalDateTime eventTime = date.atTime(6, 0);
-        AtmosphericData data = TestAtmosphericData.builder()
+        TestAtmosphericData builder = TestAtmosphericData.builder()
                 .locationName(loc.getName())
                 .solarEventTime(eventTime)
-                .targetType(type)
-                .build();
+                .targetType(type);
+        if (withBluebellScore) {
+            builder.bluebellConditionScore(new com.gregochr.goldenhour.model.BluebellConditionScore(
+                    7, true, true, true, false, false, true,
+                    com.gregochr.goldenhour.entity.BluebellExposure.WOODLAND, "Bright still light."));
+        }
+        AtmosphericData data = builder.build();
         return new ForecastPreEvalResult(triaged, triaged ? "heavy cloud" : null,
                 triaged ? TriageReason.HIGH_CLOUD : null, data, loc, date, type, eventTime, 90,
                 daysAhead, EvaluationModel.SONNET, Set.of(), "k", new OpenMeteoForecastResponse());
