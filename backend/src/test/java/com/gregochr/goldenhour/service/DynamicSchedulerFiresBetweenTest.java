@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.scheduling.TaskScheduler;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -91,6 +92,20 @@ class DynamicSchedulerFiresBetweenTest {
         SchedulerJobConfigEntity everySecond = job(ScheduleType.CRON).cronExpression("* * * * * *").build();
 
         assertThat(service().firesBetween(everySecond, FROM, TO)).hasSize(DynamicSchedulerService.MAX_FIRES_LISTED);
+    }
+
+    @Test
+    @DisplayName("firesIgnoringStatus lists a paused or off-in-config job's slots; firesBetween lists none")
+    void ignoringStatus() {
+        SchedulerJobConfigEntity paused = job(ScheduleType.CRON).cronExpression("0 0 6,18 * * *")
+                .status(SchedulerJobStatus.PAUSED).build();
+        SchedulerJobConfigEntity off = job(ScheduleType.CRON).cronExpression("0 0 6,18 * * *")
+                .status(SchedulerJobStatus.DISABLED_BY_CONFIG).build();
+
+        assertThat(service().firesBetween(paused, FROM, TO)).isEmpty();
+        assertThat(service().firesIgnoringStatus(paused, FROM, TO)).containsExactly(
+                new DynamicSchedulerService.ScheduledFire(TO.minus(Duration.ofHours(6)), false));
+        assertThat(service().firesIgnoringStatus(off, FROM, TO)).hasSize(1);
     }
 
     @Test

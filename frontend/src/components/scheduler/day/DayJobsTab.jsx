@@ -1,14 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import ErrorBanner from '../../shared/ErrorBanner.jsx';
+import Segmented from '../../data/Segmented.jsx';
 import useSchedulerDay from '../../../hooks/useSchedulerDay.js';
-import { buildRows, dayWord, needsALook, summaryCounts } from '../../../utils/schedulerDay.js';
+import {
+  ZOOM_CLOSE_UP,
+  ZOOM_DAY,
+  buildRows,
+  dayWord,
+  needsALook,
+  readZoom,
+  summaryCounts,
+  writeZoom,
+} from '../../../utils/schedulerDay.js';
+import { buildLinks, buildRepeatingRows } from '../../../utils/schedulerDayOverlays.js';
 import { DayLegend, DayNav, DaySummaryBar } from './DayControls.jsx';
 import { NeedsALook, NotOnThisDay } from './DayLists.jsx';
 import DayPicture from './DayPicture.jsx';
 
+/** The zoom control's two buttons. */
+const ZOOM_OPTIONS = [
+  { value: ZOOM_DAY, label: 'Whole day' },
+  { value: ZOOM_CLOSE_UP, label: '02:00–05:00 close-up' },
+];
+
 /**
- * The Day's jobs tab (scheduler-redesign-plan.md S5a): the day navigation, the outcome summary bar and the legend, the
+ * The Day's jobs tab (scheduler-redesign-plan.md S5a, S5b): the day navigation, the outcome summary bar and the legend, the
  * day picture of the scheduled jobs, "Needs a look" and "Not on this day". Only the active tab is mounted, so this
  * owns the day's data and its 30-second poll ({@link useSchedulerDay}); the job list ({@code jobs}, which the view
  * already loads) supplies each row's schedule type, paused state and Claude flag. Until that list has loaded the rows
@@ -17,8 +34,10 @@ import DayPicture from './DayPicture.jsx';
  * <p>Focus: the panel's close returns focus to the control that opened it (a row label, a Needs a look row, a Not on
  * this day item), or to the page heading when that control is gone.
  *
- * <p>Repeating jobs are not drawn here yet (S5b adds their section, the watchdog windows, dependency arrows and the
- * close-up): their failures reach "Needs a look" and their tally the summary bar.
+ * <p>S5b: the repeating jobs have their own section under the scheduled rows, the forecast cycles their watchdog
+ * windows, and the links the catalogue declares are drawn as arrows (a chip toggles them, on by default). "Whole day" or
+ * the "02:00-05:00 close-up" is chosen with a segmented control and remembered in {@code localStorage} (never in the
+ * address). The selected job's arrows turn gold and the rows unrelated to it dim.
  *
  * @param {object} props
  * @param {Array<object>} props.jobs the served jobs list (empty until it has loaded)
@@ -40,6 +59,17 @@ export default function DayJobsTab({
 
   const jobsByKey = useMemo(() => Object.fromEntries(jobs.map((job) => [job.jobKey, job])), [jobs]);
   const rows = useMemo(() => buildRows(data, jobs), [data, jobs]);
+  const repeatingRows = useMemo(() => buildRepeatingRows(data, jobs), [data, jobs]);
+  const links = useMemo(
+    () => buildLinks(jobs, [...rows, ...repeatingRows].map((row) => row.jobKey)),
+    [jobs, rows, repeatingRows],
+  );
+  const [zoom, setZoom] = useState(readZoom);
+  const [arrows, setArrows] = useState(true);
+  const chooseZoom = useCallback((value) => {
+    setZoom(value);
+    writeZoom(value);
+  }, []);
   const look = useMemo(() => needsALook(data), [data]);
   const counts = useMemo(() => summaryCounts(data), [data]);
   const word = dayWord(date, today);
@@ -74,7 +104,7 @@ export default function DayJobsTab({
     wasOpen.current = open;
   }, [selectedKey]);
 
-  const empty = data != null && rows.length === 0;
+  const empty = data != null && rows.length === 0 && repeatingRows.length === 0;
 
   return (
     <div ref={rootRef} className="flex min-w-0 flex-col gap-3" data-testid="scheduler-day">
@@ -88,6 +118,7 @@ export default function DayJobsTab({
           onNext={day.goNext}
           onToday={day.goToday}
         />
+        <Segmented label="Zoom" options={ZOOM_OPTIONS} value={zoom} onChange={chooseZoom} testId="scheduler-day-zoom" />
         <p className="font-mono text-[11px] text-plex-text-muted" data-testid="scheduler-day-zone">
           {data ? `UK time (${data.zoneLabelAtStart === data.zoneLabelAtEnd ? data.zoneLabelAtStart : `${data.zoneLabelAtStart} to ${data.zoneLabelAtEnd}`})` : 'UK time'}
         </p>
@@ -108,13 +139,23 @@ export default function DayJobsTab({
       {data && (
         <>
           <DaySummaryBar counts={counts} tally={data.repeatingTally ?? null} date={date} today={today} />
-          <DayLegend />
+          <DayLegend arrows={arrows} onToggleArrows={() => setArrows((on) => !on)} />
           {empty ? (
             <p className="py-6 text-sm text-plex-text-secondary" data-testid="scheduler-day-empty">
               No jobs are scheduled on this day.
             </p>
           ) : (
-            <DayPicture day={data} rows={rows} nowMs={day.nowMs} onSelect={handleSelect} />
+            <DayPicture
+              day={data}
+              rows={rows}
+              repeatingRows={repeatingRows}
+              links={links}
+              showArrows={arrows}
+              selectedKey={selectedKey}
+              zoom={zoom}
+              nowMs={day.nowMs}
+              onSelect={handleSelect}
+            />
           )}
           <NeedsALook look={look} jobsByKey={jobsByKey} date={date} onSelect={handleSelect} />
           <NotOnThisDay

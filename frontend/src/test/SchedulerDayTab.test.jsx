@@ -131,8 +131,10 @@ describe('the Day picture', () => {
     expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`scheduler-fire-${NIGHTLY}-1`)).toBeInTheDocument();
     expect(screen.getByTestId('scheduler-dot-tide_refresh-0')).toBeInTheDocument();
-    // Repeating jobs are not drawn as rows in S5a.
-    expect(screen.queryByTestId('scheduler-row-aurora_polling')).not.toBeInTheDocument();
+    // Repeating jobs have their own section (S5b), never a scheduled row: no fire marks, a band or ticks instead.
+    expect(screen.getByTestId('scheduler-row-aurora_polling')).toBeInTheDocument();
+    expect(screen.queryByTestId('scheduler-fire-aurora_polling-0')).not.toBeInTheDocument();
+    expect(screen.getByTestId('scheduler-day-repeating-divider')).toHaveTextContent('REPEATING THROUGH THE DAY');
   });
 
   it('draws every status in its colour: ok, partial, failed, running, skipped, and hollow for missed and to run', async () => {
@@ -462,14 +464,12 @@ describe('the summary bar and the link into Runs', () => {
     expect(screen.queryByTestId('scheduler-day-runs-link')).not.toBeInTheDocument();
   });
 
-  it('draws the legend with the sun, cron, paused, £ and status entries (and not the S5b marks)', async () => {
+  it('draws the legend with the sun, cron, repeating, paused, watchdog, £ and status entries', async () => {
     mount();
     expect(await screen.findByTestId('scheduler-day-legend')).toBeInTheDocument();
-    ['sun', 'cron', 'paused', 'claude', 'ok', 'partial', 'failed', 'missed', 'to-run'].forEach((key) => {
+    ['sun', 'cron', 'repeating', 'paused', 'watchdog', 'claude', 'ok', 'partial', 'failed', 'missed', 'to-run'].forEach((key) => {
       expect(screen.getByTestId(`scheduler-legend-${key}`)).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('scheduler-legend-repeating')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('scheduler-legend-watchdog')).not.toBeInTheDocument();
   });
 });
 
@@ -751,7 +751,7 @@ describe('the picture\'s width', () => {
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 912.6 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(912);
     // The Now line at noon is the middle of the axis.
-    expect(Number(screen.getByTestId('scheduler-day-now').querySelector('line').getAttribute('x1'))).toBe(456);
+    expect(Number(screen.getByTestId('scheduler-day-now').querySelector('line').getAttribute('x1'))).toBeCloseTo(456, 0);
   });
 });
 

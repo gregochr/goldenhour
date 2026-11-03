@@ -97,33 +97,101 @@ function ukOffsetMinutes(ms) {
  *
  * @param {string} date the UK date, {@code YYYY-MM-DD}
  * @param {number} hour the wall-clock hour, 0-23
+ * @param {number} [minute] the wall-clock minute, 0-59
  * @returns {number} epoch milliseconds
  */
-export function ukWallInstant(date, hour) {
+export function ukWallInstant(date, hour, minute = 0) {
   const [y, m, d] = date.split('-').map(Number);
-  const guess = Date.UTC(y, m - 1, d, hour);
+  const guess = Date.UTC(y, m - 1, d, hour, minute);
   const first = guess - ukOffsetMinutes(guess) * MS_PER_MINUTE;
   const second = guess - ukOffsetMinutes(first) * MS_PER_MINUTE;
   return second;
 }
 
 /**
- * The gridlines: one every {@code stepHours} UK wall-clock hours from 00:00 to the day's end, each with its UK label.
- * The last one is the day's end, labelled "24:00". On a 23- or 25-hour day the lines are unevenly spaced in time
- * (correctly: a wall-clock hour is missing or doubled).
+ * The gridlines: one every {@code stepHours} UK wall-clock hours from {@code fromHour} to {@code toHour}, each with its
+ * UK label ("03:00", "02:30"). The last one is the axis end, labelled by {@code toHour} ("24:00" for the whole day). On
+ * a 23- or 25-hour day the whole-day lines are unevenly spaced in time (correctly: a wall-clock hour is missing or
+ * doubled).
  *
- * @param {{startMs: number, endMs: number}} axis the day axis
- * @param {number} [stepHours] the spacing in wall-clock hours
+ * @param {{startMs: number, endMs: number}} axis the axis (the whole day, or the close-up)
+ * @param {number} [stepHours] the spacing in wall-clock hours (0.5 for the close-up)
+ * @param {{fromHour?: number, toHour?: number}} [range] the wall-clock span the axis covers, default 0 to 24
  * @returns {Array<{ms: number, label: string}>}
  */
-export function gridlines(axis, stepHours = GRID_STEP_HOURS) {
+export function gridlines(axis, stepHours = GRID_STEP_HOURS, { fromHour = 0, toHour = HOURS_PER_DAY } = {}) {
   const date = ukDateStr(new Date(axis.startMs));
+  const label = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
   const lines = [];
-  for (let hour = 0; hour < HOURS_PER_DAY; hour += stepHours) {
-    lines.push({ ms: ukWallInstant(date, hour), label: `${String(hour).padStart(2, '0')}:00` });
+  const stepMinutes = Math.round(stepHours * 60);
+  for (let minutes = fromHour * 60; minutes < toHour * 60; minutes += stepMinutes) {
+    lines.push({ ms: ukWallInstant(date, Math.floor(minutes / 60), minutes % 60), label: label(minutes) });
   }
-  lines.push({ ms: axis.endMs, label: '24:00' });
+  lines.push({ ms: axis.endMs, label: label(toHour * 60) });
   return lines;
+}
+
+/** The close-up's UK wall-clock span (D12: "02:00-05:00 close-up"), where the overnight cluster is readable. */
+export const CLOSE_UP_FROM_HOUR = 2;
+export const CLOSE_UP_TO_HOUR = 5;
+
+/** The close-up's gridline spacing, in hours (every 30 minutes). */
+export const CLOSE_UP_STEP_HOURS = 0.5;
+
+/** The two zoom levels of the picture. */
+export const ZOOM_DAY = 'day';
+export const ZOOM_CLOSE_UP = 'closeup';
+
+/**
+ * The close-up axis: 02:00 to 05:00 UK wall-clock on the served date, so it is the right three hours on a clock-change
+ * day too (it starts and ends after the 01:00 change, where every wall time exists once).
+ *
+ * @param {{dayStart: string, dayEnd: string}} day the served day
+ * @returns {{startMs: number, endMs: number}|null} null when the day has no axis
+ */
+export function closeUpAxis(day) {
+  const whole = dayAxis(day);
+  if (!whole) return null;
+  const date = ukDateStr(new Date(whole.startMs));
+  return { startMs: ukWallInstant(date, CLOSE_UP_FROM_HOUR), endMs: ukWallInstant(date, CLOSE_UP_TO_HOUR) };
+}
+
+/**
+ * The axis and gridlines for a zoom level.
+ *
+ * @param {object} day the served day
+ * @param {string} zoom {@link ZOOM_DAY} or {@link ZOOM_CLOSE_UP}
+ * @returns {{axis: {startMs: number, endMs: number}, grid: Array<{ms: number, label: string}>}|null}
+ */
+export function pictureAxis(day, zoom) {
+  if (zoom === ZOOM_CLOSE_UP) {
+    const axis = closeUpAxis(day);
+    return axis ? { axis, grid: gridlines(axis, CLOSE_UP_STEP_HOURS, { fromHour: CLOSE_UP_FROM_HOUR, toHour: CLOSE_UP_TO_HOUR }) } : null;
+  }
+  const axis = dayAxis(day);
+  return axis ? { axis, grid: gridlines(axis) } : null;
+}
+
+/** Where the reader's zoom choice is remembered (a convenience, never in the address). */
+export const ZOOM_STORAGE_KEY = 'photocast.scheduler.dayZoom';
+
+/** The remembered zoom, or the whole day when nothing usable is stored or storage is unavailable. */
+export function readZoom() {
+  try {
+    const value = window.localStorage.getItem(ZOOM_STORAGE_KEY);
+    return value === ZOOM_CLOSE_UP ? ZOOM_CLOSE_UP : ZOOM_DAY;
+  } catch {
+    return ZOOM_DAY;
+  }
+}
+
+/** Remembers the zoom; a storage that is unavailable or full is ignored. */
+export function writeZoom(zoom) {
+  try {
+    window.localStorage.setItem(ZOOM_STORAGE_KEY, zoom);
+  } catch {
+    // Not remembered: the choice still applies for this visit.
+  }
 }
 
 /**
@@ -258,10 +326,10 @@ export const isFuture = (fire) => fire?.status === 'SCHEDULED';
 
 /**
  * The picture's rows: one per {@code SCHEDULED} job that fires that day, sorted by first fire, then name. The server
- * serves no fires for a paused job, so a job the {@code /jobs} list says is paused keeps a row (with a muted "Paused")
- * whether or not the day lists it; a paused fixed-delay job is repeating, not a row. The job's schedule type, paused
- * state and Claude flag come from the list, which the view already loads; until it has, rows are neutral.
- * {@code wouldBe} is where S5b puts a paused job's would-be fires.
+ * serves a paused job's would-be fires (status {@code PAUSED}, kept apart in {@code wouldBe}), so a job the
+ * {@code /jobs} list says is paused keeps a row whether or not the day lists it (a muted "Paused" when it has no
+ * would-be fire); a paused fixed-delay job is repeating, not a row. The job's schedule type, paused state and Claude
+ * flag come from the list, which the view already loads; until it has, rows are neutral.
  *
  * @param {object|null} day the served day
  * @param {Array<object>} jobs the served jobs list, joined by job key
@@ -279,20 +347,26 @@ export function buildRows(day, jobs) {
   const rows = [...entries, ...missing]
     .map((entry) => {
       const meta = byKey.get(entry.jobKey);
-      const fires = [...(entry.fires ?? [])].sort((a, b) => (instantMs(a.at) ?? 0) - (instantMs(b.at) ?? 0));
+      const sorted = [...(entry.fires ?? [])].sort((a, b) => (instantMs(a.at) ?? 0) - (instantMs(b.at) ?? 0));
+      // A paused job's would-be fires arrive as fires with the status PAUSED: they are drawn apart, never as runs.
+      const fires = sorted.filter((fire) => fire.status !== 'PAUSED');
+      const wouldBe = sorted.filter((fire) => fire.status === 'PAUSED');
       return {
         jobKey: entry.jobKey,
         name: entry.displayName,
         fires,
-        wouldBe: [],
+        wouldBe,
         scheduleType: meta?.scheduleType ?? null,
         paused: meta?.status === 'PAUSED',
         usesClaude: meta?.catalogue?.usesClaude === true,
         alias: meta?.catalogue?.alias ?? null,
       };
     })
-    .filter((row) => row.fires.length > 0 || row.paused);
-  const first = (row) => (row.fires.length > 0 ? instantMs(row.fires[0].at) ?? Infinity : Infinity);
+    .filter((row) => row.fires.length > 0 || row.wouldBe.length > 0 || row.paused);
+  const first = (row) => {
+    const head = row.fires[0] ?? row.wouldBe[0];
+    return head ? instantMs(head.at) ?? Infinity : Infinity;
+  };
   return rows.sort((a, b) => first(a) - first(b) || a.name.localeCompare(b.name));
 }
 
@@ -324,6 +398,10 @@ export function rowAriaLabel(row) {
     else if (!row.paused) parts.push('no fires');
   }
   if (row.paused) parts.push('paused');
+  const wouldBe = row.wouldBe ?? [];
+  if (wouldBe.length > 0) {
+    parts.push(`would-be ${wouldBe.length === 1 ? 'fire' : 'fires'} at ${wouldBe.map((fire) => formatClock(fire.at)).join(' and ')}`);
+  }
   if (row.usesClaude) parts.push('uses Claude');
   if (row.alias) parts.push(row.alias);
   return parts.join(', ');

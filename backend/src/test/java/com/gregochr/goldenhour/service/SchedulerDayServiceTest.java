@@ -382,7 +382,8 @@ class SchedulerDayServiceTest {
     }
 
     @Test
-    @DisplayName("a paused or off-in-config job lists no fires: nothing SCHEDULED, nothing MISSED")
+    @DisplayName("a paused job lists its would-be fires as PAUSED (none MISSED, none SCHEDULED); an off-in-config "
+            + "job lists nothing and is not 'not on this day'")
     void pausedJobs() {
         all.add(job("paused", ScheduleType.CRON).cronExpression("0 0 2,18 * * *")
                 .status(SchedulerJobStatus.PAUSED).build());
@@ -392,9 +393,26 @@ class SchedulerDayServiceTest {
 
         SchedulerDayService.Day day = service(NOON).day(null);
 
-        assertThat(jobOf(day, "paused").fires()).isEmpty();
+        assertThat(jobOf(day, "paused").fires()).extracting(SchedulerDayService.Fire::at,
+                SchedulerDayService.Fire::status).containsExactly(
+                tuple(Instant.parse("2027-03-05T02:00:00Z"), SchedulerDayService.DayFireStatus.PAUSED),
+                tuple(Instant.parse("2027-03-05T18:00:00Z"), SchedulerDayService.DayFireStatus.PAUSED));
         assertThat(jobOf(day, "off").fires()).isEmpty();
         assertThat(day.notOnThisDay()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a paused job's slot that a log row stands for shows that run, not a would-be fire")
+    void pausedJob_loggedSlotIsTheRun() {
+        all.add(job("paused", ScheduleType.CRON).cronExpression("0 0 2,18 * * *")
+                .status(SchedulerJobStatus.PAUSED).build());
+        rowsFor(List.of("paused"), DAY_START, DAY_END, row("paused", Instant.parse("2027-03-05T02:00:00Z"),
+                SchedulerFireStatus.SUCCEEDED, SchedulerFireTrigger.SCHEDULED));
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(statuses(jobOf(day, "paused"))).containsExactly(SchedulerDayService.DayFireStatus.SUCCEEDED,
+                SchedulerDayService.DayFireStatus.PAUSED);
     }
 
     @Test
@@ -809,6 +827,81 @@ class SchedulerDayServiceTest {
         assertThat(jobOf(day, "bad_cron").fires()).isEmpty();
         assertThat(jobOf(day, "future_job").fires()).isEmpty();
         assertThat(day.notOnThisDay()).isEmpty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Repeating ticks
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("an hourly-ish repeating cron lists every slot of the day as ticks, in order")
+    void repeating_ticksListed() {
+        cron("hourly_poll", "0 0 * * * *");
+        problemsFor(List.of("hourly_poll"), DAY_START, DAY_END);
+
+        List<Instant> ticks = jobOf(service(NOON).day(null), "hourly_poll").ticks();
+
+        assertThat(ticks).hasSize(24);
+        assertThat(ticks.get(0)).isEqualTo(Instant.parse("2027-03-05T00:00:00Z"));
+        assertThat(ticks.get(23)).isEqualTo(Instant.parse("2027-03-05T23:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("a cron too busy to list (every minute) has null ticks, so the client draws a band; a scheduled "
+            + "job has none")
+    void repeating_ticksNullWhenBusy() {
+        cron("every_minute", "0 * * * * *");
+        cron("scheduled_job", "0 0 2 * * *");
+        problemsFor(List.of("every_minute"), DAY_START, DAY_END);
+        rowsFor(List.of("scheduled_job"), DAY_START, DAY_END);
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(jobOf(day, "every_minute").ticks()).isNull();
+        assertThat(jobOf(day, "scheduled_job").ticks()).isNull();
+    }
+
+    @Test
+    @DisplayName("a fixed-delay job has null ticks")
+    void repeating_ticksNullForFixedDelay() {
+        delayJob("poller", 600_000L);
+        problemsFor(List.of("poller"), DAY_START, DAY_END);
+
+        assertThat(jobOf(service(NOON).day(null), "poller").ticks()).isNull();
+    }
+
+    @Test
+    @DisplayName("a paused repeating cron stays REPEATING with expectedCount 0 and still lists its ticks; one off in "
+            + "config lists none")
+    void repeating_pausedAndOff() {
+        all.add(job("paused_poll", ScheduleType.CRON).cronExpression("0 0 * * * *")
+                .status(SchedulerJobStatus.PAUSED).build());
+        all.add(job("off_poll", ScheduleType.CRON).cronExpression("0 0 * * * *")
+                .status(SchedulerJobStatus.DISABLED_BY_CONFIG).build());
+        problemsFor(List.of("paused_poll", "off_poll"), DAY_START, DAY_END);
+
+        SchedulerDayService.Day day = service(NOON).day(null);
+
+        assertThat(jobOf(day, "paused_poll").kind()).isEqualTo(SchedulerDayService.Kind.REPEATING);
+        assertThat(jobOf(day, "paused_poll").expectedCount()).isZero();
+        assertThat(jobOf(day, "paused_poll").ticks()).hasSize(24);
+        assertThat(jobOf(day, "off_poll").ticks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the ticks follow the UK clock-change days: 23 slots on the spring day, 25 on the autumn day")
+    void repeating_ticksOnClockChangeDays() {
+        all.add(job("london_hourly", ScheduleType.CRON).cronExpression("0 0 * * * *").timeZone("Europe/London")
+                .build());
+        problemsFor(List.of("london_hourly"), Instant.parse("2027-03-28T00:00:00Z"),
+                Instant.parse("2027-03-28T23:00:00Z"));
+        problemsFor(List.of("london_hourly"), Instant.parse("2027-10-30T23:00:00Z"),
+                Instant.parse("2027-11-01T00:00:00Z"));
+
+        assertThat(jobOf(service(Instant.parse("2027-03-30T12:00:00Z")).day(LocalDate.of(2027, 3, 28)),
+                "london_hourly").ticks()).hasSize(23);
+        assertThat(jobOf(service(Instant.parse("2027-11-02T12:00:00Z")).day(LocalDate.of(2027, 10, 31)),
+                "london_hourly").ticks()).hasSize(25);
     }
 
     // -------------------------------------------------------------------------
