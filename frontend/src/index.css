@@ -2806,8 +2806,8 @@ button.wf-hc.on:hover {
    misreading it corrects ("unrecognised, so give supermoon a hue of its own") is the one a future
    editor would act on. */
 /* ⚠️ IT MUST CLIP ITSELF, because the card no longer clips it. `.wf-hc` is `overflow: visible` so
-   the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow mist &
-   hoar frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
+   the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow, mist &
+   frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
    card on a 390px phone, straight across its neighbour. The row wraps BETWEEN chips already; this is
    the single-chip case, and an ellipsis is the honest truncation because the popup's topic rows
    (M2) carry the full name and the detail. */
