@@ -415,6 +415,7 @@ describe('Runs: an open panel is the reader\'s alone (F7)', () => {
     window.location.hash = '#manage/runs/start';
     renderView();
     await screen.findByTestId('start-run-panel-title');
+    await screen.findByTestId('runs-day-row-cycle-412');
     fireEvent.click(screen.getByTestId('runs-chip-cycles'));
     expect(screen.getByTestId('start-run-panel-title')).toBeInTheDocument();
   });
