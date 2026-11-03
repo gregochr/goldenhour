@@ -26,6 +26,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -73,6 +74,19 @@ class BluebellGlossServicePayloadTest {
 
     private static String userContent(MessageCreateParams p) {
         return p.messages().get(0).content().asString();
+    }
+
+    /** Matches only the request this service builds for {@code g} on the HAIKU model. */
+    private MessageCreateParams requestFor(RegionGroup g) {
+        return argThat(p -> p != null
+                && userContent(p).equals(glossService.buildUserMessage(g))
+                && p.model().asString().equals(EvaluationModel.HAIKU.getModelId()));
+    }
+
+    private void stubHeadline(RegionGroup g, String headline) {
+        when(anthropicApiClient.createMessage(requestFor(g)))
+                .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
+                        "{\"headline\": \"" + headline + "\"}")), StopReason.END_TURN));
     }
 
     @Test
@@ -173,12 +187,12 @@ class BluebellGlossServicePayloadTest {
     void request_carriesUserMessageAndSystemPrompt() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        RegionGroup g = group("Northumberland",
+                loc("A", new BluebellLocationMetrics(4, "WOODLAND", "Misty")));
+        when(anthropicApiClient.createMessage(requestFor(g)))
                 .thenReturn(ModelRequestAssertions.message(
                         List.of(ModelRequestAssertions.text("{\"headline\": \"Calm\"}")),
                         StopReason.END_TURN));
-        RegionGroup g = group("Northumberland",
-                loc("A", new BluebellLocationMetrics(4, "WOODLAND", "Misty")));
 
         glossService.enrichGlosses(List.of(bluebell("BLUEBELL", g)));
 
@@ -196,18 +210,16 @@ class BluebellGlossServicePayloadTest {
     void reassemble_headlinesLandOnTheRightSlots() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenAnswer(inv -> {
-                    String content = userContent(inv.getArgument(0));
-                    String headline = content.contains("Alpha") ? "Alpha headline"
-                            : content.contains("Beta") ? "Beta headline" : "Gamma headline";
-                    return ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
-                            "{\"headline\": \"" + headline + "\"}")), StopReason.END_TURN);
-                });
+        RegionGroup alpha = group("Alpha");
+        RegionGroup beta = group("Beta");
+        RegionGroup gamma = group("Gamma");
+        stubHeadline(alpha, "Alpha headline");
+        stubHeadline(beta, "Beta headline");
+        stubHeadline(gamma, "Gamma headline");
         HotTopic aurora = new HotTopic("AURORA", "Aurora", "Kp 5", DATE, 1, null,
                 List.of("North"), "desc", null);
-        HotTopic first = bluebell("BLUEBELL", group("Alpha"), group("Beta"));
-        HotTopic second = bluebell("BLUEBELL", group("Gamma"));
+        HotTopic first = bluebell("BLUEBELL", alpha, beta);
+        HotTopic second = bluebell("BLUEBELL", gamma);
 
         List<HotTopic> result = glossService.enrichGlosses(List.of(aurora, first, second));
 
@@ -233,17 +245,14 @@ class BluebellGlossServicePayloadTest {
     void reassemble_failedRegionStaysNull() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenAnswer(inv -> {
-                    if (userContent(inv.getArgument(0)).contains("Broken")) {
-                        throw new RuntimeException("boom");
-                    }
-                    return ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
-                            "{\"headline\": \"Fine\"}")), StopReason.END_TURN);
-                });
+        RegionGroup broken = group("Broken");
+        RegionGroup healthy = group("Healthy");
+        when(anthropicApiClient.createMessage(requestFor(broken)))
+                .thenThrow(new RuntimeException("boom"));
+        stubHeadline(healthy, "Fine");
 
         List<HotTopic> result = glossService.enrichGlosses(
-                List.of(bluebell("BLUEBELL", group("Broken"), group("Healthy"))));
+                List.of(bluebell("BLUEBELL", broken, healthy)));
 
         List<RegionGroup> groups = result.get(0).expandedDetail().regionGroups();
         assertThat(groups.get(0).glossHeadline()).isNull();
@@ -255,13 +264,14 @@ class BluebellGlossServicePayloadTest {
     void parse_nonJsonFallsBackToTruncation() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        RegionGroup r = group("R");
+        when(anthropicApiClient.createMessage(requestFor(r)))
                 .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
                         "  one two three four five six seven eight nine ten  ")),
                         StopReason.END_TURN));
 
         List<HotTopic> result = glossService.enrichGlosses(
-                List.of(bluebell("BLUEBELL", group("R"))));
+                List.of(bluebell("BLUEBELL", r)));
 
         assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline())
                 .isEqualTo(BriefingGlossService.truncateToWords(
@@ -275,12 +285,13 @@ class BluebellGlossServicePayloadTest {
     void parse_jsonWithoutHeadline() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        RegionGroup r = group("R");
+        when(anthropicApiClient.createMessage(requestFor(r)))
                 .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
                         "{\"other\": \"x\"}")), StopReason.END_TURN));
 
         List<HotTopic> result = glossService.enrichGlosses(
-                List.of(bluebell("BLUEBELL", group("R"))));
+                List.of(bluebell("BLUEBELL", r)));
 
         assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline()).isNull();
     }
@@ -290,12 +301,13 @@ class BluebellGlossServicePayloadTest {
     void parse_codeFencedJson() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        RegionGroup r = group("R");
+        when(anthropicApiClient.createMessage(requestFor(r)))
                 .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
                         "```json\n{\"headline\": \"Still air\"}\n```")), StopReason.END_TURN));
 
         List<HotTopic> result = glossService.enrichGlosses(
-                List.of(bluebell("BLUEBELL", group("R"))));
+                List.of(bluebell("BLUEBELL", r)));
 
         assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline())
                 .isEqualTo("Still air");
@@ -315,6 +327,7 @@ class BluebellGlossServicePayloadTest {
         List<HotTopic> result = glossService.enrichGlosses(topics);
 
         assertThat(result).isSameAs(topics);
+        // any(): a never() verify - no request of any shape may be sent.
         verify(anthropicApiClient, never()).createMessage(any(MessageCreateParams.class));
     }
 
@@ -323,18 +336,17 @@ class BluebellGlossServicePayloadTest {
     void collect_typeMustBeBluebell() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
-                        "{\"headline\": \"Calm\"}")), StopReason.END_TURN));
+        RegionGroup realGroup = group("Real");
+        stubHeadline(realGroup, "Calm");
         HotTopic other = bluebell("KING_TIDE", group("Other"));
-        HotTopic real = bluebell("BLUEBELL", group("Real"));
+        HotTopic real = bluebell("BLUEBELL", realGroup);
 
         List<HotTopic> result = glossService.enrichGlosses(List.of(other, real));
 
         assertThat(result.get(0)).isSameAs(other);
         assertThat(result.get(1).expandedDetail().regionGroups().get(0).glossHeadline())
                 .isEqualTo("Calm");
-        verify(anthropicApiClient).createMessage(any(MessageCreateParams.class));
+        verify(anthropicApiClient).createMessage(requestFor(realGroup));
     }
 
     @Test
@@ -342,12 +354,13 @@ class BluebellGlossServicePayloadTest {
     void refusalWithText_isNotGlossed() {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+        RegionGroup r = group("R");
+        when(anthropicApiClient.createMessage(requestFor(r)))
                 .thenReturn(ModelRequestAssertions.message(List.of(ModelRequestAssertions.text(
                         "{\"headline\": \"Should not appear\"}")), StopReason.REFUSAL));
 
         List<HotTopic> result = glossService.enrichGlosses(
-                List.of(bluebell("BLUEBELL", group("R"))));
+                List.of(bluebell("BLUEBELL", r)));
 
         assertThat(result.get(0).expandedDetail().regionGroups().get(0).glossHeadline()).isNull();
     }

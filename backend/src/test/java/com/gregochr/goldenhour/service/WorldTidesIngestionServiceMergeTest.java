@@ -43,6 +43,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -124,6 +125,7 @@ class WorldTidesIngestionServiceMergeTest {
         doAnswer(inv -> {
             events.add("save");
             return inv.getArgument(0);
+        // anyList(): a pure recording sink; what is saved is asserted by captors in the tests.
         }).when(tideExtremeRepository).saveAll(anyList());
     }
 
@@ -147,6 +149,13 @@ class WorldTidesIngestionServiceMergeTest {
                 .eventTime(LocalDateTime.ofInstant(Instant.parse(time), ZoneOffset.UTC))
                 .heightMetres(BigDecimal.valueOf(height).setScale(3)).type(type)
                 .fetchedAt(START_OF_DAY.minusDays(1)).build();
+    }
+
+    private static boolean isOneHighForLocationOne(Iterable<TideExtremeEntity> saved) {
+        List<TideExtremeEntity> rows = new ArrayList<>();
+        saved.forEach(rows::add);
+        return rows.size() == 1 && rows.get(0).getType() == TideExtremeType.HIGH
+                && rows.get(0).getLocationId() == 1L;
     }
 
     private RestClient clientReturning(WorldTidesResponse response) {
@@ -260,10 +269,12 @@ class WorldTidesIngestionServiceMergeTest {
 
         long startEpoch = START_OF_DAY.toEpochSecond(ZoneOffset.UTC);
         ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService).logMeteredApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
                 url.capture(), anyLong(), eq(200), eq(true), isNull(), eq(3));
         assertThat(url.getValue()).isEqualTo("https://www.worldtides.info/api/v3?extremes&lat=55.7702"
                 + "&lon=-2.0054&start=" + startEpoch + "&length=8380800&key=test***");
+        // any(): a never() verify - no call of any shape may happen.
         verify(jobRunService, never()).logApiCall(anyLong(), any(), any(), any(), any(), anyLong(),
                 any(), any(), eq(false), any());
     }
@@ -287,6 +298,7 @@ class WorldTidesIngestionServiceMergeTest {
                 location(), JobRunEntity.builder().id(9L).build());
 
         ArgumentCaptor<String> url = ArgumentCaptor.forClass(String.class);
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService).logMeteredApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
                 url.capture(), anyLong(), eq(200), eq(true), isNull(), isNull());
         assertThat(url.getValue()).endsWith("&key=***").doesNotContain("abcd");
@@ -307,8 +319,10 @@ class WorldTidesIngestionServiceMergeTest {
                 .fetchAndStoreTideExtremesWithOutcome(location(), null);
 
         assertThat(result).isEqualTo(TideFetchResult.failed());
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
                 anyLong(), any(), any());
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).saveAll(anyList());
         assertThat(events).isEmpty();
         TideFetchEntity row = recordedRow();
@@ -330,8 +344,11 @@ class WorldTidesIngestionServiceMergeTest {
                         JobRunEntity.builder().id(9L).build());
 
         assertThat(result).isEqualTo(TideFetchResult.failed());
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService).logMeteredApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
-                any(), anyLong(), isNull(), eq(false), eq("WorldTides returned status=null"),
+                argThat(u -> u.startsWith("https://www.worldtides.info/api/v3?extremes&lat=55.7702")
+                        && u.endsWith("&key=test***")),
+                anyLong(), isNull(), eq(false), eq("WorldTides returned status=null"),
                 isNull());
         assertThat(recordedRow().isSuccess()).isFalse();
     }
@@ -340,7 +357,8 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a save that throws leaves no eviction and no success row, and the fetch is FAILED")
     void saveThrows_noEvictionNoSuccessRow() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        when(tideExtremeRepository.saveAll(anyList())).thenThrow(new IllegalStateException("db down"));
+        when(tideExtremeRepository.saveAll(argThat(WorldTidesIngestionServiceMergeTest::isOneHighForLocationOne)))
+                .thenThrow(new IllegalStateException("db down"));
 
         TideFetchResult result = service(clientReturning(
                 response(extreme("2027-03-05T06:12:00Z", 4.1, "High"))))
@@ -379,6 +397,7 @@ class WorldTidesIngestionServiceMergeTest {
                 .fetchAndStoreTideExtremesWithOutcome(location(), null);
 
         assertThat(result).isEqualTo(TideFetchResult.unchanged());
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).saveAll(anyList());
         verifyNoInteractions(tideFetchRecorder);
         assertThat(events).isEmpty();
@@ -392,7 +411,8 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a recorder that throws does not fail the fetch")
     void recorderThrows_fetchStillStored() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        doThrow(new IllegalStateException("recorder down")).when(tideFetchRecorder).record(any());
+        doThrow(new IllegalStateException("recorder down")).when(tideFetchRecorder).record(
+                argThat(r -> r.getLocationId() == 1L && TideFetchEntity.SEED.equals(r.getReason())));
 
         TideFetchResult result = service(clientReturning(response()))
                 .fetchAndStoreTideExtremesWithOutcome(location(), null);
@@ -450,8 +470,11 @@ class WorldTidesIngestionServiceMergeTest {
                         JobRunEntity.builder().id(9L).build());
 
         assertThat(result.status()).isEqualTo(TideFetchResult.Status.STORED);
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService).logMeteredApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
-                any(), anyLong(), eq(200), eq(true), isNull(), isNull());
+                argThat(u -> u.startsWith("https://www.worldtides.info/api/v3?extremes&lat=55.7702")
+                        && u.endsWith("&key=test***")),
+                anyLong(), eq(200), eq(true), isNull(), isNull());
         assertThat(recordedRow().isSuccess()).isTrue();
         assertThat(logs.list).anyMatch(e -> e.getFormattedMessage().startsWith(
                 "Tide integrity check failed for Berwick-Upon-Tweed"));
@@ -649,6 +672,7 @@ class WorldTidesIngestionServiceMergeTest {
         assertThat(lng.code()).isEqualTo(TideFetchEntity.POINT_CHANGE);
         assertThat(lat.from()).isEqualTo(START_OF_DAY);
         assertThat(lat.to()).isEqualTo(HORIZON);
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).findLatestEventTimeFrom(anyLong(), any());
     }
 
@@ -727,7 +751,9 @@ class WorldTidesIngestionServiceMergeTest {
 
         // 2026-03-05 + 7k for k = 0..52 is 53 chunks; one of them already has data.
         assertThat(fetched).isEqualTo(52);
+        // anyList(): a count-only verify; the saved lists are asserted by backfill_mapsExtremes.
         verify(tideExtremeRepository, times(52)).saveAll(anyList());
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).deleteByLocationIdAndEventTimeBetween(
                 anyLong(), any(), any());
         assertThat(events).hasSize(104);
@@ -754,6 +780,7 @@ class WorldTidesIngestionServiceMergeTest {
                 .isEqualTo(LocalDateTime.of(2026, 3, 19, 0, 0));
 
         ArgumentCaptor<String> urls = ArgumentCaptor.forClass(String.class);
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService, times(52)).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
                 urls.capture(), isNull(), anyLong(), eq(200), isNull(), eq(true), isNull());
         assertThat(urls.getAllValues().get(0)).isEqualTo(
@@ -772,6 +799,7 @@ class WorldTidesIngestionServiceMergeTest {
         int fetched = service(clientReturning(bad)).backfillTideExtremes(location(), null);
 
         assertThat(fetched).isZero();
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).saveAll(anyList());
         assertThat(events).isEmpty();
         ArgumentCaptor<TideFetchEntity> rows = ArgumentCaptor.forClass(TideFetchEntity.class);
@@ -805,6 +833,7 @@ class WorldTidesIngestionServiceMergeTest {
                 .fetchAndStoreTideExtremesWithOutcome(location(), null);
 
         assertThat(result).isEqualTo(TideFetchResult.failed());
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).saveAll(anyList());
         assertThat(events).isEmpty();
     }
@@ -848,9 +877,13 @@ class WorldTidesIngestionServiceMergeTest {
 
         assertThat(service(clientReturning(noExtremes)).backfillTideExtremes(location(), jobRun)).isZero();
 
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService, times(53)).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
-                any(), isNull(), anyLong(), eq(200), isNull(), eq(false),
+                argThat(u -> u.startsWith("https://www.worldtides.info/api/v3?extremes&date=")
+                        && u.endsWith("&key=test***")),
+                isNull(), anyLong(), eq(200), isNull(), eq(false),
                 eq("Non-200 status on backfill"));
+        // any(): a never() verify - no call of any shape may happen.
         verify(tideExtremeRepository, never()).saveAll(anyList());
     }
 
@@ -875,6 +908,7 @@ class WorldTidesIngestionServiceMergeTest {
             assertThat(r.getCallCount()).isNull();
         });
         ArgumentCaptor<String> urls = ArgumentCaptor.forClass(String.class);
+        // anyLong(): the call duration is wall-clock; every other argument is pinned.
         verify(jobRunService, times(53)).logApiCall(eq(9L), eq(ServiceName.WORLD_TIDES), eq("GET"),
                 urls.capture(), isNull(), anyLong(), isNull(), isNull(), eq(false), eq("down"));
         assertThat(urls.getAllValues()).allSatisfy(u -> assertThat(u).endsWith("&key=***"));

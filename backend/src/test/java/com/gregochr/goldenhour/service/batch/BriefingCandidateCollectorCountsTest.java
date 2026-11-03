@@ -306,6 +306,7 @@ class BriefingCandidateCollectorCountsTest {
                 acceptAll());
 
         verify(travelDayService, never()).isTravelDay(YESTERDAY);
+        // anyString()/any(): a never() verify - the cache must not be consulted with any key.
         verify(briefingEvaluationService, never()).hasFreshEvaluation(anyString(), any());
         verify(locationService, never()).findAllEnabled();
     }
@@ -326,6 +327,7 @@ class BriefingCandidateCollectorCountsTest {
         assertThat(messageContaining("Task collection complete")).isEqualTo(
                 "[BATCH DIAG] Task collection complete — 0 tasks from 0 total slots "
                         + "(pastDate=0, travelDay=0, cached=0, unknownLoc=0)");
+        // anyString()/any(): a never() verify - the cache must not be consulted with any key.
         verify(briefingEvaluationService, never()).hasFreshEvaluation(anyString(), any());
     }
 
