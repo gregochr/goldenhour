@@ -495,6 +495,9 @@ public class OpenMeteoClient {
 
     private List<OpenMeteoForecastResponse> fetchForecastBriefingBatchBody(List<double[]> coords,
             Consumer<PrefetchCall> sink) {
+        if (coords.isEmpty()) {
+            return new ArrayList<>();
+        }
         if (coords.size() <= BATCH_COORD_LIMIT) {
             long startMs = System.currentTimeMillis();
             LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
@@ -717,6 +720,9 @@ public class OpenMeteoClient {
     @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoAirQualityResponse> fetchAirQualityBatch(List<double[]> coords) {
+        if (coords.isEmpty()) {
+            return new ArrayList<>();
+        }
         if (coords.size() <= BATCH_COORD_LIMIT) {
             return fetchAirQualityChunk(coords);
         }
@@ -766,6 +772,9 @@ public class OpenMeteoClient {
 
     private List<OpenMeteoAirQualityResponse> fetchAirQualityBatchResilientBody(
             List<double[]> coords, Consumer<PrefetchCall> sink) {
+        if (coords.isEmpty()) {
+            return new ArrayList<>();
+        }
         if (coords.size() <= BATCH_COORD_LIMIT) {
             long startMs = System.currentTimeMillis();
             LocalDateTime calledAt = LocalDateTime.now(ZoneOffset.UTC);
@@ -936,6 +945,9 @@ public class OpenMeteoClient {
      */
     private List<OpenMeteoForecastResponse> fetchForecastBatchInternal(
             List<double[]> coords, String hourlyParams, RestClient client) {
+        if (coords.isEmpty()) {
+            return new ArrayList<>();
+        }
         if (coords.size() <= BATCH_COORD_LIMIT) {
             return fetchForecastChunk(coords, hourlyParams, client);
         }

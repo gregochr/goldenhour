@@ -817,9 +817,12 @@ public class ComingUpAssembler {
             facts.add(new ComingUpFact(segs));
         }
         if ("true".equals(meta.get("washedOut"))) {
+            String illumination = meta.get("moonIllumination");
+            String moon = illumination == null || illumination.isBlank()
+                    ? "bright moon"
+                    : "moon " + illumination + " lit";
             facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
-                    "moon " + meta.getOrDefault("moonIllumination", "")
-                            + " lit — washes out all but the brightest", "accent"))));
+                    moon + " — washes out all but the brightest", "accent"))));
         }
         regionScopeFact(event).ifPresent(facts::add);
         return facts;
@@ -996,7 +999,7 @@ public class ComingUpAssembler {
         host.startDate = tide.startDate.isBefore(supermoon.startDate) ? tide.startDate : supermoon.startDate;
         host.endDate = tide.endDate.isAfter(supermoon.endDate) ? tide.endDate : supermoon.endDate;
         host.id = host.event.type() + ":" + host.startDate + ":" + host.endDate;
-        host.title = host.event.title() + ", on a " + lowerFirst(other.event.title());
+        host.title = mergedTitle(host.event.title(), other.event.title());
         host.bits = bits;
         host.interim = interim;
         host.enteredWindow = enteredWindow;
@@ -1037,6 +1040,18 @@ public class ComingUpAssembler {
             return winner;
         }
         return tideDays > moonDays ? tide : supermoon;
+    }
+
+    /**
+     * Joins the host and partner titles as "host, on a partner". A blank partner leaves the host title
+     * alone (no dangling "on a"); a blank host with a partner falls back to the partner title.
+     */
+    private static String mergedTitle(String hostTitle, String partnerTitle) {
+        boolean hostBlank = hostTitle == null || hostTitle.isBlank();
+        if (partnerTitle == null || partnerTitle.isBlank()) {
+            return hostTitle;
+        }
+        return hostBlank ? partnerTitle : hostTitle + ", on a " + lowerFirst(partnerTitle);
     }
 
     private static String lowerFirst(String title) {
