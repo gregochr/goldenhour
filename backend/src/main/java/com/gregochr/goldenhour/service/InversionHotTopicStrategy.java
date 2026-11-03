@@ -12,6 +12,8 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Detects cloud inversion hot topics by reading the slot surface's unified inversion signal
@@ -23,9 +25,12 @@ import java.util.Locale;
  * {@code ForecastService.fetchWeatherAndTriage} before the triage check — so
  * {@code SlotAtmosphereWriter} records it for every such candidate whose weather was fetched
  * this cycle, whatever the triage verdict or Gate 4 decision that follows. This detector fires
- * when any such row in the window reaches the STRONG band — score &ge;
- * {@value #STRONG_SCORE_INCLUSIVE}, mirroring
- * {@link PromptBuilder.InversionPotential#fromScore(int)} (9–10 = STRONG).
+ * when any such row in the window reaches the alert threshold — score &ge;
+ * {@value #ALERT_SCORE_INCLUSIVE} (Phase 5a of the inversion v2 plan). A date whose best score is
+ * in the STRONG band ({@value #STRONG_SCORE_INCLUSIVE} and above, mirroring
+ * {@link PromptBuilder.InversionPotential#fromScore(int)}) says "Strong inversion likely"; a date
+ * whose best score is exactly 8 says only that an inversion is possible, and never "likely" or
+ * "strong".
  *
  * <p>⚠️ <b>Phase 2 of "record conditions for every place" (owner decision 2026-09-30): this
  * detector's score always follows the calculator, with Claude's echo as a stand-in only for a
@@ -110,10 +115,26 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
 
     /**
      * Inclusive lower bound of the STRONG inversion band on the calculator's 0–10 score. Matches
-     * {@link PromptBuilder.InversionPotential#fromScore(int)} (score &ge; 9 = STRONG); MODERATE
-     * (7–8) and below never fire the topic.
+     * {@link PromptBuilder.InversionPotential#fromScore(int)} (score &ge; 9 = STRONG). It no
+     * longer gates the topic firing (see {@link #ALERT_SCORE_INCLUSIVE}); it decides the wording
+     * and is still the threshold {@code TopicDailyLogJob} counts as STRONG presence.
      */
     public static final int STRONG_SCORE_INCLUSIVE = 9;
+
+    /**
+     * Inclusive lower bound of the score at which the topic fires. Production's 1 Oct–6 Nov 2026
+     * rows never reached 9, and inversion v2 caps every site under 600 m at 8 by design, so a
+     * threshold of 9 silenced the topic on mornings such as the 31 Oct Langdale miss. An 8 fires
+     * with softer wording ({@link #POSSIBLE_DETAIL}); STRONG wording stays reserved for 9 and above.
+     */
+    public static final int ALERT_SCORE_INCLUSIVE = 8;
+
+    /** Detail for a date whose best score is in the STRONG band. */
+    static final String STRONG_DETAIL = "Strong inversion likely at elevated locations";
+
+    /** Detail for a date whose best score is 8: possible, never "likely" or "strong". */
+    static final String POSSIBLE_DETAIL =
+            "Inversion possible: valley cloud may sit below elevated viewpoints";
 
     /** The italic "how to use it" cue on the enriched fact line. */
     private static final String INVERSION_NOTE =
@@ -156,25 +177,48 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
             HotTopicInputs inputs) {
-        List<SlotSignals> strong = inputs.slotSignals().stream()
+        List<SlotSignals> alerting = inputs.slotSignals().stream()
                 .filter(s -> s.eventType() == TargetType.SUNRISE)
                 .filter(s -> s.effectiveInversionScore() != null
-                        && s.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE)
+                        && s.effectiveInversionScore() >= ALERT_SCORE_INCLUSIVE)
                 .filter(s -> freshness.isAhead(s.location(), s.date(), s.eventType()))
                 .sorted(Comparator.comparing(SlotSignals::date))
                 .toList();
-        if (strong.isEmpty()) {
+        if (alerting.isEmpty()) {
             return List.of();
         }
 
         return PerDateHotTopicBuilder.perDate(
-                strong,
+                keepStrongTierWhereAny(alerting),
                 TYPE,
                 "Cloud inversion",
-                "Strong inversion likely at elevated locations",
+                STRONG_DETAIL,
                 PRIORITY,
                 INVERSION_DESCRIPTION,
                 this::attachFacts);
+    }
+
+    /**
+     * Keeps the 9 sites and the 8 sites of one date apart. The topic carries a single detail and a
+     * single site list per date, so a date with a STRONG row lists only its STRONG sites (and says
+     * "Strong inversion likely"); the date's 8 sites are left off rather than listed under a line
+     * that does not describe them. A date with only 8s keeps them all, under the "possible" line.
+     *
+     * @param rows the fresh, sunrise-only rows scoring at least the alert threshold, by date
+     * @return the rows of each date's highest tier
+     */
+    private static List<SlotSignals> keepStrongTierWhereAny(List<SlotSignals> rows) {
+        Set<LocalDate> strongDates = rows.stream()
+                .filter(InversionHotTopicStrategy::isStrong)
+                .map(SlotSignals::date)
+                .collect(Collectors.toSet());
+        return rows.stream()
+                .filter(s -> !strongDates.contains(s.date()) || isStrong(s))
+                .toList();
+    }
+
+    private static boolean isStrong(SlotSignals row) {
+        return row.effectiveInversionScore() >= STRONG_SCORE_INCLUSIVE;
     }
 
     /**
@@ -189,7 +233,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      * fact line can never disagree with the threshold that gated it firing at all.
      *
      * @param topic   the day's base topic
-     * @param dayRows that day's strong-inversion rows
+     * @param dayRows that day's alerting rows (one tier only, see {@link #keepStrongTierWhereAny})
      * @return the topic enriched with the strength fact (unchanged if no row carries a score)
      */
     private HotTopic attachFacts(HotTopic topic, List<SlotSignals> dayRows) {
@@ -210,8 +254,9 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         GlanceLine glance = new GlanceLine(
                 GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, reported + GLANCE_DENOMINATOR, null,
                 HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
-        return topic.withScience(
-                List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE)
+        String detail = reported >= STRONG_SCORE_INCLUSIVE ? STRONG_DETAIL : POSSIBLE_DETAIL;
+        return topic.withDetail(detail)
+                .withScience(List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE)
                 .withGlance(glance);
     }
 
