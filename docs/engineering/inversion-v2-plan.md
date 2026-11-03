@@ -1092,9 +1092,27 @@ Superseded 2026-10-30: each phase goes live on merge; this evidence decides whet
        reads `inside`. The photographer was above the sea at 395 m.
     3. *Not a clear night.* Phase 2's Option B (a clear, calm, moist night) cannot help, because the
        night was overcast with high cloud. Here the warm layer was measured, not inferred.
-  - **Still to confirm:** what production actually scored. Read `slot_atmosphere` for location ids 56
-    and 153, `evaluation_date = '2026-10-31'`, `event_type = 'SUNRISE'` (`inversion_score`,
-    `inversion_score_v1`, `inversion_score_v2_raw`, `inversion_scored`), and the two locations'
-    `valley_floor_m`/`valley_floor_lat`/`valley_floor_lng`. `inversion_score_v1` null means v2 did not
-    run for that site.
+  - **What production scored** (owner, `slot_atmosphere`, 2026-10-31 SUNRISE, read 2026-11-03; each
+    row is the last write for that slot):
+
+    | Site | Elevation | Valley floor (m, lat, lng) | `inversion_score` | `_v1` | `_v2_raw` |
+    |---|---|---|---|---|---|
+    | Side Pike (56) | 362 | 92, 54.4486, −3.0855 | **8** | null | null |
+    | Lingmoor fell (153) | 469 | 92, 54.45, −3.0754 | **6** | null | null |
+    | Loughrigg Fell (167) | 335 | 47, 54.4369, −2.9775 | **6** | null | null |
+    | Blea Tarn (57) | 190 | none | null (below 200 m, ineligible) | null | null |
+
+    1. *v2 did not compute for any of them on that write*, although all three have a valley floor now
+       (`inversion_score_v1` is written only when v2 scored). So these are the v1 scores, and the hand
+       v2 replay above was never tested in production. Possible causes, in the order to check:
+       the valley floors were set after the slot's last write; the profile fetch failed or ran out of
+       budget (backend log, 30–31 Oct: `Inversion v2 profile unavailable`, `Inversion profile fetch
+       failed`, `Inversion profile fetch budget … reached`, and the prefetch's `valley-floor cells
+       populated` count); or the event slot fell outside the profile.
+    2. *Side Pike's v1 8* means production's forecast differed from the replay. v1 caps at 6 when low
+       cloud is above 80% at the viewpoint cell, so production must have had 15–80% there, then a
+       weak or missing 925 hPa reversal (the 8 ceiling). 8 is MODERATE: enough for the prompt's
+       inversion block, not for the hot topic or Coming up's "Valley inversions", which need STRONG
+       (9 or more, `InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE`). **So users were not told.**
+       The rating Claude gave that morning was not read here.
 - MWIS comparison log: _pending_.
