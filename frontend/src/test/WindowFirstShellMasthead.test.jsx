@@ -402,6 +402,21 @@ describe('WindowFirstShell — the compact phone masthead', () => {
       expect(onOpenSettings).toHaveBeenCalledTimes(1);
     });
 
+    it('⚠️ does not reopen the menu after a rotation to tablet and back', () => {
+      const { rerender, ...rest } = renderShell();
+      openMenu();
+      expect(screen.getByTestId('masthead-menu')).toBeInTheDocument();
+
+      mockIsMobile = false;
+      rerender(<WindowFirstShell {...rest} />);
+      expect(screen.queryByTestId('masthead-menu-button')).toBeNull();
+      mockIsMobile = true;
+      rerender(<WindowFirstShell {...rest} />);
+
+      expect(screen.getByTestId('masthead-menu-button')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByTestId('masthead-menu')).toBeNull();
+    });
+
     it('closes the menu when a tab is chosen (selectTab takes it down)', () => {
       renderShell({}, { });
       openMenu();

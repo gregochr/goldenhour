@@ -1355,6 +1355,18 @@
     border-radius: 50%;
     flex: none;
   }
+  /* The status tones, by `data-status` (the pill's `MASTHEAD_TONE`: verdict tokens for the disc, the
+     lifted badge tokens for the word). The glow is the masthead dot's only; the menu line's disc has
+     none, as the mock draws it. */
+  .wf-mast-dot-disc[data-status='UP'] { background-color: var(--color-verdict-go); }
+  .wf-mast-dot-disc[data-status='DEGRADED'] { background-color: var(--color-verdict-marginal); }
+  .wf-mast-dot-disc[data-status='DOWN'] { background-color: var(--color-verdict-standdown); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='UP'] { box-shadow: 0 0 6px var(--color-verdict-go); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='DEGRADED'] { box-shadow: 0 0 6px var(--color-verdict-marginal); }
+  .wf-mast-dot .wf-mast-dot-disc[data-status='DOWN'] { box-shadow: 0 0 6px var(--color-verdict-standdown); }
+  .wf-mast-status-word[data-status='UP'] { color: var(--color-badge-go); }
+  .wf-mast-status-word[data-status='DEGRADED'] { color: var(--color-badge-maybe); }
+  .wf-mast-status-word[data-status='DOWN'] { color: var(--color-badge-poor); }
   /* The ⋯ menu: a 30px box (1px #3A2C23, radius 8) in a 40px hit area, the extra ten pixels coming
      from a pseudo-element so layout sees 30 and the box's edge sits on the gutter. */
   .wf-mast-menu { position: relative; flex: none; }
@@ -1409,6 +1421,8 @@
   .wf-mast-menu-row:hover,
   .wf-mast-menu-row:focus-visible { background: var(--color-plex-surface-light); }
   .wf-mast-menu-status-wrap { border-bottom: 1px solid var(--color-plex-border); margin-bottom: 4px; }
+  /* The app's status node can render nothing (status still unknown); the strip must go with it. */
+  .wf-mast-menu-status-wrap:empty { display: none; }
   .wf-mast-menu-status {
     gap: 7px;
     min-height: 44px;
@@ -1459,7 +1473,10 @@
      (13px type, 7px padding) with the hit area grown back to 44px by the pseudo-element — 6px ABOVE
      the body, inside the bar's 6px top padding, and 4px BELOW it, inside the bar's 4px bottom
      padding (the bar's `margin-bottom: -4px` puts the pane's top edge under the tab's foot, so the
-     extension stays inside the bar's own box and `overflow-x: auto` clips nothing). `overflow-x:
+     extension stays inside the bar's own box and `overflow-x: auto` clips nothing). That is 44px on
+     Plan, Coming up and Operations. ⚠️ On the MAP tab the bottom 4px lies under the map container,
+     which paints over `.wf-tabrow` there, so the real target is about 41px (6 + 34 + the part of
+     the 4px not covered). The geometry is kept; the claim is "≥ 40px, ~41px on Map". `overflow-x:
      auto` above stays: an admin sees four tabs. Phone only, so tablet and desktop are untouched.
      `mapMobileCompactCascade.test.jsx` pins the arithmetic. */
   .wf-tab { flex: 1 1 auto; min-height: 34px; position: relative; }

@@ -242,7 +242,7 @@ export default function HealthIndicator({
           <span
             aria-hidden="true"
             className="wf-mast-dot-disc"
-            style={{ backgroundColor: tone.dot, boxShadow: `0 0 6px ${tone.dot}` }}
+            data-status={label}
           />
         </button>
       ) : (
@@ -383,7 +383,6 @@ export default function HealthIndicator({
 export function HealthStatusLine({ status, appVersion, onPress }) {
   if (!status) return null;
   const label = status === 'UP' || status === 'DEGRADED' ? status : 'DOWN';
-  const tone = MASTHEAD_TONE[label];
   return (
     <button
       type="button"
@@ -393,8 +392,8 @@ export function HealthStatusLine({ status, appVersion, onPress }) {
       aria-label={`System status: ${label}. Show details`}
       onClick={onPress}
     >
-      <span aria-hidden="true" className="wf-mast-dot-disc" style={{ backgroundColor: tone.dot }} />
-      <span aria-hidden="true" style={{ color: tone.ink }}>{label}</span>
+      <span aria-hidden="true" className="wf-mast-dot-disc" data-status={label} />
+      <span aria-hidden="true" className="wf-mast-status-word" data-status={label}>{label}</span>
       {appVersion && appVersion !== 'dev' && (
         <span aria-hidden="true" className="opacity-70">{`· ${appVersion}`}</span>
       )}

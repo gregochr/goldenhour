@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import HealthIndicator, { HealthStatusLine } from '../components/HealthIndicator.jsx';
 import { HealthStatusDot, HealthStatusMenuLine } from '../components/HealthStatusPill.jsx';
+import MastheadMenu from '../components/MastheadMenu.jsx';
 import { HealthStatusProvider } from '../context/HealthStatusContext.jsx';
 
 /**
@@ -118,6 +119,60 @@ describe('the dot and the menu line share one panel through the provider', () =>
     fireEvent.click(screen.getByTestId('health-status-line'));
     fireEvent.click(screen.getByTestId('health-dot'));
     expect(screen.queryByTestId('health-panel')).toBeNull();
+  });
+
+  it('⚠️ does not reopen the panel when the dot comes back (a rotation to tablet and back)', () => {
+    mockHealth = { status: 'UP', degraded: [], checkedAt: CHECKED, appVersion: 'v2.37.0' };
+    function Phone() {
+      const [phone, setPhone] = React.useState(true);
+      return (
+        <HealthStatusProvider>
+          <button type="button" data-testid="rotate" onClick={() => setPhone((p) => !p)}>rotate</button>
+          {phone && <HealthStatusDot />}
+        </HealthStatusProvider>
+      );
+    }
+    render(<Phone />);
+    fireEvent.click(screen.getByTestId('health-dot'));
+    expect(screen.getByTestId('health-panel')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('rotate'));
+    expect(screen.queryByTestId('health-dot')).toBeNull();
+    fireEvent.click(screen.getByTestId('rotate'));
+
+    expect(screen.getByTestId('health-dot')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('health-panel')).toBeNull();
+  });
+
+  it('⚠️ draws no empty strip in the menu while the status is unknown', () => {
+    mockHealth = { status: null, degraded: [], checkedAt: null, appVersion: null };
+    render(
+      <HealthStatusProvider>
+        <MastheadMenu
+          open
+          onOpenChange={vi.fn()}
+          buttonRef={{ current: null }}
+          statusLine={<HealthStatusMenuLine />}
+          onSettings={vi.fn()}
+          onChangePostcode={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </HealthStatusProvider>,
+    );
+    // The wrapper renders nothing inside; `.wf-mast-menu-status-wrap:empty { display: none }` (pinned
+    // in the cascade test) takes the border strip with it.
+    expect(document.querySelector('.wf-mast-menu-status-wrap')).toBeEmptyDOMElement();
+  });
+
+  it('colours the dot and the line by data-status, not inline', () => {
+    mockHealth = { status: 'DEGRADED', degraded: [], checkedAt: CHECKED, appVersion: 'v2.37.0' };
+    both();
+    const disc = screen.getByTestId('health-dot').querySelector('.wf-mast-dot-disc');
+    expect(disc).toHaveAttribute('data-status', 'DEGRADED');
+    expect(disc).not.toHaveAttribute('style');
+    const word = screen.getByTestId('health-status-line').querySelector('.wf-mast-status-word');
+    expect(word).toHaveAttribute('data-status', 'DEGRADED');
+    expect(word).not.toHaveAttribute('style');
   });
 
   it('draws neither while the status is null', () => {

@@ -119,8 +119,9 @@ All paths under `frontend/src/`. Re-verify line numbers before editing; `MapView
   them with a small `⌂` (aria-hidden) and keep `light.label` as sr-only text always.
 - **R8** Use `BrandLockup variant="compact"` (exists: 20px, no kicker); what goes on the phone is the
   kicker. `MastheadLight`'s 2px/6px is a phone-only override that must not touch its `sm:` classes.
-- **R9 Tab hit area.** Body 34px; `::before` at `inset: -6px 0 -4px` so the target reaches 44px
-  (mind the bar's `margin-bottom: -4px`); assert in the cascade test.
+- **R9 Tab hit area.** Body 34px; `::before` at `inset: -6px 0 -4px` so the target is ≥ 40px; ~41px
+  on Map, where the bottom 4px lies under the map (mind the bar's `margin-bottom: -4px`); assert in the
+  cascade test.
 - **R10 Tests.** jsdom's `matchMedia` defaults to desktop (`test/setup.js` ~44–58), so desktop suites
   keep passing; phone tests `vi.mock('../hooks/useIsMobile.js')`. Update `mastheadColours.test.js`
   (and its comment ~15–17) for the nudge colour; add a phone twin of

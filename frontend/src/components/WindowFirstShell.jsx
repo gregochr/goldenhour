@@ -488,6 +488,9 @@ export default function WindowFirstShell({
   // also the focus fallback for the tick line when its origin slot is empty. Both unused off the phone.
   const isMobile = useIsMobile();
   const [mastMenuOpen, setMastMenuOpen] = useState(false);
+  // Leaving the phone (rotating to a tablet width) ends the menu, so coming back does not reopen it.
+  // Adjusted during render, the supported way to derive state from a changed input.
+  if (!isMobile && mastMenuOpen) setMastMenuOpen(false);
   const menuBtnRef = useRef(null);
   /**
    * Whether Ask PhotoCast's sheet is open (plan §2.6: whether Ask is OPEN is SHELL state).

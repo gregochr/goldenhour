@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import HealthIndicator, { HealthStatusLine } from './HealthIndicator.jsx';
 import { useHealthPanel, useHealthStatusValue } from '../context/HealthStatusContext.jsx';
 
@@ -33,6 +33,10 @@ export default function HealthStatusPill() {
 export function HealthStatusDot() {
   const h = useHealthStatusValue();
   const panel = useHealthPanel();
+  // The dot owns the panel's anchor; when it unmounts (the viewport left the phone) the panel goes
+  // with it, so rotating back does not reopen one.
+  const { setOpen } = panel;
+  useEffect(() => () => setOpen(false), [setOpen]);
   return (
     <HealthIndicator
       trigger="dot"

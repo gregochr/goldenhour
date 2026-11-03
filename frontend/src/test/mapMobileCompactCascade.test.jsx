@@ -105,13 +105,16 @@ describe('phone tabs (README §3, plan R9)', () => {
     expect(b.marginBottom).toBe('-4px');
   });
 
-  it('⚠️ keep a 44px hit area: 6px above the body, 4px below, inside the bar\'s own padding', () => {
+  it('⚠️ extend the target to 44px of geometry (≥ 40px, ~41px on Map): 6px above, 4px below', () => {
+    // On the Map tab the bottom 4px lies under the map container, which paints over `.wf-tabrow`, so
+    // the REAL target there is about 41px; this pins the geometry, not a 44px claim on every tab.
     const css = rules(['.wf-tab::before'], 'phone');
     const inset = /inset:\s*(-?\d+)px 0 (-?\d+)px/.exec(css);
     expect(inset, '.wf-tab::before declares `inset: <top>px 0 <bottom>px`').not.toBeNull();
     const above = -Number(inset[1]);
     const below = -Number(inset[2]);
     expect(34 + above + below).toBe(44);
+    expect(34 + above + below - 4, 'minus the 4px under the map on the Map tab').toBeGreaterThanOrEqual(40);
     // The extension must stay inside the bar's padding box, or `overflow-x: auto` clips the target.
     const bar = rules(['.wf-tabs'], 'phone');
     expect(above).toBeLessThanOrEqual(Number(/padding:\s*(\d+)px/.exec(bar)[1]));
@@ -153,6 +156,15 @@ describe('the masthead line (README §1)', () => {
     expect(css).toMatch(/\.wf-mast-menu-btn::before \{[^}]*inset: -5px/);
     expect(css).toMatch(/\.wf-mast-menu-row,\s*\.wf-mast-menu-status \{[^}]*min-height: 44px/);
     expect(css).toMatch(/\.wf-mast-menu-pop \{[^}]*width: 210px[^}]*background: #1E1712/);
+  });
+
+  it('hides the menu\'s status strip when the app\'s node renders nothing, and tones by data-status', () => {
+    const css = rules(['.wf-mast-menu-status-wrap', '.wf-mast-dot-disc', '.wf-mast-status-word'], 'phone');
+    expect(css).toMatch(/\.wf-mast-menu-status-wrap:empty \{ display: none; \}/);
+    for (const s of ['UP', 'DEGRADED', 'DOWN']) {
+      expect(css).toContain(`.wf-mast-dot-disc[data-status='${s}']`);
+      expect(css).toContain(`.wf-mast-status-word[data-status='${s}']`);
+    }
   });
 
   it('draws the golden times in 10.5px mono #E0A542 with 9px arrows at 85%', () => {
