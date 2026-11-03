@@ -31,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -42,7 +43,6 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -175,11 +175,18 @@ class BriefingCandidateCollectorCountsTest {
                 ForecastStability.SETTLED, List.of("S1", "S2", "S3"),
                 ForecastStability.TRANSITIONAL,
                 List.of("X1", "Seaham", "Craster", "Bamburgh"))));
-        when(briefingEvaluationService.hasFreshEvaluation(anyString(), any())).thenReturn(false);
+        // The freshness window each region is asked about is part of the behaviour: SETTLED 36h,
+        // TRANSITIONAL 12h, UNSETTLED 4h at T+2; UNSETTLED today is capped to the T+0 floor of 2h.
         when(briefingEvaluationService.hasFreshEvaluation(
-                eq("CachedSettled|2026-01-17|SUNRISE"), any())).thenReturn(true);
+                "CachedSettled|2026-01-17|SUNRISE", Duration.ofHours(36))).thenReturn(true);
         when(briefingEvaluationService.hasFreshEvaluation(
-                eq("CachedTrans|2026-01-17|SUNRISE"), any())).thenReturn(true);
+                "CachedTrans|2026-01-17|SUNRISE", Duration.ofHours(12))).thenReturn(true);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                "FreshTrans|2026-01-17|SUNRISE", Duration.ofHours(12))).thenReturn(false);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                "Mixed|2026-01-17|SUNRISE", Duration.ofHours(4))).thenReturn(false);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                "TodayRegion|2026-01-15|SUNSET", Duration.ofHours(2))).thenReturn(false);
         when(locationService.findAllEnabled()).thenReturn(List.of(
                 location("Alnwick"), location("Seaham"), location("Craster"), location("Bamburgh")));
     }
@@ -328,7 +335,8 @@ class BriefingCandidateCollectorCountsTest {
     void noSnapshotTreatsEverythingAsUnsettled() {
         when(travelDayService.isTravelDay(LATER)).thenReturn(false);
         when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(null);
-        when(briefingEvaluationService.hasFreshEvaluation(anyString(), any())).thenReturn(false);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                "R|2026-01-17|SUNRISE", Duration.ofHours(4))).thenReturn(false);
         when(locationService.findAllEnabled()).thenReturn(List.of(location("A")));
 
         collector.collectForecastCandidates(
@@ -348,7 +356,8 @@ class BriefingCandidateCollectorCountsTest {
         StabilitySummaryResponse noCells = mock(StabilitySummaryResponse.class);
         when(noCells.cells()).thenReturn(null);
         when(stabilitySnapshotProvider.getLatestStabilitySummary()).thenReturn(noCells);
-        when(briefingEvaluationService.hasFreshEvaluation(anyString(), any())).thenReturn(false);
+        when(briefingEvaluationService.hasFreshEvaluation(
+                "R|2026-01-17|SUNRISE", Duration.ofHours(4))).thenReturn(false);
         when(locationService.findAllEnabled()).thenReturn(List.of(location("A")));
 
         collector.collectForecastCandidates(

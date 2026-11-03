@@ -72,6 +72,8 @@ class WorldTidesIngestionServiceMergeTest {
     private static final LocalDateTime START_OF_DAY = LocalDate.of(2027, 3, 5).atStartOfDay();
     /** (90-day horizon + 7-day slack) of seconds after the start of day. */
     private static final LocalDateTime HORIZON = START_OF_DAY.plusSeconds(97L * 24 * 3600);
+    private static final List<String> FORWARD_REASONS = List.of(TideFetchEntity.SEED,
+            TideFetchEntity.RESEED, TideFetchEntity.TAIL, TideFetchEntity.POINT_CHANGE);
     private static final LocationEntity.TidePoint PIN =
             new LocationEntity.TidePoint(55.7702, -2.0054);
 
@@ -114,7 +116,7 @@ class WorldTidesIngestionServiceMergeTest {
             events.add("delete");
             return null;
         }).when(tideExtremeRepository)
-                .deleteByLocationIdAndEventTimeBetween(anyLong(), any(), any());
+                .deleteByLocationIdAndEventTimeBetween(1L, START_OF_DAY, HORIZON);
         recordSaveOrder();
     }
 
@@ -408,7 +410,7 @@ class WorldTidesIngestionServiceMergeTest {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         // First read is the window decision, second is the previous-fetch read after the call.
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(1L), anyList())).thenReturn(Optional.empty()).thenThrow(new IllegalStateException("x"));
+                eq(1L), eq(FORWARD_REASONS))).thenReturn(Optional.empty()).thenThrow(new IllegalStateException("x"));
 
         TideFetchResult result = service(clientReturning(response()))
                 .fetchAndStoreTideExtremesWithOutcome(location(), null);
@@ -469,7 +471,7 @@ class WorldTidesIngestionServiceMergeTest {
     private TideFetchResult tailFetch(TideFetchEntity previous, String atlas, double newHeight) {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(1L), anyList())).thenReturn(Optional.of(previous));
+                eq(1L), eq(FORWARD_REASONS))).thenReturn(Optional.of(previous));
         when(tideExtremeRepository.findLatestEventTimeFrom(1L, START_OF_DAY))
                 .thenReturn(START_OF_DAY.plusDays(20));
         when(tideExtremeRepository.findOldestFetchedAtFrom(1L, START_OF_DAY))
@@ -537,7 +539,7 @@ class WorldTidesIngestionServiceMergeTest {
     void tail_stationAndResponsePointChangeDescribed() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(1L), anyList())).thenReturn(Optional.of(previousFetch().build()));
+                eq(1L), eq(FORWARD_REASONS))).thenReturn(Optional.of(previousFetch().build()));
         when(tideExtremeRepository.findLatestEventTimeFrom(1L, START_OF_DAY))
                 .thenReturn(START_OF_DAY.plusDays(20));
         when(tideExtremeRepository.findOldestFetchedAtFrom(1L, START_OF_DAY))
@@ -664,7 +666,7 @@ class WorldTidesIngestionServiceMergeTest {
     void window_comparesAgainstLastForwardRequest() {
         LocationEntity.TidePoint moved = new LocationEntity.TidePoint(55.9, -2.1);
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(1L), anyList())).thenReturn(Optional.of(
+                eq(1L), eq(FORWARD_REASONS))).thenReturn(Optional.of(
                         previousFetch().requestLat(55.9).requestLng(-2.1).build()));
         when(tideExtremeRepository.findLatestEventTimeFrom(1L, START_OF_DAY)).thenReturn(null);
 
@@ -680,13 +682,29 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a forward fetch row with no recorded request point is taken to have used the pin")
     void window_rowWithoutRequestPointFallsBackToPin() {
         when(tideFetchRepository.findFirstByLocationIdAndSuccessTrueAndReasonInOrderByFetchedAtDescIdDesc(
-                eq(1L), anyList())).thenReturn(Optional.of(
+                eq(1L), eq(FORWARD_REASONS))).thenReturn(Optional.of(
                         previousFetch().requestLat(null).requestLng(null).build()));
         when(tideExtremeRepository.findLatestEventTimeFrom(1L, START_OF_DAY)).thenReturn(null);
 
         assertThat(service(mock(RestClient.class))
                 .resolveFetchWindow(1L, PIN, PIN, START_OF_DAY, HORIZON).code())
                 .isEqualTo(TideFetchEntity.SEED);
+    }
+
+    /** True for the first instant of a 7-day backfill chunk: 2026-03-05 plus a whole number of weeks. */
+    private static boolean isBackfillChunkStart(LocalDateTime t) {
+        long days = java.time.temporal.ChronoUnit.DAYS.between(LocalDateTime.of(2026, 3, 5, 0, 0), t);
+        return t.toLocalTime().equals(java.time.LocalTime.MIDNIGHT) && days >= 0 && days < 365
+                && days % 7 == 0;
+    }
+
+    /** No stored data in any chunk of location 1's 12-month backfill; other ids or windows get null. */
+    private void stubNoDataInAnyBackfillChunk() {
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(eq(1L),
+                org.mockito.ArgumentMatchers.argThat(WorldTidesIngestionServiceMergeTest::isBackfillChunkStart),
+                org.mockito.ArgumentMatchers.argThat(
+                        to -> isBackfillChunkStart(to.minusDays(7)))))
+                .thenReturn(false);
     }
 
     // -------------------------------------------------------------------------
@@ -698,8 +716,7 @@ class WorldTidesIngestionServiceMergeTest {
     void backfill_chunksSkipsAndEvicts() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
         recordSaveOrder();
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        stubNoDataInAnyBackfillChunk();
         when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
                 1L, LocalDateTime.of(2026, 3, 12, 0, 0), LocalDateTime.of(2026, 3, 19, 0, 0)))
                 .thenReturn(true);
@@ -748,8 +765,7 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a failed backfill chunk is recorded as failed, stores nothing and evicts nothing")
     void backfill_failedChunkWritesNothing() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        stubNoDataInAnyBackfillChunk();
         WorldTidesResponse bad = new WorldTidesResponse();
         bad.setStatus(500);
 
@@ -825,8 +841,7 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a backfill chunk answered with a null body or no extremes list is recorded as failed")
     void backfill_nullOrEmptyBodyIsFailure() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        stubNoDataInAnyBackfillChunk();
         WorldTidesResponse noExtremes = new WorldTidesResponse();
         noExtremes.setStatus(200);
         JobRunEntity jobRun = JobRunEntity.builder().id(9L).build();
@@ -843,8 +858,7 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a backfill chunk whose call throws is recorded as failed with no response fields")
     void backfill_exceptionRecordsFailedRow() {
         when(worldTidesProperties.getApiKey()).thenReturn("abcd");
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        stubNoDataInAnyBackfillChunk();
         RestClient client = mock(RestClient.class);
         RestClientMocks.stubGetThrows(client, WorldTidesResponse.class, new IllegalStateException("down"));
 
@@ -870,8 +884,7 @@ class WorldTidesIngestionServiceMergeTest {
     @DisplayName("a null chunk body is recorded as a failed fetch with no status")
     void backfill_nullBody() {
         when(worldTidesProperties.getApiKey()).thenReturn("test-key");
-        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(anyLong(), any(), any()))
-                .thenReturn(false);
+        stubNoDataInAnyBackfillChunk();
 
         assertThat(service(clientReturning(null)).backfillTideExtremes(location(), null)).isZero();
 
