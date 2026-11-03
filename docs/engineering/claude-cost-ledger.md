@@ -61,7 +61,7 @@ Read these before re-proposing any of them.
   never hold still (`input-delta.sql`): for T0 sunrise pairs no more than 8 h apart, 75% moved some cloud
   field by more than 40 points, and only 23 of 1,838 stayed within 10 points. A gate would skip almost
   nothing, and blind reuse would hide real changes.
-- **Phase 2b: the evening refresh skips slots already rated 2★ or lower. MEASURING (2026-11-03).**
+- **Phase 2b: the evening refresh skips slots already rated 2★ or lower. REJECTED (2026-11-03).**
   The owner's question: a sunrise that already looks poor will not turn into a "go" by 21:00, so why
   re-rate it? Phase 2's gate asked whether the *inputs* had changed (they nearly always have); this
   gate asks only whether the *previous rating* was poor, which is the thing that drives the bedtime
@@ -69,10 +69,29 @@ Read these before re-proposing any of them.
   from the evening run, and the most it can save is part of Evening T+1's ~$6 per 30 days.
   Query: `poor-stays-poor.sql` (section 1: previous-stars to new-stars transitions for the evening and
   for all T+1 sunrise re-ratings; section 2: requests and dollars the gate would skip, and how many
-  2★-or-lower ratings it would have hidden that came back at 3★ or at 4★ or higher). **Result: not yet
-  run.** Record the figures here when it has been, with the date and the number of evening nights.
-  Decision rule proposed: build the gate only if `hidden_jumps_to_ge_4` is 0, or under 1% of
-  `skippable_requests`, over at least 14 evening nights.
+  2★-or-lower ratings it would have hidden that came back at 3★ or at 4★ or higher). Decision rule: build
+  the gate only if `hidden_jumps_to_ge_4` is under 1% of `skippable_requests` over at least 14 evening
+  nights.
+  **Result (run 2026-11-03 on production, 14 evening nights, 2,145 evening requests, $6.18):** the gate
+  would skip 880 requests (41%), **$5.32 per 30 nights**. Of those 880, **58 (6.6%) came back at 4★ or
+  higher** and 246 (28%) at 3★, so it fails the 1% rule six times over. A 2★-to-4★ move is two stars,
+  well above the 1★ noise floor, so these are real changes; 37 of the 58 slots were still 4★ or higher
+  at their last rating before sunrise (normally the overnight's). By starting rating, evening
+  re-ratings:
+
+  | Previous | Pairs | Now ≤2★ | Now 3★ | Now ≥4★ | Last rating ≥4★ |
+  |---|---|---|---|---|---|
+  | 1★ | 61 | 52 | 9 | 0 | 0 |
+  | 2★ | 819 | 524 | 237 | 58 (7.1%) | 37 |
+  | 3★ | 891 | 224 | 429 | 238 (26.7%) | 179 |
+  | 4★ | 374 | 18 | 143 | 213 (57.0%) | 194 |
+
+  A 1★-only gate would hide nothing on this sample (0 of 61 reached 4★), but it would save 61 of
+  2,145 requests, about $0.18 per 30 nights: not worth a code path. Across all T+1 sunrise re-ratings
+  (11,437 pairs, every cycle), 5.8% of 2★ ratings came back at 4★ or higher and 3.4% of 1★ ratings
+  did. Note for later: evening re-ratings rise more often than other T+1 re-ratings (3★ to 4★ or
+  higher: 26.7% against 17.1%), and the overnight after it pulls some of them back (238 evening 4★+
+  from a 3★ start, 179 still 4★+ at the last rating).
 - **Cutting cadence further: rejected.** Intraday T+1 sunset re-ratings stay the same only 51.6% of the
   time, and 5% move 2★ or more. That is real freshness, so cutting it is a product choice the owner
   declined.
