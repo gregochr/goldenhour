@@ -409,8 +409,10 @@ describe('LocationFourDaySheet', () => {
       .toHaveAttribute('aria-label', 'Low confidence · provisional');
     const badge = low.getByTestId('location-sheet-rating');
     expect(badge).toHaveTextContent('2★');
+    // `backgroundColor`, not the `background` shorthand: jsdom 30.1.3 computes the shorthand as the full
+    // "rgb(...) none repeat scroll ..." list, which no longer equals the single colour the ramp painted.
     expect(badge).toHaveStyle({
-      background: spotBadgeStyle(2).background, color: spotBadgeStyle(2).color,
+      backgroundColor: spotBadgeStyle(2).background, color: spotBadgeStyle(2).color,
     });
     // A Tailwind class is how a dimming regression would most plausibly arrive, and jsdom applies
     // no Tailwind — so the class list is asserted too.

@@ -639,7 +639,9 @@ describe('the clock (D13)', () => {
         sunrise: '2026-11-04T07:05:00Z', sunset: '2026-11-04T16:28:00Z',
       }),
     });
-    expect(await screen.findByTestId('scheduler-day-label')).toHaveTextContent('TodayWed 4 Nov');
+    // The label is on screen from the first paint, labelled from this machine's clock; wait for the served day.
+    await screen.findByTestId('scheduler-day-picture');
+    expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('TodayWed 4 Nov');
     expect(screen.getByTestId('scheduler-day-now')).toHaveTextContent('Now 12:00');
   });
 
