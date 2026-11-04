@@ -2,18 +2,12 @@
   "backend": [
     {"pluginid": "100000", "level": "warn", "until": "phase-4",
      "reason": "server-error responses to malformed input; tracked for a follow-up PR"},
-    {"pluginid": "30001", "level": "warn", "until": "phase-4",
-     "reason": "input-handling probes; tracked for a follow-up PR"},
-    {"pluginid": "30002", "level": "warn", "until": "phase-4",
-     "reason": "input-handling probes; tracked for a follow-up PR"},
     {"pluginid": "100001", "uri_regex": "^http://pentest-backend:8082/api/status/stream", "level": "ignore",
      "reason": "SSE endpoint: text/event-stream is correct"}
   ],
   "frontend": [
     {"pluginid": "90004", "alertRef": "90004-2", "level": "ignore",
      "reason": "Cross-Origin-Embedder-Policy is deliberately not set: login embeds a third-party challenge iframe and the map loads third-party tiles, and nothing needs cross-origin isolation"},
-    {"pluginid": "10055", "level": "warn", "until": "phase-5",
-     "reason": "content security policy tuning; tracked for a follow-up PR"},
     {"pluginid": "10049", "level": "ignore", "reason": "informational"},
     {"pluginid": "10109", "level": "ignore", "reason": "informational"}
   ]
