@@ -85,7 +85,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/waitlist").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/container").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**").permitAll()
                         // Ask PhotoCast is Pro and Admin only. In the chain, so the refusal precedes
                         // AskBodyLimitFilter and the flag and admission interceptors.
                         .requestMatchers("/api/ask", "/api/ask/**").hasAnyRole("PRO_USER", "ADMIN")

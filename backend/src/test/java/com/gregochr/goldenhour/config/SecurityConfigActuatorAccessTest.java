@@ -77,4 +77,20 @@ class SecurityConfigActuatorAccessTest {
                 .andReturn().getResponse().getStatus();
         assertThat(status).isEqualTo(401);
     }
+
+    @Test
+    @DisplayName("/v3/api-docs stays anonymous (the ZAP pen-test stack reads it)")
+    void apiDocs_isAnonymous() throws Exception {
+        int status = mvc.perform(MockMvcRequestBuilders.get("/v3/api-docs"))
+                .andReturn().getResponse().getStatus();
+        assertThat(status).isNotIn(401, 403);
+    }
+
+    @Test
+    @DisplayName("Swagger UI is gone: /swagger-ui/index.html is never served")
+    void swaggerUi_isNotServed() throws Exception {
+        int status = mvc.perform(MockMvcRequestBuilders.get("/swagger-ui/index.html"))
+                .andReturn().getResponse().getStatus();
+        assertThat(status).isNotEqualTo(200);
+    }
 }
