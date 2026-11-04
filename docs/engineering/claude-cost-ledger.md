@@ -171,8 +171,10 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
 
 ## Remaining levers, ranked
 
-1. **The Near-Term model.** This is the only large lever, ~$53/month. It needs the Sky Eval and the
-   prompt regression suite to pass, plus a check for rating spread between neighbouring cells.
+1. **The Near-Term model.** This is the only large lever, ~$53/month. **On hold by owner decision
+   (2026-11-04): it stays on Sonnet 5.5 until a Haiku model is as good as Sonnet 5.5.** "As good" means
+   matching it on the weekly Sky Eval (100%, same rating on repeats) and the prompt regression suite, with
+   no rating spread between neighbouring cells. Re-check when a new Haiku model ships.
 2. **Cadence.** This is a freshness choice, not an engineering one. Measured on 2026-11-04
    (`short-term-looks.sql`): the overnight's looks earn their cost, so "overnight does far-term only" was
    rejected and a stability gate on its T+0 sunrise shelved (see "Rejected or shelved"). Weekend against
