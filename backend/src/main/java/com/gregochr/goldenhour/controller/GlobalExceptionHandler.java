@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.UpstreamLookupException;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -263,6 +264,25 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleParameterTypeMismatch(MethodArgumentTypeMismatchException ex) {
         LOG.debug("Rejected malformed request parameter '{}'", ex.getName());
+        return new ErrorResponse("Invalid request parameter");
+    }
+
+    /**
+     * Maps Tomcat's {@link InvalidParameterException} to HTTP 400.
+     *
+     * <p>Tomcat parses the query string lazily and, when a chunk cannot be parsed (an empty parameter
+     * name such as {@code ?=} or {@code ?a=1&=2}, or a bad percent-escape), remembers the failure and
+     * throws this {@link IllegalStateException} from every later {@code getParameter*} call. Spring MVC
+     * makes that call while resolving a {@code @RequestParam} and while matching handlers, so without this
+     * handler the catch-all below turned a malformed query string into a 500 and logged it at ERROR with
+     * a stack trace. The request line is the caller's error. The message is fixed; the offending chunk
+     * (which Tomcat's own message quotes) is neither echoed nor logged.
+     *
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(InvalidParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleInvalidQueryString() {
         return new ErrorResponse("Invalid request parameter");
     }
 
