@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import './NlcSightingBanner.css';
 
 /**
  * Formats a sighting timestamp as a short relative label for the banner headline.
@@ -43,51 +44,6 @@ export function formatReportedAt(isoTimestamp, now = new Date()) {
   if (reportedDay === ukDateStrOffset(-1, now)) return `yesterday ${time}`;
   return `${formatInstantUk(reported, { day: 'numeric', month: 'short' })} ${time}`;
 }
-
-/**
- * Direction A styling — the calm dark banner the aurora alert wore before its redesign
- * (docs/engineering/aurora-banner-plan.md; this one keeps the rail, glow and roundel), accented
- * in the NLC violet. All colour derives from the single CSS variable --nlc-accent (set from the
- * API hexColour) via color-mix, so it reads as a distinct signal.
- *
- * Deliberately has NO pulse animation: an NLC sighting is a reactive community
- * report, not an escalating geophysical storm, so it should feel calm.
- */
-const NLC_A_STYLE = `
-  .nlc-a { position: relative; overflow: hidden; border: 1px solid var(--color-plex-border); }
-  .nlc-a .nlc-rail { position: absolute; top: 0; bottom: 0; left: 0; width: 4px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--nlc-accent) 82%, white 14%), var(--nlc-accent)); }
-  .nlc-a .nlc-glow { position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--nlc-accent) 30%, transparent) 0%, transparent 46%);
-    opacity: 0.55; }
-  .nlc-a .nlc-inner { position: relative; z-index: 1; display: flex; gap: 14px; align-items: flex-start; }
-  .nlc-roundel { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; color: #fff;
-    background: linear-gradient(155deg, color-mix(in srgb, var(--nlc-accent) 88%, white 6%), color-mix(in srgb, var(--nlc-accent) 52%, black 36%)); }
-  .nlc-body { flex: 1; min-width: 0; }
-  .nlc-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .nlc-sev { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
-    padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-    background: color-mix(in srgb, var(--nlc-accent) 16%, transparent);
-    color: color-mix(in srgb, var(--nlc-accent) 42%, white);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nlc-accent) 42%, transparent); }
-  .nlc-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nlc-accent);
-    box-shadow: 0 0 7px var(--nlc-accent); }
-  .nlc-when { font-size: 10px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase;
-    color: var(--color-plex-text-muted); }
-  .nlc-title { font-size: 15px; font-weight: 700; line-height: 1.3; margin-top: 7px;
-    color: var(--color-plex-text); text-wrap: pretty; }
-  .nlc-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 8px;
-    font-size: 12px; color: var(--color-plex-text-secondary); }
-  .nlc-meta .nlc-key { font-weight: 600; color: var(--color-plex-text); }
-  .nlc-meta strong.italic { font-weight: 700; font-style: italic; }
-  .nlc-div { width: 1px; height: 12px; background: var(--color-plex-border); display: inline-block; }
-  .nlc-sub { font-size: 12px; color: var(--color-plex-text-secondary); margin-top: 5px; }
-  .nlc-x { color: var(--color-plex-text-secondary); font-size: 17px; line-height: 1; flex-shrink: 0;
-    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-    border-radius: 6px; background: transparent; border: 0; cursor: pointer; }
-  .nlc-x:hover { background: rgba(255,255,255,0.06); color: var(--color-plex-text); }
-`;
 
 /**
  * Full-width noctilucent-cloud sighting banner.
@@ -143,7 +99,6 @@ export default function NlcSightingBanner({ eligible = false }) {
 
   return (
     <>
-      <style>{NLC_A_STYLE}</style>
       <div
         role="alert"
         data-testid="nlc-sighting-banner"

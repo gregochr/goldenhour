@@ -62,6 +62,12 @@ describe('NlcSightingBanner', () => {
   // Rendered cases
   // ---------------------------------------------------------------------------
 
+  it("renders no <style> element: the enforced CSP is style-src 'self', so one would be blocked", () => {
+    const { container } = renderBanner(activeSighting());
+    expect(container.querySelector('style')).toBeNull();
+    expect(document.querySelector('style')).toBeNull();
+  });
+
   it('renders when a sighting is active and skies are clear', () => {
     renderBanner(activeSighting());
     expect(screen.getByTestId('nlc-sighting-banner')).toBeInTheDocument();
