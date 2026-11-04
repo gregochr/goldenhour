@@ -18,6 +18,7 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import useGeolocationPostcode from '../hooks/useGeolocationPostcode.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 import { useGuide } from '../context/GuideContext.jsx';
+import { GuideWhy } from './guide/GuideLink.jsx';
 
 const ROLE_LABELS = {
   ADMIN: { text: 'Admin', cls: 'bg-red-900/40 border-red-500/50 text-red-300' },
@@ -927,6 +928,8 @@ export default function UserSettingsModal({
                   </p>
                 )}
               </div>
+              {/* Outside the greyed wrapper: pointer-events-none would make the door unpressable. */}
+              {!isPro && <GuideWhy section="settingsRadius" testId="guide-why-radius" />}
             </div>
           </section>
 
@@ -1066,6 +1069,8 @@ export default function UserSettingsModal({
                 </p>
               )}
             </div>
+            {/* Outside the greyed wrapper, which is pointer-events-none. */}
+            {!isPro && <GuideWhy section="settingsDrive" testId="guide-why-drive" />}
           </section>
           {!isPro && (
             <p className="text-center text-plex-text-secondary text-[13px]">

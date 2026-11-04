@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { limitAsWord } from '../../utils/subRegionCopy.js';
 import { countWord } from '../../utils/pickGeography.js';
+import { GuideWhy } from '../guide/GuideLink.jsx';
 
 /**
  * The scores upsell's words (docs/engineering/pro-features-gate-plan.md §4). Placeholder copy until the
@@ -201,7 +202,7 @@ const FOCUSABLE_ANCESTOR = '[tabindex], a[href], button, input, select, textarea
  */
 export default function ProUpsellDoor({
   label, heading, body, testIdPrefix, className = '', unmountFocusRef = null, skipUnmountHandoff = false,
-  note = null,
+  note = null, guide = null,
 }) {
   const [open, setOpen] = useState(false);
   const uid = useId();
@@ -308,6 +309,16 @@ export default function ProUpsellDoor({
           {note && (
             <p id={noteId} className="wf-pro-upsell-body" data-testid={`${testIdPrefix}-note`}>{note}</p>
           )}
+          {/* The popover closes on focus-out, so by the time the guide closes this link is gone: the guide
+              returns focus to the trigger, which outlives it. */}
+          {guide && (
+            <GuideWhy
+              section={guide.section}
+              page={guide.page}
+              returnFocus={() => triggerRef.current}
+              testId={`${testIdPrefix}-guide`}
+            />
+          )}
           <button
             type="button"
             className="wf-pro-upsell-dismiss"
@@ -334,4 +345,9 @@ ProUpsellDoor.propTypes = {
   skipUnmountHandoff: PropTypes.bool,
   /** One extra line under the body, described with it (`aria-describedby` names both). */
   note: PropTypes.string,
+  /**
+   * A guide door at the end of the popover body: {@code { section }} (a GUIDE_SECTIONS key) or {@code { page }}.
+   * Pass it only where the door is the lock, which is the only place this component is rendered.
+   */
+  guide: PropTypes.shape({ section: PropTypes.string, page: PropTypes.string }),
 };

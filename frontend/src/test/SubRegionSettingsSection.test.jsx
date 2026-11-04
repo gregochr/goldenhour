@@ -74,13 +74,14 @@ describe('SubRegionSettingsSection (S4 A4-A6)', () => {
   });
 
   describe('Pro', () => {
-    it('gets a Pro tag and the words, with no button and no link', async () => {
+    it('gets a Pro tag and the words, with no button but the guide door, and no link', async () => {
       await renderSection(PRO, { role: 'PRO_USER' });
 
       expect(screen.getByRole('heading', { name: 'Your sub-regions' })).toBeInTheDocument();
       expect(screen.getByTestId('sub-regions-pro-line')).toHaveTextContent('Pro covers every sub-region.');
       expect(screen.getByTestId('pro-tag')).toBeInTheDocument();
-      expect(screen.queryByRole('button')).toBeNull();
+      // G3 adds the guide's ?; it is the only control (was: no button at all).
+      expect(screen.getAllByRole('button').map((b) => b.dataset.testid)).toEqual(['guide-link']);
       expect(screen.queryByRole('link')).toBeNull();
     });
   });

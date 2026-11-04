@@ -9,6 +9,9 @@ import MapTopicStrip, { TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/Map
 import { fourDayGrid } from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { SATURDAY } from './bigSeasFixtures.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * The four-day strip component (hot-topics-by-day-plan §3 M2), with the REAL `fourDayGrid` model.
@@ -787,5 +790,35 @@ describe('MapTopicStrip: held (an open tide strip holds the grid; a press yields
     expect(onOpenHeld).not.toHaveBeenCalled();
     expect(onCloseYielded).not.toHaveBeenCalled();
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('0');
+  });
+});
+
+describe('MapTopicStrip: the guide door (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('desktop: a ? in the header row opens map#hot-topics and does not toggle the panel', () => {
+    const onOpenChange = vi.fn();
+    const { container } = renderStrip({ open: true, onOpenChange });
+    const head = screen.getByTestId('wf-topic-strip-head');
+    const link = head.querySelector('[data-testid="guide-link"]');
+    expect(link).toHaveAccessibleName('How the hot topics panel works');
+    const toggle = screen.getByTestId('wf-topic-strip-toggle');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'hot-topics', expect.any(Object));
+    // The row's own click would have asked the owner to close the panel.
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelectorAll('[data-testid="guide-link"]')).toHaveLength(1);
+  });
+
+  it('phone sheet: the ? sits BESIDE the header button, never inside it', () => {
+    renderStrip({ variant: 'sheet', openByDefault: true });
+    const link = screen.getByTestId('guide-link');
+    const toggle = screen.getByTestId('wf-topic-strip-toggle');
+    expect(toggle).not.toContainElement(link);
+    expect(toggle.parentElement).toBe(link.parentElement);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'hot-topics', expect.any(Object));
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
 });

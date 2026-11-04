@@ -43,6 +43,7 @@ import ProUpsellDoor, {
 } from './shared/ProUpsell.jsx';
 import { prefersReducedMotion } from '../utils/askCamera.js';
 import { picksNoteText } from '../utils/pickGeography.js';
+import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import { SubRegionActionButton } from './subregions/SubRegionActions.jsx';
 
 /**
@@ -2012,6 +2013,7 @@ export default function WindowFirstHeatStrip({
         <h2 className="wf-hstrip-k">The days ahead</h2>
         <span className="wf-hstrip-rule" aria-hidden="true" />
         {glanceTopics.lastTopicDate && <GlanceTopicKey />}
+        <GuideLink section="fixed" label="What fixed and could still move mean" />
       </div>
 
       {/* ⚠️ Two structures from one matrix, never both mounted at once (matrix-axis plan D3). A
@@ -2101,6 +2103,7 @@ export default function WindowFirstHeatStrip({
             heading={BEST_BETS_UPSELL_HEADING}
             body={BEST_BETS_UPSELL_BODY}
             testIdPrefix="wf-heat-bestbets-upsell"
+            guide={{ section: 'bestBet' }}
           />
         )}
         <span
@@ -2145,6 +2148,7 @@ export default function WindowFirstHeatStrip({
               <span className="wf-hstrip-sw wf-hstrip-sw-outside" aria-hidden="true" />
               outside your sub-regions
               <span className="wf-lens-pro">Pro</span>
+              <GuideWhy section="subRegions" testId="guide-why-outside" />
             </span>
             {!zeroPicks && (
               <span className="wf-hstrip-key" data-testid="wf-heat-key-picks">

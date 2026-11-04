@@ -3,6 +3,7 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import BoltIcon from './BoltIcon.jsx';
+import GuideLink from '../guide/GuideLink.jsx';
 import {
   barTarget, columnWord, labelTarget, markPhrase,
 } from '../../utils/mapTopics.js';
@@ -387,19 +388,23 @@ export default function MapTopicStrip({
       data-open={open ? 'true' : 'false'}
     >
       {inSheet ? (
-        <button
-          ref={headerRef}
-          type="button"
-          className="wf-tl-head"
-          aria-expanded={open}
-          aria-controls={open ? gridId : undefined}
-          aria-describedby={describedBy}
-          data-testid="wf-topic-strip-toggle"
-          onClick={toggleOpen}
-        >
-          <span>Hot topics · next four days</span>
-          <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>
-        </button>
+        // The guide door sits BESIDE the header button, never inside it (a button cannot nest in one).
+        <div className="wf-tl-head-row">
+          <button
+            ref={headerRef}
+            type="button"
+            className="wf-tl-head"
+            aria-expanded={open}
+            aria-controls={open ? gridId : undefined}
+            aria-describedby={describedBy}
+            data-testid="wf-topic-strip-toggle"
+            onClick={toggleOpen}
+          >
+            <span>Hot topics · next four days</span>
+            <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>
+          </button>
+          <GuideLink section="mapHotTopics" label="How the hot topics panel works" />
+        </div>
       ) : (
         // The panel's header row (collapse-and-topic-pips-plan.md §1): a div, because the day groups are
         // buttons and cannot nest in one. The whole row is a mouse target for the toggle; the toggle button
@@ -413,6 +418,7 @@ export default function MapTopicStrip({
           }}
         >
           <span className="wf-tide-strip-kicker">{open ? 'Hot topics · next four days' : 'Hot topics'}</span>
+          <GuideLink section="mapHotTopics" label="How the hot topics panel works" />
           {!open && (grid.rows.length > 0 ? (
             <span className="wf-tl-days" data-testid="wf-topic-strip-days">
               {days.map((d) => renderDay(d))}

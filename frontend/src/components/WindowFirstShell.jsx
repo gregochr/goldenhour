@@ -3302,7 +3302,9 @@ export default function WindowFirstShell({
           // ⚠️ The same one-layer-per-press predicate its two sibling layers carry, and since M5 a
           // belt that can no longer go false: search is refused while anything is stacked over the
           // popup (`stackedOverPopup` counts this sheet), so the supported stack is two deep and
-          // nothing can sit over this one. Kept in the shared shape because `WindowSpotSheet`
+          // nothing can sit over this one, the guide included: with two layers standing (this sheet is
+          // inert-stacked and so counted though it has no aria-modal) the guide opens its full page in a
+          // new tab instead of a third layer. Kept in the shared shape because `WindowSpotSheet`
           // derives `stacked` from it, and those two must never come apart.
           escapeEnabled={searchSeed == null && !guideModal}
           onClose={() => openOverPopup(null)}

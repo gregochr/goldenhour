@@ -5,9 +5,12 @@
  * before it, or a reader who gets no door sees a different sheet from the one they had.
  */
 import React from 'react';
-import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import { MapPeekWindowsSection } from '../components/map/MapPeekSheet.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const ROWS = [
   {
@@ -56,5 +59,17 @@ describe('MapPeekWindowsSection — the Lite aurora door', () => {
     expect(screen.getByTestId('wf-map-peek-windows').innerHTML).not.toMatch(/aurora-door|wf-pro-upsell/);
     // Only the drilldown is a plain button (the row is an option).
     expect(screen.getAllByRole('button')).toHaveLength(1);
+  });
+});
+
+describe('MapPeekWindowsSection — the aurora door\'s guide link (G3)', () => {
+  it('offers "What does this do?" for night-sky#aurora-map and returns focus to the door trigger', () => {
+    mockOpenGuide.mockClear();
+    draw({ auroraDoor: DOOR });
+    const trigger = screen.getByTestId('wf-aurora-upsell-trigger');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('wf-aurora-upsell-guide'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'aurora-map', expect.any(Object));
+    expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
   });
 });

@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 import { COMING_UP_OPEN_KEY } from '../utils/comingUpOpen.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const TODAY = '2026-08-09';
 
@@ -808,3 +811,29 @@ describe('WindowFirstComingUp — a single-day plan entry draws a one-box All sp
   });
 });
 
+
+describe('WindowFirstComingUp — guide doors (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('draws a ? after the fixed / could-still-move legend that opens reading-the-forecast#fixed', () => {
+    renderPane();
+    const head = document.querySelector('.wf-cu-head');
+    const link = within(head).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('What fixed and could still move mean');
+    expect(screen.getByTestId('coming-up-legend').nextElementSibling).toBe(link);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fixed', expect.any(Object));
+  });
+
+  it('ends the filter chips with a ? that opens coming-up#topics and does not change the filter', () => {
+    renderPane();
+    const chips = screen.getByTestId('coming-up-chips');
+    const link = within(chips).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('Every topic explained');
+    expect(chips.lastElementChild).toBe(link);
+    const before = within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'));
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'topics', expect.any(Object));
+    expect(within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
+  });
+});

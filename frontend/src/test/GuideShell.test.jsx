@@ -404,7 +404,8 @@ describe('stacked over the shell\'s own dialogs', () => {
     expect(screen.getByTestId('plan-search')).toBeInTheDocument();
   });
 
-  it('over the pick dialog (itself stacked on the popup) it is the only modal: the pick goes inert too', async () => {
+  it('over the pick dialog (itself stacked on the popup) that is already two deep: a new tab, nothing closed', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const base = matrixCtx();
     const windowCards = [{
       ...base.windowCards[0],
@@ -419,14 +420,11 @@ describe('stacked over the shell\'s own dialogs', () => {
     const pick = screen.getByTestId('window-pick-dialog');
     expect(pick).toHaveAttribute('aria-modal', 'true');
     fireEvent.click(door());
-    expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
-    expect(pick).not.toHaveAttribute('aria-modal');
-    expect(pick).toHaveAttribute('inert');
-    expect(modalCount()).toBe(1);
-    // One Escape takes the guide, the next the pick dialog, the third the popup: one layer per press.
-    fireEvent.keyDown(document, { key: 'Escape' });
+    // G3 review 1: the popup under the pick is a layer (stacked, inert), so this is two deep already.
+    expect(open).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('guide-dialog')).toBeNull();
     expect(screen.getByTestId('window-pick-dialog')).toHaveAttribute('aria-modal', 'true');
+    open.mockRestore();
   });
 });
 

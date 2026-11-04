@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { TIDE_LIGHT_LOCKED_LABEL, TIDE_LIGHT_LOCKED_BODY } from './shared/ProUpsell.jsx';
 import { TideLightLockedSketch } from './map/TideUpsell.jsx';
 import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
+import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
@@ -430,6 +431,9 @@ export default function WindowComingUpEntry({
   // A tide-run card (hosted by the run, or by a supermoon that absorbed it) carries the sunrise and
   // sunset high-water rows: those facts take a line each and read as running text.
   const isTideRun = isTideRunEntry(entry);
+  // A single-action card is itself a <button>, and a guide door (a button) cannot nest in one. A tide run is a
+  // dated entry of at most ten days, so it carries day chips and a <div> card; this guards the odd one over the cap.
+  const cardIsButton = Boolean(entry.interactive && !entry.dayChips);
   const cardClassName = [
     'wf-cu-card',
     open ? null : 'wf-cu-card-closed',
@@ -611,8 +615,12 @@ export default function WindowComingUpEntry({
                   <span className="wf-cu-locked-body" data-testid="coming-up-tide-light-locked-body">
                     {TIDE_LIGHT_LOCKED_BODY}
                   </span>
+                  {!cardIsButton && <GuideWhy section="comingUpTides" />}
                 </span>
               </>
+            )}
+            {isTideRun && !cardIsButton && (
+              <GuideLink section="comingUpTides" label="How tide entries work" />
             )}
           </div>
           {' '}

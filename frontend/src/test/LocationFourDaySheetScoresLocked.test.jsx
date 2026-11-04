@@ -4,6 +4,9 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
 import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * The four-day sheet for a reader without the scores (docs/engineering/pro-features-gate-plan.md §5.3).
@@ -172,5 +175,23 @@ describe('LocationFourDaySheet — a reader with the scores', () => {
     setup(LITE_ROWS);
     expect(within(row('2026-08-14:SUNSET')).getByTestId('location-sheet-nowhy'))
       .toHaveTextContent('Nothing written about this one yet.');
+  });
+});
+
+describe('LocationFourDaySheet — the scores door\'s guide link (G3)', () => {
+  it('offers "What does this do?" for reading-the-forecast#fiery in the popover, returning to the trigger', () => {
+    mockOpenGuide.mockClear();
+    setup(LITE_ROWS, { scoresLocked: true });
+    const trigger = screen.getByTestId('wf-scores-upsell-trigger');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('wf-scores-upsell-guide'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fiery', expect.any(Object));
+    expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
+  });
+
+  it('has no door, so no guide link, for a reader with the scores', () => {
+    setup(FULL_ROWS);
+    expect(screen.queryByTestId('wf-scores-upsell-trigger')).toBeNull();
+    expect(screen.queryByTestId('wf-scores-upsell-guide')).toBeNull();
   });
 });

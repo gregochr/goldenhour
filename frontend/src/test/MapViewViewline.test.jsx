@@ -19,9 +19,11 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
+import { mockOpenGuide } from './guideContextMock.js';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 vi.mock('leaflet', () => {
   const icon = () => ({});
   const divIcon = () => ({});
@@ -282,6 +284,16 @@ describe('MapView viewline upsell door', () => {
     fireEvent.click(screen.getByTestId('viewline-upsell-trigger'));
     expect(screen.getByTestId('viewline-upsell-heading')).toHaveTextContent('Aurora forecasts');
     expect(screen.getByTestId('viewline-upsell-popover').textContent).not.toMatch(/upgrade/i);
+  });
+
+  it('the popover offers "What does this do?" for night-sky#aurora-map and returns focus to the Viewline trigger (G3)', async () => {
+    mockOpenGuide.mockClear();
+    await renderMap();
+    const trigger = screen.getByTestId('viewline-upsell-trigger');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('viewline-upsell-guide'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'aurora-map', expect.any(Object));
+    expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
   });
 
   it('Escape closes only the popover and leaves the door', async () => {

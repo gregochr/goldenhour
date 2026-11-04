@@ -4558,6 +4558,13 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
   cursor: pointer;
 }
+.wf-tl-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 11px;
+}
+.wf-tl-head-row > .wf-tl-head { flex: 1; width: auto; min-width: 0; }
 .wf-tl-head:focus-visible,
 .wf-tl-n:focus-visible,
 .wf-tl-b:focus-visible {
@@ -7239,6 +7246,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* The Lite aurora door's footer wrappers (the window menu's and the phone sheet's). */
 .wf-win-aurora-door,
 .wf-map-peek-aurora-door { padding: 8px 10px 4px; }
+/* The window menu's guide door: a footer of its own, right-aligned under the last row. */
+.wf-win-guide { display: flex; justify-content: flex-end; padding: 10px; }
 /* The single grid item — see the markup's own note for why the glyph and the text cannot be
    siblings here. */
 .wf-win-landing-txt {
@@ -15652,3 +15661,75 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
   font-weight: 700;
   line-height: 1;
 }
+
+/* The in-context guide doors (docs/engineering/user-guide-plan.md, G3). `.wf-guide-link` is a 24px round "?"
+   whose 44px hit area is a pseudo-element, so the row it sits in does not grow. `.wf-guide-why` is the text
+   twin beside a Lite lock: the same bone colour, underline on hover only. */
+.wf-guide-link {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-plex-text);
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.wf-guide-link::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+.wf-guide-link:hover { background: rgba(255, 255, 255, 0.06); }
+.wf-guide-link:focus-visible,
+.wf-guide-why:focus-visible {
+  outline: 2px solid var(--color-plex-text);
+  outline-offset: 2px;
+}
+.wf-guide-why {
+  align-self: flex-start;
+  white-space: nowrap;
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--color-plex-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wf-guide-why:hover { text-decoration: underline; }
+
+/* The map legend's guide door: a footer line under the notes, right-aligned. */
+.wf-legend-guide { display: flex; justify-content: flex-end; padding-top: 6px; }
+
+/* The aurora banners' guide door sits between the toggle and the dismiss, with a little air each side. */
+.wf-aurora-actions .wf-guide-link,
+.wf-aurora-strip .wf-guide-link,
+.wf-aurora-lite-door + .wf-guide-link { margin: 0 10px; }
+
+/* Ask's empty state: the allowance line with the guide door at the end of the row. */
+.wf-ask-guide-row { display: flex; align-items: center; gap: 8px; }
+.wf-ask-guide-row > .wf-guide-link { margin-left: auto; }
+
+/* The 44px hit area of the ? is a pseudo-element 10px proud of the 24px circle on every side, so a neighbour must
+   sit at least 10px away or the two boxes overlap. These hosts' gaps are smaller, so the ? adds the difference. */
+.wf-cu-chips .wf-guide-link { margin-left: 4px; }
+.wf-tl-collapsed .wf-guide-link,
+.wf-tide-strip-header .wf-guide-link,
+.wf-hstrip-h .wf-guide-link { margin: 0 4px; }
+.wf-tl-head-row,
+.wf-ask-guide-row { gap: 12px; }
+/* On a phone the lens bar's ? ends the count line. */
+.wf-lens-count .wf-guide-link { display: inline-flex; vertical-align: middle; margin-left: 12px; }
+/* The drive-time lock: segments (and the Pro pill) on one line, the guide link on its own beneath. */
+.wf-filters-drive-lock { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }

@@ -9,6 +9,9 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowControl from '../components/map/WindowControl.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const EVENTS = [
   {
@@ -158,5 +161,41 @@ describe('WindowControl — the Lite aurora door', () => {
 
     expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+});
+
+describe('WindowControl — guide doors (G3)', () => {
+  it('ends the open menu with a ? that opens map#window; a press on it keeps the menu open and the window put', () => {
+    mockOpenGuide.mockClear();
+    const { onSelect } = draw();
+    openMenu();
+    const menu = screen.getByTestId('wf-win-menu');
+    const link = within(menu).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('How the window control works');
+    expect(menu.lastElementChild).toContainElement(link);
+    expect(screen.getByTestId('wf-win-listbox')).not.toContainElement(link);
+    fireEvent.mouseDown(link);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'window', expect.any(Object));
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+    // An arrow key on the door does not step the window out from under it.
+    fireEvent.keyDown(link, { key: 'ArrowRight' });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+  });
+
+  it('puts "What does this do?" in the Lite aurora door popover only when the door is drawn', () => {
+    mockOpenGuide.mockClear();
+    const { unmount } = draw({ auroraDoor: DOOR });
+    openMenu();
+    const trigger = screen.getByTestId('wf-aurora-upsell-trigger');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('wf-aurora-upsell-guide'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'aurora-map', expect.any(Object));
+    expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
+    unmount();
+    draw();
+    openMenu();
+    expect(screen.queryByTestId('wf-aurora-upsell-guide')).toBeNull();
   });
 });

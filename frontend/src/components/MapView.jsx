@@ -110,6 +110,7 @@ import { askWindowOf } from '../utils/askMapContext.js';
 import { isNightType } from '../utils/askNights.js';
 import { ranksPhrase } from '../utils/askPickChip.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
+import { GuideWhy } from './guide/GuideLink.jsx';
 
 /**
  * Whether this pane is not on screen — detached, or inside a hidden tab panel.
@@ -7470,6 +7471,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-outside" />
                           outside your sub-regions
                           <span className="wf-lens-pro">Pro</span>
+                          <GuideWhy section="subRegions" testId="guide-why-outside" />
                         </span>
                         {legendPicks.allowed > 0 && (
                           <span className="wf-legend-ground-item" data-testid="wf-map-peek-picks-yours">
@@ -7563,6 +7565,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   testIdPrefix="viewline-upsell"
                   className="wf-pro-upsell-door--up"
                   unmountFocusRef={mapPaneRef}
+                  guide={{ section: 'auroraMap' }}
                 />
                 <button
                   type="button"
@@ -7631,6 +7634,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onClose={closeTideUpsell}
                 onFocusAway={closeTideUpsellQuietly}
                 doorSelector="[data-tide-door]"
+                returnFocus={() => tideUpsellOpenerRef.current}
               />
             )}
             {!isMobile && (
