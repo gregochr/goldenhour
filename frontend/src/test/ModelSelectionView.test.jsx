@@ -1098,7 +1098,8 @@ describe('ModelSelectionView', () => {
       render(<ModelSelectionView />);
       fireEvent.click(await screen.findByTestId(`config-tab-${tab}`));
 
-      await screen.findByTestId('ask-model-note');
+      const note = await screen.findByTestId('ask-model-note');
+      expect(note).toHaveTextContent('Ask offers Haiku 4.5, Haiku 5.5, Sonnet 4.6.');
       expect(screen.queryByTestId('toggle-extended-thinking')).not.toBeInTheDocument();
       expect(screen.queryByTestId('extended-thinking-panel')).not.toBeInTheDocument();
     });

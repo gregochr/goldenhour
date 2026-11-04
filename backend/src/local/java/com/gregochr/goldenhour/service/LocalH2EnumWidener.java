@@ -78,6 +78,7 @@ public class LocalH2EnumWidener implements SmartInitializingSingleton {
     /** The columns to keep wide. */
     static final List<Target> TARGETS = List.of(
             new Target("job_run", "run_type", RunType.class),
+            new Target("model_selection", "run_type", RunType.class),
             new Target("pipeline_run", "cycle_type", CycleType.class),
             new Target("sky_rating_eval_run", "model", EvaluationModel.class),
             new Target("scheduler_fire_log", "status", SchedulerFireStatus.class),

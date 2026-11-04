@@ -539,9 +539,9 @@ export default function ModelSelectionView() {
         <div className="card border border-plex-border" data-testid="ask-model-note">
           <p className="text-sm font-medium text-plex-text">Models Ask can run on</p>
           <p className="text-xs text-plex-text-secondary mt-1">
-            Ask offers Haiku 4.5, Haiku 5.5 and Sonnet 4.6. Sonnet 5.5 and Opus are not offered: Ask runs with
-            thinking off to keep its token and time budgets, and Sonnet 5.5 cannot switch thinking off. Ask
-            has no extended-thinking switch. A switch applies to the next question (typed) or the next
+            Ask offers {modelsForTab.map((m) => modelInfoFor(m).name).join(', ')}. Models not listed are not
+            offered: Ask runs with thinking off to keep its token and time budgets, and Sonnet 5.5 cannot
+            switch thinking off. Ask has no extended-thinking switch. A switch applies to the next question (typed) or the next
             precompute (ready answers).
           </p>
         </div>

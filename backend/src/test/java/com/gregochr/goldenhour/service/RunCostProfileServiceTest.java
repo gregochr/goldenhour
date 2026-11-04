@@ -194,7 +194,8 @@ class RunCostProfileServiceTest {
         assertThat(profiles.get("ASK").measured()).containsOnlyKeys("HAIKU");
         assertThat(profiles.get("ASK").measured().get("HAIKU").usdPerCall()).isCloseTo(0.010, within(1e-9));
         assertThat(profiles.get("ASK_READY").measured()).containsOnlyKeys("HAIKU_55");
-        assertThat(profiles.get("ASK_READY").estimates()).containsKey("HAIKU");
+        assertThat(profiles.get("ASK_READY").estimates()).containsOnlyKeys("HAIKU", "SONNET");
+        assertThat(profiles.get("ASK").estimates()).containsOnlyKeys("HAIKU_55", "SONNET");
         assertThat(profiles.get("BRIEFING_BEST_BET").measured()).isEmpty();
     }
 
