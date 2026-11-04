@@ -1,3 +1,0 @@
-### Changed — Snow and mist uses the valley mist forecast
-
-The Snow and mist topic no longer fires on relative humidity above 90 %. It now reads the valley mist band: a snowy sunrise counts as misty only when the band is LIKELY, the same rule as the Valley mist topic, so it fires only at mist-prone sites. When some snowy places have mist and others do not, the Briefing shows both a Snow and mist card (the misty places, days and regions) and a Fresh snow card (the rest: other places or other days). The sub-zero wording is now "Snow, mist & frost", with "frost likely" and "mist likely" facts, and says only what the forecast supports. No migration.
