@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { modelLabel } from '../../utils/modelLabels.js';
 import {
@@ -17,25 +17,33 @@ const CHIP_OFF = `${CHIP_BASE} border-plex-border bg-plex-panel text-plex-text-s
 /**
  * Accuracy over time: one line per model, one point per session, gold dashed version lines. Hand-rolled SVG on a
  * fixed viewBox that scales with the card; the scales live in utils/skyEval.js. Production models are drawn in
- * colour at 2px, others grey at 1px and 60%; a highlighted model replaces that emphasis. Hollow points are manual
+ * colour at 2px, others grey at 1px and 60%; the chips are a multi-select, and the chosen models replace that
+ * emphasis (several can be chosen to compare them, each in its own colour; Clear restores the default). Hollow points are manual
  * runs. Tooltips are SVG titles; the same facts are in the Runs tab and the version comparison.
  *
  * @param {object} props
  * @param {Array<object>} props.sessions the served sessions
  * @param {Array<object>} props.models the served model rows
  * @param {Array<object>} props.versions the served versions
- * @param {string|null} props.highlight the highlighted model
- * @param {(model: string|null) => void} props.onHighlight sets the highlight (null clears)
+ * @param {string[]} props.highlighted the chosen models
+ * @param {(model: string) => void} props.onToggle adds the model to the selection, or removes it
+ * @param {() => void} props.onClear empties the selection
  * @param {Date} props.now the right edge of the time axis
  */
-export default function AccuracyChart({ sessions, models, versions, highlight, onHighlight, now }) {
+export default function AccuracyChart({ sessions, models, versions, highlighted, onToggle, onClear, now }) {
   const { startMs, endMs } = useMemo(() => chartWindow(now), [now]);
   const series = useMemo(
-    () => buildAccuracySeries(sessions, models, highlight, startMs, endMs),
-    [sessions, models, highlight, startMs, endMs],
+    () => buildAccuracySeries(sessions, models, highlighted, startMs, endMs),
+    [sessions, models, highlighted, startMs, endMs],
   );
   const markers = useMemo(() => versionMarkers(versions, startMs, endMs), [versions, startMs, endMs]);
   const ticks = useMemo(() => timeTicks(startMs, endMs), [startMs, endMs]);
+  const groupRef = useRef(null);
+  // The Clear chip unmounts when pressed, so hand keyboard focus to the first chip rather than letting it drop.
+  const clearAndRefocus = () => {
+    onClear();
+    groupRef.current?.querySelector('button')?.focus();
+  };
   const plotRight = CHART.width - CHART.right;
   const plotBottom = CHART.height - CHART.bottom;
   const chipModels = models.filter((m) => sessions.some((s) => (s.byModel ?? []).some((b) => b.model === m.model)));
@@ -48,20 +56,31 @@ export default function AccuracyChart({ sessions, models, versions, highlight, o
           % of fixture ratings in band {'·'} production models in colour {'·'} gold lines are versions
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Highlight a model">
+      <div ref={groupRef} className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Compare models">
         {chipModels.map((m) => (
           <button
             key={m.model}
             type="button"
-            aria-pressed={highlight === m.model}
-            onClick={() => onHighlight(highlight === m.model ? null : m.model)}
-            className={highlight === m.model ? CHIP_ON : CHIP_OFF}
+            aria-pressed={highlighted.includes(m.model)}
+            onClick={() => onToggle(m.model)}
+            className={highlighted.includes(m.model) ? CHIP_ON : CHIP_OFF}
             data-testid={`sky-eval-chart-chip-${m.model}`}
           >
             <Swatch model={m.model} />
             {modelLabel(m.model)}
           </button>
         ))}
+        {highlighted.length > 0 && (
+          <button
+            type="button"
+            onClick={clearAndRefocus}
+            className={CHIP_OFF}
+            aria-label="Clear model selection"
+            data-testid="sky-eval-chart-clear"
+          >
+            Clear
+          </button>
+        )}
       </div>
       <svg
         viewBox={`0 0 ${CHART.width} ${CHART.height}`}
@@ -130,7 +149,8 @@ AccuracyChart.propTypes = {
   sessions: PropTypes.array.isRequired,
   models: PropTypes.array.isRequired,
   versions: PropTypes.array.isRequired,
-  highlight: PropTypes.string,
-  onHighlight: PropTypes.func.isRequired,
+  highlighted: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onToggle: PropTypes.func.isRequired,
+  onClear: PropTypes.func.isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
 };

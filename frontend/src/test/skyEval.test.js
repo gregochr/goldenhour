@@ -221,27 +221,48 @@ describe('chart geometry', () => {
     ];
 
     it('draws one point per session, oldest first, and drops null rates and sessions outside the window', () => {
-      const series = buildAccuracySeries(sessions, models, null, startMs, endMs);
+      const series = buildAccuracySeries(sessions, models, [], startMs, endMs);
       const sonnet = series.find((s) => s.model === 'SONNET_55');
       expect(sonnet.points.map((p) => p.pct)).toEqual([97.5, 99.4]);
       expect(series.find((s) => s.model === 'HAIKU')).toBeUndefined();
     });
 
     it('marks manual points and keeps the session trigger and version for the tooltip', () => {
-      const sonnet = buildAccuracySeries(sessions, models, null, startMs, endMs).find((s) => s.model === 'SONNET_55');
+      const sonnet = buildAccuracySeries(sessions, models, [], startMs, endMs).find((s) => s.model === 'SONNET_55');
       expect(sonnet.points.map((p) => p.manual)).toEqual([false, true]);
       expect(sonnet.points[1].runCount).toBe(2);
       expect(sonnet.points[1].version).toBe('a91b0e2aaaa');
     });
 
     it('emphasises production models by default, and draws them last', () => {
-      const series = buildAccuracySeries(sessions, models, null, startMs, endMs);
+      const series = buildAccuracySeries(sessions, models, [], startMs, endMs);
       expect(series.map((s) => [s.model, s.emphasised])).toEqual([['OPUS', false], ['SONNET_55', true]]);
     });
 
     it('emphasises only the highlighted model when one is chosen', () => {
-      const series = buildAccuracySeries(sessions, models, 'OPUS', startMs, endMs);
+      const series = buildAccuracySeries(sessions, models, ['OPUS'], startMs, endMs);
       expect(series.map((s) => [s.model, s.emphasised])).toEqual([['SONNET_55', false], ['OPUS', true]]);
+    });
+
+    it('treats a null highlight list as the production default', () => {
+      const series = buildAccuracySeries(sessions, models, null, startMs, endMs);
+      expect(series.map((s) => [s.model, s.emphasised])).toEqual([['OPUS', false], ['SONNET_55', true]]);
+    });
+
+    it('emphasises every highlighted model, not the rest, and draws them last', () => {
+      const three = [{ ...models[0] }, { ...models[1] }, { model: 'HAIKU', lanes: [] }];
+      const all = [
+        {
+          trigger: 'SCHEDULED', startedAt: '2026-10-25T04:00:00Z', version: null,
+          byModel: [
+            { model: 'OPUS', runCount: 1, inBandPct: 90 },
+            { model: 'SONNET_55', runCount: 1, inBandPct: 95 },
+            { model: 'HAIKU', runCount: 1, inBandPct: 85 },
+          ],
+        },
+      ];
+      const series = buildAccuracySeries(all, three, ['OPUS', 'SONNET_55'], startMs, endMs);
+      expect(series.map((s) => [s.model, s.emphasised])).toEqual([['HAIKU', false], ['SONNET_55', true], ['OPUS', true]]);
     });
 
     it('clamps a rate below the axis floor to the floor', () => {
@@ -249,7 +270,7 @@ describe('chart geometry', () => {
         trigger: 'SCHEDULED', startedAt: '2026-10-25T04:00:00Z', version: null,
         byModel: [{ model: 'OPUS', runCount: 1, inBandPct: 40 }],
       }];
-      const series = buildAccuracySeries(low, models, null, startMs, endMs);
+      const series = buildAccuracySeries(low, models, [], startMs, endMs);
       expect(series[0].points[0].y).toBe(chartY(70));
     });
 
