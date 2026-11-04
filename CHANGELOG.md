@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.38.2] - 2026-11-04
+
+### Changed — ZAP exceptions trimmed after v2.38.1
+
+The weekly ZAP gate no longer tolerates the backend error-disclosure (`90022`) and backend
+cross-origin-resource-policy (`90004`) alerts, which stopped firing in v2.38.1. The frontend `90004`
+exception is now keyed to its `90004-2` sub-alert (Cross-Origin-Embedder-Policy, deliberately not
+set) and is permanent, so any other `90004` sub-alert fails the gate again. A unit test covers the
+sub-alert matching.
+
+### Fixed — malformed or unknown input now gets 4xx instead of 500
+
+Three kinds of request that the API used to answer with a 500 now get a 4xx with a fixed, generic body that
+never echoes the supplied value. A verb a path is not mapped for (a GET to a PUT-only path such as
+`/api/areas/{id}`) is 405 with an `Allow` header. A body sent with a content type the endpoint does not read is
+415. A request that fails bean validation is 400 (`MethodArgumentNotValidException` and
+`HandlerMethodValidationException` are mapped in `GlobalExceptionHandler`). `PUT /api/user/settings/home` now
+validates its body: a postcode longer than its 10-character column or a latitude or longitude outside the WGS84
+range is 400 before it reaches the database, where an over-long postcode used to surface as a database error.
+
+### Testing — Cover the API wrappers and admin simulation UIs; raise the coverage floor
+
+Added Vitest tests for the axios wrapper modules that had none (user, models, metrics, batch, tide,
+light) or little (forecast, scheduler, settings, area, region, runs, aurora, auth), and for the Aurora
+simulate modal, the Hot Topic simulation panel, `useSortAndFilter` and `startRunOptions`. The CI
+coverage floor rises to 98% lines, 97% statements, 97% functions and 93% branches.
+
+### Added — frontend unit-test coverage floor in CI
+
+The frontend CI job now runs Vitest with v8 coverage (`npm run test:coverage`) and fails a PR that
+drops global coverage below the level measured on 2026-11-04: 97% lines, 96% statements, 96%
+functions, 93% branches. The floor lives in `test.coverage.thresholds` in `frontend/vite.config.js`
+and is only ever raised. `npm test` is unchanged. Dependabot now bumps `vitest` and `@vitest/*`
+together, and the landing page's "how it's built" copy says the app's tests have a coverage minimum.
+
+### Changed — the Content-Security-Policy no longer allows inline styles
+
+The enforced `style-src` is now `'self'`: `'unsafe-inline'` is dropped, and the report-only
+candidate policy and its header are removed. The candidate shipped report-only in the previous
+release and a console check of production on 2026-11-04 showed no violations. React `style={}`
+props and Leaflet's `el.style` go through the CSSOM, which CSP does not block. The noctilucent-cloud
+sighting banner used to inject a `<style>` element, which the stricter policy would have blocked, so
+its rules moved unchanged into a co-located `NlcSightingBanner.css` that the build bundles into a
+normal stylesheet. A new test forbids any `<style>` element in app source. The legacy-browser
+"Browser Not Supported" notice keeps its `style=""` attributes; only browsers without module support
+see it, and its message still shows, unstyled.
+
 ## [v2.38.1] - 2026-11-04
 
 ### Changed — the weekly ZAP scan can now fail
