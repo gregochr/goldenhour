@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.model.SaveHomeRequest;
+import com.gregochr.goldenhour.model.UserSettingsResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,7 +20,9 @@ import java.util.NoSuchElementException;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -295,7 +299,7 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid request"))
                 .andExpect(content().string(not(containsString("ZQZQ"))));
-        verify(settingsService, never()).saveHome(any(), any());
+        verifyNoInteractions(settingsService);
     }
 
     @Test
@@ -307,17 +311,27 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Invalid request"))
                 .andExpect(content().string(not(containsString("%s%n%x"))));
-        verify(settingsService, never()).saveHome(any(), any());
+        verifyNoInteractions(settingsService);
     }
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("A well-formed home is still accepted")
     void saveHome_validBody_isAccepted() throws Exception {
+        SaveHomeRequest expected = new SaveHomeRequest("DH1 3LE", 54.7761, -1.5733, null);
+        when(settingsService.saveHome(argThat(auth -> auth != null && "user".equals(auth.getName())),
+                eq(expected)))
+                .thenReturn(new UserSettingsResponse("user", "test@example.com", "PRO_USER",
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, false, false));
+
         mockMvc.perform(put("/api/user/settings/home").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"postcode\":\"DH1 3LE\",\"latitude\":54.7761,\"longitude\":-1.5733}"))
-                .andExpect(status().isOk());
-        verify(settingsService).saveHome(any(), any());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.homePostcode").value("DH1 3LE"))
+                .andExpect(jsonPath("$.homeLatitude").value(54.7761))
+                .andExpect(jsonPath("$.homeLongitude").value(-1.5733));
+        verify(settingsService).saveHome(argThat(auth -> auth != null && "user".equals(auth.getName())),
+                eq(expected));
     }
 
     @Test
