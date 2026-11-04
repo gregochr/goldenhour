@@ -199,6 +199,22 @@ export default defineConfig(({ mode }) => {
     // case, so most failure latencies are unchanged; and the frontend CI job now carries a
     // `timeout-minutes` so a genuine hang cannot run up the runner's clock.
     testTimeout: 20000,
+    // Coverage floor (CI runs `npm run test:coverage`). Measured 2026-11-04: lines 97.65%,
+    // statements 96.61%, functions 96.08%, branches 93.47%.
+    // Raise these when coverage rises; never lower them without the owner's say-so.
+    coverage: {
+      provider: 'v8',
+      // `include` (not the removed `all`) makes files that no test imports count as 0%.
+      include: ['src/**/*.{js,jsx}'],
+      exclude: [
+        'src/test/**', // test setup and helpers, not product code
+        'src/**/*.test.{js,jsx}', // the tests themselves
+        'src/main.jsx', // bootstrap that mounts <App/> into the page; nothing to unit-test
+      ],
+      reporter: ['text-summary', 'json-summary'],
+      reportOnFailure: true,
+      thresholds: { lines: 97, statements: 96, functions: 96, branches: 93 },
+    },
   },
   };
 });

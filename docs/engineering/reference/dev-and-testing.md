@@ -205,21 +205,23 @@ grep -E "BUILD (SUCCESS|FAILURE)|Rule violated|Tests run: [0-9]+, Fail" /tmp/v.l
 
 Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/integration/**` path glob rather than a list of class names — a name list rots (`HttpIntegrationTestBaseProbeTest` ends in `ProbeTest` and slips past `!*IntegrationTest`), and `-Dtest='!com.gregochr.goldenhour.integration.*'` does not work at all, as surefire ignores that form. JaCoCo coverage is then computed without those tests, i.e. slightly pessimistic — if it passes locally it passes on CI. **JaCoCo's rule is 80% line coverage per class**, which bites small new records: cover the defensive null branches with real assertions rather than deleting the guards.
 
+**Frontend coverage floor.** CI's Vitest step is `npm run test:coverage` (`vitest run --coverage`, v8 provider via `@vitest/coverage-v8`, pinned to the exact vitest version). The floor is `test.coverage.thresholds` in `frontend/vite.config.js`: global lines / statements / functions / branches, the figure measured on 2026-11-04 rounded down to a whole percent (97 / 96 / 96 / 93). `include` is `src/**/*.{js,jsx}` so untested files count as 0%. **Ratchet rule: raise the numbers when coverage rises; never lower them without the owner's say-so.** `npm test` stays the plain, no-coverage run. Output goes to the ignored `frontend/coverage/`.
+
 **Don't use background Bash tasks for long Maven builds** — the background task output files are unreliable (often 0 bytes until the process finishes writing). Always run `./mvnw` in the foreground with an explicit `timeout` parameter so results come back immediately.
 
 **Frontend tests are fast — run them separately:**
 
 ```bash
-cd frontend && npm run test -- --reporter=dot   # ~90s, much faster than backend
+cd frontend && npm run test -- --reporter=dot   # ~8-10 min for the full suite (15.6k tests); coverage overhead was within run-to-run noise in one local measurement
 ```
 
-⚠️ **`npm run test` is NOT the frontend CI job.** That job is lint → Vitest → **`npm audit
+⚠️ **`npm run test` is NOT the frontend CI job.** That job is lint → Vitest with the coverage floor → **`npm audit
 --audit-level=high`** → build, and the audit step is the one nothing local runs. It blocks on a
 *transitive* advisory nobody in this repo introduced, so the PR goes red on a change that touches no
 dependency file — which is exactly how P11 lost a CI round. Run all four before pushing:
 
 ```bash
-cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
 
 And when `npm audit` does fire, prefer a **surgical lockfile edit** to `npm audit fix`. The fix
