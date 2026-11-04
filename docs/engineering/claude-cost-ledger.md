@@ -149,7 +149,12 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
 
 1. **The Near-Term model.** This is the only large lever, ~$53/month. It needs the Sky Eval and the
    prompt regression suite to pass, plus a check for rating spread between neighbouring cells.
-2. **Cadence.** This is a freshness choice, not an engineering one.
+2. **Cadence.** This is a freshness choice, not an engineering one. The owner's next idea (2026-11-04):
+   the overnight run does far-term only (about $40/month of overnight T+0 and T+1 on Sonnet 5.5), a
+   short-term series re-rates the next couple of windows gated on stability, and perhaps weekend against
+   weekday. The catch is today's sunrise, whose last look would become the 21:00 one. Measure first with
+   `short-term-looks.sql`: how far each look moves the rating it replaces, by stability, against what
+   readers saw, and the cost split once #1662 is live.
 3. **Everything else** is a few dollars at most.
 
 `sky_rating_eval_result.miss_direction` stores `'IN_BAND'` for passes, so count misses as
