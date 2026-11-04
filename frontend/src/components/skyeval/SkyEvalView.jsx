@@ -39,7 +39,7 @@ function writeTab(tab) {
 }
 
 /**
- * Sky Eval (Operations, Tuning): the test harness for sky-rating accuracy, built around which model to run in
+ * Sky Eval (Operations, Testing): the test harness for sky-rating accuracy, built around which model to run in
  * production, whether a change made ratings worse, and a quick check. One read of {@code GET /overview} feeds
  * every tab; it refetches after a check is submitted and every few seconds while any session is running.
  */

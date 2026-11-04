@@ -19,7 +19,7 @@ vi.mock('../components/AreaManagementView.jsx', () => stub('Areas'));
 vi.mock('../components/TideManagementView.jsx', () => stub('Tides'));
 vi.mock('../components/WaitlistManagementView.jsx', () => stub('Waitlist'));
 vi.mock('../components/runs/RunsView.jsx', () => stub('Runs'));
-vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
+vi.mock('../components/ModelSelectionView.jsx', () => stub('Model Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
 vi.mock('../components/skyeval/SkyEvalView.jsx', () => stub('Sky Eval'));
@@ -30,16 +30,15 @@ vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
     ['runs', 'Runs'],
-    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
+    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'], ['models', 'Model Config'],
   ] },
-  { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },
   { group: 'places', label: 'Places', tabs: [
     ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
   ] },
   { group: 'people', label: 'People', tabs: [
     ['users', 'Users'], ['waitlist', 'Waitlist'],
   ] },
-  { group: 'testing', label: 'Testing', tabs: [['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
+  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
 ];
 
 const ALL_TABS = EXPECTED.flatMap((g) => g.tabs.map(([value, label]) => ({ group: g.group, value, label })));
@@ -55,12 +54,14 @@ describe('ManageView — grouping', () => {
     getWaitlist.mockResolvedValue([]);
   });
 
-  it('renders exactly the five groups, in order, and no old Data/Operations group', () => {
+  it('renders exactly the four groups, in order, and no old Data/Operations/Tuning group', () => {
     render(<ManageView onComplete={vi.fn()} />);
     const ids = screen.getAllByTestId(/^manage-group-(?!bar$)/).map((el) => el.dataset.testid);
     expect(ids).toEqual(GROUP_IDS);
     expect(screen.queryByTestId('manage-group-data')).toBeNull();
     expect(screen.queryByTestId('manage-group-operations')).toBeNull();
+    expect(screen.queryByTestId('manage-group-tuning')).toBeNull();
+    expect(screen.queryByText('Tuning')).toBeNull();
   });
 
   it.each(EXPECTED)('$group group shows exactly its tabs, in order', ({ group, label, tabs }) => {
@@ -73,7 +74,7 @@ describe('ManageView — grouping', () => {
     });
   });
 
-  it('lets both tab rows wrap so five groups fit a phone', () => {
+  it('lets both tab rows wrap so four groups fit a phone', () => {
     render(<ManageView onComplete={vi.fn()} />);
     expect(screen.getByTestId('manage-group-bar')).toHaveClass('flex-wrap');
     expect(screen.getByTestId('manage-tab-bar')).toHaveClass('flex-wrap');
@@ -106,6 +107,21 @@ describe('ManageView — grouping', () => {
     expect(isSelectedGroup(group)).toBe(true);
     expect(screen.getByTestId(`manage-tab-${value}`)).toBeInTheDocument();
     expect(screen.getByTestId('stub-view')).toHaveTextContent(label);
+  });
+
+  it('the old Tuning deep links still work: #manage/models is Runs / Model Config, #manage/skyeval is Testing / Sky Eval', () => {
+    window.location.hash = '#manage/models';
+    const first = render(<ManageView onComplete={vi.fn()} />);
+    expect(isSelectedGroup('runs')).toBe(true);
+    expect(screen.getByTestId('manage-tab-models')).toHaveTextContent('Model Config');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Model Config');
+    first.unmount();
+
+    window.location.hash = '#manage/skyeval';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(isSelectedGroup('testing')).toBe(true);
+    expect(screen.getByTestId('manage-tab-skyeval')).toHaveTextContent('Sky Eval');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Sky Eval');
   });
 
   it('the retired #manage/subregions link falls back to Runs / Runs', () => {

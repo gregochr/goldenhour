@@ -21,7 +21,7 @@ describe('ManageView — the Sub-regions tab is gone (the Lite limit lives on Op
 
   it('carries no Sub-regions tab in any group', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    ['runs', 'tuning', 'places', 'people', 'testing'].forEach((group) => {
+    ['runs', 'places', 'people', 'testing'].forEach((group) => {
       fireEvent.click(screen.getByTestId(`manage-group-${group}`));
       expect(screen.queryByTestId('manage-tab-subregions')).toBeNull();
       expect(screen.queryByText('Sub-regions')).toBeNull();
