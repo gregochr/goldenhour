@@ -126,3 +126,20 @@ tr:last-child td{border-bottom:none}
 }
 .doc ol{list-style:decimal;max-width:660px;margin:0 0 12px 22px}
 .doc ol li{font-size:15.5px;color:var(--ink-soft);padding:3px 0 3px 4px}
+
+/* Spacing and callout rules that used to be style="" attributes: the site's Content-Security-Policy
+   allows no inline styles. Single-class margins; each beats only the element reset at the top. */
+.mt-14{margin-top:14px}
+.mt-18{margin-top:18px}
+.mt-20{margin-top:20px}
+.mt-26{margin-top:26px}
+.mt-30{margin-top:30px}
+.mb-8{margin-bottom:8px}
+.mb-18{margin-bottom:18px}
+.pro.flush{margin-left:0}
+/* The boxed note on the legal pages. `.doc .callout p` (0,2,1) out-specifies `.doc p` (0,1,1). */
+.callout{border:1px solid var(--rule-2);background:var(--ground-2);border-radius:var(--r);padding:20px 22px;margin-bottom:12px;max-width:660px}
+.callout.warn{border-color:color-mix(in oklab,var(--poor) 34%,transparent);background:color-mix(in oklab,var(--poor) 9%,transparent)}
+.doc .callout p:last-child{margin:0}
+.doc .callout.warn p:last-child{color:var(--ink)}
+.callout.warn .lab{color:var(--poor)}
