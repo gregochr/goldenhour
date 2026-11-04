@@ -55,7 +55,6 @@ const SECURITY_HEADERS = [
   PERMISSIONS,
   'add_header Cross-Origin-Opener-Policy "same-origin" always;',
   'add_header Content-Security-Policy $csp always;',
-  'add_header Content-Security-Policy-Report-Only $csp_report_only always;',
   'add_header Cross-Origin-Resource-Policy "same-origin" always;',
 ];
 
@@ -149,7 +148,7 @@ describe('nginx.conf Content-Security-Policy frame-src', () => {
   });
 });
 
-describe('nginx.conf Report-Only CSP, CORP and cross-origin isolation', () => {
+describe('nginx.conf enforced strict CSP, CORP and cross-origin isolation', () => {
   const policy = (name) => (code.match(new RegExp(`set \\$${name} "([^"]*)"`)) ?? [])[1] ?? '';
   const directiveMap = (text) =>
     Object.fromEntries(
@@ -160,38 +159,32 @@ describe('nginx.conf Report-Only CSP, CORP and cross-origin isolation', () => {
         .map((d) => [d.split(' ')[0], d]),
     );
   const enforced = directiveMap(policy('csp'));
-  const reportOnly = directiveMap(policy('csp_report_only'));
 
-  it.each(['/assets/', '/', AASA])('sends CORP and the Report-Only CSP from location %s', (selector) => {
+  it.each(['/assets/', '/', AASA])('sends CORP and the enforced CSP from location %s', (selector) => {
     const body = directives(block(selector));
     expect(body).toContain('add_header Cross-Origin-Resource-Policy "same-origin" always;');
-    expect(body).toContain('add_header Content-Security-Policy-Report-Only $csp_report_only always;');
+    expect(body).toContain('add_header Content-Security-Policy $csp always;');
   });
 
-  it('sets CORP and the Report-Only CSP exactly as often as the enforced CSP', () => {
+  it('sets the CSP and CORP exactly once per header-setting location', () => {
     const count = (prefix) => directives(code).filter((l) => l.startsWith(prefix)).length;
     expect(count('add_header Content-Security-Policy $csp')).toBe(3);
-    expect(count('add_header Content-Security-Policy-Report-Only')).toBe(3);
     expect(count('add_header Cross-Origin-Resource-Policy')).toBe(3);
   });
 
-  it('keeps unsafe-inline out of the Report-Only style-src', () => {
-    expect(reportOnly['style-src']).toBe("style-src 'self'");
-    expect(enforced['style-src']).toBe("style-src 'self' 'unsafe-inline'");
+  it("limits the enforced style-src to 'self': no unsafe-inline, no unsafe-eval", () => {
+    expect(enforced['style-src']).toBe("style-src 'self'");
+    expect(enforced['style-src']).not.toContain('unsafe-inline');
+    expect(enforced['style-src']).not.toContain('unsafe-eval');
   });
 
-  it('is otherwise the enforced policy, directive by directive', () => {
-    expect(Object.keys(reportOnly)).toEqual(Object.keys(enforced));
-    for (const name of Object.keys(enforced)) {
-      if (name !== 'style-src') {
-        expect(reportOnly[name]).toBe(enforced[name]);
-      }
-    }
+  it('has no Report-Only header and no report-only variable left', () => {
+    expect(code.toLowerCase()).not.toContain('content-security-policy-report-only');
+    expect(code).not.toContain('csp_report_only');
   });
 
-  it('never sets Cross-Origin-Embedder-Policy, in either policy or as a header', () => {
+  it('never sets Cross-Origin-Embedder-Policy, in the policy or as a header', () => {
     expect(code.toLowerCase()).not.toContain('cross-origin-embedder-policy');
     expect(policy('csp').toLowerCase()).not.toContain('embedder');
-    expect(policy('csp_report_only').toLowerCase()).not.toContain('embedder');
   });
 });
