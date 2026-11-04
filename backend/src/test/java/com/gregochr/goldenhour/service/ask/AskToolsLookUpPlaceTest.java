@@ -370,7 +370,7 @@ class AskToolsLookUpPlaceTest {
 
         assertThat(stood.status()).isEqualTo("UNRATED");
         assertThat(stoodReason)
-                .isEqualTo("Not rated for this window. Its region was stood down for the weather.");
+                .isEqualTo("Not rated for this window. Its region was ruled out by the weather.");
         assertThat(reason(away)).isEqualTo("Not rated for this window. Its region was not scored.");
     }
 

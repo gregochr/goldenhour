@@ -325,8 +325,8 @@ class AskToolSchemasTest {
                     .asText();
 
             assertThat(list).contains("spread of its ratings").contains("the count at each star")
-                    .contains("how many are game on").contains("regions holding a game-on place")
-                    .contains("stood down or not scored").contains("BEST BET / ALSO GOOD");
+                    .contains("how many are rated 4★ or better (gameOn)").contains("regions holding such a place")
+                    .contains("ruled out by the weather (stoodDown) or not scored").contains("BEST BET / ALSO GOOD");
             assertThat(picks).startsWith("Up to three different spots").contains("fewer is fine")
                     .doesNotContain("Two or three");
         }

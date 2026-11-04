@@ -409,7 +409,7 @@ public class StubAskEngine implements AskEngine {
         String area = AskSnapshot.Spread.EVERY_REGION.equals(over) ? "across every region" : "in " + over;
         if (rated == 0) {
             return Optional.of(allStoodDown
-                    ? "Every region is stood down for that window, so it is poor " + area + "."
+                    ? "Every region is ruled out by the weather for that window, so it is poor " + area + "."
                     : "That window is mostly not scored yet, so there is nothing to say about it " + area + ".");
         }
         String places = rated + " rated " + (rated == 1 ? "place" : "places");
@@ -422,8 +422,8 @@ public class StubAskEngine implements AskEngine {
             return Optional.of("Not a window to go out for " + area + ": of " + places + ", " + gameOn + verb
                     + " 4★ or better.");
         }
-        return Optional.of("Broadly game on " + area + ": " + gameOn + " of " + places + (gameOn == 1 ? " is" : " are")
-                + " 4★ or better.");
+        return Optional.of("Broadly worth going " + area + ": " + gameOn + " of " + places
+                + (gameOn == 1 ? " is" : " are") + " 4★ or better.");
     }
 
     private static String spotsSummary(List<SpotInfo> chosen, List<AskSnapshot.Spread> spreads,
