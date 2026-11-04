@@ -71,3 +71,6 @@ frontend/data/
 # Stray Maven artifacts from wrong-cwd invocations
 /backend/main/
 /com/
+
+# Vitest coverage output (npm run test:coverage)
+coverage/

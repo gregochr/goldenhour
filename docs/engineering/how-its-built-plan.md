@@ -116,7 +116,7 @@ See the [Privacy notice](privacy.html) for what PhotoCast stores and why.
 ### Where it's still improving
 Being honest about the gaps is part of the same standard.
 - The app's tests run in a simulated browser. A few tests in real browsers exist, but they're run by hand rather than on every change.
-- The server's tests are checked by mutation testing and a coverage minimum. The app's tests don't have either yet.
+- The server's tests are checked by mutation testing and a coverage minimum. The app's tests have a coverage minimum too, but not mutation testing yet.
 - The larger forecast regression suite is run by hand rather than on every change, because each run asks the AI
   model real questions and costs real money. The weekly sky check fills that gap in between.
 - PhotoCast runs on a single server, without a separate test copy of the live service. Backups, health checks and
