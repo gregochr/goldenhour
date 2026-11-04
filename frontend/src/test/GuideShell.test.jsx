@@ -192,6 +192,60 @@ describe('the masthead door on desktop and tablet', () => {
   });
 });
 
+describe('review round 1', () => {
+  it('a docked guide following the reader to another tab reloads the frame WITHOUT taking focus (arrow keys keep working)', async () => {
+    mount({ props: { mapPane: MAP_PANE } });
+    await screen.findByTestId('ask-field');
+    fireEvent.click(door());
+    expect(screen.getByTestId('guide-close')).toHaveFocus();
+    const plan = tab('At a Glance');
+    plan.focus();
+    fireEvent.keyDown(plan, { key: 'ArrowRight' });
+    await waitFor(() => expect(frameSrc()).toBe(page('coming-up')));
+    expect(tab('Coming up')).toHaveFocus();
+    expect(screen.getByTestId('guide-close')).not.toHaveFocus();
+    fireEvent.keyDown(tab('Coming up'), { key: 'ArrowRight' });
+    await waitFor(() => expect(frameSrc()).toBe(page('map')));
+    expect(tab('Map')).toHaveFocus();
+  });
+
+  it('a click that left focus on <body> (Safari) still returns focus to the masthead ? on close', async () => {
+    mount();
+    await screen.findByTestId('ask-field');
+    document.activeElement?.blur();
+    fireEvent.click(door());
+    expect(guideDock()).not.toBeNull();
+    fireEvent.click(screen.getByTestId('guide-close'));
+    expect(door()).toHaveFocus();
+  });
+
+  it('the phone menu\'s Guide row returns focus to the ⋯ trigger', async () => {
+    mount({ width: 390 });
+    await screen.findByTestId('ask-bar');
+    fireEvent.click(screen.getByTestId('masthead-menu-button'));
+    fireEvent.click(screen.getByTestId('masthead-menu-guide'));
+    document.activeElement?.blur();
+    fireEvent.click(screen.getByTestId('bottom-sheet-close'));
+    await waitFor(() => expect(screen.getByTestId('masthead-menu-button')).toHaveFocus());
+  });
+
+  it('the popup\'s ArrowLeft/Right stepping stands down under a stacked guide and returns after', async () => {
+    const base = matrixCtx();
+    const second = { ...base.windowCards[0], key: '2026-10-06:SUNRISE', date: '2026-10-06', targetType: 'SUNRISE' };
+    mount({ ctx: { ...base, windowCards: [base.windowCards[0], second] } });
+    await screen.findByTestId('wf-heat-strip');
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
+    await screen.findByTestId('window-sheet', {}, SLOW);
+    // Stepping is live with nothing over the popup: the key is consumed.
+    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(false);
+    fireEvent.click(door());
+    expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
+    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(true);
+    fireEvent.click(screen.getByTestId('guide-close'));
+    expect(fireEvent.keyDown(document.body, { key: 'ArrowRight' })).toBe(false);
+  });
+});
+
 describe('the phone', () => {
   it('has no masthead `?`; the ⋯ menu carries a Guide row that closes the menu and opens the sheet', async () => {
     mount({ width: 390 });

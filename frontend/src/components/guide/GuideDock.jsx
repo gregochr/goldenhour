@@ -23,6 +23,7 @@ export default function GuideDock({ band, sticky, inert }) {
       page={guide.page}
       hash={guide.hash}
       nonce={guide.nonce}
+      focusKey={guide.focusKey}
       tracked={guide.tracked}
       onTrack={guide.trackGuide}
       onClose={() => guide.closeGuide()}

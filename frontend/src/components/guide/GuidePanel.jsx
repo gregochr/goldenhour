@@ -48,6 +48,16 @@ function GuideFrame({ page, hash, nonce, onTrack }) {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, []);
+  // ⚠️ `allow-scripts` + `allow-same-origin` together let a framed page remove its own sandbox, so the
+  // sandbox protects the app ONLY because the guide is a DIFFERENT origin. If the two ever match (a
+  // misconfigured VITE_GUIDE_ORIGIN), the frame is not rendered at all.
+  const sameOrigin = GUIDE_ORIGIN === window.location.origin;
+  useEffect(() => {
+    if (sameOrigin) {
+      console.error('GUIDE_ORIGIN equals the app origin; refusing to frame the guide (sandbox would be void).');
+    }
+  }, [sameOrigin]);
+  if (sameOrigin) return null;
   return (
     <iframe
       key={nonce}
@@ -113,11 +123,14 @@ GuideHeader.propTypes = {
   onClose: PropTypes.func.isRequired,
 };
 
-/** Moves focus to the ✕ on mount and whenever the frame is reloaded (a fresh `openGuide`). */
-function useFocusClose(closeRef, nonce) {
+/**
+ * Moves focus to the ✕ on mount and on every fresh `openGuide` (its `focusKey`). A tab-follow reloads the
+ * frame (new `nonce`) but keeps the `focusKey`, so it never steals focus from the tab being arrowed.
+ */
+function useFocusClose(closeRef, focusKey) {
   useEffect(() => {
     closeRef.current?.focus({ preventScroll: true });
-  }, [closeRef, nonce]);
+  }, [closeRef, focusKey]);
 }
 
 /**
@@ -129,12 +142,12 @@ function useFocusClose(closeRef, nonce) {
  * works only while focus is in the panel chrome.
  */
 function DockedGuide({
-  page, hash, nonce, tracked, onTrack, onClose, band, sticky, inert,
+  page, hash, nonce, focusKey, tracked, onTrack, onClose, band, sticky, inert,
 }) {
   const asideRef = useRef(null);
   const closeRef = useRef(null);
   useStickyViewportFill(asideRef, sticky);
-  useFocusClose(closeRef, nonce);
+  useFocusClose(closeRef, focusKey);
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
@@ -174,6 +187,7 @@ DockedGuide.propTypes = {
   page: PropTypes.string.isRequired,
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
+  focusKey: PropTypes.number,
   tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -189,11 +203,11 @@ DockedGuide.propTypes = {
  * {@code guideModal}). Escape answers only while this is the last dialog in the document.
  */
 function DialogGuide({
-  page, hash, nonce, tracked, onTrack, onClose, returnFocus,
+  page, hash, nonce, focusKey, tracked, onTrack, onClose, returnFocus,
 }) {
   const closeRef = useRef(null);
   const dialogRef = useDialogFocus(true, { restoreFallback: returnFocus });
-  useFocusClose(closeRef, nonce);
+  useFocusClose(closeRef, focusKey);
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
@@ -238,6 +252,7 @@ DialogGuide.propTypes = {
   page: PropTypes.string.isRequired,
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
+  focusKey: PropTypes.number,
   tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
@@ -269,7 +284,7 @@ DialogGuide.propTypes = {
  * @param {boolean} [props.inert] docked only: a shell dialog, search or settings is open
  */
 export default function GuidePanel({
-  presentation, page, hash = '', nonce, tracked = null, onTrack, onClose, returnFocus = undefined,
+  presentation, page, hash = '', nonce, focusKey = 0, tracked = null, onTrack, onClose, returnFocus = undefined,
   band = 'desktop', sticky = true, inert = false,
 }) {
   if (presentation === 'docked') {
@@ -278,6 +293,7 @@ export default function GuidePanel({
         page={page}
         hash={hash}
         nonce={nonce}
+        focusKey={focusKey}
         tracked={tracked}
         onTrack={onTrack}
         onClose={onClose}
@@ -293,6 +309,7 @@ export default function GuidePanel({
         page={page}
         hash={hash}
         nonce={nonce}
+        focusKey={focusKey}
         tracked={tracked}
         onTrack={onTrack}
         onClose={onClose}
@@ -322,6 +339,7 @@ GuidePanel.propTypes = {
   page: PropTypes.string.isRequired,
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
+  focusKey: PropTypes.number,
   tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,

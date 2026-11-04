@@ -263,6 +263,19 @@ What the build did that the text above does not say, or did differently:
 - **Crossing 1024px closes an open guide** (docked and dialog need the wide bands, the sheet the narrow
   ones); the plan did not say what a rotation does.
 - **The Ask sheet's header** is a new row: an "Ask" label and the `?`, above the conversation.
+- Review round 1, focus: the context now carries a `focusKey` bumped only by `openGuide`; a tab-follow
+  reloads the frame (new `nonce`) but never moves focus to the ✕.
+- Review round 1, Safari: the masthead `?` and the phone menu's Guide row pass `returnFocus` naming the
+  `?` button and the ⋯ trigger, since a click does not focus a button there.
+- Review round 1, popup keys: `guideModal` joins `modalOpenOverPopup` (so `peeksSuppressed` and the
+  dock's inert) and the popup's ArrowLeft/Right gate.
+- Review round 1, origin: `resolveGuideOrigin` never throws on a malformed `VITE_GUIDE_ORIGIN` and, in a
+  production build, rejects a non-https origin, both falling back to `https://photocast.online`.
+- Review round 1, sandbox: a comment at the iframe says `allow-scripts` + `allow-same-origin` is safe only
+  because the origins differ; if `GUIDE_ORIGIN` equals the app's origin the frame is not rendered and
+  `console.error` fires (in every build, not only dev).
+- Review round 1, CSS: `guideCss.test.js` pins the docked widths (380/440), the z-70 layer and the
+  `[data-flush]` BottomSheet rule.
 - **Not checked in a real browser from this build**: the z-index of the stacked dialog over the peek and
   popup, the docked layout and its animation at 1024-1180 and 1280, the iframe loading and its
   `postMessage`, and the focus behaviour that depends on `inert` (jsdom has none). The browser check in

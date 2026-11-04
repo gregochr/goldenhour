@@ -540,6 +540,7 @@ export default function WindowFirstShell({
   /** The in-app guide (G2): its doors here are the masthead `?` and the phone menu's Guide row. */
   const guide = useGuide();
   const { guideModal } = guide;
+  const guideBtnRef = useRef(null);
   /**
    * The location whose four-day sheet is open, or null (P8).
    *
@@ -1535,7 +1536,7 @@ export default function WindowFirstShell({
    * suppress the peek — it is the surface the peek is opened from — and once the `/` guard moved
    * onto `stackedOverPopup` at M3 that flag had no other reader.)
    */
-  const modalOpenOverPopup = stackedOverPopup || searchSeed != null;
+  const modalOpenOverPopup = stackedOverPopup || searchSeed != null || guideModal;
 
   /**
    * Ask PhotoCast's entry and sheet (plan §2.6, F1b).
@@ -1623,7 +1624,8 @@ export default function WindowFirstShell({
   /** The masthead `?`: open the tab's page, or close the guide if it is already up. */
   const toggleGuide = () => {
     if (guide.open) guide.closeGuide();
-    else if (guideTabPage) guide.openGuide(guideTabPage);
+    // Safari does not focus a button on click, so there may be no focused door to return to: name it.
+    else if (guideTabPage) guide.openGuide(guideTabPage, '', { returnFocus: () => guideBtnRef.current });
   };
   // `openCard`, not `openWindowKey`: the popup draws only for a live card, and a key whose card has
   // gone (its event passed) is deliberately never released — it would leave the entry disabled with
@@ -2312,7 +2314,7 @@ export default function WindowFirstShell({
    * that do nothing on the two windows a reader is most often in.
    */
   useEffect(() => {
-    if (openWindowKey == null || searchSeed != null || stackedOverPopup) return undefined;
+    if (openWindowKey == null || searchSeed != null || stackedOverPopup || guideModal) return undefined;
     const onKeyDown = (event) => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -2328,7 +2330,7 @@ export default function WindowFirstShell({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [openWindowKey, searchSeed, stackedOverPopup, windowCards, openWindow]);
+  }, [openWindowKey, searchSeed, stackedOverPopup, guideModal, windowCards, openWindow]);
   return (
     <div
       ref={shellRef}
@@ -2451,7 +2453,9 @@ export default function WindowFirstShell({
                 }}
                 onSignOut={onSignOut}
                 onWarmSettings={warmSettingsModal}
-                onGuide={guideTabPage ? () => guide.openGuide(guideTabPage) : undefined}
+                onGuide={guideTabPage
+                  ? () => guide.openGuide(guideTabPage, '', { returnFocus: () => menuBtnRef.current })
+                  : undefined}
               />
             </div>
           </div>
@@ -2505,6 +2509,7 @@ export default function WindowFirstShell({
                 open guide is; a stacked dialog or the sheet is not in this tree. */}
             {guideTabPage && (
               <button
+                ref={guideBtnRef}
                 type="button"
                 onClick={toggleGuide}
                 data-testid="window-first-guide"

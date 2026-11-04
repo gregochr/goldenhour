@@ -22,6 +22,7 @@ const NO_GUIDE = Object.freeze({
   page: null,
   hash: '',
   nonce: 0,
+  focusKey: 0,
   tracked: null,
   guideModal: false,
   lastClose: NEVER_CLOSED,
@@ -123,7 +124,9 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
     // takes the same panel to the new place.
     if (current && current.presentation !== 'docked') {
       nonceRef.current += 1;
-      commit({ ...current, page, hash: hashId, nonce: nonceRef.current }, null);
+      commit({
+        ...current, page, hash: hashId, nonce: nonceRef.current, focusKey: nonceRef.current,
+      }, null);
       return;
     }
     const active = document.activeElement;
@@ -147,6 +150,8 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
       page,
       hash: hashId,
       nonce: nonceRef.current,
+      // Only an openGuide moves focus to the ✕; the tab-follow below reloads the frame without it.
+      focusKey: nonceRef.current,
       returnFocus: returnFocus ?? (() => press),
       doorInDock: Boolean(press?.closest?.('[data-ask-surface]')),
     });
@@ -192,6 +197,7 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
     page: guide?.page ?? null,
     hash: guide?.hash ?? '',
     nonce: guide?.nonce ?? 0,
+    focusKey: guide?.focusKey ?? 0,
     tracked,
     guideModal,
     lastClose,
@@ -209,6 +215,7 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
           page={guide.page}
           hash={guide.hash}
           nonce={guide.nonce}
+          focusKey={guide.focusKey}
           tracked={tracked}
           onTrack={trackGuide}
           onClose={() => closeGuide()}

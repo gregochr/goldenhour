@@ -12,7 +12,28 @@
  * `event.origin`). `VITE_GUIDE_ORIGIN` is for local dev only: production's CSP `frame-src` is fixed
  * in the repo-root `nginx.conf`.
  */
-export const GUIDE_ORIGIN = new URL(import.meta.env.VITE_GUIDE_ORIGIN || 'https://photocast.online').origin;
+const DEFAULT_GUIDE_ORIGIN = 'https://photocast.online';
+
+/**
+ * Parses a configured guide origin. A malformed value must never throw at module load (that would blank
+ * the whole app), so it falls back to the default; in a production build a non-https origin also does.
+ *
+ * @param {?string} configured the raw `VITE_GUIDE_ORIGIN`
+ * @param {boolean} production whether this is a production build
+ * @returns {string} an origin
+ */
+export function resolveGuideOrigin(configured, production) {
+  if (!configured) return DEFAULT_GUIDE_ORIGIN;
+  try {
+    const { origin, protocol } = new URL(configured);
+    if (production && protocol !== 'https:') return DEFAULT_GUIDE_ORIGIN;
+    return origin;
+  } catch {
+    return DEFAULT_GUIDE_ORIGIN;
+  }
+}
+
+export const GUIDE_ORIGIN = resolveGuideOrigin(import.meta.env.VITE_GUIDE_ORIGIN, import.meta.env.PROD);
 
 /** Page id (the file name without `.html`) to its display name, for the panel header. */
 export const GUIDE_PAGES = Object.freeze({

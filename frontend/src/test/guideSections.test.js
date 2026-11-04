@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  GUIDE_PAGES, GUIDE_SECTIONS, TAB_GUIDE, guideUrl, pageIdFromMessage, cleanGuideTitle,
+  GUIDE_PAGES, GUIDE_SECTIONS, TAB_GUIDE, guideUrl, pageIdFromMessage, cleanGuideTitle, resolveGuideOrigin,
 } from '../utils/guide.js';
 
 /**
@@ -89,5 +89,24 @@ describe('cleanGuideTitle', () => {
   it('gives nothing for a non-string or an empty one', () => {
     expect(cleanGuideTitle({})).toBeNull();
     expect(cleanGuideTitle('  .  ')).toBeNull();
+  });
+});
+
+describe('resolveGuideOrigin', () => {
+  it('normalises a configured origin (trailing slash, path)', () => {
+    expect(resolveGuideOrigin('http://localhost:8090/', false)).toBe('http://localhost:8090');
+    expect(resolveGuideOrigin('https://guide.example/x/y', true)).toBe('https://guide.example');
+  });
+
+  it('falls back to the default instead of throwing on a malformed value', () => {
+    expect(resolveGuideOrigin('not a url', false)).toBe('https://photocast.online');
+    expect(resolveGuideOrigin('not a url', true)).toBe('https://photocast.online');
+    expect(resolveGuideOrigin('', false)).toBe('https://photocast.online');
+    expect(resolveGuideOrigin(undefined, true)).toBe('https://photocast.online');
+  });
+
+  it('in a production build rejects a non-https origin; in dev it is allowed', () => {
+    expect(resolveGuideOrigin('http://localhost:8090', true)).toBe('https://photocast.online');
+    expect(resolveGuideOrigin('http://localhost:8090', false)).toBe('http://localhost:8090');
   });
 });
