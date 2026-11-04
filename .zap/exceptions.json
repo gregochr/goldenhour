@@ -15,7 +15,7 @@
   ],
   "frontend": [
     {"pluginid": "90004", "level": "warn", "until": "phase-5",
-     "reason": "cross-origin isolation headers; tracked for a follow-up PR"},
+     "reason": "cross-origin isolation (COEP) is not used by design: login embeds a third-party challenge iframe and the map loads third-party tiles; CORP is added in a follow-up release"},
     {"pluginid": "10055", "level": "warn", "until": "phase-5",
      "reason": "content security policy tuning; tracked for a follow-up PR"},
     {"pluginid": "10049", "level": "ignore", "reason": "informational"},

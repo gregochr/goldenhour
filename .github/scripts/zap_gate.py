@@ -98,6 +98,7 @@ def alert_summary(alert):
     uris = [inst.get("uri", "") for inst in alert.get("instances", [])]
     return {
         "pluginid": str(alert.get("pluginid")),
+        "alertRef": str(alert["alertRef"]) if alert.get("alertRef") else "",
         "name": alert.get("name", ""),
         "risk": int(alert.get("riskcode", 0)),
         "count": len(uris),
@@ -170,6 +171,13 @@ def load_known(path):
     return known
 
 
+def ref_label(a):
+    """'90004' or '90004 / 90004-2' when the alert carries a sub-alert reference."""
+    if a["alertRef"] and a["alertRef"] != a["pluginid"]:
+        return "%s / %s" % (a["pluginid"], a["alertRef"])
+    return a["pluginid"]
+
+
 def render(results, rcs, scanner_failures, coverage, drift, failures, missing_rules):
     """Build the Markdown summary."""
     lines = ["## ZAP gate: %s" % ("FAIL" if failures else "PASS"), ""]
@@ -206,7 +214,7 @@ def render(results, rcs, scanner_failures, coverage, drift, failures, missing_ru
             lines.append("Failing alerts (not covered by an exception):")
             for a in res["failing"]:
                 lines.append("- [%s] %s | risk %s | %d instance(s), %d uncovered" % (
-                    a["pluginid"], a["name"], RISK_NAMES.get(a["risk"], a["risk"]), a["count"], a["uncovered"]))
+                    ref_label(a), a["name"], RISK_NAMES.get(a["risk"], a["risk"]), a["count"], a["uncovered"]))
                 for uri in a["uris"]:
                     lines.append("  - `%s`" % uri)
             lines.append("")
@@ -214,7 +222,7 @@ def render(results, rcs, scanner_failures, coverage, drift, failures, missing_ru
             lines.append("Excepted alerts:")
             for a in res["excepted"]:
                 lines.append("- [%s] %s | risk %s | %d instance(s) | %s | %s" % (
-                    a["pluginid"], a["name"], RISK_NAMES.get(a["risk"], a["risk"]), a["count"],
+                    ref_label(a), a["name"], RISK_NAMES.get(a["risk"], a["risk"]), a["count"],
                     "/".join(a["levels"]) or "-", "; ".join(a["reasons"])))
             lines.append("")
     lines.append("### Rule drift (informational, never fails the run)")

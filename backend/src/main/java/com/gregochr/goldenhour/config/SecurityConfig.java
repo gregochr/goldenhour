@@ -22,6 +22,7 @@ import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -106,8 +107,13 @@ public class SecurityConfig {
                 // refuses a flagged account everywhere but the endpoints that let it change the password.
                 .addFilterAfter(passwordChangeRequiredFilter, JwtAuthenticationFilter.class);
 
-        // Allow H2 console frames in the local profile
-        http.headers(headers -> headers.frameOptions(fo -> fo.sameOrigin()));
+        // Allow H2 console frames in the local profile (sameOrigin framing).
+        // Cross-Origin-Resource-Policy: nothing the API serves is loaded by another origin's no-cors
+        // request (the app's own browser calls are same-origin through the nginx proxy, and CORS
+        // fetches are not subject to CORP), so API responses opt out of cross-origin embedding.
+        http.headers(headers -> headers
+                .frameOptions(fo -> fo.sameOrigin())
+                .crossOriginResourcePolicy(corp -> corp.policy(CrossOriginResourcePolicy.SAME_ORIGIN)));
 
         return http.build();
     }
