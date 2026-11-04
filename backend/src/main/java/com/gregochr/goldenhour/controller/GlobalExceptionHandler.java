@@ -14,15 +14,20 @@ import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -259,6 +264,60 @@ public class GlobalExceptionHandler {
     public ErrorResponse handleParameterTypeMismatch(MethodArgumentTypeMismatchException ex) {
         LOG.debug("Rejected malformed request parameter '{}'", ex.getName());
         return new ErrorResponse("Invalid request parameter");
+    }
+
+    /**
+     * Maps {@link HttpRequestMethodNotSupportedException} to HTTP 405 with an {@code Allow} header.
+     *
+     * <p>A path that exists but is not mapped for the verb used (a GET to a PUT-only path) is the
+     * caller's error. Without this handler the catch-all below turned it into a 500. The message is
+     * fixed; the supplied method is not echoed.
+     *
+     * @param ex the exception, which carries the verbs the path does accept
+     * @return a 405 response with a fixed message
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        LOG.debug("Rejected unsupported request method");
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null && !ex.getSupportedHttpMethods().isEmpty()) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return response.headers(headers).body(new ErrorResponse("Request method not supported"));
+    }
+
+    /**
+     * Maps {@link HttpMediaTypeNotSupportedException} to HTTP 415.
+     *
+     * <p>A request body sent with a content type the endpoint does not read is the caller's error.
+     * The message is fixed; the supplied content type is not echoed.
+     *
+     * @param ex the exception
+     * @return a 415 response with a fixed message
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorResponse handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+        LOG.debug("Rejected unsupported request content type");
+        return new ErrorResponse("Unsupported content type");
+    }
+
+    /**
+     * Maps {@link MethodArgumentNotValidException} and {@link HandlerMethodValidationException} to HTTP 400.
+     *
+     * <p>A request body or parameter that fails its bean-validation constraints (for example a value
+     * longer than the column that stores it) is the caller's error. The message is generic on purpose:
+     * the rejected value is never echoed or logged.
+     *
+     * @param ex the exception
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler({MethodArgumentNotValidException.class, HandlerMethodValidationException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleValidationFailure(Exception ex) {
+        LOG.debug("Rejected request that failed validation");
+        return new ErrorResponse("Invalid request");
     }
 
     /**

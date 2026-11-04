@@ -10,18 +10,23 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -240,5 +245,88 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/astro/conditions"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Missing required parameter: date"));
+    }
+
+    // ── Verb, content type and body validation: caller errors, never 500 ─────
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("A verb a path is not mapped for is 405 with an Allow header, never 500")
+    void handleMethodNotSupported_returns405() throws Exception {
+        mockMvc.perform(get("/api/areas/7675359742314158640"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string("Allow", containsString("PUT")))
+                .andExpect(jsonPath("$.error").value("Request method not supported"));
+        mockMvc.perform(post("/api/locations/5726804894260171028").contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(get("/api/regions/8369511430167411572")).andExpect(status().isMethodNotAllowed());
+        mockMvc.perform(put("/api/users/2779440649937378070").contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(content().string(not(containsString("PUT"))));
+        mockMvc.perform(get("/api/user/settings/home"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("A body with a content type the endpoint does not read is 415, never 500, and is not echoed")
+    void handleMediaTypeNotSupported_returns415() throws Exception {
+        List<String> paths = List.of("/api/areas/7675359742314158640", "/api/locations/5726804894260171028",
+                "/api/regions/8369511430167411572", "/api/user/settings/home");
+        for (String path : paths) {
+            mockMvc.perform(put(path).contentType(MediaType.TEXT_PLAIN).content("payload-marker"))
+                    .andExpect(status().isUnsupportedMediaType())
+                    .andExpect(jsonPath("$.error").value("Unsupported content type"))
+                    .andExpect(content().string(not(containsString("text/plain"))))
+                    .andExpect(content().string(not(containsString("payload-marker"))));
+        }
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("A home postcode longer than its column is 400 through validation and is not echoed")
+    void saveHome_overLongPostcode_returns400() throws Exception {
+        String longPostcode = "ZQ".repeat(2500);
+        mockMvc.perform(put("/api/user/settings/home").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\":\"" + longPostcode
+                                + "\",\"latitude\":54.7,\"longitude\":-1.5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request"))
+                .andExpect(content().string(not(containsString("ZQZQ"))));
+        verify(settingsService, never()).saveHome(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("A home with out-of-range coordinates is 400 through validation")
+    void saveHome_outOfRangeCoordinates_returns400() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\":\"%s%n%x\",\"latitude\":9999,\"longitude\":-1.5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request"))
+                .andExpect(content().string(not(containsString("%s%n%x"))));
+        verify(settingsService, never()).saveHome(any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("A well-formed home is still accepted")
+    void saveHome_validBody_isAccepted() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\":\"DH1 3LE\",\"latitude\":54.7761,\"longitude\":-1.5733}"))
+                .andExpect(status().isOk());
+        verify(settingsService).saveHome(any(), any());
+    }
+
+    @Test
+    @DisplayName("A method-parameter validation failure is 400 with a generic body")
+    void handleValidationFailure_methodValidation_returns400() {
+        HandlerMethodValidationException ex = org.mockito.Mockito.mock(HandlerMethodValidationException.class);
+
+        GlobalExceptionHandler.ErrorResponse body = new GlobalExceptionHandler().handleValidationFailure(ex);
+
+        org.assertj.core.api.Assertions.assertThat(body.error()).isEqualTo("Invalid request");
     }
 }
