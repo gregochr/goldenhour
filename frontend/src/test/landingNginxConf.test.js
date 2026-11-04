@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { bodyAfter, describeLogRedaction, readCode } from './nginxLogRedaction.js';
+import { readdirSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { bodyAfter,describeLogRedaction, readCode } from './nginxLogRedaction.js';
 
 /** Pins `landing/nginx.conf` (the public site's image). Syntax is CI's `nginx -t`; this is what that cannot see. */
 const code = readCode('../landing/nginx.conf');
@@ -50,6 +52,38 @@ describe('landing/nginx.conf guide locations', () => {
     expect(redirect).toMatch(/^\s*return\s+301\s+\/guide\/;/m);
     expect(redirect).toMatch(/^\s*absolute_redirect\s+off;/m);
   });
+});
+
+describe('landing pages carry no inline styles, which the strict style-src would block', () => {
+  const landing = resolve(process.cwd(), '../landing');
+  const pages = [
+    ...readdirSync(landing).filter((f) => f.endsWith('.html')),
+    ...readdirSync(resolve(landing, 'guide'))
+      .filter((f) => f.endsWith('.html'))
+      .map((f) => `guide/${f}`),
+  ];
+
+  it('finds the pages it is meant to check', () => {
+    expect(pages).toContain('index.html');
+    expect(pages).toContain('guide/map.html');
+  });
+
+  it.each(pages)('%s has no style="" attribute and no <style> block', (page) => {
+    const html = readFileSync(resolve(landing, page), 'utf8');
+    expect(html).not.toMatch(/\sstyle\s*=/i);
+    expect(html).not.toMatch(/<style[\s>]/i);
+  });
+
+  it.each(['home.js', 'viewer.js', 'guide/guide.js', 'guide/guide-search.js'])(
+    '%s never writes a style attribute or a style tag (CSSOM el.style.x is allowed)',
+    (file) => {
+      const js = readFileSync(resolve(landing, file), 'utf8');
+      expect(js).not.toMatch(/setAttribute\(\s*['"]style['"]/);
+      expect(js).not.toMatch(/\sstyle\s*=\s*\\?['"]/);
+      expect(js).not.toMatch(/<style/i);
+      expect(js).not.toMatch(/cssText/);
+    },
+  );
 });
 
 describe('landing security headers', () => {
@@ -113,8 +147,9 @@ describe('landing security headers', () => {
     expect(csp).not.toContain('unsafe-eval');
   });
 
-  it('allows styles from the site, inline and Google Fonts only; fonts from gstatic only', () => {
-    expect(directives['style-src']).toBe("'self' 'unsafe-inline' https://fonts.googleapis.com");
+  it('allows styles from the site and Google Fonts only, none inline; fonts from gstatic only', () => {
+    expect(directives['style-src']).toBe('\'self\' https://fonts.googleapis.com');
+    expect(csp).not.toContain('unsafe-inline');
     expect(directives['font-src']).toBe('https://fonts.gstatic.com');
     expect(directives['img-src']).toBe("'self' data:");
   });

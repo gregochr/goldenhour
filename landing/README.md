@@ -8,6 +8,7 @@ index.html              the marketing page
 faq.html                privacy.html   terms.html   acknowledgements.html
 guide/                  the user guide: nine pages, guide.css, guide.js, guide-search.js, shots/*.webp
 photocast.css           the shared skin for all five pages
+home.css                rules for index.html only (kept apart: they style bare elements like section)
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
 home.js                 phone-only enhancements for index.html (plain JS, no dependencies)
 favicon.svg  favicon.png  apple-touch-icon.png   screenshot*.png
@@ -102,8 +103,8 @@ deploy is seen at once; fingerprinted assets are cached for 30 days. The securit
 `security-headers.conf` (included at server level and in each location) because a location with its own
 `add_header` stops inheriting the server-level ones. They are `X-Frame-Options`, `X-Content-Type-Options`,
 `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and a `Content-Security-Policy` sized
-to what the pages load (same-origin scripts, no inline script; `'unsafe-inline'` styles because of the
-`<style>` block and `style=""` attributes; Google Fonts). A page that starts loading anything else
+to what the pages load (same-origin scripts, no inline script; same-origin styles, no inline style: the
+`<style>` block and `style=""` attributes became classes, and a Vitest test keeps them out; Google Fonts). A page that starts loading anything else
 (another script host, an iframe, a form post elsewhere) must widen the policy in the same change.
 There is deliberately no `Strict-Transport-Security`: that is a long-lived commitment for the owner to make.
 

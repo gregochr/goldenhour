@@ -8,6 +8,7 @@ COPY acknowledgements.html /usr/share/nginx/html/
 COPY how-its-built.html /usr/share/nginx/html/
 COPY guide/ /usr/share/nginx/html/guide/
 COPY photocast.css /usr/share/nginx/html/
+COPY home.css /usr/share/nginx/html/
 COPY viewer.js /usr/share/nginx/html/
 COPY home.js /usr/share/nginx/html/
 COPY shot-map.webp /usr/share/nginx/html/
