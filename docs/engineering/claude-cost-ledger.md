@@ -109,6 +109,30 @@ Read these before re-proposing any of them.
   trims remain, worth ~25 tokens a request or **~$1/month**. The owner chose to build them anyway
   (`sky-user-message-trim-plan.md`). Dropping the `headline` output field would save ~6% more, but Ask
   would have to switch to reading `summary`. Not done.
+- **The overnight run does far-term only: REJECTED (2026-11-04).** Measured with `short-term-looks.sql`
+  (production, 45 days). The overnight's T+1 look replaces the far-term rating, and it moves it a lot:
+  2★ or more for 18.5% of sunrises (3,415 pairs) and 16.8% of sunsets (2,865), and the moves are mostly
+  down. Sunrises that crossed from 4★+ to 2★ or less: 395. The other way: 55. For sunsets it was 235
+  against 68. Without that look, tomorrow would show inflated stars all day until the 21:00 refresh. Why
+  far-term runs high (the model or the lead time) is still an open question; Far-Term ran on both Sonnet
+  5.5 and Haiku 4.5 in this window.
+- **A stability gate on the overnight's T+0 sunrise: SHELVED (2026-11-04), a false economy.** Against the
+  21:00 rating 6.6 h earlier (2,010 pairs):
+
+  | Stability | Pairs | Same stars | Moved 2★+ | Crossed 3★ |
+  |---|---|---|---|---|
+  | SETTLED | 837 | 62.7% | 1.6% | 7 (0.8%) |
+  | TRANSITIONAL | 236 | 60.2% | 2.1% | 4 (1.7%) |
+  | UNSETTLED | 937 | 59.4% | 4.3% | 37 (3.9%) |
+
+  Skipping SETTLED and TRANSITIONAL would hide little, but it saves only about **$5/month** (estimated:
+  half of the ~$19 overnight T+0 is sunrise, and these two make up about half of it). In summer the
+  overnight already marks recent evening slots cached (E-D8), so it saves less still. The build and
+  review cost, and another skip rule beside the CACHED gate and retraction, outweigh that. Of the 62
+  sunrises that crossed 3★ at the overnight look, 56 were downgrades, the ones a reader checking on
+  waking wants. Revisit only if it can ride along with another change to the overnight run. The same
+  gate for the T+0 sunset cannot be measured until the evening has rated sunsets for a while (#1662).
+  The ground-truth check (outcome ratings) had one sample, so it says nothing yet.
 
 ## Why spend doubled, October to early November (measured 2026-11-03)
 
@@ -149,12 +173,10 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
 
 1. **The Near-Term model.** This is the only large lever, ~$53/month. It needs the Sky Eval and the
    prompt regression suite to pass, plus a check for rating spread between neighbouring cells.
-2. **Cadence.** This is a freshness choice, not an engineering one. The owner's next idea (2026-11-04):
-   the overnight run does far-term only (about $40/month of overnight T+0 and T+1 on Sonnet 5.5), a
-   short-term series re-rates the next couple of windows gated on stability, and perhaps weekend against
-   weekday. The catch is today's sunrise, whose last look would become the 21:00 one. Measure first with
-   `short-term-looks.sql`: how far each look moves the rating it replaces, by stability, against what
-   readers saw, and the cost split once #1662 is live.
+2. **Cadence.** This is a freshness choice, not an engineering one. Measured on 2026-11-04
+   (`short-term-looks.sql`): the overnight's looks earn their cost, so "overnight does far-term only" was
+   rejected and a stability gate on its T+0 sunrise shelved (see "Rejected or shelved"). Weekend against
+   weekday was not pursued: the only money is near-term, and cutting it degrades weekday shooters.
 3. **Everything else** is a few dollars at most.
 
 `sky_rating_eval_result.miss_direction` stores `'IN_BAND'` for passes, so count misses as
