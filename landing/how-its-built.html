@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>How PhotoCast is built — PhotoCast</title>
-<meta name="description" content="How PhotoCast is planned, tested, reviewed and run: built with AI, held to engineering standards.">
+<meta name="description" content="How PhotoCast is developed, tested and maintained, including AI-assisted coding, forecast checks and the safeguards behind each release.">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -28,7 +28,7 @@
 </div>
 </header>
 <main>
-<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>How PhotoCast<br>is built.</h1><p>PhotoCast is written with the help of AI. That's no secret, and it isn't a shortcut. Every change is planned, reviewed, tested and checked against real skies before it reaches you. This page explains how.</p></div></div>
+<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>How PhotoCast<br>is built.</h1><p>I build PhotoCast with help from AI tools, drawing on more than 25 years of software engineering experience. Those tools help with planning, writing code and reviewing changes. Automated tests, checks against observed conditions and my own release decisions help assess the results.</p><p>This page explains that process, and where it still falls short.</p></div></div>
 <div class="doc"><div class="wrap">
 <nav aria-label="Sections">
 <ul>
@@ -43,70 +43,85 @@
 </nav>
 <h2 id="short-version">The short version</h2>
 <ul>
-<li>Every change starts as a written plan, and the plan is challenged before any code is written.</li>
-<li>The code is written by one AI model and reviewed by others. No model approves its own work.</li>
-<li>More than 25,000 automated tests run on every change, and nothing is released until they pass.</li>
-<li>The forecasts themselves are tested against real sunrises and sunsets, every week.</li>
-<li>A person decides what ships, and when.</li>
+<li>Larger features start as a written plan, which is challenged before any code is written. Smaller fixes start from a shorter brief.</li>
+<li>One AI model writes the code, and separate AI reviews check it. I make the final decision on what is released, and when.</li>
+<li>Whenever a code change is proposed, the automated tests and checks run, and the change can't be merged until the required ones pass.</li>
+<li>A selected set of past sunrises and sunsets, whose outcome is known, is re-rated every week to see whether the forecasts have shifted.</li>
 </ul>
 <h2 id="forecast">Checking the forecast against the sky</h2>
-<p>A forecasting app is only as good as its forecasts, so the most important tests aren't about code at all.</p>
+<p>A forecasting app is only as good as its forecasts, so some of the most important checks aren't about code at all. They test particular, well-understood cases. That is narrower than an overall accuracy figure, and none of these checks produces one, but it shows clearly when something has changed.</p>
 <div class="qa">
 <h3>A weekly sky check</h3>
-<p>Every week PhotoCast rates a fixed set of real mornings and evenings whose outcome is already known. Each one is rated eight times, and every rating has to land in the expected range. If the AI model behind the ratings drifts, this is where it shows. It also guides which model is used: a newer model has been kept out of the live forecasts after it under-rated a clear morning in this check.</p>
+<p>Every week PhotoCast re-rates a selected set of past mornings and evenings whose conditions and outcome are already known, using the same rating process as the live forecasts. Each case has an expected range of ratings rather than a single score, because a sky forecast is a judgement.</p>
+<p>Each case is rated eight times. The AI model doesn't give exactly the same answer every time, so repeating the question shows whether a rating is steady or wandering between, say, two and four stars. The results are recorded and charted over time. That reveals drift: a change in the ratings when the model, or the way it behaves, changes.</p>
+<p>The weekly run records results rather than blocking anything; I review the trend. When I run the same check by hand, every one of the eight ratings has to fall within the expected range for a case to pass. A different AI model is checked against these same cases before it is used for live forecasts.</p>
 </div>
 <div class="qa">
 <h3>Forecast regression tests</h3>
-<p>A second, larger set of real cases checks the full rating, and the mist and night-sky forecasts, against what actually happened. The expected answers come from real observation, and only the owner can change them. The AI that writes PhotoCast's code is not allowed to edit them. Ask PhotoCast's answers have their own set of expected answers.</p>
+<p>Regression tests check that a change hasn't made previously assessed cases worse. A larger set of real cases covers the full sunrise and sunset rating, the mist and night-sky forecasts, and Ask PhotoCast's answers. Each expected answer comes from what was actually observed on the day.</p>
+<p>Only I change those expected answers. The AI tools that work on the code are instructed never to edit them, so a change can't pass by moving the goalposts.</p>
 </div>
 <div class="qa">
 <h3>Your ratings</h3>
-<p>Pro readers can say how a past sunrise or sunset actually turned out, using "How was it?" on the map. Those ratings are compared with what PhotoCast forecast, to find the mornings it under-rated, the trips it should have warned you off, and where it is consistently too hopeful or too cautious.</p>
+<p>Pro users can record how a past sunrise or sunset actually turned out, using "How was it?" on the map. Those ratings are compared with what PhotoCast forecast. Your feedback helps identify forecasts that were too optimistic or too cautious and provides evidence for future improvements. A rating doesn't change the forecasts by itself.</p>
 </div>
 <h2 id="changes">How a change is made</h2>
 <ol>
-<li><b>A written plan.</b> Each feature starts as a plan that sets out what will change and why. There are now over 120 of them. The plan is reviewed adversarially: reviewers are asked to find what's wrong with it, not to agree with it.</li>
-<li><b>The code is written separately.</b> A different AI model writes the code, in its own isolated copy of the project, from the plan. It has to get the full set of checks passing before anyone looks at the result.</li>
-<li><b>An independent review.</b> The planner reviews the change line by line, and every change is then reviewed again by a separate AI reviewer from a different company. Anything they find is fixed and checked again.</li>
-<li><b>Automatic checks.</b> Every change runs the full test suite and code checks. A change can't be merged while any of them is failing.</li>
-<li><b>A person releases it.</b> Releases are made by the owner, by hand, after the changes have been used for real. Each release is recorded in a changelog, and a backup is taken first.</li>
+<li><b>A plan.</b> Larger features start as a written plan that sets out what will change and why; smaller fixes start from a shorter brief. Before any code is written, reviewers are asked to challenge the assumptions, look for missing cases and identify what could go wrong.</li>
+<li><b>The code is written separately.</b> A different AI model writes the code from the plan, in its own isolated copy of the project, and has to get the checks passing before the change is put forward.</li>
+<li><b>Separate reviews.</b> The AI that planned the change reviews the result, and every proposed change is then reviewed by an AI reviewer from a different company. Different models can still miss the same problem, so these reviews add to the automated checks rather than replace them. Anything they find is fixed and checked again.</li>
+<li><b>Automated checks.</b> GitHub Actions runs the required checks whenever a code change is proposed: the server's build and tests, the app's tests and build, and a security scan of the code. This is continuous integration: checking that changes work together before they are merged. A change can't be merged while a required check is failing.</li>
+<li><b>I decide what is released.</b> I decide what gets built, judge the results in use, and choose when a version is released, usually after the changes have been used for real.</li>
 </ol>
+<div class="qa">
+<h3>Keeping a record</h3>
+<p>PhotoCast's code is managed in GitHub, which keeps a history of every change. Each change arrives as a pull request, which brings together the proposed code, the review comments and the automated check results before it is merged. The plans record which pull requests carried them out.</p>
+<p>Each release has a version tag that marks exactly which code was released, the server and app built from it carry that version number, and the changelog explains what changed.</p>
+</div>
+<div class="qa">
+<h3>From release to the live service</h3>
+<p>A release starts with a command I run. It records the version in the changelog and tags it. The tag starts an automated workflow that runs the full checks again, builds the server and the app, backs up the database, deploys the new version and checks that it came up healthy. If any step fails, the deployment stops and I'm told.</p>
+<p>This website is published separately, by its own script, and isn't part of that release.</p>
+</div>
 <h2 id="checks">The automated checks</h2>
 <ul>
-<li><b>Tests.</b> More than 25,000 automated tests cover the server and the app: the forecasting rules, the maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is in the UK when the server runs on a different clock.</li>
-<li><b>Tests that are tested.</b> It's possible to write tests that pass whatever the code does. The server's code is held to a minimum of 80% test coverage, and once a week mutation testing deliberately plants small bugs in the core forecasting code and checks that the tests catch them.</li>
-<li><b>Real data, recorded.</b> The weather, space-weather, postcode and light-pollution services PhotoCast relies on are tested against recorded real responses, so a change in their format is caught before it reaches you.</li>
-<li><b>A real database.</b> Every change to how data is stored (more than 200 so far) is tested against a real copy of the production database software before it can be merged.</li>
-<li><b>Code standards.</b> Automatic checks enforce documentation, formatting and common bug patterns, and look for security mistakes in the code. The app's code is checked for accessibility problems too.</li>
+<li><b>Tests.</b> More than 25,000 automated tests cover the server and the app: the forecasting rules, the maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is in the UK when the server runs on a different clock. They run whenever a code change is proposed; changes to documentation and this website skip them.</li>
+<li><b>Tests that are tested.</b> It's possible to write tests that pass whatever the code does. Every class in the server's code must keep at least 80% line coverage (the share of lines the tests run), with a few small exemptions. Coverage shows what the tests run, not whether they check the right thing, so once a week mutation testing deliberately introduces small faults into the core forecasting code and checks that the tests notice. That weekly result doesn't block changes: if it falls below its threshold, a failure report is opened for me to investigate.</li>
+<li><b>Recorded responses.</b> Saved responses from the weather, space-weather, postcode, routing and light-pollution services check that PhotoCast handles known responses correctly. They can't detect a provider changing its live service. For the AI step, a daily check sends a small real request through the forecast process to confirm it still completes.</li>
+<li><b>A test database.</b> Changes to how data is stored are tested against a test database running the same database software as production, before they can be merged.</li>
+<li><b>Code standards.</b> Automated checks require written documentation on the server's public code, keep the formatting consistent, and look for common bug patterns and security mistakes. The app's code is checked for some common accessibility problems; that helps, but it doesn't establish that the app is fully accessible.</li>
 </ul>
 <h2 id="security">Security and your data</h2>
 <ul>
-<li>Code is scanned for security problems on every change, and again every week.</li>
-<li>Third-party libraries are kept up to date automatically, and checked for known vulnerabilities.</li>
-<li>Personal information, such as your home postcode and settings, is never stored in the shared caches that speed up forecasts for everyone.</li>
-<li>Sign-in tokens are kept out of the server's logs, and a test checks that they stay out.</li>
+<li>A security scan of the code runs on every proposed code change, and again every week so that new detection rules also look at code that hasn't changed.</li>
+<li>The app's third-party libraries are checked for known serious vulnerabilities on every code change, and the server's libraries are checked every week.</li>
+<li>Automated tools propose library updates every week. Minor updates are merged once the required checks pass; larger ones are reviewed first. Either way, they reach the live service only with the next release.</li>
+<li>Once a week, an automated scanner probes a temporary copy of the service for common web vulnerabilities.</li>
+<li>Personal information, such as your home postcode and settings, is never stored in the shared caches that speed up forecasts for everyone, and a test checks that it stays out.</li>
+<li>Links that carry one-time codes, such as email verification links, are kept out of the web server's logs, and an automated check confirms it.</li>
 </ul>
-<p>See the <a href="privacy.html">Privacy notice</a> for what PhotoCast stores and why.</p>
+<p>These are examples of the safeguards in place, not a complete security assessment.</p>
+<p>This page is about the AI used to build PhotoCast. PhotoCast also uses AI within the service, to assess conditions, write its explanations and answer Ask PhotoCast questions. The <a href="faq.html#data">FAQ</a> and the <a href="privacy.html">Privacy notice</a> explain that, including what is sent to the AI provider, and what PhotoCast stores and why.</p>
 <h2 id="running">Keeping it running</h2>
 <ul>
-<li><b>Built the same way every time.</b> The database, the server and the app each run in their own container, built and deployed automatically from the released code. Every release is repeatable, and the service isn't tied to one particular machine.</li>
-<li><b>When a source fails.</b> If a weather or tide service is slow or unavailable, PhotoCast retries, then backs off rather than hammering it. A location that keeps failing is set aside automatically instead of holding up the rest.</li>
-<li><b>A watchdog.</b> If a forecast run doesn't start on time, or is still running when sunrise is close, the owner is emailed straight away.</li>
-<li><b>Daily health checks.</b> The live service is checked every day, from inside and outside, and after every release.</li>
-<li><b>Backups that are tested.</b> The database is backed up every night, and every day the latest backup is actually restored and checked, because a backup is only useful if it can be restored.</li>
-<li><b>A way back.</b> There is a rollback procedure to return to the previous version if a release goes wrong.</li>
+<li><b>Built from the release.</b> The server and the app are built from the tagged release and run in their own containers; the database runs in the standard PostgreSQL container. Each deployment takes its configuration from the same tagged version, apart from passwords and keys held on the server, so it's clear which code and settings are running.</li>
+<li><b>When a source fails.</b> If a weather or tide service is slow or unavailable, PhotoCast retries, then backs off rather than repeatedly sending requests. A location that fails three forecast runs in a row, while similar places get through, is switched off and I'm alerted, so it doesn't hold up the rest. If many places fail at once, which points to a wider problem, none is switched off and I'm alerted instead.</li>
+<li><b>A watchdog.</b> If a forecast run doesn't start on time, or hasn't finished as sunrise or sunset approaches, an email alert is sent.</li>
+<li><b>Daily health checks.</b> Every day, automated checks look at the server's own services and confirm that the public app can be reached from outside. The same checks run after every release.</li>
+<li><b>Backups that are tested.</b> The database is backed up every night, with a copy kept away from the server. Every morning the latest backup is restored into a separate scratch database and checked, because a backup is only useful if it can be restored. A further backup is taken just before each release.</li>
+<li><b>A way back.</b> If a release goes wrong, there is a procedure to return to the previous version. It also restores the database to how it was before the release, so anything recorded since would be lost. Fixing forward is usually better; rollback is the last resort.</li>
 </ul>
 <h2 id="improving">Where it's still improving</h2>
 <p>Being honest about the gaps is part of the same standard.</p>
 <ul>
-<li>The app's tests run in a simulated browser. A few tests in real browsers exist, but they're run by hand rather than on every change.</li>
+<li>The app's tests run in a simulated browser: a program that imitates a web page, so the tests run quickly without opening one. A few tests in real browsers exist, but they're run by hand rather than on every change.</li>
 <li>The server's tests are checked by mutation testing and a coverage minimum. The app's tests don't have either yet.</li>
-<li>The larger forecast regression suite is run by hand rather than on every change, because each run asks the AI model real questions and costs real money. The weekly sky check fills that gap in between.</li>
-<li>PhotoCast runs on a single server, without a separate test copy of the live service. Backups, health checks and rollback are what make that safe enough for now.</li>
-<li>"How was it?" is only as useful as the ratings people give it. If you're on Pro, rating a sunrise after you've been out makes the forecasts better for everyone.</li>
+<li>The larger forecast regression suite is run by hand rather than on every change, because each run uses paid AI requests. The weekly sky check provides an additional regular check in between.</li>
+<li>PhotoCast runs on a single server, without a separate test copy of the live service. Backups, health checks and rollback help reduce the risk, but a single-server failure can still interrupt the service.</li>
 </ul>
-<p>PhotoCast is a forecast, not a promise, and the sky will always have the last word. The aim is that when the forecast is wrong, it's the weather's fault, not the software's.</p>
-<p>Read the <a href="faq.html">FAQ</a> · Browse the <a href="guide/index.html">guide</a> · <a href="https://app.photocast.online/register">Start free</a></p>
+<p>PhotoCast cannot remove the uncertainty from a sunrise or sunset forecast. These checks help catch software mistakes and identify where the forecasts need to improve. When something goes wrong, the aim is to understand why and use that evidence to make PhotoCast better.</p>
+<p>Read the <a href="faq.html">FAQ</a> or browse the <a href="guide/index.html">user guide</a>.</p>
+<p class="mt-26"><a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a></p>
 </div></div>
 </main>
 
