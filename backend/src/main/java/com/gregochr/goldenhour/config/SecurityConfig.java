@@ -92,6 +92,9 @@ public class SecurityConfig {
                         // Ask PhotoCast is Pro and Admin only. In the chain, so the refusal precedes
                         // AskBodyLimitFilter and the flag and admission interceptors.
                         .requestMatchers("/api/ask", "/api/ask/**").hasAnyRole("PRO_USER", "ADMIN")
+                        // Defence in depth: non-admins are refused at the filter, before argument binding, and
+                        // the method-level @PreAuthorize stays as the second layer.
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter,

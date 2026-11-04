@@ -5,6 +5,11 @@
 
 ## API Endpoints
 
+> **General rules.** A query or path parameter that cannot be bound to its type (a non-date for a date, text for a number, an
+> unknown enum constant) answers **400** `{"error": "Invalid request parameter"}`; the body never echoes the value or the
+> parameter's type. `/api/admin/**` is refused at the security filter (`SecurityConfig`) with **403** for any caller who is not
+> `ADMIN`, before argument binding; method-level `@PreAuthorize` stays as the second layer.
+
 ### Auth (no JWT required)
 `POST /api/auth/login|refresh|register|resend-verification|verify-email|forgot-password|reset-password|set-password`
 

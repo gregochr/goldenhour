@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -238,6 +239,26 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleMissingParam(MissingServletRequestParameterException ex) {
         return new ErrorResponse("Missing required parameter: " + ex.getParameterName());
+    }
+
+    /**
+     * Maps {@link MethodArgumentTypeMismatchException} to HTTP 400.
+     *
+     * <p>A query or path parameter that cannot be converted to its declared type (a non-date for a
+     * {@code LocalDate}, text for a number, an unknown enum constant, an over-long string) is the caller's
+     * error. Without this handler the catch-all below turns it into a 500 and logs it at ERROR.
+     *
+     * <p>The message is generic on purpose: the supplied value and the target type are never echoed or
+     * logged. Only the parameter's name, which is declared by the server, is logged at DEBUG.
+     *
+     * @param ex the exception
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleParameterTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        LOG.debug("Rejected malformed request parameter '{}'", ex.getName());
+        return new ErrorResponse("Invalid request parameter");
     }
 
     /**
