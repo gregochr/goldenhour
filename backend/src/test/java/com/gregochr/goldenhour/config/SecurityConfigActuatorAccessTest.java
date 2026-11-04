@@ -107,4 +107,20 @@ class SecurityConfigActuatorAccessTest {
             assertThat(status).as(path).isEqualTo(403);
         }
     }
+
+    @Test
+    @DisplayName("an API response carries Cross-Origin-Resource-Policy: same-origin, even when refused")
+    void apiResponse_carriesCorp() throws Exception {
+        String header = mvc.perform(MockMvcRequestBuilders.get("/api/briefing"))
+                .andReturn().getResponse().getHeader("Cross-Origin-Resource-Policy");
+        assertThat(header).isEqualTo("same-origin");
+    }
+
+    @Test
+    @DisplayName("an anonymous actuator response carries the same CORP header")
+    void actuatorResponse_carriesCorp() throws Exception {
+        String header = mvc.perform(MockMvcRequestBuilders.get("/actuator/health"))
+                .andReturn().getResponse().getHeader("Cross-Origin-Resource-Policy");
+        assertThat(header).isEqualTo("same-origin");
+    }
 }

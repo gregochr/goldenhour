@@ -100,6 +100,25 @@ class GateTest(unittest.TestCase):
         self.assertIn("Brand new", summary)
         self.assertIn("http://b/x", summary)
 
+    def test_failing_alert_shows_its_sub_alert_ref(self):
+        sub = alert("99999", 1, name="Sub alert")
+        sub["alertRef"] = "99999-2"
+        code, summary = self.gate(backend=report(sub))
+        self.assertEqual(code, 1)
+        self.assertIn("[99999 / 99999-2] Sub alert", summary)
+
+    def test_excepted_alert_shows_its_sub_alert_ref(self):
+        sub = alert("30001", 2, name="Excepted sub")
+        sub["alertRef"] = "30001-1"
+        code, summary = self.gate(backend=report(sub))
+        self.assertEqual(code, 0)
+        self.assertIn("[30001 / 30001-1] Excepted sub", summary)
+
+    def test_alert_without_a_distinct_ref_shows_the_plugin_id_alone(self):
+        code, summary = self.gate(backend=report(alert("99999", 1, name="Plain")))
+        self.assertEqual(code, 1)
+        self.assertIn("[99999] Plain", summary)
+
     def test_warn_exception_passes(self):
         code, summary = self.gate(backend=report(alert("30001", 2)))
         self.assertEqual(code, 0)
