@@ -421,6 +421,16 @@ describe('SkyEvalView: accuracy chart', () => {
     expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('true');
     expect(pressed('sky-eval-model-row-HAIKU')).toBe('true');
     expect(pressed('sky-eval-model-row-HAIKU_55')).toBe('true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU')).toHaveAttribute('data-emphasised', 'true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'true');
+  });
+
+  it('moves focus to the first chip when Clear is pressed and unmounts', async () => {
+    await mountView();
+    click('sky-eval-chart-chip-HAIKU_55');
+    click('sky-eval-chart-clear');
+    expect(screen.queryByTestId('sky-eval-chart-clear')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('sky-eval-chart-chip-SONNET_55'));
   });
 });
 

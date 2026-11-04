@@ -7,7 +7,7 @@ import VersionCompare from './VersionCompare.jsx';
 
 /**
  * The Models tab: verdict card, the two production lane cards, accuracy over time, "Did a change make ratings
- * worse?" and the All models table. The highlighted models (a multi-select, in press order) are shared by the
+ * worse?" and the All models table. The highlighted models (a multi-select) are shared by the
  * chart's chips and the table's rows.
  *
  * @param {object} props

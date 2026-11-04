@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { modelLabel } from '../../utils/modelLabels.js';
 import {
@@ -25,7 +25,7 @@ const CHIP_OFF = `${CHIP_BASE} border-plex-border bg-plex-panel text-plex-text-s
  * @param {Array<object>} props.sessions the served sessions
  * @param {Array<object>} props.models the served model rows
  * @param {Array<object>} props.versions the served versions
- * @param {string[]} props.highlighted the chosen models, in press order
+ * @param {string[]} props.highlighted the chosen models
  * @param {(model: string) => void} props.onToggle adds the model to the selection, or removes it
  * @param {() => void} props.onClear empties the selection
  * @param {Date} props.now the right edge of the time axis
@@ -38,6 +38,12 @@ export default function AccuracyChart({ sessions, models, versions, highlighted,
   );
   const markers = useMemo(() => versionMarkers(versions, startMs, endMs), [versions, startMs, endMs]);
   const ticks = useMemo(() => timeTicks(startMs, endMs), [startMs, endMs]);
+  const groupRef = useRef(null);
+  // The Clear chip unmounts when pressed, so hand keyboard focus to the first chip rather than letting it drop.
+  const clearAndRefocus = () => {
+    onClear();
+    groupRef.current?.querySelector('button')?.focus();
+  };
   const plotRight = CHART.width - CHART.right;
   const plotBottom = CHART.height - CHART.bottom;
   const chipModels = models.filter((m) => sessions.some((s) => (s.byModel ?? []).some((b) => b.model === m.model)));
@@ -50,7 +56,7 @@ export default function AccuracyChart({ sessions, models, versions, highlighted,
           % of fixture ratings in band {'·'} production models in colour {'·'} gold lines are versions
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Compare models">
+      <div ref={groupRef} className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Compare models">
         {chipModels.map((m) => (
           <button
             key={m.model}
@@ -67,7 +73,7 @@ export default function AccuracyChart({ sessions, models, versions, highlighted,
         {highlighted.length > 0 && (
           <button
             type="button"
-            onClick={onClear}
+            onClick={clearAndRefocus}
             className={CHIP_OFF}
             aria-label="Clear model selection"
             data-testid="sky-eval-chart-clear"
