@@ -10,7 +10,8 @@ Rules:
   * a missing or unparsable report fails;
   * any alert with risk >= Low that is not covered by an explicit exception fails (default FAIL);
   * the backend log must show an imported-URL count at or above a floor (coverage);
-  * rule IDs in the logs that are not in the known-rules list are reported as drift (never fails).
+  * every rule ID in a target's known-rules list must appear in that target's log (a rule that did not
+    run cannot alert); rule IDs in the log but not in the list are reported as drift (never fails).
 
 Standard library only.
 """
@@ -169,9 +170,13 @@ def load_known(path):
     return known
 
 
-def render(results, rcs, scanner_failures, coverage, drift, failures):
+def render(results, rcs, scanner_failures, coverage, drift, failures, missing_rules):
     """Build the Markdown summary."""
     lines = ["## ZAP gate: %s" % ("FAIL" if failures else "PASS"), ""]
+    if failures:
+        lines.append("### Failures")
+        lines.extend("- " + msg for msg in failures)
+        lines.append("")
     if scanner_failures:
         lines.append("### Scanner failures (not findings)")
         lines.extend("- " + msg for msg in scanner_failures)
@@ -184,6 +189,9 @@ def render(results, rcs, scanner_failures, coverage, drift, failures):
     lines.append("- backend imported URLs: %s (minimum %s)" % (coverage["imported"], coverage["minimum"]))
     if coverage["error"]:
         lines.append("- FAIL: " + coverage["error"])
+    for target in sorted(missing_rules):
+        for rule in sorted(missing_rules[target], key=int):
+            lines.append("- FAIL: %s rule %s did not run" % (target, rule))
     lines.append("")
     for res in results:
         lines.append("### %s" % res["target"])
@@ -261,17 +269,25 @@ def run(args):
     if coverage["error"]:
         failures.append("coverage: " + coverage["error"])
 
+    known_files = parse_pairs(args.known_rules, "--known-rules")
     drift = {}
-    if args.known_rules:
-        try:
-            known = load_known(args.known_rules)
-        except OSError:
-            known = None
-        for target, path in sorted(logs.items()):
-            text = read_log(path)
-            drift[target] = (rule_ids(text) - known) if (known is not None and text is not None) else set()
+    missing_rules = {}
+    for target in sorted(set(reports) | set(logs) | set(known_files)):
+        text = read_log(logs[target]) if target in logs else None
+        if text is None:
+            if target != "backend":  # the backend's missing log is already reported above
+                failures.append("coverage: %s log missing, cannot confirm coverage" % target)
+            continue
+        if target not in known_files:
+            continue
+        known = load_known(known_files[target])
+        seen = rule_ids(text)
+        drift[target] = seen - known
+        missing_rules[target] = known - seen
+        for rule in sorted(missing_rules[target], key=int):
+            failures.append("coverage: %s rule %s did not run" % (target, rule))
 
-    summary = render(results, rcs, scanner_failures, coverage, drift, failures)
+    summary = render(results, rcs, scanner_failures, coverage, drift, failures, missing_rules)
     return (1 if failures else 0), summary
 
 
@@ -283,7 +299,7 @@ def main(argv=None):
     parser.add_argument("--log", action="append", default=[], help="target=path to the scan log")
     parser.add_argument("--rc", action="append", default=[], help="target=exit code of the scan")
     parser.add_argument("--min-imported-urls", type=int, default=150)
-    parser.add_argument("--known-rules")
+    parser.add_argument("--known-rules", action="append", default=[], help="target=path to the known-rules list")
     parser.add_argument("--summary", required=True)
     args = parser.parse_args(argv)
     code, summary = run(args)

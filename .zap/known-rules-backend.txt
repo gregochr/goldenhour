@@ -1,6 +1,7 @@
-# Rule IDs seen in the ZAP weekly scans (backend API scan and frontend baseline scan).
-# Generated from the 2 Nov 2026 run; updated when the pinned ZAP digest is bumped.
-# An ID missing from this list is reported as drift in the job summary; it does not fail the run.
+# Rule IDs the backend ZAP scan is expected to run, from the 2 Nov 2026 run.
+# 100043 is new in the digest-pinned image.
+# Updated when the pinned ZAP digest is bumped. A listed rule missing from the scan log
+# fails the gate (it did not run); a rule in the log but not listed is reported as drift only.
 0
 2
 3
@@ -100,7 +101,6 @@
 40048
 50000
 50001
-50003
 90001
 90002
 90003
@@ -123,3 +123,4 @@
 90037
 100000
 100001
+100043

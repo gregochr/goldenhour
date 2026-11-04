@@ -19,7 +19,12 @@ EXCEPTIONS = {
     ],
     "frontend": [],
 }
-KNOWN = "# comment\n0\n30001\n"
+FRONT_LOG = (
+    "2026-11-02T11:48:20Z PASS: Directory Browsing [0]\n"
+    "2026-11-02T11:48:20Z WARN-NEW: CSP: style-src unsafe-inline [10055] x 1 \n"
+)
+KNOWN_B = "# comment\n0\n30001\n"
+KNOWN_F = "0\n10055\n"
 
 
 def alert(pluginid, risk, uris=("http://b/x",), name="Some alert"):
@@ -48,12 +53,14 @@ class GateTest(unittest.TestCase):
             handle.write(json.dumps(content) if as_json else content)
         return self.path(name)
 
-    def gate(self, backend=None, frontend=None, backend_rc="0", frontend_rc="0", backend_log=GOOD_LOG,
-             frontend_log=RULE_LOG, minimum=150, write_backend=True, write_frontend=True):
+    def gate(self, backend=None, frontend=None, backend_rc="0", frontend_rc="0", backend_log=GOOD_LOG + RULE_LOG,
+             frontend_log=FRONT_LOG, known_b=KNOWN_B, known_f=KNOWN_F, write_frontend_log=True, minimum=150, write_backend=True, write_frontend=True):
         """Run the gate with the given reports; returns (exit_code, summary)."""
         exceptions = self.write("exceptions.json", EXCEPTIONS, True)
-        known = self.write("known.txt", KNOWN)
-        argv = ["--exceptions", exceptions, "--known-rules", known, "--summary", self.path("summary.md"),
+        kb = self.write("known-b.txt", known_b)
+        kf = self.write("known-f.txt", known_f)
+        argv = ["--exceptions", exceptions, "--known-rules", "backend=" + kb, "--known-rules", "frontend=" + kf,
+                "--summary", self.path("summary.md"),
                 "--min-imported-urls", str(minimum),
                 "--rc", "backend=" + backend_rc, "--rc", "frontend=" + frontend_rc]
         if write_backend:
@@ -63,7 +70,9 @@ class GateTest(unittest.TestCase):
         if write_frontend:
             argv += ["--report", "frontend=" + self.write("f.json", frontend or report(), True)]
         argv += ["--log", "backend=" + self.write("b.log", backend_log),
-                 "--log", "frontend=" + self.write("f.log", frontend_log)]
+                 ]
+        if write_frontend_log:
+            argv += ["--log", "frontend=" + self.write("f.log", frontend_log)]
         args = self.parse(argv)
         return zap_gate.run(args)
 
@@ -76,7 +85,7 @@ class GateTest(unittest.TestCase):
         parser.add_argument("--log", action="append", default=[])
         parser.add_argument("--rc", action="append", default=[])
         parser.add_argument("--min-imported-urls", type=int)
-        parser.add_argument("--known-rules")
+        parser.add_argument("--known-rules", action="append", default=[])
         parser.add_argument("--summary")
         return parser.parse_args(argv)
 
@@ -146,10 +155,35 @@ class GateTest(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_drift_listed_but_does_not_fail(self):
-        log = GOOD_LOG + "2026-11-02T11:47:10Z PASS: A new rule [424242]\n"
+        log = GOOD_LOG + RULE_LOG + "2026-11-02T11:47:10Z PASS: A new rule [424242]\n"
         code, summary = self.gate(backend_log=log)
         self.assertEqual(code, 0)
         self.assertIn("424242", summary)
+
+    def test_known_rule_missing_from_log_fails(self):
+        code, summary = self.gate(backend_log=GOOD_LOG + "2026-11-02T11:47:10Z PASS: Directory Browsing [0]\n")
+        self.assertEqual(code, 1)
+        self.assertIn("backend rule 30001 did not run", summary)
+
+    def test_known_lists_are_per_target(self):
+        # 10055 is known for the frontend only; the backend log not having it must pass,
+        # and the frontend log missing it must fail.
+        code, _ = self.gate()
+        self.assertEqual(code, 0)
+        code, summary = self.gate(frontend_log=RULE_LOG)
+        self.assertEqual(code, 1)
+        self.assertIn("frontend rule 10055 did not run", summary)
+        self.assertNotIn("backend rule", summary)
+
+    def test_extra_rule_is_drift_and_passes(self):
+        code, summary = self.gate(frontend_log=FRONT_LOG + "2026-11-02T11:48:20Z PASS: Newcomer [555555]\n")
+        self.assertEqual(code, 0)
+        self.assertIn("frontend: 555555", summary)
+
+    def test_missing_frontend_log_fails(self):
+        code, summary = self.gate(write_frontend_log=False)
+        self.assertEqual(code, 1)
+        self.assertIn("frontend log missing", summary)
 
     def test_rule_ids_parser_ignores_summary_line(self):
         self.assertEqual(zap_gate.rule_ids(RULE_LOG), {"0", "30001"})

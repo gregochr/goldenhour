@@ -14,7 +14,7 @@ jobs:
       # Pinned by digest (the `stable` index digest on 2026-11-04) so a scanner
       # update can never change results silently. Dependabot cannot see this
       # value, so bumping it is a manual, triaged change: update the digest, then
-      # refresh .zap/known-rules.txt and review the "Rule drift" section of the
+      # refresh .zap/known-rules-*.txt and review the "Rule drift" section of the
       # job summary.
       ZAP_IMAGE: ghcr.io/zaproxy/zaproxy@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af
     steps:
@@ -232,7 +232,13 @@ jobs:
           # is FAIL: every alert of Low risk or above fails the job unless
           # .zap/exceptions.json explicitly covers it. A non-zero scanner exit
           # code, a missing report, or too few imported URLs also fail the job.
-          # -silent stops the scan updating add-ons at run time.
+          # -silent stops the scan updating add-ons at run time, which also stops
+          # the scripts' implicit install of the beta passive rules (pscanrulesBeta),
+          # and the pinned image does not bundle it. That one add-on is therefore
+          # installed explicitly with -addoninstall; everything else stays frozen.
+          # The gate also fails if a rule listed in .zap/known-rules-<target>.txt
+          # does not appear in that scan's log, since a rule that did not run
+          # cannot alert.
           #
           # zap-api-scan against the OpenAPI spec, not zap-full-scan against the
           # root URL. A JSON API has no links to follow, so spidering found 6
@@ -250,7 +256,7 @@ jobs:
               -x backend-report.xml \
               -J backend-report.json \
               -I \
-              -z "-silent -configfile /zap/conf/auth.prop" \
+              -z "-silent -addoninstall pscanrulesBeta -configfile /zap/conf/auth.prop" \
             2>&1 | tee zap-reports/backend.log
           rc=${PIPESTATUS[0]}
           set -e
@@ -271,7 +277,7 @@ jobs:
               -x frontend-report.xml \
               -J frontend-report.json \
               -I \
-              -z "-silent" \
+              -z "-silent -addoninstall pscanrulesBeta" \
             2>&1 | tee zap-reports/frontend.log
           rc=${PIPESTATUS[0]}
           set -e
@@ -319,7 +325,8 @@ jobs:
               --rc "backend=$BACKEND_RC" \
               --rc "frontend=$FRONTEND_RC" \
               --min-imported-urls 150 \
-              --known-rules .zap/known-rules.txt \
+              --known-rules backend=.zap/known-rules-backend.txt \
+              --known-rules frontend=.zap/known-rules-frontend.txt \
               --summary zap-reports/gate-summary.md
           gate_rc=$?
           set -e
