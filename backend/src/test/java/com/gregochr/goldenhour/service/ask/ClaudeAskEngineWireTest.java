@@ -63,7 +63,7 @@ class ClaudeAskEngineWireTest {
         WIRE_MOCK.resetAll();
         AnthropicClient client = new WireMockAnthropicClientTestConfiguration()
                 .wireMockAnthropicClient("http://localhost:" + WIRE_MOCK.getPort());
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), properties, jobRuns,
+        engine = new ClaudeAskEngine(new AnthropicApiClient(client), properties, AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), Clock.systemUTC(), AskLocationNames.NONE);
         when(jobRuns.dailyRunId()).thenReturn(5L);

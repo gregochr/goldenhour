@@ -175,8 +175,8 @@ public class RunCostProfileService {
                     ForecastHorizon.ukDayStartUtc(today.minusDays(WINDOW_DAYS - 1L)));
             Map<RunType, List<ApiCallCostRow>> byTab = classify(rows);
             for (RunType tab : List.of(RunType.BRIEFING_BEST_BET, RunType.AURORA_EVALUATION,
-                    RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM)) {
-                profiles.put(tab.name(), profile(byTab.getOrDefault(tab, List.of()), isBatchTab(tab)));
+                    RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM, RunType.ASK, RunType.ASK_READY)) {
+                profiles.put(tab.name(), profile(tab, byTab.getOrDefault(tab, List.of()), isBatchTab(tab)));
             }
         } catch (RuntimeException e) {
             LOG.warn("Run Config cost profiles could not be computed: {}", e.toString());
@@ -216,6 +216,10 @@ public class RunCostProfileService {
         if (row.runType() == RunType.AURORA_EVALUATION) {
             return RunType.AURORA_EVALUATION;
         }
+        // Ask's calls are logged under their own job runs (the day's ASK run, a precompute's ASK_READY run).
+        if (row.runType() == RunType.ASK || row.runType() == RunType.ASK_READY) {
+            return row.runType();
+        }
         String customId = row.customId();
         if (!Boolean.TRUE.equals(row.isBatch()) || customId == null) {
             return null;
@@ -237,7 +241,7 @@ public class RunCostProfileService {
         return daysAhead >= FAR_TERM_FROM_DAYS_AHEAD ? RunType.BATCH_FAR_TERM : RunType.BATCH_NEAR_TERM;
     }
 
-    private RunCostProfile profile(List<ApiCallCostRow> rows, boolean batchTab) {
+    private RunCostProfile profile(RunType tab, List<ApiCallCostRow> rows, boolean batchTab) {
         Set<Long> runs = new HashSet<>();
         Map<EvaluationModel, List<ApiCallCostRow>> byModel = new EnumMap<>(EvaluationModel.class);
         for (ApiCallCostRow row : rows) {
@@ -266,11 +270,11 @@ public class RunCostProfileService {
             measured.put(e.getKey().name(), new ModelCost(e.getValue().size(), perCall, perCall * callsPerDay));
         }
         return new RunCostProfile(WINDOW_DAYS, runsPerDay, callsPerRun, measured,
-                estimate(byModel, runsPerDay * callsPerRun));
+                estimate(tab, byModel, runsPerDay * callsPerRun));
     }
 
-    /** Prices the average token mix of the tab's most-used model at every selectable model not measured. */
-    private Map<String, ModelCost> estimate(Map<EvaluationModel, List<ApiCallCostRow>> byModel,
+    /** Prices the average token mix of the tab's most-used model at each model the tab allows and did not run. */
+    private Map<String, ModelCost> estimate(RunType tab, Map<EvaluationModel, List<ApiCallCostRow>> byModel,
             double callsPerDay) {
         List<ApiCallCostRow> top = byModel.values().stream()
                 .max(Comparator.comparingInt(List::size)).orElse(List.of());
@@ -285,7 +289,7 @@ public class RunCostProfileService {
         TokenUsage usage = new TokenUsage(input, output, write, read, batch ? write : 0);
 
         Map<String, ModelCost> estimates = new LinkedHashMap<>();
-        for (EvaluationModel model : EvaluationModel.selectable()) {
+        for (EvaluationModel model : ModelSelectionService.allowedModels(tab)) {
             if (byModel.containsKey(model)) {
                 continue;
             }

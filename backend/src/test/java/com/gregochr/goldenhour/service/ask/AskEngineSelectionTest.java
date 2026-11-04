@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.ask;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class AskEngineSelectionTest {
                     .withBean(AnthropicApiClient.class, () -> mock(AnthropicApiClient.class))
                     .withBean(AskProperties.class, AskProperties::new)
                     .withBean(AskJobRunService.class, () -> mock(AskJobRunService.class))
+                    .withBean(ModelSelectionService.class, () -> mock(ModelSelectionService.class))
                     .withBean(AskPromptBuilder.class, AskPromptBuilder::new)
                     .withBean(AskLocationNames.class, () -> AskLocationNames.NONE)
                     .withBean(Clock.class, Clock::systemUTC);

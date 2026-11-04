@@ -25,12 +25,12 @@ class RunTypeAskTest {
     }
 
     @Test
-    @DisplayName("Ask is not a model-selection run type: the Models screen's configurable set has no ASK entry, "
-            + "because the model is the photocast.ask.model property")
-    void notConfigurableOnTheModelsScreen() {
+    @DisplayName("Ask is a model-selection run type: the Models screen's configurable set has ASK and "
+            + "ASK_READY entries, because the model is their model_selection rows (V218)")
+    void configurableOnTheModelsScreen() {
         ModelSelectionService service = new ModelSelectionService(mock(ModelSelectionRepository.class));
 
-        assertThat(service.getAllConfigs()).doesNotContainKeys(RunType.ASK, RunType.ASK_READY);
-        assertThat(service.getAllExtendedThinkingConfigs()).doesNotContainKeys(RunType.ASK, RunType.ASK_READY);
+        assertThat(service.getAllConfigs()).containsKeys(RunType.ASK, RunType.ASK_READY);
+        assertThat(service.getAllExtendedThinkingConfigs()).containsKeys(RunType.ASK, RunType.ASK_READY);
     }
 }

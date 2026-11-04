@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.UserRole;
 import lombok.Getter;
 import lombok.Setter;
@@ -20,10 +19,9 @@ import java.math.RoundingMode;
  * retention, the Ready cap) are declared and bounded here so the whole contract lives in one place
  * and a bad value is caught the day it is written, not the day the consumer ships.
  *
- * <p>{@link #getModel} is restricted to {@link EvaluationModel#HAIKU} and
- * {@link EvaluationModel#SONNET}. There is deliberately no {@code model_selection} row and no
- * Models-screen entry for Ask: Sonnet 5.5 cannot disable thinking, which breaks the token and time
- * budgets below, so it must not be selectable here.
+ * <p>The model is not a property: it is the {@code ASK} and {@code ASK_READY} {@code model_selection} rows
+ * (Operations, Run Config), restricted by {@code ModelSelectionService#allowedModels}. Sonnet 5.5 is not
+ * allowed because it cannot disable thinking, which breaks the token and time budgets below.
  */
 @Component
 @ConfigurationProperties(prefix = "photocast.ask")
@@ -73,7 +71,6 @@ public class AskProperties implements InitializingBean {
     @Setter
     private boolean stub;
 
-    private EvaluationModel model = EvaluationModel.HAIKU;
     private int maxTurns = 4;
     private int maxTokens = 600;
     private int callTimeoutSeconds = 20;
@@ -94,20 +91,6 @@ public class AskProperties implements InitializingBean {
 
     /** Question-log settings. */
     private final Log log = new Log();
-
-    /**
-     * Sets the model that answers typed questions.
-     *
-     * @param model HAIKU or SONNET; nothing else is accepted
-     * @throws IllegalArgumentException for any other model, so a bad value fails startup
-     */
-    public void setModel(EvaluationModel model) {
-        if (model != EvaluationModel.HAIKU && model != EvaluationModel.SONNET) {
-            throw new IllegalArgumentException(
-                    "photocast.ask.model must be HAIKU or SONNET but was " + model);
-        }
-        this.model = model;
-    }
 
     /**
      * Sets the most model turns in one conversation.

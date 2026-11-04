@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.ReadyBasis;
 
@@ -23,8 +24,13 @@ import com.gregochr.goldenhour.service.ask.AskAnswerValidator.ReadyBasis;
  *                      question (and for a Ready conversation built without one): the windows the
  *                      question covers, which the prompt names, the no-pick admission is judged over and
  *                      the answer carries the spreads of
+ * @param model         the model a Ready conversation runs on, resolved once by the precompute that started
+ *                      {@code readyJobRunId} so the run's recorded model and every call in it agree even if
+ *                      the {@code ASK_READY} row is switched mid-run; null reads the row once for this
+ *                      conversation. Ignored for a typed question, which reads the {@code ASK} row
  */
-public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread, ReadyBasis readyBasis) {
+public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread, ReadyBasis readyBasis,
+        EvaluationModel model) {
 
     /** Canonical constructor: a null thread reads as none. */
     public AskRunOptions {
@@ -39,7 +45,7 @@ public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thr
      * @param thread        the validated thread, or null for none
      */
     public AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thread) {
-        this(anchor, readyJobRunId, thread, null);
+        this(anchor, readyJobRunId, thread, null, null);
     }
 
     /**
@@ -118,7 +124,21 @@ public record AskRunOptions(BestAnchor anchor, Long readyJobRunId, AskThread thr
      * @return the options
      */
     public static AskRunOptions ready(long readyJobRunId, ReadyQuestion question, ReadyQuestion.Offer offer) {
+        return ready(readyJobRunId, question, offer, null);
+    }
+
+    /**
+     * A Ready precompute conversation pinned to the model its run was started with.
+     *
+     * @param readyJobRunId the {@code ASK_READY} run to bill
+     * @param question      the Ready question
+     * @param offer         what it is asked under
+     * @param model         the model the run recorded, or null to read the {@code ASK_READY} row
+     * @return the options
+     */
+    public static AskRunOptions ready(long readyJobRunId, ReadyQuestion question, ReadyQuestion.Offer offer,
+            EvaluationModel model) {
         return new AskRunOptions(question.anchor(offer), readyJobRunId, AskThread.EMPTY,
-                new ReadyBasis(question, offer));
+                new ReadyBasis(question, offer), model);
     }
 }

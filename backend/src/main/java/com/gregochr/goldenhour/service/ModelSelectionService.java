@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,8 +28,16 @@ public class ModelSelectionService {
     private static final RunType[] CONFIGURABLE_RUN_TYPES = {
         RunType.BRIEFING_BEST_BET, RunType.BRIEFING_GLOSS,
         RunType.AURORA_EVALUATION, RunType.AURORA_GLOSS, RunType.BLUEBELL_GLOSS,
-        RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM
+        RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM,
+        RunType.ASK, RunType.ASK_READY
     };
+
+    /**
+     * The models Ask's engine runs on: it forces {@code tool_choice} on its last turn, which Sonnet 5.5
+     * (adaptive thinking it cannot switch off) rejects, and Opus is not priced for it.
+     */
+    private static final List<EvaluationModel> ASK_MODELS =
+            List.of(EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET);
 
     private final ModelSelectionRepository modelSelectionRepository;
 
@@ -40,6 +49,29 @@ public class ModelSelectionService {
      */
     public static boolean isConfigurable(RunType runType) {
         return Arrays.asList(CONFIGURABLE_RUN_TYPES).contains(runType);
+    }
+
+    /**
+     * The run types the Run Config screen manages.
+     *
+     * @return the configurable run types, in screen order
+     */
+    public static List<RunType> configurableRunTypes() {
+        return List.of(CONFIGURABLE_RUN_TYPES);
+    }
+
+    /**
+     * The models an admin may choose for a run type: the engine's own set for Ask, every
+     * {@link EvaluationModel#selectable() selectable} model for the others.
+     *
+     * @param runType the run type
+     * @return the allowed models in declaration order; never null
+     */
+    public static List<EvaluationModel> allowedModels(RunType runType) {
+        if (runType == RunType.ASK || runType == RunType.ASK_READY) {
+            return ASK_MODELS;
+        }
+        return EvaluationModel.selectable();
     }
 
     /**

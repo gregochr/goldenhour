@@ -372,6 +372,72 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.active").value("HAIKU_55"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"ASK", "ASK_READY"})
+    @DisplayName("PUT /api/models/active accepts Haiku 5.5 for both Ask run types")
+    void setActiveModel_askRunTypes_haiku55_ok(String runType) throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.valueOf(runType), EvaluationModel.HAIKU_55))
+                .thenReturn(EvaluationModel.HAIKU_55);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"" + runType + "\",\"model\":\"HAIKU_55\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.runType").value(runType))
+                .andExpect(jsonPath("$.active").value("HAIKU_55"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"OPUS", "SONNET_55"})
+    @DisplayName("PUT /api/models/active refuses a model outside Ask's set (Opus, Sonnet 5.5) with 400, for "
+            + "both Ask run types")
+    void setActiveModel_askRunTypes_modelOutsideTheAskSet_badRequest(String model) throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+
+        for (String runType : List.of("ASK", "ASK_READY")) {
+            mockMvc.perform(put("/api/models/active")
+                    .header("Authorization", "Bearer " + adminToken)
+                    .contentType("application/json")
+                    .content("{\"runType\":\"" + runType + "\",\"model\":\"" + model + "\"}"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        verify(modelSelectionService, never()).setActiveModel(any(RunType.class), any(EvaluationModel.class));
+    }
+
+    @Test
+    @DisplayName("PUT /api/models/active still accepts Sonnet 5.5 for the other run types")
+    void setActiveModel_otherRunTypes_keepTheFullSet() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.setActiveModel(RunType.BATCH_FAR_TERM, EvaluationModel.SONNET_55))
+                .thenReturn(EvaluationModel.SONNET_55);
+
+        mockMvc.perform(put("/api/models/active")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"BATCH_FAR_TERM\",\"model\":\"SONNET_55\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.active").value("SONNET_55"));
+    }
+
+    @Test
+    @DisplayName("GET /api/models exposes the models Ask allows, and only for the run types that narrow the set")
+    void getAvailableModels_exposesTheAskSet() throws Exception {
+        String token = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        when(modelSelectionService.getAllConfigs()).thenReturn(buildDefaultConfigs());
+        when(modelSelectionService.getAllExtendedThinkingConfigs()).thenReturn(buildDefaultEtConfigs());
+
+        mockMvc.perform(get("/api/models").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allowedByRunType.ASK").value(
+                        org.hamcrest.Matchers.contains("HAIKU", "HAIKU_55", "SONNET")))
+                .andExpect(jsonPath("$.allowedByRunType.ASK_READY").value(
+                        org.hamcrest.Matchers.contains("HAIKU", "HAIKU_55", "SONNET")))
+                .andExpect(jsonPath("$.allowedByRunType.BATCH_NEAR_TERM").doesNotExist());
+    }
+
     @Test
     @DisplayName("PUT /api/models/active with invalid runType returns 400")
     void setActiveModel_invalidRunType_badRequest() throws Exception {

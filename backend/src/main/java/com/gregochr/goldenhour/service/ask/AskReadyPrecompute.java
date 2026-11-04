@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
@@ -7,6 +8,7 @@ import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
@@ -67,6 +69,7 @@ public class AskReadyPrecompute {
     public static final Duration PRECOMPUTE_DEADLINE = Duration.ofMinutes(5);
 
     private final AskProperties properties;
+    private final ModelSelectionService modelSelection;
     private final AskSnapshotBuilder snapshotBuilder;
     private final AskEngine engine;
     private final RegionRepository regionRepository;
@@ -84,7 +87,8 @@ public class AskReadyPrecompute {
     /**
      * Creates the service.
      *
-     * @param properties         the Ask settings (the flag, the per-day cycle ceiling, the model)
+     * @param properties         the Ask settings (the flag, the per-day cycle ceiling)
+     * @param modelSelection     the {@code ASK_READY} model row, read once per precompute
      * @param snapshotBuilder    builds the snapshot answers are written against
      * @param engine             the one active engine: the stub or Claude
      * @param regionRepository   the enabled regions, which are the scopes
@@ -96,12 +100,13 @@ public class AskReadyPrecompute {
      * @param clock              the application clock: the UK day, the deadline
      */
     @Autowired
-    public AskReadyPrecompute(AskProperties properties, AskSnapshotBuilder snapshotBuilder,
+    public AskReadyPrecompute(AskProperties properties, ModelSelectionService modelSelection,
+            AskSnapshotBuilder snapshotBuilder,
             AskEngine engine, RegionRepository regionRepository, AskReadyStore store,
             JobRunService jobRunService, JobRunRepository jobRunRepository,
             HotTopicSimulationService hotTopicSimulation, AuroraStateCache auroraStateCache,
             Clock clock) {
-        this(properties, snapshotBuilder, engine, regionRepository, store, jobRunService,
+        this(properties, modelSelection, snapshotBuilder, engine, regionRepository, store, jobRunService,
                 jobRunRepository, hotTopicSimulation, auroraStateCache, clock,
                 PRECOMPUTE_DEADLINE);
     }
@@ -110,6 +115,7 @@ public class AskReadyPrecompute {
      * Creates the service with its own deadline, for tests.
      *
      * @param properties         the Ask settings
+     * @param modelSelection     the {@code ASK_READY} model row
      * @param snapshotBuilder    builds the snapshot
      * @param engine             the one active engine
      * @param regionRepository   the enabled regions
@@ -121,11 +127,13 @@ public class AskReadyPrecompute {
      * @param clock              the clock
      * @param deadline           how long a precompute may run
      */
-    AskReadyPrecompute(AskProperties properties, AskSnapshotBuilder snapshotBuilder, AskEngine engine,
+    AskReadyPrecompute(AskProperties properties, ModelSelectionService modelSelection,
+            AskSnapshotBuilder snapshotBuilder, AskEngine engine,
             RegionRepository regionRepository, AskReadyStore store, JobRunService jobRunService,
             JobRunRepository jobRunRepository, HotTopicSimulationService hotTopicSimulation,
             AuroraStateCache auroraStateCache, Clock clock, Duration deadline) {
         this.properties = properties;
+        this.modelSelection = modelSelection;
         this.snapshotBuilder = snapshotBuilder;
         this.engine = engine;
         this.regionRepository = regionRepository;
@@ -256,12 +264,15 @@ public class AskReadyPrecompute {
 
         // A precompute a cycle dispatched carries the cycle's id on its run, so Runs can show it under the
         // cycle; the astro job's own precompute and an admin's have none.
+        // The model is read once here: the run records it and every conversation in the run is pinned to
+        // it, so a switch on Run Config mid-run cannot make the run's label disagree with its calls.
+        EvaluationModel model = modelSelection.getActiveModel(RunType.ASK_READY);
         JobRunEntity job = pipelineRunId == null
-                ? jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel())
-                : jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel(), null, pipelineRunId);
+                ? jobRunService.startRun(RunType.ASK_READY, manual, model)
+                : jobRunService.startRun(RunType.ASK_READY, manual, model, null, pipelineRunId);
         Counts counts = new Counts();
         try {
-            work(snapshot, job.getId(), pipelineRunId, counts, only);
+            work(snapshot, job.getId(), model, pipelineRunId, counts, only);
         } finally {
             complete(job, counts);
         }
@@ -281,7 +292,7 @@ public class AskReadyPrecompute {
     private record Task(AskScope scope, ReadyQuestion question, ReadyQuestion.Offer offer) {
     }
 
-    private void work(AskSnapshot snapshot, long jobRunId, Long pipelineRunId, Counts counts,
+    private void work(AskSnapshot snapshot, long jobRunId, EvaluationModel model, Long pipelineRunId, Counts counts,
             Set<ReadyQuestion> only) {
         List<Task> tasks = new ArrayList<>();
         for (AskScope scope : scopes()) {
@@ -306,7 +317,7 @@ public class AskReadyPrecompute {
                 counts.skipped += tasks.size() - i;
                 return;
             }
-            if (!runOne(tasks.get(i), snapshot, jobRunId, pipelineRunId, counts)) {
+            if (!runOne(tasks.get(i), snapshot, jobRunId, model, pipelineRunId, counts)) {
                 counts.skipped += tasks.size() - i - 1;
                 return;
             }
@@ -332,7 +343,8 @@ public class AskReadyPrecompute {
      *
      * @return false when the whole precompute must stop (accounting is unavailable), true otherwise
      */
-    private boolean runOne(Task task, AskSnapshot snapshot, long jobRunId, Long pipelineRunId,
+    private boolean runOne(Task task, AskSnapshot snapshot, long jobRunId, EvaluationModel model,
+            Long pipelineRunId,
             Counts counts) {
         String label = task.scope().key() + "/" + task.question();
         AskQuestion question = AskQuestion.of(task.offer().text(), task.offer().contextWindowId(),
@@ -340,7 +352,7 @@ public class AskReadyPrecompute {
         AskRun run;
         try {
             run = engine.run(question, snapshot, AskUserContext.userLess(),
-                    AskRunOptions.ready(jobRunId, task.question(), task.offer()));
+                    AskRunOptions.ready(jobRunId, task.question(), task.offer(), model));
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Ready {} threw: {}", label, e.toString());
             counts.failed++;

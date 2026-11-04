@@ -166,7 +166,8 @@ class AskThreadRegressionTest {
         when(jobRuns.accountingAvailable()).thenReturn(true);
         DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
         when(driveTimes.getAllMinutes(ASKER_ID)).thenReturn(DRIVE_MINUTES);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(), jobRuns,
+        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+                AskModelFixtures.haiku(), jobRuns,
                 driveTimes, new AskAnswerValidator(), new AskPromptBuilder(), mapper, Clock.systemUTC(),
                 () -> PLACES);
     }

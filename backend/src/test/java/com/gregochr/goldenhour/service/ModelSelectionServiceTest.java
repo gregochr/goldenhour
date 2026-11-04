@@ -20,6 +20,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -154,7 +155,7 @@ class ModelSelectionServiceTest {
 
         Map<RunType, EvaluationModel> configs = modelSelectionService.getAllConfigs();
 
-        assertThat(configs).hasSize(7);
+        assertThat(configs).hasSize(9);
         assertThat(configs).doesNotContainKeys(RunType.SCHEDULED_BATCH, RunType.WEATHER, RunType.TIDE);
         assertThat(configs.get(RunType.BLUEBELL_GLOSS)).isEqualTo(EvaluationModel.OPUS);
         assertThat(configs.get(RunType.BRIEFING_BEST_BET)).isEqualTo(EvaluationModel.HAIKU);
@@ -445,7 +446,7 @@ class ModelSelectionServiceTest {
 
         var result = modelSelectionService.getAllExtendedThinkingConfigs();
 
-        assertThat(result).hasSize(7);
+        assertThat(result).hasSize(9);
         assertThat(result).allSatisfy((runType, flag) -> assertThat(flag).isFalse());
     }
 
@@ -505,5 +506,31 @@ class ModelSelectionServiceTest {
 
         assertThat(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)).isTrue();
         assertThat(modelSelectionService.isExtendedThinking(RunType.AURORA_EVALUATION)).isFalse();
+    }
+
+    @Test
+    @DisplayName("ASK and ASK_READY are configurable run types, with a HAIKU default when no row exists")
+    void askRunTypesAreConfigurable() {
+        assertThat(ModelSelectionService.isConfigurable(RunType.ASK)).isTrue();
+        assertThat(ModelSelectionService.isConfigurable(RunType.ASK_READY)).isTrue();
+        assertThat(ModelSelectionService.configurableRunTypes()).contains(RunType.ASK, RunType.ASK_READY);
+        when(modelSelectionRepository.findByRunType(any(RunType.class))).thenReturn(Optional.empty());
+
+        assertThat(modelSelectionService.getActiveModel(RunType.ASK_READY)).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(modelSelectionService.getAllConfigs()).containsKeys(RunType.ASK, RunType.ASK_READY);
+    }
+
+    @Test
+    @DisplayName("Ask accepts exactly Haiku 4.5, Haiku 5.5 and Sonnet 4.6; every other run type keeps all "
+            + "selectable models")
+    void allowedModelsPerRunType() {
+        assertThat(ModelSelectionService.allowedModels(RunType.ASK))
+                .containsExactly(EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET);
+        assertThat(ModelSelectionService.allowedModels(RunType.ASK_READY))
+                .isEqualTo(ModelSelectionService.allowedModels(RunType.ASK));
+        assertThat(ModelSelectionService.allowedModels(RunType.BATCH_NEAR_TERM))
+                .isEqualTo(EvaluationModel.selectable());
+        assertThat(ModelSelectionService.allowedModels(RunType.BRIEFING_BEST_BET))
+                .isEqualTo(EvaluationModel.selectable());
     }
 }

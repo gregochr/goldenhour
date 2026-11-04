@@ -11,6 +11,7 @@ import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingWindow;
@@ -18,6 +19,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -81,6 +83,7 @@ class ClaudeAskEngineTest {
     /** Region 5, the one scope these tests narrow to. */
     private static final AskScope TEESDALE = AskScope.of(List.of(5L), Set.of("Teesdale"));
     private final AskProperties properties = new AskProperties();
+    private final ModelSelectionService modelSelection = mock(ModelSelectionService.class);
     private final List<Logged> logged = new CopyOnWriteArrayList<>();
     private MutableClock clock;
     private ClaudeAskEngine engine;
@@ -93,6 +96,7 @@ class ClaudeAskEngineTest {
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-10-05T12:00:00Z"));
+        when(modelSelection.getActiveModel(any(RunType.class))).thenReturn(EvaluationModel.HAIKU);
         engineWith(clock);
         when(jobRuns.dailyRunId()).thenReturn(RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
@@ -110,7 +114,7 @@ class ClaudeAskEngineTest {
     }
 
     private void engineWith(Clock useClock) {
-        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes,
+        engine = new ClaudeAskEngine(client, properties, modelSelection, jobRuns, driveTimes,
                 new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), useClock, AskLocationNames.NONE);
     }
 
@@ -570,7 +574,7 @@ class ClaudeAskEngineTest {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
         when(broken.validate(any(), any(), any(), any(), any(), any(), anyBoolean(), any()))
                 .thenThrow(new IllegalStateException("boom"));
-        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, broken,
+        engine = new ClaudeAskEngine(client, properties, modelSelection, jobRuns, driveTimes, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
         when(client.createAskMessage(any(), any(), any())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
@@ -1171,7 +1175,7 @@ class ClaudeAskEngineTest {
             + "phrase, and the place is named from the repository in the prompt")
     void staleThreadIsACant() {
         engine.shutdown();
-        engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, new AskAnswerValidator(),
+        engine = new ClaudeAskEngine(client, properties, modelSelection, jobRuns, driveTimes, new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), clock,
                 () -> Map.of(99L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
         when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(99, WINDOW))));
@@ -1215,14 +1219,75 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("the configured model is used: Sonnet 4.6 when asked for")
-    void configuredModel() {
-        properties.setModel(EvaluationModel.SONNET);
+    @DisplayName("a typed question runs on the ASK row's model, Sonnet 4.6 when that is selected")
+    void typedQuestionUsesTheAskRow() {
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.SONNET);
 
         run(USER, submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         assertThat(sentParams().getFirst().model().asString()).isEqualTo(EvaluationModel.SONNET.getModelId());
         assertThat(logged.getFirst().model()).isEqualTo(EvaluationModel.SONNET);
+        verify(modelSelection, never()).getActiveModel(RunType.ASK_READY);
+    }
+
+    @Test
+    @DisplayName("a Ready conversation runs on the ASK_READY row's model (Haiku 5.5), not the ASK row's")
+    void readyConversationUsesTheAskReadyRow() {
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.SONNET);
+        when(modelSelection.getActiveModel(RunType.ASK_READY)).thenReturn(EvaluationModel.HAIKU_55);
+        when(client.createAskMessage(any(), any(), any()))
+                .thenReturn(submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        engine.run(question(), snapshot(null), AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID, null));
+
+        assertThat(sentParams().getFirst().model().asString()).isEqualTo(EvaluationModel.HAIKU_55.getModelId());
+        assertThat(logged.getFirst().model()).isEqualTo(EvaluationModel.HAIKU_55);
+        verify(modelSelection, never()).getActiveModel(RunType.ASK);
+    }
+
+    @Test
+    @DisplayName("a Ready conversation pinned by its precompute uses that model without reading the row, "
+            + "even if the row has since been switched")
+    void readyConversationPinnedByThePrecompute() {
+        when(modelSelection.getActiveModel(RunType.ASK_READY)).thenReturn(EvaluationModel.SONNET);
+        when(client.createAskMessage(any(), any(), any()))
+                .thenReturn(submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        engine.run(question(), snapshot(null), AskUserContext.userLess(),
+                new AskRunOptions(null, READY_RUN_ID, null, null, EvaluationModel.HAIKU_55));
+
+        assertThat(sentParams().getFirst().model().asString()).isEqualTo(EvaluationModel.HAIKU_55.getModelId());
+        verifyNoInteractions(modelSelection);
+    }
+
+    @Test
+    @DisplayName("the model is read once per conversation, not per turn, so every turn of a multi-turn "
+            + "conversation uses the same model even if the row is switched in between")
+    void modelIsReadOncePerConversation() {
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.HAIKU, EvaluationModel.SONNET);
+
+        run(USER, toolTurn(tool("t1", "list_windows", Map.of())),
+                submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(2);
+        assertThat(sent).extracting(p -> p.model().asString())
+                .containsOnly(EvaluationModel.HAIKU.getModelId());
+        verify(modelSelection, times(1)).getActiveModel(RunType.ASK);
+    }
+
+    @Test
+    @DisplayName("a switch between two typed questions takes effect on the second")
+    void aSwitchTakesEffectOnTheNextQuestion() {
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.HAIKU, EvaluationModel.HAIKU_55);
+        when(client.createAskMessage(any(), any(), any()))
+                .thenReturn(submit(Map.of("answerable", false, "summary", "Can't tell.")));
+
+        engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+        engine.run(question(), snapshot(null), USER, AskRunOptions.none());
+
+        assertThat(sentParams()).extracting(p -> p.model().asString())
+                .containsExactly(EvaluationModel.HAIKU.getModelId(), EvaluationModel.HAIKU_55.getModelId());
     }
 
     @Test
