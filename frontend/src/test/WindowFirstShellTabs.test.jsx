@@ -611,7 +611,7 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
  * origin home.
  */
 describe('WindowFirstShell — search across tabs', () => {
-  const PLAN_CONTROLS = ['window-first-settings', 'window-first-signout',
+  const PLAN_CONTROLS = ['window-first-settings', 'window-first-guide', 'window-first-signout',
     'window-first-origin-chip', 'window-first-search'];
 
   /** The band's buttons in DOM order, as an exact list — a count passes when one is swapped. */
@@ -620,10 +620,10 @@ describe('WindowFirstShell — search across tabs', () => {
 
   it.each([
     ['at home', {},
-      ['window-first-settings', 'window-first-signout'],
+      ['window-first-settings', 'window-first-guide', 'window-first-signout'],
       'Home · Newcastle'],
     ['away, where the way home stays', { origin: { id: 7, name: 'The Lake District', baseName: 'Keswick' } },
-      ['window-first-settings', 'window-first-signout', 'window-first-origin-home'],
+      ['window-first-settings', 'window-first-guide', 'window-first-signout', 'window-first-origin-home'],
       'The Lake District · from Keswick'],
   ])('⚠️ offers no search trigger on Coming up, %s — neither the ⌕ nor the origin button', async (
     _label, overrides, controls, place,
@@ -647,7 +647,7 @@ describe('WindowFirstShell — search across tabs', () => {
     const { onOpenSettings } = renderShell({ homePlace: null });
     await openComingUp();
 
-    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-signout',
+    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
       'masthead-set-postcode']);
     fireEvent.click(screen.getByRole('button', { name: 'Set a postcode for light and drive times' }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
@@ -698,7 +698,7 @@ describe('WindowFirstShell — search across tabs', () => {
     // this place. Coming up shows no drive time at all, so there it would be a claim about nothing.
     renderShell({}, { mapPane: <p data-testid="map-pane">map pane</p> });
     fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-signout']);
+    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout']);
     expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
 
     await openComingUp();

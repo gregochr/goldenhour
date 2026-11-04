@@ -4,52 +4,10 @@ import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { planActionsShape, refShape } from './askShapes.js';
+import useStickyViewportFill from '../../hooks/useStickyViewportFill.js';
+import { useGuide } from '../../context/GuideContext.jsx';
 
 import { ASK_DOCK_ID } from './askIds.js';
-
-/**
- * Keeps a sticky dock's bottom at the bottom of the viewport.
- *
- * <p>The dock is {@code position: sticky; top: 0; height: 100dvh} (plan §2.6), which is right once the
- * page has scrolled past what sits above the shell — but BEFORE that its top is a banner and `<main>`'s
- * padding down the page, so a 100dvh box would hang that far below the fold and take its input row with
- * it, on the very first paint. A sticky element's own top is {@code max(natural top, 0)}, which is
- * exactly the amount to take off its height; it does not depend on the height, so there is no loop.
- * The figure is published as {@code --wf-dock-top} (the stylesheet subtracts it) and is written
- * imperatively, the way {@code useLensReserve} writes its own, rather than through state: it changes
- * on every scroll frame until the dock sticks and touches no React tree.
- *
- * @param {{current: ?HTMLElement}} ref the dock
- * @param {boolean} enabled false on the Map tab, where the dock is the frame's own height
- */
-function useStickyViewportFill(ref, enabled) {
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!enabled || !node) return undefined;
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      const top = Math.max(0, Math.round(node.getBoundingClientRect().top));
-      node.style.setProperty('--wf-dock-top', `${top}px`);
-    };
-    const schedule = () => {
-      if (frame === 0) frame = requestAnimationFrame(measure);
-    };
-    measure();
-    window.addEventListener('scroll', schedule, { passive: true });
-    window.addEventListener('resize', schedule);
-    // A banner arriving above the shell moves the dock's natural top without a scroll or a resize.
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
-    observer?.observe(document.body);
-    return () => {
-      if (frame !== 0) cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', schedule);
-      window.removeEventListener('resize', schedule);
-      observer?.disconnect();
-      node.style.removeProperty('--wf-dock-top');
-    };
-  }, [ref, enabled]);
-}
 
 /**
  * Keeps focus from falling to {@code <body>} when the dock stops being something focus can be in.
@@ -129,22 +87,29 @@ function useKeepFocusAlive(ref, inert, fallbackFocus) {
  * @param {function(): ?HTMLElement} props.fallbackFocus where focus goes if the dock stops being focusable
  *        while it holds it (the tab in force)
  * @param {function(object): React.ReactNode} [props.pickActions] controls for each pick card's row
+ * @param {boolean} [props.focusOnMount] false when the dock returns after the docked guide closed with focus
+ *        already back on the guide's door; the question field is then left alone. Default true.
  * @param {{openInPlan: ?function(object): void, setPostcode: ?function(): void}} [props.planActions]
  *        the doors out of "Plan this" (F5). The dock is not modal, so {@code openInPlan} leaves it open
  *        beside the location sheet it opens (which makes it {@code inert} while it is up)
  */
 export default function AskDock({
   band, sticky, inert, view, viewLabel, contextLabel, inputRef, onClose, fallbackFocus,
-  pickActions = undefined, planActions = undefined,
+  pickActions = undefined, planActions = undefined, focusOnMount = true,
 }) {
   const dockRef = useRef(null);
+  const { openGuide } = useGuide();
   useStickyViewportFill(dockRef, sticky);
   useKeepFocusAlive(dockRef, inert, fallbackFocus);
   // Opening focuses the question field — the mock's own behaviour, and the whole of what `/` means
   // when the dock is closed. Run once per mounting; the field is a read-only sentence when typed
   // questions are off, and still the right place for focus (it names the reason).
+  // Suppressed (`focusOnMount={false}`) when the dock is coming back after the docked guide closed and
+  // focus is already on the guide's door: the dock reappearing is not the reader asking to type.
   useEffect(() => {
-    inputRef.current?.focus({ preventScroll: true });
+    if (focusOnMount) inputRef.current?.focus({ preventScroll: true });
+    // Once per mounting, whatever `focusOnMount` does afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inputRef]);
 
   // A native listener on the dock's own node, not a React prop: a keydown reaches it only when the
@@ -186,7 +151,16 @@ export default function AskDock({
           </span>
           <button
             type="button"
-            className="wf-ask-dock-x"
+            className="wf-ask-dock-x wf-ask-dock-help"
+            data-testid="ask-dock-guide"
+            aria-label="Guide for Ask PhotoCast"
+            onClick={() => openGuide('ask-photocast')}
+          >
+            <span aria-hidden="true">?</span>
+          </button>
+          <button
+            type="button"
+            className="wf-ask-dock-x wf-ask-dock-close"
             data-testid="ask-dock-close"
             aria-label="Close Ask"
             onClick={onClose}
@@ -221,4 +195,5 @@ AskDock.propTypes = {
   fallbackFocus: PropTypes.func.isRequired,
   pickActions: PropTypes.func,
   planActions: planActionsShape,
+  focusOnMount: PropTypes.bool,
 };

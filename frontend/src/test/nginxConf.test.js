@@ -133,3 +133,16 @@ describe('nginx.conf apple-app-site-association location', () => {
     expect(directives(block('/'))).toContain('try_files $uri $uri/ /index.html;');
   });
 });
+
+describe('nginx.conf Content-Security-Policy frame-src', () => {
+  const csp = (code.match(/set \$csp "([^"]*)"/) ?? [])[1] ?? '';
+  const directive = (name) => csp.split(';').map((d) => d.trim()).find((d) => d.startsWith(`${name} `));
+
+  it('allows Turnstile and the in-app guide (G2), and nothing else, to be framed', () => {
+    expect(directive('frame-src')).toBe('frame-src https://challenges.cloudflare.com https://photocast.online');
+  });
+
+  it('still forbids framing the app itself', () => {
+    expect(directive('frame-ancestors')).toBe("frame-ancestors 'none'");
+  });
+});

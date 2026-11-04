@@ -19,6 +19,9 @@ import { warmSettingsModal } from '../utils/settingsModalChunk.js';
 import AskField from './ask/AskField.jsx';
 import AskUpsellPopover from './ask/AskUpsell.jsx';
 import { useAsk } from '../context/AskContext.jsx';
+import { useGuide } from '../context/GuideContext.jsx';
+import GuideDock from './guide/GuideDock.jsx';
+import { TAB_GUIDE } from '../utils/guide.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useSubRegionStatus } from '../context/SubRegionStatusContext.jsx';
 import { isOutsidePicks } from '../utils/pickScope.js';
@@ -193,6 +196,9 @@ const EMPTY_POINTS = Object.freeze([]);
 
 /** The design's frame: 1080px. */
 const WRAP_MAX_WIDTH = '1080px';
+
+/** The masthead `?`'s box, the cog's own (the two sit side by side and must read as a pair). */
+const MAST_CTRL_STYLE = { fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' };
 
 /**
  * How long the opening tab PREFERENCE stands undisturbed before it commits on its own
@@ -531,6 +537,9 @@ export default function WindowFirstShell({
   const askDockInputRef = useRef(null);
   const ask = useAsk();
   const askSurface = useAskSurface();
+  /** The in-app guide (G2): its doors here are the masthead `?` and the phone menu's Guide row. */
+  const guide = useGuide();
+  const { guideModal } = guide;
   /**
    * The location whose four-day sheet is open, or null (P8).
    *
@@ -1584,7 +1593,38 @@ export default function WindowFirstShell({
   // the dock hangs from, and a state left true would bring it back unasked the next time one exists.
   // A tab switch between Plan, Coming up and Map is NOT one of them — see `askDockOpen`.
   if (askDockOpen && !askDockEntry) setAskDockOpen(false);
-  const askDockShown = askDockOpen && askDockEntry;
+  /**
+   * The docked guide (G2, presentation 1) takes the Ask dock's slot, so the two are exclusive both
+   * ways: while the guide is docked the dock is HIDDEN, not closed ({@code askDockOpen} is the
+   * remembered {@code dockWasOpen}), and closing the guide brings it back. Opening the dock closes the
+   * guide ({@code openAskDock}). On Operations there is no docked row, so the guide is not shown there
+   * (GuideProvider closes it on entering the tab).
+   */
+  const guideDockShown = guide.open && guide.presentation === 'docked' && askDocked
+    && effectiveTab !== 'operations';
+  const askDockShown = askDockOpen && askDockEntry && !guideDockShown;
+  // The dock returns, after the docked guide closed, WITHOUT stealing focus from the guide's door: the
+  // reader asked to leave the guide, not to type. (A door that lived in the dock is gone with it; that
+  // case, and the dock-field press that closed the guide, keep the dock's usual focus on its field.)
+  // During render, with this component's own setters, like the releases above.
+  const [seenGuideDock, setSeenGuideDock] = useState(false);
+  const [dockQuiet, setDockQuiet] = useState(false);
+  if (guideDockShown !== seenGuideDock) {
+    setSeenGuideDock(guideDockShown);
+    setDockQuiet(!guideDockShown && askDockOpen && askDockEntry
+      && guide.lastClose.restoreFocus && !guide.lastClose.doorInDock);
+  } else if (dockQuiet && !askDockShown) {
+    setDockQuiet(false);
+  }
+  /** One flag for the layout: either docked occupant makes the shell root a row. */
+  const dockedRow = askDockShown || guideDockShown;
+  /** The guide page the masthead door opens for the tab in force; none on Operations. */
+  const guideTabPage = TAB_GUIDE[effectiveTab] ?? null;
+  /** The masthead `?`: open the tab's page, or close the guide if it is already up. */
+  const toggleGuide = () => {
+    if (guide.open) guide.closeGuide();
+    else if (guideTabPage) guide.openGuide(guideTabPage);
+  };
   // `openCard`, not `openWindowKey`: the popup draws only for a live card, and a key whose card has
   // gone (its event passed) is deliberately never released — it would leave the entry disabled with
   // no dialog on screen and nothing to say why.
@@ -1909,9 +1949,16 @@ export default function WindowFirstShell({
   const openAskDock = useCallback(() => {
     if (askLocked) return;
     if (foreignDialogOpen(shellRef.current)) return;
+    // The docked guide holds the dock's slot: opening the dock ends it (focus is not sent back to the
+    // guide's door, since the reader is going to the dock's field).
+    if (guideDockShown) {
+      guide.closeGuide({ restoreFocus: false });
+      setAskDockOpen(true);
+      return;
+    }
     if (askDockShown) askDockInputRef.current?.focus({ preventScroll: true });
     else setAskDockOpen(true);
-  }, [askDockShown, askLocked]);
+  }, [askDockShown, askLocked, guideDockShown, guide]);
   /**
    * The ✕ and Escape inside the dock: CLOSE, keep the conversation, and put focus on the field.
    *
@@ -2326,8 +2373,8 @@ export default function WindowFirstShell({
       // (a utility and a rule of the same specificity would be an order-of-source bet). Everything
       // else about the chain below is unchanged: the column wrapper takes the root's old place in it.
       className={`${effectiveTab === 'map'
-        ? `wf-shell w-full flex-1 min-h-0 flex${askDockShown ? '' : ' flex-col'}`
-        : 'wf-shell w-full'}${askDockShown ? ' wf-shell--docked' : ''}${
+        ? `wf-shell w-full flex-1 min-h-0 flex${dockedRow ? '' : ' flex-col'}`
+        : 'wf-shell w-full'}${dockedRow ? ' wf-shell--docked' : ''}${
         askEntry === 'bar' ? ' wf-ask-bar-on' : ''}`}
     >
       {/* THE SHELL COLUMN: the masthead, the tab row and the panel region, and nothing else. It exists
@@ -2342,7 +2389,7 @@ export default function WindowFirstShell({
         // Docked, the column is a flex item that takes what the dock leaves, up to the one width the
         // masthead and the panel inside it share. Undocked it is a block and the two wrappers cap
         // themselves, exactly as before.
-        style={askDockShown ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
+        style={dockedRow ? { maxWidth: WRAP_MAX_WIDTH } : undefined}
         data-testid="window-first-shell-col"
       >
       {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
@@ -2404,6 +2451,7 @@ export default function WindowFirstShell({
                 }}
                 onSignOut={onSignOut}
                 onWarmSettings={warmSettingsModal}
+                onGuide={guideTabPage ? () => guide.openGuide(guideTabPage) : undefined}
               />
             </div>
           </div>
@@ -2451,6 +2499,24 @@ export default function WindowFirstShell({
             >
               ⚙
             </button>
+            {/* The guide's masthead door (G2): the page for the tab in force, a toggle (open → close).
+                Absent on Operations, which has no guide page. Desktop and tablet only; the phone's is
+                the ⋯ menu's Guide row. `aria-controls` names the docked column when that is what an
+                open guide is; a stacked dialog or the sheet is not in this tree. */}
+            {guideTabPage && (
+              <button
+                type="button"
+                onClick={toggleGuide}
+                data-testid="window-first-guide"
+                aria-label="Guide for this tab"
+                aria-expanded={guide.open}
+                aria-controls={guideDockShown ? 'wf-guide-dock' : undefined}
+                className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
+                style={MAST_CTRL_STYLE}
+              >
+                ?
+              </button>
+            )}
             <button
               type="button"
               onClick={onSignOut}
@@ -3057,9 +3123,22 @@ export default function WindowFirstShell({
           fallbackFocus={selectedTabNode}
           pickActions={askPickActions}
           planActions={askPlanActions}
+          focusOnMount={!dockQuiet}
         />
         </Suspense>
         </ChunkErrorBoundary>
+      )}
+
+      {/* The guide's docked column (G2, presentation 1): the Ask dock's slot, never both. Not a dialog,
+          so it claims no modality; it is `inert` (never the page) under a shell dialog, search or
+          settings, as the dock is. Closed on entering Operations and followed across tabs by
+          `GuideProvider`. */}
+      {guideDockShown && (
+        <GuideDock
+          band={askSurface}
+          sticky={effectiveTab !== 'map'}
+          inert={askDialogOpen}
+        />
       )}
 
       {/* Ask PhotoCast. The phone's bar is `position: fixed` and sits BELOW every `Modal` (z-50) and
@@ -3131,7 +3210,7 @@ export default function WindowFirstShell({
             todayStr={todayStr}
             // ⚠️ The Escape ORDER, and the whole of it: this layer declines the key while anything
             // sits over it, so a press takes exactly one layer. See `stackedOverPopup`.
-            escapeEnabled={searchSeed == null && !stackedOverPopup}
+            escapeEnabled={searchSeed == null && !stackedOverPopup && !guideModal}
             // The peek is suppressed by whatever is over the popup, never by the popup itself:
             // a hover panel is portalled above every `Modal`, so it may only ever be opened from
             // the topmost surface.
@@ -3220,7 +3299,7 @@ export default function WindowFirstShell({
           // popup (`stackedOverPopup` counts this sheet), so the supported stack is two deep and
           // nothing can sit over this one. Kept in the shared shape because `WindowSpotSheet`
           // derives `stacked` from it, and those two must never come apart.
-          escapeEnabled={searchSeed == null}
+          escapeEnabled={searchSeed == null && !guideModal}
           onClose={() => openOverPopup(null)}
           // Closes FIRST, and so does `openMapTab` behind `showOnMap` (overlay convergence C4): a
           // sheet or popup left mounted under the destination would be a second `aria-modal` dialog
@@ -3239,6 +3318,7 @@ export default function WindowFirstShell({
         <Suspense fallback={null}>
           <PlanSearch
             key={searchSeed}
+            stacked={guideModal}
             initialQuery={searchSeed}
             windows={heatStripCards}
             regions={regions}
@@ -3353,7 +3433,7 @@ export default function WindowFirstShell({
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.
             restoreFocusFallback={askSheetFallback}
-            escapeEnabled={searchSeed == null}
+            escapeEnabled={searchSeed == null && !guideModal}
             // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
             // record for the place's region, which is the honest answer rather than a guessed
             // reason — `originAction`'s three are all statements ABOUT a record.
@@ -3411,7 +3491,7 @@ export default function WindowFirstShell({
           pick={openPick.pick}
           when={openPick.when}
           time={openPick.time}
-          escapeEnabled={searchSeed == null}
+          escapeEnabled={searchSeed == null && !guideModal}
           onClose={() => openOverPopup(null)}
           // Both actions go through `showOnMap` -> `openMapTab`, which closes the pick dialog AND the
           // window popup under it BEFORE it moves the tab (C4). The popup must not survive: the

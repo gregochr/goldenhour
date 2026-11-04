@@ -58,7 +58,7 @@ describe('WindowFirstShell', () => {
     expect(tabs[1]).toHaveAccessibleName('Coming up');
   });
 
-  it('carries exactly the four masthead controls, so no build/health pill creeps in', () => {
+  it('carries exactly the five masthead controls, so no build/health pill creeps in', () => {
     // The mock shows "● UP v2.17.7" unconditionally; §7 drops it, because build version and
     // service health are not a pilot user's business and HealthIndicator is admin-only. Asserting
     // the ABSENCE of that string would pass whether or not anything was ever built — this names
@@ -68,10 +68,12 @@ describe('WindowFirstShell', () => {
     // the same band. Named by testid rather than by visible text, because two of the four have
     // labels that vary with state (the origin's place name, the nudge's swap) and a text list would
     // then be a fixture detail rather than an inventory.
+    //
+    // ⚠️ Five since the guide (user-guide-plan.md G2): the `?` between the cog and Sign out.
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
     const ids = within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid'));
-    expect(ids).toEqual(['window-first-settings', 'window-first-signout',
+    expect(ids).toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
       'window-first-origin-chip', 'window-first-search']);
   });
 

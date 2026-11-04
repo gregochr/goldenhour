@@ -226,6 +226,48 @@ Browser check: serve `landing/` with `python3 -m http.server 8090 --directory la
 frame-ancestors, so local framing works), run the app with `VITE_GUIDE_ORIGIN=http://localhost:8090`,
 and check desktop 1280, tablet 768 and phone 390, with and without Settings open.
 
+#### G2 build notes
+
+What the build did that the text above does not say, or did differently:
+
+- **`GUIDE_SECTIONS` is an object**, keyed by a short name (`lens`, `mapFilters`, `subRegions` …) with
+  `{ page, section }` values, rather than a flat list of `page#section` strings, so G3's `GuideLink` can
+  take `page` and `section` from one entry. `GUIDE_PAGES` also holds the hub (`index`), because
+  `guide.js` posts the last path segment and the hub's is `''` or `index.html`; `pageIdFromMessage`
+  strips `.html` and maps empty to `index`.
+- **The message listener drops the whole message for an unknown page** (not just the page field): a
+  title that describes a page the header cannot name is no use. The hash is kept only if it is a
+  `#` and a short id, else empty.
+- **The docked column is drawn by the shell** (`components/guide/GuideDock.jsx`, mounted beside the
+  Ask dock); `GuideProvider` draws the dialog and the sheet. `useStickyViewportFill` moved out of
+  `AskDock.jsx` into `hooks/` so the two columns share it. The docked width is 380px at 1024-1179px and
+  440px from 1180px (the dock's 360/380 plus the guide's prose).
+- **The dock is hidden, not closed**, while the guide is docked (`askDockOpen` is the remembered
+  `dockWasOpen`). `AskDock` gained `focusOnMount` (not `autoFocus`, which `jsx-a11y/no-autofocus`
+  rejects as a prop name); the shell passes false only for the render pair in which
+  the docked guide closed with `restoreFocus` and a door outside the dock (`lastClose` in the context).
+- **Two-deep**: the shell's closer is called inside `flushSync` so the second count sees the DOM after
+  the dialogs left. If that leaves no layer on a desktop, the guide docks. A layer stacked under another
+  has already lost its `aria-modal`, so the popup under a pick dialog counts as one layer, not two:
+  "two or more" arises only with a layer the shell does not own (Settings over an Operations modal).
+- **Operations modals** take no `guideModal` term. No G2 door can open the guide over them alone: the
+  masthead `?` is hidden on Operations, Ask has no surface there, and the Settings `?` makes the guide a
+  second layer over Settings, which the two-deep rule already covers. `PlanSearch` did need the term
+  (it is a shell `Modal`, reachable by Tab from under the guide) and takes a `stacked` prop.
+- **The Ask tall sheet has no `stacked` support** in `BottomSheet`, so under a guide sheet it keeps its
+  `aria-modal` and stays keyboard-reachable; the guide sheet is later in the DOM, so BottomSheet's
+  last-dialog Escape rule gives it the key (tested). Adding stacked support to `BottomSheet` is its own
+  change.
+- **`BottomSheet` gained `flush`** (a `data-flush` attribute, CSS in `index.css`): the scroller keeps its
+  box but loses padding and overflow and becomes a flex column, so the iframe fills it.
+- **Crossing 1024px closes an open guide** (docked and dialog need the wide bands, the sheet the narrow
+  ones); the plan did not say what a rotation does.
+- **The Ask sheet's header** is a new row: an "Ask" label and the `?`, above the conversation.
+- **Not checked in a real browser from this build**: the z-index of the stacked dialog over the peek and
+  popup, the docked layout and its animation at 1024-1180 and 1280, the iframe loading and its
+  `postMessage`, and the focus behaviour that depends on `inert` (jsdom has none). The browser check in
+  "Tests and checks" above is still to be run.
+
 ### G3 — the in-context `?` links and the Lite-lock links (app, one PR)
 
 G3 and G4 of the first draft touch the same files with one mechanism, so they ship together.

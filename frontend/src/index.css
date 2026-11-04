@@ -824,6 +824,13 @@
      way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
      band's wrapper is wholly above the viewport.
 
+     THE LADDER, for whoever adds the next rung: the masthead band 45, `Modal` (Tailwind `z-50`),
+     `.wf-peek` 60, the guide's stacked dialog `.wf-guide-layer` 70 (G2, `docs/engineering/
+     user-guide-plan.md`: above both so it can sit over a Modal or the peek, and below the
+     health panel, `BottomSheet`'s scrim and sheet at 9999 / 10000, which the guide's phone and
+     tablet presentation IS). The docked guide column is in normal flow beside the shell and
+     takes no rung.
+
      The bottom padding is still ZERO. The tick line inside supplies it, and it always renders —
      the blank height-holding placeholder the time row used before M3 is gone with it, because a row
      that is present in all three light states holds its own height. */
@@ -15095,6 +15102,161 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
 }
+/* The guide's `?` sits before the ✕ (G2): the first of the pair takes the auto margin, the ✕ none. */
+.wf-ask-dock-help { font-family: var(--font-mono); font-size: 13px; }
+.wf-ask-dock-close { margin-left: 0; }
+
+/* ══ The in-app guide (docs/engineering/user-guide-plan.md, G2) ═══════════════════════════════════════
+   Three presentations of one panel: the DOCKED column (the Ask dock's slot in the shell's docked row,
+   below), the STACKED dialog (a right-hand panel over a scrim, portalled to <body> on z 70) and the
+   SHEET (a tall BottomSheet, so its z-index is BottomSheet's). The frame is the landing site's
+   `/guide/` page with `?embed=1`; the panel only draws chrome around it. */
+
+/* The docked column: 440px from 1180px, 380px from 1024 — the Ask dock's slot and animation, a little wider
+   because the guide's pages are prose. `data-band` is `useAskSurface`'s, as the dock's. */
+.wf-guide-dock {
+  --wf-dock-w: 440px;
+  flex: none;
+  width: var(--wf-dock-w);
+  overflow: hidden;
+  background: var(--color-plex-bg);
+  display: flex;
+  flex-direction: column;
+  animation: wf-guide-dock-in .28s cubic-bezier(.3, .7, .2, 1);
+}
+.wf-guide-dock[data-band="desktop"] { --wf-dock-w: 380px; }
+@keyframes wf-guide-dock-in {
+  from { width: 0; }
+  to { width: var(--wf-dock-w); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-guide-dock { animation: none; }
+}
+/* Sticky exactly as the dock is (see `.wf-ask-dock[data-sticky]`, and `useStickyViewportFill`, which
+   publishes `--wf-dock-top` on this node too). */
+.wf-guide-dock[data-sticky] {
+  position: sticky;
+  top: var(--safe-t);
+  align-self: flex-start;
+  height: calc(100dvh - var(--safe-b) - var(--wf-dock-top, 0px));
+}
+.wf-guide-dock:not([data-sticky]) { align-self: stretch; min-height: 0; }
+.wf-guide-dock-inner {
+  width: var(--wf-dock-w);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-plex-border-light);
+}
+
+/* The stacked dialog. z 70: above `Modal` (50) and the peek (60), below BottomSheet (9999/10000) and
+   the health panel (9999). The scrim is the app's one dialog scrim. */
+.wf-guide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.wf-guide-scrim { position: absolute; inset: 0; }
+.wf-guide-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-t);
+  padding-bottom: var(--safe-b);
+  background: var(--color-plex-bg);
+  border-left: 1px solid var(--color-plex-border-light);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, .35);
+}
+.wf-guide-panel:focus { outline: none; }
+
+.wf-guide-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 10px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-guide-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--color-plex-text);
+}
+.wf-guide-newtab {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  text-decoration: none;
+}
+.wf-guide-newtab:hover { color: var(--color-plex-text); text-decoration: underline; }
+.wf-guide-newtab:focus-visible,
+.wf-guide-x:focus-visible,
+.wf-ask-sheet-help:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-guide-x {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-guide-x:hover { color: var(--color-plex-text); }
+.wf-guide-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--color-plex-bg);
+}
+/* The sheet: the tall BottomSheet's scroller holds only the frame, which scrolls itself. */
+.app-safe-sheet [data-testid="bottom-sheet-scroller"][data-flush] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+/* The sheet's header is the title alone, clear of the ✕ (BottomSheet pads the right). */
+.app-safe-sheet [data-testid="bottom-sheet-header"] > .wf-guide-title { display: block; }
+
+/* The Ask sheet's header row (G2): the "Ask" label and the guide's `?`, which sits clear of the ✕. */
+.wf-ask-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wf-ask-sheet-help {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-ask-sheet-help:hover { color: var(--color-plex-text); }
+
 /* The conversation's own scroller; the input row after it is `flex: none` and so stays at the foot. */
 .wf-ask-dock-scroll {
   flex: 1 1 auto;

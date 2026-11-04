@@ -157,11 +157,13 @@ Highlight.propTypes = {
  * @param {?object}  [props.scoreIndex] id-first ratings, for a location's best window
  * @param {?Array}   [props.scopeRegionNames] the plan's regions, for the "outside" clause
  * @param {?object}  [props.origin]    the origin descriptor, for that clause's wording
+ * @param {boolean}  [props.stacked]   the guide's dialog is over this one (G2): inert, no
+ *        {@code aria-modal}, and Escape withheld, as {@code Modal}'s stacked protocol requires
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
   onClose, onPickWindow, onPickRegion, onPickLocation,
-  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null,
+  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null, stacked = false,
 }) {
   // Seeded once. The caller keys this component on the seed, so a new seed mounts a fresh box
   // rather than overwriting what the reader has since typed into an open one.
@@ -235,7 +237,7 @@ export default function PlanSearch({
   const anchor = useTickLineBox();
 
   return (
-    <Modal label="Search days, regions and places" onClose={onClose} bare closeOnEscape
+    <Modal label="Search days, regions and places" onClose={onClose} bare closeOnEscape={!stacked} stacked={stacked}
       data-testid="plan-search">
       <div
         className={`wf-search-panel${anchor ? ' wf-search-anchored' : ''}`}
@@ -411,6 +413,7 @@ PlanSearch.propTypes = {
   locations: PropTypes.arrayOf(PropTypes.object),
   originId: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   initialQuery: PropTypes.string,
+  stacked: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,

@@ -26,6 +26,7 @@ function Harness({ initialOpen = false, statusLine = null, handlers = {}, onMapE
         onChangePostcode={handlers.onChangePostcode ?? vi.fn()}
         onSignOut={handlers.onSignOut ?? vi.fn()}
         onWarmSettings={handlers.onWarmSettings}
+        onGuide={handlers.onGuide}
       />
       <button type="button" data-testid="elsewhere">elsewhere</button>
       {/* The Map pane stand-in: a document-level Escape listener and a press listener, as the real
@@ -220,5 +221,29 @@ describe('MastheadMenu — the admin status line', () => {
     expect(acted).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('masthead-menu')).toBeNull();
     expect(screen.getByTestId('masthead-menu-button')).toHaveFocus();
+  });
+});
+
+describe('MastheadMenu — the Guide row (G2)', () => {
+  it('is drawn only when the shell passes a handler, between the postcode row and Sign out', () => {
+    render(<Harness initialOpen handlers={{ onGuide: vi.fn() }} />);
+    const rows = Array.from(screen.getByTestId('masthead-menu').querySelectorAll('.wf-mast-menu-row'))
+      .map((row) => row.textContent);
+    expect(rows).toEqual(['Settings', 'Change home postcode', 'Guide', 'Sign out']);
+  });
+
+  it('is absent without one (Operations has no guide page)', () => {
+    render(<Harness initialOpen />);
+    expect(screen.queryByTestId('masthead-menu-guide')).toBeNull();
+  });
+
+  it('closes the menu, focuses ⋯ first and then calls the handler, as every row does', () => {
+    let focusedWhenCalled = null;
+    const onGuide = vi.fn(() => { focusedWhenCalled = document.activeElement; });
+    render(<Harness initialOpen handlers={{ onGuide }} />);
+    fireEvent.click(screen.getByTestId('masthead-menu-guide'));
+    expect(onGuide).toHaveBeenCalledTimes(1);
+    expect(focusedWhenCalled).toBe(screen.getByTestId('masthead-menu-button'));
+    expect(screen.queryByTestId('masthead-menu')).toBeNull();
   });
 });
