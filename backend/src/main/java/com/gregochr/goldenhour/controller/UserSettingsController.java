@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.service.TodaysLightService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import com.gregochr.goldenhour.service.ask.AskService;
 import com.gregochr.goldenhour.service.ask.AskSettingsResponse;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -120,7 +121,7 @@ public class UserSettingsController {
      * @return the updated user settings
      */
     @PutMapping("/home")
-    public UserSettingsResponse saveHome(@RequestBody SaveHomeRequest request,
+    public UserSettingsResponse saveHome(@Valid @RequestBody SaveHomeRequest request,
             Authentication auth) {
         return settingsService.saveHome(auth, request);
     }
