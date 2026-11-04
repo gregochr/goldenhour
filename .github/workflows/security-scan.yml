@@ -191,6 +191,7 @@ jobs:
       # leaves the DB saved. Saved from main only: a branch-scoped copy is invisible to
       # other branches and PRs, and would only add to the 10 GB repository cache.
       - name: Save OWASP Dependency-Check DB
+        id: save-db
         if: always() && steps.detect.outputs.run_scan == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
@@ -198,20 +199,31 @@ jobs:
           key: owasp-db-${{ runner.os }}-${{ github.run_id }}
 
       # Keep exactly one NVD copy: delete every owasp-db cache except the one just saved.
-      # Best effort — a failed delete warns but never fails the job.
+      # Runs only after a save step that reported success, and the script re-checks that the
+      # new key is really listed before deleting anything, because a save can "succeed" with
+      # only a warning (for example when the key could not be reserved). Without that, a bad
+      # save would leave no NVD cache at all. `!cancelled()` rather than `always()`: the scan
+      # normally FAILS (that is the gate), and a bare `steps.*.outcome` condition would be
+      # skipped after that failure, but a cancelled run must not prune.
+      # Best effort — warnings only, never a failed job.
       - name: Delete superseded OWASP DB caches
-        if: always() && steps.detect.outputs.run_scan == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: "!cancelled() && steps.save-db.outcome == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           KEEP_KEY: owasp-db-${{ runner.os }}-${{ github.run_id }}
         run: |
-          if ! IDS=$(gh cache list --key "owasp-db-${RUNNER_OS}-" --json id,key --limit 100 \
-              --jq ".[] | select(.key != \"${KEEP_KEY}\") | .id"); then
+          if ! LISTING=$(gh cache list --key "owasp-db-${RUNNER_OS}-" --json id,key --limit 100); then
             echo "::warning::Could not list OWASP DB caches; leaving them in place."
             exit 0
           fi
 
+          if ! echo "$LISTING" | jq -e --arg keep "$KEEP_KEY" 'any(.[]; .key == $keep)' >/dev/null; then
+            echo "::warning::Cache $KEEP_KEY is not listed after the save; deleting nothing."
+            exit 0
+          fi
+
+          IDS=$(echo "$LISTING" | jq -r --arg keep "$KEEP_KEY" '.[] | select(.key != $keep) | .id')
           for id in $IDS; do
             if gh cache delete "$id"; then
               echo "Deleted superseded cache $id"
