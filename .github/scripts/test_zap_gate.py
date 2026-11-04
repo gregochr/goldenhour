@@ -17,7 +17,9 @@ EXCEPTIONS = {
         {"pluginid": "30001", "level": "warn", "reason": "r-warn"},
         {"pluginid": "100001", "uri_regex": "^http://b/stream", "level": "ignore", "reason": "r-sse"},
     ],
-    "frontend": [],
+    "frontend": [
+        {"pluginid": "90004", "alertRef": "90004-2", "level": "ignore", "reason": "r-sub"},
+    ],
 }
 FRONT_LOG = (
     "2026-11-02T11:48:20Z PASS: Directory Browsing [0]\n"
@@ -133,6 +135,20 @@ class GateTest(unittest.TestCase):
     def test_uri_regex_full_cover_passes(self):
         code, _ = self.gate(backend=report(alert("100001", 1, uris=("http://b/stream/1", "http://b/stream/2"))))
         self.assertEqual(code, 0)
+
+    def test_alert_ref_exception_covers_only_its_sub_alert(self):
+        def sub(ref):
+            a = alert("90004", 1, uris=("http://f/x",), name="Sub " + ref)
+            a["alertRef"] = ref
+            return a
+        code, _ = self.gate(frontend=report(sub("90004-2")))
+        self.assertEqual(code, 0)
+        for other in ("90004-1", "90004-3"):
+            code, summary = self.gate(frontend=report(sub(other)))
+            self.assertEqual(code, 1, other)
+            self.assertIn("[90004 / %s]" % other, summary)
+        code, _ = self.gate(frontend=report(sub("90004-2"), sub("90004-3")))
+        self.assertEqual(code, 1)
 
     def test_exception_is_per_target(self):
         code, _ = self.gate(frontend=report(alert("30001", 1)))
