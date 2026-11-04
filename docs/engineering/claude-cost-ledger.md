@@ -114,8 +114,27 @@ Read these before re-proposing any of them.
   2★ or more for 18.5% of sunrises (3,415 pairs) and 16.8% of sunsets (2,865), and the moves are mostly
   down. Sunrises that crossed from 4★+ to 2★ or less: 395. The other way: 55. For sunsets it was 235
   against 68. Without that look, tomorrow would show inflated stars all day until the 21:00 refresh. Why
-  far-term runs high (the model or the lead time) is still an open question; Far-Term ran on both Sonnet
-  5.5 and Haiku 4.5 in this window.
+  far-term runs high is answered in the next entry: it is the lead time on sunrises, not the model.
+- **Near-Term rates today only, Far-Term (Haiku 4.5) also takes tomorrow: REJECTED (2026-11-04).** It
+  would save ~$14/month (the overnight T+1 look is ~$21 per 30 days on Sonnet 5.5). Section 5 of
+  `short-term-looks.sql` split the overnight's T+1 look by the model of the 2-days-ahead rating it
+  replaced (production, 45 days):
+
+  | Replaced rating | Event | Pairs | Mean change | Moved 2★+ | 4★+ to ≤2★ |
+  |---|---|---|---|---|---|
+  | Sonnet 5.5 (Oct 24 to Nov 3) | Sunrise | 840 | −0.73 | 24.0% | 165 |
+  | Sonnet 5.5 (Oct 25 to Nov 3) | Sunset | 686 | −0.01 | 7.0% | 14 |
+  | Haiku 4.5, replaced by Sonnet 5.5 (Oct 9 to Nov 5) | Sunrise | 847 | +0.36 | 15.2% | 23 |
+  | Haiku 4.5, replaced by Sonnet 5.5 (Oct 9 to Nov 5) | Sunset | 585 | +0.43 | 16.9% | 15 |
+  | Haiku 4.5, replaced by Haiku 4.5 (Sep 23 to Oct 4) | Sunrise | 1,185 | −0.56 | 22.8% | 194 |
+
+  Far-term's high stars are a **lead-time effect on sunrises**: Sonnet 5.5 over-rates a sunrise 2 days out
+  as much as Haiku 4.5 did, while its sunsets barely move. Haiku 4.5 does not inflate; against Sonnet a
+  day later it rates about 0.4★ low, and it disagrees more (16.9% of sunsets moved 2★+, against 7.0% for
+  Sonnet's own). The model rows cover different weeks and the weekly rows swing with the weather, so the
+  gaps are indicative. Rejected under the owner's rule for the Near-Term model (see "Remaining levers"):
+  Haiku 4.5 is not as good as Sonnet 5.5 (Sky Eval 97.8%, 89% same rating on repeats). If a Haiku passes
+  that bar, this is the cheapest way to use it.
 - **A stability gate on the overnight's T+0 sunrise: SHELVED (2026-11-04), a false economy.** Against the
   21:00 rating 6.6 h earlier (2,010 pairs):
 
@@ -177,7 +196,8 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
    no rating spread between neighbouring cells. Re-check when a new Haiku model ships.
 2. **Cadence.** This is a freshness choice, not an engineering one. Measured on 2026-11-04
    (`short-term-looks.sql`): the overnight's looks earn their cost, so "overnight does far-term only" was
-   rejected and a stability gate on its T+0 sunrise shelved (see "Rejected or shelved"). Weekend against
+   rejected, a stability gate on its T+0 sunrise shelved, and moving tomorrow to Far-Term rejected (see
+   "Rejected or shelved"). Weekend against
    weekday was not pursued: the only money is near-term, and cutting it degrades weekday shooters.
 3. **Everything else** is a few dollars at most.
 
