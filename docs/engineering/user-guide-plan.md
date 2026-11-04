@@ -380,6 +380,20 @@ What the build did that the text above does not say, or did differently:
   hot-topics header row, focus return from each popover door when the guide closes (docked, dialog and
   sheet), and a press on each Map `?` with the guide docked beside the map.
 
+- **Review round 1, three layers:** `openGuide` counts every `[role=dialog]` that is `aria-modal` or inert (a stacked
+  layer), not only `aria-modal` ones; two or more opens the full page (`guideUrl`, no `embed`) with
+  `window.open(..., '_blank', 'noopener,noreferrer')` and closes nothing. I dropped G2's "close the shell's
+  dialogs, recount" step rather than keep it for outside doors: with stacked layers counted, popup plus pick
+  dialog or sheet is two deep for every door, and taking the reader's layers down for a help link was the worse
+  trade. `closeShellDialogs` is still passed by App but no longer read. Settings over an Operations modal now also
+  opens a tab where G2 did nothing.
+- **Review round 1, hit areas:** the aurora `?` has 10px margins; Coming up chips, the tide and Hot topics
+  headers, the days-ahead head, the window-menu footer and the Ask row got the spacing their gaps lacked
+  (`guideCss.test.js` pins the aurora spacing and the 44px box).
+- **Review round 1, Filters drive time:** the `GuideWhy` sits on its own line under the segments and Pro pill
+  (`.wf-filters-drive-lock`), and `.wf-guide-why` is `nowrap`.
+- **Review round 1, phone lens bar:** on a phone the `?` is inside the count readout so it ends that line.
+
 ## The section-id contract
 
 The app opens exactly these (G2's `GUIDE_SECTIONS`; a frontend test checks each id exists in

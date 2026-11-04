@@ -501,6 +501,15 @@ describe('WindowFirstLensBar — guide doors (G3)', () => {
     expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'lens', expect.any(Object));
   });
 
+  it('on a phone the ? is inside the count readout, so it ends that line instead of starting another', () => {
+    asPhone();
+    render(<Lens />);
+    const readout = screen.getByTestId('window-first-lens-readout');
+    expect(within(readout).getByTestId('guide-link')).toBeInTheDocument();
+    expect(screen.getAllByTestId('guide-link')).toHaveLength(1);
+    vi.unstubAllGlobals();
+  });
+
   it('shows "What does this do?" beside the Pro pill only while the drive row is locked (LITE vs PRO)', () => {
     const { unmount } = render(<Lens locked />);
     const why = screen.getByTestId('guide-why');

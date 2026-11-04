@@ -161,29 +161,52 @@ describe('the two-deep rule', () => {
     expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
   });
 
-  it('with two layers, closes the shell\'s, counts again and opens docked when none are left', () => {
-    const { probe } = mount({ initialLayers: 2, closes: 'all' });
-    press('door-map');
-    expect(probe.closeShellDialogs).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('guide-dock')).toBeInTheDocument();
-  });
-
-  it('with two layers and one left after closing, opens stacked over the survivor', () => {
-    mount({ initialLayers: 2, closes: 'one' });
-    press('door-map');
-    expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
-    expect(screen.getAllByRole('dialog', { name: /Layer/ })).toHaveLength(1);
-  });
-
-  it('with two layers still standing (Settings over the Operations modal), does nothing and keeps focus', () => {
+  it('with two layers, opens the full page in a tab, closes nothing and keeps focus', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const { probe } = mount({ initialLayers: 2, closes: 'none' });
     screen.getByTestId('other-focus').focus();
-    press('door-map');
-    expect(probe.closeShellDialogs).toHaveBeenCalledTimes(1);
+    press('door-settings');
+    expect(probe.closeShellDialogs).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith(`${GUIDE_ORIGIN}/guide/settings.html#drive`, '_blank', 'noopener,noreferrer');
+    expect(screen.getAllByRole('dialog', { name: /Layer/ })).toHaveLength(2);
     expect(screen.queryByTestId('guide-dialog')).toBeNull();
     expect(screen.queryByTestId('guide-dock')).toBeNull();
-    expect(screen.getByTestId('modal-flag')).toHaveTextContent('false');
     expect(document.activeElement).toBe(screen.getByTestId('other-focus'));
+    open.mockRestore();
+  });
+
+  it('a door INSIDE one of two layers never closes them: the full page opens in a tab', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const { probe } = mount({ initialLayers: 2, closes: 'all' });
+    screen.getByTestId('layer-0-button').focus();
+    act(() => probe.guide.openGuide('settings', 'drive'));
+    expect(open).toHaveBeenCalledWith(`${GUIDE_ORIGIN}/guide/settings.html#drive`, '_blank', 'noopener,noreferrer');
+    expect(probe.closeShellDialogs).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('dialog', { name: /Layer/ })).toHaveLength(2);
+    expect(screen.queryByTestId('guide-dialog')).toBeNull();
+    open.mockRestore();
+  });
+
+  it('counts a stacked (inert) dialog without aria-modal, but not a plain upsell popover', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    mount({ initialLayers: 1 });
+    const popup = document.createElement('div');
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('inert', '');
+    document.body.appendChild(popup);
+    press('door-map');
+    expect(open).toHaveBeenCalledTimes(1);
+    popup.remove();
+    // An upsell popover: role=dialog, no aria-modal, not inert. One layer, so the guide opens.
+    open.mockClear();
+    const upsell = document.createElement('div');
+    upsell.setAttribute('role', 'dialog');
+    document.body.appendChild(upsell);
+    press('door-map');
+    expect(open).not.toHaveBeenCalled();
+    expect(screen.getByTestId('guide-dialog')).toBeInTheDocument();
+    upsell.remove();
+    open.mockRestore();
   });
 
   it('does not count its own dialog as a layer when pressed again', () => {

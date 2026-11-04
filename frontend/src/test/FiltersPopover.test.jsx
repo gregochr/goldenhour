@@ -575,7 +575,9 @@ describe('FiltersPopover — guide doors (G3)', () => {
   it('shows "What does this do?" beside the locked drive time only (LITE vs PRO)', () => {
     const { rerender } = render(<FiltersPopover {...baseProps({ open: true, driveLocked: true })} />);
     const why = screen.getByTestId('guide-why-drive');
-    expect(screen.getByTestId('drive-time-filter-group').parentElement).toContainElement(why);
+    // On its own line under the segments (so the four buttons keep one row), not inside their group.
+    expect(screen.getByTestId('drive-time-filter-group')).not.toContainElement(why);
+    expect(why.parentElement).toHaveClass('wf-filters-drive-lock');
     fireEvent.click(why);
     expect(mockOpenGuide).toHaveBeenCalledWith('map', 'filters', expect.any(Object));
     rerender(<FiltersPopover {...baseProps({ open: true, driveLocked: false })} />);

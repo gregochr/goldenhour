@@ -229,9 +229,12 @@ export default function FiltersPopover({
           );
           // Wrapped only when locked (the tide segment's wrapper), so the Pro DOM is unchanged.
           return driveLocked ? (
-            <div className="wf-map-peek-tide-seg-group">
-              {seg}
-              <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+            <div className="wf-filters-drive-lock">
+              <div className="wf-map-peek-tide-seg-group">
+                {seg}
+                <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+              </div>
+              {/* On its own line under the segments, so the four buttons keep their single row. */}
               <GuideWhy section="mapFilters" testId="guide-why-drive" />
             </div>
           ) : seg;

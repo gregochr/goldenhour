@@ -1,12 +1,11 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState,
 } from 'react';
-import { flushSync } from 'react-dom';
 import PropTypes from 'prop-types';
 import GuidePanel from '../components/guide/GuidePanel.jsx';
 import useAskSurface from '../hooks/useAskSurface.js';
 import {
-  GUIDE_LABEL, GUIDE_PAGES, MODAL_DIALOG_SELECTOR, TAB_GUIDE,
+  GUIDE_LABEL, GUIDE_PAGES, MODAL_DIALOG_SELECTOR, TAB_GUIDE, guideUrl,
 } from '../utils/guide.js';
 
 /** What a close last did, for the shell: it restores the Ask dock and decides whether to focus it. */
@@ -33,6 +32,9 @@ const NO_GUIDE = Object.freeze({
 
 const GuideContext = createContext(NO_GUIDE);
 
+/** Every dialog; {@link openGuide} keeps the modal ones and the stacked (inert) ones. */
+const LAYER_SELECTOR = '[role="dialog"]';
+
 /**
  * The in-app guide's state and its three presentations (docs/engineering/user-guide-plan.md, G2).
  *
@@ -49,10 +51,11 @@ const GuideContext = createContext(NO_GUIDE);
  *   <li>{@code 'sheet'} — phone and tablet: a tall {@code BottomSheet}, drawn here.
  * </ol>
  *
- * <p><b>The two-deep rule.</b> Fewer than two {@code [role=dialog][aria-modal=true]} layers: open over
- * them. Two or more: take the shell's own dialogs down ({@code closeShellDialogs}, flushed so the DOM can
- * be counted again); if two still stand (Settings over the Operations modal) do nothing and leave focus
- * where it was.
+ * <p><b>The two-deep rule.</b> A layer is a {@code [role=dialog]} that is modal ({@code aria-modal="true"})
+ * or STACKED (inert, or inside an inert ancestor: the shell's lower layers give up {@code aria-modal} but are
+ * still layers). An upsell popover is a non-modal, non-inert dialog and is not counted. Fewer than two: open
+ * over them. Two or more: the reader's layers are left alone (never closed for the guide) and the full guide page
+ * opens in a new tab, at the section, so a third layer is never stacked. (G2 counted only {@code aria-modal} layers, so it never saw a stacked popup under a sheet.)
  *
  * <p><b>The stacked protocol.</b> {@code guideModal} is true for presentations 2 and 3. Every layer that
  * can sit under the guide reads it and, while it is true, passes {@code stacked} to its {@code Modal}
@@ -66,10 +69,11 @@ const GuideContext = createContext(NO_GUIDE);
  *
  * @param {object} props
  * @param {React.ReactNode} props.children
- * @param {function(): void} props.closeShellDialogs takes down the dialogs the Plan shell owns
+ * @param {function(): void} [props.closeShellDialogs] unused since G3 review 1 (the two-deep rule no longer closes
+ *        the shell's dialogs); App still passes it
  * @param {string} props.activeTab the tab id in force (App's {@code activePlanTab})
  */
-export function GuideProvider({ children, closeShellDialogs, activeTab }) {
+export function GuideProvider({ children, activeTab }) {
   const surface = useAskSurface();
   const [guide, setGuide] = useState(null);
   const [tracked, setTracked] = useState(null);
@@ -80,11 +84,9 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
   const nonceRef = useRef(0);
   const surfaceRef = useRef(surface);
   const tabRef = useRef(activeTab);
-  const closeShellRef = useRef(closeShellDialogs);
   useEffect(() => {
     surfaceRef.current = surface;
     tabRef.current = activeTab;
-    closeShellRef.current = closeShellDialogs;
   });
 
   const commit = useCallback((next, nextTracked = null) => {
@@ -131,14 +133,16 @@ export function GuideProvider({ children, closeShellDialogs, activeTab }) {
     }
     const active = document.activeElement;
     const press = active && active !== document.body && active !== document.documentElement ? active : null;
-    const countLayers = () => Array.from(document.querySelectorAll(MODAL_DIALOG_SELECTOR))
-      .filter((node) => node.getAttribute('aria-label') !== GUIDE_LABEL).length;
-    let layers = countLayers();
+    const standingLayers = () => Array.from(document.querySelectorAll(LAYER_SELECTOR))
+      .filter((node) => node.getAttribute('aria-label') !== GUIDE_LABEL)
+      .filter((node) => node.matches(MODAL_DIALOG_SELECTOR) || node.closest('[inert]'));
+    const openFullPage = () => window.open(guideUrl(page, hashId), '_blank', 'noopener,noreferrer');
+    const layers = standingLayers().length;
     if (layers >= 2) {
-      // Flushed: the count is of the DOM, and the dialogs only leave it once React has committed.
-      flushSync(() => closeShellRef.current?.());
-      layers = countLayers();
-      if (layers >= 2) return;
+      // Already two deep, whichever door was pressed: never a third layer, and never take the reader's own
+      // layers down for the guide. The full page, in a tab.
+      openFullPage();
+      return;
     }
     const surfaceNow = surfaceRef.current;
     const wide = surfaceNow === 'desktop' || surfaceNow === 'wide';

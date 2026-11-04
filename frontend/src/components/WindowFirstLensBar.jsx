@@ -283,7 +283,11 @@ export default function WindowFirstLensBar({
         className={isMobile ? 'wf-lens-count' : 'wf-lens-res'}
       >
         {isMobile ? (
-          count && <><b>{count.lead}</b>{` ${count.rest}`}</>
+          <>
+            {count && <><b>{count.lead}</b>{` ${count.rest}`}</>}
+            {/* On a phone the readout owns its row, so the ? ends that line rather than starting another. */}
+            <GuideLink section="lens" label="How the drive and rating bar works" />
+          </>
         ) : (
           // Wrapped, because `.wf-lens-res` is the flex BOX that right-aligns and this span is what
           // ellipsises — see the stylesheet for why those cannot be one element.
@@ -305,7 +309,7 @@ export default function WindowFirstLensBar({
           </span>
         )}
       </span>
-      <GuideLink section="lens" label="How the drive and rating bar works" />
+      {!isMobile && <GuideLink section="lens" label="How the drive and rating bar works" />}
     </div>
   );
 }

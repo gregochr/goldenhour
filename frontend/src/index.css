@@ -7247,7 +7247,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-win-aurora-door,
 .wf-map-peek-aurora-door { padding: 8px 10px 4px; }
 /* The window menu's guide door: a footer of its own, right-aligned under the last row. */
-.wf-win-guide { display: flex; justify-content: flex-end; padding: 6px 10px 6px; }
+.wf-win-guide { display: flex; justify-content: flex-end; padding: 10px; }
 /* The single grid item — see the markup's own note for why the glyph and the text cannot be
    siblings here. */
 .wf-win-landing-txt {
@@ -15697,6 +15697,7 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
 }
 .wf-guide-why {
   align-self: flex-start;
+  white-space: nowrap;
   padding: 2px 0;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -15714,8 +15715,21 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
 /* The aurora banners' guide door sits between the toggle and the dismiss, with a little air each side. */
 .wf-aurora-actions .wf-guide-link,
 .wf-aurora-strip .wf-guide-link,
-.wf-aurora-lite-door + .wf-guide-link { margin: 0 4px; }
+.wf-aurora-lite-door + .wf-guide-link { margin: 0 10px; }
 
 /* Ask's empty state: the allowance line with the guide door at the end of the row. */
 .wf-ask-guide-row { display: flex; align-items: center; gap: 8px; }
 .wf-ask-guide-row > .wf-guide-link { margin-left: auto; }
+
+/* The 44px hit area of the ? is a pseudo-element 10px proud of the 24px circle on every side, so a neighbour must
+   sit at least 10px away or the two boxes overlap. These hosts' gaps are smaller, so the ? adds the difference. */
+.wf-cu-chips .wf-guide-link { margin-left: 4px; }
+.wf-tl-collapsed .wf-guide-link,
+.wf-tide-strip-header .wf-guide-link,
+.wf-hstrip-h .wf-guide-link { margin: 0 4px; }
+.wf-tl-head-row,
+.wf-ask-guide-row { gap: 12px; }
+/* On a phone the lens bar's ? ends the count line. */
+.wf-lens-count .wf-guide-link { display: inline-flex; vertical-align: middle; margin-left: 12px; }
+/* The drive-time lock: segments (and the Pro pill) on one line, the guide link on its own beneath. */
+.wf-filters-drive-lock { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
