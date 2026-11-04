@@ -24,7 +24,7 @@ vi.mock('../components/RegionManagementView.jsx', () => stub('Regions'));
 vi.mock('../components/AreaManagementView.jsx', () => stub('Areas'));
 vi.mock('../components/TideManagementView.jsx', () => stub('Tides'));
 vi.mock('../components/WaitlistManagementView.jsx', () => stub('Waitlist'));
-vi.mock('../components/ModelSelectionView.jsx', () => stub('Run Config'));
+vi.mock('../components/ModelSelectionView.jsx', () => stub('Model Config'));
 vi.mock('../components/SchedulerView.jsx', () => stub('Scheduler'));
 vi.mock('../components/TravelDaysView.jsx', () => stub('Travel Days'));
 vi.mock('../components/skyeval/SkyEvalView.jsx', () => stub('Sky Eval'));
@@ -45,14 +45,13 @@ vi.mock('../components/runs/RunsView.jsx', async () => {
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
     ['runs', 'Runs'],
-    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
+    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'], ['models', 'Model Config'],
   ] },
-  { group: 'tuning', label: 'Tuning', tabs: [['models', 'Run Config'], ['skyeval', 'Sky Eval']] },
   { group: 'places', label: 'Places', tabs: [
     ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
   ] },
   { group: 'people', label: 'People', tabs: [['users', 'Users'], ['waitlist', 'Waitlist']] },
-  { group: 'testing', label: 'Testing', tabs: [['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
+  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
 ];
 const ALL_TABS = EXPECTED.flatMap((g) => g.tabs.map(([value, label]) => ({ group: g.group, value, label })));
 
@@ -227,7 +226,7 @@ describe('ManageView — layout precedence and tablet', () => {
     expect(screen.getByTestId('manage-tab-bar')).toBeInTheDocument();
     expect(screen.queryByTestId('manage-sidebar')).toBeNull();
     expect(screen.queryByTestId('manage-section-select')).toBeNull();
-    expect(screen.getAllByTestId(/^manage-group-(?!bar$)/)).toHaveLength(5);
+    expect(screen.getAllByTestId(/^manage-group-(?!bar$)/)).toHaveLength(4);
     expect(screen.getByTestId('manage-tab-runs')).not.toHaveAttribute('aria-current');
   });
 

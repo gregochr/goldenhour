@@ -294,7 +294,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('text-plex-gold');
@@ -470,7 +470,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
@@ -977,7 +977,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('batch-info-panel')).not.toBeInTheDocument();

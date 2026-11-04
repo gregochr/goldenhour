@@ -104,8 +104,8 @@ const renderJobRuns = async () => {
   return view;
 };
 
-// Tabs live under groups: Runs is in Runs, Run Config is in Tuning.
-const GROUP_OF_TAB = { runs: 'runs', models: 'tuning' };
+// Tabs live under groups: Runs is in Runs, Model Config is also in Runs.
+const GROUP_OF_TAB = { runs: 'runs', models: 'runs' };
 
 const goToTab = async (tab) => {
   await act(async () => {

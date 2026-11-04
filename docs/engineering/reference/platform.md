@@ -183,7 +183,7 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 | `topic_daily_log` | `SUCCEEDED` "7 of 7 topic groups logged for 2027-03-05"; `PARTIAL`/`FAILED` "· N failed" |
 | `cloud_verification_backfill` | `SUCCEEDED` "100 verified · 0 remaining"; `PARTIAL`/`FAILED` "100 verified · stopped: …"; `SKIPPED` already running |
 
-## Operations → Run Config: measured costs (run-config-accuracy-plan.md)
+## Operations → Runs → Model Config (formerly Run Config): measured costs (run-config-accuracy-plan.md)
 
 `components/ModelSelectionView.jsx` holds no price. `GET /api/models` serves `costProfiles` (per tab: runs per day, calls per run, a `measured` figure for each model that ran and an `estimates` figure for each selectable model that did not), `tokenRates` (from `CostProperties`) and `gbpPerUsd` (the newest `job_run.exchange_rate_gbp_per_usd`; absent means the screen shows dollars). `service/RunCostProfileService` builds them from `api_call_log` over the last 30 UK civil days, with a 10-minute memo bypassed under Rewind, and never throws to the controller (a failure serves an empty `costProfiles`, shown as "Cost figures unavailable").
 
