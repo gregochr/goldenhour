@@ -13,8 +13,11 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.util.NoSuchElementException;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -178,5 +181,64 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
                                 + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Early access is currently full"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A non-date for a LocalDate parameter is 400 with a generic body that does not echo the value")
+    void handleParameterTypeMismatch_date_returns400() throws Exception {
+        mockMvc.perform(get("/api/astro/conditions").param("date", "not-a-real-date"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request parameter"))
+                .andExpect(content().string(not(containsString("not-a-real-date"))));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("Text for an Integer parameter is 400 with a generic body")
+    void handleParameterTypeMismatch_integer_returns400() throws Exception {
+        mockMvc.perform(get("/api/admin/sub-region-policy").param("candidate", "abc-text"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request parameter"))
+                .andExpect(content().string(not(containsString("abc-text"))));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("Text for a numeric path variable is 400 with a generic body")
+    void handleParameterTypeMismatch_pathVariable_returns400() throws Exception {
+        mockMvc.perform(get("/api/admin/batches/zzz-not-a-number"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request parameter"))
+                .andExpect(content().string(not(containsString("zzz-not-a-number"))));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("An unknown enum constant is 400 with a generic body")
+    void handleParameterTypeMismatch_enum_returns400() throws Exception {
+        mockMvc.perform(post("/api/admin/sky-rating-eval/run").with(csrf()).param("model", "NOPE_MODEL"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request parameter"))
+                .andExpect(content().string(not(containsString("NOPE_MODEL"))));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A very long string for a typed parameter is 400 and is not echoed")
+    void handleParameterTypeMismatch_longString_returns400() throws Exception {
+        mockMvc.perform(get("/api/astro/conditions").param("date", "x".repeat(5000)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request parameter"))
+                .andExpect(content().string(not(containsString("xxxxxxxxxx"))));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A missing required parameter is still 400")
+    void handleMissingParam_stillReturns400() throws Exception {
+        mockMvc.perform(get("/api/astro/conditions"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Missing required parameter: date"));
     }
 }
