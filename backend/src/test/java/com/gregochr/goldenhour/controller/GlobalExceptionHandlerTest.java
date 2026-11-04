@@ -12,7 +12,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -337,9 +336,7 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @Test
     @DisplayName("A method-parameter validation failure is 400 with a generic body")
     void handleValidationFailure_methodValidation_returns400() {
-        HandlerMethodValidationException ex = org.mockito.Mockito.mock(HandlerMethodValidationException.class);
-
-        GlobalExceptionHandler.ErrorResponse body = new GlobalExceptionHandler().handleValidationFailure(ex);
+        GlobalExceptionHandler.ErrorResponse body = new GlobalExceptionHandler().handleValidationFailure();
 
         org.assertj.core.api.Assertions.assertThat(body.error()).isEqualTo("Invalid request");
     }

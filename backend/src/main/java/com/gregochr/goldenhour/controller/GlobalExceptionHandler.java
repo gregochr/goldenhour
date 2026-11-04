@@ -293,12 +293,11 @@ public class GlobalExceptionHandler {
      * <p>A request body sent with a content type the endpoint does not read is the caller's error.
      * The message is fixed; the supplied content type is not echoed.
      *
-     * @param ex the exception
      * @return a 415 response with a fixed message
      */
     @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
-    public ErrorResponse handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException ex) {
+    public ErrorResponse handleMediaTypeNotSupported() {
         LOG.debug("Rejected unsupported request content type");
         return new ErrorResponse("Unsupported content type");
     }
@@ -310,12 +309,11 @@ public class GlobalExceptionHandler {
      * longer than the column that stores it) is the caller's error. The message is generic on purpose:
      * the rejected value is never echoed or logged.
      *
-     * @param ex the exception
      * @return a 400 response with a fixed message
      */
     @ExceptionHandler({MethodArgumentNotValidException.class, HandlerMethodValidationException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleValidationFailure(Exception ex) {
+    public ErrorResponse handleValidationFailure() {
         LOG.debug("Rejected request that failed validation");
         return new ErrorResponse("Invalid request");
     }
