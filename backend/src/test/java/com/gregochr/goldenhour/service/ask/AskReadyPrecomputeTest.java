@@ -283,8 +283,21 @@ class AskReadyPrecomputeTest {
 
         service.precompute(42L);
 
-        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), any(), any(),
-                eq(EvaluationModel.HAIKU_55));
+        ArgumentCaptor<String> scope = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
+        verify(store, org.mockito.Mockito.times(17)).upsert(scope.capture(), question.capture(), any(), any(),
+                eq(snapshot.generatedAt()), eq(42L), any(), eq(EvaluationModel.HAIKU_55));
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < scope.getAllValues().size(); i++) {
+            keys.add(scope.getAllValues().get(i) + "/" + question.getAllValues().get(i));
+        }
+        assertThat(keys).containsExactly(
+                "ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH", "ALL/AM_OR_PM", "ALL/RARE_EVENTS",
+                "ALL/SNOW_TOPS",
+                "1/BEST_WEEKEND", "1/BEST_NEXT", "1/COASTAL_HIGH", "1/AM_OR_PM", "1/RARE_EVENTS", "1/SNOW_TOPS",
+                "2/BEST_WEEKEND", "2/BEST_NEXT", "2/AM_OR_PM", "2/RARE_EVENTS", "2/SNOW_TOPS");
+        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.argThat(m -> m != EvaluationModel.HAIKU_55));
     }
 
     @Test
