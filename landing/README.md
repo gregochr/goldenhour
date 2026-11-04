@@ -100,7 +100,12 @@ The source HTML keeps plain URLs (local previews are unchanged), and plain paths
 **Caching split.** HTML is served `Cache-Control: no-cache` (revalidated on every visit, a cheap 304), so a
 deploy is seen at once; fingerprinted assets are cached for 30 days. The security headers live in
 `security-headers.conf` (included at server level and in each location) because a location with its own
-`add_header` stops inheriting the server-level ones.
+`add_header` stops inheriting the server-level ones. They are `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and a `Content-Security-Policy` sized
+to what the pages load (same-origin scripts, no inline script; `'unsafe-inline'` styles because of the
+`<style>` block and `style=""` attributes; Google Fonts). A page that starts loading anything else
+(another script host, an iframe, a form post elsewhere) must widen the policy in the same change.
+There is deliberately no `Strict-Transport-Security`: that is a long-lived commitment for the owner to make.
 
 The live `photocast.css` still needs a one-off Cloudflare purge to clear the copy cached under the
 old plain URL. That only matters for the plain URL: once fingerprinted URLs ship, nothing requests it.
@@ -109,8 +114,8 @@ old plain URL. That only matters for the plain URL: once fingerprinted URLs ship
 
 `guide/` holds the user guide, served at `https://photocast.online/guide/`. The app's help panel (a
 later phase) frames these pages with `?embed=1`; `guide.js` is the embed mode and posts the page title
-to the app. `nginx.conf` sends `/guide/` documents `Content-Security-Policy: frame-ancestors
-https://app.photocast.online` and no `X-Frame-Options` (every other page keeps `SAMEORIGIN`).
+to the app. `nginx.conf` maps `/guide/` documents to `frame-ancestors https://app.photocast.online` and no
+`X-Frame-Options` (every other page keeps `SAMEORIGIN` and `frame-ancestors 'self'`).
 `/guide` redirects to `/guide/`. The fingerprint step in the `Dockerfile` also runs inside `guide/`
 (its own assets and `../photocast.css`, `../favicon.png`).
 
