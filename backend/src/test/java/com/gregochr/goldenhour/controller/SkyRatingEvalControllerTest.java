@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -60,6 +61,9 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.model").value("SONNET"));
 
         verify(skyRatingEvalService).startRun(EvaluationModel.SONNET, SkyRatingEvalTrigger.MANUAL, 8);
+        // /run and /check call executeRun on a background thread; wait for it so the call cannot leak
+        // onto the shared mock during a later test's verification.
+        verify(skyRatingEvalService, timeout(2000)).executeRun(7L);
     }
 
     @Test
@@ -78,6 +82,7 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
                 .andExpect(status().isAccepted());
 
         verify(skyRatingEvalService).startRun(EvaluationModel.HAIKU, SkyRatingEvalTrigger.MANUAL, 4);
+        verify(skyRatingEvalService, timeout(2000)).executeRun(8L);
     }
 
     @Test
@@ -94,6 +99,8 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(post("/api/admin/sky-rating-eval/run?model=HAIKU_55"))
                 .andExpect(status().isAccepted());
+
+        verify(skyRatingEvalService, timeout(2000)).executeRun(9L);
     }
 
     @Test
@@ -255,8 +262,8 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.runIds[0]").value(21))
                 .andExpect(jsonPath("$.runIds[1]").value(22));
 
-        verify(skyRatingEvalService, org.mockito.Mockito.timeout(2000)).executeRun(21L);
-        verify(skyRatingEvalService, org.mockito.Mockito.timeout(2000)).executeRun(22L);
+        verify(skyRatingEvalService, timeout(2000)).executeRun(21L);
+        verify(skyRatingEvalService, timeout(2000)).executeRun(22L);
     }
 
     @Test
@@ -271,6 +278,8 @@ class SkyRatingEvalControllerTest extends AbstractControllerTest {
                         .content("{\"models\":[\"HAIKU\"],\"runsPerFixture\":1}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.runIds[0]").value(30));
+
+        verify(skyRatingEvalService, timeout(2000)).executeRun(30L);
     }
 
     @Test
