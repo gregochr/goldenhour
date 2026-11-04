@@ -103,7 +103,10 @@ ORDER BY 1, 3, 2, 4;
 -- 3. Ground truth: the 21:00 rating against the last rating before the event --------------------------
 -- outcome_rating holds 1-5 stars a reader gave a past event (null = "didn't see it", excluded). For each,
 -- the evening's last rating of that slot and the last rating of any cycle before the event (what was
--- served at the light). The sample is small; read the counts before the means.
+-- served at the light). A rating counts only if it was AVAILABLE before the event (scored_at <= event
+-- time, as ForecastEvaluationRepository's as-of-event query does): forecast_run_at is the submission time,
+-- and a batch submitted before the light can land after it. Among those, the latest submission wins.
+-- The sample is small; read the counts before the means.
 WITH cyc AS (
     SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
            substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
@@ -116,7 +119,7 @@ WITH cyc AS (
     ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
 ),
 ev AS (
-    SELECT f.location_id, f.target_date, f.target_type, f.forecast_run_at,
+    SELECT f.location_id, f.target_date, f.target_type, f.forecast_run_at, f.scored_at,
            COALESCE(c.cycle_type, 'UNKNOWN') AS cycle_type,
            COALESCE(f.sky_rating, f.rating) AS stars
     FROM forecast_evaluation f
@@ -129,15 +132,17 @@ o AS (
            (SELECT ev.stars FROM ev
             WHERE ev.location_id = o.location_id AND ev.target_date = o.event_date
               AND ev.target_type = o.event_type AND ev.cycle_type = 'EVENING'
-              AND ev.forecast_run_at < o.event_time
+              AND ev.scored_at IS NOT NULL AND ev.scored_at <= o.event_time
             ORDER BY ev.forecast_run_at DESC LIMIT 1) AS evening_stars,
            (SELECT ev.stars FROM ev
             WHERE ev.location_id = o.location_id AND ev.target_date = o.event_date
-              AND ev.target_type = o.event_type AND ev.forecast_run_at < o.event_time
+              AND ev.target_type = o.event_type
+              AND ev.scored_at IS NOT NULL AND ev.scored_at <= o.event_time
             ORDER BY ev.forecast_run_at DESC LIMIT 1) AS last_stars,
            (SELECT ev.cycle_type FROM ev
             WHERE ev.location_id = o.location_id AND ev.target_date = o.event_date
-              AND ev.target_type = o.event_type AND ev.forecast_run_at < o.event_time
+              AND ev.target_type = o.event_type
+              AND ev.scored_at IS NOT NULL AND ev.scored_at <= o.event_time
             ORDER BY ev.forecast_run_at DESC LIMIT 1) AS last_cycle
     FROM outcome_rating o
     WHERE o.rating IS NOT NULL
