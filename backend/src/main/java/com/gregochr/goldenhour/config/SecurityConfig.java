@@ -85,7 +85,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/waitlist").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/container").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**").permitAll()
+                        // Belt and braces: if the springdoc -ui starter is ever re-added, this still keeps
+                        // Swagger UI from being served (springdoc.swagger-ui.enabled is no longer set in prod).
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html").denyAll()
                         // Ask PhotoCast is Pro and Admin only. In the chain, so the refusal precedes
                         // AskBodyLimitFilter and the flag and admission interceptors.
                         .requestMatchers("/api/ask", "/api/ask/**").hasAnyRole("PRO_USER", "ADMIN")

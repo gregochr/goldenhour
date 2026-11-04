@@ -274,21 +274,19 @@
 
         <!-- ==================== API Docs ==================== -->
 
-        <!-- Springdoc OpenAPI - auto-generates Swagger UI from controllers (3.x for Boot 4.0) -->
+        <!-- Springdoc OpenAPI - serves /v3/api-docs from the controllers (3.x for Boot 4.0) -->
         <dependency>
             <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <artifactId>springdoc-openapi-starter-webmvc-api</artifactId>
             <!--
-                3.1.0, not 3.0.3, to clear CVE-2026-65898 in the DOMPurify bundled inside the
-                swagger-ui webjar: springdoc 3.0.3 pins swagger-ui 5.32.2 (DOMPurify 3.3.2),
-                3.2.0 pins 5.32.11 (DOMPurify 3.4.12). Verified by unzipping both webjars and
-                reading DOMPurify.version out of swagger-ui-bundle.js.
+                The API-only starter, deliberately not springdoc-openapi-starter-webmvc-ui. The UI
+                starter bundles the swagger-ui webjar, which carries its own copy of DOMPurify, and
+                the dependency scan flags that JS again and again (CVE-2026-65898 earlier, then
+                CVE-2026-116803 and CVE-2026-116804 on 1 Nov 2026). Production disables the UI
+                anyway, and the ZAP pen-test stack needs only /v3/api-docs.
 
-                ⚠️ This bump is NOT optional hygiene, despite the CVE reading 5.1. After the
-                Tomcat and PostgreSQL bumps cleared everything else, this was the sole remaining
-                failure — and dependency-check failed the build on it under a
-                failBuildOnCVSS=7 gate. Whatever score the plugin compares is not the 5.1 it
-                prints. Do not drop this bump on the assumption the CVE is below the gate.
+                ⚠️ Do not re-add the -ui starter: it brings the swagger-ui webjar, and its JS,
+                back into the jar.
             -->
             <version>3.2.0</version>
         </dependency>
