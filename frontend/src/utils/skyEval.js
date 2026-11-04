@@ -373,17 +373,19 @@ export function versionMarkers(versions, startMs, endMs) {
 
 /**
  * One line per model for the accuracy chart: one point per session in which the model has a pass rate.
- * A line is emphasised when it is the highlighted model, or, with no highlight, when it serves a production lane.
+ * A line is emphasised when it is one of the highlighted models, or, with none highlighted, when it serves a
+ * production lane.
  * Emphasised lines come last so they draw on top.
  *
  * @param {Array<object>} sessions the served sessions
  * @param {Array<{model: string, lanes: string[]}>} models the served model rows
- * @param {string|null} highlight the highlighted model, or null
+ * @param {string[]|null} highlighted the highlighted models (null or empty means the production default)
  * @param {number} startMs the left edge
  * @param {number} endMs the right edge
  * @returns {Array<{model: string, emphasised: boolean, points: Array<object>, polyline: string}>} the series
  */
-export function buildAccuracySeries(sessions, models, highlight, startMs, endMs) {
+export function buildAccuracySeries(sessions, models, highlighted, startMs, endMs) {
+  const chosen = highlighted ?? [];
   const timed = sessions
     .map((s) => ({ s, ms: parseUtcInstant(s.startedAt)?.getTime() }))
     .filter(({ ms }) => ms != null && ms >= startMs && ms <= endMs)
@@ -404,7 +406,7 @@ export function buildAccuracySeries(sessions, models, highlight, startMs, endMs)
         version: s.version,
       });
     });
-    const emphasised = highlight ? highlight === m.model : (m.lanes ?? []).length > 0;
+    const emphasised = chosen.length > 0 ? chosen.includes(m.model) : (m.lanes ?? []).length > 0;
     return {
       model: m.model,
       emphasised,

@@ -149,7 +149,7 @@ session is RUNNING (stop when none is).
   All models table — all exactly as the README. Charts: hand-rolled SVG like the prototype (no chart library is
   required; check whether one is already used in Operations and use it only if it can do the encodings). Hollow
   manual points, gold dashed version lines with staggered 4-char labels and hover titles, production models
-  coloured 2px, others grey 1px 60%, chip/table click highlights a model.
+  coloured 2px, others grey 1px 60%, chips and table rows toggle a multi-select of models to compare (a Clear chip empties it).
 - Tailwind only (arbitrary values for the oklch colours are fine), PropTypes, `data-testid`s on key elements,
   no inline styles (SVG attributes are fine). Phone: everything stacks; lane cards stack under 1000 px; tables
   scroll inside their card, never the page, at 375 px.
@@ -157,7 +157,7 @@ session is RUNNING (stop when none is).
 Tests: `docs/engineering/frontend-test-standards.md`. Replace `SkyRatingEvalView.test.jsx`. Cover: tab persistence
 with storage throwing; each verdict kind's headline; lane status bar three states + links; compare rows (pts
 colour, cost multiple, "Fell to"); version chips switch comparison; "Not run on this version"; All models sort and
-stale dimming; chip highlight; Run a check defaults, Production pair, Missed-last-time count and disabled state,
+stale dimming; chip multi-select and Clear; Run a check defaults, Production pair, Missed-last-time count and disabled state,
 estimate arithmetic, POST body, post-submit tab switch, prefilled open from both links; polling starts and stops;
 Scheduler's moved checkboxes (port the existing schedule tests). Update `instantsAbroad.test.jsx` mocks if the
 API module's exports change.
