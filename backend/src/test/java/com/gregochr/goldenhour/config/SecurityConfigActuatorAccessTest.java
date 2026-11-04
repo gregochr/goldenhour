@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.context.annotation.AnnotationConfigUtils;
 import org.springframework.mock.web.MockServletContext;
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -87,10 +88,23 @@ class SecurityConfigActuatorAccessTest {
     }
 
     @Test
-    @DisplayName("Swagger UI is gone: /swagger-ui/index.html is never served")
-    void swaggerUi_isNotServed() throws Exception {
-        int status = mvc.perform(MockMvcRequestBuilders.get("/swagger-ui/index.html"))
-                .andReturn().getResponse().getStatus();
-        assertThat(status).isNotEqualTo(200);
+    @DisplayName("Swagger UI paths are denied to an anonymous caller")
+    void swaggerUi_isDeniedAnonymously() throws Exception {
+        for (String path : new String[] {"/swagger-ui/index.html", "/swagger-ui.html"}) {
+            int status = mvc.perform(MockMvcRequestBuilders.get(path))
+                    .andReturn().getResponse().getStatus();
+            assertThat(status).as(path).isIn(401, 403);
+        }
+    }
+
+    @Test
+    @DisplayName("Swagger UI paths are denied even to an authenticated ADMIN")
+    void swaggerUi_isDeniedToAdmin() throws Exception {
+        for (String path : new String[] {"/swagger-ui/index.html", "/swagger-ui.html"}) {
+            int status = mvc.perform(MockMvcRequestBuilders.get(path)
+                            .with(SecurityMockMvcRequestPostProcessors.user("admin").roles("ADMIN")))
+                    .andReturn().getResponse().getStatus();
+            assertThat(status).as(path).isEqualTo(403);
+        }
     }
 }
