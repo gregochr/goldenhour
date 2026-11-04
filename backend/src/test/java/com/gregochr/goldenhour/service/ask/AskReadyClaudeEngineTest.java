@@ -129,7 +129,7 @@ class AskReadyClaudeEngineTest {
         ArgumentCaptor<AskAnswer> answer = ArgumentCaptor.forClass(AskAnswer.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.times(3)).upsert(any(), question.capture(), any(), answer.capture(),
-                any(), any(), isNull());
+                any(), any(), isNull(), any());
         assertThat(question.getAllValues()).containsExactly(ReadyQuestion.BEST_NEXT, ReadyQuestion.RARE_EVENTS,
                 ReadyQuestion.SNOW_TOPS);
         assertThat(answer.getAllValues().getFirst().picks()).singleElement().satisfies(p -> {

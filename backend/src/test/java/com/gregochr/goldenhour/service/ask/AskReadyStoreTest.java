@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.AskReadyAnswerEntity;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
@@ -60,7 +61,7 @@ class AskReadyStoreTest {
             + "safety note, the question text and its windows")
     void roundTrip() {
         store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer("Best spot this weekend?"), answer("First."),
-                BUILT, 42L);
+                BUILT, 42L, EvaluationModel.HAIKU);
 
         List<AskReadyStore.Stored> found = store().findScope("ALL");
 
@@ -83,13 +84,35 @@ class AskReadyStoreTest {
     }
 
     @Test
+    @DisplayName("an upsert writes the model that wrote the answer, an update overwrites it, and Stored "
+            + "exposes it")
+    void upsertWritesAndOverwritesTheModel() {
+        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("Best spot tonight?"), answer("First."), BUILT, 1L,
+                EvaluationModel.HAIKU);
+
+        assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU));
+        assertThat(store().findScope("ALL")).singleElement()
+                .satisfies(s -> assertThat(s.evaluationModel()).isEqualTo(EvaluationModel.HAIKU));
+
+        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("Best spot tonight?"), answer("Second."), BUILT, 2L,
+                EvaluationModel.HAIKU_55);
+
+        assertThat(repository.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU_55));
+        assertThat(store().findScope("ALL")).singleElement()
+                .satisfies(s -> assertThat(s.evaluationModel()).isEqualTo(EvaluationModel.HAIKU_55));
+    }
+
+    @Test
     @DisplayName("writing the same scope and question twice replaces the row: still one row, the newer "
             + "answer, the newer text and windows")
     void upsertIsIdempotent() {
-        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("Best spot tonight?"), answer("First."), BUILT, 1L);
+        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("Best spot tonight?"), answer("First."), BUILT, 1L,
+                EvaluationModel.HAIKU);
         store().upsert("ALL", ReadyQuestion.BEST_NEXT,
                 new ReadyQuestion.Offer("Best spot tomorrow morning?", List.of("2026-10-06_sunrise"), null),
-                answer("Second."), BUILT.plusHours(12), null);
+                answer("Second."), BUILT.plusHours(12), null, EvaluationModel.HAIKU);
 
         List<AskReadyAnswerEntity> rows = repository.findAll();
 
@@ -105,9 +128,10 @@ class AskReadyStoreTest {
     @Test
     @DisplayName("scopes and questions are separate rows; a scope's read returns only its own")
     void scopesAreSeparate() {
-        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("a"), answer("all"), BUILT, 1L);
-        store().upsert("3", ReadyQuestion.BEST_NEXT, offer("b"), answer("region"), BUILT, 1L);
-        store().upsert("3", ReadyQuestion.SNOW_TOPS, offer("c"), answer("region snow"), BUILT, 1L);
+        store().upsert("ALL", ReadyQuestion.BEST_NEXT, offer("a"), answer("all"), BUILT, 1L, EvaluationModel.HAIKU);
+        store().upsert("3", ReadyQuestion.BEST_NEXT, offer("b"), answer("region"), BUILT, 1L, EvaluationModel.HAIKU);
+        store().upsert("3", ReadyQuestion.SNOW_TOPS, offer("c"), answer("region snow"), BUILT, 1L,
+                EvaluationModel.HAIKU);
 
         assertThat(store().findScope("3")).extracting(AskReadyStore.Stored::questionId)
                 .containsExactlyInAnyOrder("BEST_NEXT", "SNOW_TOPS");
@@ -135,7 +159,7 @@ class AskReadyStoreTest {
     @DisplayName("a question with no windows is stored with an empty window list and read back as one")
     void emptyWindows() {
         store().upsert("ALL", ReadyQuestion.RARE_EVENTS, new ReadyQuestion.Offer("Any?", List.of(), null),
-                answer("Events."), BUILT, null);
+                answer("Events."), BUILT, null, EvaluationModel.HAIKU);
 
         assertThat(store().findScope("ALL").getFirst().windowIds()).isEmpty();
         assertThat(repository.findByScopeKeyAndQuestionId("ALL", "RARE_EVENTS"))
@@ -158,7 +182,7 @@ class AskReadyStoreTest {
         String version = "n1;2026-10-05=1760000000000";
         store().upsert("ALL", ReadyQuestion.NIGHT_SKY,
                 new ReadyQuestion.Offer("Anything for the night sky tonight?", List.of("2026-10-05_astro"), null),
-                nightAnswer(), BUILT, null, version);
+                nightAnswer(), BUILT, null, version, EvaluationModel.HAIKU);
 
         AskReadyStore.Stored found = store().findScope("ALL").getFirst();
 
@@ -180,7 +204,7 @@ class AskReadyStoreTest {
             + "existed) reads back with a null version and carries no such property")
     void noVersionByDefault() {
         store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer("Best spot this weekend?"), answer("First."),
-                BUILT, 42L);
+                BUILT, 42L, EvaluationModel.HAIKU);
 
         assertThat(store().findScope("ALL").getFirst().astroVersion()).isNull();
         assertThat(repository.findAll().getFirst().getAnswerJson()).doesNotContain("astroVersion");
@@ -212,11 +236,13 @@ class AskReadyStoreTest {
     void aLaterWriteReplacesTheVersion() {
         ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Anything for the night sky tonight?",
                 List.of("2026-10-05_astro"), null);
-        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=1");
-        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=2");
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=1",
+                EvaluationModel.HAIKU);
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=2",
+                EvaluationModel.HAIKU);
         assertThat(store().findScope("ALL").getFirst().astroVersion()).isEqualTo("n1;2026-10-05=2");
 
-        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null);
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, EvaluationModel.HAIKU);
 
         assertThat(repository.findAll()).hasSize(1);
         assertThat(store().findScope("ALL").getFirst().astroVersion()).isNull();
@@ -262,7 +288,7 @@ class AskReadyStoreTest {
     void windowsAndCoveredRoundTrip() {
         ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?",
                 List.of("2026-10-10_sunset"), null, List.of("2026-10-10_sunrise", "2026-10-10_sunset"));
-        store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer, answerWithWindows(), BUILT, 1L);
+        store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer, answerWithWindows(), BUILT, 1L, EvaluationModel.HAIKU);
 
         AskReadyStore.Stored found = store().findScope("ALL").getFirst();
 
@@ -278,9 +304,9 @@ class AskReadyStoreTest {
     void nightAndEventsStoreNoCoveredWindows() {
         store().upsert("ALL", ReadyQuestion.NIGHT_SKY,
                 new ReadyQuestion.Offer("Anything for the night sky tonight?", List.of("2026-10-05_astro"), null),
-                nightAnswer(), BUILT, null, "n1;2026-10-05=1");
+                nightAnswer(), BUILT, null, "n1;2026-10-05=1", EvaluationModel.HAIKU);
         store().upsert("ALL", ReadyQuestion.RARE_EVENTS, new ReadyQuestion.Offer("Any?", List.of(), null),
-                answer("Events."), BUILT, null);
+                answer("Events."), BUILT, null, EvaluationModel.HAIKU);
 
         assertThat(store().findScope("ALL")).extracting(AskReadyStore.Stored::coveredWindowIds)
                 .containsOnlyNulls();

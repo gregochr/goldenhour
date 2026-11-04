@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.AskReadyAnswerEntity;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.repository.AskReadyAnswerRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +25,9 @@ import java.util.Optional;
  * <p>The codec is this class's own mapper rather than the application's: the stored form must not
  * move if the application mapper's configuration does (dates are ISO text, and a pick keeps its
  * {@code ratingAtAnswer} and {@code verdictAtAnswer}, which the serve-time freshness check needs).
+ *
+ * <p>The Claude model that wrote each answer is the {@code evaluation_model} column (V219); it is kept for the
+ * operator and is never part of what a reader is served.
  *
  * <p>A night-bound answer ({@code NIGHT_SKY}) also keeps the night version it was written under, as
  * one more property of the same JSON object, {@value #ASTRO_VERSION}: no column, so no migration. It is
@@ -76,10 +80,31 @@ public class AskReadyStore {
      * @param coveredWindowIds    the windows the question covered when the answer was written, or null on
      *                            a row that records none (an older row, or a question with no solar
      *                            windows); the freshness check compares it to the live offer's
+     * @param evaluationModel     the Claude model that wrote the answer, or null on a row that records none
+     *                            (a hand-built value); never served to readers, only for the operator
      */
     public record Stored(String scopeKey, String questionId, String questionText,
             List<String> windowIds, LocalDateTime briefingGeneratedAt, AskAnswer answer,
-            String astroVersion, List<String> coveredWindowIds) {
+            String astroVersion, List<String> coveredWindowIds, EvaluationModel evaluationModel) {
+
+        /**
+         * A stored answer that records no model.
+         *
+         * @param scopeKey            {@code ALL} or a region id as text
+         * @param questionId          the Ready question's name
+         * @param questionText        the text the answer was written for
+         * @param windowIds           the windows the question was asked about
+         * @param briefingGeneratedAt when the briefing it was built from was generated (UTC)
+         * @param answer              the answer
+         * @param astroVersion        the night version, or null
+         * @param coveredWindowIds    the covered windows, or null
+         */
+        public Stored(String scopeKey, String questionId, String questionText, List<String> windowIds,
+                LocalDateTime briefingGeneratedAt, AskAnswer answer, String astroVersion,
+                List<String> coveredWindowIds) {
+            this(scopeKey, questionId, questionText, windowIds, briefingGeneratedAt, answer, astroVersion,
+                    coveredWindowIds, null);
+        }
 
         /**
          * A stored answer that records no covered windows.
@@ -124,12 +149,13 @@ public class AskReadyStore {
      * @param answer              the validated answer
      * @param briefingGeneratedAt when the briefing was generated (UTC)
      * @param pipelineRunId       the triggering pipeline run, or null for an on-demand precompute
+     * @param model               the Claude model that wrote the answer (the run's pinned model)
      * @throws IllegalStateException if the answer cannot be serialised
      */
     @Transactional
     public void upsert(String scopeKey, ReadyQuestion question, ReadyQuestion.Offer offer,
-            AskAnswer answer, LocalDateTime briefingGeneratedAt, Long pipelineRunId) {
-        upsert(scopeKey, question, offer, answer, briefingGeneratedAt, pipelineRunId, null);
+            AskAnswer answer, LocalDateTime briefingGeneratedAt, Long pipelineRunId, EvaluationModel model) {
+        upsert(scopeKey, question, offer, answer, briefingGeneratedAt, pipelineRunId, null, model);
     }
 
     /**
@@ -143,11 +169,14 @@ public class AskReadyStore {
      * @param pipelineRunId       the triggering pipeline run, or null for an on-demand precompute
      * @param astroVersion        the night version a night-bound answer was written under
      *                            ({@link ReadyQuestion#nightVersion}), or null for any other answer
+     * @param model               the Claude model that wrote the answer (the run's pinned model); an update
+     *                            of an existing row overwrites the model along with the answer
      * @throws IllegalStateException if the answer cannot be serialised
      */
     @Transactional
     public void upsert(String scopeKey, ReadyQuestion question, ReadyQuestion.Offer offer,
-            AskAnswer answer, LocalDateTime briefingGeneratedAt, Long pipelineRunId, String astroVersion) {
+            AskAnswer answer, LocalDateTime briefingGeneratedAt, Long pipelineRunId, String astroVersion,
+            EvaluationModel model) {
         AskReadyAnswerEntity row = repository
                 .findByScopeKeyAndQuestionId(scopeKey, question.name())
                 .orElseGet(AskReadyAnswerEntity::new);
@@ -158,6 +187,7 @@ public class AskReadyStore {
         row.setBriefingGeneratedAt(briefingGeneratedAt);
         row.setPipelineRunId(pipelineRunId);
         row.setAnswerJson(toJson(answer, astroVersion, question, offer));
+        row.setEvaluationModel(model);
         row.setCreatedAt(clock.instant());
         repository.save(row);
     }
@@ -195,7 +225,8 @@ public class AskReadyStore {
             List<String> windows = row.getWindowIds() == null || row.getWindowIds().isBlank()
                     ? List.of() : List.of(row.getWindowIds().split(WINDOW_SEPARATOR));
             return Optional.of(new Stored(row.getScopeKey(), row.getQuestionId(),
-                    row.getQuestionText(), windows, row.getBriefingGeneratedAt(), answer, astroVersion, covered));
+                    row.getQuestionText(), windows, row.getBriefingGeneratedAt(), answer, astroVersion, covered,
+                    row.getEvaluationModel()));
         } catch (JsonProcessingException | RuntimeException e) {
             return Optional.empty();
         }

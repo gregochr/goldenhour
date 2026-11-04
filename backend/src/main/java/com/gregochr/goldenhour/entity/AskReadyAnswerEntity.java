@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -65,6 +67,14 @@ public class AskReadyAnswerEntity {
     /** The validated answer as JSON, picks carrying their rating and verdict at answer time. */
     @Column(name = "answer_json", nullable = false, columnDefinition = "TEXT")
     private String answerJson;
+
+    /**
+     * The Claude model that wrote the answer (V219): the model the precompute run pinned. Null only on a
+     * row written by hand; every row before V219 was backfilled HAIKU. Overwritten on every upsert.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evaluation_model", length = 10)
+    private EvaluationModel evaluationModel;
 
     /** When the row was last written. */
     @Column(name = "created_at", nullable = false)

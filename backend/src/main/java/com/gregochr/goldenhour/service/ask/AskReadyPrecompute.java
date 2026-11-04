@@ -418,7 +418,7 @@ public class AskReadyPrecompute {
         try {
             store.upsert(task.scope().key(), task.question(), task.offer(), answer,
                     snapshot.generatedAt(), pipelineRunId,
-                    task.question().nightVersion(snapshot, task.offer()).orElse(null));
+                    task.question().nightVersion(snapshot, task.offer()).orElse(null), model);
             counts.written++;
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Ready {} could not be stored: {}", label, e.toString());
