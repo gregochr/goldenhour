@@ -108,21 +108,6 @@ export function pageIdFromMessage(raw) {
   return Object.prototype.hasOwnProperty.call(GUIDE_PAGES, id) ? id : null;
 }
 
-/** The longest title the header will print. */
-export const GUIDE_TITLE_MAX = 80;
-
-/**
- * A page title from the iframe, made safe to print: text only, trailing full stop trimmed, capped.
- *
- * @param {unknown} raw
- * @returns {?string} the title, or null when there is nothing printable
- */
-export function cleanGuideTitle(raw) {
-  if (typeof raw !== 'string') return null;
-  const title = raw.replace(/\s+/g, ' ').trim().replace(/\.+$/, '').trim().slice(0, GUIDE_TITLE_MAX);
-  return title || null;
-}
-
 /** The accessible name of every presentation. The two-deep rule leaves a dialog carrying it out of its count. */
 export const GUIDE_LABEL = 'PhotoCast guide';
 

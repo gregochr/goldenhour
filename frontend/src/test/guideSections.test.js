@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  GUIDE_PAGES, GUIDE_SECTIONS, TAB_GUIDE, guideUrl, pageIdFromMessage, cleanGuideTitle, resolveGuideOrigin,
+  GUIDE_PAGES, GUIDE_SECTIONS, TAB_GUIDE, guideUrl, pageIdFromMessage, resolveGuideOrigin,
 } from '../utils/guide.js';
 
 /**
@@ -77,18 +77,6 @@ describe('pageIdFromMessage', () => {
     expect(pageIdFromMessage('evil.html')).toBeNull();
     expect(pageIdFromMessage('constructor')).toBeNull();
     expect(pageIdFromMessage(42)).toBeNull();
-  });
-});
-
-describe('cleanGuideTitle', () => {
-  it('trims the trailing full stop and caps the length', () => {
-    expect(cleanGuideTitle('Map.')).toBe('Map');
-    expect(cleanGuideTitle(`${'x'.repeat(200)}.`)).toHaveLength(80);
-  });
-
-  it('gives nothing for a non-string or an empty one', () => {
-    expect(cleanGuideTitle({})).toBeNull();
-    expect(cleanGuideTitle('  .  ')).toBeNull();
   });
 });
 

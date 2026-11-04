@@ -252,35 +252,54 @@ describe('the message listener', () => {
   it('ignores a message from another origin', () => {
     mount();
     press('door-map');
-    post(report({ title: 'Hijacked' }), { origin: 'https://evil.example' });
-    expect(screen.getByTestId('guide-title')).toHaveTextContent('Map');
-    expect(screen.getByTestId('guide-title')).not.toHaveTextContent('Hijacked');
+    post(report({ page: 'night-sky.html' }), { origin: 'https://evil.example' });
+    expect(screen.getByTestId('guide-title').textContent).toBe('Map');
   });
 
   it('ignores a message from a window that is not its iframe', () => {
     mount();
     press('door-map');
-    post(report({ title: 'Hijacked' }), { source: window });
-    expect(screen.getByTestId('guide-title')).not.toHaveTextContent('Hijacked');
+    post(report({ page: 'night-sky.html' }), { source: window });
+    expect(screen.getByTestId('guide-title').textContent).toBe('Map');
   });
 
   it('ignores a page that is not a guide page, and a payload of the wrong type', () => {
     mount();
     press('door-map');
-    post(report({ page: 'admin.html', title: 'Hijacked' }));
-    post(report({ type: 'something-else', title: 'Hijacked' }));
+    post(report({ page: 'admin.html' }));
+    post(report({ type: 'something-else', page: 'night-sky.html' }));
     post('photocast-guide');
     post(null);
-    expect(screen.getByTestId('guide-title')).not.toHaveTextContent('Hijacked');
+    expect(screen.getByTestId('guide-title').textContent).toBe('Map');
   });
 
-  it('prints a title as text, trimmed and capped, and drops a hash that is not a section id', () => {
+  it('names the page from the whitelist, never from the frame\'s own (markup-flattened) title', () => {
     mount();
     press('door-map');
-    post(report({ title: `<img src=x onerror=alert(1)>${'z'.repeat(200)}.`, hash: '#a b<script>' }));
+    post(report({ page: 'ask-photocast.html', title: 'Ask PhotoCastPro', hash: '' }));
+    expect(screen.getByTestId('guide-title').textContent).toBe('Ask PhotoCast');
+    post(report({ page: 'getting-started.html', title: 'Your firstfive minutes', hash: '' }));
+    expect(screen.getByTestId('guide-title').textContent).toBe('Getting started');
+    post(report({ page: 'night-sky.html', title: '<img src=x onerror=alert(1)>', hash: '' }));
     const title = screen.getByTestId('guide-title');
     expect(title.querySelector('img')).toBeNull();
-    expect(title.textContent.length).toBe(80);
+    expect(title.textContent).toBe('Aurora and night sky');
+  });
+
+  it('follows a link inside the frame: a posted page change updates the header to that page', () => {
+    mount();
+    press('door-map');
+    expect(screen.getByTestId('guide-title').textContent).toBe('Map');
+    post(report({ page: 'settings.html', title: 'Settings.' }));
+    expect(screen.getByTestId('guide-title').textContent).toBe('Settings');
+    post(report({ page: 'map.html', title: 'Map.' }));
+    expect(screen.getByTestId('guide-title').textContent).toBe('Map');
+  });
+
+  it('drops a hash that is not a section id', () => {
+    mount();
+    press('door-map');
+    post(report({ hash: '#a b<script>' }));
     expect(screen.getByTestId('guide-new-tab')).toHaveAttribute('href', `${GUIDE_ORIGIN}/guide/map.html`);
   });
 });

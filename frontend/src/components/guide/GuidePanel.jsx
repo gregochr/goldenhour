@@ -5,7 +5,7 @@ import BottomSheet from '../BottomSheet.jsx';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
 import useStickyViewportFill from '../../hooks/useStickyViewportFill.js';
 import {
-  GUIDE_LABEL, GUIDE_ORIGIN, GUIDE_PAGES, cleanGuideTitle, guideUrl, pageIdFromMessage,
+  GUIDE_LABEL, GUIDE_ORIGIN, GUIDE_PAGES, guideUrl, pageIdFromMessage,
 } from '../../utils/guide.js';
 
 /** A section id from a message: a `#` and a short run of id characters, or nothing. */
@@ -16,8 +16,9 @@ const HASH_PATTERN = /^#[A-Za-z0-9_-]{1,80}$/;
  *
  * <p>Three checks, all required: the origin is the guide's ({@link GUIDE_ORIGIN}), the source is THIS
  * frame's window (not another frame, not the page itself), and the payload says it is a
- * `photocast-guide`. A page name that is not one of {@code GUIDE_PAGES} drops the whole message (its title
- * would then describe a page this header cannot name). The title is only ever rendered as text.
+ * `photocast-guide`. A page name that is not one of {@code GUIDE_PAGES} drops the whole message. The frame's own
+ * {@code title} is deliberately IGNORED: it is an h1's text content, so markup runs together ("Ask
+ * PhotoCastPro"). The header names the page from {@code GUIDE_PAGES}.
  *
  * <p>Keyed on {@code nonce}: every {@code openGuide} bumps it, so reopening the same `page#hash` after
  * the reader has navigated inside the guide reloads the frame at the right place instead of leaving it
@@ -41,7 +42,6 @@ function GuideFrame({ page, hash, nonce, onTrack }) {
       if (!trackedPage) return;
       onTrackRef.current({
         page: trackedPage,
-        title: cleanGuideTitle(data.title),
         hash: typeof data.hash === 'string' && HASH_PATTERN.test(data.hash) ? data.hash : '',
       });
     };
@@ -79,11 +79,11 @@ GuideFrame.propTypes = {
   onTrack: PropTypes.func.isRequired,
 };
 
-/** The header's title and the page it belongs to: the tracked page once the frame has reported. */
+/** The header's title (from the page whitelist, never the frame's text) and the new-tab URL: the tracked page once the frame has reported. */
 function headerState(page, hash, tracked) {
   const shownPage = tracked?.page ?? page;
   return {
-    title: tracked?.title ?? GUIDE_PAGES[shownPage] ?? GUIDE_PAGES.index,
+    title: GUIDE_PAGES[shownPage] ?? GUIDE_PAGES.index,
     newTabUrl: guideUrl(shownPage, tracked ? tracked.hash : hash),
   };
 }
@@ -188,7 +188,7 @@ DockedGuide.propTypes = {
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
   focusKey: PropTypes.number,
-  tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
+  tracked: PropTypes.shape({ page: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   band: PropTypes.oneOf(['desktop', 'wide']).isRequired,
@@ -253,7 +253,7 @@ DialogGuide.propTypes = {
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
   focusKey: PropTypes.number,
-  tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
+  tracked: PropTypes.shape({ page: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   returnFocus: PropTypes.func,
@@ -275,7 +275,7 @@ DialogGuide.propTypes = {
  * @param {string} props.page the page opened, a `GUIDE_PAGES` id
  * @param {string} [props.hash] the section opened
  * @param {number} props.nonce bumped by every open; keys the iframe
- * @param {?{page: string, title: ?string, hash: string}} [props.tracked] what the frame last reported
+ * @param {?{page: string, hash: string}} [props.tracked] what the frame last reported
  * @param {function(object): void} props.onTrack called with a validated report from the frame
  * @param {function(): void} props.onClose
  * @param {function(): ?Element} [props.returnFocus] where focus goes on close (dialog and sheet)
@@ -340,7 +340,7 @@ GuidePanel.propTypes = {
   hash: PropTypes.string,
   nonce: PropTypes.number.isRequired,
   focusKey: PropTypes.number,
-  tracked: PropTypes.shape({ page: PropTypes.string, title: PropTypes.string, hash: PropTypes.string }),
+  tracked: PropTypes.shape({ page: PropTypes.string, hash: PropTypes.string }),
   onTrack: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
   returnFocus: PropTypes.func,
