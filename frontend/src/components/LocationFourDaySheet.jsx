@@ -494,6 +494,7 @@ export default function LocationFourDaySheet({
                 heading={SCORES_UPSELL_HEADING}
                 body={SCORES_UPSELL_BODY}
                 testIdPrefix="wf-scores-upsell"
+                guide={{ section: 'fiery' }}
               />
             </div>
           )}

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import GuideLink from '../guide/GuideLink.jsx';
 import { STATE_WORD, DIRECTION_WORD } from '../../utils/windowFirstRows.js';
 import { eventWord } from '../../utils/windowFirstCards.js';
 import { alignedCount } from '../../utils/mapTideFit.js';
@@ -226,6 +227,7 @@ export function TideStripHeader({ tide, onToggleCollapse = undefined }) {
         {statePhrase(tide)}
       </span>
       {headerMeta(tide) && <span className="wf-tide-strip-meta">{headerMeta(tide)}</span>}
+      <GuideLink section="mapTide" label="How the tide panel works" />
       <button
         type="button"
         className="wf-tide-strip-toggle"

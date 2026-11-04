@@ -12,6 +12,7 @@ import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { noStoredForecast } from './outcomeRatingCopy.js';
+import GuideLink from '../guide/GuideLink.jsx';
 import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../shared/ProUpsell.jsx';
 
 /** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
@@ -402,7 +403,9 @@ export default function WindowControl({
     const onBetter = betterRef.current != null && e.target === betterRef.current;
     // ⚠️ The Lite aurora door lives inside the menu, so its keys bubble here. Left/Right there would step
     // the window, close the menu and unmount the door with focus inside it; the door owns its own keys.
-    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target?.closest?.('.wf-win-aurora-door')) return;
+    // The guide door in the menu's footer is the same: it owns its keys (and is no reason to step the window).
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+      && e.target?.closest?.('.wf-win-aurora-door, .wf-win-guide')) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (onBetter && !atStart) pillRef.current?.focus();
@@ -761,9 +764,13 @@ export default function WindowControl({
                 testIdPrefix="wf-aurora-upsell"
                 className="wf-pro-upsell-door--inline"
                 unmountFocusRef={pillRef}
+                guide={{ section: 'auroraMap' }}
               />
             </div>
           )}
+          <div data-testid="wf-win-guide" className="wf-win-guide">
+            <GuideLink section="mapWindow" label="How the window control works" />
+          </div>
         </div>
       )}
     </div>

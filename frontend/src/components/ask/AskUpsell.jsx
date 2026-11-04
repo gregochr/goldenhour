@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
+import { GuideWhy } from '../guide/GuideLink.jsx';
 
 /**
  * The Ask upsell's words (docs/engineering/ask-upsell-plan.md §2, owner Q4): placeholder copy until the
@@ -42,7 +43,7 @@ export function AskUpsellPreview() {
  * focus to the heading; an inline copy passes none.
  */
 export function AskUpsellContent({
-  headingId, headingRef = undefined, bodyId = undefined, testIdPrefix,
+  headingId, headingRef = undefined, bodyId = undefined, testIdPrefix, guideReturnFocus = undefined,
 }) {
   return (
     <>
@@ -58,11 +59,16 @@ export function AskUpsellContent({
       </h3>
       <p id={bodyId} className="wf-ask-upsell-body" data-testid={`${testIdPrefix}-body`}>{ASK_UPSELL_BODY}</p>
       <AskUpsellPreview />
+      {/* Rendered only for a locked reader: this content is the lock. The popover unmounts on focus-out, so it
+          passes its trigger as the guide's focus-return target. */}
+      <GuideWhy page="ask-photocast" returnFocus={guideReturnFocus} testId={`${testIdPrefix}-guide`} />
     </>
   );
 }
 
 AskUpsellContent.propTypes = {
+  /** Where focus goes when the guide closes; a popover names its trigger, the phone section needs none. */
+  guideReturnFocus: PropTypes.func,
   headingId: PropTypes.string.isRequired,
   bodyId: PropTypes.string,
   headingRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
@@ -131,6 +137,7 @@ export default function AskUpsellPopover({
         headingRef={headingRef}
         bodyId={bodyId}
         testIdPrefix="wf-ask-upsell"
+        guideReturnFocus={() => triggerRef.current}
       />
       <button
         type="button"

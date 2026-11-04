@@ -562,6 +562,7 @@ export function MapPeekWindowsSection({
             className="wf-pro-upsell-door--inline"
             // Focus must fall to <body> when the section closes: `PeekBody`'s fallback acts only there.
             skipUnmountHandoff
+            guide={{ section: 'auroraMap' }}
           />
         </div>
       )}

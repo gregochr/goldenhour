@@ -2009,7 +2009,8 @@ describe('WindowFirstHeatStrip — the away window', () => {
     // to, so the cell states its slot and stops there.
     await renderStrip({ cards: [AWAY] });
 
-    expect(screen.queryByRole('button')).toBeNull();
+    // The away cell is no control. G3's ? in the heading is the strip's only button (was: no button at all).
+    expect(screen.getAllByRole('button').map((b) => b.dataset.testid)).toEqual(['guide-link']);
     expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-away', 'true');
   });
 
@@ -4170,8 +4171,8 @@ describe('WindowFirstHeatStrip — the region mean behind the verdict word (verd
     await renderStrip({ cards: [stripCard({ verdictMean: null })] });
     expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
       .toBeInTheDocument();
-    expect(screen.getByRole('button').getAttribute('aria-labelledby')).toBeTruthy();
-    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
   });
 });
@@ -4218,7 +4219,7 @@ describe('WindowFirstHeatStrip — a word with no rating behind it prints no mea
     await renderStrip({ cards: [stripCard({ topMeanRating: 2.0, verdictMean: null })] });
 
     expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
-    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
   });
 
@@ -4286,7 +4287,7 @@ describe('WindowFirstHeatStrip — whose verdict it is when nothing in reach is 
     expect(screen.getByRole('button', {
       name: `Tonight Sunset, 21:11, Worth it, 3.5 star average, 1 location within 45 min, none rated yet, region ${REGION}, beyond 45 min`,
     })).toBeInTheDocument();
-    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/not scored yet/);
   });
 
@@ -4398,7 +4399,7 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
 
   it('wears no verdict tint at all — neither the green of Worth it nor the amber of Maybe', async () => {
     await renderStrip({ cards: [unratedCard()] });
-    const card = screen.getByRole('button');
+    const card = screen.getByTestId('wf-heat-card');
     expect(card.className).not.toMatch(/\bv[gmp]\b/);
     expect(card.querySelector('[class~="vg"], [class~="vm"], [class~="vp"]')).toBeNull();
   });
@@ -4413,8 +4414,8 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
 
     expect(screen.getByTestId('wf-heat-best'))
       .toHaveTextContent('Northumberland & Tyneside · beyond 45 min');
-    expect(screen.getByRole('button').getAttribute('aria-labelledby')).toBeTruthy();
-    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent)
       .toMatch(/Too few rated, 3\.6 star average.*region Northumberland & Tyneside, beyond 45 min/);
   });
@@ -4473,7 +4474,7 @@ describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () 
   }));
   const thinPool = () => pool(4, null, null, null, null, null, null, null, null, null, null);
   const nameOf = () => document.getElementById(
-    screen.getByRole('button').getAttribute('aria-labelledby'),
+    screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
   ).textContent;
 
   it('prints `· N rated` after the word and mean on a rated verdict over a thin pool', async () => {
@@ -4605,7 +4606,9 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     await renderStrip({ cards: COLUMNS, hotTopics: [tide(D4)] });
     const head = screen.getByTestId('wf-heat-head');
     expect(within(head).getByTestId('wf-glance-topic-key')).toHaveTextContent('startscontinues');
-    expect(head.lastElementChild).toBe(screen.getByTestId('wf-glance-topic-key'));
+    // G3 puts the guide's ? last in the head, so the key is the last thing before it (was: the last child).
+    expect(head.lastElementChild).toBe(within(head).getByTestId('guide-link'));
+    expect(head.lastElementChild.previousElementSibling).toBe(screen.getByTestId('wf-glance-topic-key'));
     expect(screen.getByTestId('wf-glance-topics-door')).toHaveTextContent('Dated events in Coming up →');
     expect(screen.getByTestId('wf-heat-dtrow').nextElementSibling)
       .toBe(screen.getByTestId('wf-glance-topics-door-row'));

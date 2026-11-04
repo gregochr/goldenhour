@@ -344,6 +344,42 @@ the handoff has no visible element (`TideFitBlock` renders nothing for Lite), so
 The upsell popovers are `role="dialog"` without `aria-modal`, so they do not count toward G2's
 two-deep rule; they close themselves on focus-out when the guide takes focus. Tests per site, and a LITE vs PRO test that the link appears only when locked.
 
+#### G3 build notes
+
+What the build did that the text above does not say, or did differently:
+
+- **`GuideLink` and `GuideWhy` take a `GUIDE_SECTIONS` key** (`section="mapFilters"`), not `page` plus `section`
+  strings. `GuideWhy` also takes `page` alone for a target with no section (Ask's upsell opens the bare
+  `ask-photocast` page). No section was added to `GUIDE_SECTIONS`; the 18 ids are unchanged.
+- **`ProUpsellDoor`'s `guide` prop is `{ section }` (a key) or `{ page }`**, not `{ page, section }`. Its link has
+  the test id `<prefix>-guide`. The plan's "six sites" are best bets, the four-day sheet and the four aurora
+  doors; the sub-regions doors (`RegionDoor`, `AllDoor`, `PlaceDoor`, Coming up's coast and dark-sky doors) are
+  also `ProUpsellDoor`s and the table gives each a link, so they pass it too.
+- **The tide and Ask upsell popovers are not `ProUpsellDoor`s**, so `TideUpsellContent` and `AskUpsellContent`
+  (shared by the popover and the phone peek section) end with the `GuideWhy` themselves and take an optional
+  `guideReturnFocus`: the Ask popover passes its trigger, the tide popover (new `returnFocus` prop) passes
+  `MapView`'s `tideUpsellOpenerRef`; the phone sections pass none (the link outlives the guide there).
+- **A tide-run card's `?` and its locked-row `GuideWhy` are drawn only when the card is a `<div>`.** A card with a
+  single action is itself a `<button>`, and a button cannot nest in one. Tide runs are dated entries of at most
+  ten days, so they carry day chips and a `<div>` card; the guard only covers one over the cap.
+- **The aurora banner `?` does not use `hold(...)`.** `hold` tracks the two buttons that survive a card/strip
+  swap (toggle, dismiss) so focus can be put back after one; the `?` is not pressed to swap and does not
+  survive it, so it is a plain `GuideLink` between the toggle and the dismiss, in both Pro layouts and both Lite
+  layouts.
+- **The Map window menu's `?` is a footer of its own** (`wf-win-guide`) after the aurora door, not an item of the
+  listbox, and `WindowControl`'s Left/Right handler skips it as it does the aurora door.
+- **The phone hot-topics header** is wrapped in a `wf-tl-head-row` flex row so the `?` sits beside the header
+  button; the desktop head row takes the `?` after the kicker.
+- **Existing assertions changed** (each was "no button here", which G3 makes untrue by one button, the guide
+  door): `WindowComingUpTideLightLocked` ("is static"), `WindowFirstHeatStripPicks` (the outside key and the
+  one-door check), `MapLegendPanel` (the outside row). The Bluebell chip title changed as the plan said.
+- **Left alone, outside this table**: `LocationFourDaySheet`'s bluebell fact still reads "Bluebell conditions —
+  Upgrade to Pro" (`forecastDetailFacts`); the plan only names the Map chip's title.
+- **Not checked in a real browser from this build**: the visual weight of the `?` in each host (the aurora
+  banner's actions, the lens bar's phone rows, the Coming up since-line), the window menu footer, the phone
+  hot-topics header row, focus return from each popover door when the guide closes (docked, dialog and
+  sheet), and a press on each Map `?` with the guide docked beside the map.
+
 ## The section-id contract
 
 The app opens exactly these (G2's `GUIDE_SECTIONS`; a frontend test checks each id exists in

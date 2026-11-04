@@ -6,6 +6,9 @@ import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const TUESDAY = '2026-08-04';
 const SATURDAY = '2026-08-08';
@@ -484,5 +487,30 @@ describe('WindowFirstLensBar — what it no longer offers', () => {
     expect(screen.queryByTestId('window-first-lens-orders')).toBeNull();
     expect(screen.queryByTestId('window-first-lens-order')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Best' })).toBeNull();
+  });
+});
+
+describe('WindowFirstLensBar — guide doors (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('draws a ? after the readout that opens at-a-glance#lens', () => {
+    render(<Lens />);
+    const link = within(screen.getByTestId('window-first-lens')).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('How the drive and rating bar works');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'lens', expect.any(Object));
+  });
+
+  it('shows "What does this do?" beside the Pro pill only while the drive row is locked (LITE vs PRO)', () => {
+    const { unmount } = render(<Lens locked />);
+    const why = screen.getByTestId('guide-why');
+    expect(why).toHaveTextContent('What does this do?');
+    // Outside the greyed segment, with the pill: pointer-events:none would make it unpressable inside.
+    expect(screen.getByTestId('window-first-lens-controls')).not.toContainElement(why);
+    fireEvent.click(why);
+    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'lens', expect.any(Object));
+    unmount();
+    render(<Lens />);
+    expect(screen.queryByTestId('guide-why')).toBeNull();
   });
 });

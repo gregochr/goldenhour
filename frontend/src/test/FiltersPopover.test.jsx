@@ -15,6 +15,9 @@ import {
   render, screen, fireEvent, act,
 } from '@testing-library/react';
 import FiltersPopover, { DRIVE_TIME_TIERS } from '../components/map/FiltersPopover.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 // Mutable per-test, `MapViewBriefingScoreWiring.test.jsx`'s own pattern — every EXISTING test in
 // this file never touches it, so it stays at the default `false` (desktop/tablet) throughout, and
@@ -549,5 +552,47 @@ describe('FiltersPopover — the scope segment of a body shaped by the reader\'s
 
     expect(screen.queryByTestId('wf-filters-picks-scope')).toBeNull();
     expect(screen.queryByTestId('wf-filters-scope-home')).toBeNull();
+  });
+});
+
+describe('FiltersPopover — guide doors (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('ends the footer with a ? that opens map#filters, and a press on it leaves the popover open', () => {
+    const onOpenChange = vi.fn();
+    render(<FiltersPopover {...baseProps({ open: true, onOpenChange })} />);
+    const foot = document.querySelector('.wf-filters-foot');
+    const link = foot.querySelector('[data-testid="guide-link"]');
+    expect(link).toHaveAccessibleName('How the map filters work');
+    expect(foot.lastElementChild).toBe(link);
+    fireEvent.mouseDown(link);
+    fireEvent.click(link);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wf-filters')).toBeInTheDocument();
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'filters', expect.any(Object));
+  });
+
+  it('shows "What does this do?" beside the locked drive time only (LITE vs PRO)', () => {
+    const { rerender } = render(<FiltersPopover {...baseProps({ open: true, driveLocked: true })} />);
+    const why = screen.getByTestId('guide-why-drive');
+    expect(screen.getByTestId('drive-time-filter-group').parentElement).toContainElement(why);
+    fireEvent.click(why);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'filters', expect.any(Object));
+    rerender(<FiltersPopover {...baseProps({ open: true, driveLocked: false })} />);
+    expect(screen.queryByTestId('guide-why-drive')).toBeNull();
+  });
+
+  it('shows "What does this do?" beside the Bluebell chip for LITE, and retitles it without the word upgrade', () => {
+    const { rerender } = render(<FiltersPopover {...baseProps({
+      open: true, seasonalFeatures: ['BLUEBELL'], role: 'LITE_USER',
+    })} />);
+    expect(screen.getByTestId('location-type-filter-BLUEBELL')).toHaveAttribute('title', 'Bluebell filter is part of Pro');
+    fireEvent.click(screen.getByTestId('guide-why-bluebell'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'filters', expect.any(Object));
+    rerender(<FiltersPopover {...baseProps({
+      open: true, seasonalFeatures: ['BLUEBELL'], role: 'PRO_USER',
+    })} />);
+    expect(screen.queryByTestId('guide-why-bluebell')).toBeNull();
+    expect(screen.getByTestId('location-type-filter-BLUEBELL')).not.toHaveAttribute('title');
   });
 });

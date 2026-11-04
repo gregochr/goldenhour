@@ -5,6 +5,7 @@ import Modal from '../shared/Modal.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
 import ProTag from '../auth/ProTag.jsx';
+import GuideLink from '../guide/GuideLink.jsx';
 import SubRegionPicker, { SubRegionCount } from './SubRegionPicker.jsx';
 import SubRegionSaveConfirm from './SubRegionSaveConfirm.jsx';
 import SubRegionToast from './SubRegionToast.jsx';
@@ -130,7 +131,10 @@ export default function SubRegionSettingsSection({
   if (state.status === 'NOT_APPLICABLE') {
     return (
       <section data-testid="sub-regions-section">
-        <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Your sub-regions</h3>
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide">Your sub-regions</h3>
+          <GuideLink section="subRegions" label="About sub-regions" />
+        </div>
         <p className="flex items-baseline gap-2 text-sm text-plex-text-secondary" data-testid="sub-regions-pro-line">
           <ProTag />
           <span>Pro covers every sub-region.</span>
@@ -288,9 +292,12 @@ export default function SubRegionSettingsSection({
   return (
     <section ref={sectionRef} data-testid="sub-regions-section">
       <div className="flex items-center justify-between gap-3 mb-2">
-        <h3 id="sub-regions-heading" className="text-xs font-medium text-plex-text-muted uppercase tracking-wide">
-          Your sub-regions
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 id="sub-regions-heading" className="text-xs font-medium text-plex-text-muted uppercase tracking-wide">
+            Your sub-regions
+          </h3>
+          <GuideLink section="subRegions" label="About sub-regions" />
+        </div>
         {!firstChoice && !(expanded && !isMobile) && (
           <button
             ref={openerRef}

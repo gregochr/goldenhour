@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
+import { GuideWhy } from '../guide/GuideLink.jsx';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 
 /**
@@ -88,7 +89,7 @@ export function TideLightLockedSketch() {
  * heading; the phone section passes none.
  */
 export function TideUpsellContent({
-  headingId, headingRef = undefined, bodyId = undefined, testIdPrefix,
+  headingId, headingRef = undefined, bodyId = undefined, testIdPrefix, guideReturnFocus = undefined,
 }) {
   return (
     <>
@@ -104,11 +105,16 @@ export function TideUpsellContent({
       </h3>
       <p id={bodyId} className="wf-tide-upsell-body" data-testid={`${testIdPrefix}-body`}>{TIDE_UPSELL_BODY}</p>
       <TideUpsellPreview />
+      {/* Rendered only for a locked reader: this content is the lock. The popover unmounts on focus-out, so
+          the popover passes the door that opened it as the guide's focus-return target. */}
+      <GuideWhy section="mapTide" returnFocus={guideReturnFocus} testId={`${testIdPrefix}-guide`} />
     </>
   );
 }
 
 TideUpsellContent.propTypes = {
+  /** Where focus goes when the guide closes; the popover names its opener, the phone section needs none. */
+  guideReturnFocus: PropTypes.func,
   headingId: PropTypes.string.isRequired,
   bodyId: PropTypes.string,
   headingRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
@@ -126,7 +132,7 @@ TideUpsellContent.propTypes = {
  * teaser unmount) is wired in `MapView`.
  */
 export default function TideUpsellPopover({
-  id, onClose, onFocusAway, rootRef, doorSelector,
+  id, onClose, onFocusAway, rootRef, doorSelector, returnFocus = undefined,
 }) {
   const headingRef = useRef(null);
   const headingId = `${id}-heading`;
@@ -174,6 +180,7 @@ export default function TideUpsellPopover({
           headingRef={headingRef}
           bodyId={bodyId}
           testIdPrefix="wf-tide-upsell"
+          guideReturnFocus={returnFocus}
         />
         <button
           type="button"
@@ -193,5 +200,7 @@ TideUpsellPopover.propTypes = {
   onClose: PropTypes.func.isRequired,
   onFocusAway: PropTypes.func.isRequired,
   doorSelector: PropTypes.string.isRequired,
+  /** The door that opened the popover, for the guide to return focus to (the popover is gone by then). */
+  returnFocus: PropTypes.func,
   rootRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
 };

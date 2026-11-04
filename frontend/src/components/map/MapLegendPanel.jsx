@@ -8,6 +8,7 @@ import { AURORA_RAMP } from '../../utils/auroraRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BoltIcon from './BoltIcon.jsx';
+import GuideLink, { GuideWhy } from '../guide/GuideLink.jsx';
 import { picksNoteText } from '../../utils/pickGeography.js';
 import { SubRegionActionButton } from '../subregions/SubRegionActions.jsx';
 
@@ -203,6 +204,7 @@ export default function MapLegendPanel({
                 <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-outside" />
                 outside your sub-regions
                 <span className="wf-lens-pro">Pro</span>
+                <GuideWhy section="subRegions" testId="guide-why-outside" />
               </span>
               {picks.allowed > 0 && (
                 <span className="wf-legend-ground-item" data-testid="wf-legend-yours">
@@ -290,6 +292,9 @@ export default function MapLegendPanel({
               hazier &mdash; lower confidence.
             </div>
           )}
+          <div className="wf-legend-guide">
+            <GuideLink section="colour" label="What the map colours mean" />
+          </div>
         </div>
       )}
     </div>

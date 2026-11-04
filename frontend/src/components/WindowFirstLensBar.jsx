@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { REACH_TIERS, formatLensCount, formatLensReadout } from '../utils/reachLens.js';
 import { LENS_RATING_FLOORS } from '../utils/ratingLens.js';
+import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 
 /**
  * One segmented control — a caption and its chips, wrapped together so a wrap can never orphan one
@@ -249,6 +250,7 @@ export default function WindowFirstLensBar({
       {locked && (
         <span data-testid="window-first-lens-upsell" className="wf-lens-pro">Pro</span>
       )}
+      {locked && <GuideWhy section="lens" />}
       {overridden && (
         <button
           type="button"
@@ -303,6 +305,7 @@ export default function WindowFirstLensBar({
           </span>
         )}
       </span>
+      <GuideLink section="lens" label="How the drive and rating bar works" />
     </div>
   );
 }

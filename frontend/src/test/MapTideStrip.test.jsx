@@ -23,6 +23,9 @@ import {
   render, screen, fireEvent, within,
 } from '@testing-library/react';
 import MapTideStrip, { TY, footerModel, nextFitCopy } from '../components/map/MapTideStrip.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * Linear interpolation of a 49-sample curve at a fractional `0..1` position — used ONLY by this
@@ -818,5 +821,44 @@ describe('MapTideStrip — collapse', () => {
     );
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-tide-strip-header')).not.toBeInTheDocument();
+  });
+});
+
+describe('MapTideStrip — the guide door (G3)', () => {
+  let restoreHeight;
+  let restoreRO;
+  beforeEach(() => {
+    mockOpenGuide.mockClear();
+    restoreHeight = stubOffsetHeight(120);
+    restoreRO = installResizeObserver();
+  });
+  afterEach(() => {
+    restoreHeight();
+    restoreRO();
+  });
+
+  it('puts a ? in the header, before the collapse toggle, that opens map#tide without collapsing the strip', () => {
+    const onToggle = vi.fn();
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={mapPane()} onToggle={onToggle}
+      />,
+    );
+    const header = screen.getByTestId('wf-tide-strip-header');
+    const link = within(header).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('How the tide panel works');
+    expect(link.nextElementSibling).toBe(screen.getByTestId('wf-tide-strip-toggle'));
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'tide', expect.any(Object));
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('draws no ? on the locked teaser, which is one button (the upsell popover carries its own door)', () => {
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={mapPane()} locked
+      />,
+    );
+    expect(screen.queryByTestId('guide-link')).toBeNull();
   });
 });

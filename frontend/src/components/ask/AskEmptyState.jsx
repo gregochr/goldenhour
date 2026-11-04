@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import PropTypes from 'prop-types';
 import AskSuggestion from './AskSuggestion.jsx';
+import GuideLink from '../guide/GuideLink.jsx';
 
 /**
  * "N of M left today" — the server's figures, or nothing at all before they are known. Ask is Pro-only: a
@@ -34,7 +35,10 @@ export default function AskEmptyState({ questions, runLabel, ask, onOpen }) {
           </div>
         </div>
       )}
-      <AllowanceLine ask={ask} />
+      <div className="wf-ask-guide-row">
+        <AllowanceLine ask={ask} />
+        <GuideLink section="askTyped" label="How Ask questions work" />
+      </div>
       {ask.allowance.enabled && ask.allowance.typedAvailable === false && (
         // Without this a reader sees "3 of 3 left" beside a disabled field and no reason.
         <p className="wf-ask-usage" data-testid="ask-typed-off">

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
+import GuideLink from './guide/GuideLink.jsx';
 import { buildChronology, chipCounts, FOOTER } from '../utils/comingUpFeed.js';
 import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
@@ -256,6 +257,7 @@ export default function WindowFirstComingUp({
               could still move
             </span>
           </span>
+          <GuideLink section="fixed" label="What fixed and could still move mean" />
           {status === 'ready' && renderedEntries.length > 0 && (
             <button
               type="button"
@@ -366,6 +368,7 @@ export default function WindowFirstComingUp({
                 <span className="wf-cu-chip-count">{chip.count}</span>
               </button>
             ))}
+            <GuideLink section="comingUpTopics" label="Every topic explained" />
           </div>
         )}
 

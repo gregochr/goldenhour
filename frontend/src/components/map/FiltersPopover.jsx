@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
+import GuideLink, { GuideWhy } from '../guide/GuideLink.jsx';
 import InfoTip from '../InfoTip.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
@@ -187,10 +188,13 @@ export default function FiltersPopover({
                 onClick={() => (role !== 'LITE_USER' ? onToggleType('BLUEBELL') : undefined)}
                 disabled={role === 'LITE_USER'}
                 className={`wf-filters-chip-btn${activeTypeFilters.has('BLUEBELL') ? ' on' : ''}${role === 'LITE_USER' ? ' disabled' : ''}`}
-                title={role === 'LITE_USER' ? 'Upgrade to Pro to filter by Bluebell sites' : undefined}
+                title={role === 'LITE_USER' ? 'Bluebell filter is part of Pro' : undefined}
               >
                 🌸 Bluebell
               </button>
+            )}
+            {seasonalFeatures.includes('BLUEBELL') && role === 'LITE_USER' && (
+              <GuideWhy section="mapFilters" testId="guide-why-bluebell" />
             )}
           </div>
         </div>
@@ -228,6 +232,7 @@ export default function FiltersPopover({
             <div className="wf-map-peek-tide-seg-group">
               {seg}
               <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+              <GuideWhy section="mapFilters" testId="guide-why-drive" />
             </div>
           ) : seg;
         })()}
@@ -321,6 +326,7 @@ export default function FiltersPopover({
             Clear all
           </button>
         )}
+        <GuideLink section="mapFilters" label="How the map filters work" />
       </div>
     </>
   );

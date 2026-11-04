@@ -26,6 +26,9 @@ vi.mock('../components/AuroraFieldThumb.jsx', () => ({
 }));
 
 import { focusPastGap } from './pollGap.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 import AuroraBannerRoot from '../components/AuroraBannerRoot.jsx';
 import { expandBanner } from './auroraBannerHarness.js';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
@@ -214,5 +217,27 @@ describe('LiteAuroraBanner — isolation', () => {
     expect(screen.getByTestId('aurora-banner')).toHaveTextContent('Pro words');
     expect(screen.queryByTestId('aurora-banner-upsell-trigger')).toBeNull();
     expect(getAuroraAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('LiteAuroraBanner — guide doors (G3)', () => {
+  it.each([
+    ['card', false],
+    ['strip', true],
+  ])('the %s has a ? (night-sky#alerts) outside the live region, and the Pro door popover has its own', async (_l, mobile) => {
+    mockMobile = mobile;
+    mockOpenGuide.mockClear();
+    await mount();
+    const link = screen.getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('About aurora alerts');
+    expect(within(screen.getByRole('alert')).queryByTestId('guide-link')).toBeNull();
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'alerts', expect.any(Object));
+
+    const trigger = screen.getByTestId('aurora-banner-upsell-trigger');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByTestId('aurora-banner-upsell-guide'));
+    expect(mockOpenGuide).toHaveBeenLastCalledWith('night-sky', 'aurora-map', expect.any(Object));
+    expect(mockOpenGuide.mock.calls.at(-1)[2].returnFocus()).toBe(trigger);
   });
 });
