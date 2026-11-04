@@ -70,7 +70,7 @@
 <li><b>A plan.</b> Larger features start as a written plan that sets out what will change and why; smaller fixes start from a shorter brief. Before any code is written, reviewers are asked to challenge the assumptions, look for missing cases and identify what could go wrong.</li>
 <li><b>The code is written separately.</b> A different AI model writes the code from the plan, in its own isolated copy of the project, and has to get the checks passing before the change is put forward.</li>
 <li><b>Separate reviews.</b> The AI that planned the change reviews the result, and every proposed change is then reviewed by an AI reviewer from a different company. Different models can still miss the same problem, so these reviews add to the automated checks rather than replace them. Anything they find is fixed and checked again.</li>
-<li><b>Automated checks.</b> GitHub Actions runs the required checks whenever a code change is proposed: the server's build and tests, the app's tests and build, and a security scan of the code. This is continuous integration: checking that changes work together before they are merged. A change can't be merged while a required check is failing.</li>
+<li><b>Automated checks.</b> GitHub Actions runs the required checks whenever a code change is proposed: the server's build and tests, the app's tests and build, a security scan of the code and, when a change touches the server's libraries, a check of those libraries for known vulnerabilities. This is continuous integration: checking that changes work together before they are merged. A change can't be merged while a required check is failing.</li>
 <li><b>I decide what is released.</b> I decide what gets built, judge the results in use, and choose when a version is released, usually after the changes have been used for real.</li>
 </ol>
 <div class="qa">
@@ -94,9 +94,11 @@
 <h2 id="security">Security and your data</h2>
 <ul>
 <li>A security scan of the code runs on every proposed code change, and again every week so that new detection rules also look at code that hasn't changed.</li>
-<li>The app's third-party libraries are checked for known serious vulnerabilities on every code change, and the server's libraries are checked every week.</li>
+<li>The app's third-party libraries are checked for known serious vulnerabilities on every code change. The server's are checked whenever a change affects them, and again every day. A change that would bring in a library with a known serious vulnerability can't be merged, unless the problem has been looked into and doesn't apply to PhotoCast.</li>
 <li>Automated tools propose library updates every week. Minor updates are merged once the required checks pass; larger ones are reviewed first. Either way, they reach the live service only with the next release.</li>
-<li>Once a week, an automated scanner probes a temporary copy of the service for common web vulnerabilities.</li>
+<li>Once a week, an automated scanner signs in as an ordinary user and probes a temporary copy of the service for common web vulnerabilities, working through the full list of requests the app can make to the server. Anything it finds that hasn't already been looked at opens a report for me, and so does a scan that didn't run properly or covered less than it should. Because it runs weekly, it doesn't hold up changes.</li>
+<li>The app tells your browser where it may load its scripts, styles and images from (this is called a Content Security Policy), and doesn't allow styles written directly into the page. That limits what any code slipped into a page could do, though it's one safeguard among several rather than a complete defence.</li>
+<li>The parts of the service only I can use are refused to everyone else before a request is dealt with, and checked again in the code behind them.</li>
 <li>Personal information, such as your home postcode and settings, is never stored in the shared caches that speed up forecasts for everyone, and a test checks that it stays out.</li>
 <li>Links that carry one-time codes, such as email verification links, are kept out of the web server's logs, and an automated check confirms it.</li>
 </ul>
