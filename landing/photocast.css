@@ -124,3 +124,5 @@ tr:last-child td{border-bottom:none}
 .mast nav a:not(.btn){display:none}
 .phead{padding:48px 0 32px}
 }
+.doc ol{list-style:decimal;max-width:660px;margin:0 0 12px 22px}
+.doc ol li{font-size:15.5px;color:var(--ink-soft);padding:3px 0 3px 4px}

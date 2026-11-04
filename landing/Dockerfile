@@ -5,6 +5,7 @@ COPY faq.html /usr/share/nginx/html/
 COPY privacy.html /usr/share/nginx/html/
 COPY terms.html /usr/share/nginx/html/
 COPY acknowledgements.html /usr/share/nginx/html/
+COPY how-its-built.html /usr/share/nginx/html/
 COPY guide/ /usr/share/nginx/html/guide/
 COPY photocast.css /usr/share/nginx/html/
 COPY viewer.js /usr/share/nginx/html/
