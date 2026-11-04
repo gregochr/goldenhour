@@ -5,6 +5,220 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.38.0] - 2026-11-04
+
+### Added — in-context guide links and "What does this do?" at each Lite lock
+
+Fourteen small `?` doors now open the user guide at the section that explains the thing beside them: the
+Plan drive-and-rating bar, the days-ahead key, Coming up's legend, since-line, filter chips and tide
+entries, the Map's window control, Filters, Hot topics, Tide and legend panels, the aurora banners, Ask's
+empty state and Settings' sub-regions. Beside every Lite lock (the drive row, the Map's drive-time and
+Bluebell filters, Best bets, Fiery Sky and Golden Hour, the tide panel, Coming up's withheld tide row, the
+sub-regions doors and legend row, the aurora doors, Ask, and Settings' Drive times and Local radius) a
+Lite reader gets a "What does this do?" link to the same guide, and the Pro upsell popovers hand focus
+back to their button when the guide closes. The Map's Bluebell filter tooltip for Lite now reads
+"Bluebell filter is part of Pro".
+
+### Docs — a query to size an overnight run that does far-term only
+
+`docs/engineering/cost-queries/short-term-looks.sql` measures how much each forecast look moves the rating it replaces (by event, cycle pair, days ahead and stability), checks the 21:00 rating against the last one before the event using readers' "How was it?" ratings, and splits the forecast cost by cycle, event and model from a chosen date.
+
+### Docs — the cost ledger records why the overnight run keeps its near-term looks
+
+The ledger now records two measured results from `short-term-looks.sql`: an overnight run that does far-term only is rejected (its T+1 look corrects far-term ratings that mostly run high), and a stability gate on the overnight's T+0 sunrise is shelved as a false economy (about $5 a month).
+
+### Changed — the landing site sends a strict Content-Security-Policy and drops X-XSS-Protection
+
+`photocast.online` now sends a Content-Security-Policy sized to what its pages load (same-origin scripts
+and fetches, same-origin styles plus Google Fonts, Google's font files, same-origin and `data:` images, no
+plugins, no foreign form posts), a Permissions-Policy that switches off camera, microphone, geolocation,
+payment and USB, and `Cross-Origin-Opener-Policy: same-origin`. The obsolete `X-XSS-Protection` header is
+gone. The policy has no `'unsafe-inline'` for styles: every `style=""` attribute on the landing and guide
+pages became a class in `photocast.css` or `guide.css`, and the home page's `<style>` block moved to a new
+`home.css` (its rules style bare elements, so they stay off the other pages). A Vitest test fails if an
+inline style comes back. The guide keeps its framing rule (only `app.photocast.online` may frame it, no
+`X-Frame-Options`), now through the same shared header file as every other page. HSTS is not set. The
+landing site deploys through `release-landing.sh`, so the headers go live when that is run.
+
+### Added — a "How PhotoCast is built" page on the landing site
+
+A new public page, `how-its-built.html`, explains how PhotoCast is planned, reviewed, tested and run, and
+where it is still improving. It is linked from the footer of every landing and guide page, next to FAQ.
+
+### Changed — stored Ask ready answers record the model that wrote them
+
+`ask_ready_answer` gains a nullable `evaluation_model` column (V219). Every precompute upsert writes the model
+the run pinned from the `ASK_READY` row, overwriting it when an answer is replaced, so once Ask's ready model
+is switched on Run Config the stored answers show which model wrote each. Existing rows are backfilled `HAIKU`
+(every answer so far was written on Haiku 4.5). Nothing a reader is served changes.
+
+### Changed — Ask's Claude model is chosen on Run Config
+
+Ask PhotoCast's model used to be the YAML key `photocast.ask.model`, so it was missing from Operations → Run Config and changing it needed a deploy. It is now two `model_selection` rows, `ASK` (typed questions) and `ASK_READY` (the ready-answer precompute), seeded `HAIKU` by V218 so nothing changes on deploy, with two new admin-only tabs on Run Config ("Ask" and "Ask ready answers") that show the measured cost of each model. Ask may run on Haiku 4.5, Haiku 5.5 or Sonnet 4.6 (the API refuses any other model for those two run types with a 400, and serves the allowed set as `allowedByRunType`). The engine reads the model once per typed question, and a ready-answer run reads it once and records it on its run, so a switch never splits a run across two models. `photocast.ask.model` is gone from `AskProperties` and `application-example.yml`.
+
+### Changed — Boundary tests for the briefing verdict evaluator
+
+Added `BriefingVerdictEvaluatorBoundaryTest`, which pins every threshold in `BriefingVerdictEvaluator` (low cloud, precipitation, visibility, humidity, mid cloud, horizon cloud, cloud trend, clear-all-layers) at, just below and just above its constant, plus every flag, tide label, region summary variant and roll-up edge. PIT on the class went from 98 killed / 36 survived / 6 uncovered to 135 killed / 1 survived / 4 uncovered. Test-only change.
+
+### Added — the in-app guide panel and its three header doors
+
+A `?` in the masthead (desktop and tablet; a "Guide" row in the phone's ⋯ menu), in the Ask dock and sheet
+headers, and beside the Settings ×, opens the user guide (`photocast.online/guide/`) inside the app. On a
+desktop with nothing modal open it is a docked column in the Ask dock's slot (the two never show together,
+and closing the guide brings an open dock back without taking focus from the door that opened it); over
+Settings, the window popup or the four-day sheet it is a right-hand dialog on its own layer, and the
+layers under it go inert and give up Escape; on a phone or tablet it is a tall sheet. It follows the reader
+across Plan, Coming up and Map, closes on Operations, and reads only well-formed messages from its own
+frame. The app's CSP now allows `https://photocast.online` as a frame source. Release the landing site
+(the G1 guide pages) before an app release that contains this.
+
+### Added — the user guide on the landing site
+
+Nine guide pages (hub, getting started, reading the forecast, At a Glance, Coming up, Map, aurora and
+night sky, Ask PhotoCast, Settings) are served at `photocast.online/guide/`, with a Guide link in the
+masthead and footer of the five marketing pages and a pointer from the FAQ's Ask answer. The guide
+documents can be framed by `app.photocast.online` only (`frame-ancestors`, no `X-Frame-Options`), and
+`/guide` redirects to `/guide/`. The landing image copies `guide/` as a directory and fingerprints its
+assets; `release-landing.sh` preflights and smoke-tests the guide and checks its framing headers on the
+host and on the public URL. CI no longer treats `landing/guide/`, `landing/nginx.conf`,
+`landing/Dockerfile` or `landing/security-headers.conf` as documentation-only, so the frontend suite and
+the landing `nginx -t` step run when they change. Deploy the landing site before any app release that
+opens the guide panel.
+
+### Changed — Mutation-gap tests for the batch task collector
+
+Added `ForecastTaskCollectorMutationGapsTest`, which pins the decisions in `ForecastTaskCollector.collectScheduledBatches` that PIT showed unguarded: pre-fetch gates, near/far and coastal/inland bucketing, bluebell and woodland lanes, forced-candidate dispositions, the evening-deferral skip, and the summary totals. PIT on the class went from 76 of 132 mutants killed to 127. Test-only; no production code changes.
+
+### Changed — Snow and mist uses the valley mist forecast
+
+The Snow and mist topic no longer fires on relative humidity above 90 %. It now reads the valley mist band: a snowy sunrise counts as misty only when the band is LIKELY, the same rule as the Valley mist topic, so it fires only at mist-prone sites. When some snowy places have mist and others do not, the Briefing shows both a Snow and mist card (the misty places, days and regions) and a Fresh snow card (the rest: other places or other days). The sub-zero wording is now "Snow, mist & frost", with "frost likely" and "mist likely" facts, and says only what the forecast supports. No migration.
+
+### Tests — Runs view chip test no longer races the day list
+
+The "does not close the Start panel when a chip is pressed" test pressed a chip before the day list
+had loaded, so it failed on a slow runner. It now waits for the day's first row, as its sibling
+helper does.
+
+### Docs — a poor sunrise does turn good by the evening refresh, so it keeps re-rating them
+
+Adds `docs/engineering/cost-queries/poor-stays-poor.sql`, a read-only production query that compares
+each 21:00 evening sunrise rating with the rating it replaced. Run on 3 November 2026 over 14 evening
+nights, it showed that 6.6% of sunrises already rated 2★ or lower came back at 4★ or higher, so a gate
+that skipped them (saving about $5 a month) would have hidden real good mornings. The Claude cost ledger
+records the result as Phase 2b, rejected.
+
+### Changed — Open-Meteo client batch and retry behaviour is now pinned by tests
+
+New `OpenMeteoClientResilienceTest` covers the Open-Meteo client's chunk splitting at the 20-coordinate boundary, retry then success, retry exhaustion, partial results when one chunk fails, slot-for-slot merging of results, empty input, cause-chain depth limits and the rate-limit backoff. A PIT run scoped to `OpenMeteoClient` goes from 61% to 79% of mutants killed. Test-only; no production code changed.
+
+### Fixed — Open-Meteo empty batches and Coming up wording
+
+- Open-Meteo batch fetches (forecast, briefing forecast, air quality, plain and resilient) no longer send an HTTP request, or record a prefetch row, for an empty coordinate list.
+- A merged Coming up card whose partner topic has a blank title keeps the host title instead of ending in a dangling ", on a ".
+- A washed-out meteor row with no moon illumination reads "bright moon — washes out all but the brightest" instead of a double-spaced "moon  lit".
+
+### Changed — Ask joins the phone Map's peek row; one-line attribution
+
+On a phone the Map tab's full-width "Ask PhotoCast… ↑" bar above the peek buttons is gone. Ask is now a
+44px ✦ button, the third of four (Other windows · Tide · Ask · Layers), so the peek sheet rests at 74px
+again instead of 126px and the map shows about 52px more. Pressing it opens the Ask section with the cursor
+in the field; the four buttons stay above the section, with Ask pressed, and pressing it again closes it. A
+minimised answer still replaces the buttons with its one line and its Layers door, and the sheet stays 74px
+there too. A reader without Ask (LITE) sees the button muted and still gets the worded upsell; a refusal that
+arrives while the section is closed shows as a small dot on the button and in its name. Every route out of
+the section (the ✕, Escape, switching to Other windows, Tide or Layers, a map touch) leaves keyboard focus on a
+real control, never on the page. The Tide button's key now reads `TIDE`.
+
+The map's attribution is a single 8.5px line (still beginning `Leaflet | Tiles © Esri`) just above the
+sheet; tapping it shows the full text on an opaque ground that sits above the other map chrome and below the
+sheet, and links inside still work. Phone only: desktop and tablet are unchanged. The owner should confirm the
+truncated line meets Esri's attribution terms before release.
+
+### Changed — compact phone masthead, ⋯ menu and tabs; red postcode nudge (map-mobile-compact C1)
+
+On a phone the masthead is now one 34px line: the compact wordmark, today's golden times, an
+admin-only status dot and a ⋯ menu that holds Settings, Change home postcode and Sign out (an admin
+also gets the status line, which opens the health panel). The cog and Sign out button no longer
+draw on the phone. The origin row disappears at Home on the Map tab and is a single 36px line when
+away or unset; the tabs are 13px with a 44px touch target; the light rule is 2px. Desktop and tablet
+are unchanged. One change is on every width: the "Set your home postcode" state is now a red group
+(border, fill, label and pin) instead of coral text. The Ask peek button and the one-line
+attribution follow in C2.
+
+### Docs — plainer wording and corrected facts across the user guide
+
+The nine user-guide pages and the guide search now use plainer, more consistent wording and explain
+terms on first use. Corrections: one Best bet across the whole forecast; coastal star ratings already
+take the tide into account; reach rings are fixed 25 and 50 mile circles; My area is about three hours’
+drive; space weather is checked every five minutes day and night; two hatching styles; confidence-driven
+fading; Coming up shows a tidal range in metres; Ask PhotoCast allowance of 30 typed questions a day;
+sub-region change rules. The search status shows "10+" only when more than ten sections match.
+
+### Fixed — flaky frontend tests wait for what they assert
+
+Six Vitest tests that failed intermittently in CI now wait for the thing they assert instead of
+reading it once: the Scheduler day tab's "takes today from the served clock" (the label is on screen,
+dated from this machine's clock, before the served day lands), the Runs day strip's measured-width
+test (the captured ResizeObserver may not be constructed yet), the sub-region picker's scroll into
+view, the region form's focus moves, and the Plan sheet's focus after closing. The location sheet's
+rating-badge test asserts `backgroundColor` rather than the `background` shorthand, which jsdom 30.1.3
+computes as a longer value. Test-only; no product change.
+
+### Docs — plan: the evening refresh takes tomorrow's sunset
+
+Adds `docs/engineering/evening-tomorrow-sunset-plan.md`. The 21:00 evening refresh would re-rate
+tomorrow's sunset as well as tomorrow's sunrise, and the afternoon refresh would leave an already-rated
+tomorrow's sunset to it, so the look used to plan the next evening is about 8 hours fresher for about the
+same cost. The plan also covers the Scheduler page's job descriptions, and records that the weather the
+app fetches is the Met Office UKV model, which updates hourly. It supersedes E5 of the evening refresh
+plan. Planning only; nothing is built yet.
+
+### Changed — the evening refresh also re-rates tomorrow's sunset
+
+The 21:00 evening refresh used to re-rate tomorrow's sunrise alone. It now re-rates tomorrow's sunrise
+and tomorrow's sunset, at every stability, so the evening's plan for tomorrow's sunset rests on a
+forecast about 8 hours fresher than the afternoon's. The afternoon refresh leaves an already-rated
+tomorrow's sunset to the evening (as it already did the sunrise) and becomes the last look at
+tonight's sunset; if the evening is paused, or a place has no rating yet, the afternoon rates it as
+before. The number of looks does not change, one moves.
+
+The words follow: the evening job is now "Tomorrow, at bedtime" on the Scheduler page and "Evening
+Refresh" in its stored name, the run label is "Evening refresh", the afternoon job's description no
+longer says it skips settled places for tonight's sunset (it rates that at every stability), and the
+Runs detail counts both deferred events under one event-neutral reason. Migration V217 rewrites the
+three stored texts, each only if still unedited.
+
+### Changed — Coming up assembler edge-case tests
+
+Added `ComingUpAssemblerEdgeCasesTest`, pinning the fact-row builders (meteor, eclipse, lunar eclipse, region scope, tide high-water rows), the merge pairing rules, equal-range superlatives, the announce-band boundary, peak-date fallbacks and entry ordering. `ComingUpAssembler` mutation score rises from 78% to 96%. Tests only; no production change.
+
+### Changed — Map panels start collapsed, with hot-topic day dots and a tide aligned count; Coming up entries can be closed
+
+- Map tab (desktop and tablet): the Hot topics and Tide panels both start collapsed as one-line rows with the same `Open ▴` button. Open or closed is kept for the session only; the Hot topics panel no longer remembers a choice between visits or opens by default on a tall map.
+- The collapsed Hot topics row shows one group per forecast day (today to +3) with up to three coloured dots, the current day marked. A day with something worth seeing is a button that jumps the map to that day's first topic window (sunrise first) and flashes the window control; the current day shows which topics fall on the selected window. In the open grid the current day's header is marked, the bar on the selected window glows and the same day's other light is dashed.
+- The collapsed Tide row drops the time and reads `4 of 14 aligned`, `none of 14 aligned` or `all 14 aligned` in place of `10 dimmed`.
+- Coming up: each entry has an Open / Close button and the list has Open all / Close all. Entries tagged "In next 4 days", or starting within 30 days, start open; later ones start closed. Choices are remembered for the session, and a link to a closed entry opens it first.
+
+### Changed — Mutation tests for the candidate collector, bluebell gloss and WorldTides ingestion
+
+Added tests that pin the per-gate slot counts and stability breakdown the briefing candidate collector reports, the exact user message and headline placement of the bluebell gloss service, and the WorldTides ingestion service's merge order, fetch-window boundaries, source-change alerts, backfill chunking and the eviction callback it fires once per tide_extreme write. Test code only; no production behaviour changed.
+
+### Docs — plan: cut the cost of Ask ready answers
+
+Adds `docs/engineering/ask-ready-cost-plan.md` and `cost-queries/ask-ready-cache.sql`. A measured run shows
+the shared prompt is never cached (each first turn is ~3,600 tokens, under Haiku 4.5's 4,096 minimum) and
+every task opens with the same tool call. The plan ranks four levers: run Ready answers on Haiku 5.5 after
+a quality check (about 90% cheaper), answer the opening tool call in the prompt (~25–30%), fix the cache,
+and reuse still-fresh answers. Planning only; nothing is built yet.
+
+### Changed — Ask answers drop "game on" and "stand down"
+
+Ask PhotoCast now describes places as worth going to, or ruled out by the weather, instead of "game on" and "stood down". The model is told the plainer wording and never to use the old phrases in an answer.
+
+### Fixed — weekly PIT run no longer takes more than six hours
+
+PIT's `<excludedTestClasses>` skipped only controller, `*IntegrationTest`, `*IT` and prompt-regression classes, so about 75 Testcontainers classes and several full `@SpringBootTest` classes ran under mutation testing. Since the async `AlmanacService.warmOnStartup` began building the Coming up feed on every context boot (#1050), each context-booting test covered thousands of mutants, and the run grew from 2h23m to over 6h. These classes are now excluded, the workflow only compiles (surefire runs per PR), and `PitExclusionDriftTest` fails if a new context-booting test is not excluded.
+
 ## [v2.37.0] - 2026-11-03
 
 ### Added — Scheduler job descriptions, summary and detail endpoints
