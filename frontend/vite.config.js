@@ -199,8 +199,8 @@ export default defineConfig(({ mode }) => {
     // case, so most failure latencies are unchanged; and the frontend CI job now carries a
     // `timeout-minutes` so a genuine hang cannot run up the runner's clock.
     testTimeout: 20000,
-    // Coverage floor (CI runs `npm run test:coverage`). Measured 2026-11-04 (after the API-wrapper
-    // and simulation-UI tests): lines 98.90%, statements 97.73%, functions 97.86%, branches 93.89%.
+    // Coverage floor (CI runs `npm run test:coverage`). Measured 2026-11-04 (after the auth-context,
+    // hooks, utils and API-wrapper tests): lines 99.17%, statements 98.07%, functions 98.19%, branches 94.23%.
     // Raise these when coverage rises; never lower them without the owner's say-so.
     coverage: {
       provider: 'v8',
@@ -213,7 +213,7 @@ export default defineConfig(({ mode }) => {
       ],
       reporter: ['text-summary', 'json-summary'],
       reportOnFailure: true,
-      thresholds: { lines: 98, statements: 97, functions: 97, branches: 93 },
+      thresholds: { lines: 99, statements: 98, functions: 98, branches: 94 },
     },
   },
   };

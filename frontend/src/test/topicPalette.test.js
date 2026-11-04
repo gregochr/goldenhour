@@ -61,6 +61,16 @@ describe('topicStyle', () => {
     expect(topicStyle('SOLAR_HALO').name).toBe('SOLAR_HALO');
   });
 
+  it.each([null, undefined, ''])('names a topic with no type "Topic" when it has no label either (%s)', (type) => {
+    expect(topicStyle(type)).toEqual({
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Topic', shortName: 'Topic', chipName: 'Topic',
+    });
+  });
+
+  it('uses the served label for a missing type', () => {
+    expect(topicStyle(null, 'Mystery').name).toBe('Mystery');
+  });
+
   it('is case-insensitive on the type, as the scope helpers are', () => {
     expect(topicStyle('aurora').name).toBe('Aurora');
   });
