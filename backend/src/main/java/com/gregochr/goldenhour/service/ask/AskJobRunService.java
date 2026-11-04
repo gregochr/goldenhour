@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,7 +95,7 @@ public class AskJobRunService {
     private final JobRunRepository jobRunRepository;
     private final ApiCallLogRepository apiCallLogRepository;
     private final CostCalculator costCalculator;
-    private final AskProperties properties;
+    private final ModelSelectionService modelSelection;
     private final Clock clock;
 
     /**
@@ -121,17 +122,17 @@ public class AskJobRunService {
      * @param jobRunRepository     the scoped updates and the day lookup
      * @param apiCallLogRepository the spend sum, and the summary row of an overflowed holder
      * @param costCalculator       prices a turn, exactly as {@code JobRunService.logApiCall} does
-     * @param properties           the Ask settings (the model a new daily run is labelled with)
+     * @param modelSelection       the {@code ASK} model row (the model a new daily run is labelled with)
      * @param clock                the application clock: the UK civil day and the memo
      */
     public AskJobRunService(JobRunService jobRunService, JobRunRepository jobRunRepository,
             ApiCallLogRepository apiCallLogRepository, CostCalculator costCalculator,
-            AskProperties properties, Clock clock) {
+            ModelSelectionService modelSelection, Clock clock) {
         this.jobRunService = jobRunService;
         this.jobRunRepository = jobRunRepository;
         this.apiCallLogRepository = apiCallLogRepository;
         this.costCalculator = costCalculator;
-        this.properties = properties;
+        this.modelSelection = modelSelection;
         this.clock = clock;
     }
 
@@ -163,7 +164,7 @@ public class AskJobRunService {
 
     private JobRunEntity createDailyRun() {
         // Manual: a person asked. Completed at once; the scoped increments keep its figures true.
-        JobRunEntity run = jobRunService.startRun(RunType.ASK, true, properties.getModel());
+        JobRunEntity run = jobRunService.startRun(RunType.ASK, true, modelSelection.getActiveModel(RunType.ASK));
         jobRunService.completeRun(run, 0, 0);
         LOG.info("[ASK] Started the daily ASK job run {}", run.getId());
         return run;

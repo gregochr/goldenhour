@@ -180,6 +180,25 @@ class RunCostProfileServiceTest {
     }
 
     @Test
+    @DisplayName("Ask's calls are measured on their own tabs: the day's ASK run and a precompute's ASK_READY run")
+    void askTabsMeasureTheirOwnRuns() {
+        ApiCallCostRow typed = new ApiCallCostRow(RunType.ASK, LocalDateTime.of(2026, 10, 10, 6, 0), "ask-typed",
+                null, false, true, EvaluationModel.HAIKU, null, 9_500L, 726L, 0L, 0L, 10_000L, 31L, null);
+        ApiCallCostRow ready = new ApiCallCostRow(RunType.ASK_READY, LocalDateTime.of(2026, 10, 10, 7, 0),
+                "ask-ready", null, false, true, EvaluationModel.HAIKU_55, null, 9_500L, 726L, 0L, 0L, 3_000L,
+                32L, null);
+
+        rows(typed, ready);
+
+        Map<String, RunCostProfile> profiles = service.costProfiles();
+        assertThat(profiles.get("ASK").measured()).containsOnlyKeys("HAIKU");
+        assertThat(profiles.get("ASK").measured().get("HAIKU").usdPerCall()).isCloseTo(0.010, within(1e-9));
+        assertThat(profiles.get("ASK_READY").measured()).containsOnlyKeys("HAIKU_55");
+        assertThat(profiles.get("ASK_READY").estimates()).containsKey("HAIKU");
+        assertThat(profiles.get("BRIEFING_BEST_BET").measured()).isEmpty();
+    }
+
+    @Test
     @DisplayName("aurora sums synchronous AURORA_EVALUATION rows and au- batch rows")
     void auroraSumsSyncAndBatch() {
         ApiCallCostRow sync = new ApiCallCostRow(RunType.AURORA_EVALUATION, LocalDateTime.of(2026, 10, 30, 21, 0),
@@ -272,7 +291,7 @@ class RunCostProfileServiceTest {
     @Test
     @DisplayName("an unrelated synchronous row belongs to no tab")
     void unrelatedSyncRowIgnored() {
-        rows(new ApiCallCostRow(RunType.ASK, LocalDateTime.of(2026, 10, 30, 2, 0), null, null, false, true,
+        rows(new ApiCallCostRow(RunType.BRIEFING, LocalDateTime.of(2026, 10, 30, 2, 0), null, null, false, true,
                 EvaluationModel.HAIKU, LocalDate.of(2026, 10, 30), 1L, 1L, 0L, 0L, 5L, 3L, null));
 
         service.costProfiles().values().forEach(p -> assertThat(p.measured()).isEmpty());
@@ -335,7 +354,7 @@ class RunCostProfileServiceTest {
         Map<String, RunCostProfile> profiles = service.costProfiles();
 
         assertThat(profiles).containsKeys("BRIEFING_BEST_BET", "AURORA_EVALUATION", "BATCH_NEAR_TERM",
-                "BATCH_FAR_TERM");
+                "BATCH_FAR_TERM", "ASK", "ASK_READY");
         profiles.values().forEach(p -> {
             assertThat(p.runsPerDay()).isZero();
             assertThat(p.measured()).isEmpty();

@@ -194,7 +194,7 @@ photocast:
   #                                 # false (the default) bills the real key
   #     seed-local-fixture: false   # local profile only, H2 only: writes "Fixture ..." regions,
   #                                 # rated entries and a briefing build into the local database
-  #     model: HAIKU                # HAIKU or SONNET only; Sonnet 5.5 is refused (it cannot disable thinking)
+  #                                 # (the model is not a key: Operations > Run Config, ASK and ASK_READY)
   #     max-turns: 4                # model turns per conversation, 1-6
   #     max-tokens: 600             # per model turn, 200-2000
   #     call-timeout-seconds: 20    # per model call, 1-60; must not exceed deadline-seconds

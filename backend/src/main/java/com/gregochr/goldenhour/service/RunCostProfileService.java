@@ -175,7 +175,7 @@ public class RunCostProfileService {
                     ForecastHorizon.ukDayStartUtc(today.minusDays(WINDOW_DAYS - 1L)));
             Map<RunType, List<ApiCallCostRow>> byTab = classify(rows);
             for (RunType tab : List.of(RunType.BRIEFING_BEST_BET, RunType.AURORA_EVALUATION,
-                    RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM)) {
+                    RunType.BATCH_NEAR_TERM, RunType.BATCH_FAR_TERM, RunType.ASK, RunType.ASK_READY)) {
                 profiles.put(tab.name(), profile(byTab.getOrDefault(tab, List.of()), isBatchTab(tab)));
             }
         } catch (RuntimeException e) {
@@ -215,6 +215,10 @@ public class RunCostProfileService {
         }
         if (row.runType() == RunType.AURORA_EVALUATION) {
             return RunType.AURORA_EVALUATION;
+        }
+        // Ask's calls are logged under their own job runs (the day's ASK run, a precompute's ASK_READY run).
+        if (row.runType() == RunType.ASK || row.runType() == RunType.ASK_READY) {
+            return row.runType();
         }
         String customId = row.customId();
         if (!Boolean.TRUE.equals(row.isBatch()) || customId == null) {

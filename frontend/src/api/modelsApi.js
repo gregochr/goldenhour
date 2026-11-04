@@ -5,6 +5,8 @@ import apiClient from './axiosClient.js';
  * extended-thinking flags, and the measured cost of each tab (admin only).
  *
  * `costProfiles` is keyed by run type and is empty when the figures could not be computed;
+ * `allowedByRunType` lists the models of a run type whose choice is narrower than `available` (the two
+ * Ask run types); a run type missing from it accepts every available model.
  * `gbpPerUsd` is absent when no job run has recorded an exchange rate.
  *
  * @returns {Promise<{
@@ -14,6 +16,7 @@ import apiClient from './axiosClient.js';
  *   costProfiles: Object<string, {windowDays: number, runsPerDay: number, callsPerRun: number,
  *     measured: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>,
  *     estimates: Object<string, {calls: number, usdPerCall: number, usdPerDay: number}>}>,
+ *   allowedByRunType: Object<string, string[]>,
  *   tokenRates: Object<string, {inputUsdPerMtok: number, outputUsdPerMtok: number}>,
  *   gbpPerUsd: (number|undefined)
  * }>} the Run Config payload

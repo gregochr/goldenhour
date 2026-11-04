@@ -18,11 +18,13 @@ import com.anthropic.models.messages.ToolUseBlock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.exception.ClaudeRefusalException;
 import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.ask.AskAnswerParser.Parsed;
 import com.gregochr.goldenhour.service.ask.AskToolArguments.BadArguments;
 import com.gregochr.goldenhour.service.evaluation.AnthropicApiClient;
@@ -111,6 +113,7 @@ public class ClaudeAskEngine implements AskEngine {
 
     private final AnthropicApiClient client;
     private final AskProperties properties;
+    private final ModelSelectionService modelSelection;
     private final AskJobRunService jobRuns;
     private final AskConversation.Deps frame;
     private final AskPromptBuilder promptBuilder;
@@ -124,6 +127,7 @@ public class ClaudeAskEngine implements AskEngine {
      *
      * @param client           the resilient Anthropic client ({@code createAskMessage})
      * @param properties       the Ask settings
+     * @param modelSelection   the {@code ASK} and {@code ASK_READY} model rows
      * @param jobRuns          the per-day run, the turn log and the unrecorded-cost latch
      * @param driveTimes       the asker's own drive times, for {@code maxDriveMinutes}
      * @param validator        holds an answer to what the tools returned
@@ -134,12 +138,13 @@ public class ClaudeAskEngine implements AskEngine {
      *                         the forecast
      */
     public ClaudeAskEngine(AnthropicApiClient client, AskProperties properties,
-            AskJobRunService jobRuns, DriveTimeResolver driveTimes,
+            ModelSelectionService modelSelection, AskJobRunService jobRuns, DriveTimeResolver driveTimes,
             AskAnswerValidator validator,
             AskPromptBuilder promptBuilder, ObjectMapper mapper, Clock clock,
             AskLocationNames locationNames) {
         this.client = client;
         this.properties = properties;
+        this.modelSelection = modelSelection;
         this.jobRuns = jobRuns;
         this.frame = new AskConversation.Deps(validator, driveTimes, mapper, locationNames);
         this.promptBuilder = promptBuilder;
@@ -184,9 +189,12 @@ public class ClaudeAskEngine implements AskEngine {
             return conversation.fail("the job run could not be opened: " + describe(e), 0, List.of());
         }
 
+        // Read once for the whole conversation, never per turn: a switch on Run Config takes effect on the
+        // next typed question, and a Ready run's model was fixed when its precompute started.
         AskRun run;
         try {
-            run = converse(conversation, question, snapshot, user, runId, ready);
+            run = converse(conversation, question, snapshot, user, runId, ready,
+                    resolveModel(conversation, ready));
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Conversation failed unexpectedly: {}", e.toString());
             run = AskRun.failed("unexpected error: " + describe(e), 0, false, List.of());
@@ -206,9 +214,17 @@ public class ClaudeAskEngine implements AskEngine {
         return basis == null || basis.question().nightBound() ? List.of() : basis.offer().coveredWindowIds();
     }
 
+    /** The model for one conversation: the Ready run's pinned model, else the run type's row. */
+    private EvaluationModel resolveModel(AskConversation conversation, boolean ready) {
+        if (ready) {
+            EvaluationModel pinned = conversation.options().model();
+            return pinned != null ? pinned : modelSelection.getActiveModel(RunType.ASK_READY);
+        }
+        return modelSelection.getActiveModel(RunType.ASK);
+    }
+
     private AskRun converse(AskConversation conversation, AskQuestion question, AskSnapshot snapshot,
-            AskUserContext user, long startRunId, boolean ready) {
-        EvaluationModel model = properties.getModel();
+            AskUserContext user, long startRunId, boolean ready, EvaluationModel model) {
         AskTools tools = conversation.tools();
         AskSnapshot.Window contextWindow = question.windowId() == null
                 ? null : snapshot.window(question.windowId()).orElse(null);

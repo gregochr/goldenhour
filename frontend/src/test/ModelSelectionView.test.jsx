@@ -1004,4 +1004,122 @@ describe('ModelSelectionView', () => {
       expect(setActiveModel).toHaveBeenCalledWith('BATCH_NEAR_TERM', 'HAIKU');
     });
   });
+
+  // ── Ask tabs ─────────────────────────────────────────────────────────────────────────────
+
+  describe('the Ask tabs', () => {
+    const ASK_DATA = {
+      ...MOCK_DATA,
+      available: ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'],
+      configs: { ...MOCK_DATA.configs, ASK: 'HAIKU', ASK_READY: 'HAIKU' },
+      allowedByRunType: {
+        ASK: ['HAIKU', 'HAIKU_55', 'SONNET'],
+        ASK_READY: ['HAIKU', 'HAIKU_55', 'SONNET'],
+      },
+      costProfiles: {
+        ...MOCK_DATA.costProfiles,
+        ASK_READY: {
+          windowDays: 30,
+          runsPerDay: 4,
+          callsPerRun: 17,
+          measured: { HAIKU: { calls: 2000, usdPerCall: 0.0099, usdPerDay: 0.67 } },
+          estimates: { HAIKU_55: { calls: 0, usdPerCall: 0.0012, usdPerDay: 0.08 } },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      getAvailableModels.mockResolvedValue(ASK_DATA);
+    });
+
+    it('shows both tabs to an admin, labelled Ask and Ask ready answers, with their active model', async () => {
+      render(<ModelSelectionView />);
+
+      expect(await screen.findByTestId('config-tab-ASK')).toHaveTextContent('Ask');
+      expect(screen.getByTestId('config-tab-ASK')).toHaveTextContent('Haiku 4.5');
+      expect(screen.getByTestId('config-tab-ASK_READY')).toHaveTextContent('Ask ready answers');
+    });
+
+    it('hides both tabs from a non-admin', async () => {
+      useAuth.mockReturnValue({ isAdmin: false });
+      render(<ModelSelectionView />);
+
+      await screen.findByTestId('config-tab-BRIEFING_BEST_BET');
+      expect(screen.queryByTestId('config-tab-ASK')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('config-tab-ASK_READY')).not.toBeInTheDocument();
+    });
+
+    it.each(['ASK', 'ASK_READY'])('%s offers only the models the backend allows', async (tab) => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId(`config-tab-${tab}`));
+
+      expect(await screen.findByTestId(`switch-${tab}-HAIKU_55`)).toBeInTheDocument();
+      expect(screen.getByTestId(`switch-${tab}-HAIKU`)).toBeInTheDocument();
+      expect(screen.getByTestId(`switch-${tab}-SONNET`)).toBeInTheDocument();
+      expect(screen.queryByTestId(`switch-${tab}-SONNET_55`)).not.toBeInTheDocument();
+      expect(screen.queryByTestId(`switch-${tab}-OPUS`)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('card-cost-OPUS')).not.toBeInTheDocument();
+    });
+
+    it('the other tabs still list every model', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+
+      expect(await screen.findByTestId('switch-BATCH_NEAR_TERM-OPUS')).toBeInTheDocument();
+      expect(screen.getByTestId('switch-BATCH_NEAR_TERM-SONNET_55')).toBeInTheDocument();
+    });
+
+    it('a switch on the Ask ready answers tab sends ASK_READY as the run type', async () => {
+      setActiveModel.mockResolvedValue({ runType: 'ASK_READY', active: 'HAIKU_55' });
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-ASK_READY'));
+
+      fireEvent.click(await screen.findByTestId('switch-ASK_READY-HAIKU_55'));
+
+      await waitFor(() => {
+        expect(setActiveModel).toHaveBeenCalledWith('ASK_READY', 'HAIKU_55');
+      });
+      expect(await screen.findByText('Ask ready answers model switched to Haiku 5.5')).toBeInTheDocument();
+    });
+
+    it('a switch on the Ask tab sends ASK as the run type', async () => {
+      setActiveModel.mockResolvedValue({ runType: 'ASK', active: 'SONNET' });
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-ASK'));
+
+      fireEvent.click(await screen.findByTestId('switch-ASK-SONNET'));
+
+      await waitFor(() => {
+        expect(setActiveModel).toHaveBeenCalledWith('ASK', 'SONNET');
+      });
+    });
+
+    it.each(['ASK', 'ASK_READY'])('%s has no extended-thinking switch, and says why Sonnet 5.5 is missing', async (tab) => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId(`config-tab-${tab}`));
+
+      await screen.findByTestId('ask-model-note');
+      expect(screen.queryByTestId('toggle-extended-thinking')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('extended-thinking-panel')).not.toBeInTheDocument();
+    });
+
+    it('the Ask ready answers tab shows its measured and estimated costs for the allowed models only', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-ASK_READY'));
+
+      const table = await screen.findByTestId('cost-table');
+      expect(within(table).getByText('Haiku 5.5')).toBeInTheDocument();
+      expect(within(table).queryByText('Opus 4.6')).not.toBeInTheDocument();
+      expect(screen.getByTestId('cost-table-summary')).toHaveTextContent('4 runs a day');
+      expect(screen.getByTestId('card-cost-HAIKU')).toHaveTextContent('measured');
+      expect(screen.getByTestId('card-cost-HAIKU_55')).toHaveTextContent('estimate');
+    });
+
+    it('the Ask tab says there are no calls when it has no measured profile', async () => {
+      render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('config-tab-ASK'));
+
+      expect(await screen.findByTestId('cost-table-unavailable')).toBeInTheDocument();
+    });
+  });
 });

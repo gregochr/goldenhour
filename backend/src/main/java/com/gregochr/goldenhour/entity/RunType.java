@@ -46,8 +46,8 @@ public enum RunType {
 
     /**
      * Ask PhotoCast typed questions and admin dry-runs — one run per UK civil day, so the day's
-     * spend is one Operations row. Its model is the {@code photocast.ask.model} property, never a
-     * {@code model_selection} row.
+     * spend is one Operations row. Its model is the {@code ASK} {@code model_selection} row (Run
+     * Config); the Ready precompute's is the {@code ASK_READY} row.
      */
     ASK,
 

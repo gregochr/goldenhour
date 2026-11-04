@@ -156,7 +156,8 @@ class AskNightRegressionTest {
         DriveTimeResolver driveTimes = mock(DriveTimeResolver.class);
         when(driveTimes.getAllMinutes(PRO_ID)).thenReturn(DRIVE_MINUTES);
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(), jobRuns,
+        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+                AskModelFixtures.haiku(), jobRuns,
                 driveTimes, new AskAnswerValidator(), new AskPromptBuilder(), mapper, Clock.systemUTC(),
                 () -> PLACES);
     }

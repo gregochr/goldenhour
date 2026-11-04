@@ -150,7 +150,7 @@ Record the findings here.
 - *The comparison* (M) is a `prompt-regression`-tagged test-only harness on the existing engine set-up,
   run once per model on the four fixtures.
 
-**M0 — Ask's model on Run Config (owner's request, 3 November 2026).** Ask is the one Claude caller whose
+**M0 — Ask's model on Run Config (owner's request, 3 November 2026). Built: V218 seeds the `ASK` and `ASK_READY` rows on `HAIKU`; `photocast.ask.model` is retired outright (no fallback property: with no row `ModelSelectionService.getActiveModel` returns `HAIKU`, as for every other caller); the allowed set is `HAIKU`, `HAIKU_55`, `SONNET`.** Ask is the one Claude caller whose
 model is not a `model_selection` row: it is the YAML key `photocast.ask.model` (`AskProperties.java:76`),
 so it is missing from Operations → Run Config and changing it needs a deploy. That breaks CLAUDE.md's
 invariant that the database `model_selection` row decides which model a run type uses.
