@@ -580,7 +580,7 @@ export default function ModelSelectionView() {
             </div>
             <p className="mt-2">
               The intraday cycle covers today&apos;s sunset and tomorrow&apos;s sunrise and sunset; the evening
-              cycle covers tomorrow&apos;s sunrise.
+              cycle covers tomorrow&apos;s sunrise and sunset.
             </p>
           </div>
           <div>
