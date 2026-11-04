@@ -1,33 +1,128 @@
 name: Security Scan
 
+# Cost model
+# ----------
+# The OWASP scan needs the NVD database (about 419,000 records). A cold download takes
+# anywhere from 2 minutes to over 50 minutes depending on how the NVD API is throttling
+# that day, so the design goal is: the database is downloaded rarely, on `main` only,
+# and everything else reads the cached copy.
+#
+#   * Pull requests scan ONLY when they touch dependency inputs (see the `detect` step),
+#     and NEVER download NVD: they run with -DautoUpdate=false against the copy cached by
+#     the last `main` run, and fail with a clear message if there is none. When a PR
+#     touches nothing relevant the job still runs and reports success, so the check name
+#     "OWASP Dependency Check" always reports and can be made a required check.
+#   * Only `main` (the daily schedule, or a manual dispatch on `main`) refreshes the
+#     database and saves it. After saving, older `owasp-db-*` entries are deleted so
+#     exactly one copy is kept.
+#   * The daily schedule exists to keep that cache warm: GitHub evicts caches that have
+#     not been accessed for 7 days, and evicts the least recently used first once the
+#     repository passes its 10 GB cache limit. A daily restore keeps the entry recently
+#     used. Per-push CodeQL TRAP caches used to fill that limit (see codeql.yml).
+#
+# Accepted limits
+#   * A PR scans data as old as the last `main` run (at most about a day).
+#   * A bump of the dependency-check-maven plugin may change the database format. That
+#     PR can fail its own scan against the old cached database; it is then merged by hand
+#     and the next `main` run rebuilds the database.
+#   * If a merge queue is ever enabled, this workflow needs a `merge_group:` trigger.
+
 on:
   schedule:
-    # Weekly on Sunday at 06:00 UTC
-    - cron: '0 6 * * 0'
+    # Daily at 05:30 UTC. Keeps the NVD cache refreshed and recently used. Chosen to avoid
+    # the other scheduled jobs (CodeQL 02:00 Monday, ZAP 04:00, PIT 06:00 Monday).
+    - cron: '30 5 * * *'
+  # Unfiltered by base branch, for the same reason as ci.yml: `branches: [main]` silently
+  # skips stacked PRs.
+  pull_request:
   workflow_dispatch:  # Allow manual trigger from Actions UI
+
+# One scan per PR (a newer push cancels the older one). Scheduled and manual runs each get
+# their own group by run id, so they never cancel one another.
+concurrency:
+  group: security-scan-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   owasp-dependency-check:
     name: OWASP Dependency Check
     runs-on: ubuntu-latest
+    # `actions: write` is for deleting superseded NVD caches (`gh cache delete`) after a
+    # save on main; `contents: read` is for checkout.
+    permissions:
+      actions: write
+      contents: read
     # A cold NVD download ran at ~3,000 records/s on 2026-09-27 (full 398,478-record
     # database in ~2 minutes) and at ~45 records/s on 2026-10-01 (cancelled at 160,000
     # of 400,203 records, still inside the hour) — the NVD API throttles unpredictably,
     # and at the slow rate 400k records take ~2.5h. 60 minutes was only ever enough on
-    # a good day. 240 minutes covers the slow case; once the cache save below lands a
-    # cold run should be rare, since every run restores the newest DB a prior run saved.
-    timeout-minutes: 240
+    # a good day. 240 minutes covers the slow case on main. A PR never downloads, so it
+    # gets a short limit: a hung scan fails fast instead of holding a required check.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 240 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      # Same pattern as the `changes` job in ci.yml, but a step in this job rather than a
+      # separate job so the check name always reports. Fail-safe: run_scan starts as true,
+      # and is only rewritten to false after a non-empty pull_request diff has been read
+      # and shown to contain no dependency path. Any error, an empty diff, or any event
+      # other than pull_request leaves it true. (Later writes to $GITHUB_OUTPUT win.)
+      - id: detect
+        name: Detect dependency changes
+        run: |
+          echo "run_scan=true" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Event is ${{ github.event_name }}, not pull_request — running the scan."
+            exit 0
+          fi
+
+          BASE='${{ github.event.pull_request.base.sha }}'
+          HEAD='${{ github.event.pull_request.head.sha }}'
+          if ! CHANGED=$(git diff --name-only "$BASE" "$HEAD"); then
+            echo "Could not compute the diff — running the scan rather than guessing."
+            exit 0
+          fi
+
+          if [ -z "$CHANGED" ]; then
+            echo "Empty diff — running the scan rather than guessing."
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED" | sed 's/^/  /'
+
+          # Paths that change what the scan sees or how it runs: the pom, the suppression
+          # file, the Maven wrapper, and this workflow itself.
+          RELEVANT=$(echo "$CHANGED" | grep -E '^(backend/pom\.xml|backend/dependency-check-suppressions\.xml|backend/mvnw|backend/mvnw\.cmd|\.github/workflows/security-scan\.yml)$|^backend/\.mvn/' || true)
+
+          if [ -n "$RELEVANT" ]; then
+            echo "Dependency-related paths changed — running the scan:"
+            echo "$RELEVANT" | sed 's/^/  /'
+          else
+            echo "No dependency-related paths changed."
+            echo "run_scan=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip notice
+        if: steps.detect.outputs.run_scan != 'true'
+        run: echo "OWASP scan skipped — this PR does not touch backend/pom.xml, the suppression file, the Maven wrapper or this workflow."
+
+      # setup-java's `cache: maven` also captures ~/.m2/repository/org/owasp/dependency-check-data,
+      # so on a PR it would save a 120 MB+ entry per pom hash. An empty `cache` input
+      # disables setup-java caching entirely (the action only restores when the input is
+      # non-empty). The NVD database itself is handled by the restore/save steps below.
       - name: Set up JDK 25
+        if: steps.detect.outputs.run_scan == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
+          cache: ${{ github.event_name != 'pull_request' && 'maven' || '' }}
 
       # Split into restore/save (rather than the single actions/cache@v4 action this used
       # to be) because actions/cache's own post-step skips the save entirely when the job
@@ -41,15 +136,31 @@ jobs:
       # downloaded clean because the NVD API happened to be fast that day (~3,000 records/s).
       # The restore-keys prefix (dropping the run id) means a run restores the newest DB any
       # prior run saved, then saves its own refreshed copy under its own run id — so the
-      # cache accumulates across both successful and failing runs instead of resetting weekly.
+      # cache accumulates across both successful and failing runs instead of resetting.
+      # The key itself is only an exact match for the run that saved it, so `cache-hit` is
+      # never true here; use `cache-matched-key` to tell whether anything was restored.
       - name: Restore OWASP Dependency-Check DB
         id: owasp-db
+        if: steps.detect.outputs.run_scan == 'true'
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: owasp-db-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             owasp-db-${{ runner.os }}-
+
+      # A PR runs with autoUpdate=false and cannot download NVD, so without a restored
+      # database the scan would have nothing to read. Fail early with instructions.
+      - name: Require a cached NVD database (PRs)
+        if: steps.detect.outputs.run_scan == 'true' && github.event_name == 'pull_request'
+        env:
+          MATCHED_KEY: ${{ steps.owasp-db.outputs.cache-matched-key }}
+        run: |
+          if [ -z "$MATCHED_KEY" ]; then
+            echo "::error::No NVD cache restored; dispatch Security Scan on main and re-run."
+            exit 1
+          fi
+          echo "Using cached NVD database: $MATCHED_KEY"
 
       # No continue-on-error: backend/pom.xml sets failBuildOnCVSS=7, a gate that
       # was deliberately armed and then discarded here — the job reported success
@@ -61,26 +172,68 @@ jobs:
       # behind the 12.2.2 declared in backend/pom.xml: Dependabot bumps the pom but
       # cannot see a version embedded in a shell string. Naming the prefix alone
       # resolves the pom's version, and picks up its suppression file and threshold.
+      #
+      # On a PR, -DautoUpdate=false stops the plugin contacting NVD at all.
       - name: Run OWASP Dependency-Check
+        if: steps.detect.outputs.run_scan == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          AUTO_UPDATE_FLAG: ${{ github.event_name == 'pull_request' && '-DautoUpdate=false' || '' }}
         run: |
-          cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=168 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY
+          # AUTO_UPDATE_FLAG is deliberately unquoted: empty must expand to nothing.
+          # shellcheck disable=SC2086
+          cd backend && ./mvnw dependency-check:check --batch-mode --no-transfer-progress -DossindexAnalyzerEnabled=false -DnvdValidForHours=168 -DnvdApiKeyEnvironmentVariable=NVD_API_KEY $AUTO_UPDATE_FLAG
 
-      # `if: always()` is the whole fix — this is the step actions/cache@v4's own post-step
+      # `always()` is the whole fix — this is the step actions/cache@v4's own post-step
       # would have skipped on the scan failure above. Runs before the report upload so a
       # cancellation during the upload step (unlikely, but it is also `if: always()`) still
-      # leaves the DB saved.
+      # leaves the DB saved. Saved from main only: a branch-scoped copy is invisible to
+      # other branches and PRs, and would only add to the 10 GB repository cache.
       - name: Save OWASP Dependency-Check DB
-        if: always()
+        id: save-db
+        if: always() && steps.detect.outputs.run_scan == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
           key: owasp-db-${{ runner.os }}-${{ github.run_id }}
 
+      # Keep exactly one NVD copy: delete every owasp-db cache except the one just saved.
+      # Runs only after a save step that reported success, and the script re-checks that the
+      # new key is really listed before deleting anything, because a save can "succeed" with
+      # only a warning (for example when the key could not be reserved). Without that, a bad
+      # save would leave no NVD cache at all. `!cancelled()` rather than `always()`: the scan
+      # normally FAILS (that is the gate), and a bare `steps.*.outcome` condition would be
+      # skipped after that failure, but a cancelled run must not prune.
+      # Best effort — warnings only, never a failed job.
+      - name: Delete superseded OWASP DB caches
+        if: "!cancelled() && steps.save-db.outcome == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          KEEP_KEY: owasp-db-${{ runner.os }}-${{ github.run_id }}
+        run: |
+          if ! LISTING=$(gh cache list --key "owasp-db-${RUNNER_OS}-" --json id,key --limit 100); then
+            echo "::warning::Could not list OWASP DB caches; leaving them in place."
+            exit 0
+          fi
+
+          if ! echo "$LISTING" | jq -e --arg keep "$KEEP_KEY" 'any(.[]; .key == $keep)' >/dev/null; then
+            echo "::warning::Cache $KEEP_KEY is not listed after the save; deleting nothing."
+            exit 0
+          fi
+
+          IDS=$(echo "$LISTING" | jq -r --arg keep "$KEEP_KEY" '.[] | select(.key != $keep) | .id')
+          for id in $IDS; do
+            if gh cache delete "$id"; then
+              echo "Deleted superseded cache $id"
+            else
+              echo "::warning::Could not delete cache $id"
+            fi
+          done
+
       - name: Upload OWASP report
-        if: always()
+        if: always() && steps.detect.outputs.run_scan == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: owasp-dependency-check-report
@@ -89,7 +242,9 @@ jobs:
 
   notify-failure:
     needs: owasp-dependency-check
-    if: failure()
+    # Unattended runs only: a pull-request failure reports to the author, who is already
+    # looking at the check.
+    if: (failure() || cancelled()) && github.event_name != 'pull_request'
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml
