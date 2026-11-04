@@ -2,7 +2,7 @@
 -- far-term only, and a short-term series refreshes the next couple of windows, gated on stability.
 -- Run:  docker exec -i goldenhour-db psql -U goldenhour -d goldenhour < docs/engineering/cost-queries/short-term-looks.sql
 --
--- Four sections, each standalone:
+-- Five sections, each standalone:
 --   1. How much each look moves the rating it replaces, by event, cycle pair and days ahead. The rows
 --      that matter: SUNRISE  EVENING -> NIGHTLY at days_ahead 0 (what dropping the overnight sunrise
 --      look would hide) and SUNSET  NIGHTLY -> INTRADAY at 0 (the overnight sunset look, plan §8).
@@ -11,6 +11,8 @@
 --      or the last rating before the event closer to what they saw?
 --   4. Cost per 30 days by cycle, event, days ahead and model, from a date you set (the release that
 --      shipped #1662), so savings are sized on the new baseline.
+--   5. The overnight's tomorrow look, split by the model that gave the rating it replaced: does a
+--      far-term rating run high because of the model or because of the lead time?
 --
 -- Noise floor: identical inputs move 1 star about 8.5% of the time (noise-floor.sql). So read a 1-star
 -- move as mostly noise, a 2-star move as signal, and a flip across 3 stars (<=2 to >=4, or back) as a
@@ -193,3 +195,102 @@ LEFT JOIN forecast_evaluation f ON f.id = c.eval_id
 CROSS JOIN span
 GROUP BY c.cycle_type, f.target_type, f.days_ahead, c.evaluation_model, span.days
 ORDER BY usd_per_30_days DESC;
+
+-- 5. The overnight's tomorrow look, by the model that gave the rating it replaced ---------------------
+-- Owner idea, 2026-11-04: Near-Term (Sonnet 5.5) rates today only, and Far-Term (Haiku 4.5) also takes
+-- tomorrow. Section 1 showed the overnight's T+1 look pulls far-term ratings down a lot, but Far-Term ran
+-- on both Sonnet 5.5 and Haiku 4.5 in the window, so the pull mixes model and lead time. Here every
+-- overnight T+1 rating is paired with the rating it replaced and split by that rating's model and days
+-- ahead (forecast_evaluation.evaluation_model).
+-- How to read it: if the HAIKU rows show the same downward pull (mean_change, flips_down per pair) as the
+-- SONNET rows at the same prev_days_ahead, the cause is the lead time; if HAIKU's pull is clearly larger,
+-- the model runs high and moving tomorrow to Haiku would put those stars on the daytime view. The two
+-- models covered different weeks (see first_day/last_day), so weather is a confound: read the per-week
+-- rows before trusting a gap. prev_days_ahead is at least 2, so this does not test Haiku at T+1 itself.
+WITH cyc AS (
+    SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
+           substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
+           p.cycle_type
+    FROM api_call_log a
+    JOIN forecast_batch b ON b.anthropic_batch_id = a.batch_id
+    JOIN pipeline_run p   ON p.id = b.pipeline_run_id
+    WHERE a.is_batch AND a.succeeded AND a.custom_id LIKE 'fc-%'
+      AND a.called_at >= now() - interval '45 days'
+    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
+),
+s AS (
+    SELECT f.target_type, f.target_date, f.days_ahead, f.evaluation_model,
+           COALESCE(c.cycle_type, 'UNKNOWN') AS cycle_type,
+           COALESCE(f.sky_rating, f.rating) AS stars,
+           LAG(COALESCE(f.sky_rating, f.rating)) OVER w AS prev_stars,
+           LAG(f.evaluation_model) OVER w AS prev_model,
+           LAG(f.days_ahead) OVER w AS prev_days_ahead
+    FROM forecast_evaluation f
+    LEFT JOIN cyc c ON c.eval_id = f.id
+    WHERE f.forecast_run_at >= now() - interval '45 days'
+      AND COALESCE(f.sky_rating, f.rating) IS NOT NULL
+    WINDOW w AS (PARTITION BY f.location_id, f.target_date, f.target_type ORDER BY f.forecast_run_at)
+),
+looks AS (
+    SELECT * FROM s
+    WHERE cycle_type = 'NIGHTLY' AND days_ahead = 1
+      AND prev_stars IS NOT NULL AND prev_days_ahead >= 2
+)
+-- 5a. Overall, by event, the replaced rating's model and its days ahead.
+SELECT target_type                                                        AS event,
+       COALESCE(prev_model, '?')                                          AS prev_model,
+       prev_days_ahead,
+       evaluation_model                                                   AS new_model,
+       count(*)                                                           AS pairs,
+       min(target_date)                                                   AS first_day,
+       max(target_date)                                                   AS last_day,
+       round(avg(prev_stars), 2)                                          AS mean_prev,
+       round(avg(stars), 2)                                               AS mean_new,
+       round(avg(stars - prev_stars), 2)                                  AS mean_change,
+       round(100.0 * count(*) FILTER (WHERE abs(stars - prev_stars) >= 2) / count(*), 1) AS pct_ge_2,
+       count(*) FILTER (WHERE prev_stars <= 2 AND stars >= 4)             AS flips_up,
+       count(*) FILTER (WHERE prev_stars >= 4 AND stars <= 2)             AS flips_down
+FROM looks
+GROUP BY 1, 2, 3, 4
+HAVING count(*) >= 20
+ORDER BY 1, 3, 2, 4;
+
+-- 5b. The same by week, so a gap between models can be checked against the weather of those weeks.
+WITH cyc AS (
+    SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
+           substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
+           p.cycle_type
+    FROM api_call_log a
+    JOIN forecast_batch b ON b.anthropic_batch_id = a.batch_id
+    JOIN pipeline_run p   ON p.id = b.pipeline_run_id
+    WHERE a.is_batch AND a.succeeded AND a.custom_id LIKE 'fc-%'
+      AND a.called_at >= now() - interval '45 days'
+    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
+),
+s AS (
+    SELECT f.target_type, f.target_date, f.days_ahead,
+           COALESCE(c.cycle_type, 'UNKNOWN') AS cycle_type,
+           COALESCE(f.sky_rating, f.rating) AS stars,
+           LAG(COALESCE(f.sky_rating, f.rating)) OVER w AS prev_stars,
+           LAG(f.evaluation_model) OVER w AS prev_model,
+           LAG(f.days_ahead) OVER w AS prev_days_ahead
+    FROM forecast_evaluation f
+    LEFT JOIN cyc c ON c.eval_id = f.id
+    WHERE f.forecast_run_at >= now() - interval '45 days'
+      AND COALESCE(f.sky_rating, f.rating) IS NOT NULL
+    WINDOW w AS (PARTITION BY f.location_id, f.target_date, f.target_type ORDER BY f.forecast_run_at)
+)
+SELECT date_trunc('week', target_date)::date                              AS week,
+       target_type                                                        AS event,
+       COALESCE(prev_model, '?')                                          AS prev_model,
+       count(*)                                                           AS pairs,
+       round(avg(prev_stars), 2)                                          AS mean_prev,
+       round(avg(stars), 2)                                               AS mean_new,
+       round(avg(stars - prev_stars), 2)                                  AS mean_change,
+       count(*) FILTER (WHERE prev_stars >= 4 AND stars <= 2)             AS flips_down
+FROM s
+WHERE cycle_type = 'NIGHTLY' AND days_ahead = 1
+  AND prev_stars IS NOT NULL AND prev_days_ahead >= 2
+GROUP BY 1, 2, 3
+HAVING count(*) >= 10
+ORDER BY 1, 2, 3;
