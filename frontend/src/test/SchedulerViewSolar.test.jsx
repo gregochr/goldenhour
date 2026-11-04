@@ -225,7 +225,7 @@ describe('SchedulerView - switching a forecast cycle between fixed and sun-relat
     expect(screen.queryByTestId('switch-btn-tide_refresh')).not.toBeInTheDocument();
   });
 
-  it('offers no switch on the evening sunrise refresh, but still its timing notes and its Run now words', async () => {
+  it('offers no switch on the evening refresh, but still its timing notes and its Run now words', async () => {
     mount([job({ id: 3, jobKey: EVENING, displayName: 'Evening refresh' })]);
     await openJob(EVENING);
 

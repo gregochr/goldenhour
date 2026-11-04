@@ -880,7 +880,7 @@ describe('ModelSelectionView', () => {
       expect(panel).toHaveTextContent('T+0 to T+2');
       expect(panel).toHaveTextContent('wind-gust variance');
       expect(panel).toHaveTextContent(
-        "The intraday cycle covers today's sunset and tomorrow's sunrise and sunset; the evening cycle covers tomorrow's sunrise.",
+        "The intraday cycle covers today's sunset and tomorrow's sunrise and sunset; the evening cycle covers tomorrow's sunrise and sunset.",
       );
       expect(panel).toHaveTextContent(
         'If every sky location is stood down by triage and no woodland or bluebell site is due, the batch has zero requests and is not submitted.',

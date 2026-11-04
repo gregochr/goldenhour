@@ -122,7 +122,7 @@ public final class RunClassifier {
         return switch (cycleType) {
             case NIGHTLY -> "Overnight cycle";
             case INTRADAY -> "Afternoon refresh";
-            case EVENING -> "Evening sunrise refresh";
+            case EVENING -> "Evening refresh";
         };
     }
 

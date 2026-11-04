@@ -17,8 +17,8 @@ public enum RunDeepType {
     /** The intraday (sun-relative) forecast cycle. */
     AFTERNOON("Afternoon refresh"),
 
-    /** The evening sunrise refresh cycle. */
-    EVENING("Evening sunrise refresh"),
+    /** The evening refresh cycle. */
+    EVENING("Evening refresh"),
 
     /** The Ask PhotoCast ready-answer precompute. */
     ASK_READY("Ask ready answers"),

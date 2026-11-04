@@ -156,7 +156,7 @@ export function rankLabel(rank) {
 const CYCLE_NAME = {
   NIGHTLY: 'Overnight cycle',
   INTRADAY: 'Afternoon refresh',
-  EVENING: 'Evening sunrise refresh',
+  EVENING: 'Evening refresh',
 };
 
 /**

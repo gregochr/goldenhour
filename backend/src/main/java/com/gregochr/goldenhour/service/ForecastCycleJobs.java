@@ -26,7 +26,7 @@ public final class ForecastCycleJobs {
     /** The intraday forecast cycle's job key; becomes the afternoon cycle. */
     public static final String INTRADAY_JOB = "intraday_forecast_refresh";
 
-    /** The evening sunrise refresh's job key; a plain CRON job that may never become solar. */
+    /** The evening refresh's job key (still named for the sunrise); a plain CRON job that may never become solar. */
     public static final String EVENING_JOB = "evening_sunrise_refresh";
 
     /**

@@ -711,7 +711,7 @@ public class ForecastTaskCollector {
                     .max(Comparator.naturalOrder()).orElseThrow();
             try {
                 return evaluationViewService.getLiveScoresForEnrichmentBulk(
-                        start, end, Set.of(TargetType.SUNRISE));
+                        start, end, Set.of(TargetType.SUNRISE, TargetType.SUNSET));
             } catch (RuntimeException e) {
                 LOG.warn("Evening-refresh deferral: live ratings unavailable, rating every slot: {}",
                         e.getMessage());

@@ -26,17 +26,18 @@ import com.gregochr.goldenhour.entity.TargetType;
  *       <td>two further looks are guaranteed before it</td></tr>
  * </table>
  *
- * <p><b>Tomorrow's sunrise and the evening refresh.</b> The 21:00 evening refresh
- * ({@link EveningEligibilityPolicy}) re-rates every T+1 sunrise at every stability, so the afternoon
- * look at it adds little (30 days of same-day re-ratings repeated the earlier stars about half the time
+ * <p><b>Tomorrow's sunrise and sunset and the evening refresh.</b> The 21:00 evening refresh
+ * ({@link EveningEligibilityPolicy}) re-rates every T+1 sunrise and sunset at every stability, so the
+ * afternoon look at them adds little (30 days of same-day re-ratings repeated the earlier stars about half the time
  * and moved two stars or more about 5% of the time). When tonight's evening refresh is due, the
  * orchestrator builds the cycle's {@link IntradayCandidateCollectionStrategy} with that fact and the
- * collector skips a T+1 sunrise that already holds a stored rating (any stability,
+ * collector skips a T+1 sunrise or sunset that already holds a stored rating (any stability,
  * {@code SKIPPED_NO_REFRESH_NEEDED}), after weather fetch and triage so that a triage stand-down still
  * records {@code SKIPPED_TRIAGED}; one with no rating is still rated. That decision is made
  * where the region cache is read, not here: this policy stays stateless and unchanged, and still
- * answers "include" for T+1 sunrise. The accepted risk is that an evening run that fails leaves the
- * overnight rating (up to about 20 hours old) serving until the next overnight run.
+ * answers its usual rule for T+1 sunrise and sunset. The accepted risk is that an evening run that
+ * fails leaves the overnight rating (about 20 hours old for the sunrise, about 37 for the sunset)
+ * serving until the next overnight run.
  *
  * <p><b>This policy used to skip SETTLED everywhere, and that was wrong.</b> The
  * old rationale was that "the synoptic pattern has not moved since the morning,
@@ -93,8 +94,8 @@ public final class IntradayEligibilityPolicy implements EligibilityPolicy {
      * reason a SETTLED candidate is worth skipping.
      *
      * <p>True for exactly one slot in the intraday window: tomorrow's sunset. Tonight's sunset has
-     * no later run at all. Tomorrow's sunrise is not skipped by this policy either, though the cycle
-     * may still leave an already-rated one to tonight's evening refresh when that is due (decided in
+     * no later run at all. The rest are not skipped by this policy, though the cycle
+     * may still leave an already-rated T+1 sunrise or sunset to tonight's evening refresh when that is due (decided in
      * the candidate collection, not here; see the class note).
      *
      * <p>{@link TargetType#HOURLY} cannot reach here — {@code BriefingHierarchyBuilder} emits only
