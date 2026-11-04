@@ -39,8 +39,8 @@ class AskReadyAnswerMigrationTest extends IntegrationTestBase {
                         + "ORDER BY column_name");
 
         assertThat(columns).extracting(c -> c.get("column_name")).containsExactly("answer_json",
-                "briefing_generated_at", "created_at", "id", "pipeline_run_id", "question_id", "question_text",
-                "scope_key", "window_ids");
+                "briefing_generated_at", "created_at", "evaluation_model", "id", "pipeline_run_id", "question_id",
+                "question_text", "scope_key", "window_ids");
         assertThat(column(columns, "answer_json")).containsEntry("data_type", "text")
                 .containsEntry("is_nullable", "NO");
         assertThat(column(columns, "window_ids")).containsEntry("data_type", "text")
@@ -53,6 +53,8 @@ class AskReadyAnswerMigrationTest extends IntegrationTestBase {
                 .containsEntry("is_nullable", "YES");
         assertThat(column(columns, "scope_key")).containsEntry("character_maximum_length", 20)
                 .containsEntry("is_nullable", "NO");
+        assertThat(column(columns, "evaluation_model")).containsEntry("character_maximum_length", 10)
+                .containsEntry("is_nullable", "YES");
         assertThat(column(columns, "question_id")).containsEntry("character_maximum_length", 30);
         assertThat(column(columns, "question_text")).containsEntry("character_maximum_length", 200);
     }

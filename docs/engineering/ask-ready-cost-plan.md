@@ -164,6 +164,9 @@ invariant that the database `model_selection` row decides which model a run type
 - Update `docs/engineering/reference/configuration.md` and `ask-photocast.md`, and the CLAUDE.md
   invariant line if it names Ask.
 - After M0, the M switch is a click on Run Config, not a deploy, and can be undone the same way.
+- Stored answers carry their model (V219, 4 November 2026): `ask_ready_answer.evaluation_model` is written on
+  every upsert from the model the precompute run pinned, and existing rows were backfilled `HAIKU`, so after
+  the switch the operator can tell which stored answers came from which model. It is not served to readers.
 
 Context: the Briefing tab already runs on Haiku 5.5 (measured £0.0012 a call against Haiku 4.5's
 £0.0099), so Haiku 5.5 is in production use for prose today.

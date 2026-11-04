@@ -184,7 +184,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<String> scope = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scope.capture(), question.capture(), any(), any(),
-                any(), any(), any());
+                any(), any(), any(), any());
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < scope.getAllValues().size(); i++) {
             keys.add(scope.getAllValues().get(i) + "/" + question.getAllValues().get(i));
@@ -214,7 +214,7 @@ class AskReadyPrecomputeTest {
         });
         ArgumentCaptor<ReadyQuestion.Offer> offer = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), offer.capture(), any(), any(), any(),
-                any());
+                any(), any());
         assertThat(offer.getAllValues()).extracting(ReadyQuestion.Offer::text).contains("Best spot this weekend?",
                 "Best spot this evening?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
                 "Any rare events coming up?", "Is there snow on the tops?");
@@ -254,7 +254,7 @@ class AskReadyPrecomputeTest {
         verify(jobRunService).completeRun(job, 17, 0);
         assertThat(job.getLocationsProcessed()).isEqualTo(17);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), eq(snapshot.generatedAt()),
-                eq(42L), isNull());
+                eq(42L), isNull(), any());
     }
 
     @Test
@@ -275,6 +275,19 @@ class AskReadyPrecomputeTest {
     }
 
     @Test
+    @DisplayName("the run's pinned model reaches every upsert: a run on HAIKU_55 writes HAIKU_55")
+    void pinnedModelReachesEveryUpsert() {
+        when(modelSelection.getActiveModel(RunType.ASK_READY)).thenReturn(EvaluationModel.HAIKU_55);
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU_55), isNull(),
+                eq(42L))).thenReturn(job);
+
+        service.precompute(42L);
+
+        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), any(), any(),
+                eq(EvaluationModel.HAIKU_55));
+    }
+
+    @Test
     @DisplayName("an on-demand precompute is a manual run with no pipeline run behind it")
     void onDemandIsManual() {
         AskReadyPrecompute.Result result = service.precomputeOnDemand();
@@ -282,7 +295,7 @@ class AskReadyPrecomputeTest {
         assertThat(result.written()).isEqualTo(17);
         verify(jobRunService).startRun(RunType.ASK_READY, true, EvaluationModel.HAIKU);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), isNull(),
-                isNull());
+                isNull(), any());
     }
 
     @Test
@@ -318,7 +331,7 @@ class AskReadyPrecomputeTest {
         assertThat(result.written() + result.skipped() + result.failed()).isZero();
         assertThat(calls).isEmpty();
         verifyNoInteractions(jobRunService);
-        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -449,7 +462,7 @@ class AskReadyPrecomputeTest {
     @DisplayName("a store failure for one answer is counted and the next question is still stored")
     void storeFailureDoesNotStopTheRest() {
         doThrow(new IllegalStateException("db down")).when(store).upsert(eq("ALL"),
-                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any(), any());
+                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any(), any(), any());
 
         AskReadyPrecompute.Result result = service.precompute(1L);
 
@@ -494,7 +507,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<ReadyQuestion> questions = ArgumentCaptor.forClass(ReadyQuestion.class);
         ArgumentCaptor<AskAnswer> answers = ArgumentCaptor.forClass(AskAnswer.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scopes.capture(), questions.capture(), any(),
-                answers.capture(), any(), any(), any());
+                answers.capture(), any(), any(), any(), any());
         for (int i = 0; i < scopes.getAllValues().size(); i++) {
             if (scopes.getAllValues().get(i).equals(scope) && questions.getAllValues().get(i) == question) {
                 return answers.getAllValues().get(i);
@@ -776,7 +789,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<ReadyQuestion.Offer> offers = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
         ArgumentCaptor<String> versions = ArgumentCaptor.forClass(String.class);
         verify(store, org.mockito.Mockito.times(19)).upsert(any(), questions.capture(), offers.capture(), any(), any(),
-                any(), versions.capture());
+                any(), versions.capture(), any());
         for (int i = 0; i < questions.getAllValues().size(); i++) {
             if (questions.getAllValues().get(i) == ReadyQuestion.NIGHT_SKY) {
                 assertThat(offers.getAllValues().get(i).text()).isEqualTo(NIGHT_TEXT);
@@ -872,9 +885,9 @@ class AskReadyPrecomputeTest {
         assertThat(result).isEqualTo(new AskReadyPrecompute.Result(2, 1, 0, null));
         assertThat(storedKeys()).containsExactly("ALL/NIGHT_SKY", "1/NIGHT_SKY");
         assertThat(calls).extracting(c -> c.question().sanitised()).containsExactly(NIGHT_TEXT, NIGHT_TEXT);
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.BEST_NEXT), any(), any(), any(), any(), any());
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any());
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.BEST_NEXT), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any(), any());
     }
 
     @Test
