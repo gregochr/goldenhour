@@ -5,6 +5,72 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.38.1] - 2026-11-04
+
+### Changed — the weekly ZAP scan can now fail
+
+The weekly ZAP workflow previously ended both scans in `|| true` with every rule at WARN, so it could
+never fail. It now records each scan's exit code, keeps the job alive for the report upload and
+teardown, and finishes with a "ZAP gate" step (`.github/scripts/zap_gate.py`, unit-tested in the same
+directory) that reads the JSON reports. The default is FAIL: any alert of Low risk or above fails the
+job unless `.zap/exceptions.json` explicitly covers it, with a reason and an optional expiry. A
+non-zero scanner exit code, a missing report, or fewer than 150 imported API URLs also fail the run.
+Each scan has a known-rules list (`.zap/known-rules-backend.txt`, `.zap/known-rules-frontend.txt`):
+a listed rule that does not appear in that scan's log fails the run, because a rule that did not run
+cannot alert, while unlisted rules are only reported as drift in the job summary. The ZAP image is
+pinned by digest and run with `-silent` so the scanner cannot change between runs, with the one
+beta passive-rules add-on installed explicitly; bumping the digest is a manual, triaged change. The job also gains a 60-minute timeout.
+
+### Removed — Swagger UI dropped from the build
+
+The backend now depends on `springdoc-openapi-starter-webmvc-api` instead of the `-ui` starter, so the
+swagger-ui webjar (and the DOMPurify copy inside it flagged as CVE-2026-116803 and CVE-2026-116804) is no
+longer in the jar. `/v3/api-docs` is unchanged for the ZAP pen-test stack; production already had the UI
+switched off. The `/swagger-ui/**` permit rule and the dead `springdoc.swagger-ui` setting are removed.
+A `denyAll` rule on `/swagger-ui/**` and `/swagger-ui.html` keeps the UI unservable even if the `-ui` starter is re-added.
+
+### Changed — OWASP Dependency Check runs on dependency PRs and keeps its NVD cache
+
+The OWASP Dependency Check job in `security-scan.yml` now also runs on pull requests, so it
+can be made a required check. It does real work only when a PR touches `backend/pom.xml`,
+`backend/dependency-check-suppressions.xml`, the Maven wrapper or the workflow itself; any other
+PR reports success immediately under the same check name. A PR scan never downloads the NVD
+database: it runs with `-DautoUpdate=false` against the copy cached by the last `main` run and
+fails with a clear message if none was restored. Only `main` saves the database, and it deletes
+the superseded copies afterwards. The schedule moves from weekly to daily (05:30 UTC) so the
+cache stays fresh and recently used.
+
+CodeQL's per-commit JavaScript TRAP caches (~155 MiB each, one per push to `main`) are turned off
+with `trap-caching: false`; they were filling the 10 GB Actions cache and evicting the NVD
+database and the setup-java caches.
+
+### Fixed — malformed request parameters get 400, and admin paths are refused at the filter
+
+A query or path parameter that cannot be converted to its declared type (a non-date where a date is
+expected, text where a number is expected, an unknown enum constant) now gets a 400 with the generic
+body `{"error": "Invalid request parameter"}` instead of a 500. The body never repeats the supplied
+value. Separately, `/api/admin/**` is now refused with 403 for non-admins at the security filter,
+before any argument binding, as a first layer ahead of the existing method-level role checks.
+
+### Changed — "How PhotoCast is built" page rewritten to a measured, verified voice
+
+`landing/how-its-built.html` now opens without the defensive framing and every claim was checked against the code
+and workflows. Per-change, scheduled and manual checks are kept apart (the weekly Sky Eval records results; the
+hand-run check is the pass gate), the page explains GitHub pull requests, version tags and the tag-triggered
+deploy, says the landing site is released separately, and qualifies coverage, recorded responses, Dependabot
+and rollback. The closing call to action now uses the same button as the other landing pages.
+
+### Changed — Cross-Origin-Resource-Policy and a stricter CSP in report-only mode
+
+API responses and every app-shell response from nginx now send
+`Cross-Origin-Resource-Policy: same-origin`; nothing the app serves is loaded by another origin.
+Cross-Origin-Embedder-Policy is deliberately not set, because the login page embeds a third-party
+challenge iframe and the map loads third-party tiles. nginx also sends a second header,
+`Content-Security-Policy-Report-Only`, carrying the current policy without `'unsafe-inline'` in
+`style-src`, so any stylesheet violations show in the browser console without breaking a page; the
+enforced policy is unchanged. The weekly ZAP gate summary now prints each alert's `alertRef`
+(for example `[90004 / 90004-2]`) so exceptions can be keyed to the exact sub-alert.
+
 ## [v2.38.0] - 2026-11-04
 
 ### Added — in-context guide links and "What does this do?" at each Lite lock
