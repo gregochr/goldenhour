@@ -1,5 +1,12 @@
 # "How PhotoCast is built" landing page — plan and copy (2026-11-04)
 
+> **Revised 2026-11-04 (second pass).** The copy below is the first version. The page was rewritten to a calmer,
+> less absolute voice and every claim was re-checked against the code and workflows: per-change, scheduled and
+> manual checks are now kept apart, GitHub traceability and the tag-triggered release are explained, and the
+> landing site's separate `release-landing.sh` path is named. `landing/how-its-built.html` is now the source of
+> truth for the copy; when you change behaviour the page describes (CI required checks, Dependabot, the weekly
+> Sky Eval, backups, rollback), update the page in the same PR.
+
 ## Goal
 A public page that answers "isn't this just vibe-coded?" by showing, plainly and without overclaiming, the controls
 around an AI-built app. Audience: photographers first, curious engineers second. Voice: `landing/faq.html` —
