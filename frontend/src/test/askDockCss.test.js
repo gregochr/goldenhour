@@ -102,7 +102,7 @@ describe('the shell column and the dock', () => {
   it('⚠️ writes no 1080 of its own: the column\'s cap is the shell\'s one WRAP_MAX_WIDTH, set inline', () => {
     expect(ruleBody('.wf-shell--docked > .wf-shell-col')).not.toMatch(/max-width/);
     // The inline cap is the constant the two wrappers use, so the three can never disagree.
-    expect(shellSource).toMatch(/style=\{askDockShown \? \{ maxWidth: WRAP_MAX_WIDTH \} : undefined\}/);
+    expect(shellSource).toMatch(/style=\{dockedRow \? \{ maxWidth: WRAP_MAX_WIDTH \} : undefined\}/);
     expect(shellSource.match(/style=\{\{ maxWidth: WRAP_MAX_WIDTH \}\}/g).length).toBeGreaterThanOrEqual(2);
   });
 

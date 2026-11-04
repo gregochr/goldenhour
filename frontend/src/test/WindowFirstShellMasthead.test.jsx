@@ -226,7 +226,7 @@ describe('WindowFirstShell — the lit band', () => {
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-signout',
+      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
         'window-first-origin-chip', 'window-first-search']);
     // No home button at home, and no nudge once the light has resolved.
     expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
@@ -241,7 +241,7 @@ describe('WindowFirstShell — the lit band', () => {
     const masthead = screen.getByTestId('window-first-masthead');
 
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-signout',
+      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
         'masthead-set-postcode', 'window-first-search']);
   });
 

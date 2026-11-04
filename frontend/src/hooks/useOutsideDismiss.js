@@ -77,6 +77,24 @@ export const MAP_FRAME_SELECTOR = '[data-testid="map-container"]';
 export const ASK_SURFACE_SELECTOR = '[data-ask-surface]';
 
 /**
+ * The guide's docked column and stacked dialog (G2, `docs/engineering/user-guide-plan.md`). Treated like the
+ * Ask surface: a press in the panel's own chrome dismisses no Map panel. ⚠️ A press INSIDE the guide's
+ * iframe never reaches this document's `mousedown` at all (it is a separate document), so that case
+ * needs no rule and none could be written.
+ */
+export const GUIDE_SURFACE_SELECTOR = '[data-guide-surface]';
+
+/**
+ * Whether {@code target} is inside the guide panel's own chrome.
+ *
+ * @param {EventTarget|null} target
+ * @returns {boolean}
+ */
+export function isInsideGuideSurface(target) {
+  return target instanceof Element && Boolean(target.closest(GUIDE_SURFACE_SELECTOR));
+}
+
+/**
  * Whether {@code target} is inside Ask PhotoCast's docked column.
  *
  * <p>Same shape, and the same non-{@link Element} rule, as {@link isInsideMapFrame}.
@@ -127,6 +145,8 @@ export function useOutsideDismiss({ open, rootRef, onDismiss, enabled = true }) 
       // Ask's dock is the same kind of neighbour the map is: a press in it is part of the reader's
       // comparison, not a decision to put the panel away (plan §2.6, "Outside press").
       if (isInsideAskSurface(e.target)) return;
+      // ...and so is the guide's panel (G2), in whichever of its two non-sheet presentations.
+      if (isInsideGuideSurface(e.target)) return;
       // ⚠️ The POINTER twin of `map-landing-plan.md` §4 #37, found by an accessibility lens on the
       // Escape fix. A press inside a dialog from outside the pane — a row in the four-day sheet,
       // its close button, its backdrop — is neither inside `rootRef` nor inside the map frame, so

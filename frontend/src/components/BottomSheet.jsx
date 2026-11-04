@@ -66,6 +66,10 @@ const TALL_TOP_MARGIN = 24;
  *        status stay put while the body scrolls, and clear of the close button (padded on the right).
  *        Rendered only when given: without it nothing is added. Meant for the `'tall'` sheet, whose flex
  *        column gives the scroller whatever height the header and footer leave.
+ * @param {boolean} [props.flush] - For content that scrolls itself (the guide's iframe): the scroller keeps
+ *        its box but loses its padding and its own overflow, and becomes a flex column so one child can
+ *        fill it (`index.css`, off the `data-flush` attribute). Meant for the `'tall'` sheet. Off by
+ *        default: every existing caller keeps its exact geometry.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  * @param {?Function} [props.restoreFallback] - forwarded to `useDialogFocus`'s own option of the
  *        same name (map-mobile-sheet-plan.md §3 M2 task 6): where to send focus on close when the
@@ -76,7 +80,7 @@ const TALL_TOP_MARGIN = 24;
  */
 export default function BottomSheet({
   open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, restoreFallback = null,
-  size = 'default', closeOnEscape = false, footer = null, header = null, children,
+  size = 'default', closeOnEscape = false, footer = null, header = null, flush = false, children,
 }) {
   const tall = size === 'tall';
   // Prevent body scroll while open
@@ -203,6 +207,7 @@ export default function BottomSheet({
             subtracted for the same reason — it is 24px the scroller no longer has. */}
         <div data-testid="bottom-sheet-scroller"
              className="overflow-y-auto px-4 pb-6"
+             data-flush={flush ? '' : undefined}
              style={{ maxHeight: `calc(${scrollerMax} - ${chrome}px - var(--safe-b))` }}>
           {children}
         </div>
@@ -224,5 +229,6 @@ BottomSheet.propTypes = {
   closeOnEscape: PropTypes.bool,
   footer: PropTypes.node,
   header: PropTypes.node,
+  flush: PropTypes.bool,
   children: PropTypes.node,
 };
