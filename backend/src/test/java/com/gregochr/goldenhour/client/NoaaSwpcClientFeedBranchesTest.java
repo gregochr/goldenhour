@@ -20,7 +20,6 @@ import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.model.SpaceWeatherAlert;
-import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * The cache, fail-open and malformed-input behaviour of every {@link NoaaSwpcClient} feed: the Kp forecast,
@@ -61,27 +61,45 @@ class NoaaSwpcClientFeedBranchesTest {
     private MutableClock clock;
     private NoaaSwpcClient client;
     private final AtomicInteger httpCalls = new AtomicInteger();
+    private boolean httpInstalled;
     private final AtomicReference<IntFunction<String>> behaviour = new AtomicReference<>(n -> "[]");
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-07-17T12:00:00Z"));
         client = new NoaaSwpcClient(restClient, new AuroraProperties(), new ObjectMapper(), clock);
-        RestClientMocks.stubGet(restClient, String.class, "[]");
-        RestClient.ResponseSpec responseSpec = restClient.get().uri("placeholder").retrieve();
-        // Use the placeholder stub once so strict stubbing is satisfied, then route every call through
-        // one swappable answer (re-stubbing a mock a background thread is calling would race).
-        responseSpec.body(String.class);
-        lenient().doAnswer(inv -> behaviour.get().apply(httpCalls.incrementAndGet()))
-                .when(responseSpec).body(String.class);
+    }
+
+    /**
+     * Routes every HTTP body read through one swappable behaviour, installing the client mock's single
+     * {@code get()} stub on first use so tests that never fetch carry no stub at all.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private void serveHttp(IntFunction<String> body) {
+        behaviour.set(body);
+        if (httpInstalled) {
+            return;
+        }
+        RestClient.ResponseSpec responseSpec = mock(RestClient.ResponseSpec.class, inv ->
+                "body".equals(inv.getMethod().getName())
+                        ? behaviour.get().apply(httpCalls.incrementAndGet()) : null);
+        RestClient.RequestHeadersUriSpec spec = mock(RestClient.RequestHeadersUriSpec.class, inv -> {
+            String name = inv.getMethod().getName();
+            if ("uri".equals(name)) {
+                return inv.getMock();
+            }
+            return "retrieve".equals(name) ? responseSpec : null;
+        });
+        when(restClient.get()).thenReturn(spec);
+        httpInstalled = true;
     }
 
     private void answerWith(String body) {
-        behaviour.set(n -> body);
+        serveHttp(n -> body);
     }
 
     private void failWith(String message) {
-        behaviour.set(n -> {
+        serveHttp(n -> {
             throw new RestClientException(message);
         });
     }
@@ -131,7 +149,7 @@ class NoaaSwpcClientFeedBranchesTest {
         List<KpForecast> forecast = client.fetchKpForecast();
         assertThat(client.getCachedKpForecast()).isSameAs(forecast);
 
-        behaviour.set(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
+        serveHttp(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
         int before = httpCalls.get();
         List<SolarWindReading> wind = client.fetchSolarWind();
         assertThat(client.getCachedSolarWind()).isSameAs(wind);
@@ -190,7 +208,7 @@ class NoaaSwpcClientFeedBranchesTest {
     @Test
     @DisplayName("fetchSolarWind merges the mag and plasma feeds, caches within the TTL, and fails open")
     void fetchSolarWind_cachesAndFailsOpen() {
-        behaviour.set(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
+        serveHttp(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
 
         List<SolarWindReading> first = client.fetchSolarWind();
         List<SolarWindReading> second = client.fetchSolarWind();
@@ -221,7 +239,7 @@ class NoaaSwpcClientFeedBranchesTest {
         failWith("NOAA down");
         assertThat(client.getOrRefreshAsyncSolarWind()).isEmpty();
 
-        behaviour.set(n -> n % 2 == 0 ? MAG_JSON : PLASMA_JSON);
+        serveHttp(n -> n % 2 == 0 ? MAG_JSON : PLASMA_JSON);
         List<SolarWindReading> cold = client.getOrRefreshAsyncSolarWind();
         List<SolarWindReading> warm = client.getOrRefreshAsyncSolarWind();
 
@@ -232,7 +250,7 @@ class NoaaSwpcClientFeedBranchesTest {
     @Test
     @DisplayName("getOrRefreshAsyncSolarWind serves the stale readings at once and refreshes in the background")
     void asyncSolarWind_stale_servedThenRefreshed() {
-        behaviour.set(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
+        serveHttp(n -> n % 2 == 1 ? MAG_JSON : PLASMA_JSON);
         List<SolarWindReading> stale = client.getOrRefreshAsyncSolarWind();
         int callsAfterPrime = httpCalls.get();
         clock.advanceMinutes(2);

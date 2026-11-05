@@ -27,7 +27,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.never;
@@ -61,25 +60,27 @@ class StatusControllerBranchesTest {
         when(healthEndpoint.health()).thenReturn(root);
     }
 
+    /** A composite reporting UP with the given components, answering only the reads the controller makes. */
     private static CompositeHealthDescriptor compositeOf(Map<String, HealthDescriptor> components) {
-        CompositeHealthDescriptor composite = mock(CompositeHealthDescriptor.class);
-        lenient().when(composite.getStatus()).thenReturn(Status.UP);
-        when(composite.getComponents()).thenReturn(components);
-        return composite;
+        return mock(CompositeHealthDescriptor.class, inv -> switch (inv.getMethod().getName()) {
+            case "getStatus" -> Status.UP;
+            case "getComponents" -> components;
+            default -> null;
+        });
     }
 
     /** A composite used as a component: it is a descriptor with no {@code details} of its own. */
     private static CompositeHealthDescriptor nestedComposite() {
-        CompositeHealthDescriptor nested = mock(CompositeHealthDescriptor.class);
-        lenient().when(nested.getStatus()).thenReturn(Status.UP);
-        return nested;
+        return compositeOf(Map.of());
     }
 
+    /** An indicated descriptor answering its status and details, without any per-method stubs. */
     private static IndicatedHealthDescriptor indicated(Status status, Map<String, Object> details) {
-        IndicatedHealthDescriptor descriptor = mock(IndicatedHealthDescriptor.class);
-        lenient().when(descriptor.getStatus()).thenReturn(status);
-        lenient().when(descriptor.getDetails()).thenReturn(details);
-        return descriptor;
+        return mock(IndicatedHealthDescriptor.class, inv -> switch (inv.getMethod().getName()) {
+            case "getStatus" -> status;
+            case "getDetails" -> details;
+            default -> null;
+        });
     }
 
     // ── emitter lifecycle ────────────────────────────────────────────────────
