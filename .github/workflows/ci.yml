@@ -108,6 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.docs_only != 'true'
+        with:
+          # diff-cover needs the base branch's history to compute the PR diff.
+          fetch-depth: 0
 
       - name: Set up JDK 25
         if: needs.changes.outputs.docs_only != 'true'
@@ -127,6 +130,40 @@ jobs:
         run: |
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
+
+      # Changed-lines coverage: at least 90% of the lines a PR adds or changes under backend/src/main
+      # must be covered (the per-class and bundle floors cannot see a PR that adds untested code to an
+      # already-high class). diff-cover reads the JaCoCo XML, whose sourcefile paths are package-relative
+      # (com/gregochr/.../Foo.java), so `--src-roots` maps them onto backend/src/main/java; tests and
+      # resources are absent from the report and never count. Run from the repo root so the diff paths
+      # (backend/src/main/java/...) line up. A wrong mapping reports "No lines with coverage
+      # information" and passes, so the local proof in dev-and-testing.md must show real percentages.
+      # Line coverage only. Pull requests only: a push to main has no PR diff.
+      - name: Set up Python (diff-cover)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Changed-lines coverage (diff-cover, 90%)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          pip install diff-cover==10.0.0
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          set +e
+          diff-cover backend/target/site/jacoco/jacoco.xml \
+            --src-roots backend/src/main/java \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=90 \
+            --format markdown:"$RUNNER_TEMP/diff-cover.md"
+          STATUS=$?
+          set -e
+          {
+            echo "### Changed-lines coverage (backend, minimum 90%)"
+            cat "$RUNNER_TEMP/diff-cover.md" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
 
       # NOTE: there is deliberately NO separate FindSecBugs step here.
       # `clean verify` above already runs the identical security analysis: backend/pom.xml

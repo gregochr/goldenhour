@@ -171,7 +171,7 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
   -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"
 ```
 
-The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 95% line and 90% branch coverage **per class**, and `spotbugs:check`). Run Maven in the foreground with a timeout, not as a background task.
+The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 95% line and 90% branch coverage **per class**, and `spotbugs:check`); PRs also run a changed-lines check (90% of changed `src/main` lines; see `dev-and-testing.md`). Run Maven in the foreground with a timeout, not as a background task.
 
 Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build, plus a PR-only changed-lines check (`diff-cover`, 90% of changed `src` lines; see `dev-and-testing.md`); run the four before pushing:
 
