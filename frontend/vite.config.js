@@ -199,8 +199,12 @@ export default defineConfig(({ mode }) => {
     // case, so most failure latencies are unchanged; and the frontend CI job now carries a
     // `timeout-minutes` so a genuine hang cannot run up the runner's clock.
     testTimeout: 20000,
-    // Coverage floor (CI runs `npm run test:coverage`). Measured 2026-11-04 (after the auth-context,
-    // hooks, utils and API-wrapper tests): lines 99.17%, statements 98.07%, functions 98.19%, branches 94.23%.
+    // Coverage floor (CI runs `npm run test:coverage`). Two layers:
+    //  1. Global, measured 2026-11-04 (after the per-file branch tests): lines 99.55%, statements 98.72%,
+    //     functions 98.79%, branches 95.91%, rounded down.
+    //  2. Per file: every file in src/** must reach 95% lines and 90% branches (a glob entry with `perFile`), so a new file must
+    //     arrive with tests. The two files whose remaining branches truly cannot be reached carry their own
+    //     measured figure in a glob entry below, with the reason beside it, instead of being excluded.
     // Raise these when coverage rises; never lower them without the owner's say-so.
     coverage: {
       provider: 'v8',
@@ -214,7 +218,21 @@ export default defineConfig(({ mode }) => {
       // lcov feeds the CI changed-lines check (diff-cover); see dev-and-testing.md.
       reporter: ['text-summary', 'json-summary', 'lcov'],
       reportOnFailure: true,
-      thresholds: { lines: 99, statements: 98, functions: 98, branches: 94 },
+      thresholds: {
+        lines: 99,
+        statements: 98,
+        functions: 98,
+        branches: 95,
+        // Everything except the two files below: 95% lines and 90% branches each.
+        'src/**/!(TurnstileWidget|StartRunScope).{js,jsx}': {
+          perFile: { lines: 95, branches: 90 },
+        },
+        // 81%: the remaining branches are the SSR `document` guard, a null container ref, a widget id the once-only
+        // effect can never already hold, and `!cancelled` re-checks after the cleanup has cleared the poll.
+        'src/components/TurnstileWidget.jsx': { perFile: { lines: 95, branches: 81 } },
+        // 87%: `if (allRef.current)` null arm in an effect; React always sets the ref before the effect runs.
+        'src/components/runs/StartRunScope.jsx': { perFile: { lines: 95, branches: 87 } },
+      },
     },
   },
   };

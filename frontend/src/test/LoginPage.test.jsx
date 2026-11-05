@@ -1,4 +1,4 @@
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import LoginPage from '../components/LoginPage.jsx';
@@ -307,6 +307,69 @@ describe('LoginPage', () => {
 
       expect(screen.getByTestId('login-forgot-link')).toBeEnabled();
       expect(screen.getByTestId('login-submit')).toBeEnabled();
+    });
+  });
+
+  describe('verification token and a completed sign-in', () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it('signs in without an error when the server accepts the credentials', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'login').mockResolvedValue({
+        accessToken: 'access-1', refreshToken: 'refresh-1', role: 'PRO_USER', username: 'jane',
+      });
+      renderWithAuth(<LoginPage />);
+
+      await user.type(screen.getByTestId('login-username'), 'jane');
+      await user.type(screen.getByTestId('login-password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await waitFor(() => expect(AuthApi.login).toHaveBeenCalledWith('jane', 'password123', 'test-turnstile-token'));
+      await waitFor(() => expect(localStorage.getItem('goldenhour_token')).toBe('access-1'));
+      expect(screen.queryByTestId('login-error')).toBeNull();
+    });
+
+    it('refuses to submit without a verification token and never calls the server', async () => {
+      window.turnstile = { render: vi.fn(() => 'widget-id'), remove: vi.fn() };
+      const loginSpy = vi.spyOn(AuthApi, 'login').mockResolvedValue({});
+      renderWithAuth(<LoginPage />);
+
+      fireEvent.submit(screen.getByTestId('login-submit').closest('form'));
+
+      expect(await screen.findByTestId('login-error')).toHaveTextContent(
+        'Please complete the verification challenge.',
+      );
+      expect(loginSpy).not.toHaveBeenCalled();
+    });
+
+    it('re-disables sign-in when the verification expires', async () => {
+      let opts;
+      window.turnstile = {
+        render: vi.fn((_c, o) => { opts = o; return 'widget-id'; }),
+        remove: vi.fn(),
+      };
+      renderWithAuth(<LoginPage />);
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+
+      act(() => opts.callback('fresh-token'));
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled();
+
+      act(() => opts['expired-callback']());
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+    });
+
+    it('shows the server\'s own sentence when it refuses the sign-in', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'login').mockRejectedValue({ response: { data: { error: 'Account locked' } } });
+      renderWithAuth(<LoginPage />);
+
+      await user.type(screen.getByTestId('login-username'), 'jane');
+      await user.type(screen.getByTestId('login-password'), 'password123');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      expect(await screen.findByTestId('login-error')).toHaveTextContent('Account locked');
     });
   });
 });
