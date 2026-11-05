@@ -929,4 +929,16 @@ public class JobRunService {
         }
         return value.substring(0, maxLength) + "…[truncated " + value.length() + " chars]";
     }
+
+    /**
+     * Temporary probe for the changed-lines check; never called, to be reverted before merge.
+     *
+     * @param value text to label
+     * @return the label
+     */
+    public String probeLabel(String value) {
+        String prefix = "probe:";
+        String label = prefix + value;
+        return label.trim();
+    }
 }
