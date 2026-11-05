@@ -666,6 +666,158 @@ class BatchRetryServiceTest {
         assertThat(detail).isEqualTo("4 failed, 3 retried, 2 recovered, 1 still-failed");
     }
 
+    @Test
+    @DisplayName("only FORECAST precursors are queried for failures; an AURORA precursor is ignored")
+    void selectFailures_ignoresNonForecastPrecursors() {
+        ForecastBatchEntity aurora = new ForecastBatchEntity(
+                "msgbatch_aurora", BatchType.AURORA, 1, Instant.now());
+        aurora.setRetry(false);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(aurora, precursor("msgbatch_A")));
+        String failed = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
+        when(apiCallLogRepository.findFailedBatchCalls(List.of("msgbatch_A")))
+                .thenReturn(List.of(failedCall(failed, "msgbatch_A", "parse_error")));
+
+        RetrySelection selection = service().selectFailures(RUN_ID);
+
+        assertThat(selection.failures()).extracting(RetrySelection.RetryFailure::customId)
+                .containsExactly(failed);
+    }
+
+    @Test
+    @DisplayName("a run whose only precursor is an AURORA batch has nothing to retry")
+    void selectFailures_onlyAuroraPrecursor_isNone() {
+        ForecastBatchEntity aurora = new ForecastBatchEntity(
+                "msgbatch_aurora", BatchType.AURORA, 1, Instant.now());
+        aurora.setRetry(false);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(aurora));
+
+        RetrySelection selection = service().selectFailures(RUN_ID);
+
+        assertThat(selection.decision()).isEqualTo(RetrySelection.Decision.NONE);
+        verifyNoInteractions(apiCallLogRepository);
+    }
+
+    @Test
+    @DisplayName("a failure row with no custom id is skipped")
+    void selectFailures_skipsNullCustomId() {
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(precursor("msgbatch_A")));
+        String failed = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
+        when(apiCallLogRepository.findFailedBatchCalls(List.of("msgbatch_A")))
+                .thenReturn(List.of(failedCall(null, "msgbatch_A", "parse_error"),
+                        failedCall(failed, "msgbatch_A", "parse_error")));
+
+        RetrySelection selection = service().selectFailures(RUN_ID);
+
+        assertThat(selection.failureCount()).isEqualTo(1);
+        assertThat(selection.failures()).extracting(RetrySelection.RetryFailure::customId)
+                .containsExactly(failed);
+    }
+
+    @Test
+    @DisplayName("a retry whose weather yields no data and was not triaged records no disposition")
+    void submitRetry_noDataNotTriaged_recordsNothingAndSubmitsNothing() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        ForecastPreEvalResult noData = new ForecastPreEvalResult(false, null, null, loc, DATE,
+                TargetType.SUNRISE, null, 100, 0, EvaluationModel.HAIKU, Set.of(), "k", null);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull())).thenReturn(noData);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID)).thenReturn(List.of());
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)), CAP);
+
+        RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+        assertThat(result.submittedCount()).isZero();
+        verifyNoInteractions(dispositionService);
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("an unexpected error while rebuilding a request leaves it failed and submits nothing")
+    void submitRetry_reconstructionThrows_staysFailed() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                .thenThrow(new IllegalStateException("open-meteo down"));
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID)).thenReturn(List.of());
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)), CAP);
+
+        RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+        assertThat(result.submittedCount()).isZero();
+        verify(forecastService, never()).persistPendingEvaluation(any());
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("a retried T+1 request uses the near-term model; a T+2 request uses the far-term one")
+    void submitRetry_modelTierFollowsHorizon() {
+        LocalDate nearDate = LocalDate.of(2026, 4, 15);
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.SONNET);
+        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(nearDate), eq(TargetType.SUNSET),
+                eq(loc.getTideType()), eq(EvaluationModel.SONNET), isNull()))
+                .thenReturn(preEval(loc, nearDate, TargetType.SUNSET, false));
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
+        when(forecastService.persistPendingEvaluation(any())).thenReturn(1L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID)).thenReturn(List.of());
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
+                .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 2));
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure("near", 42L, nearDate, TargetType.SUNSET, null),
+                new RetrySelection.RetryFailure("far", 42L, DATE, TargetType.SUNRISE, null)), CAP);
+
+        service().submitRetry(RUN_ID, selection);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<EvaluationTask>> captor = ArgumentCaptor.forClass(List.class);
+        verify(evaluationService).submit(captor.capture(), eq(BatchTriggerSource.RETRY), eq(RUN_ID),
+                eq(true));
+        assertThat(captor.getValue()).hasSize(2);
+        assertThat(captor.getValue()).extracting(t -> ((EvaluationTask.Forecast) t).model())
+                .containsExactly(EvaluationModel.SONNET, EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @DisplayName("summariseRecovery treats batches whose outcome counts are not yet recorded as zero")
+    void summariseRecovery_nullCountsAreZero() {
+        ForecastBatchEntity unrecorded = new ForecastBatchEntity(
+                "msgbatch_retry", BatchType.FORECAST, 3, Instant.now());
+        unrecorded.setRetry(true);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of(unrecorded));
+
+        assertThat(service().summariseRecovery(RUN_ID, 3))
+                .isEqualTo("3 failed, 3 retried, 0 recovered, 0 still-failed");
+    }
+
+    @Test
+    @DisplayName("failureCap exposes the configured cap")
+    void failureCap_exposed() {
+        assertThat(service().failureCap()).isEqualTo(CAP);
+    }
+
     private static List<ApiCallLogEntity> failuresFor(int count) {
         List<ApiCallLogEntity> rows = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {

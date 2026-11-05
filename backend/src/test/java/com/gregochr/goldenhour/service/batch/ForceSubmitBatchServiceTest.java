@@ -262,6 +262,130 @@ class ForceSubmitBatchServiceTest {
         verify(evaluationService, never()).submit(anyList(), any());
     }
 
+    // ── region scope, partial data failure and submission outcomes ─────────
+
+    /** Every one of a location's eight slots (4 dates x 2 events) returns the same pre-eval. */
+    private void stubEverySlot(LocationEntity loc, ForecastPreEvalResult preEval) {
+        // The date and event are deliberately matched loosely: these cases are about which
+        // locations are scoped in and how the outcome is shaped, not which slot is asked for.
+        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
+                any(TargetType.class), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                .thenReturn(preEval);
+    }
+
+    private LocationEntity skyLocation(Long id, String name, RegionEntity region) {
+        return buildTypedLocation(id, name, region,
+                com.gregochr.goldenhour.entity.LocationType.LANDSCAPE);
+    }
+
+    @Test
+    @DisplayName("an empty region list means all regions; a location with no region is still excluded")
+    void submitJfdiBatch_emptyRegionList_includesEveryRegionButNotRegionless() {
+        LocationEntity northumberland = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
+        LocationEntity lakes = skyLocation(11L, "Derwentwater", buildRegion(8L, "Lakes"));
+        LocationEntity regionless = skyLocation(12L, "Nowhere", null);
+        when(locationService.findAllEnabled())
+                .thenReturn(List.of(northumberland, lakes, regionless));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        AtmosphericData data = mock(AtmosphericData.class);
+        stubEverySlot(northumberland, preEvalFor(northumberland, data));
+        stubEverySlot(lakes, preEvalFor(lakes, data));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_all", 16));
+
+        BatchSubmitResult result = service.submitJfdiBatch(List.of());
+
+        assertThat(result.requestCount()).isEqualTo(16);
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
+        assertThat(taskCaptor.getValue()).hasSize(16);
+        assertThat(taskCaptor.getValue()).extracting(t -> t.location().getName())
+                .containsOnly("Bamburgh", "Derwentwater");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor() {
+        return ArgumentCaptor.forClass(List.class);
+    }
+
+    @Test
+    @DisplayName("a region filter admits only locations in that region")
+    void submitJfdiBatch_regionFilter_excludesOtherRegions() {
+        LocationEntity northumberland = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
+        LocationEntity lakes = skyLocation(11L, "Derwentwater", buildRegion(8L, "Lakes"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(northumberland, lakes));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubEverySlot(lakes, preEvalFor(lakes, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_lakes", 8));
+
+        service.submitJfdiBatch(List.of(8L));
+
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
+        assertThat(taskCaptor.getValue()).hasSize(8);
+        assertThat(taskCaptor.getValue()).allMatch(t -> t.location() == lakes);
+    }
+
+    @Test
+    @DisplayName("slots whose weather fetch returns no data are dropped; the rest are still submitted")
+    void submitJfdiBatch_someSlotsWithoutData_submitsTheRest() {
+        LocationEntity loc = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        ForecastPreEvalResult noData = new ForecastPreEvalResult(
+                false, null, null, loc, LocalDate.of(2026, 4, 16), TargetType.SUNRISE,
+                LocalDateTime.of(2026, 4, 16, 5, 30), 270, 1,
+                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
+                eq(TargetType.SUNRISE), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                .thenReturn(noData);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
+                eq(TargetType.SUNSET), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
+                .thenReturn(preEvalFor(loc, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, "msgbatch_partial", 4));
+
+        BatchSubmitResult result = service.submitJfdiBatch(null);
+
+        assertThat(result.batchId()).isEqualTo("msgbatch_partial");
+        ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
+        verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
+        assertThat(taskCaptor.getValue()).hasSize(4);
+        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::targetType)
+                .containsOnly(TargetType.SUNSET);
+    }
+
+    @Test
+    @DisplayName("a null handle from the engine yields a null result")
+    void submitJfdiBatch_nullHandle_returnsNull() {
+        LocationEntity loc = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubEverySlot(loc, preEvalFor(loc, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI))).thenReturn(null);
+
+        assertThat(service.submitJfdiBatch(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("a handle with no batch id (nothing reached Anthropic) yields a null result")
+    void submitJfdiBatch_handleWithoutBatchId_returnsNull() {
+        LocationEntity loc = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        stubEverySlot(loc, preEvalFor(loc, mock(AtmosphericData.class)));
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+                .thenReturn(new EvaluationHandle(null, null, 0));
+
+        assertThat(service.submitJfdiBatch(null)).isNull();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────
 
     // ── Sky subjects only: neither route has a lane for a hide, a wood or a bluebell wood ──────

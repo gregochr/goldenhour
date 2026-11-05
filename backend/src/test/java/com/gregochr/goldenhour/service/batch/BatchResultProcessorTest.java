@@ -1300,6 +1300,464 @@ class BatchResultProcessorTest {
         verify(evaluationAbandonmentService).abandonPendingForBatch("msgbatch_fail");
     }
 
+    // ── Lanes, partial failures and bookkeeping branches ────────────────────────
+
+    private static final LocalDate RESULT_DATE = LocalDate.of(2026, 4, 7);
+
+    /** Wires the batch stream for {@code msgbatch_fail} to yield exactly these responses. */
+    private void stubStream(MessageBatchIndividualResponse... responses) {
+        stubBatchService();
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(responses));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+    }
+
+    /** A succeeded response whose message carries a model and usage but no content blocks. */
+    private MessageBatchIndividualResponse succeededResponseWithoutText(String customId) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.Usage usage = mock(com.anthropic.models.messages.Usage.class);
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(List.of());
+        when(message.usage()).thenReturn(usage);
+        when(message.model())
+                .thenReturn(com.anthropic.models.messages.Model.of("claude-sonnet-4-6"));
+        when(usage.inputTokens()).thenReturn(10L);
+        when(usage.outputTokens()).thenReturn(5L);
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.empty());
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.empty());
+        return response;
+    }
+
+    /** A succeeded response that carries no message object at all. */
+    private MessageBatchIndividualResponse succeededResponseWithoutMessage(String customId) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.empty());
+        return response;
+    }
+
+    /** A succeeded text response with explicit token counts (Sonnet 4.6). */
+    private MessageBatchIndividualResponse succeededResponseWithUsage(String customId, String text,
+            long inputTokens, long outputTokens) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+        com.anthropic.models.messages.TextBlock textBlock =
+                mock(com.anthropic.models.messages.TextBlock.class);
+        com.anthropic.models.messages.ContentBlock contentBlock =
+                mock(com.anthropic.models.messages.ContentBlock.class);
+        com.anthropic.models.messages.Usage usage = mock(com.anthropic.models.messages.Usage.class);
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.content()).thenReturn(List.of(contentBlock));
+        when(message.usage()).thenReturn(usage);
+        when(message.model())
+                .thenReturn(com.anthropic.models.messages.Model.of("claude-sonnet-4-6"));
+        when(contentBlock.isText()).thenReturn(true);
+        when(contentBlock.asText()).thenReturn(textBlock);
+        when(textBlock.text()).thenReturn(text);
+        when(usage.inputTokens()).thenReturn(inputTokens);
+        when(usage.outputTokens()).thenReturn(outputTokens);
+        when(usage.cacheReadInputTokens()).thenReturn(Optional.empty());
+        when(usage.cacheCreationInputTokens()).thenReturn(Optional.empty());
+        return response;
+    }
+
+    private static BatchSuccess successFor(String cacheKey, String location, int rating) {
+        return new BatchSuccess(cacheKey,
+                new BriefingEvaluationResult(location, rating, 70, 65, "X"));
+    }
+
+    @Test
+    @DisplayName("FORECAST: a bluebell response goes to the bluebell parser and is merged with the "
+            + "location's actual exposure, never into the sky sink")
+    void forecast_bluebellResponse_mergedWithExposure() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        location.setBluebellExposure(com.gregochr.goldenhour.entity.BluebellExposure.OPEN_FELL);
+        when(locationRepository.findAll()).thenReturn(List.of(location));
+        String customId = com.gregochr.goldenhour.service.evaluation.CustomIdFactory.forBluebell(
+                42L, RESULT_DATE, TargetType.SUNRISE, true);
+        stubStream(succeededResponse(customId, "{\"rating\":4}"));
+        BatchSuccess hit = successFor("Lake District|2026-04-07|SUNRISE", "Castlerigg", 4);
+        ForecastIdentity identity = new ForecastIdentity(
+                42L, RESULT_DATE, TargetType.SUNRISE, null, true);
+        ResultContext context = ResultContext.forBatch(
+                null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
+        when(forecastResultHandler.parseBluebellBatchResponse(
+                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                .thenReturn(Optional.of(hit));
+
+        processor.processResults(batch);
+
+        ArgumentCaptor<ClaudeBatchOutcome> outcome = ArgumentCaptor.forClass(ClaudeBatchOutcome.class);
+        verify(forecastResultHandler).parseBluebellBatchResponse(
+                eq(location), eq(identity), outcome.capture(), eq(context));
+        assertThat(outcome.getValue().customId()).isEqualTo(customId);
+        assertThat(outcome.getValue().rawText()).isEqualTo("{\"rating\":4}");
+        verify(forecastResultHandler).mergeBluebellCacheKey(
+                "Lake District|2026-04-07|SUNRISE", List.of(hit.result()),
+                java.util.Map.of("Castlerigg",
+                        com.gregochr.goldenhour.entity.BluebellExposure.OPEN_FELL));
+        verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
+        verify(forecastResultHandler, never()).parseBatchResponse(any(), any(), any(), any());
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(batch.getSucceededCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a woodland response goes to the woodland parser and is merged under "
+            + "its own cache key")
+    void forecast_woodlandResponse_mergedIntoWoodlandSink() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Hamsterley", "Durham");
+        when(locationRepository.findAll()).thenReturn(List.of(location));
+        String customId = com.gregochr.goldenhour.service.evaluation.CustomIdFactory.forWoodland(
+                42L, RESULT_DATE, TargetType.SUNSET);
+        stubStream(succeededResponse(customId, "{\"rating\":3}"));
+        BatchSuccess hit = successFor("Durham|2026-04-07|SUNSET", "Hamsterley", 3);
+        ForecastIdentity identity = new ForecastIdentity(
+                42L, RESULT_DATE, TargetType.SUNSET, null, false);
+        ResultContext context = ResultContext.forBatch(
+                null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
+        when(forecastResultHandler.parseWoodlandBatchResponse(
+                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                .thenReturn(Optional.of(hit));
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler).mergeWoodlandCacheKey(
+                "Durham|2026-04-07|SUNSET", List.of(hit.result()));
+        verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
+        verify(forecastResultHandler, never()).mergeBluebellCacheKey(any(), any(), any());
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a JFDI response is parsed with an unforced identity and no row id")
+    void forecast_jfdiResponse_parsedWithPlainIdentity() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findAll()).thenReturn(List.of(location));
+        stubStream(succeededResponse("jfdi-42-2026-04-07-SUNRISE", "{\"rating\":4}"));
+        BatchSuccess hit = successFor("Lake District|2026-04-07|SUNRISE", "Castlerigg", 4);
+        ForecastIdentity identity = new ForecastIdentity(42L, RESULT_DATE, TargetType.SUNRISE, null);
+        ResultContext context = ResultContext.forBatch(
+                null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                .thenReturn(Optional.of(hit));
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler).mergeCacheKey(
+                "Lake District|2026-04-07|SUNRISE", List.of(hit.result()));
+    }
+
+    @Test
+    @DisplayName("FORECAST: a force-submit response is parsed for the location in its custom id")
+    void forecast_forceSubmitResponse_parsedForItsLocation() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findAll()).thenReturn(List.of(location));
+        stubStream(succeededResponse("force-Lakes-42-2026-04-07-SUNSET", "{\"rating\":5}"));
+        BatchSuccess hit = successFor("Lake District|2026-04-07|SUNSET", "Castlerigg", 5);
+        ForecastIdentity identity = new ForecastIdentity(42L, RESULT_DATE, TargetType.SUNSET, null);
+        ResultContext context = ResultContext.forBatch(
+                null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                .thenReturn(Optional.of(hit));
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler).mergeCacheKey(
+                "Lake District|2026-04-07|SUNSET", List.of(hit.result()));
+        assertThat(batch.getSucceededCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("FORECAST: every errored response is logged on its own row, and with no tokens "
+            + "billed nothing is costed")
+    void forecast_severalErroredResponses_eachLoggedNothingCosted() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 2, 99L);
+        stubStream(
+                erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"),
+                erroredResponse("fc-42-2026-04-07-SUNSET", "rate_limit_error", "slow down"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(eq(99L), eq("msgbatch_fail"),
+                eq("fc-42-2026-04-07-SUNRISE"), eq(false), eq("overloaded_error"), eq("busy"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+        verify(jobRunService).logBatchResult(eq(99L), eq("msgbatch_fail"),
+                eq("fc-42-2026-04-07-SUNSET"), eq(false), eq("rate_limit_error"), eq("slow down"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErroredCount()).isEqualTo(2);
+        assertThat(batch.getSucceededCount()).isZero();
+        verifyNoInteractions(costCalculator);
+        verify(jobRunService).completeBatchRun(99L, 0, 2, 0L);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a failed result whose error cannot be described is logged as 'unknown' "
+            + "with the extraction problem")
+    void forecast_undescribableFailure_loggedAsUnknown() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 99L);
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn("fc-42-2026-04-07-SUNRISE");
+        when(result.isSucceeded()).thenReturn(false);
+        when(result.isErrored()).thenThrow(new IllegalStateException("bad error shape"));
+        stubStream(response);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(eq(99L), eq("msgbatch_fail"),
+                eq("fc-42-2026-04-07-SUNRISE"), eq(false), eq("unknown"),
+                eq("failed to extract error: bad error shape"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+        assertThat(batch.getErroredCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a succeeded result with no message is an extraction_error")
+    void forecast_succeededWithoutMessage_extractionError() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 99L);
+        stubStream(succeededResponseWithoutMessage("fc-42-2026-04-07-SUNRISE"));
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(eq(99L), eq("msgbatch_fail"),
+                eq("fc-42-2026-04-07-SUNRISE"), eq(false), eq("extraction_error"),
+                eq("succeeded but no message"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+        assertThat(batch.getErroredCount()).isEqualTo(1);
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a message with no text block is an extraction_error, but its tokens "
+            + "were billed and are costed")
+    void forecast_messageWithoutText_extractionErrorButBilled() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 99L);
+        stubStream(succeededResponseWithoutText("fc-42-2026-04-07-SUNRISE"));
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET, new TokenUsage(10, 5, 0, 0, 0), true)).thenReturn(321L);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).logBatchResult(eq(99L), eq("msgbatch_fail"),
+                eq("fc-42-2026-04-07-SUNRISE"), eq(false), eq("extraction_error"),
+                eq("no text content blocks"),
+                isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+        assertThat(batch.getTotalInputTokens()).isEqualTo(10L);
+        assertThat(batch.getTotalOutputTokens()).isEqualTo(5L);
+        verify(jobRunService).completeBatchRun(99L, 0, 1, 321L);
+    }
+
+    @Test
+    @DisplayName("FORECAST: an inline failure on a batch with no job run writes no api_call_log row")
+    void forecast_inlineFailureWithoutJobRun_writesNoLogRow() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        stubStream(erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"));
+
+        processor.processResults(batch);
+
+        verifyNoInteractions(jobRunService);
+        assertThat(batch.getErroredCount()).isEqualTo(1);
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a failing api_call_log write never aborts the batch")
+    void forecast_logWriteFails_batchStillProcessed() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 65L);
+        stubStream(erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down")).when(jobRunService)
+                .logBatchResult(eq(65L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
+                        eq(false), eq("overloaded_error"), eq("busy"),
+                        isNull(), isNull(), isNull(), isNull(), isNull(), isNull());
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErroredCount()).isEqualTo(1);
+        verify(jobRunService).completeBatchRun(65L, 0, 1, 0L);
+    }
+
+    @Test
+    @DisplayName("AURORA: an empty result stream fails the batch as 'no text content'")
+    void aurora_emptyStream_failsAsNoTextContent() {
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        stubStream();
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErrorMessage()).isEqualTo("Aurora batch returned no text content");
+        verifyNoInteractions(auroraResultHandler);
+    }
+
+    @Test
+    @DisplayName("AURORA: a succeeded result carrying no message fails the batch as 'no text content'")
+    void aurora_succeededWithoutMessage_failsAsNoTextContent() {
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        stubStream(succeededResponseWithoutMessage("au-MODERATE-2026-04-07"));
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErrorMessage()).isEqualTo("Aurora batch returned no text content");
+        verifyNoInteractions(auroraResultHandler);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest(name = "custom id {0} -> QUIET")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"auroraplain", "au-BOGUS-2026-04-07"})
+    @DisplayName("AURORA: a custom id with no usable alert level scores under QUIET")
+    void aurora_unusableAlertLevelInCustomId_defaultsToQuiet(String customId) {
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        stubStream(succeededResponse(customId, "[{\"name\":\"X\",\"stars\":4}]"));
+        when(auroraResultHandler.processBatchResponse(
+                eq(AlertLevel.QUIET), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(AuroraBatchOutcome.ok(2));
+
+        processor.processResults(batch);
+
+        verify(auroraResultHandler).processBatchResponse(
+                eq(AlertLevel.QUIET), any(ClaudeBatchOutcome.class), any(ResultContext.class));
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(batch.getSucceededCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("AURORA: a successful batch with a job run completes it with the scored count and cost")
+    void aurora_success_completesJobRunWithCost() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 71L);
+        stubStream(succeededResponse("au-MODERATE-2026-04-07", "[{\"name\":\"X\",\"stars\":4}]"));
+        when(auroraResultHandler.processBatchResponse(
+                eq(AlertLevel.MODERATE), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(AuroraBatchOutcome.ok(7));
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET, new TokenUsage(500, 200, 0, 1000, 0), true))
+                .thenReturn(5_000L);
+
+        processor.processResults(batch);
+
+        verify(jobRunService).completeBatchRun(71L, 7, 0, 5_000L);
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.COMPLETED);
+        assertThat(batch.getEstimatedCostUsd()).isEqualByComparingTo("0.005");
+    }
+
+    @Test
+    @DisplayName("AURORA: a response with output tokens but no input tokens is still costed")
+    void aurora_outputOnlyUsage_stillCosted() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 72L);
+        stubStream(succeededResponseWithUsage("au-STRONG-2026-04-07", "[{\"name\":\"X\"}]", 0, 50));
+        when(auroraResultHandler.processBatchResponse(
+                eq(AlertLevel.STRONG), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(AuroraBatchOutcome.failure("triage failed"));
+        when(costCalculator.calculateCostMicroDollars(
+                EvaluationModel.SONNET, new TokenUsage(0, 50, 0, 0, 0), true)).thenReturn(900L);
+
+        processor.processResults(batch);
+
+        assertThat(batch.getTotalOutputTokens()).isEqualTo(50L);
+        verify(jobRunService).completeBatchRun(72L, 0, 1, 900L);
+    }
+
+    @Test
+    @DisplayName("AURORA: a failing api_call_log write on a refusal never stops the batch being failed")
+    void aurora_refusalLogWriteFails_batchStillFailed() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 64L);
+        stubStream(succeededResponseWithStopReason("au-MODERATE-2026-04-07", StopReason.REFUSAL));
+        org.mockito.Mockito.doThrow(new IllegalStateException("db down")).when(jobRunService)
+                .logBatchResult(eq(64L), eq("msgbatch_fail"), eq("au-MODERATE-2026-04-07"),
+                        eq(false), eq(EvaluationFailure.TYPE_REFUSAL),
+                        eq("Claude refused to interpret the aurora conditions "
+                                + "(stop_reason=refusal)"),
+                        eq(EvaluationModel.SONNET_55), eq(new TokenUsage(700, 123, 300, 40, 0)),
+                        isNull(), isNull(), isNull(), eq(CacheDiagnostics.EMPTY));
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErrorMessage()).isEqualTo("Aurora batch request failed: Claude refused "
+                + "to interpret the aurora conditions (stop_reason=refusal)");
+        verifyNoInteractions(auroraResultHandler);
+    }
+
+    @Test
+    @DisplayName("resolveErrorMessage falls back to the error's own description for an unrecognised variant")
+    void resolveErrorMessage_unknownVariant_usesToString() {
+        com.anthropic.models.ErrorObject err = mock(com.anthropic.models.ErrorObject.class);
+        when(err.toString()).thenReturn("odd-error-variant");
+
+        assertThat(BatchResultProcessor.resolveErrorMessage(err)).isEqualTo("odd-error-variant");
+    }
+
+    @Test
+    @DisplayName("AURORA: a refused answer on a batch with no job run fails the batch without "
+            + "touching job-run bookkeeping")
+    void aurora_refusalWithoutJobRun_failsBatchQuietly() {
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        stubStream(succeededResponseWithStopReason("au-MODERATE-2026-04-07", StopReason.REFUSAL));
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErrorMessage()).isEqualTo("Aurora batch request failed: Claude refused "
+                + "to interpret the aurora conditions (stop_reason=refusal)");
+        verifyNoInteractions(jobRunService);
+        verifyNoInteractions(auroraResultHandler);
+    }
+
+    @Test
+    @DisplayName("AURORA: a stream that dies while a failing close() also throws still fails the "
+            + "batch with the original stream error, not the close error")
+    void aurora_streamAndCloseBothThrow_reportsStreamError() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.<MessageBatchIndividualResponse>generate(() -> {
+            throw new IllegalStateException("stream died");
+        }).limit(1));
+        org.mockito.Mockito.doThrow(new IllegalStateException("close failed")).when(streamResp).close();
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(batch.getErrorMessage()).isEqualTo("Failed to stream results: stream died");
+        verifyNoInteractions(auroraResultHandler);
+    }
+
     // ── Prompt-cache diagnostics ride every logged message ──────────────────────
 
     private static final com.anthropic.models.messages.Diagnostics API_DIAGNOSTICS =

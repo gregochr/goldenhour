@@ -71,6 +71,13 @@ class IntradayCandidateCollectionStrategyTest {
     }
 
     @Test
+    @DisplayName("a HOURLY slot is never in the window, today or tomorrow")
+    void hourlyTarget_excluded() {
+        assertThat(strategy.includes(TODAY, TargetType.HOURLY)).isFalse();
+        assertThat(strategy.includes(TODAY.plusDays(1), TargetType.HOURLY)).isFalse();
+    }
+
+    @Test
     @DisplayName("a past date is out")
     void pastDate_excluded() {
         assertThat(strategy.includes(TODAY.minusDays(1), TargetType.SUNSET)).isFalse();
@@ -86,7 +93,9 @@ class IntradayCandidateCollectionStrategyTest {
             "true,  2, SUNSET,  false",
             "false, 0, SUNSET,  false",
             "false, 1, SUNRISE, false",
-            "false, 1, SUNSET,  false"})
+            "false, 1, SUNSET,  false",
+            "true,  1, HOURLY,  false",
+            "true,  0, HOURLY,  false"})
     @DisplayName("only T+1 sunrise and sunset are deferred, and only when tonight's evening refresh is due")
     void defersRatedSlot_table(boolean eveningDue, int daysAhead, TargetType type, boolean expected) {
         IntradayCandidateCollectionStrategy s = new IntradayCandidateCollectionStrategy(CLOCK, eveningDue);

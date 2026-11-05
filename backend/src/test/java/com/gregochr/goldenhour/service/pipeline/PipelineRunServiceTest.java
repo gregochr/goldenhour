@@ -112,6 +112,21 @@ class PipelineRunServiceTest {
     }
 
     @Test
+    @DisplayName("completePhase with a null detail keeps the phase's existing detail")
+    void completePhase_nullDetail_keepsExistingDetail() {
+        PipelineRunPhaseEntity waitPhase = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT, 1, T0.minusSeconds(60));
+        waitPhase.setDetail("waiting on 3 batches");
+        when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
+                .thenReturn(List.of(waitPhase));
+
+        service.completePhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT, null);
+
+        assertThat(waitPhase.getStatus()).isEqualTo(PipelinePhaseStatus.COMPLETED);
+        assertThat(waitPhase.getDetail()).isEqualTo("waiting on 3 batches");
+    }
+
+    @Test
     @DisplayName("completePhase throws when no matching phase row exists")
     void completePhase_throws_when_no_row() {
         when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
