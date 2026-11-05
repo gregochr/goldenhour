@@ -179,6 +179,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.docs_only != 'true'
+        with:
+          # diff-cover needs the base branch's history to compute the PR diff.
+          fetch-depth: 0
 
       - name: Set up Node 22
         if: needs.changes.outputs.docs_only != 'true'
@@ -199,6 +202,42 @@ jobs:
       - name: Unit tests + coverage floor (Vitest)
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run test:coverage
+
+      # Changed-lines coverage: at least 90% of the lines a PR adds or changes under frontend/src
+      # must be covered (the global floor above cannot see a PR that adds untested code to an
+      # already-high total). diff-cover reads coverage/lcov.info and ignores diff lines in files
+      # absent from lcov, so tests, src/test/** and src/main.jsx never count. A PR that touches no
+      # covered source reports "No lines with coverage information in this diff" and exits 0.
+      # ⚠️ lcov `SF:` paths are relative to frontend/ but diff-cover resolves them against the repo
+      # root, and run from frontend/ it silently matches NOTHING and passes (proved locally). So the
+      # step prefixes `SF:` with `frontend/` and runs from the repo root.
+      # Line coverage only: diff-cover folds BRDA into line status but cannot gate branches.
+      # Pull requests only: a push to main has no PR diff.
+      - name: Set up Python (diff-cover)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Changed-lines coverage (diff-cover, 90%)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          pip install diff-cover==10.0.0
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > "$RUNNER_TEMP/lcov-root.info"
+          set +e
+          diff-cover "$RUNNER_TEMP/lcov-root.info" \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=90 \
+            --format markdown:"$RUNNER_TEMP/diff-cover.md"
+          STATUS=$?
+          set -e
+          {
+            echo "### Changed-lines coverage (frontend, minimum 90%)"
+            cat "$RUNNER_TEMP/diff-cover.md" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
 
       # ⚠️ NOT a bare `npm audit`, and the reason is not the obvious one. This job went red on
       # 2026-09-04 on a PR touching no dependency file, with a 400 from

@@ -173,11 +173,13 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
 
 The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 80% line coverage **per class**, and `spotbugs:check`). Run Maven in the foreground with a timeout, not as a background task.
 
-Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build; run all four before pushing:
+Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build, plus a PR-only changed-lines check (`diff-cover`, 90% of changed `src` lines; see `dev-and-testing.md`); run the four before pushing:
 
 ```bash
 cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
+
+Changed-lines check locally (repo root, after the coverage run; `pip install diff-cover==10.0.0`; the `SF:` rewrite is required): `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/l.info && diff-cover /tmp/l.info --compare-branch=origin/main --fail-under=90`.
 
 When `npm audit` fires, edit the lockfile surgically rather than `npm audit fix`, check `package.json`'s `overrides` pin first, and prove it with `rm -rf node_modules && npm ci`. Details are in `dev-and-testing.md`.
 
