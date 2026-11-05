@@ -601,6 +601,43 @@ class BatchAdminControllerTest extends AbstractControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("submit endpoints called with no request body")
+    class NoRequestBodyTests {
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("submit-scheduled with no body submits for all regions (null region list)")
+        void scheduledWithoutBody_allRegions() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(scheduledBatchEvaluationService.submitScheduledBatchForRegions(isNull()))
+                    .thenReturn(new BatchSubmitResult(null, "batch-nobody", 7));
+
+            mockMvc.perform(post("/api/admin/batches/submit-scheduled"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("batch-nobody"));
+
+            verify(scheduledBatchEvaluationService).submitScheduledBatchForRegions(isNull());
+        }
+
+        @Test
+        @WithMockUser(roles = {"ADMIN"})
+        @DisplayName("submit-jfdi with no body submits for all regions (null region list)")
+        void jfdiWithoutBody_allRegions() throws Exception {
+            when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                    .thenReturn(List.of());
+            when(forceSubmitBatchService.submitJfdiBatch(isNull()))
+                    .thenReturn(new BatchSubmitResult(null, "jfdi-nobody", 9));
+
+            mockMvc.perform(post("/api/admin/batches/submit-jfdi"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.batchId").value("jfdi-nobody"));
+
+            verify(forceSubmitBatchService).submitJfdiBatch(isNull());
+        }
+    }
+
     private ForecastBatchEntity buildBatch(String anthropicBatchId, BatchType type) {
         return new ForecastBatchEntity(anthropicBatchId, type, 5,
                 Instant.parse("2026-04-07T06:00:00Z"));

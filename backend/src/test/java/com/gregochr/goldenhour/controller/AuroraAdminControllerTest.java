@@ -330,6 +330,32 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 eq(new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3")));
     }
 
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate at a moderate Kp counts locations against the moderate Bortle "
+            + "limit, and a missing G-scale is left out of the message")
+    @WithMockUser(roles = {"ADMIN"})
+    void simulate_moderateWithoutGScale_usesModerateThreshold() throws Exception {
+        AuroraProperties.BortleThreshold bortleThreshold = new AuroraProperties.BortleThreshold();
+        bortleThreshold.setModerate(4);
+        bortleThreshold.setStrong(5);
+        when(auroraProperties.getBortleThreshold()).thenReturn(bortleThreshold);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(new LocationEntity(), new LocationEntity()));
+
+        mockMvc.perform(post("/api/aurora/admin/simulate")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"kp\":6.0,\"ovationProbability\":30.0,\"bzNanoTesla\":-5.0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.level").value("MODERATE"))
+                .andExpect(jsonPath("$.eligibleLocations").value(2))
+                .andExpect(jsonPath("$.message")
+                        .value("Simulation active \u2014 Kp 6. Use Forecast Runs \u2192 Aurora to generate scores."));
+
+        verify(stateCache).activateSimulation(
+                eq(AlertLevel.MODERATE),
+                eq(new AuroraStateCache.SimulatedNoaaData(6.0, 30.0, -5.0, null)));
+    }
+
     // -------------------------------------------------------------------------
     // simulate/clear endpoint
     // -------------------------------------------------------------------------
