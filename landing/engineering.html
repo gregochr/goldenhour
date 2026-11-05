@@ -62,7 +62,7 @@
 <h2 id="ci">Continuous integration</h2>
 <p>Every pull request goes through the same checks, whoever or whatever wrote it. Four are required by branch protection on <code>main</code>, so a change can't be merged while one is failing:</p>
 <ul>
-<li><b>Backend: build, test and coverage.</b> <code>mvn clean verify</code>, which compiles, runs Checkstyle, the unit tests and the integration tests, then enforces the coverage gate and SpotBugs. The integration tests use Testcontainers to start a real PostgreSQL, so every database migration is proven on the same engine as production before it's merged.</li>
+<li><b>Backend: build, test and coverage.</b> <code>mvn clean verify</code>, which compiles, runs Checkstyle, the unit tests and the integration tests, then enforces the coverage gate and SpotBugs. On pull requests it also checks that the lines the change touches are covered. The integration tests use Testcontainers to start a real PostgreSQL, so every database migration is proven on the same engine as production before it's merged.</li>
 <li><b>Frontend: lint, test and build.</b> ESLint (including accessibility rules), Vitest with overall, per-file and changed-lines coverage floors, <code>npm audit</code> at high severity, the production build, a check that the map library stays out of the first page load, and <code>nginx -t</code> on the web server's config, because nothing else would catch a broken config before production.</li>
 <li><b>CodeQL</b> static analysis, for Java and JavaScript.</li>
 <li><b>OWASP Dependency-Check</b> on the server's libraries. It scans when a change touches them, and otherwise reports a pass so the requirement can always be met.</li>
@@ -71,9 +71,9 @@
 <h2 id="gates">The gates</h2>
 <p>These are the values in the build as of the date above. The frontend floor only ever ratchets up, and I don't lower any of them without a stated reason.</p>
 <div class="tw" tabindex="0" role="region" aria-label="Quality gates, scrollable"><table><thead><tr><th scope="col">Gate</th><th scope="col">Where it runs</th><th scope="col">Threshold</th><th scope="col">If it fails</th></tr></thead><tbody>
-<tr><td>Backend line coverage (JaCoCo)</td><td>Every PR</td><td>80% <b>per class</b>, with a short exclusion list for plain data and config classes</td><td>The build fails</td></tr>
+<tr><td>Backend coverage (JaCoCo)</td><td>Every PR</td><td>At least 95% of lines and 90% of branches <b>per class</b>, with seven classes held at measured, documented lower figures, and an overall floor behind them</td><td>The build fails</td></tr>
 <tr><td>Frontend coverage (Vitest)</td><td>Every PR</td><td>Lines 99%, statements 98%, functions 98%, branches 95% overall, and <b>per file</b> at least 95% of lines and 90% of branches, with two files held at measured, documented lower branch figures</td><td>The build fails</td></tr>
-<tr><td>Changed-lines coverage (diff-cover)</td><td>Every PR</td><td>90% of the app lines a change adds or alters</td><td>The build fails</td></tr>
+<tr><td>Changed-lines coverage (diff-cover)</td><td>Every PR</td><td>90% of the server and app lines a change adds or alters</td><td>The build fails</td></tr>
 <tr><td>SpotBugs with FindSecBugs</td><td>Every PR</td><td>Any High-priority finding</td><td>The build fails</td></tr>
 <tr><td>Checkstyle</td><td>Every PR</td><td>Javadoc on every public type and method, indentation, line length, unused imports</td><td>The build fails</td></tr>
 <tr><td>ESLint, including <code>jsx-a11y</code></td><td>Every PR</td><td>Any error or warning</td><td>The build fails</td></tr>
@@ -83,7 +83,7 @@
 <tr><td>OWASP ZAP</td><td>Weekly</td><td>Any alert of Low risk or above without a written exception, or a scan that didn't run properly</td><td>An issue is opened for me</td></tr>
 <tr><td>PIT mutation testing</td><td>Weekly</td><td>60% of mutants killed in the service and utility layers</td><td>An issue is opened for me</td></tr>
 </tbody></table></div>
-<p>Per-class coverage is the one I'd defend hardest. An 80% average lets a well-tested utility package hide an untested service; per class, a new class can't lean on the rest of the codebase for its number. The app goes further: every file has its own floor, and the lines a change touches must be covered too.</p>
+<p>Per-class coverage is the one I'd defend hardest. An overall average lets a well-tested utility package hide an untested service; per class, a new class can't lean on the rest of the codebase for its number. The lines a change touches must be covered too, on the server and in the app, and every app file has its own floor.</p>
 <h2 id="security">Security and the OWASP Top 10</h2>
 <p>I use the OWASP Top 10 (2025) as a checklist rather than a badge. Where the checks above fit it:</p>
 <ul>

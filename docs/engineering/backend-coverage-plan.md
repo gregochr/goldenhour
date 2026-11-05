@@ -52,6 +52,9 @@ be written in parallel, at most two at a time, because each `mvn verify` is CPU-
   `SF:` rewrite. Prove it in CI with a throwaway commit. Also update `dev-and-testing.md`, CLAUDE.md's backend
   gate line and the "How it's built" landing text (server: 80% per class becomes the new figures), in the
   page's existing voice.
+  **Done.** The series' final figures: per class 95% lines / 90% branches with 7 overrides, bundle 99.3% lines /
+  95.8% branches measured locally, and changed lines 90%. The step runs `diff-cover` from the repo root with
+  `--src-roots backend/src/main/java` (JaCoCo's sourcefile paths are package-relative).
 
 ## Classes below 95% lines or 90% branches, by phase (CI figures)
 
