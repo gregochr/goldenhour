@@ -5,8 +5,7 @@
 > CodeQL blocks new alerts, not "any"; OWASP Top 10 2025 category names used exactly; ZAP is an API scan, not
 > a full scan; admin access control worded to match `SecurityConfig`; declarative clients are Open-Meteo only;
 > version reporting, plan links, the model swap, call logging and recorded contracts corrected; the "gates
-> only go up" rule narrowed to what is documented; ownership moved to the top. Three owner decisions are open
-> (below) and block the build.
+> only go up" rule narrowed to what is documented; ownership moved to the top. Owner decisions are recorded below.
 
 ## Goal
 
@@ -25,13 +24,13 @@ explained at length. No superlatives, no "enterprise-grade", no "bulletproof". S
 it matters, what it doesn't. Lead with what I own. Keep the "where it falls short" section: a candid gaps list
 is the most credible part of a page like this.
 
-## Open owner decisions (block the build)
+## Owner decisions (2026-11-05)
 
-1. **Contact in the closing.** LinkedIn URL, an email address, or none. Until decided, the closing has no
-   contact line.
-2. **Container registry.** Are the `ghcr.io/gregochr/goldenhour-*` packages public? If public, or unknown, the
-   page says "a container registry" and never names GHCR. Default below: not named.
-3. **Repository link.** Is `gregochr/goldenhour` public? Link it only if so. Default below: no link.
+1. **Contact:** `chris@photocast.online`, as a `mailto:` link in the closing.
+2. **Container registry:** not named on the page. (Both `ghcr.io/gregochr/goldenhour-*` images were found to be
+   anonymously pullable on 2026-11-05; whether to make them private is a separate decision, outside this page.)
+3. **Repository link:** none for now. The repository is public, but the owner is considering making it private.
+   Adding a link later is a one-line change.
 
 ## Build notes
 
@@ -266,15 +265,14 @@ English.
 - The security checks are automated, not a professional penetration test.
 
 ### Closing
-Line: If you'd like to talk through any of this, the code or the process, I'm happy to. (Contact link: open
-owner decision 1.)
+Line: If you'd like to talk through any of this, the code or the process, I'm happy to: [chris@photocast.online](mailto:chris@photocast.online).
 Links: [How PhotoCast is built](how-its-built.html) · [FAQ](faq.html) · [Explore PhotoCast for free](https://app.photocast.online/register)
 (use the start URL the other pages already use).
 
 ## Review checklist for the build
 
 - Every figure in "The gates" matches the source named in the accuracy table, re-read on the day.
-- Nothing from "Still never published" appears, and GHCR is not named unless owner decision 2 says so.
+- Nothing from "Still never published" appears, GHCR is not named, and the repository is not linked.
 - The page renders at 375 px with no horizontal page scroll (the gates table scrolls inside `.tw`).
 - No inline styles or scripts (the landing CSP).
 - Every footer link resolves, including from `guide/`.
