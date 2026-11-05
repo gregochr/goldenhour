@@ -729,7 +729,7 @@ describe('the picture\'s width', () => {
     observed = [];
     global.ResizeObserver = class {
       constructor(callback) { this.callback = callback; observed.push(this); }
-      observe() {}
+      observe(node) { this.target = node; }
       unobserve() {}
       disconnect() {}
     };
@@ -739,9 +739,19 @@ describe('the picture\'s width', () => {
     global.ResizeObserver = RealObserver;
   });
 
+  /**
+   * Resolves with the SVG once the plot's own observer is watching it. The observer is constructed in a passive
+   * effect, which may land after the SVG is on screen; firing a callback before then would reach nothing.
+   */
+  async function plotObserved() {
+    const svg = await screen.findByTestId('scheduler-day-svg');
+    await waitFor(() => expect(observed.some((o) => o.target === svg.parentElement)).toBe(true));
+    return svg;
+  }
+
   it('is never narrower than the minimum, whatever the container measures', async () => {
     mount();
-    const svg = await screen.findByTestId('scheduler-day-svg');
+    const svg = await plotObserved();
     expect(Number(svg.getAttribute('width'))).toBe(MIN_PLOT_WIDTH);
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 100 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(MIN_PLOT_WIDTH);
@@ -752,7 +762,7 @@ describe('the picture\'s width', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(NOON));
     mount();
-    await screen.findByTestId('scheduler-day-svg');
+    await plotObserved();
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 912.6 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(912);
     // The Now line at noon is the middle of the axis.
