@@ -568,74 +568,181 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
-                            <!-- Exclude Spring Boot entry point — main() is never called in unit tests -->
-                            <excludes>
-                                <exclude>com/gregochr/goldenhour/GoldenHourApplication.class</exclude>
-                                <!-- Pure Jackson POJO — no logic, only getters/setters for deserialization -->
-                                <exclude>com/gregochr/goldenhour/model/WorldTidesResponse.class</exclude>
-                                <exclude>com/gregochr/goldenhour/model/WorldTidesResponse$Extreme.class</exclude>
-                                <!-- Structured output DTO — pure record, no logic -->
-                                <exclude>com/gregochr/goldenhour/model/EvaluationResponse.class</exclude>
-                                <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
-                                <exclude>com/gregochr/goldenhour/config/WorldTidesProperties.class</exclude>
-                                <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
-                                <exclude>com/gregochr/goldenhour/config/AuroraProperties.class</exclude>
-                                <exclude>com/gregochr/goldenhour/config/AuroraProperties$BortleThreshold.class</exclude>
-                                <!-- @ConfigurationProperties POJO — pure getters/setters, no testable logic -->
-                                <exclude>com/gregochr/goldenhour/config/NlcProperties.class</exclude>
-                                <!-- Return-tuple record — hasAny() tested via the calculator; auto-generated
-                                     equals/hashCode/toString are not exercised -->
-                                <exclude>com/gregochr/goldenhour/service/NlcTwilightWindowCalculator$NlcWindows.class</exclude>
-                                <!-- SSE progress tracker — async/reactive plumbing, hard to unit test -->
-                                <exclude>com/gregochr/goldenhour/service/RunProgressTracker.class</exclude>
-                                <!-- Compile-time constant holder (SYSTEM_PROMPT text block) — never loaded, no testable logic -->
-                                <exclude>com/gregochr/goldenhour/service/evaluation/BestBetPromptText.class</exclude>
-                                <!-- @ConfigurationProperties POJOs — pure getters/setters, no testable logic -->
-                                <exclude>com/gregochr/goldenhour/config/OrsProperties.class</exclude>
-                                <!-- Pure request/response records — no business logic -->
-                                <exclude>com/gregochr/goldenhour/model/DriveTimesRequest.class</exclude>
-                                <!-- UriBuilder lambda unreachable via Mockito stubs; logic tested via toBortleClass -->
-                                <exclude>com/gregochr/goldenhour/client/LightPollutionClient.class</exclude>
-                                <!-- Inner records used only for Jackson deserialization — no logic -->
-                                <exclude>com/gregochr/goldenhour/client/LightPollutionClient$BrightnessResponse.class</exclude>
-                                <exclude>com/gregochr/goldenhour/service/aurora/AuroraTransectFetcher$CloudResponse.class</exclude>
-                                <exclude>com/gregochr/goldenhour/service/aurora/AuroraTransectFetcher$HourlyCloudData.class</exclude>
-                                <!-- Inner record — plain data carrier, no logic -->
-                                <exclude>com/gregochr/goldenhour/service/aurora/BortleEnrichmentService$EnrichmentResult.class</exclude>
-                                <!-- Private cache-result record — internal plumbing with no independent logic -->
-                                <exclude>com/gregochr/goldenhour/client/NoaaSwpcClient$CachedResult.class</exclude>
-                                <!-- Jsoup HTML scraper — requires live HTTP / DOM; integration-tested only -->
-                                <exclude>com/gregochr/goldenhour/client/MetOfficeSpaceWeatherScraper.class</exclude>
-                                <!-- Inner Jackson records — pure deserialization DTOs with no logic -->
-                                <exclude>com/gregochr/goldenhour/service/aurora/WeatherTriageService$CloudResponse.class</exclude>
-                                <exclude>com/gregochr/goldenhour/service/aurora/WeatherTriageService$HourlyCloudData.class</exclude>
-                                <!-- JPA composite key — equals/hashCode only, no business logic -->
-                                <exclude>com/gregochr/goldenhour/entity/UserDriveTimeId.class</exclude>
-                                <!-- Batch methods use RestClient directly — integration-tested only -->
-                                <exclude>com/gregochr/goldenhour/service/OpenMeteoClient.class</exclude>
-                                <!-- Cache-from-API extraction methods — tested via the batch collectors' integration tests -->
-                                <exclude>com/gregochr/goldenhour/service/OpenMeteoService.class</exclude>
-                                <!-- Simple cache wrapper — grid-key logic tested in OpenMeteoServiceTest -->
-                                <exclude>com/gregochr/goldenhour/model/CloudPointCache.class</exclude>
-                                <!-- SSE controller — async plumbing difficult to unit test -->
-                                <exclude>com/gregochr/goldenhour/controller/BriefingEvaluationController.class</exclude>
-                                <!-- Legacy evaluation record — coverage gap pre-dates this feature -->
-                                <exclude>com/gregochr/goldenhour/model/SunsetEvaluation.class</exclude>
-                                <!-- Batch submission services — call Anthropic SDK directly; tested via integration -->
-                                <exclude>com/gregochr/goldenhour/service/batch/ForceSubmitBatchService.class</exclude>
-                                <exclude>com/gregochr/goldenhour/service/batch/ScheduledBatchEvaluationService.class</exclude>
-                                <!-- Pure request/response records — no business logic -->
-                                <exclude>com/gregochr/goldenhour/model/BatchSubmitRequest.class</exclude>
-                                <exclude>com/gregochr/goldenhour/model/RegionSummaryDto.class</exclude>
-                            </excludes>
                             <rules>
+                                <!-- Default: every class holds 95% of lines and 90% of branches on its own.
+                                     Classes with an override below are excluded here and held to their own
+                                     measured figure instead. No class is excluded from checking altogether. -->
                                 <rule>
                                     <element>CLASS</element>
+                                    <excludes>
+                                        <exclude>com.gregochr.goldenhour.util.DayScopedMemo</exclude>
+                                        <exclude>com.gregochr.goldenhour.config.OpenMeteoHealthIndicator</exclude>
+                                        <exclude>com.gregochr.goldenhour.controller.AuroraForecastController</exclude>
+                                        <exclude>com.gregochr.goldenhour.service.SpringTideHotTopicStrategy</exclude>
+                                        <exclude>com.gregochr.goldenhour.service.JwtService</exclude>
+                                        <exclude>com.gregochr.goldenhour.service.SnowTopsHotTopicStrategy</exclude>
+                                        <exclude>com.gregochr.goldenhour.service.InversionHotTopicStrategy</exclude>
+                                    </excludes>
                                     <limits>
                                         <limit>
                                             <counter>LINE</counter>
                                             <value>COVEREDRATIO</value>
-                                            <minimum>0.80</minimum>
+                                            <minimum>0.95</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- DayScopedMemo.java:60: generation is bumped before today.equals(day) is evaluated, so the false arm is never reached -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.util.DayScopedMemo</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.87</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- OpenMeteoHealthIndicator.java:60: the cache-older-than-five-minutes path needs a real five-minute wait or the private cachedAt field -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.config.OpenMeteoHealthIndicator</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.83</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- AuroraForecastController.java:112: the AuroraForecastRunRequest constructor turns a null nights into an empty list, so the null arm never runs -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.controller.AuroraForecastController</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.50</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- everything missed is in isSpringNotKing, a private method nothing calls -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.service.SpringTideHotTopicStrategy</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.94</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.76</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- the NoSuchAlgorithmException catch for SHA-256 cannot run on a standard JVM -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.service.JwtService</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.94</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- the guards in attachFacts repeat checks the detection filter has already made -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.service.SnowTopsHotTopicStrategy</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.96</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.77</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- the guards in attachFacts repeat checks the detection filter has already made -->
+                                <rule>
+                                    <element>CLASS</element>
+                                    <includes>
+                                        <include>com.gregochr.goldenhour.service.InversionHotTopicStrategy</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.96</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.83</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- Whole-codebase floor: the totals measured on 2026-11-05 without the integration
+                                     tests, rounded down to one decimal place of a percent. -->
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.993</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.958</minimum>
                                         </limit>
                                     </limits>
                                 </rule>
