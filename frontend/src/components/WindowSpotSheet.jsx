@@ -174,7 +174,13 @@ export default function WindowSpotSheet({
   const ratingOffered = hasRatings(spots);
   const typeOptions = typeOptionsFor(spots, typesByName);
   const limitMinutes = tierById(tierId)?.limitMinutes ?? null;
-  const browseArgs = { spots, limitMinutes, ratingFloorId, typeId, typesByName };
+  // `measured` is the card's own reader-level answer (reach-scoped-card-plan D2): the sheet browses the gate the
+  // card ran, so a place with no route is dropped here under a finite tier exactly as it was on the card. The
+  // sheet that opens on "Any" (`openTierId`) still lists those places, with no drive shown, which is consistent:
+  // under "Any" nothing is dropped.
+  const browseArgs = {
+    spots, limitMinutes, ratingFloorId, typeId, typesByName, measured: Boolean(card.reachMeasured),
+  };
   const visible = browseSpots(browseArgs);
   const visibleMine = placesOf(visible);
 
@@ -374,6 +380,8 @@ WindowSpotSheet.propTypes = {
     kicker: PropTypes.string,
     time: PropTypes.string,
     allSpots: PropTypes.arrayOf(PropTypes.shape(SPOT_SHAPE)),
+    /** The reader-level "a drive is measured" the card's own reach gate ran with (reach-scoped-card-plan D2). */
+    reachMeasured: PropTypes.bool,
   }).isRequired,
   barTierId: PropTypes.string.isRequired,
   barFloorId: PropTypes.string.isRequired,

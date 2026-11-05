@@ -60,7 +60,7 @@ class TodaysLightServiceTest {
     }
 
     private static UserSettingsService.HomeLocation home(Double lat, Double lon, String postcode) {
-        return new UserSettingsService.HomeLocation(7L, lat, lon, 30, postcode);
+        return new UserSettingsService.HomeLocation(7L, lat, lon, 30, postcode, null);
     }
 
     /** The UK civil clock string for a UTC instant — the same conversion the service renders. */

@@ -293,6 +293,11 @@ export function unratedBar(spread) {
  * <p>An empty pool answers true, which is what makes "nothing within reach" safe to say: there is
  * no unmeasured spot in it to over-claim about.
  *
+ * <p>Unchanged by the unroutable rule, and on purpose (reach-scoped-card-plan D1): a finite measured tier
+ * has already dropped the UNROUTABLE places from the pool, and a PENDING one (no drive yet) is still in it, so
+ * the pool is "fully measured" exactly when nothing in it is unknown. That keeps the A28 {@link spreadQualifier}
+ * silent for a pool that holds a PENDING place, as it has always been for an unmeasured one.
+ *
  * @param {Array<{driveMinutes: ?number}>} pool the card's pool
  * @returns {boolean} true when the phrase "within reach" describes the whole set
  */
@@ -329,6 +334,23 @@ export function poolPhrase(total, withinReach) {
  */
 export function unratedPhrase(spread, separator = ' · ') {
   return spread?.unrated > 0 ? `${separator}${spread.unrated} not yet rated` : '';
+}
+
+/**
+ * The tooltip clause for places a finite tier removed because no route exists to them, or ''.
+ *
+ * <p>Leading separator included so the caller appends rather than punctuates. The count is the card's
+ * {@code reachUnroutableCount}, over the reader's own places, so it matches {@code reachTotal}; the origin is
+ * "home", or the base town when the plan is away. Said wherever the leading count is, because the pool's "N
+ * locations within reach" is otherwise silent about places that left it for a reason other than distance.
+ *
+ * @param {?number} count  how many places the gate dropped as UNROUTABLE
+ * @param {?string} fromName the base town when away, null at home
+ * @returns {string} ` · 2 places have no route from home`, or ''
+ */
+export function noRouteClause(count, fromName = null) {
+  if (!(count > 0)) return '';
+  return ` · ${count} place${count === 1 ? ' has' : 's have'} no route from ${fromName || 'home'}`;
 }
 
 /**

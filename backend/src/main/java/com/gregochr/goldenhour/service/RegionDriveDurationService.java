@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -43,6 +45,7 @@ public class RegionDriveDurationService {
     private final RegionDriveTimeRepository driveTimeRepository;
     private final RegionDriveTimeWriter driveTimeWriter;
     private final RegionDriveMatrixMemo matrixMemo;
+    private final Clock clock;
 
     /**
      * Constructs a {@code RegionDriveDurationService}.
@@ -53,18 +56,20 @@ public class RegionDriveDurationService {
      * @param driveTimeRepository JPA repository for the shared matrix, for the serve-side read
      * @param driveTimeWriter     transactional writer for one region's rows
      * @param matrixMemo          memo of the served matrix, cleared by the writer after commit
+     * @param clock               supplies the drive-measured stamp
      */
     public RegionDriveDurationService(OpenRouteServiceClient orsClient, OrsProperties orsProperties,
             LocationRepository locationRepository,
             RegionDriveTimeRepository driveTimeRepository,
             RegionDriveTimeWriter driveTimeWriter,
-            RegionDriveMatrixMemo matrixMemo) {
+            RegionDriveMatrixMemo matrixMemo, Clock clock) {
         this.orsClient = orsClient;
         this.orsProperties = orsProperties;
         this.locationRepository = locationRepository;
         this.driveTimeRepository = driveTimeRepository;
         this.driveTimeWriter = driveTimeWriter;
         this.matrixMemo = matrixMemo;
+        this.clock = clock;
     }
 
     /**
@@ -73,6 +78,14 @@ public class RegionDriveDurationService {
      * <p>A region with no base is skipped and reports zero: it cannot be an origin, so it has no
      * journeys to measure. The previous rows are left untouched in that case — clearing them is
      * {@link RegionDriveTimeWriter#clearForRegion} 's job, called when the base actually moves.
+     *
+     * <p><b>The stamp (reach-scoped-card-plan D1b).</b> A full answer also stamps
+     * {@code regions.drives_measured_at}, which is what lets a reader tell a place ORS could not route to
+     * (UNROUTABLE) from one not measured yet (PENDING). Three rules keep the stamp honest: the instant is taken
+     * <em>before</em> the roster is read (a location created during the routing call must be newer than the
+     * stamp, or it would read UNROUTABLE); it is written only when ORS returned a duration slot for every
+     * destination; and it is written only if the base is still the one that was routed from
+     * ({@link RegionDriveTimeWriter#storeIfBaseUnchanged}). A short answer stores its rows without stamping.
      *
      * @param region the origin region
      * @return the number of locations with a valid drive time from this base
@@ -87,6 +100,8 @@ public class RegionDriveDurationService {
             return 0;
         }
 
+        // Taken BEFORE the roster read, and stored as the stamp, never an instant taken after routing.
+        Instant rosterReadAt = clock.instant();
         List<LocationEntity> locations = locationRepository.findAll();
         if (locations.isEmpty()) {
             return 0;
@@ -117,7 +132,7 @@ public class RegionDriveDurationService {
         }
 
         if (rows.isEmpty()) {
-            // ⚠️ NOT `replaceForRegion(id, List.of())`. ORS answers an unroutable SOURCE — a base
+            // ⚠️ NOT `storeIfBaseUnchanged(…, List.of(), …)`. ORS answers an unroutable SOURCE — a base
             // mistyped onto water, which is exactly what the nullable base columns exist to guard
             // against — with a non-empty durations row whose every entry is null. That clears the
             // `durations.isEmpty()` guard above, and replacing with an empty list would DELETE a
@@ -129,9 +144,15 @@ public class RegionDriveDurationService {
             return 0;
         }
 
-        driveTimeWriter.replaceForRegion(region.getId(), rows);
-        LOG.info("Region drive time refresh complete for '{}' — {} locations updated",
-                region.getName(), rows.size());
+        boolean complete = durations.size() >= locations.size();
+        if (!driveTimeWriter.storeIfBaseUnchanged(region.getId(), region.getBaseLat(), region.getBaseLon(),
+                rows, rosterReadAt, complete)) {
+            LOG.info("Region drive time refresh for '{}' discarded — the base moved while it was measured",
+                    region.getName());
+            return 0;
+        }
+        LOG.info("Region drive time refresh complete for '{}' — {} locations updated{}",
+                region.getName(), rows.size(), complete ? "" : " (short answer: not stamped)");
         return rows.size();
     }
 

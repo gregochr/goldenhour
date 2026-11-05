@@ -216,7 +216,7 @@ public class UserSettingsService {
     public HomeLocation getHomeLocation(Authentication auth) {
         AppUserEntity user = getUser(auth);
         return new HomeLocation(user.getId(), user.getHomeLatitude(), user.getHomeLongitude(),
-                user.getLocalRadiusMiles(), user.getHomePostcode());
+                user.getLocalRadiusMiles(), user.getHomePostcode(), user.getDriveTimesCalculatedAt());
     }
 
     /**
@@ -232,9 +232,11 @@ public class UserSettingsService {
      * @param longitude     home longitude, or null when no postcode is saved
      * @param radiusMiles   the chosen radius, or null to use the default
      * @param postcode      the stored home postcode, or null when none is saved
+     * @param driveTimesCalculatedAt when the home's drive times were last fully measured, or null; the stamp
+     *                      that tells {@code DriveStatus.UNROUTABLE} from {@code PENDING}
      */
     public record HomeLocation(Long userId, Double latitude, Double longitude,
-            Integer radiusMiles, String postcode) {
+            Integer radiusMiles, String postcode, Instant driveTimesCalculatedAt) {
     }
 
     /**
@@ -279,7 +281,8 @@ public class UserSettingsService {
         if (originMoved) {
             // Every stored drive time was measured from the OLD home, so each one now describes a
             // journey nobody is going to make. Discarding leaves them unknown, which this product
-            // renders honestly — no drive line, and the reach lens passes the spot at every tier.
+            // renders honestly — no drive line, and the reach lens keeps the spot as PENDING (unknown, passes
+            // every tier) until a measurement from the new home says otherwise.
             // Keeping them would gate a location on a figure quietly tens of minutes wrong.
             driveTimeWriter.clearForUser(stored.getId());
             // Clearing the stamp is not bookkeeping. It is what the UI reads to say when times

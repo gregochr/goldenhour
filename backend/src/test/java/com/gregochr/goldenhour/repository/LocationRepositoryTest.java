@@ -384,6 +384,51 @@ class LocationRepositoryTest {
                 new LocationPoint(beachSaved.getId(), 55.609, -1.71, null));
     }
 
+    @Test
+    @DisplayName("a location saved without a drive target gets its creation time as the default")
+    void save_withoutDriveTarget_defaultsToCreatedAt() {
+        LocationEntity saved = repository.save(buildLocation("Helvellyn", 54.527, -3.016));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(repository.findById(saved.getId()).orElseThrow().getDriveTargetChangedAt())
+                .isEqualTo(LocalDateTime.of(2026, 2, 22, 12, 0));
+    }
+
+    @Test
+    @DisplayName("updateDriveTargetChangedAt writes the column; a stale whole-entity save cannot rewind it")
+    void updateDriveTargetChangedAt_isColumnScoped() {
+        LocationEntity saved = repository.save(buildLocation("Helvellyn", 54.527, -3.016));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity stale = repository.findById(saved.getId()).orElseThrow();
+        entityManager.clear();
+        LocalDateTime moved = LocalDateTime.of(2026, 11, 5, 9, 30);
+
+        assertThat(repository.updateDriveTargetChangedAt(saved.getId(), moved)).isEqualTo(1);
+        stale.setName("Helvellyn Summit");
+        repository.save(stale);
+        entityManager.flush();
+        entityManager.clear();
+
+        LocationEntity stored = repository.findById(saved.getId()).orElseThrow();
+        assertThat(stored.getName()).isEqualTo("Helvellyn Summit");
+        assertThat(stored.getDriveTargetChangedAt()).isEqualTo(moved);
+    }
+
+    @Test
+    @DisplayName("findMaxDriveTargetChangedAt sees a coordinate move that created_at never would")
+    void findMaxDriveTargetChangedAt_seesAMove() {
+        assertThat(repository.findMaxDriveTargetChangedAt()).isNull();
+        LocationEntity older = repository.save(buildLocation("Keswick", 54.6, -3.13));
+        repository.save(buildLocation("Ambleside", 54.43, -2.96));
+        LocalDateTime moved = LocalDateTime.of(2026, 11, 5, 9, 30);
+
+        repository.updateDriveTargetChangedAt(older.getId(), moved);
+
+        assertThat(repository.findMaxDriveTargetChangedAt()).isEqualTo(moved);
+    }
+
     private LocationEntity buildLocation(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .name(name)

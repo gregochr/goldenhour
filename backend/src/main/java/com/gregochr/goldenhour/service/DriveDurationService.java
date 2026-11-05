@@ -62,6 +62,9 @@ public class DriveDurationService {
      * duration (every destination null or negative) is a present, empty list: ORS answered, and
      * storing it clears the stored ones.
      *
+     * <p>A short answer (fewer durations than locations) is also "no answer": the caller stamps what it stores
+     * as measured in full, so storing part of the roster would let an unmeasured place read as unroutable.
+     *
      * <p>The ORS call queues on the shared two-permit limiter inside the client, and an exception
      * from it propagates.
      *
@@ -95,9 +98,18 @@ public class DriveDurationService {
             LOG.warn("ORS returned empty durations for user {}", userId);
             return Optional.empty();
         }
+        if (durations.size() < locations.size()) {
+            // A short answer is not a full measurement, and the caller stamps what it stores as "measured in
+            // full" (reach-scoped-card-plan D1b): a destination the answer never covered would then read
+            // UNROUTABLE instead of PENDING. Treated as no answer, so nothing is stored and no stamp moves.
+            // OpenRouteServiceClient already refuses a short row, so this is a guard against a future client.
+            LOG.warn("ORS returned {} durations for {} locations for user {} — treating as no answer",
+                    durations.size(), locations.size(), userId);
+            return Optional.empty();
+        }
 
         List<UserDriveTimeEntity> driveTimes = new ArrayList<>();
-        for (int i = 0; i < Math.min(locations.size(), durations.size()); i++) {
+        for (int i = 0; i < locations.size(); i++) {
             Double seconds = durations.get(i);
             if (seconds != null && seconds >= 0) {
                 driveTimes.add(new UserDriveTimeEntity(

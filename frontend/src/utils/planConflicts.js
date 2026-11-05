@@ -78,13 +78,13 @@ function nearestSpot(spots) {
  * @param {string}  tierId       the active tier's id
  * @returns {?object} the tier, or null when no widening helps
  */
-function helpfulTier(cards, tierId) {
+function helpfulTier(cards, tierId, measured) {
   const from = REACH_TIERS.findIndex((tier) => tier.id === tierId);
   if (from < 0) return null;
   for (let i = from + 1; i < REACH_TIERS.length; i += 1) {
     const tier = REACH_TIERS[i];
     const helps = cards.some(
-      (card) => gateSpotsByReach(card.allSpots || [], tier.limitMinutes).length > 0,
+      (card) => gateSpotsByReach(card.allSpots || [], tier.limitMinutes, { measured }).length > 0,
     );
     if (helps) return tier;
   }
@@ -157,12 +157,15 @@ function homeAction(hasOthers) {
  * @param {?string} [args.homePlace]  the reader's own place name, for the home sentence's "of X"
  * @param {string}  args.tierId       the active reach tier's id
  * @param {?number} args.limitMinutes that tier's threshold, null for "Any"
+ * @param {boolean} [args.reachMeasured] the reader-level answer ({@code reachIsMeasured}, computed once in
+ *                                    {@code WindowFirstBriefingContext}); defaults to asking the cards' spots,
+ *                                    for a caller with no context
  * @param {string}  args.floorId      the active rating floor's id
  * @param {?number} args.minRating    that floor's threshold, null for "Any rating"
  * @returns {?{id: string, headline: string, body: string, actions: Array}} the message
  */
 export function buildPlanConflict({
-  cards, origin = null, homePlace = null, tierId, limitMinutes, floorId, minRating,
+  cards, origin = null, homePlace = null, tierId, limitMinutes, floorId, minRating, reachMeasured: measuredArg,
 }) {
   const list = (Array.isArray(cards) ? cards : []).filter(Boolean);
   if (list.length === 0) return null;
@@ -185,7 +188,7 @@ export function buildPlanConflict({
    * and in the lens readout and stopped there. Asked of the whole scope rather than of any one
    * card's drawn set, for the reason `WindowSheetDialog` records.
    */
-  const reachMeasured = scope.some((spot) => spot?.driveMinutes != null);
+  const reachMeasured = measuredArg ?? scope.some((spot) => spot?.driveMinutes != null);
   const tierLabel = (REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null);
   /** The tier's word where it may be spoken at all — null collapses both clauses below. */
   const gatingTierLabel = reachMeasured ? tierLabel : null;
@@ -196,7 +199,7 @@ export function buildPlanConflict({
     if (limitMinutes == null || !tierLabel) return null;
     const from = origin ? origin.baseName : homePlace;
     const nearest = nearestSpot(scope);
-    const wider = helpfulTier(list, tierId);
+    const wider = helpfulTier(list, tierId, reachMeasured);
     const actions = [];
     if (wider) {
       actions.push({ kind: 'reach', id: wider.id, label: `Widen to ${wider.label.toLowerCase()}` });

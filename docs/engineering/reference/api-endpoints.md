@@ -528,3 +528,22 @@ Component status is public (`show-components: always`), but the per-component **
 `GET /api/admin/sky-rating-eval/schedule` (**ADMIN**; one `{model, scheduled}` row per selectable model, in selectable order: the weekly Sky-Rating Eval's model list) | `PUT /api/admin/sky-rating-eval/schedule/{model}` (**ADMIN**; body `{"scheduled": true|false}`; returns only that model's `{model, scheduled}` row; 400 for an unknown or non-selectable model or a missing `scheduled`). The schedule is an opt-out table (`sky_rating_eval_model_exclusion`), so a new selectable model is scheduled by default; an empty schedule makes the weekly run do nothing (no runs, no batch). A manual `POST /run` is unaffected. Plan: `docs/engineering/sky-eval-model-controls-plan.md`. The checkboxes now live in the Scheduler panel of the `sky_rating_eval` job (`components/scheduler/SkyEvalWeeklyModels.jsx`), not on the Sky Eval page; that page (`components/skyeval/`, Operations → Testing → Sky Eval) is one read of `GET /overview` (header, Run a check panel, Models and Runs tabs; the Fixtures tab is a placeholder until Phase 3) and starts quick checks with `POST /check`. Plan: `docs/engineering/sky-eval-redesign-plan.md`.
 
 `POST /api/admin/sky-rating-eval/check` (**ADMIN**; body `{models: [EvaluationModel...], runsPerFixture: 1|3|8, fixtureNames: [..] | null}`; **202** with `{runIds: [...]}`, one MANUAL run per model on the running build, all scored in parallel in the background. **400** for no model, a non-selectable or duplicate model, a `runsPerFixture` other than 1, 3 or 8, an unknown or empty `fixtureNames`, an unknown model name or a missing body; nothing is started in those cases. `fixtureNames: null` scores every fixture; a subset is stored on the run (`fixture_names`) and `fixture_count` is its size. `POST /run` stays) | `GET /api/admin/sky-rating-eval/overview` (**ADMIN**; everything the Sky Eval page renders in one read, assembled by `SkyRatingEvalOverviewService`: `head`, `schedule`, `lanes` (with `compared`), `fixtures`, `versions`, `sessions` (with `byModel`), `runFixtures` (each model's newest 13 completed runs), `models`, `modelFixtures`, `verdict`, `comparisons`, `checkDefaults`. Percentages are 0 to 100, costs are pounds at the run's start-date rate, instants are ISO-8601 UTC. A version is a non-blank `git_commit_hash`; pass rate is in-band over attempts; before and after are pooled over the fixtures both sides scored. Bounded: the newest 500 runs, one aggregate query over their results and one first-seen query; `/api/admin/**` is never cached). Each run records `git_commit_message` and `fixture_names` (V215); the commit comes from `git.properties` or, in the production image (no `.git`), from the `GIT_COMMIT_SHA` / `GIT_COMMIT_TIME` / `GIT_COMMIT_MESSAGE` build args `deploy.yml` passes.
+
+### Drive status (reach-scoped-card-plan R1)
+
+A drive from an origin to a location is `MEASURED` (a row), `PENDING` (no row, and the origin's last full
+measurement is null or does not yet cover the location's routing point) or `UNROUTABLE` (no row, and the origin
+was fully measured after the location's `drive_target_changed_at`, by more than the one-hour
+`ROSTER_VISIBILITY_MARGIN`). A finite reach tier keeps MEASURED within the tier and PENDING, and drops UNROUTABLE.
+
+- `GET /api/user/settings/reach` (PRO_USER/ADMIN; LITE 403) adds `driveStatus` to every entry (`DriveStatus`
+  from `app_user.drive_times_calculated_at`). Still personal and never cached.
+- `GET /api/regions` serves `drivesMeasuredAt` per region (an Instant, null until the base is fully measured; nulled
+  when the base moves). `GET /api/locations` serves `driveTargetChangedAt` per location (a UTC `LocalDateTime`).
+  Both are role-free facts, so the ETag-shared bodies stay safe; their bodies hash differently, which is all the
+  ETag needs.
+- `GET /api/regions/drive-times` keeps its shape (`{regionId: {locationId: minutes}}`); the away status is derived
+  on the client from that matrix plus the two stamps above (`planOrigin.js`, same margin).
+- `PUT /api/locations/{id}` moving the coordinates now bumps `drive_target_changed_at` and deletes that
+  location's `user_drive_time` and `region_drive_time` rows in the same transaction (the region matrix memo is
+  cleared after commit); the next nightly drive-time sweeps re-measure it.

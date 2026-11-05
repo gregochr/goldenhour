@@ -1,5 +1,5 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
-import { gateSpotsByReach } from './reachLens.js';
+import { gateSpotsByReach, isUnroutableDropped, reachIsMeasured } from './reachLens.js';
 import { gateSpotsByRating } from './ratingLens.js';
 import { buildWindowSpots, placesOf } from './windowFirstSpots.js';
 import { buildWindowRows } from './windowFirstRows.js';
@@ -720,7 +720,10 @@ function originRegion(es, origin) {
  *                                because the page is then about that region rather than about the
  *                                roster. It rides on the lens object rather than as a seventh
  *                                positional argument for the reason the two thresholds already
- *                                do — this signature is at its limit. {@code allowedIds} (S5b-1) is
+ *                                do — this signature is at its limit. {@code reachMeasured} is the
+ *                                reader-level "is any drive measured for this origin" answer,
+ *                                computed once by the provider (D2) and handed to every gate; absent,
+ *                                it is asked of {@code reachById} here. {@code allowedIds} (S5b-1) is
  *                                the briefing's served {@code allowedLocationIds} as a Set, on a body
  *                                the server SHAPED by the reader's sub-region picks and null on every
  *                                other; it marks the places outside the picks {@code gated} and takes
@@ -737,6 +740,11 @@ export function buildWindowCards(
   const limitMinutes = lens?.limitMinutes ?? null;
   const minRating = lens?.minRating ?? null;
   const origin = lens?.origin ?? null;
+  // Whether this READER's drive times are measured for the active origin (reach-scoped-card-plan D2): one
+  // answer for every card, computed once in `WindowFirstBriefingContext` and passed as `lens.reachMeasured`.
+  // Asked of the whole reach map here only for a caller that does not pass it, and never of a card's own
+  // spots: a region with no measured spot is not a reader with no measured drive.
+  const measured = lens?.reachMeasured ?? reachIsMeasured(reachById);
   // The served `allowedLocationIds` as a Set, on a body the server SHAPED by the reader's sub-region picks only
   // (S5b-1); null for every Pro, Admin and flag-off reader, which leaves every spot exactly as it was.
   const allowedIds = lens?.allowedIds instanceof Set ? lens.allowedIds : null;
@@ -797,7 +805,7 @@ export function buildWindowCards(
     );
     // Reach first, then rating — the order the two counts describe. `reached` is what the floor
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
-    const reached = gateSpotsByReach(allSpots, limitMinutes);
+    const reached = gateSpotsByReach(allSpots, limitMinutes, { measured });
     const spots = gateSpotsByRating(reached, minRating);
     // ⚠️ The pool a Lite reader's counts, spread, thin-sample line, best place and tide fit read is the places
     // INSIDE their sub-regions (S5b-1, B2): a gated place is in neither half of any count. `allSpots`, `reached`
@@ -807,6 +815,15 @@ export function buildWindowCards(
     const pool = placesOf(reached);
     const outsideCount = allSpots.length - placesOf(allSpots).length;
     const reachPick = bestReachOf(pool);
+    // The places a finite tier removed because ORS has no route to them (not because they are far), counted over
+    // the reader's own places so the figure matches `reachTotal`. `reachUnroutableRemoved` is the rated ones, and
+    // `reachFarRemoved` the rated places the tier removed for distance: the Best row's "beyond" line needs both,
+    // so that it never calls an unroutable place far (and says nothing about distance when none was).
+    const ownSpots = placesOf(allSpots);
+    const unroutableDropped = ownSpots.filter((spot) => isUnroutableDropped(spot, limitMinutes, measured));
+    const unroutableRated = unroutableDropped.filter((spot) => spot.rating != null).length;
+    const farRated = ownSpots.filter((spot) => spot.rating != null).length
+      - pool.filter((spot) => spot.rating != null).length - unroutableRated;
 
     return {
       key: `${date}:${targetType}`,
@@ -903,14 +920,24 @@ export function buildWindowCards(
        * claim still standing on five other surfaces, so the answer is computed ONCE here and folded
        * outward like everything else on this descriptor.
        *
-       * <p>Measured over {@code allSpots} — the origin scope BEFORE the reach gate — rather than
-       * over the drawn set, deliberately: asking the survivors would make the wording flicker by
+       * <p>Measured over the reader's whole reach map for the active origin, once
+       * ({@code lens.reachMeasured}, reach-scoped-card-plan D2), rather than over this window's
+       * {@code allSpots} or its drawn set, deliberately: asking a subset would make the wording flicker by
        * window, printing the reach clause on one card and withholding it on its neighbour, which is
        * a stranger claim than one that is simply true of the account. It is also a WEAKER test than
        * {@code poolWithinReach}, which needs EVERY spot measured: that one licenses a COUNT ("9 in
-       * reach"), this one only licenses naming a filter that did something.
+       * reach"), this one only licenses naming a filter that did something. It is also the
+       * {@code measured} the unroutable rule gates with: a reader with no measured drive loses nothing.
        */
-      reachMeasured: allSpots.some((spot) => spot?.driveMinutes != null),
+      reachMeasured: measured,
+      // How many of the reader's places the finite tier removed as UNROUTABLE (no route from the origin), and how
+      // many of the RATED places it removed as unroutable and as far. All zero under "Any" and for a reader with
+      // no measured drive. The spread tooltip and the Best row's "beyond" line read them; null `reachOriginName`
+      // is home, otherwise the base town the drives are measured from.
+      reachUnroutableCount: unroutableDropped.length,
+      reachUnroutableRemoved: unroutableRated,
+      reachFarRemoved: farRated,
+      reachOriginName: origin?.baseName ?? null,
       // The active reach tier's threshold in minutes, null under "Any" (plan-card-verdict-honesty-plan.md
       // H2). Carried so the Best row can say "beyond 45 min" in the tier's own words when every rated
       // spot of the verdict's region was gated out: it is the lens's served-to-us input, not a

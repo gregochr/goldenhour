@@ -22,4 +22,14 @@ public interface RegionDriveTimeRepository
     @Modifying
     @Query("DELETE FROM RegionDriveTimeEntity rdt WHERE rdt.regionId = :regionId")
     void deleteAllByRegionId(@Param("regionId") Long regionId);
+
+    /**
+     * Deletes every drive time to one location, from every region base. Used when the location's coordinates
+     * move: each row describes a journey to the old point.
+     *
+     * @param locationId the location's primary key
+     */
+    @Modifying
+    @Query("DELETE FROM RegionDriveTimeEntity rdt WHERE rdt.locationId = :locationId")
+    void deleteAllByLocationId(@Param("locationId") Long locationId);
 }

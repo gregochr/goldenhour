@@ -191,4 +191,16 @@ public class UserDriveTimeWriter {
     public void clearForUser(Long userId) {
         userDriveTimeRepository.deleteAllByUserId(userId);
     }
+
+    /**
+     * Discards every user's drive time to one location, because the location's coordinates moved and each row
+     * describes a journey to the old point. Other rows and every user's stamp are untouched: the location's
+     * {@code drive_target_changed_at} bump is what makes it read PENDING until a refresh measures it again.
+     *
+     * @param locationId the location's primary key
+     */
+    @Transactional
+    public void clearForLocation(Long locationId) {
+        userDriveTimeRepository.deleteAllByLocationId(locationId);
+    }
 }

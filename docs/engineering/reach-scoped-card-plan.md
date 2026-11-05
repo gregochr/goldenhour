@@ -361,7 +361,7 @@ Tests:
 
 | Phase | Branch | PR | Merged | Notes |
 |---|---|---|---|---|
-| R1 | `fix/reach-unroutable-drive` | | | |
+| R1 | `fix/reach-unroutable-drive` | | | Built 2026-11-05 (V220). Notes: the home stamp already took its instant before the roster read in both `DriveTimeRefreshJob` and `UserSettingsService`; the only home change was `DriveDurationService` treating a short ORS answer as no answer (the client already refused one). `RegionDriveTimeWriter.storeIfBaseUnchanged` makes the region rows conditional on the base too, not only the stamp. The card also carries `reachFarRemoved`, `reachUnroutableCount` and `reachOriginName` beside `reachUnroutableRemoved`. `regions.drives_measured_at` is not backfilled: every away drive reads PENDING until the first nightly region sweep after deploy. |
 | R1b | `feature/admin-unroutable-locations` | | | |
 | R1c | `feature/location-drive-point` | | | |
 | R2 | `feature/reach-scoped-headline` | | | |

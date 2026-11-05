@@ -25,7 +25,7 @@ import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import { buildFourDayTiles, glanceTopicsByColumn } from '../utils/fourDayTiles.js';
 import {
-  buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
+  buildSpread, formatSpreadCount, noRouteClause, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, stoodSpreadTitle,
   unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
@@ -212,6 +212,14 @@ function starsSpoken(rating) {
  * that gate. Away (an origin set) the scope is the origin's region, whose own mean is the word:
  * "beyond 45 min" is then measured from the origin, and is just as true.
  *
+ * <p><b>The tier removes two different things, and only one of them is far</b> (reach-scoped-card-plan D1).
+ * A rated place may be gone because its drive is longer than the tier, or because OpenRouteService has no
+ * route to it at all ({@code card.reachUnroutableRemoved}, the rated places dropped as UNROUTABLE;
+ * {@code card.reachFarRemoved}, those dropped for distance). Calling a place with no road "further than 45
+ * min" is the very lie the unroutable status exists to end, so the line says "beyond" only of the far ones:
+ * far only reads as it always did; mixed says "beyond 45 min or no route"; none far says "no route from
+ * home" (or from the base), and never "beyond".
+ *
  * <p><b>Not muted, and labelled "Region".</b> The muted ink and 400 weight of "nothing in reach"
  * mark a state with nothing to report; this is a fact about the window, so it keeps the primary
  * ink. The label is "Region" rather than "Best" because the line no longer names a best place —
@@ -233,22 +241,46 @@ function verdictBeyondReach(card) {
   const pool = card.pool ?? [];
   if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
   const tier = formatDriveDuration(limit);
+  const unroutable = card.reachUnroutableRemoved ?? 0;
+  const far = card.reachFarRemoved ?? 0;
+  const from = card.reachOriginName ?? 'home';
+  // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
+  // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
+  // title is unchanged.
+  const lead = card.verdict === 'UNRATED'
+    ? `Too few rated in ${region} to call it, and`
+    : `The verdict is ${region}'s, and`;
+  // Nothing was dropped as unroutable: the line is exactly what it was.
+  if (unroutable === 0) {
+    return {
+      rating: null,
+      label: 'Region',
+      value: `${region} · beyond ${tier}`,
+      muted: false,
+      beyond: true,
+      title: `${lead} its rated places are all further than ${tier} away`,
+      tideAligned: false,
+      tideState: null,
+      // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
+      spoken: `region ${region}, beyond ${tier}`,
+    };
+  }
+  // Some rated places have no route, and some may also be far. "Beyond" is said of the far ones only.
+  const mixed = far > 0;
   return {
     rating: null,
     label: 'Region',
-    value: `${region} · beyond ${tier}`,
+    value: mixed ? `${region} · beyond ${tier} or no route` : `${region} · no route from ${from}`,
     muted: false,
     beyond: true,
-    // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
-    // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
-    // title is unchanged.
-    title: card.verdict === 'UNRATED'
-      ? `Too few rated in ${region} to call it, and its rated places are all further than ${tier} away`
-      : `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    title: mixed
+      ? `${lead} its rated places are all further than ${tier} away or have no route from ${from}`
+      : `${lead} its rated places have no route from ${from}`,
     tideAligned: false,
     tideState: null,
-    // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
-    spoken: `region ${region}, beyond ${tier}`,
+    spoken: mixed
+      ? `region ${region}, beyond ${tier} or no route from ${from}`
+      : `region ${region}, no route from ${from}`,
   };
 }
 
@@ -863,7 +895,9 @@ export default function WindowFirstHeatStrip({
         // minimum-sample gate. The render is what ANDs this with `state.bars` before drawing
         // anything; do not read a non-null value here as "the bar is drawn".
         unratedBar: unrated,
-        title: spreadTitle(spread, withinReach),
+        // The "N places have no route from home" clause rides after the count it explains, when the tier
+        // dropped any (reach-scoped-card-plan D1); `noRouteClause` is '' otherwise.
+        title: `${spreadTitle(spread, withinReach)}${noRouteClause(card.reachUnroutableCount, card.reachOriginName)}`,
         withinReach,
         // The Spread row's second label line and the spoken pool clause both read this ONE answer
         // (spread-row-plan.md §2 #5), so the label and the sentence cannot name different pools.
@@ -2370,6 +2404,10 @@ WindowFirstHeatStrip.propTypes = {
     verdictBlanked: PropTypes.bool,
     /** The active reach tier's threshold in minutes; null under "Any" (H2). */
     reachLimitMinutes: PropTypes.number,
+    reachUnroutableCount: PropTypes.number,
+    reachUnroutableRemoved: PropTypes.number,
+    reachFarRemoved: PropTypes.number,
+    reachOriginName: PropTypes.string,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
     reachMeasured: PropTypes.bool,
     /** Present (true) only on a body the server shaped by the reader's sub-regions (S5b-1): the pool holds their places only. */

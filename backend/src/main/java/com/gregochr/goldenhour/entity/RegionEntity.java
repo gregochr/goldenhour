@@ -12,6 +12,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 
 /**
@@ -77,4 +78,16 @@ public class RegionEntity {
     /** UTC timestamp when this region was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    /**
+     * The instant this base's drive times were last fully measured, or null when they have not been (never, or
+     * the base has moved since). The region counterpart of {@code AppUserEntity.driveTimesCalculatedAt}.
+     *
+     * <p>Not insertable or updatable through the entity: written only by
+     * {@code RegionRepository.stampDrivesMeasuredAtIfBaseIs} and {@code clearDrivesMeasuredAt}, so a rename or base
+     * save of a stale snapshot cannot rewrite it (the column-scoped writes invariant). Served on
+     * {@code GET /api/regions} so the client can tell an unroutable place from one not yet measured.
+     */
+    @Column(name = "drives_measured_at", insertable = false, updatable = false)
+    private Instant drivesMeasuredAt;
 }

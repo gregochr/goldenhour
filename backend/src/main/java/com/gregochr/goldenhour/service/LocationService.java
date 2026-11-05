@@ -64,6 +64,8 @@ public class LocationService {
     private final NameNamespaceGuard nameGuard;
     private final SubRegionMembershipService subRegionMembership;
     private final ServedBriefingEpoch servedEpoch;
+    private final UserDriveTimeWriter userDriveTimeWriter;
+    private final RegionDriveTimeWriter regionDriveTimeWriter;
 
     /**
      * Constructs a {@code LocationService}.
@@ -76,6 +78,8 @@ public class LocationService {
      * @param nameGuard          the shared name rules: a location name may not shadow a named area or an alias
      * @param subRegionMembership the only writer of which sub-region a location belongs to
      * @param servedEpoch bumped after commit on every location save, enable and failure reset
+     * @param userDriveTimeWriter   discards every user's drive time to a location whose coordinates moved
+     * @param regionDriveTimeWriter discards every region base's drive time to a moved location
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
@@ -83,7 +87,11 @@ public class LocationService {
                            LocationEnrichmentService locationEnrichmentService,
                            NameNamespaceGuard nameGuard,
                            SubRegionMembershipService subRegionMembership,
-                           ServedBriefingEpoch servedEpoch) {
+                           ServedBriefingEpoch servedEpoch,
+                           UserDriveTimeWriter userDriveTimeWriter,
+                           RegionDriveTimeWriter regionDriveTimeWriter) {
+        this.userDriveTimeWriter = userDriveTimeWriter;
+        this.regionDriveTimeWriter = regionDriveTimeWriter;
         this.nameGuard = nameGuard;
         this.subRegionMembership = subRegionMembership;
         this.servedEpoch = servedEpoch;
@@ -187,6 +195,7 @@ public class LocationService {
             subRegionMembership.requireAssignable(request.subRegionId(), region);
         }
 
+        LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
         LocationEntity entity = LocationEntity.builder()
                 .name(request.name())
                 .lat(request.lat())
@@ -203,7 +212,9 @@ public class LocationService {
                 .overlooksWater(request.overlooksWater() != null && request.overlooksWater())
                 .mistProne(request.mistProne() != null && request.mistProne())
                 .coastalTidal(request.coastalTidal() != null && request.coastalTidal())
-                .createdAt(LocalDateTime.now(ZoneOffset.UTC))
+                .createdAt(createdAt)
+                // The routing point is new, so no drive time can describe it yet.
+                .driveTargetChangedAt(createdAt)
                 .build();
         LocationEntity saved = locationRepository.save(entity);
         servedEpoch.bump();
@@ -342,6 +353,9 @@ public class LocationService {
 
         LocationEntity saved = locationRepository.save(location);
         servedEpoch.bump();
+        if (coordinatesMoved) {
+            invalidateDriveTimes(saved);
+        }
 
         // A region change strands a membership in a sub-region of the old region: drop it (and say so), then
         // honour a sub-region this same request names.
@@ -362,6 +376,28 @@ public class LocationService {
                 saved.getName(), saved.getLocationType(), saved.getSolarEventType(),
                 saved.getTideType());
         return saved;
+    }
+
+    /**
+     * Records that a moved location is a new routing destination, and discards every drive time to the old one
+     * (reach-scoped-card-plan D1a), in the caller's transaction.
+     *
+     * <p>Moving the pin changes the point OpenRouteService routes to, so each stored home and region-base drive time
+     * describes a journey to somewhere else. They are deleted, and {@code drive_target_changed_at} is bumped, which
+     * does two things: the location reads PENDING (kept in by a reach tier) rather than UNROUTABLE until it is
+     * measured again, and {@code DriveTimeRefreshJob} re-measures every home that night with no other change. The
+     * region matrix needs no trigger: its nightly job measures every base.
+     *
+     * @param saved the location that has just been saved with new coordinates
+     */
+    private void invalidateDriveTimes(LocationEntity saved) {
+        LocalDateTime changedAt = LocalDateTime.now(ZoneOffset.UTC);
+        locationRepository.updateDriveTargetChangedAt(saved.getId(), changedAt);
+        // The column is updatable = false, so the managed copy would otherwise keep serving the old instant.
+        saved.setDriveTargetChangedAt(changedAt);
+        userDriveTimeWriter.clearForLocation(saved.getId());
+        regionDriveTimeWriter.clearForLocation(saved.getId());
+        LOG.info("Location '{}' moved — drive times to it discarded, to be re-measured", saved.getName());
     }
 
     /**

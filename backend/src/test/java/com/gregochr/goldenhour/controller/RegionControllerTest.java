@@ -55,6 +55,20 @@ class RegionControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/regions serves drivesMeasuredAt, null until a base has been fully measured")
+    void getRegions_servesDrivesMeasuredAt() throws Exception {
+        RegionEntity measured = buildRegion(1L, "Lake District");
+        measured.setDrivesMeasuredAt(java.time.Instant.parse("2026-11-05T02:00:00Z"));
+        when(regionService.findAll()).thenReturn(List.of(measured, buildRegion(2L, "Northumberland")));
+
+        mockMvc.perform(get("/api/regions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].drivesMeasuredAt").value("2026-11-05T02:00:00Z"))
+                .andExpect(jsonPath("$[1].drivesMeasuredAt").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/regions returns 200 with empty list when no regions exist")
     void getRegions_noRegions_returnsEmptyList() throws Exception {
         when(regionService.findAll()).thenReturn(List.of());

@@ -30,4 +30,14 @@ public interface UserDriveTimeRepository extends JpaRepository<UserDriveTimeEnti
     @Modifying
     @Query("DELETE FROM UserDriveTimeEntity udt WHERE udt.userId = :userId")
     void deleteAllByUserId(@Param("userId") Long userId);
+
+    /**
+     * Deletes every user's drive time to one location. Used when the location's coordinates move: each row
+     * describes a journey to the old point.
+     *
+     * @param locationId the location's primary key
+     */
+    @Modifying
+    @Query("DELETE FROM UserDriveTimeEntity udt WHERE udt.locationId = :locationId")
+    void deleteAllByLocationId(@Param("locationId") Long locationId);
 }

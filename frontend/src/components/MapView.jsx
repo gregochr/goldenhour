@@ -3476,6 +3476,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return rating >= minStars;
     });
 
+    // ⚠️ The Map's own drive filter is a DELIBERATE exception to the Plan's rule (reach-scoped-card-plan R1):
+    // it drops EVERY place without a drive time, unroutable or merely unmeasured (`mins != null`), where the
+    // Plan's `gateSpotsByReach` keeps a PENDING place and drops only an UNROUTABLE one. Unchanged until R3
+    // gives the Map the shared drive state; do not "fix" it with a status here.
     const driveFiltered = effectiveDriveTimeFilter === 0
       ? ratingFiltered
       : ratingFiltered.filter((loc) => {

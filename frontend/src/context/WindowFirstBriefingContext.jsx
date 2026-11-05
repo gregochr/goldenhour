@@ -24,6 +24,7 @@ import {
 import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
+import { reachIsMeasured } from '../utils/reachLens.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { buildGroundSets, isShaped } from '../utils/pickScope.js';
 import { regionPickSummaries } from '../utils/pickGeography.js';
@@ -209,6 +210,8 @@ const WindowFirstBriefingContext = createContext({
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
+  // Whether any drive is measured for the active origin (reach-scoped-card-plan D2). False without a provider.
+  reachMeasured: false,
   origin: null,
   setOrigin: () => {},
   regions: EMPTY_REGIONS,
@@ -626,6 +629,9 @@ export function WindowFirstBriefingProvider({
           next.set(entry.locationId, {
             driveMinutes: entry.driveMinutes ?? null,
             distanceMiles: entry.distanceMiles ?? null,
+            // MEASURED / PENDING / UNROUTABLE, served (reach-scoped-card-plan D1). Absent from an older
+            // backend mid-deploy, which reads as unknown: nothing is dropped.
+            driveStatus: entry.driveStatus ?? null,
           });
         }
         setReachById(next);
@@ -728,10 +734,23 @@ export function WindowFirstBriefingProvider({
    *
    * <p>Null origin gives back the per-user map untouched, so the home path is byte-identical.
    */
-  const effectiveReachById = useMemo(
-    () => originReachMap(origin, regionMatrix) ?? reachById,
-    [origin, regionMatrix, reachById],
-  );
+  const effectiveReachById = useMemo(() => {
+    const record = origin ? regions.find((region) => region?.id === origin.id) : null;
+    // Away, a place with no matrix row is PENDING or UNROUTABLE by the base's `drivesMeasuredAt` and the place's
+    // `driveTargetChangedAt` (both served; `originReachMap` derives it). Home arrives with `driveStatus` served.
+    return originReachMap(origin, regionMatrix, {
+      measuredAt: record?.drivesMeasuredAt ?? null,
+      locations,
+    }) ?? reachById;
+  }, [origin, regionMatrix, regions, locations, reachById]);
+
+  /**
+   * Whether any drive is measured for the active origin — computed ONCE here (reach-scoped-card-plan D2) and
+   * handed to every gate and every "within reach" wording. It is a fact about the reader and the origin, so
+   * no surface may re-derive it from a subset of spots: a region with no measured spot is not a reader with no
+   * measured drive. False for a reader with no postcode (and for Lite), which leaves every tier a no-op.
+   */
+  const reachMeasured = useMemo(() => reachIsMeasured(effectiveReachById), [effectiveReachById]);
 
   /**
    * Moves the origin.
@@ -811,6 +830,7 @@ export function WindowFirstBriefingProvider({
         upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, effectiveReachById,
         {
           limitMinutes: reachLens.tier.limitMinutes,
+          reachMeasured,
           // The lens's own default, which the origin has already moved — so the gate's starting
           // point and the far mark's meaning stay one judgement (`reachLens.js`'s module rule).
           defaultLimitMinutes,
@@ -824,7 +844,7 @@ export function WindowFirstBriefingProvider({
         picksLocked,
       )
       : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById, reachMeasured,
       reachLens.tier.limitMinutes, defaultLimitMinutes,
       ratingLens.minRating, origin, picksLocked, allowedIdSet],
   );
@@ -1011,7 +1031,7 @@ export function WindowFirstBriefingProvider({
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
       // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
-      origin, setOrigin, regions, effectiveReachById,
+      origin, setOrigin, regions, effectiveReachById, reachMeasured,
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
@@ -1020,7 +1040,7 @@ export function WindowFirstBriefingProvider({
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
-      origin, setOrigin, regions, effectiveReachById,
+      origin, setOrigin, regions, effectiveReachById, reachMeasured,
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds],
   );
 

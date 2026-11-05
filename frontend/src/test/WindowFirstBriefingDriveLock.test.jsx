@@ -112,7 +112,66 @@ describe('WindowFirstBriefingProvider — the drive-time lock', () => {
     expect(latest.current.driveLocked).toBe(false);
     expect(latest.current.reachLens.locked).toBe(false);
     expect(getReach).toHaveBeenCalledTimes(1);
-    expect(latest.current.reachById.get(7)).toEqual({ driveMinutes: 42, distanceMiles: 18 });
+    expect(latest.current.reachById.get(7)).toEqual({
+      driveMinutes: 42, distanceMiles: 18, driveStatus: null,
+    });
+  });
+
+  it('keeps the served drive status, and reads a reader with a measured drive as measured', async () => {
+    mockRole = 'PRO_USER';
+    getReach.mockResolvedValue([
+      { locationId: 7, driveMinutes: 42, distanceMiles: 18, driveStatus: 'MEASURED' },
+      { locationId: 8, distanceMiles: 61, driveStatus: 'UNROUTABLE' },
+    ]);
+    renderProvider();
+    await settle();
+
+    expect(latest.current.reachById.get(8)).toEqual({
+      driveMinutes: null, distanceMiles: 61, driveStatus: 'UNROUTABLE',
+    });
+    expect(latest.current.reachMeasured).toBe(true);
+  });
+
+  it('reads a reader whose every drive is pending as NOT measured, so no tier acts', async () => {
+    mockRole = 'PRO_USER';
+    getReach.mockResolvedValue([{ locationId: 7, distanceMiles: 18, driveStatus: 'PENDING' }]);
+    renderProvider();
+    await settle();
+
+    expect(latest.current.reachMeasured).toBe(false);
+  });
+
+  it('is not measured for a locked reader, and before anything has loaded', async () => {
+    mockRole = 'LITE_USER';
+    renderProvider();
+    await settle();
+    expect(latest.current.reachMeasured).toBe(false);
+  });
+
+  it('derives the away status from the base\'s drivesMeasuredAt and each place\'s driveTargetChangedAt', async () => {
+    mockRole = 'PRO_USER';
+    const region = {
+      id: 3, name: 'Lake District', enabled: true, baseName: 'Keswick', baseLat: 54.6, baseLon: -3.13,
+      drivesMeasuredAt: '2026-11-05T02:00:00Z',
+    };
+    fetchRegions.mockResolvedValue([region]);
+    fetchRegionDriveTimes.mockResolvedValue({ 3: { 1: 25 } });
+    const locations = [
+      { id: 1, name: 'Near', driveTargetChangedAt: '2026-03-01T12:00:00' },
+      { id: 2, name: 'Helvellyn', driveTargetChangedAt: '2026-03-01T12:00:00' },
+      { id: 4, name: 'Moved today', driveTargetChangedAt: '2026-11-05T09:00:00' },
+    ];
+    render(<WindowFirstBriefingProvider locations={locations}><Probe /></WindowFirstBriefingProvider>);
+    await settle();
+
+    act(() => { latest.current.setOrigin(region); });
+    await settle();
+
+    const away = latest.current.effectiveReachById;
+    expect(away.get(1)).toMatchObject({ driveMinutes: 25, driveStatus: 'MEASURED' });
+    expect(away.get(2)).toMatchObject({ driveMinutes: null, driveStatus: 'UNROUTABLE' });
+    expect(away.get(4)).toMatchObject({ driveMinutes: null, driveStatus: 'PENDING' });
+    expect(latest.current.reachMeasured).toBe(true);
   });
 
   it('a stale client that still thinks it is Pro gets a 403: no drive times, no error, one request, no retry', async () => {

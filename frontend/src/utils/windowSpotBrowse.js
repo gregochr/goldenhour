@@ -130,13 +130,18 @@ export function hasRatings(spots) {
  * @param {object} args
  * @param {Array}  args.spots       the window's full spot list, ungated
  * @param {?number} args.limitMinutes the sheet's own reach threshold, null for "Any"
+ * @param {boolean} [args.measured] the reader-level {@code card.reachMeasured}: whether a finite threshold
+ *        also drops places with no route from the origin (reach-scoped-card-plan D1). The sheet browses the
+ *        same gate the card ran, so it takes the card's answer rather than re-deriving one from its spots.
  * @param {string} args.ratingFloorId the chosen floor's id
  * @param {string} args.typeId       the chosen type's id
  * @param {?Map<string, string[]>} args.typesByName location name → its {@code locationType} array
  * @returns {Array} the spots to draw
  */
-export function browseSpots({ spots, limitMinutes, ratingFloorId, typeId, typesByName }) {
-  let kept = gateSpotsByReach(spots, limitMinutes);
+export function browseSpots({
+  spots, limitMinutes, ratingFloorId, typeId, typesByName, measured = false,
+}) {
+  let kept = gateSpotsByReach(spots, limitMinutes, { measured });
 
   // Paired with the control's own render condition on purpose — a floor that runs while its chip is
   // absent is a filter the reader cannot see, cannot explain and cannot take back.

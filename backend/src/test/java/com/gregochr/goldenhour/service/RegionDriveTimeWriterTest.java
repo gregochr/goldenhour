@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionDriveTimeEntity;
 import com.gregochr.goldenhour.repository.RegionDriveTimeRepository;
+import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -21,6 +23,8 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link RegionDriveTimeWriter}.
@@ -33,6 +37,9 @@ class RegionDriveTimeWriterTest {
     @Mock
     private RegionDriveTimeRepository repository;
 
+    @Mock
+    private RegionRepository regionRepository;
+
     private RegionDriveTimeWriter writer;
 
     private RegionDriveMatrixMemo memo;
@@ -40,7 +47,82 @@ class RegionDriveTimeWriterTest {
     @BeforeEach
     void setUp() {
         memo = new RegionDriveMatrixMemo();
-        writer = new RegionDriveTimeWriter(repository, memo);
+        writer = new RegionDriveTimeWriter(repository, regionRepository, memo);
+    }
+
+    private static final double BASE_LAT = 54.601;
+    private static final double BASE_LON = -3.135;
+    private static final Instant MEASURED_AT = Instant.parse("2026-11-05T02:00:00Z");
+
+    @Test
+    @DisplayName("a complete answer stamps the region (conditional on the base) and then replaces its rows")
+    void storeIfBaseUnchanged_complete_stampsThenReplaces() {
+        RegionDriveTimeEntity row = new RegionDriveTimeEntity(REGION_ID, 11L, 1500);
+        when(regionRepository.stampDrivesMeasuredAtIfBaseIs(REGION_ID, BASE_LAT, BASE_LON, MEASURED_AT))
+                .thenReturn(1);
+
+        boolean stored = writer.storeIfBaseUnchanged(
+                REGION_ID, BASE_LAT, BASE_LON, List.of(row), MEASURED_AT, true);
+
+        assertThat(stored).isTrue();
+        InOrder order = inOrder(regionRepository, repository);
+        order.verify(regionRepository).stampDrivesMeasuredAtIfBaseIs(REGION_ID, BASE_LAT, BASE_LON, MEASURED_AT);
+        order.verify(repository).deleteAllByRegionId(REGION_ID);
+        order.verify(repository).saveAll(List.of(row));
+    }
+
+    @Test
+    @DisplayName("a base that moved mid-flight writes neither the stamp nor the rows")
+    void storeIfBaseUnchanged_baseMoved_writesNothing() {
+        RegionDriveTimeEntity row = new RegionDriveTimeEntity(REGION_ID, 11L, 1500);
+        when(regionRepository.stampDrivesMeasuredAtIfBaseIs(REGION_ID, BASE_LAT, BASE_LON, MEASURED_AT))
+                .thenReturn(0);
+
+        boolean stored = writer.storeIfBaseUnchanged(
+                REGION_ID, BASE_LAT, BASE_LON, List.of(row), MEASURED_AT, true);
+
+        assertThat(stored).isFalse();
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("a short answer stores its rows but never stamps, so the missed destinations stay PENDING")
+    void storeIfBaseUnchanged_incomplete_storesWithoutStamping() {
+        RegionDriveTimeEntity row = new RegionDriveTimeEntity(REGION_ID, 11L, 1500);
+        when(regionRepository.existsByIdAndBase(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(true);
+
+        boolean stored = writer.storeIfBaseUnchanged(
+                REGION_ID, BASE_LAT, BASE_LON, List.of(row), MEASURED_AT, false);
+
+        assertThat(stored).isTrue();
+        verify(repository).deleteAllByRegionId(REGION_ID);
+        verify(repository).saveAll(List.of(row));
+        verify(regionRepository, never()).stampDrivesMeasuredAtIfBaseIs(REGION_ID, BASE_LAT, BASE_LON, MEASURED_AT);
+    }
+
+    @Test
+    @DisplayName("a short answer for a base that moved mid-flight writes nothing")
+    void storeIfBaseUnchanged_incompleteAndBaseMoved_writesNothing() {
+        when(regionRepository.existsByIdAndBase(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(false);
+
+        boolean stored = writer.storeIfBaseUnchanged(
+                REGION_ID, BASE_LAT, BASE_LON, List.of(), MEASURED_AT, false);
+
+        assertThat(stored).isFalse();
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    @DisplayName("clearForLocation discards one location's rows from every base and clears the memo")
+    void clearForLocation_deletesThatLocationAndClearsMemo() {
+        AtomicInteger loads = new AtomicInteger();
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+
+        writer.clearForLocation(11L);
+
+        verify(repository).deleteAllByLocationId(11L);
+        memo.getOrLoad(() -> Map.of(7L, Map.of(11L, loads.incrementAndGet())));
+        assertThat(loads).hasValue(2);
     }
 
     @Test
@@ -71,6 +153,14 @@ class RegionDriveTimeWriterTest {
 
         verify(repository).deleteAllByRegionId(REGION_ID);
         verify(repository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("clearForRegion also nulls the drive-measured stamp, so a moved base reads PENDING")
+    void clearForRegion_nullsTheStamp() {
+        writer.clearForRegion(REGION_ID);
+
+        verify(regionRepository).clearDrivesMeasuredAt(REGION_ID);
     }
 
     @Test

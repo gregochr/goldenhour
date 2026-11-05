@@ -90,8 +90,8 @@ describe('planOrigin', () => {
 
     it('reads the origin region\'s own row and coerces the JSON string keys to numbers', () => {
       const map = originReachMap(origin, { 7: { 11: 25, 12: 40 }, 9: { 11: 5 } });
-      expect(map.get(11)).toEqual({ driveMinutes: 25, distanceMiles: null });
-      expect(map.get(12)).toEqual({ driveMinutes: 40, distanceMiles: null });
+      expect(map.get(11)).toEqual({ driveMinutes: 25, distanceMiles: null, driveStatus: 'MEASURED' });
+      expect(map.get(12)).toEqual({ driveMinutes: 40, distanceMiles: null, driveStatus: 'MEASURED' });
       // The other region's row must not leak in: 11 is 25 from Keswick, not 5.
       expect(map.size).toBe(2);
     });

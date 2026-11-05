@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.DriveStatus;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.util.GeoUtils;
 import org.springframework.security.core.Authentication;
@@ -39,7 +40,11 @@ import java.util.Map;
  * "Close to home". Gating here would make the payload silently decide what the lens is allowed to
  * reveal, and the widest tier ("Any") could then never show what it promises.
  *
- * <h2>Absence is "unknown", never "out of reach"</h2>
+ * <h2>Absence is "unknown", never "out of reach" (until a full measurement says otherwise)</h2>
+ *
+ * <p>Each entry also carries a {@link DriveStatus}: MEASURED (a row), PENDING (no row and no measurement
+ * covers the location yet) or UNROUTABLE (no row although the home was fully measured after the location last
+ * moved). A finite tier keeps PENDING and drops UNROUTABLE; see reach-scoped-card-plan D1.
  *
  * <p>A caller with no home postcode is the <b>normal first-run state</b>, not a failure, and gets
  * the full roster with null figures rather than an empty list, a 204 or a {@code homeSet} flag. The
@@ -96,7 +101,10 @@ public class ReachService {
                         // figure onto a screen that already states this one.
                         homeKnown ? (int) Math.round(GeoUtils.distanceMiles(
                                 home.latitude(), home.longitude(),
-                                location.getLat(), location.getLon())) : null))
+                                location.getLat(), location.getLon())) : null,
+                        DriveStatus.of(minutesByLocation.containsKey(location.getId()),
+                                home.driveTimesCalculatedAt(), location.getDriveTargetChangedAt(),
+                                DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN)))
                 .toList();
     }
 }

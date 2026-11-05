@@ -63,6 +63,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .region(region)
                 .enabled(true)
                 .createdAt(LocalDateTime.of(2026, 2, 1, 12, 0))
+                .driveTargetChangedAt(LocalDateTime.of(2026, 3, 1, 9, 30))
                 .consecutiveFailures(2)
                 .lastFailureAt(LocalDateTime.of(2026, 2, 2, 8, 0))
                 .disabledReason("test reason")
@@ -105,6 +106,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"baseName\":\"Keswick\",\"baseLat\":54.6,\"baseLon\":-3.13,"
                 + "\"createdAt\":\"2026-01-01T00:00:00\"},"
                 + "\"enabled\":true,\"createdAt\":\"2026-02-01T12:00:00\","
+                + "\"driveTargetChangedAt\":\"2026-03-01T09:30:00\","
                 + "\"consecutiveFailures\":2,\"lastFailureAt\":\"2026-02-02T08:00:00\","
                 + "\"disabledReason\":\"test reason\",\"bortleClass\":4,"
                 + "\"skyBrightnessSqm\":21.1,\"shoreNormalBearingDegrees\":90.0,"
@@ -118,6 +120,7 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
                 + "\"enabled\":true,\"createdAt\":\"2026-01-01T00:00:00\","
+                + "\"driveTargetChangedAt\":null,"
                 + "\"consecutiveFailures\":0,\"lastFailureAt\":null,\"disabledReason\":null,"
                 + "\"bortleClass\":null,\"skyBrightnessSqm\":null,"
                 + "\"shoreNormalBearingDegrees\":null,\"effectiveFetchMetres\":null,"

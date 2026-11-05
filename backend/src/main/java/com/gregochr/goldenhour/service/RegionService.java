@@ -230,6 +230,8 @@ public class RegionService {
 
         if (moved) {
             regionDriveTimeWriter.clearForRegion(saved.getId());
+            // The writer nulled the column with a scoped update; keep the managed copy this method returns in step.
+            saved.setDrivesMeasuredAt(null);
         }
 
         LOG.info("Region '{}' base {} (drive-time matrix {})", saved.getName(),

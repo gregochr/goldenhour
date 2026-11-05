@@ -119,3 +119,8 @@ Drawn only for a shaped body; Pro, Admin and flag-off readers draw none of it an
 ## The in-context guide doors on the Map (user-guide-plan.md G3, 2026-11-04)
 
 A `GuideLink` `?` sits in each Map panel: the window control menu's footer (`wf-win-guide`, which owns its own arrow keys like the aurora door), the Filters popover footer, the Hot topics header (desktop: in the head row, a `<button>` so the row's click guard skips it; phone sheet: beside, never inside, the header `<button>`), the Tide strip header (Pro only; the locked teaser is one button and carries none), and the legend panel's footer. A press on one is inside the panel's own root, so `useOutsideDismiss` leaves the panel open (tested per panel). Lite locks get `GuideWhy` on the existing terms: the Filters drive-time group (`driveLocked`) and Bluebell chip (`role === 'LITE_USER'`; its tooltip is now "Bluebell filter is part of Pro"), the tide upsell content (popover and phone peek section; the popover passes its opener from `tideUpsellOpenerRef` as the guide's focus-return target), the legend's and phone Layers' "outside your sub-regions" row (`picks` / `legendPicks`), and the aurora doors in the window menu, the phone peek and the viewline chip (`ProUpsellDoor`'s `guide` prop).
+
+**Drive filter and unroutable places (reach-scoped-card-plan R1).** The Map's own drive filter (`MapView`,
+`driveFiltered`) still drops every place with no drive time (`mins != null`), unroutable or merely unmeasured. That
+is a recorded exception to the Plan tab's rule, which keeps PENDING places and drops only UNROUTABLE ones under a
+measured finite tier; it is unchanged until R3 gives the Map the shared drive state.

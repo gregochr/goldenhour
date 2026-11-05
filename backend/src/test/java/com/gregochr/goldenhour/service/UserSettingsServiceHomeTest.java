@@ -65,7 +65,8 @@ class UserSettingsServiceHomeTest {
 
         UserSettingsService.HomeLocation home = service.getHomeLocation(auth);
 
-        assertThat(home).isEqualTo(new UserSettingsService.HomeLocation(USER_ID, 54.7761, -1.5733, 30, "DH1 3LE"));
+        assertThat(home).isEqualTo(
+                new UserSettingsService.HomeLocation(USER_ID, 54.7761, -1.5733, 30, "DH1 3LE", null));
         verifyNoInteractions(driveDurationService);
     }
 

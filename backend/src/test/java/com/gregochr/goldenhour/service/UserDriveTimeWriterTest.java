@@ -152,4 +152,16 @@ class UserDriveTimeWriterTest {
         // And the stamp is the caller's to clear, under the lock it already holds.
         verifyNoInteractions(userRepository);
     }
+
+    @Test
+    @DisplayName("clearForLocation discards every user's rows for one moved location, and no stamp")
+    void clearForLocation_deletesThatLocationForEveryUser() {
+        // The moved location's drive_target_changed_at bump is what makes it read PENDING; the users' stamps
+        // must NOT move, or every other location would read as unmeasured too.
+        writer.clearForLocation(11L);
+
+        verify(userDriveTimeRepository).deleteAllByLocationId(11L);
+        verify(userDriveTimeRepository, never()).saveAll(anyList());
+        verifyNoInteractions(userRepository);
+    }
 }
