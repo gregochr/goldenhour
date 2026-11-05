@@ -59,7 +59,7 @@ copy is corrected.
 |---|---|
 | Required checks on `main`: Backend, Frontend, CodeQL, OWASP Dependency Check (four) | `gh api repos/gregochr/goldenhour/branches/main/protection/required_status_checks`. Do not publish that `strict` is off. |
 | Backend: 80% line coverage **per class**, with an exclusion list of about 30 classes (data, config, some clients and orchestration services) | `backend/pom.xml` jacoco `<element>CLASS</element>`, `LINE`, `COVEREDRATIO`, `0.80`, `<excludes>` |
-| Frontend: lines 99%, statements 98%, functions 98%, branches 94%; ratchets up only, lowered only with my say-so | `frontend/vite.config.js` thresholds and comment; `dev-and-testing.md` |
+| Frontend: lines 99%, statements 98%, functions 98%, branches 95%; per file 95% lines / 90% branches with two documented lower-branch exceptions (TurnstileWidget 81, StartRunScope 87); diff-cover 90% of changed lines (line coverage only, PRs only, in the Frontend job); ratchets up only, lowered only with my say-so | `frontend/vite.config.js` thresholds and comment; `.github/workflows/ci.yml` "Changed-lines coverage (diff-cover, 90%)"; `dev-and-testing.md` |
 | SpotBugs at the High threshold, with FindSecBugs, failing `verify` | `backend/pom.xml` |
 | Checkstyle: Javadoc on public types and methods, unused imports, indentation, 120-char lines | checkstyle config |
 | ESLint with `jsx-a11y`, `--max-warnings 0` | `frontend/eslint.config.js`, `frontend/package.json` |
@@ -141,7 +141,7 @@ protection on `main`, so a change can't be merged while one is failing:
   and the integration tests, then enforces the coverage gate and SpotBugs. The integration tests use
   Testcontainers to start a real PostgreSQL, so every database migration is proven on the same engine as
   production before it's merged.
-- **Frontend: lint, test and build.** ESLint (including accessibility rules), Vitest with a coverage floor,
+- **Frontend: lint, test and build.** ESLint (including accessibility rules), Vitest with overall, per-file and changed-lines coverage floors,
   `npm audit` at high severity, the production build, a check that the map library stays out of the first page
   load, and `nginx -t` on the web server's config, because nothing else would catch a broken config before
   production.
@@ -159,7 +159,8 @@ lower any of them without a stated reason.
 | Gate | Where it runs | Threshold | If it fails |
 |---|---|---|---|
 | Backend line coverage (JaCoCo) | Every PR | 80% **per class**, with a short exclusion list for plain data and config classes | The build fails |
-| Frontend coverage (Vitest) | Every PR | Lines 99%, statements 98%, functions 98%, branches 94% | The build fails |
+| Frontend coverage (Vitest) | Every PR | Lines 99%, statements 98%, functions 98%, branches 95% overall, and **per file** at least 95% of lines and 90% of branches, with two files held at measured, documented lower branch figures | The build fails |
+| Changed-lines coverage (diff-cover) | Every PR | 90% of the app lines a change adds or alters | The build fails |
 | SpotBugs with FindSecBugs | Every PR | Any High-priority finding | The build fails |
 | Checkstyle | Every PR | Javadoc on every public type and method, indentation, line length, unused imports | The build fails |
 | ESLint, including `jsx-a11y` | Every PR | Any error or warning | The build fails |
@@ -170,7 +171,8 @@ lower any of them without a stated reason.
 | PIT mutation testing | Weekly | 60% of mutants killed in the service and utility layers | An issue is opened for me |
 
 Per-class coverage is the one I'd defend hardest. An 80% average lets a well-tested utility package hide an
-untested service; per class, a new class can't lean on the rest of the codebase for its number.
+untested service; per class, a new class can't lean on the rest of the codebase for its number. The app goes further: every file has its own floor, and the lines a change touches must be
+covered too.
 
 ### Security and the OWASP Top 10
 I use the OWASP Top 10 (2025) as a checklist rather than a badge. Where the checks above fit it:
