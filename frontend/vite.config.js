@@ -215,7 +215,8 @@ export default defineConfig(({ mode }) => {
         'src/**/*.test.{js,jsx}', // the tests themselves
         'src/main.jsx', // bootstrap that mounts <App/> into the page; nothing to unit-test
       ],
-      reporter: ['text-summary', 'json-summary'],
+      // lcov feeds the CI changed-lines check (diff-cover); see dev-and-testing.md.
+      reporter: ['text-summary', 'json-summary', 'lcov'],
       reportOnFailure: true,
       thresholds: {
         lines: 99,
