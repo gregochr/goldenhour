@@ -1441,6 +1441,422 @@ class ForecastResultHandlerTest {
         verifyNoInteractions(jobRunService, briefingEvaluationService);
     }
 
+    // ── Cache merges delegate to the briefing evaluation service ─────────────
+
+    @Test
+    @DisplayName("mergeCacheKey hands the recovered results to BriefingEvaluationService.mergeFromBatch")
+    void mergeCacheKey_delegates() {
+        List<BriefingEvaluationResult> results = List.of(
+                new BriefingEvaluationResult("Castlerigg", 4, 70, 65, "X", null, null, null));
+
+        handler.mergeCacheKey("Lake District|2026-04-16|SUNRISE", results);
+
+        verify(briefingEvaluationService).mergeFromBatch("Lake District|2026-04-16|SUNRISE", results);
+    }
+
+    @Test
+    @DisplayName("mergeBluebellCacheKey hands results and the per-location exposures to mergeBluebellFromBatch")
+    void mergeBluebellCacheKey_delegates() {
+        List<BriefingEvaluationResult> results = List.of(
+                new BriefingEvaluationResult("Bluebell Wood", 4, null, null, "X", null, null, null));
+        Map<String, BluebellExposure> exposures = Map.of("Bluebell Wood", BluebellExposure.OPEN_FELL);
+
+        handler.mergeBluebellCacheKey("Lake District|2026-04-16|SUNRISE", results, exposures);
+
+        verify(briefingEvaluationService).mergeBluebellFromBatch(
+                "Lake District|2026-04-16|SUNRISE", results, exposures);
+    }
+
+    @Test
+    @DisplayName("mergeWoodlandCacheKey hands the canopy results to mergeWoodlandFromBatch")
+    void mergeWoodlandCacheKey_delegates() {
+        List<BriefingEvaluationResult> results = List.of(
+                new BriefingEvaluationResult("Bluebell Wood", 5, null, null, "X", null, null, null));
+
+        handler.mergeWoodlandCacheKey("Lake District|2026-04-16|SUNRISE", results);
+
+        verify(briefingEvaluationService).mergeWoodlandFromBatch(
+                "Lake District|2026-04-16|SUNRISE", results);
+    }
+
+    // ── sky batch: absent model, absent context, tide-less locations ──────────
+
+    @Test
+    @DisplayName("parseBatchResponse: no context and no model still parses; nothing is logged and "
+            + "the result carries no submission instant")
+    void parseBatchResponse_noContextNoModel_stillParses() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), null);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(location, identity, outcome, null);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        assertThat(result.get().result().submittedAt()).isNull();
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: a response with no resolved model scores the PENDING row "
+            + "without overwriting its requested model")
+    void parseBatchResponse_withEvalRowId_noResolvedModel_leavesRowModelUntouched() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), null);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(777L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 1, 5))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(saved.capture());
+        assertThat(saved.getValue().getBatchState()).isEqualTo(BatchState.SCORED);
+        assertThat(saved.getValue().getRating()).isEqualTo(4);
+        assertThat(saved.getValue().getEvaluationModel()).isNull();
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: a location with a null tide-type set is scored without deriving tide")
+    void parseBatchResponse_nullTideTypes_noTideDerived() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        location.setTideType(null);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+        verifyNoInteractions(forecastDataAugmentor);
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: a location with an empty tide-type set is scored without deriving tide")
+    void parseBatchResponse_emptyTideTypes_noTideDerived() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        location.setTideType(java.util.Set.of());
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+        verifyNoInteractions(forecastDataAugmentor);
+    }
+
+    // ── bluebell batch: failures and the dual-write gate ──────────────────────
+
+    private static String bluebellJson() {
+        return "{\"rating\":4,\"summary\":\"Bright still light.\",\"headline\":\"Soft light\"}";
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a parser failure yields empty and logs a PARSE_FAILED row")
+    void parseBluebellBatchResponse_parserThrows_returnsEmptyAndLogsParseError() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", "garbage", new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation("garbage", objectMapper))
+                .thenThrow(new IllegalArgumentException("bad json"));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isEmpty();
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_bb"), eq("bb-53-2026-04-16-SUNRISE"), eq(false),
+                eq("parse_error"), eq("bad json"), eq(null), eq(null),
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
+        verifyNoInteractions(forecastScoreWriter);
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a response with no rating is dropped, not defaulted")
+    void parseBluebellBatchResponse_missingRating_returnsEmpty() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", "{\"summary\":\"none\"}",
+                new TokenUsage(300, 80, 0, 900), EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(null, "none", null));
+
+        assertThat(handler.parseBluebellBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED))).isEmpty();
+        verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: no context and no model still parses, with nothing logged")
+    void parseBluebellBatchResponse_noContextNoModel_stillParses() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", bluebellJson(), new TokenUsage(300, 80, 0, 900), null);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+
+        Optional<BatchSuccess> result =
+                handler.parseBluebellBatchResponse(location, identity, outcome, null);
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a location with no region files under its own name")
+    void parseBluebellBatchResponse_noRegion_usesLocationName() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        location.setRegion(null);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", bluebellJson(), new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().cacheKey()).isEqualTo("Bluebell Wood|2026-04-16|SUNRISE");
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a coastal site with a null tide-type set derives no tide")
+    void parseBluebellBatchResponse_nullTideTypes_noTideDerived() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        location.setTideType(null);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", bluebellJson(), new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+
+        handler.parseBluebellBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+        verifyNoInteractions(forecastDataAugmentor);
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a response reported superseded writes no forecast_score component")
+    void parseBluebellBatchResponse_superseded_noComponentWrite() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", bluebellJson(), new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded("Bluebell Wood", DATE, SUNRISE, submittedAt))
+                .thenReturn(true);
+
+        Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_bb", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+        verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseBluebellBatchResponse: a failing component dual-write is isolated and logged at ERROR")
+    void parseBluebellBatchResponse_dualWriteThrows_evaluationProceedsAndLogsError() {
+        LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "bb-53-2026-04-16-SUNRISE", bluebellJson(), new TokenUsage(300, 80, 0, 900),
+                EvaluationModel.HAIKU);
+        when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
+        doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
+                .writeComponents(any(), any(), any(), anyList(), any());
+
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(ForecastResultHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Optional<BatchSuccess> result = handler.parseBluebellBatchResponse(
+                    location, identity, outcome,
+                    ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED));
+
+            assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+            assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.ERROR
+                    && event.getFormattedMessage().contains("bluebell dual-write FAILED")
+                    && event.getFormattedMessage().contains("Bluebell Wood"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    // ── woodland batch: failures, absent context, the dual-write gate ──────────
+
+    private static final String WOODLAND_ID = "wd-53-2026-04-16-SUNRISE";
+
+    private static ClaudeBatchOutcome woodlandSuccess(EvaluationModel model) {
+        return ClaudeBatchOutcome.success(WOODLAND_ID,
+                "{\"rating\":5,\"summary\":\"Shafts.\",\"headline\":\"Beech light\"}",
+                new TokenUsage(300, 80, 0, 900), model);
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a failed outcome yields empty and logs the failure row")
+    void parseWoodlandBatchResponse_failedOutcome_returnsEmpty() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                WOODLAND_ID, "expired", "expired", "request expired");
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isEmpty();
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_wd"), eq(WOODLAND_ID), eq(false),
+                eq("expired"), eq("request expired"), eq(null), eq(null),
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
+        verifyNoInteractions(forecastScoreWriter);
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a parser failure yields empty and logs a parse_error row")
+    void parseWoodlandBatchResponse_parserThrows_returnsEmptyAndLogsParseError() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                WOODLAND_ID, "garbage", new TokenUsage(300, 80, 0, 900), EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation("garbage", objectMapper))
+                .thenThrow(new IllegalArgumentException("bad json"));
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isEmpty();
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_wd"), eq(WOODLAND_ID), eq(false),
+                eq("parse_error"), eq("bad json"), eq(null), eq(null),
+                eq(DATE), eq(SUNRISE), eq(null), eq(null));
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: no context and no model still parses, with nothing logged")
+    void parseWoodlandBatchResponse_noContextNoModel_stillParses() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = woodlandSuccess(null);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
+
+        Optional<BatchSuccess> result =
+                handler.parseWoodlandBatchResponse(location, identity, outcome, null);
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(5);
+        assertThat(result.get().result().submittedAt()).isNull();
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a location with no region files under its own name")
+    void parseWoodlandBatchResponse_noRegion_usesLocationName() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        location.setRegion(null);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = woodlandSuccess(EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().cacheKey()).isEqualTo("Bluebell Wood|2026-04-16|SUNRISE");
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a response reported superseded writes no forecast_score component")
+    void parseWoodlandBatchResponse_superseded_noComponentWrite() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = woodlandSuccess(EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
+        Instant submittedAt = Instant.parse("2026-04-16T01:05:00Z");
+        when(supersedingDispositionService.isSuperseded("Bluebell Wood", DATE, SUNRISE, submittedAt))
+                .thenReturn(true);
+
+        Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_wd", null, submittedAt, BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.orElseThrow().result().rating()).isEqualTo(5);
+        verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
+    }
+
+    @Test
+    @DisplayName("parseWoodlandBatchResponse: a failing component dual-write is isolated and logged at ERROR")
+    void parseWoodlandBatchResponse_dualWriteThrows_evaluationProceedsAndLogsError() {
+        LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = woodlandSuccess(EvaluationModel.HAIKU);
+        when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
+                .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
+        doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
+                .writeComponents(any(), any(), any(), anyList(), any());
+
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(ForecastResultHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            Optional<BatchSuccess> result = handler.parseWoodlandBatchResponse(
+                    location, identity, outcome,
+                    ResultContext.forBatch(99L, "msgbatch_wd", BatchTriggerSource.SCHEDULED));
+
+            assertThat(result.orElseThrow().result().rating()).isEqualTo(5);
+            assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.ERROR
+                    && event.getFormattedMessage().contains("woodland dual-write FAILED")
+                    && event.getFormattedMessage().contains("Bluebell Wood"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
     private LocationEntity locationWithRegion(long id, String name, String regionName) {
         LocationEntity loc = new LocationEntity();
         loc.setId(id);

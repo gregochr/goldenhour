@@ -62,6 +62,20 @@ class BluebellVisitorTest {
                 location(Set.of(LocationType.BLUEBELL), null))).isFalse();
     }
 
+    @Test
+    @DisplayName("appliesTo false for a location with no location types at all")
+    void appliesTo_nullLocationType_false() {
+        assertThat(visitor.appliesTo(location(null, BluebellExposure.WOODLAND))).isFalse();
+    }
+
+    @Test
+    @DisplayName("summary is empty when there is no bluebell evaluation")
+    void summary_nullBluebell_empty() {
+        assertThat(visitor.summary(
+                location(Set.of(LocationType.BLUEBELL), BluebellExposure.WOODLAND), context(null)))
+                .isEmpty();
+    }
+
     // ── evaluate: season gate via the data-gap abstain ───────────────────────
 
     @Test

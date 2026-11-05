@@ -139,6 +139,30 @@ class EvaluationAbandonmentServiceTest {
         verify(forecastEvaluationRepository, never()).abandonPending(any());
     }
 
+    @Test
+    @DisplayName("R7(a): a logged row with a null custom_id is skipped; the real fc- id is still abandoned")
+    void abandonPendingForBatch_nullCustomId_isSkipped() {
+        when(apiCallLogRepository.findCustomIdsByBatchId("msgbatch_x")).thenReturn(
+                java.util.Arrays.asList(null, "fc-1-2026-04-16-SUNRISE-r301"));
+        when(forecastEvaluationRepository.abandonPending(anyCollection())).thenReturn(1);
+
+        service().abandonPendingForBatch("msgbatch_x");
+
+        verify(forecastEvaluationRepository).abandonPending(List.of(301L));
+    }
+
+    @Test
+    @DisplayName("R7(a): every row already scored (bulk update stamps nothing) — completes without error")
+    void abandonPendingForBatch_nothingStillPending_completes() {
+        when(apiCallLogRepository.findCustomIdsByBatchId("msgbatch_x")).thenReturn(
+                List.of("fc-1-2026-04-16-SUNRISE-r401"));
+        when(forecastEvaluationRepository.abandonPending(anyCollection())).thenReturn(0);
+
+        service().abandonPendingForBatch("msgbatch_x");
+
+        verify(forecastEvaluationRepository).abandonPending(List.of(401L));
+    }
+
     // ── R7(b): sweepBackstop ────────────────────────────────────────────────
 
     @Test

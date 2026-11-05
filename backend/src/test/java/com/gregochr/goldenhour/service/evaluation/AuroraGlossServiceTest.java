@@ -347,6 +347,60 @@ class AuroraGlossServiceTest {
     }
 
     @Test
+    @DisplayName("buildUserMessage includes moon rise and set times when both are known")
+    void buildUserMessage_moonRiseAndSetTimes() {
+        AuroraRegionSummary region = goRegion("Northumberland");
+        MoonTransitionData moon = new MoonTransitionData(LunarPhase.WAXING_GIBBOUS,
+                60.0, WindowQuality.DARK_THEN_MOONLIT, "23:10", "05:40", false, true);
+
+        String json = glossService.buildUserMessage(region, moon, AlertLevel.MODERATE, 5.0);
+
+        assertThat(json).contains("\"moonRiseTime\":\"23:10\"");
+        assertThat(json).contains("\"moonSetTime\":\"05:40\"");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage reports alertLevel UNKNOWN when no alert level is given")
+    void buildUserMessage_nullAlertLevel_unknown() {
+        String json = glossService.buildUserMessage(goRegion("Northumberland"), null, null, 5.0);
+
+        assertThat(json).contains("\"alertLevel\":\"UNKNOWN\"");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage wraps a serialisation failure in an IllegalStateException")
+    void buildUserMessage_serialisationFailure_wrapped() {
+        ObjectMapper failing = new ObjectMapper() {
+            @Override
+            public String writeValueAsString(Object value)
+                    throws com.fasterxml.jackson.core.JsonProcessingException {
+                throw new com.fasterxml.jackson.core.JsonProcessingException("boom") { };
+            }
+        };
+        AuroraGlossService service = new AuroraGlossService(
+                anthropicApiClient, failing, modelSelectionService);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> service.buildUserMessage(goRegion("Northumberland"), null, AlertLevel.MODERATE, 5.0))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Failed to build aurora gloss user message");
+    }
+
+    @Test
+    @DisplayName("a failure resolving the model returns the regions untouched rather than failing the briefing")
+    void modelSelectionFailure_returnsRegionsUnchanged() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS))
+                .thenThrow(new IllegalStateException("no model row"));
+        List<AuroraRegionSummary> regions = List.of(goRegion("Northumberland"));
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                regions, null, AlertLevel.MODERATE, 5.0);
+
+        assertThat(result).isSameAs(regions);
+        verify(anthropicApiClient, never()).createMessage(any(MessageCreateParams.class));
+    }
+
+    @Test
     @DisplayName("buildUserMessage handles null moon gracefully")
     void buildUserMessage_nullMoon() {
         AuroraRegionSummary region = goRegion("Northumberland");

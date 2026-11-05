@@ -601,6 +601,84 @@ class EvaluationServiceImplTest {
         verify(jobRunService).completeRun(eq(jobRun), eq(0), eq(1));
     }
 
+    @Test
+    @DisplayName("evaluateNow: a successful aurora call completes the job run as 1 succeeded, 0 failed")
+    void evaluateNow_auroraSuccess_completesJobRunAsSucceeded() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        com.gregochr.goldenhour.entity.JobRunEntity jobRun =
+                mock(com.gregochr.goldenhour.entity.JobRunEntity.class);
+        when(jobRun.getId()).thenReturn(101L);
+        when(jobRunService.startRun(any(), eq(false), any())).thenReturn(jobRun);
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        Message message = mockMessageWithText("[{\"name\":\"X\",\"stars\":4}]", 400L, 150L, 50L, 800L);
+        when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        when(auroraResultHandler.handleSyncResult(eq(task),
+                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Scored(List.of()));
+
+        service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        verify(jobRunService).completeRun(eq(jobRun), eq(1), eq(0));
+    }
+
+    @Test
+    @DisplayName("submit: aurora retry batches are refused")
+    void submit_auroraRetry_isRefused() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> service.submit(
+                List.of(task), BatchTriggerSource.SCHEDULED, null, true))
+                .withMessageContaining("Aurora retry batches are not supported");
+        verifyNoInteractions(batchSubmissionService);
+    }
+
+    @Test
+    @DisplayName("submit: aurora submission failure (null result) → EvaluationHandle.empty()")
+    void submit_auroraSubmissionFailure_returnsEmptyHandle() {
+        EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
+        when(claudeAuroraInterpreter.buildUserMessage(
+                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+        when(batchSubmissionService.submit(
+                any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED), anyString()))
+                .thenReturn(null);
+
+        EvaluationHandle handle = service.submit(List.of(task), BatchTriggerSource.SCHEDULED);
+
+        assertThat(handle).isEqualTo(EvaluationHandle.empty());
+    }
+
+    @Test
+    @DisplayName("submit: woodland tasks → wd- custom id + buildWoodlandRequest, nothing stored")
+    void submit_woodlandTasks_routesThroughWoodlandFactory() {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(54L);
+        loc.setName("Beech Wood");
+        EvaluationTask.Forecast wd = new EvaluationTask.Forecast(
+                loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.PromptKind.WOODLAND);
+        BatchCreateParams.Request req = mock(BatchCreateParams.Request.class);
+        when(batchRequestFactory.buildWoodlandRequest(
+                eq("wd-54-2026-04-16-SUNRISE"), eq(EvaluationModel.HAIKU),
+                eq(wd.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
+                .thenReturn(req);
+        when(batchSubmissionService.submit(
+                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(902L, "msgbatch_wd", 1));
+
+        EvaluationHandle handle = service.submit(List.of(wd), BatchTriggerSource.SCHEDULED);
+
+        assertThat(handle.batchId()).isEqualTo("msgbatch_wd");
+        ArgumentCaptor<List<BatchCreateParams.Request>> captor = ArgumentCaptor.forClass(List.class);
+        verify(batchSubmissionService).submit(
+                captor.capture(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false));
+        assertThat(captor.getValue()).containsExactly(req);
+        verify(batchRequestFactory, org.mockito.Mockito.never())
+                .buildForecastRequestAndPrompt(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static <T> T mock(Class<T> type) {

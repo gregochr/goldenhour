@@ -374,6 +374,124 @@ class AuroraResultHandlerTest {
         verify(auroraStateCache, never()).updateScores(any());
     }
 
+    @Test
+    @DisplayName("processBatchResponse: a failure with no error type reports the response status as the reason")
+    void processBatchResponse_failureWithoutErrorType_reportsStatus() {
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                "au-MODERATE-2026-04-16", "EXPIRED", null, "expired");
+
+        AuroraBatchOutcome result = handler.processBatchResponse(AlertLevel.MODERATE, outcome, null);
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.failureReason()).isEqualTo("EXPIRED");
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("processBatchResponse: a context with no job run id writes no api_call_log row")
+    void processBatchResponse_noJobRunId_skipsLog() {
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                "au-MODERATE-2026-04-16", "EXPIRED", "expired", "expired");
+
+        handler.processBatchResponse(AlertLevel.MODERATE, outcome,
+                ResultContext.forBatch(null, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("processBatchResponse: an api_call_log write failure is swallowed and the outcome is still returned")
+    void processBatchResponse_logWriteFails_isSwallowed() {
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                "au-MODERATE-2026-04-16", "EXPIRED", "expired", "expired");
+        org.mockito.Mockito.doThrow(new RuntimeException("DB down")).when(jobRunService).logBatchResult(
+                any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(),
+                any(), any(), any(), any(), any());
+
+        AuroraBatchOutcome result = handler.processBatchResponse(AlertLevel.MODERATE, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.failureReason()).isEqualTo("expired");
+    }
+
+    @Test
+    @DisplayName("processBatchResponse: an unknown alert level in the custom id is treated as QUIET "
+            + "(moderate Bortle threshold, QUIET passed to the parser)")
+    void processBatchResponse_nullAlertLevel_treatedAsQuiet() {
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "au-?-2026-04-16", "[]", new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        LocationEntity viable = loc(1L, "X");
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
+                .thenReturn(List.of(viable));
+        when(weatherTriageService.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(List.of(viable), List.of(), Map.of(viable, 30)));
+        AuroraForecastScore score = new AuroraForecastScore(viable, 2, AlertLevel.QUIET, 30, "ok", "");
+        when(claudeAuroraInterpreter.parseBatchResponse(
+                eq("[]"), eq(AlertLevel.QUIET), eq(List.of(viable)), eq(Map.of(viable, 30))))
+                .thenReturn(List.of(score));
+
+        AuroraBatchOutcome result = handler.processBatchResponse(null, outcome, null);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.scoredCount()).isEqualTo(1);
+        verify(auroraStateCache).updateScores(List.of(score));
+    }
+
+    @Test
+    @DisplayName("handleSyncResult: a failure with no error type is reported as 'unknown'")
+    void handleSyncResult_failureWithoutErrorType_isUnknown() {
+        LocationEntity viable = loc(1L, "X");
+        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
+                List.of(viable), Map.of(viable, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(null, "busy", EvaluationModel.HAIKU, 1500);
+
+        EvaluationResult result = handler.handleSyncResult(task, outcome, null);
+
+        assertThat(result).isEqualTo(new EvaluationResult.Errored("unknown", "busy"));
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("handleSyncResult: a context with no job run id writes no api_call_log row")
+    void handleSyncResult_noJobRunId_skipsLog() {
+        LocationEntity viable = loc(1L, "X");
+        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
+                List.of(viable), Map.of(viable, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
+                "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
+
+        handler.handleSyncResult(task, outcome,
+                ResultContext.forSync(null, BatchTriggerSource.SCHEDULED));
+
+        verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("handleSyncResult: an api_call_log write failure is swallowed and the result is still returned")
+    void handleSyncResult_logWriteFails_isSwallowed() {
+        LocationEntity viable = loc(1L, "X");
+        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
+                List.of(viable), Map.of(viable, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
+                "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
+        org.mockito.Mockito.doThrow(new RuntimeException("DB down")).when(jobRunService)
+                .logAnthropicApiCall(any(), org.mockito.ArgumentMatchers.anyLong(), any(),
+                        any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(), any());
+
+        EvaluationResult result = handler.handleSyncResult(task, outcome,
+                ResultContext.forSync(99L, BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isEqualTo(new EvaluationResult.Errored("overloaded_error", "busy"));
+    }
+
     private LocationEntity loc(long id, String name) {
         LocationEntity loc = new LocationEntity();
         loc.setId(id);
