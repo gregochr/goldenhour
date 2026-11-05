@@ -253,6 +253,69 @@ class RunsCostServiceTest {
         assertThat(service.cost(60).days()).hasSize(120);
     }
 
+    @Test
+    @DisplayName("ask-ready runs that recorded no location count have no averages and no locations pair")
+    void askRunsWithoutLocationCounts() {
+        rows.add(run(RunDeepType.ASK_READY, PRIOR_DAY, 1.0, null));
+        rows.add(run(RunDeepType.ASK_READY, LAST_DAY, 2.0, null));
+
+        RunCostResponse response = service.cost(14);
+
+        CostType ask = response.types().get(0);
+        assertThat(ask.type()).isEqualTo(RunDeepType.ASK_READY);
+        assertThat(ask.avgLocationsLast()).isNull();
+        assertThat(ask.avgLocationsPrior()).isNull();
+        assertThat(response.verdict().topType()).isEqualTo(RunDeepType.ASK_READY);
+        assertThat(response.verdict().askLocations()).isNull();
+    }
+
+    @Test
+    @DisplayName("the locations pair needs both periods: counts recorded only in the last period give no pair")
+    void askLocationsOnlyInLastPeriod() {
+        rows.add(run(RunDeepType.ASK_READY, PRIOR_DAY, 1.0, null));
+        rows.add(run(RunDeepType.ASK_READY, LAST_DAY, 2.0, 20));
+
+        RunCostResponse response = service.cost(14);
+
+        CostType ask = response.types().get(0);
+        assertThat(ask.avgLocationsLast()).isEqualTo(20);
+        assertThat(ask.avgLocationsPrior()).isNull();
+        assertThat(response.verdict().askLocations()).isNull();
+    }
+
+    @Test
+    @DisplayName("a type that was free in the prior period has no per-run change, and a type that is new this "
+            + "period is not 'as often as before'")
+    void noPerRunBaseline() {
+        spend(RunDeepType.BRIEFING, PRIOR_DAY, 0.0);
+        spend(RunDeepType.BRIEFING, LAST_DAY, 3.0);
+        spend(RunDeepType.EVENING, LAST_DAY, 5.0);
+        spend(RunDeepType.AFTERNOON, PRIOR_DAY, 1.0);
+
+        RunCostResponse response = service.cost(14);
+
+        assertThat(response.types()).filteredOn(t -> t.type() == RunDeepType.BRIEFING)
+                .allMatch(t -> t.perRunChangePercent() == null);
+        assertThat(response.types()).filteredOn(t -> t.type() == RunDeepType.EVENING)
+                .allMatch(t -> t.perRunChangePercent() == null && t.runsChangePercent() == null);
+        assertThat(response.types()).filteredOn(t -> t.type() == RunDeepType.AFTERNOON)
+                .allMatch(t -> t.perRunChangePercent() == null && t.lastRuns() == 0 && t.priorRuns() == 1);
+        assertThat(response.verdict().topType()).isEqualTo(RunDeepType.EVENING);
+        assertThat(response.verdict().runsAsOften()).isFalse();
+        assertThat(response.verdict().perRunMultiple()).isNull();
+    }
+
+    @Test
+    @DisplayName("a sky eval that only spent in the prior period gives no share sentence")
+    void skyEvalOnlyInPriorPeriod() {
+        spend(RunDeepType.SKY_EVAL, PRIOR_DAY, 5.0);
+
+        RunCostResponse response = service.cost(14);
+
+        assertThat(response.totals().lastGbp()).isEqualByComparingTo("0");
+        assertThat(response.verdict().skyEval()).isNull();
+    }
+
     private static CostDay day(RunCostResponse response, String date) {
         return response.days().stream().filter(d -> d.date().equals(LocalDate.parse(date))).findFirst().orElseThrow();
     }
