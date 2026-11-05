@@ -481,7 +481,8 @@ class LocationServiceTest {
     void add_setsDriveTargetChangedAtToCreatedAt() {
         when(locationRepository.existsByName("Glenridding")).thenReturn(false);
         when(nameGuard.locationNameClash("Glenridding", null)).thenReturn(Optional.empty());
-        when(locationRepository.save(any(LocationEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(locationRepository.save(argThat(l -> l != null && "Glenridding".equals(l.getName()))))
+                .thenAnswer(inv -> inv.getArgument(0));
 
         LocationEntity saved = locationService.add(new AddLocationRequest(
                 "Glenridding", 54.54, -2.95,

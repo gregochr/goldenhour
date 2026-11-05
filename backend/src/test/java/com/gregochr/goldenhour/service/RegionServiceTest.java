@@ -393,7 +393,7 @@ class RegionServiceTest {
         entity.setBaseLon(-2.96);
         entity.setDrivesMeasuredAt(java.time.Instant.parse("2026-11-05T02:00:00Z"));
         when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
-        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(regionRepository.save(entity)).thenReturn(entity);
 
         RegionEntity result = regionService.setBase(1L,
                 new SetRegionBaseRequest("Keswick", 54.601, -3.135));

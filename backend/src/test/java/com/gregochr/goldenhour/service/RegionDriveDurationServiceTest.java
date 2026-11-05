@@ -349,7 +349,7 @@ class RegionDriveDurationServiceTest {
             order.add("roster");
             return List.of(location(11L, 54.52, -3.30));
         });
-        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
+        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), argThat(d -> d.size() == 1)))
                 .thenAnswer(inv -> {
                     order.add("ors");
                     return List.of(1500.0);
@@ -366,7 +366,7 @@ class RegionDriveDurationServiceTest {
     void refreshForRegion_baseMovedMidFlight_isDiscarded() {
         when(orsProperties.isConfigured()).thenReturn(true);
         when(locationRepository.findAll()).thenReturn(List.of(location(11L, 54.52, -3.30)));
-        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
+        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), argThat(d -> d.size() == 1)))
                 .thenReturn(List.of(1500.0));
         when(driveTimeWriter.storeIfBaseUnchanged(eq(REGION_ID), eq(BASE_LAT), eq(BASE_LON),
                 argThat(rows -> rows.size() == 1), eq(NOW), eq(true))).thenReturn(false);
