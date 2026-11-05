@@ -89,6 +89,18 @@ class EvaluationTaskTest {
     }
 
     @Test
+    void woodlandTaskKeyCarriesSuffixAndPromptKind() {
+        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                persistedLocation(7L, "Bluebell Wood"),
+                DATE, TargetType.SUNRISE,
+                EvaluationModel.HAIKU, ATMOSPHERIC,
+                EvaluationTask.Forecast.PromptKind.WOODLAND);
+
+        assertThat(task.promptKind()).isEqualTo(EvaluationTask.Forecast.PromptKind.WOODLAND);
+        assertThat(task.taskKey()).isEqualTo("7/2026-04-16/SUNRISE/WOODLAND");
+    }
+
+    @Test
     void forecastTaskRejectsTransientLocation() {
         LocationEntity unsaved = new LocationEntity();
         unsaved.setName("Not-yet-persisted");

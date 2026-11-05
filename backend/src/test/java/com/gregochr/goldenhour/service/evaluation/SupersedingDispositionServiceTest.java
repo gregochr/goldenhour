@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -255,6 +256,126 @@ class SupersedingDispositionServiceTest {
                 DATE, SUNSET);
 
         assertThat(superseded).containsExactly("A");
+    }
+
+    /** Matches the queried location names regardless of their (hash-map) order. */
+    private static List<String> sameNames(String... names) {
+        return argThat(list -> list != null && list.size() == names.length
+                && Set.of(names).equals(Set.copyOf(list)));
+    }
+
+    // ── bulk edge cases ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("bulk: a result submitted after every later trigger has no next trigger and is left "
+            + "out of the disposition query")
+    void bulk_resultAfterEveryTrigger_leftOutOfDispositionQuery() {
+        // earliest = NIGHTLY; the only later trigger (INTRADAY) is not after B's NEXT_NIGHTLY.
+        when(pipelineRunRepository.findTriggerTimesAfter(NIGHTLY)).thenReturn(List.of(INTRADAY));
+
+        Set<String> superseded = service().supersededLocations(
+                List.of(
+                        new SupersedingDispositionService.LocatedSubmission("A", NIGHTLY),
+                        new SupersedingDispositionService.LocatedSubmission("B", NEXT_NIGHTLY)),
+                DATE, SUNSET);
+
+        // A has next trigger INTRADAY, B has none: only A is queried.
+        verify(forecastRunDispositionRepository).findSupersedingDispositions(
+                eq(DATE), eq("SUNSET"), eq(List.of("A")), eq(INTRADAY));
+        assertThat(superseded).isEmpty();
+    }
+
+    @Test
+    @DisplayName("bulk: results all submitted after the last trigger have no next trigger, so the "
+            + "disposition table is never queried")
+    void bulk_allSubmittedAfterLastTrigger_noDispositionQuery() {
+        Instant earlier = NIGHTLY.minusSeconds(3600);
+        when(pipelineRunRepository.findTriggerTimesAfter(earlier)).thenReturn(List.of(earlier));
+
+        Set<String> superseded = service().supersededLocations(
+                List.of(new SupersedingDispositionService.LocatedSubmission("A", earlier)),
+                DATE, SUNSET);
+
+        assertThat(superseded).isEmpty();
+        verifyNoInteractions(forecastRunDispositionRepository);
+    }
+
+    @Test
+    @DisplayName("bulk: the disposition query starts from the EARLIEST next trigger needed, whatever "
+            + "order the results arrive in")
+    void bulk_minNextTrigger_isTheEarliestEvenWhenALaterOneComesFirst() {
+        when(pipelineRunRepository.findTriggerTimesAfter(NIGHTLY))
+                .thenReturn(List.of(INTRADAY, NEXT_NIGHTLY));
+        // B (listed first) is submitted after INTRADAY so its next trigger is NEXT_NIGHTLY; A (listed
+        // second) is submitted at NIGHTLY so its next trigger is the earlier INTRADAY.
+        when(forecastRunDispositionRepository.findSupersedingDispositions(
+                eq(DATE), eq("SUNSET"), sameNames("B", "A"), eq(INTRADAY)))
+                .thenReturn(List.of());
+
+        Set<String> superseded = service().supersededLocations(
+                List.of(
+                        new SupersedingDispositionService.LocatedSubmission("B", INTRADAY),
+                        new SupersedingDispositionService.LocatedSubmission("A", NIGHTLY)),
+                DATE, SUNSET);
+
+        assertThat(superseded).isEmpty();
+        verify(forecastRunDispositionRepository).findSupersedingDispositions(
+                eq(DATE), eq("SUNSET"), sameNames("B", "A"), eq(INTRADAY));
+    }
+
+    @Test
+    @DisplayName("bulk: with two dispositions for one location the later one decides, whichever order "
+            + "the rows come back in")
+    void bulk_twoDispositionsForOneLocation_latestWins() {
+        Instant laterDisposition = INTRADAY.plusSeconds(60);
+        when(pipelineRunRepository.findTriggerTimesAfter(NIGHTLY)).thenReturn(List.of(INTRADAY));
+        // Rows arrive earlier-then-later for X and later-then-earlier for Y.
+        when(forecastRunDispositionRepository.findSupersedingDispositions(
+                eq(DATE), eq("SUNSET"), sameNames("X", "Y"), eq(INTRADAY)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[] {"X", INTRADAY}, new Object[] {"X", laterDisposition},
+                        new Object[] {"Y", laterDisposition}, new Object[] {"Y", INTRADAY}));
+
+        Set<String> superseded = service().supersededLocations(
+                List.of(
+                        new SupersedingDispositionService.LocatedSubmission("X", NIGHTLY),
+                        new SupersedingDispositionService.LocatedSubmission("Y", NIGHTLY)),
+                DATE, SUNSET);
+
+        assertThat(superseded).containsExactlyInAnyOrder("X", "Y");
+    }
+
+    @Test
+    @DisplayName("bulk: a disposition written BEFORE the next trigger does not supersede; one written "
+            + "exactly at it does")
+    void bulk_dispositionBeforeNextTrigger_notSuperseded_atTrigger_superseded() {
+        when(pipelineRunRepository.findTriggerTimesAfter(NIGHTLY)).thenReturn(List.of(INTRADAY));
+        when(forecastRunDispositionRepository.findSupersedingDispositions(
+                eq(DATE), eq("SUNSET"), sameNames("early", "exact", "none"), eq(INTRADAY)))
+                .thenReturn(List.<Object[]>of(
+                        new Object[] {"early", INTRADAY.minusSeconds(1)},
+                        new Object[] {"exact", INTRADAY}));
+
+        Set<String> superseded = service().supersededLocations(
+                List.of(
+                        new SupersedingDispositionService.LocatedSubmission("early", NIGHTLY),
+                        new SupersedingDispositionService.LocatedSubmission("exact", NIGHTLY),
+                        new SupersedingDispositionService.LocatedSubmission("none", NIGHTLY)),
+                DATE, SUNSET);
+
+        assertThat(superseded).containsExactly("exact");
+    }
+
+    @Test
+    @DisplayName("single: a repository answer with no trigger strictly after the submission yields "
+            + "not-superseded without a disposition query")
+    void single_noTriggerStrictlyAfterSubmission_notSuperseded() {
+        when(pipelineRunRepository.findTriggerTimesAfter(INTRADAY)).thenReturn(List.of(INTRADAY));
+
+        boolean superseded = service().isSuperseded("X", DATE, SUNSET, INTRADAY);
+
+        assertThat(superseded).isFalse();
+        verifyNoInteractions(forecastRunDispositionRepository);
     }
 
     // ── query count, precise verify(), no any() ──────────────────────────────

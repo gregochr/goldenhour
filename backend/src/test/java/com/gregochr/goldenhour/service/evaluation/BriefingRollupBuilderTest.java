@@ -302,4 +302,68 @@ class BriefingRollupBuilderTest {
 
         assertThat(result.validEvents()).noneMatch(e -> e.endsWith("_aurora"));
     }
+
+    // ── reconstructRollup: rebuilding the gate inputs from a stored rollup ──
+
+    @Test
+    @DisplayName("reconstructRollup restores valid events, regions, day names and per-region coverage")
+    void reconstructRollup_restoresEverything() throws Exception {
+        String json = "{\"validEvents\":[\"2027-04-20_sunrise\",\"2027-04-20_aurora\"],"
+                + "\"validRegions\":[\"North East\",\"Cumbria\"],"
+                + "\"events\":[{\"event\":\"2027-04-20_sunrise\",\"dayName\":\"Tuesday\","
+                + "\"regions\":[{\"name\":\"North East\",\"claudeRatedCount\":4,"
+                + "\"claudeAverageRating\":3.5},{\"name\":\"Cumbria\"}]}]}";
+
+        BriefingRollupBuilder.ReconstructedRollup rollup = builder.reconstructRollup(json);
+
+        assertThat(rollup.validEvents()).containsExactly("2027-04-20_sunrise", "2027-04-20_aurora");
+        assertThat(rollup.validRegions()).containsExactly("North East", "Cumbria");
+        assertThat(rollup.validDayNames()).containsExactly("Tuesday");
+        assertThat(rollup.coverageByKey())
+                .containsEntry(BestBetRanker.coverageKey("2027-04-20_sunrise", "North East"),
+                        new CandidateCoverage(4, 0, 3.5, false))
+                .containsEntry(BestBetRanker.coverageKey("2027-04-20_sunrise", "Cumbria"),
+                        new CandidateCoverage(0, 0, 0.0, false));
+    }
+
+    @Test
+    @DisplayName("reconstructRollup tolerates a rollup with none of the expected sections")
+    void reconstructRollup_emptyObject_yieldsEmptySets() throws Exception {
+        BriefingRollupBuilder.ReconstructedRollup rollup = builder.reconstructRollup("{}");
+
+        assertThat(rollup.validEvents()).isEmpty();
+        assertThat(rollup.validRegions()).isEmpty();
+        assertThat(rollup.validDayNames()).isEmpty();
+        assertThat(rollup.coverageByKey()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("reconstructRollup ignores sections that are not arrays")
+    void reconstructRollup_nonArraySections_areIgnored() throws Exception {
+        String json = "{\"validEvents\":\"x\",\"validRegions\":{\"a\":1},\"events\":\"none\"}";
+
+        BriefingRollupBuilder.ReconstructedRollup rollup = builder.reconstructRollup(json);
+
+        assertThat(rollup.validEvents()).isEmpty();
+        assertThat(rollup.validRegions()).isEmpty();
+        assertThat(rollup.coverageByKey()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("reconstructRollup keeps an event's day name even when the event has no usable regions, "
+            + "and skips events with no id, no regions array, or unnamed regions")
+    void reconstructRollup_skipsUnusableEventsAndRegions() throws Exception {
+        String json = "{\"events\":["
+                + "{\"dayName\":\"Monday\",\"regions\":[{\"name\":\"Lost\"}]},"
+                + "{\"event\":\"2027-04-21_sunset\",\"dayName\":\"Wednesday\"},"
+                + "{\"event\":\"2027-04-22_sunset\",\"regions\":\"none\"},"
+                + "{\"event\":\"2027-04-23_sunset\",\"regions\":[{\"claudeRatedCount\":9},"
+                + "{\"name\":\"Kept\",\"claudeRatedCount\":2}]}]}";
+
+        BriefingRollupBuilder.ReconstructedRollup rollup = builder.reconstructRollup(json);
+
+        assertThat(rollup.validDayNames()).containsExactlyInAnyOrder("Monday", "Wednesday");
+        assertThat(rollup.coverageByKey()).containsOnlyKeys(
+                BestBetRanker.coverageKey("2027-04-23_sunset", "Kept"));
+    }
 }

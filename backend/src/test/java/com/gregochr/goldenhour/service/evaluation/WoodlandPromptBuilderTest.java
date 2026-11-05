@@ -147,6 +147,61 @@ class WoodlandPromptBuilderTest {
                 .contains("Rain in the preceding hours: not available");
     }
 
+    private static AtmosphericData withWeather(BigDecimal wind, BigDecimal precip, Double snowDepth) {
+        return new AtmosphericData(
+                "Bluebell Wood",
+                LocalDateTime.of(2026, 10, 20, 7, 30),
+                TargetType.SUNRISE,
+                new CloudData(90, 60, 20),
+                new WeatherData(800, wind, 180, precip, 95, 3, null, 8.0, 1015.0, null, snowDepth, null,
+                        null, null, null),
+                null,
+                new ComfortData(9.0, null, null),
+                null, null, null, null, null, null, null, null, null, null, null, null, null);
+    }
+
+    @Test
+    @DisplayName("a missing wind reading reads as calm: 0.0 km/h and 0.00 m/s")
+    void userMessage_missingWind_readsCalm() {
+        String message = builder.buildUserMessage(withWeather(null, new BigDecimal("0.00"), null));
+
+        assertThat(message).contains("Wind: 0.0 km/h (0.00 m/s)");
+    }
+
+    @Test
+    @DisplayName("a present wind reading is converted to km/h")
+    void userMessage_windConvertedToKmh() {
+        String message = builder.buildUserMessage(withWeather(new BigDecimal("10"), new BigDecimal("0.00"), null));
+
+        assertThat(message).contains("Wind: 36.0 km/h (10.00 m/s)");
+    }
+
+    @Test
+    @DisplayName("a missing precipitation reading reads as 0.00 mm")
+    void userMessage_missingPrecip_readsZero() {
+        String message = builder.buildUserMessage(withWeather(new BigDecimal("1.0"), null, null));
+
+        assertThat(message).contains("Precipitation at the slot: 0.00 mm");
+    }
+
+    @Test
+    @DisplayName("snow depth on the ground is reported in metres")
+    void userMessage_snowDepth_reported() {
+        String message = builder.buildUserMessage(
+                withWeather(new BigDecimal("1.0"), new BigDecimal("0.00"), 0.35));
+
+        assertThat(message).contains("Snow depth: 0.35 m");
+    }
+
+    @Test
+    @DisplayName("a snow depth of exactly zero is not reported")
+    void userMessage_zeroSnowDepth_omitted() {
+        String message = builder.buildUserMessage(
+                withWeather(new BigDecimal("1.0"), new BigDecimal("0.00"), 0.0));
+
+        assertThat(message).doesNotContain("Snow depth");
+    }
+
     @Test
     @DisplayName("no snow line when there is no snow")
     void userMessage_omitsSnowWhenAbsent() {

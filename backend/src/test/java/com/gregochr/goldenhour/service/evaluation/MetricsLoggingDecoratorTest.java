@@ -266,4 +266,43 @@ class MetricsLoggingDecoratorTest {
         assertThat(result).isSameAs(evaluationDetail);
         verifyNoInteractions(jobRunService);
     }
+
+    @Test
+    @DisplayName("a 400 content-filter rejection is recorded as a failed content_filter row")
+    void failure_contentFilter400_recordsFailedRow() {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        when(ex.statusCode()).thenReturn(400);
+        when(ex.getMessage()).thenReturn("Output blocked by content filtering policy");
+
+        assertFailedRow(ex, 400, "content_filter", "Output blocked by content filtering policy");
+    }
+
+    @Test
+    @DisplayName("a 400 whose message is not a content-filter rejection is recorded as a plain failure")
+    void failure_other400_recordsFailedRow() {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        when(ex.statusCode()).thenReturn(400);
+        when(ex.getMessage()).thenReturn("invalid request");
+
+        assertFailedRow(ex, 400, "anthropic_400", "invalid request");
+    }
+
+    @Test
+    @DisplayName("a 400 with no message is recorded with a null message and does not NPE on the filter check")
+    void failure_400WithoutMessage_recordsFailedRow() {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        when(ex.statusCode()).thenReturn(400);
+        when(ex.getMessage()).thenReturn(null);
+
+        assertFailedRow(ex, 400, "anthropic_400", null);
+    }
+
+    @Test
+    @DisplayName("evaluateWithDetails() returns the detail without recording when the job run service is absent")
+    void evaluateWithDetails_noMetricsWhenServiceNull() {
+        MetricsLoggingDecorator noServiceDecorator = new MetricsLoggingDecorator(delegate, null, jobRun);
+        when(delegate.evaluateWithDetails(atmosphericData)).thenReturn(evaluationDetail);
+
+        assertThat(noServiceDecorator.evaluateWithDetails(atmosphericData)).isSameAs(evaluationDetail);
+    }
 }
