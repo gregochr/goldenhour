@@ -273,3 +273,21 @@ be written in parallel, at most two at a time, because each `mvn verify` is CPU-
 - `com.gregochr.goldenhour.service.VerificationTokenIssuer`: lines 100.0% (0 missed), branches 87.5% (1 missed)
 - `com.gregochr.goldenhour.service.WindowTideRollupBuilder`: lines 96.2% (6 missed), branches 85.9% (11 missed)
 - `com.gregochr.goldenhour.service.WoodlandVerdictEvaluator`: lines 93.9% (2 missed), branches 93.3% (2 missed)
+
+## B7 done (2026-11-05)
+
+`jacoco:check` now holds every class to 95% of lines and 90% of branches, with a BUNDLE floor of 99.3% lines
+and 95.8% branches (measured locally without the integration tests, rounded down). All the old `<excludes>`
+are gone: with B1 to B6 in, every class they hid clears the default.
+
+Overrides, each its own `<rule>` in `backend/pom.xml` at the measured figure rounded down, excluded from the default:
+
+| Class | Lines / branches floor | Reason |
+|---|---|---|
+| `util.DayScopedMemo` | 100 / 87 | `generation` is bumped before `today.equals(day)`, so the false arm never runs |
+| `config.OpenMeteoHealthIndicator` | 100 / 83 | the older-than-five-minutes path needs a real wait or the private `cachedAt` |
+| `controller.AuroraForecastController` | 100 / 50 | the request constructor turns a null `nights` into an empty list |
+| `service.SpringTideHotTopicStrategy` | 94 / 76 | all misses are in `isSpringNotKing`, a private method nothing calls |
+| `service.JwtService` | 94 / 100 | the SHA-256 `NoSuchAlgorithmException` catch cannot run on a standard JVM |
+| `service.SnowTopsHotTopicStrategy` | 96 / 77 | `attachFacts` guards repeat checks the detection filter already made |
+| `service.InversionHotTopicStrategy` | 96 / 83 | `attachFacts` guards repeat checks the detection filter already made |
