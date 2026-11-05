@@ -122,7 +122,63 @@ class HotTopicGlanceDecoratorTest {
         assertThat(glance.shortValue()).isEqualTo("+0.72 m pk");
     }
 
+    @Test
+    @DisplayName("a tie on the largest surge keeps the first date when the later topic comes second")
+    void surge_tieKeepsEarlierDateWhenListedFirst() {
+        HotTopic earlier = topic("STORM_SURGE", D2).withSurgeRun(surge("+0.60 m", "09:00", 0.60));
+        HotTopic later = topic("STORM_SURGE", D3).withSurgeRun(surge("+0.60 m", "10:00", 0.60));
+
+        List<HotTopic> out = decorator.decorate(List.of(earlier, later));
+
+        assertThat(out.get(0).glance().badge()).isEqualTo("PEAK");
+        assertThat(out.get(1).glance().badge()).isNull();
+    }
+
+    @Test
+    @DisplayName("surge topics with no date, no metres list or an empty one never take the PEAK badge")
+    void surge_undatedOrMetreless_neverPeak() {
+        HotTopic undated = topic("STORM_SURGE", null).withSurgeRun(surge("+0.90 m", "10:00", 0.90));
+        SurgeRunDay noMetres = new SurgeRunDay("Seaham", null, List.of(), "+0.50 m", "01:00", "12:00",
+                "07:00", "17:00", "v", false, "d", "p");
+        HotTopic metreless = topic("STORM_SURGE", D1).withSurgeRun(noMetres);
+        HotTopic empty = topic("STORM_SURGE", D2).withSurgeRun(surge("+0.40 m", "13:00"));
+        HotTopic real = topic("STORM_SURGE", D3).withSurgeRun(surge("+0.20 m", "14:00", 0.20));
+
+        List<HotTopic> out = decorator.decorate(List.of(undated, metreless, empty, real));
+
+        assertThat(out.get(0).glance().badge()).as("undated").isNull();
+        assertThat(out.get(1).glance().badge()).as("null metres").isNull();
+        assertThat(out.get(2).glance().badge()).as("empty metres").isNull();
+        assertThat(out.get(3).glance().badge()).as("the only measurable surge").isEqualTo("PEAK");
+    }
+
+    @Test
+    @DisplayName("a surge with a high-water time but no peak string prints the HW time alone and no short value")
+    void surge_noPeakString_printsHighWaterOnly() {
+        HotTopic t = topic("STORM_SURGE", D1).withSurgeRun(surge(null, "16:02", 0.72));
+
+        GlanceLine glance = glanceOf(t);
+
+        assertThat(glance).isEqualTo(new GlanceLine("HW 16:02", null, "PEAK", true));
+    }
+
+    @Test
+    @DisplayName("a surge with neither a high-water time nor a peak string has no value")
+    void surge_neitherHighWaterNorPeak_noValue() {
+        HotTopic t = topic("STORM_SURGE", D1).withSurgeRun(surge(null, null, 0.72));
+
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, null, "PEAK", true));
+    }
+
     // ── Tides ───────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("a tide run with no range has null value lines but still carries its PEAK badge")
+    void tide_noRange_nullLinesKeepsBadge() {
+        HotTopic t = topic("KING_TIDE", D2).withTideRun(tide(2, 3, null, true));
+
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, null, "PEAK", false));
+    }
 
     @Test
     @DisplayName("tide prints its range, and says 'run starts' only on day 1 of a multi-day run")
@@ -183,6 +239,24 @@ class HotTopicGlanceDecoratorTest {
         assertThat(glance).isEqualTo(new GlanceLine(null, "full", "FULL", false));
     }
 
+    @Test
+    @DisplayName("a 'rises' fact with no comma is used whole")
+    void supermoon_risesFactWithoutComma() {
+        HotTopic t = topic("SUPERMOON", D1).withScience(List.of(
+                HotTopicFact.directional("rises", "16:34", "ENE", false)), null);
+
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("rise 16:34", "full", "FULL", false));
+    }
+
+    @Test
+    @DisplayName("a 'rises' fact with no value is ignored, leaving the rise line null")
+    void supermoon_risesFactWithNullValue() {
+        HotTopic t = topic("SUPERMOON", D1).withScience(List.of(
+                new HotTopicFact("rises", null, "ENE", false, false)), null);
+
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, "full", "FULL", false));
+    }
+
     // ── Dust ────────────────────────────────────────────────────────────────
 
     @Test
@@ -222,6 +296,16 @@ class HotTopicGlanceDecoratorTest {
 
             assertThat(glanceOf(t)).as(type).isEqualTo(new GlanceLine("first", "first", null, false));
         }
+    }
+
+    @Test
+    @DisplayName("the first fact with a value is printed, skipping valueless facts before it")
+    void firstFact_skipsValuelessFacts() {
+        HotTopic t = topic("AURORA", D1).withScience(List.of(
+                new HotTopicFact("kp", null, null, false, false),
+                HotTopicFact.metric("k", "Kp 6")), null);
+
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("Kp 6", "Kp 6", null, true));
     }
 
     @Test

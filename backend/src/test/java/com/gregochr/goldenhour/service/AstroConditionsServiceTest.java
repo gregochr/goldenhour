@@ -755,6 +755,219 @@ class AstroConditionsServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // Edge cases: persistence merge, failure isolation, sparse forecast arrays
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("Edge cases")
+    class EdgeCaseTests {
+
+        private static final double REF_LAT = 54.776;
+        private static final double REF_LON = -1.575;
+        private final LocalDate date = LocalDate.of(2026, 6, 21);
+        private final LocalDateTime dusk = LocalDateTime.of(2026, 6, 21, 21, 30);
+        private final LocalDateTime dawn = LocalDateTime.of(2026, 6, 22, 3, 0);
+        /** Dusk plus half the 330-minute night: 00:15 UTC on the 22nd. */
+        private final java.time.ZonedDateTime midpoint =
+                java.time.ZonedDateTime.of(2026, 6, 22, 0, 15, 0, 0, java.time.ZoneOffset.UTC);
+
+        private void stubTwilight() {
+            when(solarService.nauticalDuskUtc(REF_LAT, REF_LON, date)).thenReturn(dusk);
+            when(solarService.nauticalDawnUtc(REF_LAT, REF_LON, date.plusDays(1))).thenReturn(dawn);
+        }
+
+        private OpenMeteoForecastResponse clearNight() {
+            return buildForecast(dusk, dawn, List.of(5, 5, 5, 5, 5),
+                    List.of(30000.0, 30000.0, 30000.0, 30000.0, 30000.0));
+        }
+
+        @Test
+        @DisplayName("A re-run reuses the stored row's id so the save updates rather than duplicates")
+        void existingRow_isMergedByItsId() {
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            AstroConditionsEntity stored = new AstroConditionsEntity();
+            stored.setId(77L);
+            stored.setLocation(location);
+            stored.setForecastDate(date);
+            when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(location));
+            when(astroConditionsRepository.findByForecastDateIn(List.of(date))).thenReturn(List.of(stored));
+            stubTwilight();
+            when(openMeteoClient.fetchForecastBatch(org.mockito.ArgumentMatchers.argThat(
+                    (List<double[]> coords) -> coords.size() == 1 && coords.get(0)[0] == REF_LAT
+                            && coords.get(0)[1] == REF_LON))).thenReturn(List.of(clearNight()));
+            when(lunarCalculator.calculate(eq(midpoint), eq(REF_LAT), eq(REF_LON)))
+                    .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
+
+            int scored = service.evaluateAndPersist(List.of(date));
+
+            assertThat(scored).isEqualTo(1);
+            org.mockito.ArgumentCaptor<List<AstroConditionsEntity>> saved =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(astroConditionsRepository).saveAll(saved.capture());
+            assertThat(saved.getValue()).hasSize(1);
+            assertThat(saved.getValue().get(0).getId()).isEqualTo(77L);
+            assertThat(saved.getValue().get(0).getStars()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("A failed weather batch scores nothing and saves nothing")
+        void batchFetchFailure_scoresNothing() {
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(location));
+            when(astroConditionsRepository.findByForecastDateIn(List.of(date))).thenReturn(List.of());
+            stubTwilight();
+            when(openMeteoClient.fetchForecastBatch(org.mockito.ArgumentMatchers.argThat(
+                    (List<double[]> coords) -> coords.size() == 1)))
+                    .thenThrow(new IllegalStateException("Open-Meteo down"));
+
+            assertThat(service.evaluateAndPersist(List.of(date))).isZero();
+            verify(astroConditionsRepository, never()).saveAll(any());
+        }
+
+        @Test
+        @DisplayName("An unexpected failure scoring one location does not stop the others being saved")
+        void oneLocationThrowing_othersStillSaved() {
+            LocationEntity broken = buildLocation(1L, "Kielder", 2);
+            LocationEntity fine = LocationEntity.builder().id(2L).name("Galloway").lat(55.0).lon(-4.0)
+                    .bortleClass(2).enabled(true).build();
+            OpenMeteoForecastResponse forecast = clearNight();
+            when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                    .thenReturn(List.of(broken, fine));
+            when(astroConditionsRepository.findByForecastDateIn(List.of(date))).thenReturn(List.of());
+            stubTwilight();
+            when(openMeteoClient.fetchForecastBatch(org.mockito.ArgumentMatchers.argThat(
+                    (List<double[]> coords) -> coords.size() == 2)))
+                    .thenReturn(java.util.Arrays.asList(null, forecast));
+            when(lunarCalculator.calculate(eq(midpoint), eq(55.0), eq(-4.0)))
+                    .thenReturn(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON));
+            AstroConditionsService spied = org.mockito.Mockito.spy(service);
+            Map<String, OpenMeteoForecastResponse> cache = forecastMap(fine, forecast);
+            org.mockito.Mockito.doThrow(new IllegalStateException("boom")).when(spied).scoreLocation(
+                    eq(broken), eq(date), eq(dusk), eq(dawn),
+                    org.mockito.ArgumentMatchers.argThat((Instant now) ->
+                            java.time.Duration.between(now, Instant.now()).abs().toMinutes() < 5),
+                    eq(cache));
+
+            int scored = spied.evaluateAndPersist(List.of(date));
+
+            assertThat(scored).isEqualTo(1);
+            org.mockito.ArgumentCaptor<List<AstroConditionsEntity>> saved =
+                    org.mockito.ArgumentCaptor.forClass(List.class);
+            verify(astroConditionsRepository).saveAll(saved.capture());
+            assertThat(saved.getValue()).extracting(e -> e.getLocation().getName()).containsExactly("Galloway");
+        }
+
+        @Test
+        @DisplayName("A forecast with no hourly block is not scored")
+        void forecastWithoutHourly_isNotScored() {
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            OpenMeteoForecastResponse noHourly = new OpenMeteoForecastResponse();
+
+            assertThat(service.scoreLocation(location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, noHourly))).isNull();
+        }
+
+        @Test
+        @DisplayName("A forecast that reaches dawn's day but holds no hour inside the night is not scored")
+        void noHoursInsideTheNight_isNotScored() {
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            OpenMeteoForecastResponse daytimeOnly = buildForecast(
+                    LocalDateTime.of(2026, 6, 22, 12, 0), dawn.plusHours(12), List.of(5, 5),
+                    List.of(30000.0, 30000.0));
+
+            assertThat(service.scoreLocation(location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, daytimeOnly))).isNull();
+        }
+
+        @Test
+        @DisplayName("A failure inside scoring (the moon calculation throwing) gives no result, not an exception")
+        void scoringFailure_givesNull() {
+            LocationEntity location = buildLocation(1L, "Kielder", 2);
+            when(lunarCalculator.calculate(eq(midpoint), eq(54.776), eq(-1.575)))
+                    .thenThrow(new IllegalStateException("ephemeris unavailable"));
+
+            assertThat(service.scoreLocation(location, date, dusk, dawn, Instant.now(),
+                    forecastMap(location, clearNight()))).isNull();
+        }
+
+        @Test
+        @DisplayName("A forecast whose time array is null does not cover the night")
+        void nullTimeArray_doesNotCoverNight() {
+            OpenMeteoForecastResponse forecast = new OpenMeteoForecastResponse();
+            forecast.setHourly(new OpenMeteoForecastResponse.Hourly());
+
+            assertThat(service.coversWholeNight(forecast, dawn)).isFalse();
+        }
+
+        @Test
+        @DisplayName("Missing, short and null-element cloud and visibility arrays read as clear and zero")
+        void sparseArrays_readAsZero() {
+            OpenMeteoForecastResponse forecast = new OpenMeteoForecastResponse();
+            OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+            hourly.setTime(List.of("2026-06-21T22:00", "2026-06-21T23:00", "2026-06-22T00:00"));
+            hourly.setCloudCoverLow(java.util.Arrays.asList(40, null));
+            hourly.setCloudCoverMid(null);
+            hourly.setCloudCoverHigh(List.of(70, 10, 20));
+            hourly.setVisibility(java.util.Arrays.asList(15000.0, null));
+            forecast.setHourly(hourly);
+
+            List<NightHour> hours = service.extractNightHours(forecast, dusk, dawn);
+
+            assertThat(hours).containsExactly(
+                    new NightHour(70, 15000.0),
+                    new NightHour(10, 0.0),
+                    new NightHour(20, 0.0));
+        }
+
+        @Test
+        @DisplayName("Below-horizon moon wording follows illumination: new, part-lit, mostly lit")
+        void belowHorizonMoon_wordingFollowsIllumination() {
+            assertThat(service.scoreMoon(lunarPosition(-10, 0.01, LunarPhase.NEW_MOON)).explanation())
+                    .isEqualTo("New moon — perfect dark sky");
+            assertThat(service.scoreMoon(lunarPosition(-10, 0.30, LunarPhase.WAXING_CRESCENT)).explanation())
+                    .isEqualTo("Moon below horizon — dark sky");
+            assertThat(service.scoreMoon(lunarPosition(-10, 0.80, LunarPhase.WAXING_GIBBOUS)).explanation())
+                    .isEqualTo("Moon below horizon — dark sky window");
+        }
+
+        @Test
+        @DisplayName("A three-star summary reads cloud then moon")
+        void threeStarSummary_readsCloudThenMoon() {
+            String summary = service.buildSummary(3,
+                    new CloudResult(0.0, "Broken cloud", 50),
+                    new VisibilityResult(-0.5, "Some haze", 7000),
+                    new MoonResult(0.0, "Quarter moon"),
+                    false);
+
+            assertThat(summary).isEqualTo("Broken cloud. Quarter moon.");
+        }
+
+        @Test
+        @DisplayName("A low-star summary leads with visibility when haze, not cloud, is the worst factor")
+        void lowStarSummary_leadsWithVisibilityWhenWorst() {
+            String summary = service.buildSummary(2,
+                    new CloudResult(0.0, "Broken cloud", 50),
+                    new VisibilityResult(-1.5, "Dense fog", 800),
+                    new MoonResult(-0.5, "Gibbous moon"),
+                    false);
+
+            assertThat(summary).isEqualTo("Dense fog. Broken cloud.");
+        }
+
+        @Test
+        @DisplayName("A low-star summary leads with visibility when the moon is worse than the cloud")
+        void lowStarSummary_leadsWithVisibilityWhenMoonWorseThanCloud() {
+            String summary = service.buildSummary(2,
+                    new CloudResult(-0.5, "Cloud", 70),
+                    new VisibilityResult(0.0, "Good transparency", 15000),
+                    new MoonResult(-1.0, "Bright moon"),
+                    false);
+
+            assertThat(summary).isEqualTo("Good transparency. Cloud.");
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

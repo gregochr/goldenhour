@@ -216,6 +216,54 @@ class AuroraWeatherEnricherTest {
         server.verify();
     }
 
+    @Test
+    @DisplayName("Skips a location whose response carries no hourly block")
+    void responseWithoutHourlyBlock_isSkipped() {
+        AuroraWeatherEnricher realEnricher = enricherAnswering("{\"hourly\":null}");
+        ZonedDateTime target = ZonedDateTime.of(2027, 3, 1, 22, 30, 0, 0, ZoneOffset.UTC);
+
+        Map<Long, AuroraWeatherEnricher.AuroraWeather> result =
+                realEnricher.fetchWeather(List.of(location(1L, "Kielder", 55.2, -2.6)), target);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Per-hour arrays shorter than the target index give null readings and a 50% cloud default")
+    void arraysShorterThanTargetIndex_giveNullReadings() {
+        // The target hour (22:00) is index 1, but every value array holds only index 0.
+        AuroraWeatherEnricher realEnricher = enricherAnswering("""
+                {"hourly":{"time":["2027-03-01T21:00","2027-03-01T22:00"],
+                 "cloud_cover":[10],"temperature_2m":[4.0],"wind_speed_10m":[2.0],"weather_code":[3]}}""");
+        ZonedDateTime target = ZonedDateTime.of(2027, 3, 1, 22, 30, 0, 0, ZoneOffset.UTC);
+
+        Map<Long, AuroraWeatherEnricher.AuroraWeather> result =
+                realEnricher.fetchWeather(List.of(location(1L, "Kielder", 55.2, -2.6)), target);
+
+        assertThat(result.get(1L)).isEqualTo(new AuroraWeatherEnricher.AuroraWeather(50, null, null, null));
+    }
+
+    @Test
+    @DisplayName("Missing temperature, wind and weather-code arrays give null readings with the real cloud value")
+    void missingValueArrays_giveNullReadings() {
+        AuroraWeatherEnricher realEnricher = enricherAnswering("""
+                {"hourly":{"time":["2027-03-01T22:00"],"cloud_cover":[64]}}""");
+        ZonedDateTime target = ZonedDateTime.of(2027, 3, 1, 22, 0, 0, 0, ZoneOffset.UTC);
+
+        Map<Long, AuroraWeatherEnricher.AuroraWeather> result =
+                realEnricher.fetchWeather(List.of(location(1L, "Kielder", 55.2, -2.6)), target);
+
+        assertThat(result.get(1L)).isEqualTo(new AuroraWeatherEnricher.AuroraWeather(64, null, null, null));
+    }
+
+    private static AuroraWeatherEnricher enricherAnswering(String json) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(containsString("api.open-meteo.com")))
+                .andRespond(withSuccess(json, org.springframework.http.MediaType.APPLICATION_JSON));
+        return new AuroraWeatherEnricher(builder.build());
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
     private static LocationEntity location(Long id, String name, double lat, double lon) {

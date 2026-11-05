@@ -4126,4 +4126,81 @@ class BriefingServiceTest {
             verify(jobRunService, times(1)).completeRun(briefingRun, 0, 0);
         }
     }
+
+    // ── Optional enrichment sinks that fail during a refresh ─────────────────────
+
+    @Nested
+    @DisplayName("Optional enrichment sinks that fail during a refresh")
+    class OptionalSinkFailures {
+
+        private final JobRunEntity run = JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build();
+
+        private BriefingService serviceWith(NlcClarityService nlcService, MeteorClarityService meteorService,
+                SurgeCurveService surgeService) {
+            BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
+                    solarService, locationService,
+                    new TideFactDeriver(tideService, new LunarPhaseService(new LunarCalculator()), solarService),
+                    verdictEvaluator, new WoodlandVerdictEvaluator(), tideExtremeRepository, eclipseSightAssembler);
+            return new BriefingService(
+                    locationService, weatherLoader(), jobRunService, briefingCacheRepository,
+                    new ObjectMapper().findAndRegisterModules(), new BriefingHeadlineGenerator(CLOCK),
+                    bestBetAdvisor, glossService, bluebellGlossService, auroraSummaryBuilder,
+                    new BriefingHierarchyBuilder(verdictEvaluator), slotBuilder, eventPublisher,
+                    hotTopicAggregator, evaluationViewService, BLUEBELL_WINDOW, nlcService, meteorService,
+                    surgeService, CLOCK, marineWaveRefreshService, snapshots(), assembler(CLOCK),
+                    rollup(CLOCK), eclipseSightAssembler, new ServedBriefingEpoch());
+        }
+
+        @Test
+        @DisplayName("marine, NLC, meteor, surge, snapshot and persistence failures each cost only their own "
+                + "extra: the briefing is still built and cached")
+        void everyOptionalSinkFailing_stillCachesTheBriefing() {
+            LocationEntity loc = location("Durham", "Northumberland");
+            List<LocalDate> dates = java.util.stream.IntStream.range(0, 5).mapToObj(FIXED_TODAY::plusDays).toList();
+            when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+            when(jobRunService.startRun(RunType.BRIEFING, false, null)).thenReturn(run);
+            for (LocalDate date : dates) {
+                when(solarService.sunriseUtc(loc.getLat(), loc.getLon(), date))
+                        .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
+                when(solarService.sunsetUtc(loc.getLat(), loc.getLon(), date))
+                        .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+            }
+            NlcClarityService nlcService = mock(NlcClarityService.class);
+            MeteorClarityService meteorService = mock(MeteorClarityService.class);
+            SurgeCurveService surgeService = mock(SurgeCurveService.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("nlc down")).when(nlcService).refresh(dates);
+            org.mockito.Mockito.doThrow(new IllegalStateException("meteor down")).when(meteorService)
+                    .refresh(dates);
+            ArgumentCaptor<List<BriefingSlotBuilder.LocationWeather>> surgeInput =
+                    ArgumentCaptor.forClass(List.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("surge down")).when(surgeService)
+                    .refresh(surgeInput.capture(), eq(dates));
+            ArgumentCaptor<TideExtremeSnapshot> tideSnapshot = ArgumentCaptor.forClass(TideExtremeSnapshot.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("marine down")).when(marineWaveRefreshService)
+                    .refresh(eq(List.of(loc)), eq(dates), eq(1L), tideSnapshot.capture());
+            ArgumentCaptor<Iterable<com.gregochr.goldenhour.entity.BriefingRegionSnapshotEntity>> snapshotRows =
+                    ArgumentCaptor.forClass(Iterable.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("snapshots down")).when(snapshotRepository)
+                    .saveAll(snapshotRows.capture());
+            ArgumentCaptor<DailyBriefingCacheEntity> persisted =
+                    ArgumentCaptor.forClass(DailyBriefingCacheEntity.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("db down")).when(briefingCacheRepository)
+                    .save(persisted.capture());
+            BriefingService service = serviceWith(nlcService, meteorService, surgeService);
+
+            service.refreshBriefing();
+
+            DailyBriefingResponse cached = service.getCachedBriefing();
+            assertThat(cached).isNotNull();
+            assertThat(cached.days()).hasSize(5);
+            verify(nlcService).refresh(dates);
+            verify(meteorService).refresh(dates);
+            assertThat(surgeInput.getValue()).extracting(BriefingSlotBuilder.LocationWeather::location)
+                    .containsExactly(loc);
+            assertThat(persisted.getValue().getId()).isEqualTo(1);
+            assertThat(persisted.getValue().getGeneratedAt()).isEqualTo(cached.generatedAt());
+            verify(jobRunService).completeRun(run, 1, 0, dates);
+        }
+    }
 }

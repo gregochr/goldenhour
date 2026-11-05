@@ -221,6 +221,44 @@ class HotTopicAggregatorTest {
     }
 
     @Test
+    @DisplayName("an undated topic is kept without consulting the travel calendar")
+    void getHotTopics_undatedTopic_keptWithoutTravelLookup() {
+        HotTopic undated = new HotTopic("DUST", "Dust", "no date", null, 2, null, List.of(), null, null);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(undated)),
+                simulationService, travelDayService, eventEnricher, glanceDecorator,
+                slotSignalReader, locationRepository);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(undated);
+        verifyNoInteractions(travelDayService);
+    }
+
+    @Test
+    @DisplayName("a topic wholly behind the range is judged on its own date, and kept when that was not a travel day")
+    void getHotTopics_topicBehindRange_judgedOnItsOwnDate_kept() {
+        HotTopic stale = new HotTopic("SPRING_TIDE", "Spring tide", "stale",
+                FROM.minusDays(2), 2, null, List.of(), null, null);
+        when(travelDayService.isTravelDay(FROM.minusDays(2))).thenReturn(false);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(stale)),
+                simulationService, travelDayService, eventEnricher, glanceDecorator,
+                slotSignalReader, locationRepository);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(stale);
+    }
+
+    @Test
+    @DisplayName("a topic wholly behind the range is dropped when its own date was a travel day")
+    void getHotTopics_topicBehindRange_judgedOnItsOwnDate_dropped() {
+        HotTopic stale = new HotTopic("SPRING_TIDE", "Spring tide", "stale",
+                FROM.minusDays(2), 2, null, List.of(), null, null);
+        when(travelDayService.isTravelDay(FROM.minusDays(2))).thenReturn(true);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(stale)),
+                simulationService, travelDayService, eventEnricher, glanceDecorator,
+                slotSignalReader, locationRepository);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
+    }
+
+    @Test
     @DisplayName("the travel filter reads the ENRICHED topic — an anchor the enricher adds decides the dates")
     void getHotTopics_travelFilter_readsTheEnrichedAnchor() {
         // The strategy emits the topic with no anchor; the enricher (the real one maps AURORA to

@@ -221,6 +221,24 @@ class AuthAttemptLimiterTest {
     }
 
     @Test
+    @DisplayName("recordFailure and isSpent on the HOUR window use the hourly cache, not the quarter-hour one")
+    void hourWindow_recordFailureAndIsSpent_useTheHourlyCache() {
+        limiter.recordFailure("k", Window.HOUR);
+        limiter.recordFailure("k", Window.HOUR);
+
+        assertThat(limiter.isSpent("k", 2, Window.HOUR)).isTrue();
+        assertThat(limiter.isSpent("k", 3, Window.HOUR)).isFalse();
+        assertThat(limiter.isSpent("k", 1, Window.QUARTER_HOUR))
+                .as("the same key text in the quarter-hour cache was never counted").isFalse();
+
+        advance(Duration.ofMinutes(16));
+        assertThat(limiter.isSpent("k", 2, Window.HOUR))
+                .as("the hourly entry outlives the quarter-hour length").isTrue();
+        advance(Duration.ofMinutes(45));
+        assertThat(limiter.isSpent("k", 2, Window.HOUR)).isFalse();
+    }
+
+    @Test
     @DisplayName("the window lengths are 15 minutes and one hour")
     void windowLengths() {
         assertThat(Window.QUARTER_HOUR.length()).isEqualTo(Duration.ofMinutes(15));

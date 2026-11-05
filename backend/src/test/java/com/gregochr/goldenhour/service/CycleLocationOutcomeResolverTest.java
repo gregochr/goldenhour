@@ -294,6 +294,19 @@ class CycleLocationOutcomeResolverTest {
     }
 
     @Test
+    @DisplayName("JFDI and force-submit custom ids are sky-lane results for their place")
+    void jfdiAndForceSubmitCustomIds_areSkyLaneResults() {
+        firstBatchWith(List.of(), List.of(
+                new BatchCallOutcome("jfdi-50-2026-10-02-SUNSET", true, null),
+                new BatchCallOutcome("force-north-51-2026-10-02-SUNSET", false, "errored")));
+
+        Map<Long, CyclePlaceEvidence> evidence = resolver().resolve(RUN_ID);
+
+        assertThat(evidence.get(50L)).isEqualTo(CyclePlaceEvidenceFixtures.scoredIn(Lane.SKY));
+        assertThat(evidence.get(51L)).isEqualTo(CyclePlaceEvidenceFixtures.failedIn(Lane.SKY));
+    }
+
+    @Test
     @DisplayName("an unparseable or aurora custom id cannot be attributed to a place and is ignored")
     void unattributableCustomIds_ignored() {
         firstBatchWith(List.of(), List.of(

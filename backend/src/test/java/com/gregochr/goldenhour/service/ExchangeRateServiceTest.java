@@ -7,8 +7,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.ObjectMapper;
 
@@ -19,6 +22,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -119,6 +124,78 @@ class ExchangeRateServiceTest {
         double rate = exchangeRateService.getRate(today);
 
         assertThat(rate).isEqualTo(0.78);
+    }
+
+    @Test
+    @DisplayName("getRate() asks the latest endpoint for a future date and caches the result under that date")
+    void getRate_futureDate_usesLatestEndpoint() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ExchangeRateService service = new ExchangeRateService(
+                exchangeRateRepository, builder.build(), new ObjectMapper());
+        LocalDate future = LocalDate.now(ZoneOffset.UTC).plusDays(3);
+        when(exchangeRateRepository.findByRateDate(future)).thenReturn(Optional.empty());
+        server.expect(requestTo("https://api.frankfurter.dev/v1/latest?base=USD&symbols=GBP"))
+                .andRespond(withSuccess("{\"rates\":{\"GBP\":0.83}}", MediaType.APPLICATION_JSON));
+
+        double rate = service.getRate(future);
+
+        assertThat(rate).isEqualTo(0.83);
+        server.verify();
+        ArgumentCaptor<ExchangeRateEntity> saved = ArgumentCaptor.forClass(ExchangeRateEntity.class);
+        verify(exchangeRateRepository).save(saved.capture());
+        assertThat(saved.getValue().getRateDate()).isEqualTo(future);
+        assertThat(saved.getValue().getGbpPerUsd()).isEqualTo(0.83);
+    }
+
+    @Test
+    @DisplayName("getRate() asks the dated endpoint for a past date")
+    void getRate_pastDate_usesDatedEndpoint() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ExchangeRateService service = new ExchangeRateService(
+                exchangeRateRepository, builder.build(), new ObjectMapper());
+        LocalDate past = LocalDate.of(2026, 1, 15);
+        when(exchangeRateRepository.findByRateDate(past)).thenReturn(Optional.empty());
+        server.expect(requestTo("https://api.frankfurter.dev/v1/2026-01-15?base=USD&symbols=GBP"))
+                .andRespond(withSuccess("{\"rates\":{\"GBP\":0.77}}", MediaType.APPLICATION_JSON));
+
+        assertThat(service.getRate(past)).isEqualTo(0.77);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("getRate() falls back when the response has no rates block, caching nothing")
+    void getRate_responseWithoutRates_fallsBack() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ExchangeRateService service = serviceAnswering("{\"base\":\"USD\"}");
+        when(exchangeRateRepository.findByRateDate(today)).thenReturn(Optional.empty());
+        when(exchangeRateRepository.findTopByOrderByRateDateDesc()).thenReturn(Optional.empty());
+
+        assertThat(service.getRate(today)).isEqualTo(0.79);
+        verify(exchangeRateRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("getRate() falls back when the rates block has no GBP entry")
+    void getRate_ratesWithoutGbp_fallsBack() {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        ExchangeRateService service = serviceAnswering("{\"rates\":{\"EUR\":0.92}}");
+        ExchangeRateEntity previous = ExchangeRateEntity.builder()
+                .rateDate(today.minusDays(2)).gbpPerUsd(0.76)
+                .fetchedAt(LocalDateTime.now(ZoneOffset.UTC)).build();
+        when(exchangeRateRepository.findByRateDate(today)).thenReturn(Optional.empty());
+        when(exchangeRateRepository.findTopByOrderByRateDateDesc()).thenReturn(Optional.of(previous));
+
+        assertThat(service.getRate(today)).isEqualTo(0.76);
+    }
+
+    private ExchangeRateService serviceAnswering(String json) {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo("https://api.frankfurter.dev/v1/latest?base=USD&symbols=GBP"))
+                .andRespond(withSuccess(json, MediaType.APPLICATION_JSON));
+        return new ExchangeRateService(exchangeRateRepository, builder.build(), new ObjectMapper());
     }
 
     @Test

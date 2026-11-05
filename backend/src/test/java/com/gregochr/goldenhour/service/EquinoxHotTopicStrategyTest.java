@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,6 +97,73 @@ class EquinoxHotTopicStrategyTest {
                 .thenReturn(false);
 
         assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a due-west sunset alone fires when the sunrise is nowhere near due east")
+    void detect_sunsetAlignedOnly_fires() {
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(enabledLocation());
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(120);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+
+        assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an expired due-east sunrise does not hide a due-west sunset that is still ahead")
+    void detect_sunriseExpiredSunsetAhead_fires() {
+        List<LocationEntity> locations = enabledLocation();
+        LocationEntity location = locations.get(0);
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(locations);
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(90);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+        when(freshness.isAhead(location, SPRING_EQUINOX, TargetType.SUNRISE)).thenReturn(false);
+        when(freshness.isAhead(location, SPRING_EQUINOX, TargetType.SUNSET)).thenReturn(true);
+
+        assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an expired due-west sunset with a sunrise off east does not fire")
+    void detect_sunsetExpiredSunriseOffEast_doesNotFire() {
+        List<LocationEntity> locations = enabledLocation();
+        LocationEntity location = locations.get(0);
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(locations);
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(120);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+        when(freshness.isAhead(location, SPRING_EQUINOX, TargetType.SUNSET)).thenReturn(false);
+
+        assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an aligned location with no region contributes no region, so no topic is emitted")
+    void detect_alignedLocationWithoutRegion_doesNotFire() {
+        LocationEntity regionless = LocationEntity.builder().name("Orphan").lat(LAT).lon(LON).build();
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(regionless));
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(90);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+
+        assertThat(strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a location whose azimuth calculation throws is skipped; the others still count")
+    void detect_azimuthFailure_skipsThatLocation() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        LocationEntity broken = LocationEntity.builder().name("Polar").lat(89.9).lon(0.0).region(region).build();
+        LocationEntity fine = LocationEntity.builder().name("Tyne Valley").lat(LAT).lon(LON).region(region).build();
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of(broken, fine));
+        when(solarService.sunriseAzimuthDeg(89.9, 0.0, SPRING_EQUINOX))
+                .thenThrow(new IllegalStateException("no sunrise"));
+        when(solarService.sunriseAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(90);
+        when(solarService.sunsetAzimuthDeg(LAT, LON, SPRING_EQUINOX)).thenReturn(270);
+
+        List<HotTopic> topics = strategy.detect(SPRING_EQUINOX, SPRING_EQUINOX);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).regions()).containsExactly("Northumberland");
     }
 
     @Test

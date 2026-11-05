@@ -295,4 +295,37 @@ class CloudVerificationBackfillRunnerTest {
         assertThat(report.summary()).isEqualTo("Already running — skipped");
         verify(verificationService, never()).backfill(anyInt());
     }
+
+    @Test
+    @DisplayName("a failing incomplete-clear does not stop a scheduled tick from working its slice")
+    void runScheduled_clearFailure_stillRuns() {
+        when(verificationService.clearIncompleteVerifications()).thenThrow(new RuntimeException("db busy"));
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenReturn(batch(50), BackfillBatch.EMPTY);
+
+        runner.runScheduled();
+
+        verify(verificationService, times(2)).backfill(CloudVerificationBackfillRunner.BATCH_SIZE);
+        assertThat(runner.status().verified()).isEqualTo(50);
+        assertThat(runner.status().lastError()).isNull();
+    }
+
+    @Test
+    @DisplayName("a failure with no message is reported by its exception type, not a blank reason")
+    void run_failureWithoutMessage_namesTheExceptionType() {
+        when(verificationService.backfill(CloudVerificationBackfillRunner.BATCH_SIZE))
+                .thenThrow(new IllegalStateException());
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(runner::runScheduled);
+
+        assertThat(runner.status().lastError()).isEqualTo("IllegalStateException");
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("0 verified · stopped: IllegalStateException");
+    }
+
+    @Test
+    @DisplayName("the archive-lag cutoff is the clock's date minus the six-day lag")
+    void cutoff_isTheClockDateMinusTheArchiveLag() {
+        assertThat(runner.cutoff()).isEqualTo(java.time.LocalDate.of(2026, 7, 20));
+    }
 }
