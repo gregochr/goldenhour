@@ -207,6 +207,71 @@ class AskBodyLimitFilterTest {
     }
 
     @Test
+    @DisplayName("the reader decodes with the declared charset when it is one the JVM knows")
+    void readerUsesTheDeclaredCharset() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ask");
+        request.setContent("caf\u00e9".getBytes(StandardCharsets.ISO_8859_1));
+        request.addHeader("Content-Type", "application/json; charset=ISO-8859-1");
+
+        try (BufferedReader reader = wrapped(request).getReader()) {
+            assertThat(reader.readLine()).isEqualTo("caf\u00e9");
+        }
+    }
+
+    @Test
+    @DisplayName("a read listener is handed to the underlying stream untouched")
+    void readListenerIsDelegated() throws Exception {
+        AtomicReference<jakarta.servlet.ReadListener> registered = new AtomicReference<>();
+        jakarta.servlet.ServletInputStream underlying = new jakarta.servlet.ServletInputStream() {
+            @Override
+            public int read() {
+                return -1;
+            }
+
+            @Override
+            public boolean isFinished() {
+                return true;
+            }
+
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setReadListener(jakarta.servlet.ReadListener listener) {
+                registered.set(listener);
+            }
+        };
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/ask") {
+            @Override
+            public jakarta.servlet.ServletInputStream getInputStream() {
+                return underlying;
+            }
+        };
+        jakarta.servlet.ReadListener listener = new jakarta.servlet.ReadListener() {
+            @Override
+            public void onDataAvailable() {
+                // not used: the test only checks which listener reached the underlying stream
+            }
+
+            @Override
+            public void onAllDataRead() {
+                // not used
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                // not used
+            }
+        };
+
+        wrapped(request).getInputStream().setReadListener(listener);
+
+        assertThat(registered.get()).isSameAs(listener);
+    }
+
+    @Test
     @DisplayName("the same stream is returned on every call, so the count is never reset by asking again")
     void streamIsStable() throws Exception {
         HttpServletRequest request = wrapped(post(5));

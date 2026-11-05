@@ -103,6 +103,23 @@ class CacheDiagnosticsTest {
     }
 
     @Test
+    @DisplayName("a reason whose type is blank or absent is reported as 'unknown' and keeps its token estimate")
+    void blankOrMissingReasonType_isUnknown() throws Exception {
+        CacheDiagnostics blank = CacheDiagnostics.from(Optional.of(fromApiJson(
+                "{\"cache_miss_reason\":{\"type\":\"\",\"cache_missed_input_tokens\":7}}")));
+        CacheDiagnostics missing = CacheDiagnostics.from(Optional.of(fromApiJson(
+                "{\"cache_miss_reason\":{\"cache_missed_input_tokens\":9}}")));
+
+        assertThat(blank.status()).isEqualTo(CacheDiagnostics.Status.MISS);
+        assertThat(blank.reason()).isEqualTo("unknown");
+        assertThat(blank.missedInputTokens()).isEqualTo(7L);
+        assertThat(missing.status()).isEqualTo(CacheDiagnostics.Status.MISS);
+        assertThat(missing.reason()).isEqualTo("unknown");
+        assertThat(missing.missedInputTokens()).isEqualTo(9L);
+        assertThat(missing.summary()).isEqualTo("unknown (9 tokens)");
+    }
+
+    @Test
     @DisplayName("the JSON stored for a miss is compact and stable")
     void missJsonIsCompactAndStable() throws Exception {
         assertThat(MAPPER.writeValueAsString(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ))

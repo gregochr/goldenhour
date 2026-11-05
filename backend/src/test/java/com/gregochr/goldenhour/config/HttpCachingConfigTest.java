@@ -213,6 +213,56 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(request)).isFalse();
     }
 
+    @Test
+    @DisplayName("Under a servlet context path the path is matched without the context prefix")
+    void contextPathIsStrippedBeforeMatching() {
+        MockHttpServletRequest whitelisted = get("/photocast/api/briefing");
+        whitelisted.setContextPath("/photocast");
+        assertThat(filter.shouldNotFilter(whitelisted)).isFalse();
+
+        MockHttpServletRequest personal = get("/photocast/api/user/settings");
+        personal.setContextPath("/photocast");
+        assertThat(filter.shouldNotFilter(personal)).isTrue();
+    }
+
+    @Test
+    @DisplayName("A root or empty context path leaves the path untouched")
+    void rootOrEmptyContextPath_leavesPathUntouched() {
+        MockHttpServletRequest root = get("/api/briefing");
+        root.setContextPath("/");
+        assertThat(filter.shouldNotFilter(root)).isFalse();
+
+        MockHttpServletRequest empty = get("/api/briefing");
+        empty.setContextPath("");
+        assertThat(filter.shouldNotFilter(empty)).isFalse();
+    }
+
+    @Test
+    @DisplayName("A context path the URI does not start with is ignored, so the raw URI is matched")
+    void contextPathNotPrefixingTheUri_isIgnored() {
+        MockHttpServletRequest request = get("/api/briefing");
+        request.setContextPath("/elsewhere");
+
+        assertThat(filter.shouldNotFilter(request)).isFalse();
+    }
+
+    @Test
+    @DisplayName("A revalidatable response is marked private, no-cache and gets an ETag from its body")
+    void revalidatableResponse_carriesCacheControlAndEtag() throws Exception {
+        MockHttpServletRequest request = get("/api/briefing");
+        org.springframework.mock.web.MockHttpServletResponse response =
+                new org.springframework.mock.web.MockHttpServletResponse();
+
+        filter.doFilter(request, response, (req, res) -> {
+            res.setContentType("application/json");
+            res.getWriter().write("{\"ok\":true}");
+        });
+
+        assertThat(response.getHeader("Cache-Control")).isEqualTo("private, no-cache");
+        assertThat(response.getHeader("ETag")).isNotBlank();
+        assertThat(response.getContentAsString()).isEqualTo("{\"ok\":true}");
+    }
+
     private static MockHttpServletRequest get(String path) {
         return new MockHttpServletRequest("GET", path);
     }

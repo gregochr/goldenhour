@@ -73,6 +73,20 @@ class PipelineRunControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/admin/pipeline-runs gives a null duration to a run with no recorded trigger time")
+    void list_run_without_trigger_time_has_null_duration() throws Exception {
+        PipelineRunEntity run = completedRun();
+        run.setTriggerTime(null);
+        when(pipelineRunService.findRecent()).thenReturn(List.of(run));
+
+        mockMvc.perform(get("/api/admin/pipeline-runs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(42))
+                .andExpect(jsonPath("$[0].durationSeconds").isEmpty());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("GET /api/admin/pipeline-runs/{id} returns phases + batches")
     void detail_returns_phases_and_batches() throws Exception {
         PipelineRunEntity run = completedRun();

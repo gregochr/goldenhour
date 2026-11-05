@@ -64,4 +64,37 @@ class ClaudeApiHealthIndicatorTest {
         assertThat(health.getDetails().get("error")).isEqualTo("RestClientResponseException");
         assertThat(health.getDetails().toString()).doesNotContain("SECRETKEY");
     }
+
+    @Test
+    @DisplayName("The probe sends the API key and version headers to the models endpoint")
+    void probeSendsAuthHeaders() {
+        RestClient.Builder builder = RestClient.builder();
+        org.springframework.test.web.client.MockRestServiceServer server =
+                org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .requestTo("https://api.anthropic.com/v1/models"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .method(org.springframework.http.HttpMethod.GET))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .header("x-api-key", "sk-test"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers
+                        .header("anthropic-version", "2023-06-01"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess());
+
+        Health health = new ClaudeApiHealthIndicator(builder.build(), "sk-test").health();
+
+        assertThat(health.getStatus()).isEqualTo(Status.UP);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("The production constructor builds an indicator from the configured key without probing")
+    void productionConstructor_doesNotProbe() {
+        AnthropicProperties properties = new AnthropicProperties();
+        properties.setApiKey("sk-test");
+
+        ClaudeApiHealthIndicator indicator = new ClaudeApiHealthIndicator(properties);
+
+        assertThat(indicator).isInstanceOf(org.springframework.boot.health.contributor.HealthIndicator.class);
+    }
 }

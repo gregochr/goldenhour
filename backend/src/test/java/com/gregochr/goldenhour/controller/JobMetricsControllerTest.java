@@ -397,6 +397,42 @@ class JobMetricsControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/metrics/batch-summary reports a null status for a batch with none recorded")
+    @WithMockUser(roles = "ADMIN")
+    void getBatchSummary_nullStatus_isReportedAsNull() throws Exception {
+        ForecastBatchEntity batch = new ForecastBatchEntity(
+                "msgbatch_nostatus", ForecastBatchEntity.BatchType.FORECAST, 3,
+                Instant.now().plusSeconds(86400));
+        batch.setStatus(null);
+        when(jobRunService.getBatchForJobRun(8L)).thenReturn(Optional.of(batch));
+
+        mockMvc.perform(get("/api/metrics/batch-summary?jobRunId=8")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").isEmpty())
+                .andExpect(jsonPath("$.requestCount").value(3));
+    }
+
+    @Test
+    @DisplayName("GET /api/metrics/job-runs with an empty runType lists every type")
+    @WithMockUser(roles = "ADMIN")
+    void getJobRuns_emptyRunType_listsAllTypes() throws Exception {
+        JobRunEntity run = JobRunEntity.builder()
+                .id(5L)
+                .runType(RunType.TIDE)
+                .startedAt(LocalDateTime.now())
+                .succeeded(1)
+                .failed(0)
+                .build();
+        when(jobRunService.getRecentRunsAllTypes(21)).thenReturn(List.of(run));
+
+        mockMvc.perform(get("/api/metrics/job-runs?runType=")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].runType").value("TIDE"));
+    }
+
+    @Test
     @DisplayName("GET /api/metrics/batch-summary requires ADMIN role")
     @WithMockUser(roles = "LITE_USER")
     void getBatchSummary_requiresAdminRole() throws Exception {
