@@ -98,6 +98,9 @@ function stripCard(overrides = {}) {
     // fixture that omitted it would put every card on the no-postcode wording and quietly change
     // what half this file is asserting. The false case has its own block.
     reachMeasured: true,
+    // Places the lens chose from: the empty-pool "in reach" words need a finite tier to have been over some.
+    reachTotal: 3,
+    reachLimitMinutes: 45,
     bestReach: null,
     badges: [],
     ...overrides,
@@ -343,7 +346,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     // day heading and the sun word are aria-hidden because the hidden phrase says the same thing in
     // words. With an empty pool the best-reach clause is the design's own "nothing in reach".
     await renderStrip();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -412,14 +415,14 @@ describe('WindowFirstHeatStrip — what a card says', () => {
   it('adds "best bet" to the name of the window the forecast picked', async () => {
     await renderStrip({ cards: [stripCard({ pickKind: 'best' })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach, best bet',
+      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach, best bet',
     })).toBeInTheDocument();
   });
 
   it('adds "also good" for the runner-up, which P2\'s strip had no room to say', async () => {
     await renderStrip({ cards: [stripCard({ pickKind: 'also' })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach, also good',
+      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach, also good',
     })).toBeInTheDocument();
   });
 
@@ -847,7 +850,7 @@ describe('WindowFirstHeatStrip — below the minimum-sample gate: text instead o
       // The spoken sentence stays silent about the pool here — `bestReachLine`'s own "best, nothing
       // in reach" clause already states the identical fact, and saying it twice would be the
       // one-fact-said-twice defect this file's header comment warns against.
-      expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+      expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
         .toBeInTheDocument();
     });
 
@@ -2054,7 +2057,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     const name = screen.getByTestId('wf-heat-card').textContent;
     expect(name).not.toContain('up 0.6');
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach',
+      name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
   });
 
@@ -2259,7 +2262,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     // fact said twice.
     expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, 1 location within 45 min' }))
       .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -2285,7 +2288,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     // while its name said only "not scored". Two different claims; the reader who cannot see the
     // face was told the wrong one.
     await renderStrip({ cards: [BOTH[1]] });
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -2428,6 +2431,14 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
         expect(cardName()).toContain('stood down by the weather — no place rated');
         expect(cardName()).not.toContain('not scored');
         expect(cardName()).not.toContain('best, not scored yet');
+      });
+
+      it('appends the no-route count to the stood-down tooltip too', async () => {
+        const card = POOLED({ reachUnroutableCount: 2, reachOriginName: 'Keswick' });
+        await renderStrip({ cards: [card], stoodSets: new Map([[card.key, STOOD]]) });
+        expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute(
+          'title', '1 location within reach — stood down by the weather. · 2 places have no route from Keswick',
+        );
       });
 
       it('keeps "none rated yet" in the Spread note and says "some places stood down" in Best while unrated places remain', async () => {
@@ -2600,6 +2611,27 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     const cells = screen.getAllByTestId('wf-heat-card');
     expect(cells[1]).toHaveAttribute('data-away', 'true');
     expect(cells[1]).not.toHaveAttribute('data-unscored');
+  });
+});
+
+describe('WindowFirstHeatStrip — "in reach" words on an empty window need a tier that acted', () => {
+  const emptyWindow = (extra) => stripCard({ pool: [], reachMeasured: true, bestReach: null, ...extra });
+
+  it('says "nothing to show" under Any, though the reader is measured', async () => {
+    await renderStrip({ cards: [emptyWindow({ reachLimitMinutes: null, reachTotal: 3 })] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing to show');
+    expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute('title', 'Nothing to show for this one.');
+  });
+
+  it('says "nothing to show" when a tier is active but the window held no places to gate', async () => {
+    await renderStrip({ cards: [emptyWindow({ reachLimitMinutes: 45, reachTotal: 0 })] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing to show');
+  });
+
+  it('says "nothing in reach" under 45 min when the tier emptied a window that held places', async () => {
+    await renderStrip({ cards: [emptyWindow({ reachLimitMinutes: 45, reachTotal: 3 })] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing in reach');
+    expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute('title', 'Nothing within reach for this one.');
   });
 });
 
@@ -3289,7 +3321,7 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
 
     expect(drawGeo).not.toHaveBeenCalled();
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
@@ -3388,7 +3420,7 @@ describe('WindowFirstHeatStrip — when the geometry cannot be fetched', () => {
     await renderStrip();
 
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('poor → worth it');
     // The thumbnail geography overlay is a child of the well this gate removes wholesale — the
@@ -4163,13 +4195,13 @@ describe('WindowFirstHeatStrip — the region mean behind the verdict word (verd
     // date to a screen reader).
     await renderStrip({ cards: [stripCard({ verdictMean: 3.53 })] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, 3.5 star average, best, nothing in reach',
+      name: 'Tonight Sunset, 21:11, Worth it, 3.5 star average, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
 
     cleanup();
     await renderStrip({ cards: [stripCard({ verdictMean: null })] });
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby')).toBeTruthy();
     const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
@@ -4393,7 +4425,7 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
   it('voices word and average in the sentence', async () => {
     await renderStrip({ cards: [unratedCard()] });
     expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Too few rated, 3.6 star average, best, nothing in reach',
+      name: 'Tonight Sunset, 21:11, Too few rated, 3.6 star average, no locations within 45 min, best, nothing in reach',
     })).toBeInTheDocument();
   });
 

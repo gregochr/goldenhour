@@ -287,7 +287,7 @@ describe('the card — a Helvellyn-shaped place with no route', () => {
       const { card, line } = lineFor(reach);
       expect(card.reachUnroutableRemoved).toBe(2);
       expect(card.reachFarRemoved).toBe(0);
-      expect(line.value).toBe(`${REGION} · no route from home`);
+      expect(line.value).toBe(`${REGION} · no route`);
       expect(line.title).toContain('have no route from home');
       expect(line.title).not.toContain('further than');
       expect(line.spoken).toBe(`region ${REGION}, no route from home`);
@@ -301,7 +301,9 @@ describe('the card — a Helvellyn-shaped place with no route', () => {
         [3, UNROUTABLE_ENTRY],
       ]);
       const { line } = lineFor(reach, { origin: { id: 7, name: REGION, baseName: 'Keswick' } });
-      expect(line.value).toBe(`${REGION} · no route from Keswick`);
+      expect(line.value).toBe(`${REGION} · no route`);
+      expect(line.spoken).toBe(`region ${REGION}, no route from Keswick`);
+      expect(line.title).toContain('no route from Keswick');
     });
 
     it('says both when far and unroutable places were removed', () => {
@@ -313,9 +315,9 @@ describe('the card — a Helvellyn-shaped place with no route', () => {
       const { card, line } = lineFor(reach);
       expect(card.reachUnroutableRemoved).toBe(1);
       expect(card.reachFarRemoved).toBe(1);
-      expect(line.value).toBe(`${REGION} · beyond 45 min or no route`);
+      expect(line.value).toBe(`${REGION} · beyond 45 min / no route`);
       expect(line.title).toContain('further than 45 min away or have no route from home');
-      expect(line.spoken).toBe(`region ${REGION}, beyond 45 min or no route from home`);
+      expect(line.spoken).toBe(`region ${REGION}, beyond 45 min / no route from home`);
     });
 
     it('keeps the unrated verdict wording on the no-route line', () => {

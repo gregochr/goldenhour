@@ -230,7 +230,9 @@ passed to `buildWindowCards` (`lens.reachMeasured`), the region rail (`fieldLens
 matrix, the base's `drivesMeasuredAt` and each place's `driveTargetChangedAt`, with the same one-hour margin. The
 card carries `reachUnroutableCount` / `reachUnroutableRemoved` / `reachFarRemoved` / `reachOriginName`: the spread
 tooltip appends `N places have no route from home` (or `from <base>`), and the Best row's "beyond" line
-(`verdictBeyondReach`) never calls an unroutable place far (`no route from home`, or `beyond 45 min or no route`
+(`verdictBeyondReach`) never calls an unroutable place far (`no route from home`, or `beyond 45 min / no route`
 when both kinds were removed). `isFarSpot` marks nothing for an unroutable place (no drive to be long), and
 `poolWithinReach` / the A28 qualifier stay silent for a pool that still holds a PENDING place. The Map's own drive
 filter keeps dropping every place without a drive: a deliberate exception until R3.
+
+The empty-pool "in reach" words (`nothing in reach`, `Nothing within reach for this one.`) need a tier that acted: `reachActed(card)` = measured reader, a finite tier, and `reachTotal > 0`. `card.reachMeasured` alone is reader-level and would otherwise blame the tier on an empty window under Any. The stood-down Spread tooltip carries the same `N places have no route` clause as the ordinary one.

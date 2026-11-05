@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,6 +70,18 @@ class RegionDriveTimeWriterTest {
         order.verify(regionRepository).stampDrivesMeasuredAtIfBaseIs(REGION_ID, BASE_LAT, BASE_LON, MEASURED_AT);
         order.verify(repository).deleteAllByRegionId(REGION_ID);
         order.verify(repository).saveAll(List.of(row));
+        // A location that moved after the roster was read was routed to its old point: its row goes.
+        order.verify(repository).deleteMovedSince(REGION_ID, LocalDateTime.of(2026, 11, 5, 2, 0));
+    }
+
+    @Test
+    @DisplayName("an incomplete answer also drops rows for locations moved after the roster read")
+    void storeIfBaseUnchanged_incomplete_dropsMovedLocations() {
+        when(regionRepository.lockIfBaseIs(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(1);
+
+        writer.storeIfBaseUnchanged(REGION_ID, BASE_LAT, BASE_LON, List.of(), MEASURED_AT, false);
+
+        verify(repository).deleteMovedSince(REGION_ID, LocalDateTime.of(2026, 11, 5, 2, 0));
     }
 
     @Test
@@ -89,7 +102,7 @@ class RegionDriveTimeWriterTest {
     @DisplayName("a short answer stores its rows but never stamps, so the missed destinations stay PENDING")
     void storeIfBaseUnchanged_incomplete_storesWithoutStamping() {
         RegionDriveTimeEntity row = new RegionDriveTimeEntity(REGION_ID, 11L, 1500);
-        when(regionRepository.existsByIdAndBase(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(true);
+        when(regionRepository.lockIfBaseIs(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(1);
 
         boolean stored = writer.storeIfBaseUnchanged(
                 REGION_ID, BASE_LAT, BASE_LON, List.of(row), MEASURED_AT, false);
@@ -103,7 +116,7 @@ class RegionDriveTimeWriterTest {
     @Test
     @DisplayName("a short answer for a base that moved mid-flight writes nothing")
     void storeIfBaseUnchanged_incompleteAndBaseMoved_writesNothing() {
-        when(regionRepository.existsByIdAndBase(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(false);
+        when(regionRepository.lockIfBaseIs(REGION_ID, BASE_LAT, BASE_LON)).thenReturn(0);
 
         boolean stored = writer.storeIfBaseUnchanged(
                 REGION_ID, BASE_LAT, BASE_LON, List.of(), MEASURED_AT, false);

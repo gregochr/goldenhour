@@ -63,7 +63,7 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
  *   reachMeasured: boolean, reachUnroutableCount: number, reachUnroutableRemoved: number,
- *   reachFarRemoved: number, reachOriginName: ?string, bestReach: ?object, badges: Array,
+ *   reachFarRemoved: number, reachTotal: number, reachOriginName: ?string, bestReach: ?object, badges: Array,
  *   hotRegionName: ?string, tide: ?object, tideFit: ?object}>} descriptors
  */
 export function buildHeatStripCards(
@@ -177,6 +177,9 @@ export function buildHeatStripCards(
       reachUnroutableCount: card?.reachUnroutableCount ?? 0,
       reachUnroutableRemoved: card?.reachUnroutableRemoved ?? 0,
       reachFarRemoved: card?.reachFarRemoved ?? 0,
+      // How many places the lens chose from, folded for `reachActed`: the empty-pool "in reach" words need a
+      // finite tier to have been over something.
+      reachTotal: card?.reachTotal ?? 0,
       reachOriginName: card?.reachOriginName ?? null,
       bestReach: card?.bestReach ?? null,
       // Folded beside `bestReach` (the fold passes no unknown field through): a neighbour outlier

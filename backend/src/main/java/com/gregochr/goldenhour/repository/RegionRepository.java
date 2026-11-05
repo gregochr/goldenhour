@@ -52,18 +52,21 @@ public interface RegionRepository extends JpaRepository<RegionEntity, Long> {
             @Param("baseLon") double baseLon, @Param("measuredAt") Instant measuredAt);
 
     /**
-     * Checks that a region's base is still the point a measurement was taken from, without stamping: the guard for
-     * a measurement that returned fewer destinations than were asked for, whose rows are stored but whose stamp is
-     * not (so the destinations it missed stay PENDING).
+     * Locks the region row if its base is still the point a measurement was taken from, without stamping: the guard
+     * for a measurement that returned fewer destinations than were asked for, whose rows are stored but whose stamp
+     * is not (so the destinations it missed stay PENDING). A no-op UPDATE rather than a SELECT, so it takes the row
+     * lock and {@code RegionService.setBase} cannot commit between the check and the write.
      *
      * @param id      the region id
      * @param baseLat the base latitude the drive times were measured from
      * @param baseLon the base longitude the drive times were measured from
-     * @return true if the region still has exactly that base
+     * @return 1 if the region still has exactly that base (and is now locked); 0 otherwise
      */
-    @Query("SELECT COUNT(r) > 0 FROM RegionEntity r "
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE RegionEntity r SET r.baseLat = r.baseLat "
             + "WHERE r.id = :id AND r.baseLat = :baseLat AND r.baseLon = :baseLon")
-    boolean existsByIdAndBase(@Param("id") Long id, @Param("baseLat") double baseLat,
+    int lockIfBaseIs(@Param("id") Long id, @Param("baseLat") double baseLat,
             @Param("baseLon") double baseLon);
 
     /**

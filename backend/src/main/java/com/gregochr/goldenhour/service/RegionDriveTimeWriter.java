@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -65,11 +67,13 @@ public class RegionDriveTimeWriter {
             List<RegionDriveTimeEntity> driveTimes, Instant measuredAt, boolean complete) {
         boolean unchanged = complete
                 ? regionRepository.stampDrivesMeasuredAtIfBaseIs(regionId, baseLat, baseLon, measuredAt) == 1
-                : regionRepository.existsByIdAndBase(regionId, baseLat, baseLon);
+                : regionRepository.lockIfBaseIs(regionId, baseLat, baseLon) == 1;
         if (!unchanged) {
             return false;
         }
         replaceForRegion(regionId, driveTimes);
+        // A location moved after the roster was read was routed to its OLD point; drop that row so it reads PENDING.
+        repository.deleteMovedSince(regionId, LocalDateTime.ofInstant(measuredAt, ZoneOffset.UTC));
         return true;
     }
 

@@ -270,7 +270,8 @@ function verdictBeyondReach(card) {
   return {
     rating: null,
     label: 'Region',
-    value: mixed ? `${region} · beyond ${tier} or no route` : `${region} · no route from ${from}`,
+    // Short on purpose: the value column is ~70px at 320px. The origin rides the title and the spoken form.
+    value: mixed ? `${region} · beyond ${tier} / no route` : `${region} · no route`,
     muted: false,
     beyond: true,
     title: mixed
@@ -279,9 +280,23 @@ function verdictBeyondReach(card) {
     tideAligned: false,
     tideState: null,
     spoken: mixed
-      ? `region ${region}, beyond ${tier} or no route from ${from}`
+      ? `region ${region}, beyond ${tier} / no route from ${from}`
       : `region ${region}, no route from ${from}`,
   };
+}
+
+/**
+ * Whether the reach tier could have acted on this window, and so whether an EMPTY pool may be blamed on it.
+ *
+ * <p>{@code reachMeasured} is reader-level now (reach-scoped-card-plan D2), so it is true on a window with no
+ * spots at all, and even under "Any". "Nothing in reach" is only true where a finite tier was over some places:
+ * a measured reader, a threshold, and at least one place to gate. Otherwise the window is simply empty.
+ *
+ * @param {object} card the thumbnail descriptor
+ * @returns {boolean} true when "in reach" wording may describe an empty pool
+ */
+function reachActed(card) {
+  return Boolean(card?.reachMeasured) && card?.reachLimitMinutes != null && (card?.reachTotal ?? 0) > 0;
 }
 
 /**
@@ -404,7 +419,7 @@ export function bestReachLine(card) {
   // §2.5), so for a reader with no home postcode the pool was never gated and an empty one means
   // this window has no sky-gated slots at all; blaming a control that did nothing is §6 clause 7's
   // own sentence.
-  const emptyWord = card?.reachMeasured ? 'nothing in reach' : 'nothing to show';
+  const emptyWord = reachActed(card) ? 'nothing in reach' : 'nothing to show';
   return {
     rating: null,
     label: 'Best',
@@ -862,7 +877,7 @@ export default function WindowFirstHeatStrip({
       // word on a card where nothing was gated by distance. `card.reachMeasured` is what actually
       // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
       // own empty word, so the tooltip and the visible line agree by construction.
-      const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
+      const withinReach = pool.length === 0 ? reachActed(card) : poolWithinReach(pool);
       // The ONE decision behind bars-vs-text (plan-matrix §4 row, minimum-sample rule) — the visible
       // row and the spoken sentence's suppression rules both read `state` rather than testing the
       // thresholds themselves, so they cannot disagree about which of a card's states this is. An
@@ -1700,7 +1715,9 @@ export default function WindowFirstHeatStrip({
                       ? `wf-hc-hist${facts.countLayout.small ? ' sm' : ''}`
                       : 'wf-hc-hist-note'}
                     style={facts.state.bars ? { '--cw': `${facts.countLayout.widthPx}px` } : undefined}
-                    title={spreadStood ? stoodSpreadTitle(facts.spread, facts.withinReach) : facts.title}
+                    title={spreadStood
+                      ? `${stoodSpreadTitle(facts.spread, facts.withinReach)}${noRouteClause(card.reachUnroutableCount, card.reachOriginName)}`
+                      : facts.title}
                   >
                     {facts.state.bars ? (
                       <>
@@ -2407,6 +2424,7 @@ WindowFirstHeatStrip.propTypes = {
     reachUnroutableCount: PropTypes.number,
     reachUnroutableRemoved: PropTypes.number,
     reachFarRemoved: PropTypes.number,
+    reachTotal: PropTypes.number,
     reachOriginName: PropTypes.string,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
     reachMeasured: PropTypes.bool,

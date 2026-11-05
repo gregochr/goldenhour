@@ -75,12 +75,12 @@ class RegionRepositoryTest {
     }
 
     @Test
-    @DisplayName("existsByIdAndBase is true only for the base that is stored")
-    void existsByIdAndBase_matchesTheStoredBase() {
+    @DisplayName("lockIfBaseIs matches (and locks) only the base that is stored")
+    void lockIfBaseIs_matchesTheStoredBase() {
         RegionEntity saved = repository.save(based("Lake District"));
 
-        assertThat(repository.existsByIdAndBase(saved.getId(), BASE_LAT, BASE_LON)).isTrue();
-        assertThat(repository.existsByIdAndBase(saved.getId(), BASE_LAT, BASE_LON + 1)).isFalse();
+        assertThat(repository.lockIfBaseIs(saved.getId(), BASE_LAT, BASE_LON)).isEqualTo(1);
+        assertThat(repository.lockIfBaseIs(saved.getId(), BASE_LAT, BASE_LON + 1)).isZero();
     }
 
     @Test

@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -128,6 +130,8 @@ public class UserDriveTimeWriter {
         if (!driveTimes.isEmpty()) {
             userDriveTimeRepository.saveAll(driveTimes);
         }
+        // A location moved after the roster was read was routed to its OLD point; drop that row so it reads PENDING.
+        userDriveTimeRepository.deleteMovedSince(userId, LocalDateTime.ofInstant(calculatedAt, ZoneOffset.UTC));
         return true;
     }
 
