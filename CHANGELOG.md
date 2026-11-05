@@ -5,6 +5,79 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.0] - 2026-11-05
+
+### Docs — "How it's built" describes the app's coverage minimums
+
+The landing page's "Tests that are tested" and "Where it's still improving" now say the app's code must keep 95% of each file's lines and 90% of its branches covered, with two files on a stated lower branch minimum, and that 90% of a change's added or altered lines must be covered before it merges.
+
+### CI — Fail a PR whose changed frontend lines are under 90% covered
+
+The frontend CI job now runs `diff-cover` (pinned 10.0.0) over Vitest's new `lcov` report on pull requests and fails when less than 90% of the lines a PR adds or changes under `frontend/src` are covered. Test files, `src/test/**` and `src/main.jsx` are not counted, and a PR with no covered source changes passes. Line coverage only; the global coverage floor is unchanged.
+
+### Added — "The engineering behind PhotoCast" page
+
+A new public page, `landing/engineering.html`, for engineers and hiring managers: the stack, the CI pipeline,
+the quality gates enforced on every change (with their thresholds), security checks mapped to the OWASP Top 10
+(2025), continuous delivery, testing beyond coverage, the AI engineering and a candid list of gaps. It is linked
+from every landing footer and from the end of the "How PhotoCast is built" hero, and added to the landing
+Dockerfile. `docs/engineering/engineering-page-plan.md` holds the plan and copy.
+
+### Fixed — Engineering page shows the current app coverage gates
+
+The engineering page's gates table now matches the frontend build: branches 95% overall, at least 95% of lines and 90% of branches in every file (two files on documented lower branch figures), and a new row for the changed-lines check that requires 90% of the app lines a change adds or alters to be covered.
+
+### Changed — ZAP gate exceptions trimmed
+
+The weekly ZAP gate no longer tolerates three alerts that stopped firing in the latest scan: backend
+`30001` and `30002`, and frontend `10055`. Their entries are removed from `.zap/exceptions.json`, so
+any recurrence now fails the gate. The remaining entries are unchanged.
+
+### Fixed — flaky SkyRatingEvalControllerTest from un-awaited async executeRun
+
+`SkyRatingEvalController` hands `executeRun` to its own virtual-thread executor after answering 202.
+Tests that hit `/run` or `/check` without waiting let that call land on the shared `@MockitoBean`
+during a later test, which then failed its `verifyNoMoreInteractions`. Every such test now waits for
+its `executeRun` call before ending. Test-only change.
+
+### Changed — Sky Eval accuracy chart compares several models at once
+
+The model chips under "Accuracy over time" are now a multi-select: press several chips (or rows in the All models table) to draw those models side by side, each in its own colour. A Clear chip appears with a selection and restores the production-model default.
+
+### Changed — Operations menu: Tuning group removed
+
+The Operations menu's Tuning group is gone. Run Config is now Model Config and sits last under Runs
+(the page heading reads "Model Configuration" to match), and Sky Eval moved under Testing. Existing
+`#manage/models` and `#manage/skyeval` links still work unchanged.
+
+### Docs — How PhotoCast is built: security section brought up to date
+
+The public "How PhotoCast is built" page now describes the daily server-library check, the review step for
+vulnerable libraries, the weekly signed-in scanner and what it reports, the Content Security Policy and the
+admin-only access rules, each with what it does not cover. Copy only; no behaviour changed.
+
+### Testing — Cover the auth context, hooks, utils and remaining API wrappers
+
+Adds Vitest coverage for the sign-in, refresh and session-expiry logic in `AuthContext`, the location add and edit hooks,
+the Runs live poll, job-detail, roving-focus and viewport hooks, the cycle and region view-model helpers, and the API
+wrappers that had no direct test. Tests only; no product code changes. The CI coverage floor is raised to 99 / 98 / 98 / 94
+(lines / statements / functions / branches).
+
+### Testing — Cover the remaining components; add a per-file coverage floor
+
+Added Vitest tests (new `*Branches` files plus extensions) for the components, hooks and utils that sat under 95% lines or 90% branches, including TurnstileWidget, DaySummary, SlowerScatter, UserAddPanel, SchedulerTabs, AllModelsTable, VersionCompare, RunsLiveStrip and RegisterPage. No product source changed.
+The Vitest floor now also requires every file in `src/**` to reach 95% lines and 90% branches on its own (two files with unreachable branches, TurnstileWidget at 81% and StartRunScope at 87%, carry their measured figure), and the global floor rises to 99 / 98 / 98 / 95.
+
+### Fixed — a query string with an empty parameter name now gets 400 instead of 500
+
+A request whose query string has a parameter with no name (`?=`, `?days=3&=`) was answered with a 500. Tomcat
+fails to parse such a chunk and throws `InvalidParameterException` from every later `getParameter*` call, which
+Spring MVC makes when it binds a `@RequestParam` or matches a handler, and `GlobalExceptionHandler`'s catch-all
+turned it into a 500 with a stack trace in the log. `GlobalExceptionHandler` now maps it to 400 with the fixed
+body `{"error":"Invalid request parameter"}`; the offending chunk is neither echoed nor logged. A bad
+percent-escape in a query string is the same exception and gets the same answer. A unit and a filter-chain test
+cover it.
+
 ## [v2.38.2] - 2026-11-04
 
 ### Changed — ZAP exceptions trimmed after v2.38.1
