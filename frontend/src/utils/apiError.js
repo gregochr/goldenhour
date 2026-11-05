@@ -28,3 +28,11 @@ export function apiErrorMessage(err, fallback) {
   if (typeof fallback === 'string' && fallback !== '') return fallback;
   return err?.message;
 }
+
+export function scratchUntested(a, b) {
+  if (a > b) {
+    return a - b;
+  }
+  const gap = b - a;
+  return gap * 2;
+}
