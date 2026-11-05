@@ -62,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -1707,7 +1708,8 @@ class ForecastResultHandlerTest {
         when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
         doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
-                .writeComponents(eq(location), eq(DATE), eq(SUNRISE), anyList(), eq(null));
+                .writeComponents(eq(location), eq(DATE), eq(SUNRISE),
+                        singleComponent(ForecastType.BLUEBELL, 4), eq(null));
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
                 LoggerFactory.getLogger(ForecastResultHandler.class);
@@ -1729,6 +1731,12 @@ class ForecastResultHandlerTest {
     }
 
     // ── woodland batch: failures, absent context, the dual-write gate ──────────
+
+    /** Matches a component list holding exactly one component of the given lane type and score. */
+    private static List<ComponentScore> singleComponent(ForecastType type, int score) {
+        return argThat(list -> list != null && list.size() == 1
+                && list.get(0).type() == type && list.get(0).score() == score);
+    }
 
     private static final String WOODLAND_ID = "wd-53-2026-04-16-SUNRISE";
 
@@ -1839,7 +1847,8 @@ class ForecastResultHandlerTest {
         when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
         doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
-                .writeComponents(eq(location), eq(DATE), eq(SUNRISE), anyList(), eq(null));
+                .writeComponents(eq(location), eq(DATE), eq(SUNRISE),
+                        singleComponent(ForecastType.WOODLAND, 5), eq(null));
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
                 LoggerFactory.getLogger(ForecastResultHandler.class);
