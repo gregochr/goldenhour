@@ -9,8 +9,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,13 +31,20 @@ class RunProgressTrackerEvictionRaceTest {
     private static final Instant T0 = Instant.parse("2026-10-02T10:00:00Z");
 
     private MutableTestClock clock;
+    private ExecutorService executor;
     private RunProgressTracker tracker;
 
     @BeforeEach
     void setUp() {
         clock = new MutableTestClock(T0);
+        executor = Executors.newSingleThreadExecutor();
         tracker = new RunProgressTracker(mock(DynamicSchedulerService.class),
                 mock(java.util.concurrent.ScheduledExecutorService.class), 5_000L, clock);
+    }
+
+    @AfterEach
+    void shutDownExecutor() {
+        executor.shutdownNow();
     }
 
     private static List<String[]> oneTask() {
@@ -56,7 +66,7 @@ class RunProgressTrackerEvictionRaceTest {
             cleanup = CompletableFuture.runAsync(() -> {
                 cleanupThread.complete(Thread.currentThread());
                 tracker.cleanupStaleEntries();
-            });
+            }, executor);
             Thread thread = cleanupThread.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
             // The cleanup has chosen the old run as a candidate and is parked on its stream lock.
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
@@ -83,7 +93,7 @@ class RunProgressTrackerEvictionRaceTest {
         clock.advance(Duration.ofHours(2));
         CompletableFuture<Void> cleanup;
         synchronized (old.streamLock()) {
-            cleanup = CompletableFuture.runAsync(tracker::cleanupStaleEntries);
+            cleanup = CompletableFuture.runAsync(tracker::cleanupStaleEntries, executor);
         }
 
         awaitDone(cleanup);
