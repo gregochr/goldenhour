@@ -1099,6 +1099,105 @@ class ClaudeAuroraInterpreterTest {
     }
 
     // -------------------------------------------------------------------------
+    // Kp forecast window, solar-wind speed and truncated-response salvage
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("buildUserMessage lists only forecast periods that overlap the next 24 hours, "
+            + "skipping finished ones and stopping at the first one beyond the cutoff")
+    void buildUserMessage_kpForecast_windowedTo24Hours() {
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC).withNano(0);
+        List<com.gregochr.goldenhour.model.KpForecast> forecast = List.of(
+                new com.gregochr.goldenhour.model.KpForecast(now.minusHours(6), now.minusHours(3), 1.3),
+                new com.gregochr.goldenhour.model.KpForecast(now.minusHours(1), now.plusHours(2), 4.7),
+                new com.gregochr.goldenhour.model.KpForecast(now.plusHours(2), now.plusHours(5), 6.3),
+                new com.gregochr.goldenhour.model.KpForecast(now.plusHours(30), now.plusHours(33), 8.0),
+                // Listed after the beyond-cutoff period: the loop must have stopped, not skipped.
+                new com.gregochr.goldenhour.model.KpForecast(now.plusHours(3), now.plusHours(6), 5.9));
+        SpaceWeatherData data = new SpaceWeatherData(
+                List.of(new KpReading(now, 5.0)), forecast, null, List.of(), List.of());
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
+
+        String section = msg.substring(msg.indexOf("KP FORECAST (next 24 hours):"),
+                msg.indexOf("LOCATIONS TO SCORE"));
+        assertThat(section).contains("Kp=4.7").contains("Kp=6.3");
+        assertThat(section).doesNotContain("Kp=1.3");
+        assertThat(section).doesNotContain("Kp=8.0");
+        assertThat(section).doesNotContain("Kp=5.9");
+    }
+
+    @Test
+    @DisplayName("buildUserMessage prints the solar wind speed only when it is positive")
+    void buildUserMessage_solarWindSpeed_onlyWhenPositive() {
+        LocationEntity loc = buildLocation(1L, "Test", 55.0, -2.0, 2);
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        SolarWindReading fast = new SolarWindReading(now, -8.5, 480.0, 5.2);
+        SolarWindReading noSpeed = new SolarWindReading(now, -2.0, 0.0, 5.2);
+        SpaceWeatherData data = new SpaceWeatherData(
+                List.of(new KpReading(now, 5.5)), List.of(), null, List.of(fast, noSpeed), List.of());
+
+        String msg = interpreter.buildUserMessage(AlertLevel.MODERATE, List.of(loc),
+                Map.of(loc, 50), data, TriggerType.REALTIME, null);
+
+        assertThat(msg).contains("  Bz=-8.5 nT, speed=480 km/s\n");
+        assertThat(msg).contains("  Bz=-2.0 nT\n");
+        assertThat(msg).doesNotContain("Bz=-2.0 nT, speed");
+    }
+
+    @Test
+    @DisplayName("parseResponse steps back past a broken earlier object to salvage the last "
+            + "complete entry")
+    void parseResponse_truncationInsideNestedObject_stepsBackToLastParseablePrefix() {
+        LocationEntity locA = buildLocation(1L, "A", 55.0, -2.0, 2);
+        LocationEntity locB = buildLocation(2L, "B", 55.0, -3.0, 2);
+        // Cut inside B, after a nested object's closing brace: the first trimmed candidate still
+        // contains B's unclosed object, so the salvage must step back to A's closing brace.
+        String truncated = "[{\"name\":\"A\",\"stars\":4,\"summary\":\"Good\"},"
+                + "{\"name\":\"B\",\"meta\":{\"k\":1},\"stars\":3,\"summ";
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse(truncated, AlertLevel.MODERATE,
+                List.of(locA, locB), Map.of(locA, 20, locB, 30));
+
+        assertThat(scores).hasSize(2);
+        assertThat(scores.get(0).stars()).isEqualTo(4);
+        assertThat(scores.get(0).summary()).isEqualTo("Good");
+        assertThat(scores.get(1).stars()).isEqualTo(1);
+        assertThat(scores.get(1).summary()).contains("could not be assessed");
+    }
+
+    @Test
+    @DisplayName("parseResponse falls back for every location when a truncated array has no "
+            + "closing brace to salvage")
+    void parseResponse_truncatedWithoutAnyBrace_fallsBackForAll() {
+        LocationEntity loc = buildLocation(1L, "A", 55.0, -2.0, 2);
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse("[{\"name\":\"A\",\"sta",
+                AlertLevel.STRONG, List.of(loc), Map.of(loc, 20));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(1);
+        assertThat(scores.get(0).summary()).isEqualTo(
+                "Strong geomagnetic activity — conditions could not be assessed");
+        assertThat(scores.get(0).detail()).isEqualTo("– Score unavailable — error parsing Claude response");
+    }
+
+    @Test
+    @DisplayName("parseResponse gives up salvaging after a bounded number of attempts rather "
+            + "than scanning an unbounded run of braces")
+    void parseResponse_manyUnparseableBraces_givesUpAndFallsBack() {
+        LocationEntity loc = buildLocation(1L, "A", 55.0, -2.0, 2);
+
+        List<AuroraForecastScore> scores = interpreter.parseResponse("[" + "}".repeat(20),
+                AlertLevel.MODERATE, List.of(loc), Map.of(loc, 20));
+
+        assertThat(scores).hasSize(1);
+        assertThat(scores.get(0).stars()).isEqualTo(1);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

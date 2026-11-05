@@ -52,6 +52,7 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -955,6 +956,135 @@ class AnthropicBatchClientTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("createPrimerBatch: an interrupt while waiting for the guard restores the flag, "
+            + "fails fast and creates nothing")
+    void createPrimerBatch_interruptedWhileWaiting_restoresFlagAndThrows() throws Exception {
+        BatchCreateParams primerParams = uniqueParams("primer-interrupted");
+        java.util.concurrent.atomic.AtomicReference<Throwable> thrown =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean flagAfter =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        // Our own thread, interrupted by itself: no other thread is touched.
+        Thread worker = new Thread(() -> {
+            Thread.currentThread().interrupt();
+            try {
+                client.createPrimerBatch(primerParams, Duration.ofSeconds(15));
+            } catch (RuntimeException e) {
+                thrown.set(e);
+            }
+            flagAfter.set(Thread.currentThread().isInterrupted());
+        }, "b3-primer-interrupt");
+        worker.start();
+        worker.join(10_000);
+
+        assertThat(worker.isAlive()).isFalse();
+        assertThat(thrown.get()).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Interrupted waiting for the batch creation guard")
+                .hasCauseInstanceOf(InterruptedException.class);
+        assertThat(flagAfter.get()).isTrue();
+        verifyNoInteractions(batchService);
+    }
+
+    @Test
+    @DisplayName("createPrimerBatch: a zero budget leaves no time after the guard wait, so nothing is created")
+    void createPrimerBatch_zeroBudget_throwsWithoutCreating() {
+        BatchCreateParams primerParams = uniqueParams("primer-zero");
+
+        assertThatThrownBy(() -> client.createPrimerBatch(primerParams, Duration.ZERO))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No time left to create the primer");
+        verifyNoInteractions(batchService);
+    }
+
+    /** A clock the test moves, so primer windows can be recorded at different instants. */
+    private static final class MutableClock extends Clock {
+        private volatile Instant now;
+
+        MutableClock(Instant start) {
+            this.now = start;
+        }
+
+        void set(Instant instant) {
+            this.now = instant;
+        }
+
+        @Override
+        public ZoneOffset getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+    }
+
+    private MessageBatch adoptViaOrphan(AnthropicBatchClient movable, MutableClock clock,
+            Instant realStart, MessageBatch orphan) {
+        useRetryWithMaxAttempts(2);
+        BatchCreateParams realParams = uniqueParams("real-after-windows");
+        AnthropicServiceException serverError = serviceException(500);
+        BatchListPage page = mock(BatchListPage.class);
+        when(page.items()).thenReturn(List.of(orphan));
+        when(batchService.list(BatchListParams.builder().limit(20L).build())).thenReturn(page);
+        when(batchService.create(realParams)).thenThrow(serverError);
+        clock.set(realStart);
+        return movable.createBatch(realParams);
+    }
+
+    @Test
+    @DisplayName("primer windows: a batch created before an ambiguous primer's window opened is "
+            + "still adoptable")
+    void primerWindow_doesNotHideABatchCreatedBeforeItOpened() {
+        MutableClock clock = new MutableClock(FIRST_ATTEMPT_INSTANT.plusSeconds(100));
+        AnthropicBatchClient movable = new AnthropicBatchClient(anthropicClient, retryRegistry,
+                clock, forecastBatchRepository);
+        BatchCreateParams primerParams = uniqueParams("primer-late-window");
+        when(batchService.create(eq(primerParams), argThat((RequestOptions o) -> o.timeout().isPresent())))
+                .thenThrow(new AnthropicIoException("read timeout"));
+        assertThatThrownBy(() -> movable.createPrimerBatch(primerParams, Duration.ofSeconds(15)))
+                .isInstanceOf(AnthropicIoException.class);
+        // Window is [t0+100s, t0+160s]; the orphan was created at t0+10s, ahead of it.
+        MessageBatch orphan = aBatch("msgbatch_before_window",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(10), ZoneOffset.UTC), 1);
+
+        MessageBatch result = adoptViaOrphan(movable, clock, FIRST_ATTEMPT_INSTANT, orphan);
+
+        assertThat(result).isSameAs(orphan);
+    }
+
+    @Test
+    @DisplayName("primer windows: only the newest PRIMER_WINDOW_CAP windows are kept, so the oldest "
+            + "stops hiding batches")
+    void primerWindows_oldestEvictedPastCap() {
+        MutableClock clock = new MutableClock(FIRST_ATTEMPT_INSTANT);
+        AnthropicBatchClient movable = new AnthropicBatchClient(anthropicClient, retryRegistry,
+                clock, forecastBatchRepository);
+        BatchCreateParams primerParams = uniqueParams("primer-many");
+        when(batchService.create(eq(primerParams), argThat((RequestOptions o) -> o.timeout().isPresent())))
+                .thenThrow(new AnthropicIoException("read timeout"));
+        // One ambiguous failure at t0 (the window that will be evicted), then CAP more an hour on.
+        for (int i = 0; i <= AnthropicBatchClient.PRIMER_WINDOW_CAP; i++) {
+            clock.set(i == 0 ? FIRST_ATTEMPT_INSTANT
+                    : FIRST_ATTEMPT_INSTANT.plus(Duration.ofHours(1)).plusSeconds(i * 200L));
+            assertThatThrownBy(() -> movable.createPrimerBatch(primerParams, Duration.ofSeconds(15)))
+                    .isInstanceOf(AnthropicIoException.class);
+        }
+        // Inside the evicted t0 window only, so it is adoptable now that the window is gone.
+        MessageBatch orphan = aBatch("msgbatch_in_evicted_window",
+                OffsetDateTime.ofInstant(FIRST_ATTEMPT_INSTANT.plusSeconds(1), ZoneOffset.UTC), 1);
+
+        MessageBatch result = adoptViaOrphan(movable, clock, FIRST_ATTEMPT_INSTANT, orphan);
+
+        assertThat(result).isSameAs(orphan);
     }
 
     /** A {@link BatchCreateParams} with exactly one request, structurally unique per {@code tag}. */

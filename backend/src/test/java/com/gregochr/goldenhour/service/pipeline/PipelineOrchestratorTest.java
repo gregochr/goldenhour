@@ -2065,4 +2065,352 @@ class PipelineOrchestratorTest {
             assertThat(report.pipelineRunId()).isEqualTo(RUN_ID);
         }
     }
+
+    @Nested
+    @DisplayName("Paths the cycle tests above leave open")
+    class RemainingPaths {
+
+        private final BatchSubmissionSummary lostBucket = new BatchSubmissionSummary(
+                1, 0, List.of(new BatchSubmissionSummary.FailedBucket("near-term inland", 120)));
+
+        private void stubSubmit(ForecastBatchSubmissionOutcome outcome) {
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    notNull()))
+                    .thenReturn(outcome);
+        }
+
+        private void stubEmptyTail() {
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+        }
+
+        private PipelineRunPhaseEntity failedPhase(PipelinePhase phase, String detail) {
+            PipelineRunPhaseEntity row = new PipelineRunPhaseEntity(RUN_ID, phase, 1, T0);
+            row.setStatus(PipelinePhaseStatus.FAILED);
+            row.setDetail(detail);
+            return row;
+        }
+
+        private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>
+                captureLog() {
+            ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                    org.slf4j.LoggerFactory.getLogger(PipelineOrchestrator.class);
+            ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                    new ch.qos.logback.core.read.ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            return appender;
+        }
+
+        private void releaseLog(
+                ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender) {
+            ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PipelineOrchestrator.class))
+                    .detachAppender(appender);
+        }
+
+        // ── runCycleSynchronously ────────────────────────────────────────────
+
+        @Test
+        @DisplayName("runCycleSynchronously runs submit, wait and brief on the calling thread and completes")
+        void synchronous_runsWholeCycle() {
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, List.of())));
+            stubEmptyTail();
+
+            orchestrator.runCycleSynchronously(newRun());
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+            verify(briefingService).refreshBriefing(RUN_ID);
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("runCycleSynchronously fails the run on a submit exception and never briefs")
+        void synchronous_submitThrows_failsRunWithoutTail() {
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    notNull()))
+                    .thenThrow(new IllegalStateException("anthropic 5xx"));
+
+            orchestrator.runCycleSynchronously(newRun());
+
+            verify(pipelineRunService).failPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, "anthropic 5xx");
+            verify(pipelineRunService).failRun(RUN_ID, "Submit phase failed: anthropic 5xx");
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("runCycleSynchronously stops after a dropped submission without waiting or briefing")
+        void synchronous_dropped_stopsBeforeTail() {
+            stubSubmit(ForecastBatchSubmissionOutcome.dropped());
+
+            orchestrator.runCycleSynchronously(newRun());
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("submission guard"));
+            verify(forecastBatchRepository, never()).findByPipelineRunId(RUN_ID);
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
+        }
+
+        // ── submit summary, degraded reasons, alerts ─────────────────────────
+
+        @Test
+        @DisplayName("a submission that ran but carried no summary completes the phase and reports nothing to submit")
+        void submitWithoutSummary_completesPhaseAndReportsNothing() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(new ForecastBatchSubmissionOutcome(true, null));
+            stubEmptyTail();
+
+            SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(orchestrator::runNightlyCycle);
+
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
+            assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+            assertThat(report.summary()).isEqualTo("Nothing to submit");
+        }
+
+        @Test
+        @DisplayName("only the RETRY_FAILED phase failed: the run is DEGRADED with that detail alone, "
+                + "and admins are told")
+        void retryFailureAlone_degradesWithRetryDetail() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(1, 1, List.of())));
+            stubEmptyTail();
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT))
+                    .thenReturn(Optional.empty());
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.RETRY_FAILED)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.RETRY_FAILED,
+                            "retry batch submission failed (3 requests)")));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID, "retry batch submission failed (3 requests)");
+            verify(adminAlertService).sendPipelineDegradedAlert(
+                    RUN_ID, CycleType.NIGHTLY, T0, "retry batch submission failed (3 requests)");
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("when both the submit and the retry phase failed, the DEGRADED reason names both")
+        void bothPhasesFailed_reasonNamesBoth() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(lostBucket));
+            stubEmptyTail();
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.FORECAST_BATCH_SUBMIT, lostBucket.detail())));
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.RETRY_FAILED)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.RETRY_FAILED, "retry gone")));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID, lostBucket.detail() + "; retry gone");
+        }
+
+        @Test
+        @DisplayName("phases that failed with no recorded detail get a default reason each")
+        void failedPhasesWithoutDetail_getDefaultReasons() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(lostBucket));
+            stubEmptyTail();
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.FORECAST_BATCH_SUBMIT, null)));
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.RETRY_FAILED)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.RETRY_FAILED, null)));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID,
+                    "One or more forecast batch submissions failed; Retry batch submission failed");
+        }
+
+        @Test
+        @DisplayName("a degraded run that can no longer be re-read sends no admin alert but stays DEGRADED")
+        void degradedRunNotReReadable_skipsAlert() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(lostBucket));
+            // First read feeds the wait/brief tail; the second, made for the alert, finds nothing.
+            when(pipelineRunService.findById(RUN_ID))
+                    .thenReturn(Optional.of(newRun()))
+                    .thenReturn(Optional.empty());
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of());
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.FORECAST_BATCH_SUBMIT, lostBucket.detail())));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID, lostBucket.detail());
+            verifyNoInteractions(adminAlertService);
+        }
+
+        @Test
+        @DisplayName("an admin alert that throws is logged and ignored: the run stays DEGRADED and the tail finishes")
+        void alertThrows_runStaysDegraded() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(lostBucket));
+            stubEmptyTail();
+            when(pipelineRunService.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT)).thenReturn(
+                    Optional.of(failedPhase(PipelinePhase.FORECAST_BATCH_SUBMIT, lostBucket.detail())));
+            doThrow(new IllegalStateException("mail down")).when(adminAlertService)
+                    .sendPipelineDegradedAlert(RUN_ID, CycleType.NIGHTLY, T0, lostBucket.detail());
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).degradeRun(RUN_ID, lostBucket.detail());
+            verify(pipelineRunService, never()).failRun(eq(RUN_ID), any());
+        }
+
+        // ── RETRY_FAILED ─────────────────────────────────────────────────────
+
+        @Test
+        @DisplayName("a run resumed inside RETRY_FAILED with nothing left to retry closes the phase "
+                + "with the no-op detail instead of starting it again")
+        void resumedRetryPhase_nothingToRetry_closesWithNoOpDetail() {
+            PipelineRunEntity midRetry = runInPhase(PipelinePhase.RETRY_FAILED);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midRetry));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midRetry));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED,
+                    "0 failed, nothing to retry");
+            verify(briefingService).refreshBriefing(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a retry batch that never reached Anthropic fails the RETRY_FAILED phase, "
+                + "with no recovery summary")
+        void retrySubmissionFailed_failsPhase() {
+            RetrySelection selection = RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, List.of())));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection))
+                    .thenReturn(new RetrySubmitResult(0, 3, null));
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).failPhase(RUN_ID, PipelinePhase.RETRY_FAILED,
+                    "retry batch submission failed (3 requests)");
+            verify(batchRetryService, never()).summariseRecovery(any(), org.mockito.ArgumentMatchers.anyInt());
+            verify(pipelineRunService, never()).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED), any());
+        }
+
+        // ── start-up sweep, picks, tail budget ───────────────────────────────
+
+        @Test
+        @DisplayName("a start-up sweep that settled earlier runs says how many")
+        void startupSweep_reportsSettledCount() {
+            when(pipelineRunService.findRunning()).thenReturn(List.of());
+            when(locationFailureService.sweepUnsettledRuns()).thenReturn(3);
+            var appender = captureLog();
+            try {
+                orchestrator.resumeRunningCyclesOnStartup();
+
+                assertThat(appender.list).extracting(e -> e.getFormattedMessage())
+                        .contains("Startup sweep settled the location failures of 3 earlier pipeline run(s)");
+            } finally {
+                releaseLog(appender);
+            }
+        }
+
+        @Test
+        @DisplayName("with no pick service wired, a briefing completes without reading the cached briefing")
+        void noPickService_briefingStillCompletes() {
+            PipelineOrchestrator noPicks = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), directExecutor,
+                    Duration.ofMillis(1), Duration.ofHours(1), null, null, batchRetryService,
+                    adminAlertService, locationFailureService);
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            stubSubmit(ForecastBatchSubmissionOutcome.ran(new BatchSubmissionSummary(0, 0, List.of())));
+            stubEmptyTail();
+
+            noPicks.runNightlyCycle();
+
+            verify(briefingService, never()).getCachedBriefing();
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.BRIEFING, null);
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a resumed run with no cycle type still waits and briefs, on the default budget")
+        void resumedRunWithoutCycleType_usesDefaultBudget() {
+            PipelineRunEntity untyped = new PipelineRunEntity();
+            untyped.setId(RUN_ID);
+            untyped.setCurrentPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(untyped));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(untyped));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.COMPLETED)));
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(briefingService).refreshBriefing(RUN_ID);
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a wait that is interrupted fails the run with the interruption and keeps the thread's flag set")
+        void interruptedWait_failsRunAndKeepsInterruptFlag() throws Exception {
+            PipelineOrchestrator slowPoll = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, Clock.fixed(T0, ZoneOffset.UTC), directExecutor,
+                    Duration.ofSeconds(60), Duration.ofHours(1), null, pipelineRunPickService,
+                    batchRetryService, adminAlertService, locationFailureService);
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.SUBMITTED)));
+            java.util.concurrent.CountDownLatch aboutToSleep = new java.util.concurrent.CountDownLatch(1);
+            doAnswer(inv -> {
+                aboutToSleep.countDown();
+                return null;
+            }).when(pipelineRunService).updateWaitingOn(RUN_ID, "forecast batch set (0 of 1 complete)");
+            java.util.concurrent.atomic.AtomicBoolean flagAfter =
+                    new java.util.concurrent.atomic.AtomicBoolean();
+            Thread worker = new Thread(() -> {
+                slowPoll.resumeRunningCyclesOnStartup();
+                flagAfter.set(Thread.currentThread().isInterrupted());
+            }, "b3-orchestrator-wait");
+            worker.start();
+            try {
+                assertThat(aboutToSleep.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                worker.interrupt();
+            } finally {
+                worker.join(10_000);
+            }
+
+            assertThat(worker.isAlive()).isFalse();
+            assertThat(flagAfter.get()).isTrue();
+            verify(pipelineRunService).failRun(RUN_ID,
+                    "Wait/brief tail failed: Interrupted during batch wait");
+            verify(briefingService, never()).refreshBriefing(RUN_ID);
+        }
+
+        // ── BatchCompletionResult wording ────────────────────────────────────
+
+        @Test
+        @DisplayName("BatchCompletionResult words an empty set and a part-complete set for the live field")
+        void completionResult_wording() {
+            assertThat(new PipelineOrchestrator.BatchCompletionResult(0, 0).waitingOnText())
+                    .isEqualTo("no batches submitted — proceeding to briefing");
+            assertThat(new PipelineOrchestrator.BatchCompletionResult(5, 2).waitingOnText())
+                    .isEqualTo("forecast batch set (2 of 5 complete)");
+            assertThat(new PipelineOrchestrator.BatchCompletionResult(5, 2).allTerminal()).isFalse();
+            assertThat(new PipelineOrchestrator.BatchCompletionResult(0, 0).allTerminal()).isTrue();
+        }
+    }
 }

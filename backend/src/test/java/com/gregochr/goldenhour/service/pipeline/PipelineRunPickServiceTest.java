@@ -405,6 +405,72 @@ class PipelineRunPickServiceTest {
     }
 
     @Test
+    @DisplayName("a null pipelineRunId with null picks is also a clean no-op")
+    void nullRunIdAndNullPicks_noOp() {
+        service.persist(null, null);
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(evaluationViewService);
+    }
+
+    @Test
+    @DisplayName("a pick with no confidence persists a null confidence column")
+    void nullConfidence_persistsNull() {
+        BestBet pick = new BestBet(1, "headline-1", "detail-1", "2026-05-26_sunset", REGION, null,
+                null, "Today", "sunset", "20:50", null, List.of());
+        when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
+                .thenReturn(Map.of());
+
+        service.persist(RUN_ID, List.of(pick));
+
+        ArgumentCaptor<PipelineRunPickEntity> captor =
+                ArgumentCaptor.forClass(PipelineRunPickEntity.class);
+        verify(repository).save(captor.capture());
+        assertThat(captor.getValue().getConfidence()).isNull();
+        assertThat(captor.getValue().getHeadline()).isEqualTo("headline-1");
+    }
+
+    @Test
+    @DisplayName("lookupAverageRating: a pick missing its region, date or event type is not looked up")
+    void lookupAverageRating_missingInputs_noLookup() {
+        BestBet noRegion = new BestBet(1, "h", "d", "2026-05-26_sunset", null, Confidence.HIGH, null,
+                "Today", "sunset", "20:50", null, List.of());
+        BestBet noEventType = new BestBet(1, "h", "d", "2026-05-26_sunset", REGION, Confidence.HIGH,
+                null, "Today", null, "20:50", null, List.of());
+        BestBet ok = sunsetPick(1, null, List.of());
+
+        assertThat(service.lookupAverageRating(noRegion, EVENT_DATE)).isNull();
+        assertThat(service.lookupAverageRating(noEventType, EVENT_DATE)).isNull();
+        assertThat(service.lookupAverageRating(ok, null)).isNull();
+        verifyNoInteractions(evaluationViewService);
+    }
+
+    @Test
+    @DisplayName("lookupAverageRating: cached scores that are all out of range yield no average")
+    void lookupAverageRating_onlyInvalidRatings_returnsNull() {
+        Map<String, BriefingEvaluationResult> cached = new LinkedHashMap<>();
+        cached.put("A", scored("A", 9));
+        cached.put("B", scored("B", 0));
+        when(evaluationViewService.getLiveScoresForEnrichment(REGION, EVENT_DATE, TargetType.SUNSET))
+                .thenReturn(cached);
+
+        assertThat(service.lookupAverageRating(sunsetPick(1, null, List.of()), EVENT_DATE)).isNull();
+    }
+
+    @Test
+    @DisplayName("formatDiffersBy truncates a CSV longer than the 50-character column")
+    void formatDiffersBy_truncatesToColumnWidth() {
+        List<DiffersBy> many = java.util.Collections.nCopies(10, DiffersBy.REGION);
+
+        String formatted = PipelineRunPickService.formatDiffersBy(many);
+
+        // 10 x "REGION" joined by commas is 69 characters; the column holds 50.
+        assertThat(formatted).hasSize(50);
+        assertThat(formatted).isEqualTo(
+                "REGION,REGION,REGION,REGION,REGION,REGION,REGION,R".substring(0, 50));
+    }
+
+    @Test
     @DisplayName("save is not called for null-pipelineRunId paths (no false-positive writes)")
     void no_save_on_null_run_id_paths() {
         service.persist(null, List.of(sunsetPick(1, null, List.of())));

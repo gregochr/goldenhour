@@ -328,6 +328,64 @@ class BatchSubmissionServiceTest {
                         .contains("jobRunId=null, pipelineRunId=null, trigger=SCHEDULED"));
     }
 
+    @Test
+    @DisplayName("submit: an orchestrated cycle's pipelineRunId is stamped on the persisted row, "
+            + "which is not marked as a retry")
+    void submit_withPipelineRunId_stampsRowNotRetry() {
+        stubBatchCreate("msgbatch_cycle");
+        stubSaveEchoes();
+        when(jobRunService.startBatchRun(1, "msgbatch_cycle")).thenReturn(null);
+
+        service.submit(List.of(aRequest()), BatchType.FORECAST, BatchTriggerSource.SCHEDULED,
+                "Test cycle", 33L);
+
+        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getPipelineRunId()).isEqualTo(33L);
+        assertThat(captor.getValue().isRetry()).isFalse();
+    }
+
+    @Test
+    @DisplayName("submit: the retry flag is set at row creation so the poller can never see a retry "
+            + "batch as an ordinary one")
+    void submit_retryFlag_setOnPersistedRow() {
+        stubBatchCreate("msgbatch_retry");
+        stubSaveEchoes();
+        when(jobRunService.startBatchRun(1, "msgbatch_retry")).thenReturn(null);
+
+        service.submit(List.of(aRequest()), BatchType.FORECAST, BatchTriggerSource.RETRY,
+                "Test retry", 33L, true);
+
+        ArgumentCaptor<ForecastBatchEntity> captor = ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().isRetry()).isTrue();
+        assertThat(captor.getValue().getPipelineRunId()).isEqualTo(33L);
+    }
+
+    @Test
+    @DisplayName("submit: with DEBUG logging on, the first request's output config is logged")
+    void submit_debugEnabled_logsOutputConfigDiagnostic() {
+        Level original = serviceLogger.getLevel();
+        serviceLogger.setLevel(Level.DEBUG);
+        try {
+            stubBatchCreate("msgbatch_debug");
+            stubSaveEchoes();
+            when(jobRunService.startBatchRun(1, "msgbatch_debug")).thenReturn(null);
+
+            service.submit(List.of(aRequest()), BatchType.FORECAST, BatchTriggerSource.SCHEDULED,
+                    "Test debug");
+
+            assertThat(logAppender.list)
+                    .filteredOn(e -> e.getLevel() == Level.DEBUG)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .singleElement()
+                    .asString()
+                    .startsWith("[BATCH DIAG] Output config schema: ");
+        } finally {
+            serviceLogger.setLevel(original);
+        }
+    }
+
     private static BatchCreateParams.Request aRequest() {
         return BatchCreateParams.Request.builder()
                 .customId("fc-1-2026-04-16-SUNRISE")
