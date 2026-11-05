@@ -405,14 +405,19 @@ class AuroraResultHandlerTest {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
                 "au-MODERATE-2026-04-16", "EXPIRED", "expired", "expired");
         org.mockito.Mockito.doThrow(new RuntimeException("DB down")).when(jobRunService).logBatchResult(
-                any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(),
-                any(), any(), any(), any(), any());
+                eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"), eq(false),
+                eq("expired"), eq("expired"), eq(null), eq(null),
+                eq(null), eq(null), eq(null), eq(null));
 
         AuroraBatchOutcome result = handler.processBatchResponse(AlertLevel.MODERATE, outcome,
                 ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
 
         assertThat(result.success()).isFalse();
         assertThat(result.failureReason()).isEqualTo("expired");
+        verify(jobRunService).logBatchResult(
+                eq(99L), eq("msgbatch_x"), eq("au-MODERATE-2026-04-16"), eq(false),
+                eq("expired"), eq("expired"), eq(null), eq(null),
+                eq(null), eq(null), eq(null), eq(null));
     }
 
     @Test
@@ -424,7 +429,7 @@ class AuroraResultHandlerTest {
         LocationEntity viable = loc(1L, "X");
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(4))
                 .thenReturn(List.of(viable));
-        when(weatherTriageService.triage(any())).thenReturn(
+        when(weatherTriageService.triage(List.of(viable))).thenReturn(
                 new WeatherTriageService.TriageResult(List.of(viable), List.of(), Map.of(viable, 30)));
         AuroraForecastScore score = new AuroraForecastScore(viable, 2, AlertLevel.QUIET, 30, "ok", "");
         when(claudeAuroraInterpreter.parseBatchResponse(
@@ -482,9 +487,10 @@ class AuroraResultHandlerTest {
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
                 "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
         org.mockito.Mockito.doThrow(new RuntimeException("DB down")).when(jobRunService)
-                .logAnthropicApiCall(any(), org.mockito.ArgumentMatchers.anyLong(), any(),
-                        any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(),
-                        org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any(), any());
+                .logAnthropicApiCall(eq(99L), eq(1500L), eq(null),
+                        eq("busy"), eq(false), eq("busy"), eq(EvaluationModel.HAIKU),
+                        eq(TokenUsage.EMPTY), eq(false), eq(null), eq(null),
+                        eq("overloaded_error"), eq(null));
 
         EvaluationResult result = handler.handleSyncResult(task, outcome,
                 ResultContext.forSync(99L, BatchTriggerSource.SCHEDULED));

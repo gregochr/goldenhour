@@ -397,6 +397,7 @@ class AuroraGlossServiceTest {
                 regions, null, AlertLevel.MODERATE, 5.0);
 
         assertThat(result).isSameAs(regions);
+        // never(): no Claude call may be made at all, whatever its request.
         verify(anthropicApiClient, never()).createMessage(any(MessageCreateParams.class));
     }
 

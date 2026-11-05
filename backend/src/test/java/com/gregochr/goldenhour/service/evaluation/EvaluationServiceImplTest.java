@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.gregochr.goldenhour.entity.RunType;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -608,17 +609,30 @@ class EvaluationServiceImplTest {
         com.gregochr.goldenhour.entity.JobRunEntity jobRun =
                 mock(com.gregochr.goldenhour.entity.JobRunEntity.class);
         when(jobRun.getId()).thenReturn(101L);
-        when(jobRunService.startRun(any(), eq(false), any())).thenReturn(jobRun);
+        when(jobRunService.startRun(eq(RunType.AURORA_EVALUATION), eq(false), eq(EvaluationModel.HAIKU)))
+                .thenReturn(jobRun);
         when(claudeAuroraInterpreter.buildUserMessage(
-                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+                eq(AlertLevel.MODERATE), eq(task.viableLocations()), eq(task.cloudByLocation()),
+                eq(SPACE_WEATHER), eq(TriggerType.REALTIME), eq(null))).thenReturn("user-message");
         Message message = mockMessageWithText("[{\"name\":\"X\",\"stars\":4}]", 400L, 150L, 50L, 800L);
-        when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(message);
         when(auroraResultHandler.handleSyncResult(eq(task),
                 any(ClaudeSyncOutcome.class), any(ResultContext.class)))
                 .thenReturn(new EvaluationResult.Scored(List.of()));
 
         service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
 
+        ArgumentCaptor<MessageCreateParams> request = ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(request.capture());
+        ModelRequestAssertions.assertMessage(request.getValue(), EvaluationModel.HAIKU,
+                auroraCeiling(EvaluationModel.HAIKU), Optional.empty());
+        ArgumentCaptor<ClaudeSyncOutcome> outcome = ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        ArgumentCaptor<ResultContext> context = ArgumentCaptor.forClass(ResultContext.class);
+        verify(auroraResultHandler).handleSyncResult(eq(task), outcome.capture(), context.capture());
+        assertThat(outcome.getValue().succeeded()).isTrue();
+        assertThat(outcome.getValue().rawText()).isEqualTo("[{\"name\":\"X\",\"stars\":4}]");
+        assertThat(context.getValue().jobRunId()).isEqualTo(101L);
+        assertThat(context.getValue().triggerSource()).isEqualTo(BatchTriggerSource.SCHEDULED);
         verify(jobRunService).completeRun(eq(jobRun), eq(1), eq(0));
     }
 
@@ -638,14 +652,23 @@ class EvaluationServiceImplTest {
     void submit_auroraSubmissionFailure_returnsEmptyHandle() {
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
         when(claudeAuroraInterpreter.buildUserMessage(
-                any(), any(), any(), any(), any(), any())).thenReturn("user-message");
+                eq(AlertLevel.MODERATE), eq(task.viableLocations()), eq(task.cloudByLocation()),
+                eq(SPACE_WEATHER), eq(TriggerType.REALTIME), eq(null))).thenReturn("user-message");
         when(batchSubmissionService.submit(
-                any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED), anyString()))
+                any(), eq(BatchType.AURORA), eq(BatchTriggerSource.SCHEDULED),
+                eq("EvaluationService aurora (SCHEDULED)")))
                 .thenReturn(null);
 
         EvaluationHandle handle = service.submit(List.of(task), BatchTriggerSource.SCHEDULED);
 
         assertThat(handle).isEqualTo(EvaluationHandle.empty());
+        ArgumentCaptor<List<BatchCreateParams.Request>> requests = ArgumentCaptor.forClass(List.class);
+        verify(batchSubmissionService).submit(requests.capture(), eq(BatchType.AURORA),
+                eq(BatchTriggerSource.SCHEDULED), eq("EvaluationService aurora (SCHEDULED)"));
+        assertThat(requests.getValue()).hasSize(1);
+        assertThat(requests.getValue().get(0).customId()).isEqualTo("au-MODERATE-2026-04-16");
+        ModelRequestAssertions.assertBatch(requests.getValue().get(0).params(), EvaluationModel.HAIKU,
+                auroraCeiling(EvaluationModel.HAIKU), Optional.empty());
     }
 
     @Test
@@ -663,7 +686,8 @@ class EvaluationServiceImplTest {
                 eq(wd.data()), eq(EvaluationModel.HAIKU.getMaxTokens())))
                 .thenReturn(req);
         when(batchSubmissionService.submit(
-                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                any(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED),
+                eq("EvaluationService forecast (SCHEDULED)"),
                 org.mockito.ArgumentMatchers.isNull(), eq(false)))
                 .thenReturn(new BatchSubmitResult(902L, "msgbatch_wd", 1));
 
@@ -672,9 +696,11 @@ class EvaluationServiceImplTest {
         assertThat(handle.batchId()).isEqualTo("msgbatch_wd");
         ArgumentCaptor<List<BatchCreateParams.Request>> captor = ArgumentCaptor.forClass(List.class);
         verify(batchSubmissionService).submit(
-                captor.capture(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED), anyString(),
+                captor.capture(), eq(BatchType.FORECAST), eq(BatchTriggerSource.SCHEDULED),
+                eq("EvaluationService forecast (SCHEDULED)"),
                 org.mockito.ArgumentMatchers.isNull(), eq(false));
         assertThat(captor.getValue()).containsExactly(req);
+        // never(): no sky request may be built for a woodland task, whatever its arguments.
         verify(batchRequestFactory, org.mockito.Mockito.never())
                 .buildForecastRequestAndPrompt(any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
     }

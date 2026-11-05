@@ -38,6 +38,7 @@ class AnthropicApiClientAskGateTest {
         sharedClient = mock(AnthropicClient.class);
         askClient = mock(AnthropicClient.class);
         askMessages = mock(MessageService.class);
+        // The argument is a lambda configuring the builder; it cannot be matched by value.
         when(sharedClient.withOptions(any())).thenReturn(askClient);
         apiClient = new AnthropicApiClient(sharedClient);
     }

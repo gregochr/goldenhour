@@ -1617,6 +1617,7 @@ class ForecastResultHandlerTest {
 
         assertThat(handler.parseBluebellBatchResponse(location, identity, outcome,
                 ResultContext.forBatch(99L, "msgbatch_bb", BatchTriggerSource.SCHEDULED))).isEmpty();
+        // never(): no component row may be written at all, whatever its arguments.
         verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
     }
 
@@ -1691,6 +1692,7 @@ class ForecastResultHandlerTest {
                 ResultContext.forBatch(99L, "msgbatch_bb", null, submittedAt, BatchTriggerSource.SCHEDULED));
 
         assertThat(result.orElseThrow().result().rating()).isEqualTo(4);
+        // never(): a superseded response writes no component row, whatever its arguments.
         verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
     }
 
@@ -1705,7 +1707,7 @@ class ForecastResultHandlerTest {
         when(parser.parseBluebellEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new BluebellEvaluation(4, "Bright still light.", "Soft light"));
         doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
-                .writeComponents(any(), any(), any(), anyList(), any());
+                .writeComponents(eq(location), eq(DATE), eq(SUNRISE), anyList(), eq(null));
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
                 LoggerFactory.getLogger(ForecastResultHandler.class);
@@ -1824,6 +1826,7 @@ class ForecastResultHandlerTest {
                 ResultContext.forBatch(99L, "msgbatch_wd", null, submittedAt, BatchTriggerSource.SCHEDULED));
 
         assertThat(result.orElseThrow().result().rating()).isEqualTo(5);
+        // never(): a superseded response writes no component row, whatever its arguments.
         verify(forecastScoreWriter, never()).writeComponents(any(), any(), any(), anyList(), any());
     }
 
@@ -1836,7 +1839,7 @@ class ForecastResultHandlerTest {
         when(parser.parseWoodlandEvaluation(outcome.rawText(), objectMapper))
                 .thenReturn(new WoodlandEvaluation(5, "Shafts.", "Beech light"));
         doThrow(new RuntimeException("DB down")).when(forecastScoreWriter)
-                .writeComponents(any(), any(), any(), anyList(), any());
+                .writeComponents(eq(location), eq(DATE), eq(SUNRISE), anyList(), eq(null));
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
                 LoggerFactory.getLogger(ForecastResultHandler.class);
