@@ -673,8 +673,9 @@ describe('the clock (D13)', () => {
     pin(NOON);
     setRewind('2026-01-15T09:00:00Z');
     mount();
-    expect(await screen.findByTestId('scheduler-day-label')).toHaveTextContent('TodayTue 3 Nov');
-    expect(screen.getByTestId('scheduler-day-now')).toHaveTextContent('Now 12:00');
+    // The label is on screen from the first paint, before the served day lands; wait for the Now line first.
+    expect(await screen.findByTestId('scheduler-day-now')).toHaveTextContent('Now 12:00');
+    expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('TodayTue 3 Nov');
     expect(screen.getByTestId('scheduler-day-prev')).toBeEnabled();
     expect(screen.getByTestId('scheduler-day-today')).toBeDisabled();
     expect(fetchSchedulerDay).toHaveBeenCalledWith(null);
