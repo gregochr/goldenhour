@@ -553,6 +553,20 @@ class StubAskEngineTest {
     }
 
     @Test
+    @DisplayName("a topical keyword is also matched in an event's detail; an event with no detail that does not "
+            + "match is left out")
+    void keywordMatchedInTheDetailOnly() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("WEATHER", "Cold snap", "Fresh snow above 600 m", TODAY, List.of()),
+                AskFixtures.topic("DUST", "Dust haze", null, TODAY, List.of()))));
+
+        AskRun run = engine.run(question("Is there snow about?"), snapshot, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().answer().events()).extracting(AskEvent::type).containsExactly("WEATHER");
+        assertThat(run.outcome().answer().events().getFirst().why()).isEqualTo("Fresh snow above 600 m");
+    }
+
+    @Test
     @DisplayName("an events question with no events at all is an honest, generic empty answer")
     void noEventsAtAll() {
         AskSnapshot empty = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()));

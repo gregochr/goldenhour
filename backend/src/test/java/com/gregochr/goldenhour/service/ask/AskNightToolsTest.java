@@ -64,6 +64,33 @@ class AskNightToolsTest {
                         aurora(4L, "Kielder", "Dales", null, 3, 2)));
     }
 
+    // -- rows with a missing figure ---------------------------------------------------------
+
+    private static AskSnapshot.NightSpot spotWith(long id, String name, Integer astroStars, Integer auroraStars) {
+        return new AskSnapshot.NightSpot(id, name, "Coast", 54.9, -1.6, false, 3, 21.4, astroStars,
+                astroStars == null ? null : "Astro summary", "Clear skies", "Excellent", "Dark", "NEW_MOON", 1.0,
+                auroraStars, auroraStars == null ? null : "Aurora summary", false, null, "MODERATE", 6.0);
+    }
+
+    @Test
+    @DisplayName("a place on the astro night with no astro figure, or on the aurora night with no aurora figure, "
+            + "is ranked on the figure it does have, and is left out when it has none")
+    void rowsRankOnTheFigureTheyHave() {
+        AskSnapshot snapshot = nightsOnly(new AuroraState("MODERATE", 6.0),
+                astroNight(TONIGHT, spotWith(5L, "Xanthe", null, null), spotWith(6L, "Yarm", 4, null)),
+                auroraNight(TONIGHT, spotWith(7L, "Zetland", 4, null), spotWith(8L, "Aldbrough", null, 5)));
+
+        RankNightSpotsResult result = ok(tools(snapshot, PRO).rankNightSpots(args(null, null)));
+
+        assertThat(result.spots()).extracting(NightSpotInfo::name).containsExactly("Aldbrough", "Yarm", "Zetland");
+        NightSpotInfo zetland = result.spots().get(2);
+        assertThat(zetland.astroStars()).isEqualTo(4);
+        assertThat(zetland.auroraStars()).isNull();
+        NightSpotInfo aldbrough = result.spots().get(0);
+        assertThat(aldbrough.astroWindowId()).isNull();
+        assertThat(aldbrough.auroraStars()).isEqualTo(5);
+    }
+
     // -- the role gate ----------------------------------------------------------------------
 
     @Test
