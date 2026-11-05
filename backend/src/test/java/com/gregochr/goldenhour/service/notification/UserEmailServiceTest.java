@@ -405,9 +405,8 @@ class UserEmailServiceTest {
     @DisplayName("sendVerificationEmail swallows a send failure and sends nothing")
     void sendVerificationEmail_sendFails_doesNotPropagate() {
         UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
-        // The context is pinned by sendVerificationEmail_linksToTheVerifyPath; only the failure matters here.
-        when(templateEngine.process(eq("verification-email"), any(IContext.class))).thenReturn("<html></html>");
-        when(templateEngine.process(eq("text/verification-email"), any(IContext.class))).thenReturn("plain text");
+        when(templateEngine.process(eq("verification-email"), verifyCtx("tok"))).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/verification-email"), verifyCtx("tok"))).thenReturn("plain text");
         when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
 
         service.sendVerificationEmail("alice@example.com", "alice", "tok");

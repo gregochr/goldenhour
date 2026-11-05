@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.anthropic.core.RequestOptions;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.ToolResultBlockParam;
@@ -32,7 +33,8 @@ import static com.gregochr.goldenhour.service.ask.AskMessages.submit;
 import static com.gregochr.goldenhour.service.ask.AskMessages.tool;
 import static com.gregochr.goldenhour.service.ask.AskMessages.toolTurn;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isA;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -62,8 +64,24 @@ class ClaudeAskEngineEdgeCasesTest {
     private MutableClock clock;
     private ClaudeAskEngine engine;
 
-    // Every stub and verify of client.createAskMessage(any(), any(), any()) below is deliberately open: the
-    // request is built inside the engine and each test asserts on the captured params or on the outcome.
+    /** Matches the request: the haiku model and a first user message that is exactly the asked question. */
+    private static MessageCreateParams params() {
+        return argThat(p -> p != null && EvaluationModel.HAIKU.getModelId().equals(p.model().asString())
+                && p.messages().getFirst().content().isString()
+                && "Best spot tonight?".equals(p.messages().getFirst().content().asString()));
+    }
+
+    /** Matches the call options: the 20 s per-call timeout (the 30 s deadline has not started to run out). */
+    private static RequestOptions options() {
+        return argThat(o -> o != null && o.timeout().isPresent()
+                && Duration.ofSeconds(20).equals(o.timeout().get().request()));
+    }
+
+    /** Matches the accounting gate: it is open while the job-run service reports accounting available. */
+    private static AnthropicApiClient.CallGate gate() {
+        return argThat(g -> g != null && g.mayCall());
+    }
+
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-10-05T12:00:00Z"));
@@ -75,7 +93,7 @@ class ClaudeAskEngineEdgeCasesTest {
         doAnswer(inv -> {
             turns.add(inv.getArgument(0));
             return null;
-        }).when(jobRuns).recordTurn(any());
+        }).when(jobRuns).recordTurn(isA(AskJobRunService.Turn.class));
     }
 
     @AfterEach
@@ -101,7 +119,7 @@ class ClaudeAskEngineEdgeCasesTest {
 
     private List<MessageCreateParams> sentParams() {
         ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
-        verify(client, atLeastOnce()).createAskMessage(captor.capture(), any(), any());
+        verify(client, atLeastOnce()).createAskMessage(captor.capture(), options(), gate());
         return captor.getAllValues();
     }
 
@@ -110,7 +128,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("a deadline that is overshot, not just met, stops the loop before the next turn")
     void deadlineOvershot() {
-        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(params(), options(), gate())).thenAnswer(inv -> {
             clock.advance(Duration.ofSeconds(45));
             return toolTurn(tool("t", "list_windows", Map.of()));
         });
@@ -120,7 +138,7 @@ class ClaudeAskEngineEdgeCasesTest {
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
         assertThat(run.outcome().turns()).isEqualTo(1);
         assertThat(run.reason()).contains("deadline passed before turn 2");
-        verify(client, times(1)).createAskMessage(any(), any(), any());
+        verify(client, times(1)).createAskMessage(params(), options(), gate());
     }
 
     @Test
@@ -128,7 +146,7 @@ class ClaudeAskEngineEdgeCasesTest {
             + "thread's interrupt flag for its owner")
     void interruptedWait() {
         // The call is slow, so the wait is still pending when the (already interrupted) caller reaches it.
-        when(client.createAskMessage(any(), any(), any())).thenAnswer(inv -> {
+        when(client.createAskMessage(params(), options(), gate())).thenAnswer(inv -> {
             Thread.sleep(5_000);
             return submit(Map.of("answerable", false, "summary", "Can't tell."));
         });
@@ -160,7 +178,7 @@ class ClaudeAskEngineEdgeCasesTest {
         Message real = submit(Map.of("answerable", false, "summary", "Can't tell."));
         Message noUsage = spy(real);
         doReturn(null).when(noUsage).usage();
-        when(client.createAskMessage(any(), any(), any())).thenReturn(noUsage);
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(noUsage);
 
         AskRun run = run(USER);
 
@@ -177,7 +195,7 @@ class ClaudeAskEngineEdgeCasesTest {
         Message real = submit(Map.of("answerable", false, "summary", "Can't tell."));
         Message noStop = spy(real);
         doReturn(Optional.empty()).when(noStop).stopReason();
-        when(client.createAskMessage(any(), any(), any())).thenReturn(noStop);
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(noStop);
 
         AskRun run = run(USER);
 
@@ -192,7 +210,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("a call that throws with no message is FAILED naming only its type")
     void callThrowsWithoutAMessage() {
-        when(client.createAskMessage(any(), any(), any())).thenThrow(new IllegalStateException());
+        when(client.createAskMessage(params(), options(), gate())).thenThrow(new IllegalStateException());
 
         AskRun run = run(USER);
 
@@ -207,7 +225,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @DisplayName("a tool that throws is fed back as an error result and the conversation goes on")
     void toolThrows() {
         when(driveTimes.getAllMinutes(7L)).thenThrow(new IllegalStateException("drive times down"));
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 toolTurn(tool("boom", "rank_spots", Map.of("maxDriveMinutes", 60))),
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
@@ -233,7 +251,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @DisplayName("an unknown tool name is cut at 40 characters without splitting a surrogate pair")
     void unknownToolNameIsCutOnACharacterBoundary() {
         String name = "t".repeat(39) + "😀" + "tail";
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 toolTurn(tool("odd", name, Map.of())),
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
@@ -260,7 +278,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("an astro night the Map is showing is named in the prompt, whoever the reader is")
     void astroContextForALiteReader() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         engine.run(question("2026-10-05_astro"), withNights(), LITE, AskRunOptions.none());
@@ -270,7 +288,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("an aurora night the reader may see is named in the prompt")
     void auroraContextForAProReader() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         engine.run(question("2026-10-05_aurora"), withNights(), USER, AskRunOptions.none());
@@ -281,7 +299,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("an aurora night is no context at all to a reader who may not see aurora")
     void auroraContextHiddenFromALiteReader() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         engine.run(question("2026-10-05_aurora"), withNights(), LITE, AskRunOptions.none());
@@ -293,7 +311,7 @@ class ClaudeAskEngineEdgeCasesTest {
     @Test
     @DisplayName("the usage figure the engine logs is the reply's own")
     void usageIsTheRepliesOwn() {
-        when(client.createAskMessage(any(), any(), any())).thenReturn(
+        when(client.createAskMessage(params(), options(), gate())).thenReturn(
                 submit(Map.of("answerable", false, "summary", "Can't tell.")));
 
         run(USER);
