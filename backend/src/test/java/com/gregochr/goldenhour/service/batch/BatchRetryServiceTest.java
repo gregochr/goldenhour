@@ -773,16 +773,24 @@ class BatchRetryServiceTest {
                 .thenReturn(EvaluationModel.SONNET);
         when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
+        ForecastPreEvalResult nearPre = preEval(loc, nearDate, TargetType.SUNSET, false);
+        ForecastPreEvalResult farPre = preEval(loc, DATE, TargetType.SUNRISE, false);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(nearDate), eq(TargetType.SUNSET),
                 eq(loc.getTideType()), eq(EvaluationModel.SONNET), isNull()))
-                .thenReturn(preEval(loc, nearDate, TargetType.SUNSET, false));
+                .thenReturn(nearPre);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
                 eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
-                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
-        when(forecastService.persistPendingEvaluation(any())).thenReturn(1L);
+                .thenReturn(farPre);
+        when(forecastService.persistPendingEvaluation(nearPre)).thenReturn(1L);
+        when(forecastService.persistPendingEvaluation(farPre)).thenReturn(2L);
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
         when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID)).thenReturn(List.of());
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
+        List<EvaluationTask.Forecast> expectedTasks = List.of(
+                new EvaluationTask.Forecast(loc, nearDate, TargetType.SUNSET, EvaluationModel.SONNET,
+                        nearPre.atmosphericData(), EvaluationTask.Forecast.PromptKind.SKY, 1L, false),
+                new EvaluationTask.Forecast(loc, DATE, TargetType.SUNRISE, EvaluationModel.HAIKU,
+                        farPre.atmosphericData(), EvaluationTask.Forecast.PromptKind.SKY, 2L, false));
+        when(evaluationService.submit(expectedTasks, BatchTriggerSource.RETRY, RUN_ID, true))
                 .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 2));
         RetrySelection selection = RetrySelection.retry(List.of(
                 new RetrySelection.RetryFailure("near", 42L, nearDate, TargetType.SUNSET, null),

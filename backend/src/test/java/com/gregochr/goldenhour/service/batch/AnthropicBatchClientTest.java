@@ -52,6 +52,7 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -1033,7 +1034,7 @@ class AnthropicBatchClientTest {
         AnthropicServiceException serverError = serviceException(500);
         BatchListPage page = mock(BatchListPage.class);
         when(page.items()).thenReturn(List.of(orphan));
-        when(batchService.list(any(BatchListParams.class))).thenReturn(page);
+        when(batchService.list(BatchListParams.builder().limit(20L).build())).thenReturn(page);
         when(batchService.create(realParams)).thenThrow(serverError);
         clock.set(realStart);
         return movable.createBatch(realParams);
@@ -1047,7 +1048,7 @@ class AnthropicBatchClientTest {
         AnthropicBatchClient movable = new AnthropicBatchClient(anthropicClient, retryRegistry,
                 clock, forecastBatchRepository);
         BatchCreateParams primerParams = uniqueParams("primer-late-window");
-        when(batchService.create(eq(primerParams), any(RequestOptions.class)))
+        when(batchService.create(eq(primerParams), argThat((RequestOptions o) -> o.timeout().isPresent())))
                 .thenThrow(new AnthropicIoException("read timeout"));
         assertThatThrownBy(() -> movable.createPrimerBatch(primerParams, Duration.ofSeconds(15)))
                 .isInstanceOf(AnthropicIoException.class);
@@ -1068,7 +1069,7 @@ class AnthropicBatchClientTest {
         AnthropicBatchClient movable = new AnthropicBatchClient(anthropicClient, retryRegistry,
                 clock, forecastBatchRepository);
         BatchCreateParams primerParams = uniqueParams("primer-many");
-        when(batchService.create(eq(primerParams), any(RequestOptions.class)))
+        when(batchService.create(eq(primerParams), argThat((RequestOptions o) -> o.timeout().isPresent())))
                 .thenThrow(new AnthropicIoException("read timeout"));
         // One ambiguous failure at t0 (the window that will be evicted), then CAP more an hour on.
         for (int i = 0; i <= AnthropicBatchClient.PRIMER_WINDOW_CAP; i++) {

@@ -1385,6 +1385,11 @@ class BatchResultProcessorTest {
         return response;
     }
 
+    /** Matches the outcome handed to a result handler for exactly this custom id. */
+    private static ClaudeBatchOutcome outcomeOf(String customId) {
+        return argThat(outcome -> outcome != null && customId.equals(outcome.customId()));
+    }
+
     private static BatchSuccess successFor(String cacheKey, String location, int rating) {
         return new BatchSuccess(cacheKey,
                 new BriefingEvaluationResult(location, rating, 70, 65, "X"));
@@ -1407,7 +1412,7 @@ class BatchResultProcessorTest {
         ResultContext context = ResultContext.forBatch(
                 null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
         when(forecastResultHandler.parseBluebellBatchResponse(
-                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                eq(location), eq(identity), outcomeOf(customId), eq(context)))
                 .thenReturn(Optional.of(hit));
 
         processor.processResults(batch);
@@ -1443,7 +1448,7 @@ class BatchResultProcessorTest {
         ResultContext context = ResultContext.forBatch(
                 null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
         when(forecastResultHandler.parseWoodlandBatchResponse(
-                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                eq(location), eq(identity), outcomeOf(customId), eq(context)))
                 .thenReturn(Optional.of(hit));
 
         processor.processResults(batch);
@@ -1467,7 +1472,7 @@ class BatchResultProcessorTest {
         ResultContext context = ResultContext.forBatch(
                 null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
         when(forecastResultHandler.parseBatchResponse(
-                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                eq(location), eq(identity), outcomeOf("jfdi-42-2026-04-07-SUNRISE"), eq(context)))
                 .thenReturn(Optional.of(hit));
 
         processor.processResults(batch);
@@ -1488,7 +1493,7 @@ class BatchResultProcessorTest {
         ResultContext context = ResultContext.forBatch(
                 null, "msgbatch_fail", null, batch.getSubmittedAt(), null);
         when(forecastResultHandler.parseBatchResponse(
-                eq(location), eq(identity), any(ClaudeBatchOutcome.class), eq(context)))
+                eq(location), eq(identity), outcomeOf("force-Lakes-42-2026-04-07-SUNSET"), eq(context)))
                 .thenReturn(Optional.of(hit));
 
         processor.processResults(batch);
@@ -1644,13 +1649,13 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
         stubStream(succeededResponse(customId, "[{\"name\":\"X\",\"stars\":4}]"));
         when(auroraResultHandler.processBatchResponse(
-                eq(AlertLevel.QUIET), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                eq(AlertLevel.QUIET), outcomeOf(customId), eq(ResultContext.forBatch(null, "msgbatch_fail", null))))
                 .thenReturn(AuroraBatchOutcome.ok(2));
 
         processor.processResults(batch);
 
         verify(auroraResultHandler).processBatchResponse(
-                eq(AlertLevel.QUIET), any(ClaudeBatchOutcome.class), any(ResultContext.class));
+                eq(AlertLevel.QUIET), outcomeOf(customId), eq(ResultContext.forBatch(null, "msgbatch_fail", null)));
         assertThat(batch.getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(batch.getSucceededCount()).isEqualTo(2);
     }
@@ -1661,7 +1666,8 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 71L);
         stubStream(succeededResponse("au-MODERATE-2026-04-07", "[{\"name\":\"X\",\"stars\":4}]"));
         when(auroraResultHandler.processBatchResponse(
-                eq(AlertLevel.MODERATE), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                eq(AlertLevel.MODERATE), outcomeOf("au-MODERATE-2026-04-07"),
+                eq(ResultContext.forBatch(71L, "msgbatch_fail", null))))
                 .thenReturn(AuroraBatchOutcome.ok(7));
         when(costCalculator.calculateCostMicroDollars(
                 EvaluationModel.SONNET, new TokenUsage(500, 200, 0, 1000, 0), true))
@@ -1680,7 +1686,8 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 72L);
         stubStream(succeededResponseWithUsage("au-STRONG-2026-04-07", "[{\"name\":\"X\"}]", 0, 50));
         when(auroraResultHandler.processBatchResponse(
-                eq(AlertLevel.STRONG), any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                eq(AlertLevel.STRONG), outcomeOf("au-STRONG-2026-04-07"),
+                eq(ResultContext.forBatch(72L, "msgbatch_fail", null))))
                 .thenReturn(AuroraBatchOutcome.failure("triage failed"));
         when(costCalculator.calculateCostMicroDollars(
                 EvaluationModel.SONNET, new TokenUsage(0, 50, 0, 0, 0), true)).thenReturn(900L);

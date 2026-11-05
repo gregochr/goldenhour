@@ -174,7 +174,14 @@ class ForecastDispositionServiceTest {
 
         service.persist(null, 555L, List.of(d));
 
-        verify(repository).saveAll(anyList());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastRunDispositionEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(captor.capture());
+        assertThat(captor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getJobRunId()).isEqualTo(555L);
+            assertThat(row.getLocationName()).isEqualTo("Durham UK");
+            assertThat(row.getDisposition()).isEqualTo("SKIPPED_TRIAGED");
+        });
         verifyNoInteractions(pipelineRunRepository);
     }
 

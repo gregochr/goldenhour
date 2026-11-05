@@ -264,13 +264,62 @@ class ForceSubmitBatchServiceTest {
 
     // ── region scope, partial data failure and submission outcomes ─────────
 
-    /** Every one of a location's eight slots (4 dates x 2 events) returns the same pre-eval. */
-    private void stubEverySlot(LocationEntity loc, ForecastPreEvalResult preEval) {
-        // The date and event are deliberately matched loosely: these cases are about which
-        // locations are scoped in and how the outcome is shaped, not which slot is asked for.
-        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
-                any(TargetType.class), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
-                .thenReturn(preEval);
+    /** Fixed clock so the four JFDI dates are known and every slot can be stubbed exactly. */
+    private static final Clock JFDI_CLOCK =
+            Clock.fixed(Instant.parse("2027-08-12T10:00:00Z"), ZoneOffset.UTC);
+    private static final LocalDate JFDI_TODAY = LocalDate.of(2027, 8, 12);
+    private static final List<TargetType> JFDI_EVENTS = List.of(TargetType.SUNRISE, TargetType.SUNSET);
+
+    private ForceSubmitBatchService pinnedService() {
+        return new ForceSubmitBatchService(
+                locationService, forecastService, modelSelectionService, evaluationService, JFDI_CLOCK);
+    }
+
+    private long nextRowId = 1000L;
+
+    /**
+     * Stubs each of the location's eight slots (4 dates x 2 events) with a pre-evaluation specific to
+     * that slot (its own date, event and atmospheric data, and its own pending-row id). Events in
+     * {@code noDataEvents} come back with no atmospheric data. Returns the tasks the service must
+     * build for the slots that do have data, in submission order.
+     */
+    private List<EvaluationTask.Forecast> stubSlots(LocationEntity loc, Set<TargetType> noDataEvents) {
+        List<EvaluationTask.Forecast> expected = new java.util.ArrayList<>();
+        for (int d = 0; d < 4; d++) {
+            LocalDate date = JFDI_TODAY.plusDays(d);
+            for (TargetType event : JFDI_EVENTS) {
+                AtmosphericData data = noDataEvents.contains(event) ? null : mock(AtmosphericData.class);
+                ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                        false, null, data, loc, date, event,
+                        LocalDateTime.of(date, java.time.LocalTime.of(5, 30)), 270, d,
+                        EvaluationModel.HAIKU, loc.getTideType(), loc.getName() + "|" + date + "|" + event,
+                        null);
+                when(forecastService.fetchWeatherAndTriage(loc, date, event, loc.getTideType(),
+                        EvaluationModel.HAIKU, null)).thenReturn(preEval);
+                if (data != null) {
+                    long rowId = nextRowId++;
+                    when(forecastService.persistPendingEvaluation(preEval)).thenReturn(rowId);
+                    expected.add(new EvaluationTask.Forecast(loc, date, event, EvaluationModel.HAIKU, data,
+                            EvaluationTask.Forecast.PromptKind.SKY, rowId));
+                }
+            }
+        }
+        return expected;
+    }
+
+    private static List<String> slotPairs(String name, TargetType... events) {
+        List<String> pairs = new java.util.ArrayList<>();
+        for (int d = 0; d < 4; d++) {
+            for (TargetType event : events) {
+                pairs.add(name + "|" + JFDI_TODAY.plusDays(d) + "|" + event);
+            }
+        }
+        return pairs;
+    }
+
+    private static List<String> pairsOf(List<EvaluationTask.Forecast> tasks) {
+        return tasks.stream()
+                .map(t -> t.location().getName() + "|" + t.date() + "|" + t.targetType()).toList();
     }
 
     private LocationEntity skyLocation(Long id, String name, RegionEntity region) {
@@ -288,20 +337,22 @@ class ForceSubmitBatchServiceTest {
                 .thenReturn(List.of(northumberland, lakes, regionless));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        AtmosphericData data = mock(AtmosphericData.class);
-        stubEverySlot(northumberland, preEvalFor(northumberland, data));
-        stubEverySlot(lakes, preEvalFor(lakes, data));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+        List<EvaluationTask.Forecast> expected = new java.util.ArrayList<>(
+                stubSlots(northumberland, Set.of()));
+        expected.addAll(stubSlots(lakes, Set.of()));
+        when(evaluationService.submit(expected, BatchTriggerSource.JFDI))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_all", 16));
 
-        BatchSubmitResult result = service.submitJfdiBatch(List.of());
+        BatchSubmitResult result = pinnedService().submitJfdiBatch(List.of());
 
         assertThat(result.requestCount()).isEqualTo(16);
         ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
         verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
-        assertThat(taskCaptor.getValue()).hasSize(16);
-        assertThat(taskCaptor.getValue()).extracting(t -> t.location().getName())
-                .containsOnly("Bamburgh", "Derwentwater");
+        List<String> expectedPairs = new java.util.ArrayList<>(
+                slotPairs("Bamburgh", TargetType.SUNRISE, TargetType.SUNSET));
+        expectedPairs.addAll(slotPairs("Derwentwater", TargetType.SUNRISE, TargetType.SUNSET));
+        assertThat(pairsOf(taskCaptor.getValue())).containsExactlyInAnyOrderElementsOf(expectedPairs);
+        verify(forecastService, never()).fetchWeatherAndTriage(eq(regionless), any(), any(), any(), any(), any());
     }
 
     @SuppressWarnings("unchecked")
@@ -310,23 +361,24 @@ class ForceSubmitBatchServiceTest {
     }
 
     @Test
-    @DisplayName("a region filter admits only locations in that region")
+    @DisplayName("a region filter admits only locations in that region, for every date and event")
     void submitJfdiBatch_regionFilter_excludesOtherRegions() {
         LocationEntity northumberland = skyLocation(10L, "Bamburgh", buildRegion(7L, "Northumberland"));
         LocationEntity lakes = skyLocation(11L, "Derwentwater", buildRegion(8L, "Lakes"));
         when(locationService.findAllEnabled()).thenReturn(List.of(northumberland, lakes));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        stubEverySlot(lakes, preEvalFor(lakes, mock(AtmosphericData.class)));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+        List<EvaluationTask.Forecast> expected = stubSlots(lakes, Set.of());
+        when(evaluationService.submit(expected, BatchTriggerSource.JFDI))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_lakes", 8));
 
-        service.submitJfdiBatch(List.of(8L));
+        pinnedService().submitJfdiBatch(List.of(8L));
 
         ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
         verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
-        assertThat(taskCaptor.getValue()).hasSize(8);
-        assertThat(taskCaptor.getValue()).allMatch(t -> t.location() == lakes);
+        assertThat(pairsOf(taskCaptor.getValue())).containsExactlyInAnyOrderElementsOf(
+                slotPairs("Derwentwater", TargetType.SUNRISE, TargetType.SUNSET));
+        assertThat(taskCaptor.getValue()).containsExactlyElementsOf(expected);
     }
 
     @Test
@@ -336,27 +388,17 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        ForecastPreEvalResult noData = new ForecastPreEvalResult(
-                false, null, null, loc, LocalDate.of(2026, 4, 16), TargetType.SUNRISE,
-                LocalDateTime.of(2026, 4, 16, 5, 30), 270, 1,
-                EvaluationModel.HAIKU, loc.getTideType(), "key", null);
-        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
-                eq(TargetType.SUNRISE), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
-                .thenReturn(noData);
-        when(forecastService.fetchWeatherAndTriage(eq(loc), any(LocalDate.class),
-                eq(TargetType.SUNSET), eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
-                .thenReturn(preEvalFor(loc, mock(AtmosphericData.class)));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+        List<EvaluationTask.Forecast> expected = stubSlots(loc, Set.of(TargetType.SUNRISE));
+        when(evaluationService.submit(expected, BatchTriggerSource.JFDI))
                 .thenReturn(new EvaluationHandle(null, "msgbatch_partial", 4));
 
-        BatchSubmitResult result = service.submitJfdiBatch(null);
+        BatchSubmitResult result = pinnedService().submitJfdiBatch(null);
 
         assertThat(result.batchId()).isEqualTo("msgbatch_partial");
         ArgumentCaptor<List<EvaluationTask.Forecast>> taskCaptor = taskCaptor();
         verify(evaluationService).submit(taskCaptor.capture(), eq(BatchTriggerSource.JFDI));
-        assertThat(taskCaptor.getValue()).hasSize(4);
-        assertThat(taskCaptor.getValue()).extracting(EvaluationTask.Forecast::targetType)
-                .containsOnly(TargetType.SUNSET);
+        assertThat(pairsOf(taskCaptor.getValue())).containsExactlyInAnyOrderElementsOf(
+                slotPairs("Bamburgh", TargetType.SUNSET));
     }
 
     @Test
@@ -366,10 +408,10 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        stubEverySlot(loc, preEvalFor(loc, mock(AtmosphericData.class)));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI))).thenReturn(null);
+        List<EvaluationTask.Forecast> expected = stubSlots(loc, Set.of());
+        when(evaluationService.submit(expected, BatchTriggerSource.JFDI)).thenReturn(null);
 
-        assertThat(service.submitJfdiBatch(null)).isNull();
+        assertThat(pinnedService().submitJfdiBatch(null)).isNull();
     }
 
     @Test
@@ -379,11 +421,11 @@ class ForceSubmitBatchServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(loc));
         when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
-        stubEverySlot(loc, preEvalFor(loc, mock(AtmosphericData.class)));
-        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.JFDI)))
+        List<EvaluationTask.Forecast> expected = stubSlots(loc, Set.of());
+        when(evaluationService.submit(expected, BatchTriggerSource.JFDI))
                 .thenReturn(new EvaluationHandle(null, null, 0));
 
-        assertThat(service.submitJfdiBatch(null)).isNull();
+        assertThat(pinnedService().submitJfdiBatch(null)).isNull();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────
