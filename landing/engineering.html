@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The engineering behind PhotoCast — PhotoCast</title>
+<meta name="description" content="The stack, CI/CD pipeline, enforced test and coverage gates, OWASP-aligned security checks and AI engineering behind PhotoCast.">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="photocast.css">
+</head>
+<body>
+<header class="mast">
+<div class="wrap">
+<a class="mark" href="index.html" aria-label="PhotoCast home"><span class="wm">PhotoCast</span><span class="kicker">Field guide to light</span></a>
+<nav>
+<a href="index.html#field">From the field</a>
+<a href="index.html#features">Features</a>
+<a href="index.html#pricing">Pricing</a>
+<a href="guide/index.html">Guide</a>
+<a href="faq.html">FAQ</a>
+<a class="btn sm" href="https://app.photocast.online/register">Start free</a>
+</nav>
+</div>
+</header>
+<main>
+<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>The engineering<br>behind PhotoCast.</h1><p>PhotoCast is a full-stack forecasting service that I design, build and run on my own, drawing on more than 25 years of software engineering. This page is for engineers: the stack, the pipeline every change goes through, the gates it has to pass, and where it still falls short. The figures are the ones enforced in the build today.</p><p>Last checked: 5 November 2026. For the plain-English version, see <a href="how-its-built.html">How PhotoCast is built</a>.</p></div></div>
+<div class="doc"><div class="wrap">
+<nav aria-label="Sections">
+<ul>
+<li><a href="#stack">The stack</a></li>
+<li><a href="#ci">Continuous integration</a></li>
+<li><a href="#gates">The gates</a></li>
+<li><a href="#security">Security and the OWASP Top 10</a></li>
+<li><a href="#delivery">Continuous delivery</a></li>
+<li><a href="#testing">Testing beyond coverage</a></li>
+<li><a href="#ai">AI inside the product</a></li>
+<li><a href="#process">How the code gets written</a></li>
+<li><a href="#falls-short">Where it falls short</a></li>
+</ul>
+</nav>
+<h2 id="glance">At a glance</h2>
+<ul>
+<li>Java 25 and Spring Boot 4 on the server, React 19 in the browser, PostgreSQL underneath.</li>
+<li>Four required checks on every pull request, including per-class coverage, static analysis and dependency scanning.</li>
+<li>A tagged release builds, backs up, deploys and health-checks itself.</li>
+<li>Claude rates the sky and answers questions, and the model is tested every week against real outcomes.</li>
+<li>I own the design, the plans, every review decision and every release.</li>
+</ul>
+<h2 id="stack">The stack</h2>
+<ul>
+<li><b>Backend:</b> Java 25 and Spring Boot 4: a REST API with Spring Security and JWT authentication, Spring Data JPA, Flyway migrations (more than 200 so far) and PostgreSQL in production. Virtual threads for the I/O-heavy forecast runs, and declarative HTTP clients for the weather service.</li>
+<li><b>Frontend:</b> React 19, Vite and Tailwind, with Leaflet for the map. The frontend is deliberately a render layer: verdicts and picks are decided on the server, and the few things the client works out for itself are a named, reviewed list.</li>
+<li><b>AI:</b> Claude, through the Anthropic Java SDK, rates the sky and powers Ask PhotoCast.</li>
+<li><b>Data sources:</b> Open-Meteo weather and air quality, WorldTides, space-weather feeds, and postcode, routing and light-pollution services.</li>
+<li><b>Delivery:</b> GitHub Actions, and Docker images built from each tagged release.</li>
+</ul>
+<h2 id="ci">Continuous integration</h2>
+<p>Every pull request goes through the same checks, whoever or whatever wrote it. Four are required by branch protection on <code>main</code>, so a change can't be merged while one is failing:</p>
+<ul>
+<li><b>Backend: build, test and coverage.</b> <code>mvn clean verify</code>, which compiles, runs Checkstyle, the unit tests and the integration tests, then enforces the coverage gate and SpotBugs. The integration tests use Testcontainers to start a real PostgreSQL, so every database migration is proven on the same engine as production before it's merged.</li>
+<li><b>Frontend: lint, test and build.</b> ESLint (including accessibility rules), Vitest with a coverage floor, <code>npm audit</code> at high severity, the production build, a check that the map library stays out of the first page load, and <code>nginx -t</code> on the web server's config, because nothing else would catch a broken config before production.</li>
+<li><b>CodeQL</b> static analysis, for Java and JavaScript.</li>
+<li><b>OWASP Dependency-Check</b> on the server's libraries. It scans when a change touches them, and otherwise reports a pass so the requirement can always be met.</li>
+</ul>
+<p>Shell scripts are checked with ShellCheck as well. A pull request that only changes documentation skips the expensive steps, but every required check still reports, so nothing merges unchecked.</p>
+<h2 id="gates">The gates</h2>
+<p>These are the values in the build as of the date above. The frontend floor only ever ratchets up, and I don't lower any of them without a stated reason.</p>
+<div class="tw" tabindex="0" role="region" aria-label="Quality gates, scrollable"><table><thead><tr><th scope="col">Gate</th><th scope="col">Where it runs</th><th scope="col">Threshold</th><th scope="col">If it fails</th></tr></thead><tbody>
+<tr><td>Backend line coverage (JaCoCo)</td><td>Every PR</td><td>80% <b>per class</b>, with a short exclusion list for plain data and config classes</td><td>The build fails</td></tr>
+<tr><td>Frontend coverage (Vitest)</td><td>Every PR</td><td>Lines 99%, statements 98%, functions 98%, branches 94%</td><td>The build fails</td></tr>
+<tr><td>SpotBugs with FindSecBugs</td><td>Every PR</td><td>Any High-priority finding</td><td>The build fails</td></tr>
+<tr><td>Checkstyle</td><td>Every PR</td><td>Javadoc on every public type and method, indentation, line length, unused imports</td><td>The build fails</td></tr>
+<tr><td>ESLint, including <code>jsx-a11y</code></td><td>Every PR</td><td>Any error or warning</td><td>The build fails</td></tr>
+<tr><td><code>npm audit</code></td><td>Every PR</td><td>Any high or critical advisory</td><td>The build fails</td></tr>
+<tr><td>CodeQL</td><td>Every PR (new alerts) and weekly (whole codebase)</td><td>New alerts a change introduces</td><td>The check fails</td></tr>
+<tr><td>OWASP Dependency-Check</td><td>PRs that change server dependencies, and daily</td><td>CVSS 7.0 or above, unless investigated and recorded as not applicable</td><td>The check fails</td></tr>
+<tr><td>OWASP ZAP</td><td>Weekly</td><td>Any alert of Low risk or above without a written exception, or a scan that didn't run properly</td><td>An issue is opened for me</td></tr>
+<tr><td>PIT mutation testing</td><td>Weekly</td><td>60% of mutants killed in the service and utility layers</td><td>An issue is opened for me</td></tr>
+</tbody></table></div>
+<p>Per-class coverage is the one I'd defend hardest. An 80% average lets a well-tested utility package hide an untested service; per class, a new class can't lean on the rest of the codebase for its number.</p>
+<h2 id="security">Security and the OWASP Top 10</h2>
+<p>I use the OWASP Top 10 (2025) as a checklist rather than a badge. Where the checks above fit it:</p>
+<ul>
+<li><b>Software Supply Chain Failures.</b> OWASP Dependency-Check on the server's libraries and <code>npm audit</code> on the app's, both blocking on serious findings. Dependabot proposes updates weekly; minor and patch updates merge once the required checks pass, larger ones are reviewed by hand, and either way they reach the live service only with the next release, which I make by hand.</li>
+<li><b>Injection.</b> CodeQL and FindSecBugs on every change, and CodeQL again weekly so new rules also look at code that hasn't changed. Database access goes through JPA and parameterised queries; there's no SQL built from strings.</li>
+<li><b>Broken Access Control.</b> Every admin-only endpoint carries a server-side role check, and everything under the admin API is also refused by Spring Security's filter chain before a controller sees it. Pro features are enforced by a 403 on the server; hiding a button is never the control.</li>
+<li><b>Security Misconfiguration.</b> The app sets a Content Security Policy that disallows inline styles, and the web server's config is syntax-checked on every change.</li>
+</ul>
+<h3>Beyond the checklist</h3>
+<ul>
+<li><b>Dynamic testing.</b> Every week OWASP ZAP signs in as a test account and runs an active scan of the API from its OpenAPI definition, against a temporary copy of the service, plus a baseline scan of the app. A gate script, not ZAP's own exit code, decides the result: any alert of Low risk or above without a written exception fails it, and so does a scan that covered less than it should.</li>
+<li><b>Personal data stays out of shared caches.</b> Nothing personal rides a response that's shared through HTTP caching, and a test lists the personal paths that caching must never touch.</li>
+<li><b>Secrets stay out of logs.</b> Links carrying one-time codes are kept out of the web server's logs, and a check confirms it.</li>
+</ul>
+<p>None of this is a substitute for a professional penetration test, and I don't claim one.</p>
+<h2 id="delivery">Continuous delivery</h2>
+<ul>
+<li><b>A tag is a release.</b> I run the release script, which folds the pending changelog entries into the changelog and tags the version. The tag starts the deploy workflow: it re-runs the full CI suite, builds the backend and frontend Docker images, publishes them to a container registry, backs up the database, deploys and checks the service came up healthy. Any failure stops the deployment and tells me.</li>
+<li><b>Traceable.</b> Both images are tagged with the release version, the running server reports it and the app displays it. Every change arrives as a pull request, and larger ones link to a written plan. The changelog is built from one file per change, so open pull requests don't fight over the same line.</li>
+<li><b>Watched.</b> A daily health check runs from inside the server and from outside it, a daily test restores the latest backup into a scratch database and counts the rows, and a daily smoke test sends a real request through the AI rating path.</li>
+<li><b>Reversible.</b> There's a scripted rollback to the previous release, including the database. Fixing forward is usually better; rollback is the last resort.</li>
+</ul>
+<h2 id="testing">Testing beyond coverage</h2>
+<p>Coverage says what the tests ran, not whether they'd notice a bug. So:</p>
+<ul>
+<li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed.</li>
+<li><b>Testing the model, not just the code.</b> A weekly evaluation re-rates a fixed set of past sunrises and sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a model changes, and it decides which model runs which job: a newer model was taken off a production job after a day, when the evaluation showed it under-rating a clear-horizon morning.</li>
+<li><b>Prompt regression tests.</b> A larger suite checks real model output against ground truth from what was actually observed. Only I change those expectations; the AI tools that write the code are forbidden to.</li>
+<li><b>Recorded contracts.</b> Saved real responses from the weather, space-weather, postcode, routing and light-pollution services pin how PhotoCast parses them, and a contract test pins the JSON date format the API puts on the wire.</li>
+<li><b>Time is injected.</b> "Today" in the UK is derived from an injected clock everywhere, so the tests cover midnight, daylight-saving changes and a server running on UTC.</li>
+</ul>
+<p>In all, more than 25,000 automated tests across the server and the app.</p>
+<h2 id="ai">AI inside the product</h2>
+<ul>
+<li><b>Ask PhotoCast uses tool calling rather than document retrieval.</b> It's retrieval-augmented generation (RAG), but instead of searching a pile of documents, the model queries PhotoCast's own served forecasts through tools, in a loop of at most four turns, and replies through a structured tool call rather than free text. A validator checks every pick against the live forecast before it's shown. Common questions are matched to precomputed answers by keyword rules rather than embeddings, deliberately, so behaviour is predictable and testable.</li>
+<li><b>Prompt caching.</b> The static part of the prompt and the tool definitions are cached across questions; only the per-question tail changes.</li>
+<li><b>Batch processing.</b> Scheduled forecast runs go through the Message Batches API, and which model runs which job is a database setting, so a model can be swapped or rolled back without a deploy.</li>
+<li><b>Spend is visible.</b> Every production model call is logged with its input, output and cache token counts, so a change in cost is something I can see, not guess.</li>
+</ul>
+<h2 id="process">How the code gets written</h2>
+<p>I own the design, the plans, every review decision and every release. AI models do most of the typing, under a fixed process: one model plans and reviews, and a different one writes the code in an isolated copy of the repository and has to get the full local build green before I see the change. Every pull request is then reviewed again by an AI reviewer from a different company. The plans are written down (more than 120 of them) and challenged before any code exists. <a href="how-its-built.html">How PhotoCast is built</a> covers this in plain English.</p>
+<h2 id="falls-short">Where it falls short</h2>
+<ul>
+<li>The app's tests run in a simulated browser. A few real-browser tests exist, but they run by hand.</li>
+<li>Mutation testing covers the server only, and runs weekly rather than on every change.</li>
+<li>The prompt regression suite runs by hand, because every run spends real money; the weekly evaluation fills the gap in between.</li>
+<li>PhotoCast runs as Docker containers on a single Linux host, with no separate staging copy of the live service. Backups, health checks and rollback reduce the risk; they don't remove it.</li>
+<li>The security checks are automated, not a professional penetration test.</li>
+</ul>
+<p>If you'd like to talk through any of this, the code or the process, I'm happy to: <a href="mailto:chris@photocast.online">chris@photocast.online</a>.</p>
+<p>Read <a href="how-its-built.html">How PhotoCast is built</a> or the <a href="faq.html">FAQ</a>.</p>
+<p class="mt-26"><a class="btn" href="https://app.photocast.online/register">Explore PhotoCast for free</a></p>
+</div></div>
+
+</main>
+
+<footer class="foot">
+<div class="wrap">
+<div class="tag"><b>PhotoCast</b> — A field guide to light.</div>
+<div class="foot-links">
+<a href="privacy.html">Privacy</a>
+<a href="terms.html">Terms</a>
+<a href="acknowledgements.html">Acknowledgements</a>
+<a href="guide/index.html">Guide</a>
+<a href="faq.html">FAQ</a>
+<a href="how-its-built.html">How it's built</a>
+<a href="engineering.html">Engineering</a>
+</div>
+<div class="foot-right">
+<div class="social">
+<a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
+<a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
+</div>
+<span class="foot-copy">© 2026 PhotoCast</span>
+</div>
+</div>
+</footer>
+</body>
+</html>
