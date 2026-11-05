@@ -91,7 +91,7 @@ public class UserSettingsController {
      * @return the resolved coordinates and place name
      */
     @PostMapping("/home/lookup")
-    public PostcodeLookupResult lookupPostcode(@RequestBody PostcodeLookupRequest request) {
+    public PostcodeLookupResult lookupPostcode(@Valid @RequestBody PostcodeLookupRequest request) {
         return settingsService.lookupPostcode(request.postcode());
     }
 

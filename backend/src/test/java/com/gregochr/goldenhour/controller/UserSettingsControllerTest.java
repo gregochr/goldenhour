@@ -30,6 +30,7 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -366,6 +367,75 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getTodaysLight_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/user/settings/light"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ---- control characters in a postcode: a database error on PostgreSQL, so refused as a 400 ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /home answers 400 with the fixed body for a NUL byte in the postcode, and saves nothing")
+    void saveHome_nulByteInPostcode_returns400() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"AB\\u0000C\", \"latitude\": 54.7761, \"longitude\": -1.5733}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request"));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /home answers 400 for a newline in the postcode, and does not echo it")
+    void saveHome_newlineInPostcode_returns400WithoutEcho() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"A\\nB\", \"latitude\": 1.0, \"longitude\": 1.0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body for a NUL byte in the postcode")
+    void lookupPostcode_nulByte_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"A\\u0000B\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    // ---- a lookup with no postcode: an NPE in the client, a 500 through the catch-all ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body when the postcode is missing")
+    void lookupPostcode_missingPostcode_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body when the postcode is blank")
+    void lookupPostcode_blankPostcode_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
     }
 
     // ---- postcode lookup failures (login-registration plan §1 #11, §2 #5) ----
