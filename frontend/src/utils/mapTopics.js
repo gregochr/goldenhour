@@ -706,10 +706,3 @@ export function columnWord(grid, column) {
   const day = grid.days[Math.floor(column / 2)];
   return `${day.dow} ${c.eventType === 'SUNRISE' ? 'sunrise' : 'sunset'}`;
 }
-
-/** Throwaway: proves the changed-lines check fails in CI. Never merged. */
-export function scratchUntested(n) {
-  const doubled = n * 2;
-  const label = `value ${doubled}`;
-  return label.toUpperCase();
-}
