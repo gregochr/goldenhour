@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import SkyEvalWeeklyModels from '../components/scheduler/SkyEvalWeeklyModels.jsx';
 import { AVAILABLE, SCHEDULE } from './skyEvalFixtures.js';
 
@@ -145,6 +145,49 @@ describe('SkyEvalWeeklyModels', () => {
 
     await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-HAIKU')).not.toBeChecked());
     expect(screen.queryByTestId('sky-eval-error')).not.toBeInTheDocument();
+  });
+
+  it('renders no boxes and no warning when the schedule comes back empty', async () => {
+    getSkyRatingEvalSchedule.mockResolvedValue({ data: null });
+    render(<SkyEvalWeeklyModels />);
+
+    expect(await screen.findByRole('group', { name: 'Weekly models' })).toBeInTheDocument();
+    await act(async () => {});
+    expect(getSkyRatingEvalSchedule).toHaveBeenCalledTimes(1);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(screen.queryByTestId('sky-eval-schedule-none')).toBeNull();
+    expect(screen.queryByTestId('sky-eval-schedule-error')).toBeNull();
+  });
+
+  it('uses a stock message when the schedule fails to load with no message at all', async () => {
+    getSkyRatingEvalSchedule.mockRejectedValue({});
+    render(<SkyEvalWeeklyModels />);
+
+    expect(await screen.findByTestId('sky-eval-schedule-error')).toHaveTextContent(
+      'Failed to load the weekly schedule',
+    );
+  });
+
+  it('lists no fallback boxes when the model list has no available field', async () => {
+    getSkyRatingEvalSchedule.mockRejectedValue(new Error('schedule down'));
+    getAvailableModels.mockResolvedValue({});
+    render(<SkyEvalWeeklyModels />);
+
+    expect(await screen.findByTestId('sky-eval-schedule-error')).toHaveTextContent('schedule down');
+    await act(async () => {});
+    expect(getAvailableModels).toHaveBeenCalledTimes(1);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
+
+  it('uses a stock message and reverts the box when a toggle fails with no message', async () => {
+    setSkyRatingEvalScheduled.mockRejectedValue({});
+    render(<SkyEvalWeeklyModels />);
+    await waitFor(() => expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked());
+
+    fireEvent.click(screen.getByTestId('sky-eval-schedule-OPUS'));
+
+    expect(await screen.findByTestId('sky-eval-error')).toHaveTextContent('Failed to change the weekly schedule');
+    expect(screen.getByTestId('sky-eval-schedule-OPUS')).toBeChecked();
   });
 
   it('clears an earlier toggle error as soon as the next toggle starts', async () => {
