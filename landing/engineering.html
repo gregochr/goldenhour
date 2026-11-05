@@ -71,7 +71,7 @@
 <h2 id="gates">The gates</h2>
 <p>These are the values in the build as of the date above. The frontend floor only ever ratchets up, and I don't lower any of them without a stated reason.</p>
 <div class="tw" tabindex="0" role="region" aria-label="Quality gates, scrollable"><table><thead><tr><th scope="col">Gate</th><th scope="col">Where it runs</th><th scope="col">Threshold</th><th scope="col">If it fails</th></tr></thead><tbody>
-<tr><td>Backend coverage (JaCoCo)</td><td>Every PR</td><td>At least 95% of lines and 90% of branches <b>per class</b>, with seven classes held at measured, documented lower branch figures, and an overall floor behind them</td><td>The build fails</td></tr>
+<tr><td>Backend coverage (JaCoCo)</td><td>Every PR</td><td>At least 95% of lines and 90% of branches <b>per class</b>, with seven classes held at measured, documented lower figures, and an overall floor behind them</td><td>The build fails</td></tr>
 <tr><td>Frontend coverage (Vitest)</td><td>Every PR</td><td>Lines 99%, statements 98%, functions 98%, branches 95% overall, and <b>per file</b> at least 95% of lines and 90% of branches, with two files held at measured, documented lower branch figures</td><td>The build fails</td></tr>
 <tr><td>Changed-lines coverage (diff-cover)</td><td>Every PR</td><td>90% of the server and app lines a change adds or alters</td><td>The build fails</td></tr>
 <tr><td>SpotBugs with FindSecBugs</td><td>Every PR</td><td>Any High-priority finding</td><td>The build fails</td></tr>
