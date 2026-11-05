@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -11,6 +12,7 @@ import com.gregochr.goldenhour.model.BatchSummary;
 import com.gregochr.goldenhour.model.BatchSummaryCall;
 import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -275,6 +277,112 @@ class BatchSummaryDeriverTest {
         Optional<BatchSummary> result = deriver.derive(run);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("A null job run, or one with no run type, has no summary and touches no repository")
+    void nullRunOrNullRunType_returnsEmpty() {
+        JobRunEntity noType = JobRunEntity.builder().id(1L).startedAt(RUN_START).build();
+
+        assertThat(deriver.derive(null)).isEmpty();
+        assertThat(deriver.derive(noType)).isEmpty();
+        verifyNoInteractions(apiCallLogRepository, locationRepository);
+    }
+
+    @Test
+    @DisplayName("Rows with no target date are dropped; a run left with none has no summary")
+    void callsWithoutTargetDate_areDropped() {
+        JobRunEntity run = batchRun(RunType.BATCH_FAR_TERM);
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                new BatchSummaryCall(ServiceName.ANTHROPIC, null, TargetType.SUNRISE,
+                        EvaluationModel.HAIKU, "fc-10-2026-05-19-SUNRISE")));
+
+        assertThat(deriver.derive(run)).isEmpty();
+        verify(locationRepository, never()).findAllById(List.of(10L));
+    }
+
+    @Test
+    @DisplayName("A run with no start time measures the horizon from today's UK date")
+    void runWithoutStartTime_measuresFromToday() {
+        JobRunEntity run = JobRunEntity.builder().id(1L).runType(RunType.BATCH_NEAR_TERM).build();
+        LocalDate today = com.gregochr.goldenhour.util.ForecastHorizon.civilDate(java.time.Instant.now());
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                call("fc-10-2027-01-01-SUNRISE", today, TargetType.SUNRISE, EvaluationModel.HAIKU)));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
+
+        assertThat(deriver.derive(run).orElseThrow().horizonRange()).isEqualTo("T");
+    }
+
+    @Test
+    @DisplayName("Rows with no target type, model or custom id give no event types, an UNKNOWN model and zero counts")
+    void rowsMissingTypeModelAndCustomId_giveDefaults() {
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                call(null, RUN_DATE.plusDays(1), null, null),
+                call("  ", RUN_DATE.plusDays(1), null, null)));
+
+        BatchSummary summary = deriver.derive(run).orElseThrow();
+
+        assertThat(summary.eventTypes()).isEmpty();
+        assertThat(summary.evaluationModel()).isEqualTo("UNKNOWN");
+        assertThat(summary.extendedThinking()).isNull();
+        assertThat(summary.locationCount()).isZero();
+        assertThat(summary.regionCount()).isZero();
+        verifyNoInteractions(locationRepository);
+    }
+
+    @Test
+    @DisplayName("The first non-null model wins when earlier rows have none")
+    void firstNonNullModelWins() {
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                call("fc-10-2026-05-19-SUNRISE", RUN_DATE.plusDays(1), TargetType.SUNRISE, null),
+                call("fc-10-2026-05-19-SUNSET", RUN_DATE.plusDays(1), TargetType.SUNSET, EvaluationModel.SONNET)));
+        when(locationRepository.findAllById(List.of(10L))).thenReturn(List.of(location(10L, region(1L))));
+
+        assertThat(deriver.derive(run).orElseThrow().evaluationModel()).isEqualTo("SONNET");
+    }
+
+    @Test
+    @DisplayName("Bluebell, woodland, JFDI and force-submit ids count their locations' regions; aurora ids add none")
+    void everyCustomIdKind_resolvesItsLocation() {
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        LocalDate date = RUN_DATE.plusDays(1);
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                call(CustomIdFactory.forBluebell(10L, date, TargetType.SUNRISE), date,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call(CustomIdFactory.forWoodland(20L, date, TargetType.SUNRISE), date,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("jfdi-30-2026-05-19-SUNRISE", date, TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("force-north-40-2026-05-19-SUNRISE", date, TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call(CustomIdFactory.forAurora(AlertLevel.MODERATE, date), date,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU)));
+        when(locationRepository.findAllById(idsOf(10L, 20L, 30L, 40L))).thenReturn(List.of(
+                location(10L, region(1L)),
+                location(20L, region(2L)),
+                location(30L, region(3L)),
+                location(40L, region(3L))));
+
+        BatchSummary summary = deriver.derive(run).orElseThrow();
+
+        assertThat(summary.locationCount()).isEqualTo(5);
+        assertThat(summary.regionCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("A batch of only aurora ids resolves no locations and so has no regions")
+    void auroraOnly_noRegions() {
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        LocalDate date = RUN_DATE.plusDays(1);
+        when(apiCallLogRepository.findBatchSummaryCallsByJobRunId(1L)).thenReturn(List.of(
+                call(CustomIdFactory.forAurora(AlertLevel.STRONG, date), date,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU)));
+
+        BatchSummary summary = deriver.derive(run).orElseThrow();
+
+        assertThat(summary.locationCount()).isEqualTo(1);
+        assertThat(summary.regionCount()).isZero();
+        verifyNoInteractions(locationRepository);
     }
 
     private static JobRunEntity batchRun(RunType runType) {

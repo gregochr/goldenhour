@@ -517,6 +517,91 @@ class BluebellHotTopicStrategyTest {
         assertThat(topics.getFirst().type()).isEqualTo("BLUEBELL");
     }
 
+    @Test
+    @DisplayName("a day after the season closes yields no topic even when a row exists for it")
+    void detect_rangeCrossesSeasonEnd_onlyInSeasonDaysEmit() {
+        LocalDate lastDay = LocalDate.of(2026, 5, 18);
+        LocalDate afterSeason = LocalDate.of(2026, 5, 19);
+        LocationEntity location = regionLocation(1L, "Rannerdale Knotts", "Lake District");
+        when(slotSignalReader.read(lastDay, afterSeason)).thenReturn(List.of(
+                bluebellSignal(location, lastDay, 4, "Misty"),
+                bluebellSignal(location, afterSeason, 5, "Perfect")));
+        stubAhead(lastDay, afterSeason);
+
+        List<HotTopic> topics = strategy.detect(lastDay, afterSeason);
+
+        assertThat(topics).extracting(HotTopic::date).containsExactly(lastDay);
+    }
+
+    @Test
+    @DisplayName("an open-fell site is labelled 'Open fell' in the expanded detail, a woodland one 'Woodland'")
+    void detect_expandedDetail_exposureLabels() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Lake District");
+        LocationEntity fell = LocationEntity.builder().id(1L).name("Rannerdale Knotts").lat(54.5).lon(-3.2)
+                .region(region).bluebellExposure(BluebellExposure.OPEN_FELL).enabled(true).build();
+        LocationEntity wood = LocationEntity.builder().id(2L).name("Whinlatter").lat(54.6).lon(-3.2)
+                .region(region).bluebellExposure(BluebellExposure.WOODLAND).enabled(true).build();
+        LocationEntity unclassified = LocationEntity.builder().id(3L).name("Buttermere").lat(54.5).lon(-3.3)
+                .region(region).enabled(true).build();
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON)).thenReturn(List.of(
+                bluebellSignal(fell, IN_SEASON, 5, "Still"),
+                bluebellSignal(wood, IN_SEASON, 4, "Misty"),
+                bluebellSignal(unclassified, IN_SEASON, 3, "Fair")));
+        stubAhead(IN_SEASON);
+
+        ExpandedHotTopicDetail detail = strategy.detect(IN_SEASON, IN_SEASON).get(0).expandedDetail();
+
+        List<ExpandedHotTopicDetail.LocationEntry> entries = detail.regionGroups().get(0).locations();
+        assertThat(entries).extracting(ExpandedHotTopicDetail.LocationEntry::locationName)
+                .containsExactly("Rannerdale Knotts", "Whinlatter", "Buttermere");
+        assertThat(entries).extracting(ExpandedHotTopicDetail.LocationEntry::locationType)
+                .containsExactly("Open fell", "Woodland", null);
+    }
+
+    @Test
+    @DisplayName("a rated site with no region still lifts the day to a topic, but names no region and no group")
+    void detect_siteWithoutRegion_noRegionNamed() {
+        LocationEntity regionless = simpleLocation(1L, "Hidden Dell");
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON))
+                .thenReturn(List.of(bluebellSignal(regionless, IN_SEASON, 4, "Misty")));
+        stubAhead(IN_SEASON);
+
+        HotTopic topic = strategy.detect(IN_SEASON, IN_SEASON).get(0);
+
+        assertThat(topic.regions()).isEmpty();
+        assertThat(topic.expandedDetail().regionGroups()).isEmpty();
+        assertThat(topic.expandedDetail().bluebellMetrics().scoringLocationCount()).isZero();
+        assertThat(factWithKey(topic, "conditions").value()).isEqualTo("4/5 · good");
+    }
+
+    @Test
+    @DisplayName("a rating with no location is still counted for the day but names no region or site")
+    void detect_ratingWithoutLocation_namesNothing() {
+        when(slotSignalReader.read(IN_SEASON, IN_SEASON)).thenReturn(List.of(
+                new SlotSignals(null, IN_SEASON, TargetType.SUNRISE,
+                        new SlotSignals.Scores(null, null, 5, "Perfect"), SlotSignals.Readings.EMPTY)));
+        when(freshness.isAhead(null, IN_SEASON, TargetType.SUNRISE)).thenReturn(true);
+
+        HotTopic topic = strategy.detect(IN_SEASON, IN_SEASON).get(0);
+
+        assertThat(topic.priority()).isEqualTo(1);
+        assertThat(topic.regions()).isEmpty();
+        assertThat(topic.expandedDetail().regionGroups()).isEmpty();
+        assertThat(topic.facts()).extracting(HotTopicFact::key).containsExactly("conditions");
+    }
+
+    @Test
+    @DisplayName("isDayLabel accepts today, tomorrow and full UK weekday names, and nothing else")
+    void isDayLabel_acceptsOnlyTheLabelsItWrites() {
+        assertThat(BluebellHotTopicStrategy.isDayLabel(null)).isFalse();
+        assertThat(BluebellHotTopicStrategy.isDayLabel("today")).isTrue();
+        assertThat(BluebellHotTopicStrategy.isDayLabel("tomorrow")).isTrue();
+        assertThat(BluebellHotTopicStrategy.isDayLabel("Wednesday")).isTrue();
+        assertThat(BluebellHotTopicStrategy.isDayLabel("Wed")).isFalse();
+        assertThat(BluebellHotTopicStrategy.isDayLabel("yesterday")).isFalse();
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────────
 
     private static LocationEntity simpleLocation(long id, String name) {

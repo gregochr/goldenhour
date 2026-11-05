@@ -332,4 +332,112 @@ class HotTopicEventEnricherTest {
 
         assertThat(result.locationNames()).containsExactly("Kielder");
     }
+
+    // ── Edge cases: tide freshness, unusual rosters, missing solar times ──────────────────
+
+    private static LocationEntity inRegion(long id, String name, double lat, double lon, String region) {
+        return LocationEntity.builder().id(id).name(name).lat(lat).lon(lon)
+                .region(RegionEntity.builder().id(id).name(region).build()).enabled(true).build();
+    }
+
+    @Test
+    @DisplayName("a tide run aligned to the sunset takes the SUNSET event and the London sunset time")
+    void tideTopic_runAlignedToSunset_takesSunset() {
+        HotTopic result = enrichOne(tideTopicWithRun("sunset"));
+
+        assertThat(result.eventType()).isEqualTo("SUNSET");
+        assertThat(result.eventTime()).isEqualTo("21:41");
+    }
+
+    @Test
+    @DisplayName("a tide topic with neither a run row nor tide metrics resolves no event")
+    void tideTopic_noRunNoMetrics_resolvesNoEvent() {
+        HotTopic noDetail = enrichOne(topic("SPRING_TIDE", null));
+        HotTopic noMetrics = enrichOne(topic("KING_TIDE", new ExpandedHotTopicDetail(null, null, null)));
+
+        assertThat(noDetail.eventType()).isNull();
+        assertThat(noMetrics.eventType()).isNull();
+    }
+
+    @Test
+    @DisplayName("a detector-stamped event that already has its time, or is not a solar one, is left as stamped")
+    void stampedEvent_withTimeOrNonSolar_unchanged() {
+        HotTopic timed = enrichOne(topic("ECLIPSE", null).withEvent("SUNSET", "19:00"));
+        HotTopic night = enrichOne(topic("MIST", null).withEvent("NIGHT", null));
+
+        assertThat(timed.eventType()).isEqualTo("SUNSET");
+        assertThat(timed.eventTime()).isEqualTo("19:00");
+        assertThat(night.eventType()).isEqualTo("NIGHT");
+        assertThat(night.eventTime()).isNull();
+    }
+
+    @Test
+    @DisplayName("the anchor is the first enabled location that has a region matching the topic, not a regionless one")
+    void anchor_skipsRegionlessLocations() {
+        LocationEntity regionless = LocationEntity.builder().id(9L).name("Orphan").lat(10.0).lon(10.0)
+                .enabled(true).build();
+        LocationEntity otherRegion = inRegion(8L, "Bamburgh", 55.6, -1.7, "Northumberland");
+        LocationEntity dales = inRegion(1L, "Malham", 54.06, -2.15, "Yorkshire Dales");
+        when(locationRepository.findAllByEnabledTrueOrderByNameAsc())
+                .thenReturn(List.of(regionless, otherRegion, dales));
+
+        HotTopic result = enrichOne(topic("INVERSION", null));
+
+        assertThat(result.eventTime()).isEqualTo("04:43");
+        org.mockito.Mockito.verify(solarService).sunriseUtc(54.06, -2.15, DATE);
+        assertThat(result.locationNames()).containsExactly("Malham");
+    }
+
+    @Test
+    @DisplayName("a topic with no regions anchors at the UK centre and names no locations")
+    void noRegions_anchorsAtUkCentre_namesNoLocations() {
+        HotTopic noRegions = new HotTopic("INVERSION", "Cloud inversion", "detail", DATE, 2, null,
+                List.of(), "desc", null);
+        HotTopic nullRegions = new HotTopic("INVERSION", "Cloud inversion", "detail", DATE, 2, null,
+                null, "desc", null);
+
+        HotTopic empty = enrichOne(noRegions);
+        HotTopic missing = enrichOne(nullRegions);
+
+        assertThat(empty.eventTime()).isEqualTo("04:43");
+        assertThat(missing.eventTime()).isEqualTo("04:43");
+        org.mockito.Mockito.verify(solarService, org.mockito.Mockito.times(2)).sunriseUtc(54.5, -2.5, DATE);
+        assertThat(empty.locationNames()).isNull();
+        assertThat(missing.locationNames()).isNull();
+    }
+
+    @Test
+    @DisplayName("SUPERMOON backfills coastal locations, METEOR dark-sky ones and BLUEBELL the bluebell roster")
+    void backfillRoster_followsTheTopicType() {
+        LocationEntity coast = inRegion(2L, "Bamburgh", 55.6, -1.7, "Northumberland");
+        LocationEntity dark = inRegion(4L, "Kielder", 55.2, -2.5, "Northumberland");
+        LocationEntity wood = inRegion(5L, "Rannerdale", 54.5, -3.3, "Northumberland");
+        LocationEntity regionless = LocationEntity.builder().id(6L).name("Orphan").lat(1.0).lon(1.0)
+                .enabled(true).build();
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(coast, regionless));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(dark, regionless));
+        when(locationRepository.findBluebellLocations()).thenReturn(List.of(wood, regionless));
+
+        HotTopic supermoon = enrichOne(new HotTopic("SUPERMOON", "Supermoon", "d", DATE, 4, null,
+                List.of("Northumberland"), "desc", null));
+        HotTopic meteor = enrichOne(new HotTopic("METEOR", "Meteors", "d", DATE, 4, null,
+                List.of("Northumberland"), "desc", null));
+        HotTopic bluebell = enrichOne(new HotTopic("BLUEBELL", "Bluebells", "d", DATE, 4, null,
+                List.of("Northumberland"), "desc", null));
+
+        assertThat(supermoon.locationNames()).containsExactly("Bamburgh");
+        assertThat(meteor.locationNames()).containsExactly("Kielder");
+        assertThat(bluebell.locationNames()).containsExactly("Rannerdale");
+    }
+
+    @Test
+    @DisplayName("when the solar service has no time for the event, the event is kept and its time is left null")
+    void solarTimeUnavailable_keepsEventDropsTime() {
+        when(solarService.sunriseUtc(eq(54.06), eq(-2.15), eq(DATE))).thenReturn(null);
+
+        HotTopic result = enrichOne(topic("INVERSION", null));
+
+        assertThat(result.eventType()).isEqualTo("SUNRISE");
+        assertThat(result.eventTime()).isNull();
+    }
 }

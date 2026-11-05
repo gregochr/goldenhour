@@ -405,4 +405,35 @@ class BriefingRegionSnapshotServiceTest {
         entity.setBriefingGeneratedAt(EARLIER_BUILD);
         return entity;
     }
+
+    @Nested
+    @DisplayName("remaining guards")
+    class RemainingGuards {
+
+        @Test
+        void a_null_day_list_records_nothing() {
+            service().record(BUILD, null);
+
+            verifyNoInteractions(repository);
+        }
+
+        @Test
+        void a_region_with_no_display_verdict_is_written_with_a_null_verdict() {
+            BriefingRegion unverdicted = new BriefingRegion("Cumbria", Verdict.GO, "Clear.", List.of(),
+                    List.of(scoredSky("Wastwater")), null, null, null, null, null, null,
+                    null, 1, null, null, 3.0, null);
+
+            service().record(BUILD, oneDay(TargetType.SUNRISE, unverdicted));
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<BriefingRegionSnapshotEntity>> captor = ArgumentCaptor.forClass(List.class);
+            verify(repository).saveAll(captor.capture());
+            assertThat(captor.getValue().getFirst().getDisplayVerdict()).isNull();
+        }
+
+        @Test
+        void a_null_stamp_stays_null_at_storage_precision() {
+            assertThat(BriefingRegionSnapshotService.atStoragePrecision(null)).isNull();
+        }
+    }
 }

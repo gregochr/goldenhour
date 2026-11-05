@@ -171,6 +171,22 @@ class EclipseAlmanacSourceTest {
         }
 
         @Test
+        @DisplayName("titles the entry 'Total solar eclipse' when a location sits in the path of totality")
+        void totalityIsNamedInTheTitle() {
+            stubRoster(location("Oviedo", 43.3619, -5.8494));
+
+            assertThat(theEntry().title()).isEqualTo("Total solar eclipse");
+        }
+
+        @Test
+        @DisplayName("titles the entry 'Partial solar eclipse' when the deepest view stays under 80% magnitude")
+        void shallowViewIsPartial() {
+            stubRoster(location("Moscow", 55.7558, 37.6173));
+
+            assertThat(theEntry().title()).isEqualTo("Partial solar eclipse");
+        }
+
+        @Test
         @DisplayName("omits the rarity key entirely for an eclipse that returns often")
         void aCommonEclipseCarriesNoRarityLine() {
             // metaOf drops null, so an unremarkable return period is an ABSENT key rather than a

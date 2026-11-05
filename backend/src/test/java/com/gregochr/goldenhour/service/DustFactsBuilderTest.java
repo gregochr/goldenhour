@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -144,6 +145,37 @@ class DustFactsBuilderTest {
 
         assertThat(result.facts()).noneMatch(f -> "afterglow".equals(f.key()));
         assertThat(factWithKey(result, "AOD").value()).isEqualTo("0.42 · thick plume");
+    }
+
+    @Test
+    @DisplayName("a day with no dust rows returns the topic untouched without asking for solar times")
+    void noRowsReturnsTopicUnchanged() {
+        HotTopic topic = baseTopic();
+
+        assertThat(builder.attach(topic, List.of())).isSameAs(topic);
+        verifyNoInteractions(solarService);
+    }
+
+    @Test
+    @DisplayName("a sunset with no civil dusk drops the afterglow window but keeps the AOD chip")
+    void nullDuskDropsAfterglow() {
+        when(solarService.sunsetUtc(LAT, LON, DATE)).thenReturn(DATE.atTime(20, 44));
+        when(solarService.civilDuskUtc(LAT, LON, DATE)).thenReturn(null);
+
+        HotTopic result = builder.attach(baseTopic(), List.of(dustRow("0.42")));
+
+        assertThat(result.facts()).noneMatch(f -> "afterglow".equals(f.key()));
+        assertThat(factWithKey(result, "AOD").value()).isEqualTo("0.42 · thick plume");
+    }
+
+    @Test
+    @DisplayName("no AOD and no solar times leaves no fact to show, so the topic is returned unchanged")
+    void noFactsReturnsTopicUnchanged() {
+        when(solarService.sunsetUtc(LAT, LON, DATE)).thenReturn(null);
+        when(solarService.civilDuskUtc(LAT, LON, DATE)).thenReturn(null);
+        HotTopic topic = baseTopic();
+
+        assertThat(builder.attach(topic, List.of(dustRow(null)))).isSameAs(topic);
     }
 
     @Test

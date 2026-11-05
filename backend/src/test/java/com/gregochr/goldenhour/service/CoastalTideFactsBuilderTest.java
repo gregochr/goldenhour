@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.TideDerivation;
@@ -270,5 +272,194 @@ class CoastalTideFactsBuilderTest {
                 new BigDecimal("5.1"), new BigDecimal("3.8")));
 
         assertThat(builder().buildSpring(dayWith(tide), List.of(bamburgh()))).isNull();
+    }
+
+    // ── Selection edge cases ────────────────────────────────────────────────
+
+    private static final BriefingSlot.TideInfo KING_TIDE_INFO = new BriefingSlot.TideInfo("HIGH", true, null,
+            null, true, true, LunarTideType.KING_TIDE, "Full Moon", true);
+
+    private static LocationEntity coastal(Long id, String name, double lat, double lon) {
+        LocationEntity loc = new LocationEntity();
+        loc.setId(id);
+        loc.setName(name);
+        loc.setLat(lat);
+        loc.setLon(lon);
+        loc.setTideType(Set.of(TideType.HIGH));
+        return loc;
+    }
+
+    private static TideDerivation derivation(LocalDateTime hwTime, String hwHeight, LocalDateTime lwTime,
+            String lwHeight, String threshold, String avgRange) {
+        return new TideDerivation(TideState.HIGH, hwTime, hwHeight == null ? null : new BigDecimal(hwHeight),
+                lwTime, lwHeight == null ? null : new BigDecimal(lwHeight),
+                true, true, null, null, LunarTideType.KING_TIDE, "Full Moon", true, true, true,
+                threshold == null ? null : new BigDecimal(threshold),
+                avgRange == null ? null : new BigDecimal(avgRange));
+    }
+
+    private static BriefingSlot slotAt(String name, LocalDateTime solarEvent, BriefingSlot.TideInfo tide) {
+        return new BriefingSlot(name, solarEvent, Verdict.GO, null, tide, List.of());
+    }
+
+    private static BriefingRegion regionOf(BriefingSlot... slots) {
+        return new BriefingRegion("Northumberland", Verdict.GO, "summary", List.of(), List.of(slots),
+                null, null, null, null, null, null, DisplayVerdict.WORTH_IT, 0);
+    }
+
+    private void stubDeriveFor(LocationEntity loc, LocalDateTime solarEvent, TideDerivation derivation) {
+        when(tideFactDeriver.derive(eq(loc.getId()), eq(solarEvent), eq(Set.of(TideType.HIGH)),
+                eq(loc.getLat()), eq(loc.getLon()), eq(TargetType.SUNRISE)))
+                .thenReturn(Optional.of(derivation));
+    }
+
+    @Test
+    @DisplayName("a tidal slot with no solar event time is skipped without asking the deriver")
+    void skipsSlotWithoutSolarEventTime() {
+        BriefingDay day = new BriefingDay(DATE, List.of(new BriefingEventSummary(TargetType.SUNRISE, List.of(),
+                List.of(slotAt("Bamburgh", null, KING_TIDE_INFO)))));
+
+        assertThat(builder().buildKing(day, List.of(bamburgh()))).isNull();
+        verifyNoInteractions(tideFactDeriver);
+    }
+
+    @Test
+    @DisplayName("a tidal slot at a location outside the coastal roster is skipped without asking the deriver")
+    void skipsSlotAtUnknownLocation() {
+        BriefingDay day = new BriefingDay(DATE, List.of(new BriefingEventSummary(TargetType.SUNRISE, List.of(),
+                List.of(slotAt("Kielder", SUNRISE_TIME, KING_TIDE_INFO)))));
+
+        assertThat(builder().buildKing(day, List.of(bamburgh()))).isNull();
+        verifyNoInteractions(tideFactDeriver);
+    }
+
+    @Test
+    @DisplayName("a slot the deriver cannot derive, or whose next high tide has no height, gives no facts")
+    void skipsUnderivableSlots() {
+        when(tideFactDeriver.derive(eq(1L), eq(SUNRISE_TIME), eq(Set.of(TideType.HIGH)),
+                eq(55.6), eq(-1.7), eq(TargetType.SUNRISE))).thenReturn(Optional.empty());
+        assertThat(builder().buildKing(dayWith(KING_TIDE_INFO), List.of(bamburgh()))).isNull();
+
+        stubDerive(derivation(LocalDateTime.of(2026, 6, 17, 6, 42), null, null, null, null, null));
+        assertThat(builder().buildKing(dayWith(KING_TIDE_INFO), List.of(bamburgh()))).isNull();
+    }
+
+    @Test
+    @DisplayName("the biggest high water wins across region and unregioned slots; the winner's sea state is used")
+    void picksTheBiggestSlotAcrossRegionsAndUnregioned() {
+        LocationEntity bamburgh = coastal(1L, "Bamburgh", 55.6, -1.7);
+        LocationEntity seahouses = coastal(2L, "Seahouses", 55.58, -1.65);
+        LocationEntity craster = coastal(3L, "Craster", 55.47, -1.59);
+        LocalDateTime seahousesTime = SUNRISE_TIME.plusMinutes(2);
+        LocalDateTime crasterTime = SUNRISE_TIME.plusMinutes(4);
+        stubDeriveFor(bamburgh, SUNRISE_TIME, derivation(LocalDateTime.of(2026, 6, 17, 6, 42), "5.4", null,
+                null, "5.1", null));
+        stubDeriveFor(seahouses, seahousesTime, derivation(LocalDateTime.of(2026, 6, 17, 6, 44), "5.9", null,
+                null, "5.1", null));
+        stubDeriveFor(craster, crasterTime, derivation(LocalDateTime.of(2026, 6, 17, 6, 46), "5.2", null,
+                null, "5.1", null));
+        MarineWaveEntity wave = new MarineWaveEntity();
+        wave.setSignificantWaveHeightMetres(0.4);
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                eq(2L), eq(DATE), eq(TargetType.SUNRISE))).thenReturn(Optional.of(wave));
+        BriefingEventSummary event = new BriefingEventSummary(TargetType.SUNRISE,
+                List.of(regionOf(slotAt("Bamburgh", SUNRISE_TIME, KING_TIDE_INFO))),
+                List.of(slotAt("Seahouses", seahousesTime, KING_TIDE_INFO),
+                        slotAt("Craster", crasterTime, KING_TIDE_INFO)));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildKing(
+                new BriefingDay(DATE, List.of(event)), List.of(bamburgh, seahouses, craster));
+
+        assertThat(factWithKey(science.facts(), "high water").value()).isEqualTo("5.9 m");
+        assertThat(factWithKey(science.facts(), "HW").value()).isEqualTo("06:44");
+        assertThat(factWithKey(science.facts(), "seas").value()).isEqualTo("0.4 m · smooth");
+    }
+
+    @Test
+    @DisplayName("when two coastal locations share a name the first in the roster is the one used")
+    void duplicateLocationNames_firstWins() {
+        LocationEntity first = coastal(1L, "Bamburgh", 55.6, -1.7);
+        LocationEntity second = coastal(9L, "Bamburgh", 10.0, 10.0);
+        stubDeriveFor(first, SUNRISE_TIME, derivation(LocalDateTime.of(2026, 6, 17, 6, 42), "5.8", null,
+                null, "5.1", null));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildKing(
+                dayWith(KING_TIDE_INFO), List.of(first, second));
+
+        assertThat(factWithKey(science.facts(), "high water").value()).isEqualTo("5.8 m");
+    }
+
+    @Test
+    @DisplayName("king tide with no spring threshold and no high-water time shows the height alone")
+    void kingWithoutThresholdOrTime_showsHeightOnly() {
+        stubDerive(derivation(null, "5.8", null, null, null, null));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildKing(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(science.facts()).extracting(HotTopicFact::key).containsExactly("high water");
+    }
+
+    @Test
+    @DisplayName("a sea-state row with no wave height adds no sea-state chip")
+    void seaStateWithoutWaveHeight_addsNoChip() {
+        stubDerive(derivation(LocalDateTime.of(2026, 6, 17, 6, 42), "5.8", null, null, "5.1", null));
+        when(marineWaveRepository.findByLocation_IdAndEvaluationDateAndEventType(
+                eq(1L), eq(DATE), eq(TargetType.SUNRISE))).thenReturn(Optional.of(new MarineWaveEntity()));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildKing(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(science.facts()).extracting(HotTopicFact::key).doesNotContain("seas");
+    }
+
+    @Test
+    @DisplayName("spring tide with no average range reads 'big swing'")
+    void springWithoutAverageRange_readsBigSwing() {
+        stubDerive(derivation(LocalDateTime.of(2026, 6, 17, 18, 20), "5.5", LocalDateTime.of(2026, 6, 17, 12, 10),
+                "0.6", "5.1", null));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildSpring(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(science.facts()).anyMatch(f -> "big swing".equals(f.value()));
+    }
+
+    @Test
+    @DisplayName("spring tide with a range only 0.04 m above its average is below the anomaly floor: 'big swing'")
+    void springBarelyAboveAverage_readsBigSwing() {
+        // range 4.9 against an average of 4.86: the 0.04 m anomaly is under the 0.05 m floor
+        stubDerive(derivation(LocalDateTime.of(2026, 6, 17, 18, 20), "5.5", LocalDateTime.of(2026, 6, 17, 12, 10),
+                "0.6", "5.1", "4.86"));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildSpring(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(science.facts()).anyMatch(f -> "big swing".equals(f.value()));
+    }
+
+    @Test
+    @DisplayName("spring tide with no low or high water times omits the LW and HW chips")
+    void springWithoutTideTimes_omitsLwAndHw() {
+        stubDerive(derivation(null, "5.5", null, "0.6", "5.1", "3.8"));
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildSpring(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(science.facts()).extracting(HotTopicFact::key).doesNotContain("LW", "HW");
+        assertThat(factWithKey(science.facts(), "range").value()).isEqualTo("4.9 m");
+    }
+
+    @Test
+    @DisplayName("spring tide includes the sea-state chip when the slot has a wave height")
+    void springIncludesSeaState() {
+        stubDerive(derivation(LocalDateTime.of(2026, 6, 17, 18, 20), "5.5", LocalDateTime.of(2026, 6, 17, 12, 10),
+                "0.6", "5.1", "3.8"));
+        stubWaves(1.6);
+
+        CoastalTideFactsBuilder.CoastalScience science = builder().buildSpring(
+                dayWith(KING_TIDE_INFO), List.of(bamburgh()));
+
+        assertThat(factWithKey(science.facts(), "seas").value()).isEqualTo("1.6 m · moderate");
     }
 }

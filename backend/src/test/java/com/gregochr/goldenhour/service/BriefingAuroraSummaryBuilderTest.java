@@ -40,6 +40,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -977,6 +978,267 @@ class BriefingAuroraSummaryBuilderTest {
         assertThat(summary.moonIlluminationPct()).isEqualTo(95.0);
         assertThat(summary.regions()).hasSize(1);
         assertThat(summary.label()).isEqualTo("Worth watching");
+    }
+
+    // ── Region naming, dark-sky counting, caches and guards ──
+
+    /** A target hour of midnight UTC, the middle of the viewing window whichever side of 06:00 it is. */
+    private static ZonedDateTime midnightUtc() {
+        return org.mockito.ArgumentMatchers.argThat(t -> t != null
+                && t.toLocalTime().equals(java.time.LocalTime.MIDNIGHT) && ZoneOffset.UTC.equals(t.getZone()));
+    }
+
+    private void stubTonightActive(AuroraForecastScore... scores) {
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        when(auroraStateCache.getCachedScores()).thenReturn(List.of(scores));
+    }
+
+    private void stubGlossPassthroughFor(ArgumentCaptor<List<AuroraRegionSummary>> regions) {
+        when(auroraGlossService.enrichGlosses(regions.capture(), isNull(), eq(AlertLevel.MODERATE), eq(5.0)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @Test
+    @DisplayName("A location with no region is its own region, and with no Bortle class it is not a dark-sky site")
+    void tonight_regionlessNonDarkSkyLocation_isItsOwnRegionWithNoVerdict() {
+        LocationEntity loc = location(1L, "Roadside", null);
+        loc.setBortleClass(null);
+        AuroraForecastScore score = new AuroraForecastScore(
+                loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear skies");
+        stubTonightActive(score);
+        ArgumentCaptor<List<AuroraRegionSummary>> regions = ArgumentCaptor.forClass(List.class);
+        stubGlossPassthroughFor(regions);
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), midnightUtc())).thenReturn(Map.of());
+
+        AuroraTonightSummary summary = builder.buildAuroraTonight();
+
+        assertThat(summary.regions()).hasSize(1);
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.regionName()).isEqualTo("Roadside");
+        assertThat(region.verdict()).isNull();
+        assertThat(region.totalDarkSkyLocations()).isZero();
+        assertThat(region.clearLocationCount()).isZero();
+        assertThat(region.bestBortleClass()).isNull();
+        assertThat(summary.totalDarkSkyCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("The cached variant never fetches weather or asks for glosses, and reads an empty weather map")
+    void tonightCached_neverFetchesAndNeverGlosses() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        stubTonightActive(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear"));
+
+        AuroraTonightSummary summary = builder.buildAuroraTonightCached();
+
+        assertThat(summary.regions()).hasSize(1);
+        assertThat(summary.regions().get(0).regionTemperatureCelsius()).isNull();
+        assertThat(summary.regions().get(0).locations().get(0).cloudPercent()).isEqualTo(40);
+        verify(weatherEnricher, never()).fetchWeather(anyList(), any(ZonedDateTime.class));
+        verify(auroraGlossService, never()).enrichGlosses(anyList(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Tonight's weather is fetched once and then served from its five-minute cache, fetching or not")
+    void tonight_weatherIsCachedBetweenCalls() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        stubTonightActive(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear"));
+        ArgumentCaptor<List<AuroraRegionSummary>> regions = ArgumentCaptor.forClass(List.class);
+        stubGlossPassthroughFor(regions);
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), midnightUtc()))
+                .thenReturn(Map.of(1L, new AuroraWeatherEnricher.AuroraWeather(40, 3.5, 4.2, 2)));
+
+        AuroraTonightSummary first = builder.buildAuroraTonight();
+        AuroraTonightSummary second = builder.buildAuroraTonight();
+        AuroraTonightSummary cachedOnly = builder.buildAuroraTonightCached();
+
+        verify(weatherEnricher, org.mockito.Mockito.times(1)).fetchWeather(eq(List.of(loc)), midnightUtc());
+        assertThat(first.regions().get(0).regionTemperatureCelsius()).isEqualTo(3.5);
+        assertThat(second.regions().get(0).regionTemperatureCelsius()).isEqualTo(3.5);
+        assertThat(cachedOnly.regions().get(0).regionTemperatureCelsius()).isEqualTo(3.5);
+    }
+
+    @Test
+    @DisplayName("A solar wind reading of zero speed is no reading")
+    void tonight_zeroSolarWindSpeed_isNull() {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        stubTonightActive(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear"));
+        ArgumentCaptor<List<AuroraRegionSummary>> regions = ArgumentCaptor.forClass(List.class);
+        stubGlossPassthroughFor(regions);
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), midnightUtc())).thenReturn(Map.of());
+        when(noaaSwpcClient.getCachedSolarWind()).thenReturn(List.of(
+                new SolarWindReading(ZonedDateTime.now(ZoneOffset.UTC), -2.0, 0.0, 3.0)));
+
+        assertThat(builder.buildAuroraTonight().solarWindSpeedKmPerSec()).isNull();
+    }
+
+    @Test
+    @DisplayName("A failure reading the aurora state gives no tonight summary rather than an exception")
+    void tonight_stateReadFails_givesNull() {
+        when(auroraStateCache.isActive()).thenReturn(true);
+        when(auroraStateCache.getCurrentLevel()).thenThrow(new IllegalStateException("cache corrupt"));
+
+        assertThat(builder.buildAuroraTonight()).isNull();
+    }
+
+    @Test
+    @DisplayName("A null or empty Kp forecast gives no tomorrow summary")
+    void tomorrow_nullOrEmptyForecast_givesNull() {
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(null);
+        assertThat(builder.buildAuroraTomorrow()).isNull();
+
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of());
+        assertThat(builder.buildAuroraTomorrow()).isNull();
+    }
+
+    @Test
+    @DisplayName("Forecast slots wholly before or after the 20h-to-48h window do not count toward the peak")
+    void tomorrow_slotsOutsideTheWindow_areIgnored() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(1), now.plusHours(4), 8.0),
+                new KpForecast(now.plusHours(60), now.plusHours(63), 9.0),
+                new KpForecast(now.plusHours(24), now.plusHours(27), 2.0)));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of());
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrow();
+
+        assertThat(summary.peakKp()).isEqualTo(2.0);
+        assertThat(summary.label()).isEqualTo("Quiet");
+    }
+
+    @Test
+    @DisplayName("Tomorrow's cached variant reads the cached Kp forecast and never fetches weather")
+    void tomorrowCached_neverFetches_andDefaultsUnknownCloudToFifty() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.getCachedKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Roadside", null);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(loc));
+
+        AuroraTomorrowSummary summary = builder.buildAuroraTomorrowCached();
+
+        assertThat(summary.regions()).hasSize(1);
+        AuroraRegionSummary region = summary.regions().get(0);
+        assertThat(region.regionName()).as("a regionless location is its own region").isEqualTo("Roadside");
+        assertThat(region.locations().get(0).cloudPercent()).isEqualTo(50);
+        assertThat(region.verdict()).isEqualTo("GO");
+        verify(noaaSwpcClient, never()).fetchKpForecast();
+        verify(weatherEnricher, never()).fetchWeather(anyList(), any(ZonedDateTime.class));
+    }
+
+    @Test
+    @DisplayName("Tomorrow's weather is fetched once and then served from its cache; overcast reads STANDDOWN")
+    void tomorrow_weatherIsCached_andOvercastIsStanddown() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Kielder", "Northumberland");
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(loc));
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), midnightUtc()))
+                .thenReturn(Map.of(2L, new AuroraWeatherEnricher.AuroraWeather(100, 1.0, 3.0, 3)));
+
+        AuroraTomorrowSummary first = builder.buildAuroraTomorrow();
+        AuroraTomorrowSummary second = builder.buildAuroraTomorrow();
+
+        verify(weatherEnricher, org.mockito.Mockito.times(1)).fetchWeather(eq(List.of(loc)), midnightUtc());
+        assertThat(first.regions().get(0).verdict()).isEqualTo("STANDDOWN");
+        assertThat(second.regions().get(0).verdict()).isEqualTo("STANDDOWN");
+        assertThat(second.regions().get(0).clearLocationCount()).isZero();
+    }
+
+    // ── The dark window and target hour follow the UTC hour: before and after 06:00 ──
+
+    private static final double DURHAM_LAT = 54.776;
+    private static final double DURHAM_LON = -1.575;
+
+    private static ZonedDateTime utc(int month, int day, int hour) {
+        return ZonedDateTime.of(2026, month, day, hour, 0, 0, 0, ZoneOffset.UTC);
+    }
+
+    /** Pins {@code ZonedDateTime.now(UTC)} to the given instant for the calling thread only. */
+    private static org.mockito.MockedStatic<ZonedDateTime> pinNow(ZonedDateTime fixed) {
+        org.mockito.MockedStatic<ZonedDateTime> pinned =
+                org.mockito.Mockito.mockStatic(ZonedDateTime.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        pinned.when(() -> ZonedDateTime.now(ZoneOffset.UTC)).thenReturn(fixed);
+        return pinned;
+    }
+
+    private static LunarPosition moonUp() {
+        return new LunarPosition(25.0, 180.0, 0.73, LunarPhase.WAXING_GIBBOUS, 384400);
+    }
+
+    private void assertSampledWindow(ArgumentCaptor<ZonedDateTime> sampled, ZonedDateTime dusk, ZonedDateTime dawn) {
+        List<ZonedDateTime> times = sampled.getAllValues();
+        assertThat(times.get(0)).as("first sample is dusk").isEqualTo(dusk);
+        assertThat(times.get(times.size() - 1)).as("last sample is dawn").isEqualTo(dawn);
+        assertThat(times).hasSize(8);
+    }
+
+    private void tonightAt(ZonedDateTime now, ZonedDateTime expectedDusk, ZonedDateTime expectedDawn,
+            ZonedDateTime expectedWeatherTarget) {
+        LocationEntity loc = location(1L, "Kielder", "Northumberland");
+        stubTonightActive(new AuroraForecastScore(loc, 4, AlertLevel.MODERATE, 40, "Active aurora", "Clear"));
+        ArgumentCaptor<List<AuroraRegionSummary>> regions = ArgumentCaptor.forClass(List.class);
+        ArgumentCaptor<MoonTransitionData> moon = ArgumentCaptor.forClass(MoonTransitionData.class);
+        when(auroraGlossService.enrichGlosses(regions.capture(), moon.capture(),
+                eq(AlertLevel.MODERATE), eq(5.0))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), eq(expectedWeatherTarget))).thenReturn(Map.of());
+        ArgumentCaptor<ZonedDateTime> sampled = ArgumentCaptor.forClass(ZonedDateTime.class);
+        when(lunarCalculator.calculate(sampled.capture(), eq(DURHAM_LAT), eq(DURHAM_LON))).thenReturn(moonUp());
+
+        AuroraTonightSummary summary;
+        try (org.mockito.MockedStatic<ZonedDateTime> pinned = pinNow(now)) {
+            summary = builder.buildAuroraTonight();
+        }
+
+        assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
+        assertThat(moon.getValue().phase()).isEqualTo(LunarPhase.WAXING_GIBBOUS);
+        assertSampledWindow(sampled, expectedDusk, expectedDawn);
+    }
+
+    @Test
+    @DisplayName("Before 06:00 UTC tonight's dark window is last evening to this morning, weather at today's midnight")
+    void tonight_beforeSixUtc_windowIsLastEveningToThisMorning() {
+        tonightAt(utc(3, 10, 3), utc(3, 9, 21), utc(3, 10, 4), utc(3, 10, 0));
+    }
+
+    @Test
+    @DisplayName("From 06:00 UTC tonight's window is this evening to tomorrow morning, weather at tomorrow midnight")
+    void tonight_fromSixUtc_windowIsThisEveningToTomorrowMorning() {
+        tonightAt(utc(3, 10, 15), utc(3, 10, 21), utc(3, 11, 4), utc(3, 11, 0));
+    }
+
+    private void tomorrowAt(ZonedDateTime now, ZonedDateTime expectedDusk, ZonedDateTime expectedDawn,
+            ZonedDateTime expectedWeatherTarget) {
+        when(noaaSwpcClient.fetchKpForecast()).thenReturn(List.of(
+                new KpForecast(now.plusHours(24), now.plusHours(27), 5.0)));
+        LocationEntity loc = location(2L, "Kielder", "Northumberland");
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(List.of(loc));
+        when(weatherEnricher.fetchWeather(eq(List.of(loc)), eq(expectedWeatherTarget))).thenReturn(Map.of());
+        ArgumentCaptor<ZonedDateTime> sampled = ArgumentCaptor.forClass(ZonedDateTime.class);
+        when(lunarCalculator.calculate(sampled.capture(), eq(DURHAM_LAT), eq(DURHAM_LON))).thenReturn(moonUp());
+
+        AuroraTomorrowSummary summary;
+        try (org.mockito.MockedStatic<ZonedDateTime> pinned = pinNow(now)) {
+            summary = builder.buildAuroraTomorrow();
+        }
+
+        assertThat(summary.moonPhase()).isEqualTo("WAXING_GIBBOUS");
+        assertSampledWindow(sampled, expectedDusk, expectedDawn);
+    }
+
+    @Test
+    @DisplayName("Before 06:00 UTC tomorrow night is tonight's evening window, weather at tomorrow's midnight")
+    void tomorrow_beforeSixUtc_windowIsTonightEvening() {
+        tomorrowAt(utc(3, 10, 3), utc(3, 10, 21), utc(3, 11, 4), utc(3, 11, 0));
+    }
+
+    @Test
+    @DisplayName("From 06:00 UTC tomorrow night is the evening after next, weather at the midnight after that")
+    void tomorrow_fromSixUtc_windowIsTheEveningAfterNext() {
+        tomorrowAt(utc(3, 10, 15), utc(3, 11, 21), utc(3, 12, 4), utc(3, 12, 0));
     }
 
     private static LocationEntity location(Long id, String name, String regionName) {
