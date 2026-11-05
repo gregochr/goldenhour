@@ -7514,9 +7514,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         {stoodPoints.length > 0 && (
                           <span data-testid="wf-map-peek-standdown" className="wf-legend-ground-item">
                             <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
-                            <b>Stood down</b>
-                            {' '}
-                            ruled out by the weather, cause named on the ground
+                            stood down by the weather
                           </span>
                         )}
                       </span>
