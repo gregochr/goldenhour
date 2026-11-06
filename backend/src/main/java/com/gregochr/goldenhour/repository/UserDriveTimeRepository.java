@@ -53,4 +53,15 @@ public interface UserDriveTimeRepository extends JpaRepository<UserDriveTimeEnti
     @Modifying
     @Query("DELETE FROM UserDriveTimeEntity udt WHERE udt.locationId = :locationId")
     void deleteAllByLocationId(@Param("locationId") Long locationId);
+
+    /**
+     * Lists which of the given users has a stored drive time to which location: ids only, for the admin
+     * unroutable-places read.
+     *
+     * @param userIds the users to read (non-empty)
+     * @return one {@link DrivePair} per stored row
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.DrivePair(udt.userId, udt.locationId) "
+            + "FROM UserDriveTimeEntity udt WHERE udt.userId IN :userIds")
+    List<DrivePair> findPairsByUserIds(@Param("userIds") List<Long> userIds);
 }

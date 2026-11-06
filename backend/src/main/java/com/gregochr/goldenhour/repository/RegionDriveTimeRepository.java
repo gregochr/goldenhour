@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Spring Data repository for the shared region-base drive-time matrix.
@@ -46,4 +47,15 @@ public interface RegionDriveTimeRepository
     @Modifying
     @Query("DELETE FROM RegionDriveTimeEntity rdt WHERE rdt.locationId = :locationId")
     void deleteAllByLocationId(@Param("locationId") Long locationId);
+
+    /**
+     * Lists which of the given regions has a stored drive time to which location: ids only, for the admin
+     * unroutable-places read.
+     *
+     * @param regionIds the regions to read (non-empty)
+     * @return one {@link DrivePair} per stored row
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.DrivePair(rdt.regionId, rdt.locationId) "
+            + "FROM RegionDriveTimeEntity rdt WHERE rdt.regionId IN :regionIds")
+    List<DrivePair> findPairsByRegionIds(@Param("regionIds") List<Long> regionIds);
 }

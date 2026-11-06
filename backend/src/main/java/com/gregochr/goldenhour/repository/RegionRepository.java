@@ -112,4 +112,15 @@ public interface RegionRepository extends JpaRepository<RegionEntity, Long> {
      * @return list of enabled region entities
      */
     List<RegionEntity> findAllByEnabledTrueOrderByNameAsc();
+
+    /**
+     * Lists every enabled region that has a base town and a full drive-time measurement stamp: the bases the
+     * admin unroutable-places read can judge a location from. Scalar projection, no entity held.
+     *
+     * @return one {@link DriveStamp} per such region
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.DriveStamp(r.id, r.drivesMeasuredAt) "
+            + "FROM RegionEntity r WHERE r.enabled = true AND r.baseLat IS NOT NULL AND r.baseLon IS NOT NULL "
+            + "AND r.drivesMeasuredAt IS NOT NULL")
+    List<DriveStamp> findMeasuredBaseStamps();
 }

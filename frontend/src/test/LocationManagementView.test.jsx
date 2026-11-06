@@ -25,6 +25,7 @@ vi.mock('../api/areaApi', () => ({
   setLocationAliases: vi.fn(),
 }));
 vi.mock('../api/tideApi', () => ({ fetchTideStats: vi.fn(), fetchAllTideStats: vi.fn() }));
+vi.mock('../api/driveTimesAdminApi', () => ({ fetchUnroutableLocations: vi.fn(() => Promise.resolve([])) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
 import { fetchLocations, resetLocationFailures } from '../api/forecastApi';

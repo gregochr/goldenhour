@@ -5,6 +5,7 @@ import KvList from '../data/KvList.jsx';
 import LocationFailureBox from './LocationFailureBox.jsx';
 import LocationTidesSection from './LocationTidesSection.jsx';
 import { textButtonClass } from '../users/userFormClasses.js';
+import { driveFlagText } from '../../utils/unroutableLocations.js';
 import {
   NO_VALUE, bortleBlurb, coordinatesText, isSeascape, lightWords, locationMeta, tideWords, typeWords,
 } from '../../utils/locationAdmin.js';
@@ -38,10 +39,11 @@ function withUnit(value, unit) {
  * @param {boolean} props.resetting a failure reset for this location is in flight
  * @param {string|null} props.resetError the server's sentence for the last refused reset
  * @param {(fallback: string) => void} props.onReset resets the failure count (or turns an auto-disabled place back on)
+ * @param {object|null} [props.unroutable] admin-only: the served "no route" row for this place, or null
  */
 export default function LocationPanel({
   location, failureLocation = undefined, onClose, onEdit, onToggle, toggling, toggleError, resetting, resetError,
-  onReset,
+  onReset, unroutable = null,
 }) {
   const seascape = isSeascape(location);
   const bortle = location.bortleClass;
@@ -82,6 +84,18 @@ export default function LocationPanel({
       testId="location-view-panel"
     >
       <LocationFailureBox location={failureLocation ?? location} pending={resetting} error={resetError} onReset={onReset} />
+
+      {unroutable && (
+        <PanelSection label="Drive point" testId="location-drive-flag">
+          <p className="text-[13px] text-plex-text" data-testid="location-drive-flag-text">
+            {driveFlagText(unroutable)}
+          </p>
+          <p className="mt-1 text-xs text-plex-text-secondary">
+            Drive times from homes and region bases are measured to the coordinates below, and none could be
+            routed there.
+          </p>
+        </PanelSection>
+      )}
 
       <PanelSection
         label="Shooting"
@@ -165,4 +179,5 @@ LocationPanel.propTypes = {
   resetting: PropTypes.bool,
   resetError: PropTypes.string,
   onReset: PropTypes.func.isRequired,
+  unroutable: PropTypes.object,
 };
