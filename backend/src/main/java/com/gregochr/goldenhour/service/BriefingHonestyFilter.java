@@ -378,20 +378,6 @@ final class BriefingHonestyFilter {
     }
 
     /**
-     * Blanks a zero-coverage region, wording it by {@code reason}. Every reason empties the slots and
-     * nulls exactly the fields it always did; only the verdict, label, summary and gloss detail
-     * differ. Only {@code STOOD_DOWN} keeps "too unsettled" and {@code STAND_DOWN}, which is true only
-     * of weather triage (worded "Fog forecast" instead when {@code fog}: a majority of the
-     * stand-downs were weather triage's visibility rule); every other reason, {@code UNKNOWN} (the
-     * record cannot say) included, is neutral ({@code AWAITING}) and makes no claim about the
-     * weather.
-     *
-     * @param r      the zero-coverage region
-     * @param reason why it has no forecast
-     * @param fog    whether a {@code STOOD_DOWN} region's stand-downs were mostly visibility
-     * @return the blanked region
-     */
-    /**
      * Words a region that a reach tier left with no rated place the way the served pipeline words a zero-coverage
      * one (reach-scoped-card-plan R2): STAND_DOWN only where the pipeline really stood a place down on weather,
      * AWAITING otherwise, so a tier never says "Stand down" for places that were simply not attempted.
@@ -407,6 +393,20 @@ final class BriefingHonestyFilter {
         return fullRewrite(region, standDown ? CoverageReason.STOOD_DOWN : CoverageReason.NOT_ATTEMPTED, false);
     }
 
+    /**
+     * Blanks a zero-coverage region, wording it by {@code reason}. Every reason empties the slots and
+     * nulls exactly the fields it always did; only the verdict, label, summary and gloss detail
+     * differ. Only {@code STOOD_DOWN} keeps "too unsettled" and {@code STAND_DOWN}, which is true only
+     * of weather triage (worded "Fog forecast" instead when {@code fog}: a majority of the
+     * stand-downs were weather triage's visibility rule); every other reason, {@code UNKNOWN} (the
+     * record cannot say) included, is neutral ({@code AWAITING}) and makes no claim about the
+     * weather.
+     *
+     * @param r      the zero-coverage region
+     * @param reason why it has no forecast
+     * @param fog    whether a {@code STOOD_DOWN} region's stand-downs were mostly visibility
+     * @return the blanked region
+     */
     private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason,
             boolean fog) {
         Wording w = switch (reason) {
