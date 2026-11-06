@@ -371,8 +371,8 @@ Tests:
 |---|---|---|---|---|
 | R1 | `fix/reach-unroutable-drive` | [#1717](https://github.com/gregochr/goldenhour/pull/1717) | 2026-11-06 (squash 30767fcf9) | Built 2026-11-05 (V220). Notes: the home stamp already took its instant before the roster read in both `DriveTimeRefreshJob` and `UserSettingsService`; the only home change was `DriveDurationService` treating a short ORS answer as no answer (the client already refused one). `RegionDriveTimeWriter.storeIfBaseUnchanged` makes the region rows conditional on the base too, not only the stamp. The card also carries `reachFarRemoved`, `reachUnroutableCount` and `reachOriginName` beside `reachUnroutableRemoved`. `regions.drives_measured_at` is not backfilled: every away drive reads PENDING until the first nightly region sweep after deploy. |
 | R1b | `feature/admin-unroutable-locations` | [#1718](https://github.com/gregochr/goldenhour/pull/1718) | 2026-11-06 (squash 36be2ebaf) | Built 2026-11-06. `GET /api/admin/drive-times/unroutable` (`UnroutableLocationService`): stamps and id pairs by four small queries, then `DriveStatus.of` per (origin, location) in memory, so the count is by construction what a reader's card does. The denominator is MEASURED + UNROUTABLE origins (PENDING left out of both counts). The "Operations drive-time panel" is the Scheduler job panel for `drive_time_refresh` (there is no separate drive section). No migration. |
-| R1c | `feature/location-drive-point` | | | Built 2026-11-06 (V221). Notes: the map picker for nudging the point was not built (no map widget exists in the admin UI; the plan said not to build one), so the point is a looked-up place or a postcode as returned. The ORS fixtures for an unsnappable point (`contract/ors/probe-*.json`) are hand-written from ORS's documented behaviour (a null duration and a null `destinations[]` entry; HTTP 404 code 6010 as the error form), not recorded: there is no ORS key in tests and no live call is allowed. The client handles both forms, and a 6010 that names the source or the control (or no coordinate) reads as UNAVAILABLE, never as a refusal. The guard is a separate service called by `LocationController` before the transactional `LocationService` call (the controller holds no logic; the service stays free of ORS). The control destination is central Birmingham; a source with no route to it (a ferry-only island base) reads UNAVAILABLE and the save is allowed. `LocationService.update` invalidates (D1a) only when the ROUTING point moves (drive point when set, else the pin), so a pin move behind a drive point or a rename over the same coordinates deletes nothing. The reach payload's `driveTo` and the roster's `drivePointName` are the same for every reader (no personal data). `driveTo` is added to a reach entry only when set, so every other entry is shaped as before. The place lookup's 25 km cut (`DrivePointLookupService.MAX_DISTANCE_KM`) does not apply to a postcode, which the admin typed exactly. |
-| R2 | `feature/reach-scoped-headline` | | | |
+| R1c | `feature/location-drive-point` | [#1719](https://github.com/gregochr/goldenhour/pull/1719) | 2026-11-06 (squash f14f5bcea) | Built 2026-11-06 (V221). Notes: the map picker for nudging the point was not built (no map widget exists in the admin UI; the plan said not to build one), so the point is a looked-up place or a postcode as returned. The ORS fixtures for an unsnappable point (`contract/ors/probe-*.json`) are hand-written from ORS's documented behaviour (a null duration and a null `destinations[]` entry; HTTP 404 code 6010 as the error form), not recorded: there is no ORS key in tests and no live call is allowed. The client handles both forms, and a 6010 that names the source or the control (or no coordinate) reads as UNAVAILABLE, never as a refusal. The guard is a separate service called by `LocationController` before the transactional `LocationService` call (the controller holds no logic; the service stays free of ORS). The control destination is central Birmingham; a source with no route to it (a ferry-only island base) reads UNAVAILABLE and the save is allowed. `LocationService.update` invalidates (D1a) only when the ROUTING point moves (drive point when set, else the pin), so a pin move behind a drive point or a rename over the same coordinates deletes nothing. The reach payload's `driveTo` and the roster's `drivePointName` are the same for every reader (no personal data). `driveTo` is added to a reach entry only when set, so every other entry is shaped as before. The place lookup's 25 km cut (`DrivePointLookupService.MAX_DISTANCE_KM`) does not apply to a postcode, which the admin typed exactly. |
+| R2 | `feature/reach-scoped-headline` | | | Built 2026-11-06. Notes: see "R2 build notes" below the table. |
 | R3 | `feature/map-pill-reach-tier` | | | |
 
 ## 6. Review record
@@ -402,3 +402,40 @@ Tests:
 - a `PlaceResult` record for postcodes.io places
 - `driveTo` on reach payloads, with miles dropped beside it
 - the Map split into R3, with one shared drive state, scope × tier and per-region verdicts
+
+### R2 build notes (2026-11-06)
+
+- **Backend.** `BriefingSlot` gains two `@JsonIgnore` components, `forced` and `triaged`, stamped by `enrich` (class-level
+  `@JsonIgnoreProperties({"forced","triaged"})` too: Jackson 2 refuses an ignored creator property that appears in the input).
+  `BriefingRegionEvaluationRollup.rollUpRegion` is the extracted per-region block; `enrich` and `rerollRegion` both call it
+  (the characterisation test is `BriefingRegionEvaluationRollupCharacterisationTest`, committed first). `DailyBriefingResponse`
+  gains `briefingVersion` (`BriefingVersion`, SHA-256 of the ratings, dispositions, stamps and UK date, 16 hex chars), set once
+  per assembly in `ServedBriefingAssembler.assembleForPlan`. `PlanWindowProjector.reproject` re-projects pruned windows with the
+  projector's own `draft`, `rank` and `selectPicks` over the SERVED render horizon. Two completeness guards caught real gaps and
+  were updated: `RecordWitherPreservationTest` found that `withPickScope` dropped the new field, and the Lite classification
+  tests (`LitePickShaperTest`, `BriefingRoleShaperTest`, `LitePickSentinelTest`/`ReviewedTypes`) now classify the three new components.
+- **A pruned region re-runs the gloss rule.** The extracted block drops a region's gloss when its verdict moves, so a region
+  whose verdict a tier changes (Worth it to Poor over its near places) carries no BEST BET candidate at that tier: its prose was
+  written about the whole region. A region the tier leaves unchanged keeps its gloss and its pick.
+- **Away picks.** The projector runs over the full tree with only the origin region pruned, so a pick is the forecast's pick among
+  windows; it is kept on an away card only when it names the origin region (the rule the client already applied to the served pick).
+- **Extra body fields.** Each window also carries `topMeanRating` (the top region's mean regardless of eligibility, the Order
+  control's key) beside `meanRating` (the mean the card may PRINT: the region's when verdict-eligible or UNRATED, else null).
+  `thinCount` is the number of rated places behind a rated word whose region is verdict-eligible only through force-evaluation
+  (`sampleSufficient` false, `forcedSample` true); it adds no threshold. A place not on the reader's reach list is kept (unknown),
+  as the client keeps a spot with no reach entry; a null `locationId` is out.
+- **Scope words.** The scope is printed in the Spread qualifier's compact spelling (`within 45m`, `within 1h30`, `within 2h30`),
+  and the hidden sentence spells it exactly as printed (WCAG 2.5.3: the visible string is a substring of the spoken one), so the
+  long form `within 45 min` is NOT used for the scope. It sits on its own grid row under the verdict row (`wf-hc-scope`).
+- **`card.verdictLabel` consumers, each decided:**
+  - matrix card and its hidden sentence (`WindowFirstHeatStrip`): **scoped, with the scope words** (scope line, then the scope straight after the word in the sentence);
+  - `WindowSheetDialog` header badge: **scoped**, the scope printed beside the badge (`window-sheet-verdict-scope`);
+  - `WindowSheetDialog` live message: **scoped**, the scope voiced straight after the word;
+  - `windowFirstStrip.js` (`buildHeatStripCards`): **folds** `verdictScope`, `regionVerdict`, `regionVerdictMean`, `scopedThinCount` and the `served*` trio, only when the card wears a scoped headline;
+  - `planSearch.js` window rows: **scoped**, `time · Poor · within 45m`;
+  - `locationSheet.js` `stateLabel`: **unchanged**; it is printed only on an away (travel-day) row, which is never scoped;
+  - `WindowRegionRail` region rows: **regional by definition, unchanged**;
+  - Ask's `AskPickFacts`: **unchanged** (its card is a slot-level verdict from `askModel`, not the window card);
+  - Map surfaces (`MapRegionPanel`, `MapWindowPanel`, the pill, `mapDrilldown`): **left to R3**. `WindowFirstMapPane` keeps handing the Map the SERVED confidence and pick (`servedConfidence`, `servedPickKind`, `servedPickRegion`) so Map output is unchanged.
+- **H2.** `verdictBeyondReach` reads `regionVerdictMean` on a scoped card (the scoped mean is null exactly when nothing rated is in reach) and its title names the region-wide verdict: "Northumberland is Worth it; its rated places are beyond 45 min", with R1's unroutable wording kept.
+- **Order control.** There is no Order control in this tree; its key is `card.topMeanRating`, which now follows the tier's `topMeanRating` while a scoped headline is worn.

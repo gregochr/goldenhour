@@ -41,7 +41,7 @@ class BriefingRoleShaperTest {
             "claudeSummary", "claudeHeadline");
     private static final Set<String> SLOT_KEPT = Set.of("locationId", "locationName", "solarEventTime",
             "verdict", "weather", "tide", "flags", "claudeRating", "skyRating",
-            "displayVerdict", "canopy", "eclipse", "neighbourOutlier", "gated");
+            "displayVerdict", "canopy", "eclipse", "neighbourOutlier", "gated", "forced", "triaged");
 
     private final BriefingRoleShaper shaper = new BriefingRoleShaper();
 
@@ -293,7 +293,7 @@ class BriefingRoleShaperTest {
         Set<String> rebuiltViaDays = Set.of("days", "hotTopics", "bigSeas");
         Set<String> kept = Set.of("generatedAt", "headline", "auroraTonight", "auroraTomorrow",
                 "stale", "seasonalFeatures",
-                "renderedEvents", "previousGeneratedAt", "allowedLocationIds");
+                "renderedEvents", "previousGeneratedAt", "allowedLocationIds", "briefingVersion");
 
         assertThat(componentNames(DailyBriefingResponse.class))
                 .as("a new component must be classified here and handled in forLite()")

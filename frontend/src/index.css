@@ -2396,6 +2396,27 @@ button.wf-hc.on:hover {
 @container wf-card (min-width: 190px) {
   .wf-hc-thin { display: inline; }
 }
+/* The scope of a tier-scoped verdict word ("within 45m"), on its OWN line under the verdict row
+   (reach-scoped-card-plan R2 step 9). Not inside the row: that row is one line with no wrap in a value column of
+   70-175px, and "Too few 3.6★" already fills 74px of it. In the value column, right-aligned under the word it
+   qualifies; 9px mono, so the longest spelling ("within 2h30", 11 characters, about 59px) fits the narrowest
+   column (70.3px at 320). Quiet ink like the Spread row's qualifier: the word above is the claim, this is its
+   frame. It exists only while the card wears the tier's headline, so under "Any" the card has no extra row. */
+.wf-hc-pls > .wf-hc-scope {
+  grid-column: 2;
+  justify-content: flex-end;
+  min-height: 0;
+  margin-top: -4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text-secondary);
+}
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
    from them, and the word and the figure say so together.

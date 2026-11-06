@@ -28,7 +28,7 @@ final class ReviewedTypes {
                 "allowedLocationIds", "auroraTomorrow", "auroraTonight", "bestBetModel", "bestBetStatus",
                 "bestBets", "bestBetsWithdrawn", "bigSeas", "days", "generatedAt",
                 "headline", "hotTopics", "previousGeneratedAt", "renderedEvents",
-                "seasonalFeatures", "stale")),
+                "seasonalFeatures", "stale", "briefingVersion")),
         entry("BriefingDay", Set.of(
                 "date", "eventSummaries", "peak")),
         entry("BriefingEventSummary", Set.of(
@@ -43,7 +43,7 @@ final class ReviewedTypes {
                 "canopy", "claudeHeadline", "claudeRating", "claudeSummary", "displayVerdict", "eclipse",
                 "fierySkyPotential", "flags", "gated", "goldenHourPotential", "locationId", "locationName",
                 "neighbourOutlier", "skyRating", "solarEventTime", "tide", "verdict",
-                "weather")),
+                "weather", "forced", "triaged")),
         entry("BriefingSlot$WeatherConditions", Set.of(
                 "apparentTemperatureCelsius", "highCloudPercent", "humidityPercent", "lowCloudPercent",
                 "midCloudPercent", "precipitationMm", "temperatureCelsius", "visibilityMetres", "weatherCode",

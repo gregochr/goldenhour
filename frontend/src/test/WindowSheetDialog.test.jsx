@@ -1458,3 +1458,40 @@ describe('WindowSheetDialog — hands its row map the OPEN window\'s unrated pla
     expect(drawGeo.mock.calls.at(-1)[5].unrated).toBe(mine);
   });
 });
+
+describe('WindowSheetDialog — a tier-scoped verdict word names its scope (reach-scoped-card-plan R2 step 10)', () => {
+  const scoped = (overrides = {}) => card({
+    verdict: 'STAND_DOWN',
+    verdictLabel: 'Poor',
+    verdictScope: { tierMinutes: 45 },
+    ...overrides,
+  });
+
+  it('prints the scope beside the badge, spelled as the matrix card prints it', () => {
+    renderDialog({ card: scoped() });
+
+    expect(screen.getByTestId('window-sheet-verdict')).toHaveTextContent(/^Poor$/);
+    expect(screen.getByTestId('window-sheet-verdict-scope')).toHaveTextContent(/^within 45m$/);
+  });
+
+  it('voices the scope straight after the word in the live message', () => {
+    renderDialog({ card: scoped({ verdictScope: { tierMinutes: 90 } }), index: 2, total: 6 });
+
+    expect(screen.getByTestId('window-sheet-live'))
+      .toHaveTextContent('Tonight Sunset, 3 of 6, Poor, within 1h30');
+  });
+
+  it('keeps the blanked note after the scope in the message', () => {
+    renderDialog({ card: scoped({ verdictBlanked: true }) });
+
+    expect(screen.getByTestId('window-sheet-live'))
+      .toHaveTextContent('Poor, within 45m, too unsettled to forecast');
+  });
+
+  it('says nothing of scope on a card that does not wear a scoped headline', () => {
+    renderDialog();
+
+    expect(screen.queryByTestId('window-sheet-verdict-scope')).toBeNull();
+    expect(screen.getByTestId('window-sheet-live')).toHaveTextContent(/^Tonight Sunset, 1 of 6, Worth it$/);
+  });
+});

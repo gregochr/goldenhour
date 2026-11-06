@@ -126,6 +126,7 @@ class HttpCachingConfigTest {
         // The caller's sub-region picks (sub-regions-plan S2). A GET, so it is the one that WOULD be
         // filtered if the whitelist ever matched by prefix; the body is the reader's own picks.
         "/api/user/settings/sub-regions",
+        "/api/user/settings/reach-verdicts",
     })
     @DisplayName("Personal-data reads are never ETag-filtered")
     void personalDataPathsAreNeverFiltered(String path) {

@@ -324,6 +324,95 @@ class BriefingRegionEvaluationRollupCharacterisationTest {
         assertThat(far.confidence()).isEqualTo(Confidence.LOW);
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // The two stamps the extraction added (reach-scoped-card-plan R2 step 1): what the block used to read from the
+    // resolver now rides the slot, so the region can be re-run from the served briefing alone.
+    // ---------------------------------------------------------------------------------------------
+
+    private BriefingRegion enrichedWithTriaged(List<BriefingSlot> slots, RegionScoreResolver resolver,
+            Set<String> triagedByBatch) {
+        return enriched(slots, Verdict.GO, null, DisplayVerdict.UNRATED, resolver,
+                (regionName, date, targetType) -> triagedByBatch);
+    }
+
+    @Test
+    @DisplayName("enrich stamps forced on the slots whose resolved rating was force-evaluated, and nowhere else")
+    void enrichStampsForced() {
+        Map<String, BriefingEvaluationResult> results = ratings(4, 4, 4);
+        results.put("Place 0", rated(0, 4, true));
+
+        BriefingRegion region = enrichedWithTriaged(sky(4), resolving(results), Set.of());
+
+        assertThat(region.slots()).extracting(BriefingSlot::forced).containsExactly(true, false, false, false);
+    }
+
+    @Test
+    @DisplayName("enrich stamps triaged from the batch dispositions and from a resolved triage reason only")
+    void enrichStampsTriaged() {
+        Map<String, BriefingEvaluationResult> results = ratings(4);
+        results.put("Place 2", new BriefingEvaluationResult("Place 2", null, null, null, null,
+                TriageReason.HIGH_CLOUD, "cloud"));
+
+        BriefingRegion region = enrichedWithTriaged(sky(4), resolving(results), Set.of("Place 3", "Elsewhere"));
+
+        assertThat(region.slots()).extracting(BriefingSlot::triaged).containsExactly(false, false, true, true);
+    }
+
+    @Test
+    @DisplayName("a slot the resolver has nothing to say for is never stamped forced, even if it holds a rating")
+    void unknownIsNeverForced() {
+        BriefingSlot persisted = slot(0, false).withClaudeScores(5, 5, 70, 60, "why", "h");
+
+        BriefingRegion region = enrichedWithTriaged(List.of(persisted), resolving(Map.of()), Set.of());
+
+        assertThat(region.slots().getFirst().claudeRating()).isEqualTo(5);
+        assertThat(region.slots().getFirst().forced()).isFalse();
+    }
+
+    @Test
+    @DisplayName("re-running the extracted block on the enriched slots reproduces the region enrich served")
+    void rerollReproducesEnrich() {
+        Map<String, BriefingEvaluationResult> results = ratings(5, 5, 4);
+        results.put("Place 0", rated(0, 5, true));
+        BriefingRegion served = enrichedWithTriaged(sky(10), resolving(results), Set.of("Place 9"));
+
+        BriefingRegion again = rollup.rerollRegion(served, served.slots(), TODAY, TargetType.SUNRISE);
+
+        assertThat(again.displayVerdict()).isEqualTo(served.displayVerdict());
+        assertThat(again.meanRating()).isEqualTo(served.meanRating());
+        assertThat(again.bestRating()).isEqualTo(served.bestRating());
+        assertThat(again.confidence()).isEqualTo(served.confidence());
+        assertThat(again.sampleSufficient()).isEqualTo(served.sampleSufficient());
+        assertThat(again.forcedSample()).isEqualTo(served.forcedSample());
+        assertThat(again.scoredLocationCount()).isEqualTo(served.scoredLocationCount());
+        assertThat(served.forcedSample()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a re-run on a pruned slot list scores only the survivors")
+    void rerollOnAPrunedList() {
+        BriefingRegion served = enrichedWithTriaged(sky(12), resolving(ratings(4, 4, 4, 4, 4, 2, 2, 2, 2, 2, 2, 2)),
+                Set.of());
+        assertThat(served.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+
+        BriefingRegion pruned = rollup.rerollRegion(served, served.slots().subList(0, 5), TODAY, TargetType.SUNRISE);
+
+        assertThat(pruned.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        assertThat(pruned.meanRating()).isEqualTo(4.0);
+        assertThat(pruned.slots()).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("a re-run does not log the zero-coverage line the enrichment path logs")
+    void rerollDoesNotReportZeroCoverage() {
+        BriefingRegion served = enrichedWithTriaged(sky(3), resolving(Map.of()), Set.of());
+
+        BriefingRegion again = rollup.rerollRegion(served, served.slots(), TODAY, TargetType.SUNRISE);
+
+        assertThat(again.scoredLocationCount()).isZero();
+        assertThat(again.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+    }
+
     private BriefingRegion enrichedOn(LocalDate date, List<BriefingSlot> slots,
             Map<String, BriefingEvaluationResult> results) {
         BriefingRegion region = new BriefingRegion("Lakes", Verdict.GO, "summary", List.of(), slots,

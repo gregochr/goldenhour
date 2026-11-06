@@ -675,6 +675,58 @@ function originRegion(es, origin) {
 }
 
 /**
+ * The server's headline for each window at the ACTIVE reach tier, keyed by window (reach-scoped-card-plan R2).
+ *
+ * <p>Null — "there is no scoped headline, wear the served one" — unless every condition that makes one true holds:
+ * a map of tiers was handed in ({@code WindowFirstBriefingContext} holds it only while an answer computed from this
+ * very briefing is in hand), a finite tier is active, and the reader's drives are measured for the origin. Under
+ * "Any" nothing is gated, so the served headline IS the answer and the cards are exactly what they were.
+ *
+ * <p>A selection among served records, never a derivation: nothing here reads a rating or compares a number.
+ *
+ * @param {?Object<string, Array<object>>} tiers the reach-verdicts body's {@code tiers}, keyed by minutes
+ * @param {?number} limitMinutes the active tier's threshold, null under "Any"
+ * @param {boolean} measured the reader-level {@link reachIsMeasured} answer
+ * @returns {?Map<string, object>} window key ({@code date:targetType}) to the tier's entry, or null
+ */
+function indexScopedWindows(tiers, limitMinutes, measured) {
+  if (!tiers || limitMinutes == null || measured !== true) return null;
+  const windows = tiers[String(limitMinutes)];
+  if (!Array.isArray(windows)) return null;
+  return new Map(windows.map((window) => [`${window.date}:${window.targetType}`, window]));
+}
+
+/**
+ * The served confidence the card's haze reads: the origin's own region when away, else the window's.
+ *
+ * @param {?object} scopedRegion the origin's region record, or null
+ * @param {?object} win the window projection
+ * @returns {?string} the served tier, or null
+ */
+function servedConfidenceOf(scopedRegion, win) {
+  return (scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null;
+}
+
+/**
+ * A served pick in the shape a card carries it.
+ *
+ * @param {?object} pick the served {@code BriefingWindow.Pick}
+ * @returns {?object} the card's pick, or null
+ */
+function cardPick(pick) {
+  return pick
+    ? {
+      kind: pick.kind === 'BEST' ? 'best' : 'also',
+      regionName: pick.regionName,
+      headline: pick.headline,
+      detail: pick.detail || null,
+      locationName: pick.locationName || null,
+      locationId: pick.locationId ?? null,
+    }
+    : null;
+}
+
+/**
  * Builds the window cards for the rendered event set.
  *
  * <p><b>Away days get no card.</b> A travel day still carries slots — the pipeline skips
@@ -727,7 +779,11 @@ function originRegion(es, origin) {
  *                                the briefing's served {@code allowedLocationIds} as a Set, on a body
  *                                the server SHAPED by the reader's sub-region picks and null on every
  *                                other; it marks the places outside the picks {@code gated} and takes
- *                                them out of the pool.
+ *                                them out of the pool. {@code reachVerdicts} (reach-scoped-card-plan R2) is the
+ *                                reach-verdicts body's {@code tiers}, held only while it was computed from this
+ *                                very briefing: with an entry for the active tier a card wears the server's
+ *                                in-reach headline (word, mean, haze confidence, blanked, thin count, pick) and
+ *                                carries {@code verdictScope}; without one every card is exactly what it was.
  * @param {boolean} [picksLocked] true when the reader does not have best bets (LITE): every card's
  *                                {@code pick} is null. Defaults to false so every PRO caller is unchanged.
  * @returns {Array} card descriptors for the matrix and the window popup
@@ -745,6 +801,10 @@ export function buildWindowCards(
   // Asked of the whole reach map here only for a caller that does not pass it, and never of a card's own
   // spots: a region with no measured spot is not a reader with no measured drive.
   const measured = lens?.reachMeasured ?? reachIsMeasured(reachById);
+  // The server's headline at the active tier, when one is held (reach-scoped-card-plan R2): swaps the verdict word,
+  // its mean, the haze confidence, the blanked note, the thin count and the pick for the in-reach ones. Null leaves
+  // every card exactly what it was.
+  const scopedWindows = indexScopedWindows(lens?.reachVerdicts, limitMinutes, measured);
   // The served `allowedLocationIds` as a Set, on a body the server SHAPED by the reader's sub-region picks only
   // (S5b-1); null for every Pro, Admin and flag-off reader, which leaves every spot exactly as it was.
   const allowedIds = lens?.allowedIds instanceof Set ? lens.allowedIds : null;
@@ -784,7 +844,12 @@ export function buildWindowCards(
     // `WindowSheetDialog`, the card's word at its head and the rail under it. Found by the
     // cross-phase review on #792 (§4 #39).
     const verdictSource = scopedRegion ? resolveRegionDisplay(scopedRegion) : null;
-    const verdict = verdictSource || win?.verdict || 'AWAITING';
+    const servedVerdict = verdictSource || win?.verdict || 'AWAITING';
+    // The tier's headline for this window, when the server has one (R2). The word stays a LOOKUP on the served
+    // `displayVerdict`; no comparison enters this path. Home: the top in-reach region's own word. Away: the
+    // origin region's own word over its in-reach places.
+    const scoped = scopedWindows?.get(`${date}:${targetType}`) ?? null;
+    const verdict = scoped ? (scoped.displayVerdict || 'AWAITING') : servedVerdict;
 
     // The attribute rows — the tide row, and whatever channel joins it next. Since M2 no topic is
     // promoted out of the badge list into a row: the popup states each topic once, with its facts,
@@ -825,6 +890,13 @@ export function buildWindowCards(
     const farRated = ownSpots.filter((spot) => spot.rating != null).length
       - pool.filter((spot) => spot.rating != null).length - unroutableRated;
 
+    // The served (roster-wide, or the origin's own) figures. Computed unconditionally: they are the card when no
+    // scoped headline is held, and the `region*` fields beside the scoped one when it is.
+    const servedVerdictMean = verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es));
+    const servedPick = !picksLocked && win?.pick && (!origin || win.pick.regionName === origin.name)
+      ? cardPick(win.pick)
+      : null;
+
     return {
       key: `${date}:${targetType}`,
       date,
@@ -852,10 +924,14 @@ export function buildWindowCards(
       // "which window is the best bet" means. Null when nothing in the window carries a mean, and
       // A window with no mean sorts last rather than as a zero — "not scored" and "scored
       // badly" are different statements, the rule `windowFirstRegions.js` states for regions.
-      topMeanRating: scopedRegion
-        ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
-          ? scopedRegion.meanRating : null)
-        : topMeanRating(es),
+      // Scoped (R2): the active tier's top-region mean, so the Order control's `Best` ranks the windows by what
+      // is within reach, not by a region the tier has dropped.
+      topMeanRating: scoped
+        ? (scoped.topMeanRating ?? null)
+        : (scopedRegion
+          ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
+            ? scopedRegion.meanRating : null)
+          : topMeanRating(es)),
       // The mean the card may PRINT beside its verdict word (plan-card-verdict-honesty-plan.md H1,
       // review F1) — `topMeanRating` only when the region it belongs to is verdict-eligible. An
       // INELIGIBLE region (sample gate failed, no force-evaluation exemption) is still ranked and
@@ -863,11 +939,11 @@ export function buildWindowCards(
       // reading of that mean — so "Worth it 2.0★" would print a figure the word does not come from.
       // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
       // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
-      verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
+      verdictMean: scoped ? (scoped.meanRating ?? null) : servedVerdictMean,
       // True when the word is a STAND_DOWN over a region the honesty filter blanked (empty `slots`):
       // the card prints `unsettled` beside "Poor" in the mean's own slot (H4). Read from the
       // same region `verdictMean` reads, so the qualifier and the word cannot describe two regions.
-      verdictBlanked: verdictBlankedOf(verdict, scopedRegion, es),
+      verdictBlanked: scoped ? scoped.blanked === true : verdictBlankedOf(verdict, scopedRegion, es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
@@ -899,7 +975,7 @@ export function buildWindowCards(
       // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, the since-deleted `VerdictPill`),
       // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
       confidence: HAZE_VERDICTS.has(verdict)
-        ? ((scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null)
+        ? (scoped ? (scoped.confidence ?? null) : servedConfidenceOf(scopedRegion, win))
         : null,
       spots,
       // The set BEFORE the reach gate, carried for P11's drill-down — which owns its own reach
@@ -1039,16 +1115,26 @@ export function buildWindowCards(
       // client-side pick, and picks are server-owned (plan §2.12).
       // Best bets are Pro (pro-features-gate-plan.md §7): a locked reader gets no pick even when the payload
       // still carries one (the server strips it in P2). Every downstream surface reads this one field.
-      pick: !picksLocked && win?.pick && (!origin || win.pick.regionName === origin.name)
-        ? {
-          kind: win.pick.kind === 'BEST' ? 'best' : 'also',
-          regionName: win.pick.regionName,
-          headline: win.pick.headline,
-          detail: win.pick.detail || null,
-          locationName: win.pick.locationName || null,
-          locationId: win.pick.locationId ?? null,
-        }
-        : null,
+      //
+      // Scoped (R2): the server's pick among the windows within reach, which for an away origin it has already
+      // withheld unless it names the origin's region. Still withheld for a locked reader.
+      pick: scoped
+        ? (picksLocked ? null : cardPick(scoped.pick))
+        : servedPick,
+      // The tier's scope and the SERVED figures it replaced, present only when a scoped headline is worn. The scope
+      // line, the spoken sentence and the dialog badge print `verdictScope`; H2's "beyond the tier" line needs the
+      // region-wide word and mean (`regionVerdict`, `regionVerdictMean`) because the scoped mean is null exactly
+      // when nothing rated is within reach; the Map's window control keeps reading the served confidence and pick
+      // (`regionConfidence`, `regionPick`) until R3 moves the Map. Absent keys, not nulls, so a card without a
+      // scoped headline is the object it always was.
+      ...(scoped ? {
+        verdictScope: { tierMinutes: limitMinutes },
+        regionVerdict: servedVerdict,
+        regionVerdictMean: servedVerdictMean,
+        regionConfidence: HAZE_VERDICTS.has(servedVerdict) ? servedConfidenceOf(scopedRegion, win) : null,
+        regionPick: servedPick,
+        scopedThinCount: scoped.thinCount ?? null,
+      } : {}),
     };
   });
 

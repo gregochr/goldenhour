@@ -4772,3 +4772,207 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     expect(screen.getAllByTestId('wf-glance-topics')[0]).toHaveStyle({ '--r': '2' });
   });
 });
+
+describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-plan R2 steps 9 and 11)', () => {
+  const REGION = 'Northumberland';
+
+  /** A card wearing the 45-minute headline: Poor 2.0, with the served Worth it kept beside it. */
+  const scopedCard = (overrides = {}) => stripCard({
+    verdict: 'STAND_DOWN',
+    verdictLabel: 'Poor',
+    verdictMean: 2.0,
+    verdictScope: { tierMinutes: 45 },
+    regionVerdict: 'WORTH_IT',
+    regionVerdictMean: 3.9,
+    scopedThinCount: null,
+    hotRegionName: REGION,
+    pool: [poolSpot()],
+    bestReach: poolSpot(),
+    ...overrides,
+  });
+
+  it('prints the scope on its own line directly under the verdict row, outside it', async () => {
+    await renderStrip({ cards: [scopedCard()] });
+
+    const scope = screen.getByTestId('wf-heat-scope');
+    const row = screen.getByTestId('wf-heat-verdict').parentElement;
+    expect(scope).toHaveTextContent(/^within 45m$/);
+    expect(scope).toHaveClass('wf-hc-scope');
+    // A sibling of the row, the very next element of the value grid: not inside the one-line row.
+    expect(row.contains(scope)).toBe(false);
+    expect(row.nextElementSibling).toBe(scope);
+    expect(row.className).toBe('wf-hc-pv');
+    expect(scope.parentElement).toBe(screen.getByTestId('wf-heat-value-grid'));
+  });
+
+  it.each([[45, 'within 45m'], [90, 'within 1h30'], [150, 'within 2h30']])(
+    'spells the %s-minute tier as "%s", in the Spread qualifier\'s own compact form', async (tierMinutes, text) => {
+      await renderStrip({ cards: [scopedCard({ verdictScope: { tierMinutes }, reachLimitMinutes: tierMinutes })] });
+
+      expect(screen.getByTestId('wf-heat-scope')).toHaveTextContent(text);
+      expect(screen.getByTestId('wf-heat-spread-qualifier')).toHaveTextContent(`(${text})`);
+    },
+  );
+
+  it('draws no scope line, and an unchanged grid, on a card with no scoped headline', async () => {
+    const shape = async (card) => {
+      await renderStrip({ cards: [card] });
+      const out = [...screen.getByTestId('wf-heat-value-grid').children].map((el) => el.dataset.testid);
+      cleanup();
+      return out;
+    };
+    const plain = await shape(scopedCard({ verdictScope: undefined }));
+    const scoped = await shape(scopedCard());
+
+    expect(plain).not.toContain('wf-heat-scope');
+    expect(scoped).toContain('wf-heat-scope');
+    expect(scoped.filter((id) => id !== 'wf-heat-scope')).toEqual(plain);
+  });
+
+  it('draws none on an away cell', async () => {
+    await renderStrip({ cards: [scopedCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
+
+    expect(screen.queryByTestId('wf-heat-scope')).toBeNull();
+  });
+
+  it('voices the scope straight after the verdict word, spelled exactly as printed', async () => {
+    await renderStrip({ cards: [scopedCard()] });
+
+    const name = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    const sentence = document.getElementById(name).textContent;
+    expect(sentence).toMatch(/Tonight Sunset, 21:11, Poor, within 45m, 2\.0 star average/);
+  });
+
+  it.each([
+    ['a rated word', {}],
+    ['an UNRATED word', { verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6 }],
+    ['a blanked stand-down', { verdictMean: null, verdictBlanked: true }],
+    ['a thin rated word', { verdict: 'MAYBE', verdictLabel: 'Maybe', verdictMean: 3.1, scopedThinCount: 3 }],
+  ])('WCAG 2.5.3: every visible string of %s is a substring of the spoken sentence', async (_n, overrides) => {
+    await renderStrip({ cards: [scopedCard(overrides)] });
+
+    const sentence = document.getElementById(
+      screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+    ).textContent;
+    const visible = ['wf-heat-verdict', 'wf-heat-scope', 'wf-heat-mean', 'wf-heat-thin', 'wf-heat-blanked']
+      .map((id) => screen.queryByTestId(id))
+      .filter(Boolean)
+      // Glyphs and the separator dot are decoration; the words and figures are the label.
+      .map((el) => el.textContent.replace('★', '').replace(/^· /, '').trim());
+    expect(visible.length).toBeGreaterThanOrEqual(2);
+    visible.forEach((text) => expect(sentence.toLowerCase()).toContain(text.toLowerCase()));
+    expect(sentence).toContain(screen.getByTestId('wf-heat-scope').textContent);
+  });
+
+  it('prints and voices the SERVER\'s thin count on a scoped word, and the pool\'s only on an unscoped one', async () => {
+    await renderStrip({ cards: [scopedCard({ verdict: 'MAYBE', verdictLabel: 'Maybe', scopedThinCount: 3 })] });
+
+    expect(screen.getByTestId('wf-heat-thin')).toHaveTextContent('· 3 rated');
+    const sentence = document.getElementById(
+      screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+    ).textContent;
+    expect(sentence).toMatch(/2\.0 star average, 3 rated/);
+    cleanup();
+
+    // A scoped word with no server count prints none, whatever the pool's spread says.
+    const thinPool = [1, 2, 3].map((id) => poolSpot({ locationId: id, key: String(id), rating: 4 }));
+    await renderStrip({
+      cards: [scopedCard({ verdict: 'MAYBE', verdictLabel: 'Maybe', scopedThinCount: null, pool: thinPool })],
+    });
+    expect(screen.queryByTestId('wf-heat-thin')).toBeNull();
+  });
+
+  it('is identical on a phone and on desktop: the value grid under Any, and the scope line under a tier', async () => {
+    const gridOf = async (card, mobile) => {
+      useIsMobile.mockReturnValue(mobile);
+      await renderStrip({ cards: [card] });
+      const html = screen.getByTestId('wf-heat-value-grid').innerHTML;
+      cleanup();
+      return html;
+    };
+    try {
+      const any = scopedCard({ verdictScope: undefined, reachLimitMinutes: null });
+      expect(await gridOf(any, true)).toBe(await gridOf(any, false));
+      const tier = scopedCard();
+      expect(await gridOf(tier, true)).toBe(await gridOf(tier, false));
+      expect(await gridOf(tier, true)).toContain('within 45m');
+    } finally {
+      useIsMobile.mockReturnValue(false);
+    }
+  });
+
+  describe('H2 under a scoped headline', () => {
+    // The pair the plan pins: the card wears "Too few rated / within 45 min" (nothing rated is within reach), and
+    // the Region line says whose verdict the SERVED word is and that its rated places are beyond the tier.
+    const pair = (overrides = {}) => scopedCard({
+      verdict: 'UNRATED',
+      verdictLabel: 'Too few rated',
+      verdictMean: null,
+      regionVerdict: 'WORTH_IT',
+      regionVerdictMean: 3.9,
+      pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+      bestReach: null,
+      reachLimitMinutes: 45,
+      confidence: null,
+      ...overrides,
+    });
+
+    it('pins the pair: the in-reach word with its scope, beside the region-wide "beyond" line', async () => {
+      await renderStrip({ cards: [pair()] });
+
+      expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent('Too few');
+      expect(screen.getByTestId('wf-heat-scope')).toHaveTextContent('within 45m');
+      expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
+      const best = screen.getByTestId('wf-heat-best');
+      expect(best).toHaveTextContent(`${REGION} · beyond 45 min`);
+      expect(best).toHaveClass('beyond');
+      expect(best).toHaveAttribute(
+        'title', `${REGION} is Worth it; its rated places are beyond 45 min`,
+      );
+    });
+
+    it('does not fire on the in-reach mean (null by construction): the region-wide mean is what gates it', async () => {
+      await renderStrip({ cards: [pair({ regionVerdictMean: null })] });
+
+      expect(screen.queryByTestId('wf-heat-best')).not.toHaveClass('beyond');
+    });
+
+    it('names an UNRATED region-wide word without claiming a verdict', async () => {
+      await renderStrip({ cards: [pair({ regionVerdict: 'UNRATED', regionVerdictMean: 3.6 })] });
+
+      expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+        'title', `Too few rated in ${REGION} to call it; its rated places are beyond 45 min`,
+      );
+    });
+
+    it('keeps R1\'s unroutable wording under the scoped title: mixed, and none far', async () => {
+      await renderStrip({ cards: [pair({ reachUnroutableRemoved: 2, reachFarRemoved: 3 })] });
+      expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+        'title', `${REGION} is Worth it; its rated places are beyond 45 min or have no route from home`,
+      );
+      cleanup();
+
+      await renderStrip({ cards: [pair({ reachUnroutableRemoved: 2, reachFarRemoved: 0 })] });
+      expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+        'title', `${REGION} is Worth it; its rated places have no route from home`,
+      );
+      expect(screen.getByTestId('wf-heat-best')).toHaveTextContent(`${REGION} · no route`);
+    });
+
+    it('leaves the UNSCOPED title exactly as it was', async () => {
+      await renderStrip({
+        cards: [stripCard({
+          pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+          bestReach: null,
+          verdictMean: 3.53,
+          hotRegionName: REGION,
+          reachLimitMinutes: 45,
+        })],
+      });
+
+      expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+        'title', `The verdict is ${REGION}'s, and its rated places are all further than 45 min away`,
+      );
+    });
+  });
+});

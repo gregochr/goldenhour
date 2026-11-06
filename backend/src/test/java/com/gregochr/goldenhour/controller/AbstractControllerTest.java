@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.ReachService;
+import com.gregochr.goldenhour.service.ReachVerdictService;
 import com.gregochr.goldenhour.service.UnroutableLocationService;
 import com.gregochr.goldenhour.service.DrivePointLookupService;
 import com.gregochr.goldenhour.service.DriveRoutabilityGuard;
@@ -126,6 +127,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected ReachService reachService;
+
+    @MockitoBean
+    protected ReachVerdictService reachVerdictService;
 
     @MockitoBean
     protected UnroutableLocationService unroutableLocationService;

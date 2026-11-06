@@ -214,6 +214,22 @@ export function isFarSpot(driveMinutes, defaultLimitMinutes) {
   return driveMinutes > defaultLimitMinutes;
 }
 
+/**
+ * The scope a tier-scoped headline word is printed with, in the compact spelling the Spread row's qualifier uses:
+ * {@code within 45m}, {@code within 1h30}, {@code within 2h30} (reach-scoped-card-plan D6, R2 step 9).
+ *
+ * <p>One function for every surface that prints a scoped word (the card's scope line, its hidden sentence, the
+ * dialog badge, the search row), so the words cannot differ between them. The hidden sentence spells it exactly as
+ * it is printed (WCAG 2.5.3, label in name), which is why there is no long form here.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the card's {@code verdictScope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "within 45m"}, or null when the word is not scoped
+ */
+export function verdictScopeText(verdictScope) {
+  const minutes = formatDriveDurationCompact(verdictScope?.tierMinutes ?? null);
+  return minutes ? `within ${minutes}` : null;
+}
+
 /** The served status of a drive that no OpenRouteService route exists for (reach-scoped-card-plan D1). */
 export const DRIVE_UNROUTABLE = 'UNROUTABLE';
 

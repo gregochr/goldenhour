@@ -720,8 +720,12 @@ export default function WindowFirstMapPane({
         // straight through via `resolveConfidence`'s own fail-soft precedence — see that
         // module's `solarRow`). A second call here would risk the two silently drifting if
         // either read a different confidence shape in future.
+        // ⚠️ The SERVED confidence, not a tier-scoped one (reach-scoped-card-plan R2): the Map's window control
+        // follows the drive tier in R3, not here, so a card that wears a scoped headline hands over the figure it
+        // would have worn without it (`servedConfidence`, folded by `buildHeatStripCards` only in that case).
         const confidenceTier = resolveConfidence(
-          { confidence: card.confidence }, daysOut(card.date, todayStr),
+          { confidence: card.verdictScope ? card.servedConfidence : card.confidence },
+          daysOut(card.date, todayStr),
         );
         return {
           key: card.key,
@@ -770,11 +774,13 @@ export default function WindowFirstMapPane({
           // building it that way would print "Best bet · Northumberland" for a pick that is in
           // Cornwall. If the line ever names a region it must be `win.pick.regionName`, the pick's
           // own, which `buildHeatStripCards` currently drops.
-          pickKind: card.pickKind,
+          // The served pick, for the same reason as the confidence above (R2): the Map keeps the roster-wide pick
+          // until R3 decides what its pill and medallion follow.
+          pickKind: card.verdictScope ? card.servedPickKind : card.pickKind,
           // The region the pick NAMES (map-landing-plan.md §3 L6). The pill and the window panel
           // need only the kind — their subject is the window — but the region panel's header is
           // about one region, and a medallion there has to know whether it is that one.
-          pickRegion: card.pickRegion,
+          pickRegion: card.verdictScope ? card.servedPickRegion : card.pickRegion,
           // The served `BriefingWindowTide`, folded straight off the card (tide-window-plan.md T6)
           // — `mapEvents.js#solarRow` reads THIS field as `served.tide` and forwards it verbatim
           // onto the EV row `MapView`'s tide strip consumes. Without this the chain from

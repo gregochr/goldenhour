@@ -109,7 +109,7 @@ import java.util.List;
  *                            cycle (the batch disposition table united with a resolved triage reason). Same rules as
  *                            {@link #forced}: a re-run input, {@code @JsonIgnore}, stamped by the rollup
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonIgnoreProperties(value = {"forced", "triaged"}, ignoreUnknown = true)
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,
@@ -375,7 +375,7 @@ public record BriefingSlot(
     public BriefingSlot forGated() {
         return new BriefingSlot(locationId, locationName, solarEventTime, null, weather, tide,
                 List.of(), null, null, null, null, null,
-                null, null, canopy, eclipse, null, Boolean.TRUE);
+                null, null, canopy, eclipse, null, Boolean.TRUE, forced, triaged);
     }
 
     /**

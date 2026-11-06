@@ -6,6 +6,7 @@ import apiClient from '../api/axiosClient.js';
 import {
   getSettings, lookupPostcode, reverseLookupPostcode, saveHome, refreshDriveTimes,
   saveMapColourPreferences, saveMapTideMode, markComingUpSeen, getReach, markPostcodePromptDismissed,
+  getReachVerdicts,
 } from '../api/settingsApi.js';
 
 const BASE = '/api/user/settings';
@@ -50,6 +51,20 @@ describe('settingsApi', () => {
     it('sends a given radius', async () => {
       await saveHome('NE1 1AA', 54.9, -1.6, 25);
       expect(apiClient.put.mock.calls[0][1].localRadiusMiles).toBe(25);
+    });
+  });
+
+  describe('getReachVerdicts', () => {
+    it('GETs the reach-verdicts route with no query for home', async () => {
+      expect(await getReachVerdicts()).toBe('body');
+      expect(apiClient.get).toHaveBeenCalledWith(`${BASE}/reach-verdicts`, { params: undefined });
+      await getReachVerdicts(null);
+      expect(apiClient.get).toHaveBeenLastCalledWith(`${BASE}/reach-verdicts`, { params: undefined });
+    });
+
+    it('sends the away origin\'s region id as ?origin=', async () => {
+      await getReachVerdicts(7);
+      expect(apiClient.get).toHaveBeenCalledWith(`${BASE}/reach-verdicts`, { params: { origin: 7 } });
     });
   });
 

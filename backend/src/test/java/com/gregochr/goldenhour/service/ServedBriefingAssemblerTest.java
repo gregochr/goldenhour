@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -149,6 +150,18 @@ class ServedBriefingAssemblerTest {
                 .containsExactly("HIGH");
         assertThat(es.get(1).window().tideFacts()).extracting(LocationTideFact::tideState)
                 .containsExactly("LOW");
+    }
+
+    @Test
+    @DisplayName("the served response carries the briefing version, hashed once from the days it serves")
+    void servedResponseCarriesTheBriefingVersion() {
+        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(summary(
+                TargetType.SUNRISE, List.of(region("Dales", 0, inland(1L, "Hawes"))),
+                List.of())), 0.5);
+
+        assertThat(served.briefingVersion())
+                .isEqualTo(BriefingVersion.of(served.days(), ForecastHorizon.today(CLOCK)))
+                .hasSize(16);
     }
 
     @Test
@@ -295,7 +308,9 @@ class ServedBriefingAssemblerTest {
                 }
             }
         }
-        assertThat(served).isEqualTo(unstripped.withDays(served.days()));
+        // The one thing serving adds besides the window projection is the briefing version.
+        assertThat(served).isEqualTo(unstripped.withDays(served.days())
+                .withBriefingVersion(served.briefingVersion()));
     }
 
     @Test
