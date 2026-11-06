@@ -1,0 +1,206 @@
+name: Stryker Mutation Testing
+
+# Weekly mutation testing of the client logic in frontend/src/utils, the frontend counterpart of
+# pitest.yml. It never blocks a PR; a failed run raises a failure report through ci-failure-issue.yml.
+# Plan and measurements: docs/engineering/frontend-mutation-testing-plan.md and
+# docs/engineering/reference/dev-and-testing.md ("Frontend mutation testing").
+#
+# SHAPE. src/utils has ~18.9k mutants and the vitest runner forces one worker per Stryker process, so a
+# first full run is many hours on a 4-vCPU runner: it is split into shards by file name. The `plan` job
+# owns the shard list and asserts the shards cover src/utils/*.js exactly once, so a new file can never
+# fall outside every shard.
+#
+# INCREMENTAL STATE rides in artifacts, not actions/cache: GitHub evicts caches unused for 7 days,
+# which is exactly the weekly boundary. Each run downloads the previous completed run's artifact
+# (whatever its conclusion) and uploads its own with `if: always()`, kept for 30 days.
+#
+# Incremental mode cannot see changes to setup.js, vite.config.js or dependency bumps, so a run is
+# forced (`--force`) on request and on the first scheduled run of each month (day of month <= 7).
+
+on:
+  schedule:
+    - cron: '0 3 * * WED'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Re-test every mutant (stryker --force) instead of reusing the previous results
+        type: boolean
+        default: false
+
+concurrency:
+  group: stryker-mutation-testing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.shards.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Define shards and check they cover src/utils exactly once
+        id: shards
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          # Balanced by line count (about 5k lines, ~1.9k mutants each). Globs are comma-separated, as
+          # Stryker's --mutate takes them; the Map files are split by the capital after "map".
+          matrix='{"include":[
+            {"shard":"1","mutate":"src/utils/[ab]*.js"},
+            {"shard":"2","mutate":"src/utils/c*.js,src/utils/[dg]*.js"},
+            {"shard":"3","mutate":"src/utils/[fh]*.js"},
+            {"shard":"4","mutate":"src/utils/l*.js,src/utils/[ij]*.js,src/utils/o*.js,src/utils/m[^a]*.js"},
+            {"shard":"5","mutate":"src/utils/map[A-O]*.js"},
+            {"shard":"6","mutate":"src/utils/map[P-Z]*.js,src/utils/[tuv]*.js"},
+            {"shard":"7","mutate":"src/utils/p*.js,src/utils/s[e-z]*.js"},
+            {"shard":"8","mutate":"src/utils/r*.js,src/utils/wa*.js,src/utils/windowK*.js,src/utils/windowS*.js"},
+            {"shard":"9","mutate":"src/utils/sc*.js,src/utils/windowFirst[A-C]*.js"},
+            {"shard":"10","mutate":"src/utils/windowFirst[M-Z]*.js"}
+          ]}'
+          export LC_ALL=C
+          shopt -s nullglob
+          covered=$(mktemp)
+          while read -r line; do
+            IFS=, read -ra patterns <<< "$line"
+            for pattern in "${patterns[@]}"; do
+              for f in $pattern; do echo "$f"; done   # unquoted on purpose: expand the glob
+            done
+          done < <(echo "$matrix" | jq -r '.include[].mutate') | sort > "$covered"
+          expected=$(mktemp)
+          printf '%s\n' src/utils/*.js | sort > "$expected"
+          if ! diff "$expected" "$covered"; then
+            echo "::error::The shard globs must match src/utils/*.js exactly once each (< missing, > doubled)."
+            exit 1
+          fi
+          echo "$(wc -l < "$expected") files covered exactly once by the shards."
+          echo "matrix=$(echo "$matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+  stryker:
+    name: Stryker shard ${{ matrix.shard }}
+    needs: plan
+    runs-on: ubuntu-latest   # not the self-hosted runner: that one is shared with production deploys
+    timeout-minutes: 350     # GitHub's hard cap is 360
+    permissions:
+      contents: read
+      actions: read          # gh run list / download of the previous run's incremental artifact
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch the previous run's incremental state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -uo pipefail
+          mkdir -p reports
+          # Latest COMPLETED run on main, whatever its conclusion (a failed run still uploaded state).
+          run_id=$(gh run list --workflow stryker.yml --branch main --status completed --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -z "$run_id" ]; then
+            echo "No earlier completed run: starting from scratch."
+            exit 0
+          fi
+          rm -rf prev-incremental
+          if gh run download "$run_id" --name "stryker-incremental-${SHARD}" --dir prev-incremental; then
+            mv prev-incremental/stryker-incremental.json reports/stryker-incremental.json
+            echo "Reusing incremental state from run $run_id."
+          else
+            echo "Run $run_id has no incremental artifact for shard ${SHARD}: starting from scratch."
+          fi
+
+      - name: Decide whether to force a full re-test
+        id: force
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE_INPUT: ${{ inputs.force }}
+        run: |
+          force=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE_INPUT" = "true" ]; then
+            force=true
+          elif [ "$EVENT" = "schedule" ] && [ "$(date -u +%-d)" -le 7 ]; then
+            force=true   # monthly: config, setup and dependency changes are invisible to incremental mode
+          fi
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+          echo "Forced full re-test: $force"
+
+      - name: Run Stryker
+        # Shorter than the job's timeout so the summary and upload steps below always get to run.
+        timeout-minutes: 320
+        env:
+          MUTATE: ${{ matrix.mutate }}
+          FORCE: ${{ steps.force.outputs.force }}
+        run: |
+          args=(--mutate "$MUTATE")
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          npx stryker run "${args[@]}"
+
+      - name: Summarise
+        if: always()
+        env:
+          SHARD: ${{ matrix.shard }}
+          MUTATE: ${{ matrix.mutate }}
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const out = process.env.GITHUB_STEP_SUMMARY;
+            const head = `### Stryker shard ${process.env.SHARD}\n\n\`${process.env.MUTATE}\`\n\n`;
+            let body = "No mutation report was produced (the run did not finish).\n";
+            try {
+              const report = JSON.parse(fs.readFileSync("reports/mutation/mutation.json", "utf8"));
+              const n = {};
+              for (const f of Object.values(report.files)) {
+                for (const m of f.mutants) n[m.status] = (n[m.status] || 0) + 1;
+              }
+              const c = (s) => n[s] || 0;
+              const detected = c("Killed") + c("Timeout");
+              const valid = detected + c("Survived") + c("NoCoverage");
+              const score = valid ? ((100 * detected) / valid).toFixed(2) : "n/a";
+              body = `Score **${score}%**: ${c("Killed")} killed, ${c("Survived")} survived, ` +
+                `${c("Timeout")} timed out, ${c("NoCoverage")} no coverage, ${c("Ignored")} ignored.\n`;
+            } catch (e) { /* keep the default body */ }
+            fs.appendFileSync(out, head + body);
+          '
+
+      - name: Upload the incremental state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-incremental-${{ matrix.shard }}
+          path: frontend/reports/stryker-incremental.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Upload the mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-report-${{ matrix.shard }}
+          path: frontend/reports/mutation/
+          if-no-files-found: ignore
+
+  notify-failure:
+    needs: [plan, stryker]
+    if: failure()
+    permissions:
+      issues: write
+    uses: ./.github/workflows/ci-failure-issue.yml
+    with:
+      workflow-name: Stryker Mutation Testing

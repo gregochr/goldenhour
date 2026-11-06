@@ -247,6 +247,56 @@ The core rule: `compile → single-class test → checkstyle:check → full veri
 
 ---
 
+## Frontend mutation testing
+
+Stryker (`@stryker-mutator/core` + `@stryker-mutator/vitest-runner`, pinned to the same exact version
+so Dependabot bumps them together as the `stryker` group) mutates `frontend/src/utils/*.js` and checks
+that some test notices each fault. Config: `frontend/stryker.config.mjs`; workflow:
+`.github/workflows/stryker.yml`; plan and review record: `docs/engineering/frontend-mutation-testing-plan.md`.
+It **runs weekly (Wednesday 03:00 UTC) and never blocks a PR**; a failed run opens a report through
+`ci-failure-issue.yml`, as `pitest.yml` does. `thresholds.break` is `null`: a floor is set only after
+the first full measurement (plan Phase 2).
+
+- **Locally:** `cd frontend && npm run test:mutation` (add `-- --mutate 'src/utils/heatField.js'` to
+  narrow it). The dry run alone is about 18 minutes (15.4k tests, one worker, because the runner forces
+  `maxWorkers: 1`); a full run is 18,902 mutants at roughly 18 per minute (measured 2026-11-06 on a loaded laptop, four
+  runners), about 17 hours, so **always narrow it**. An interrupted run (Ctrl-C) saves a partial
+  incremental file and restores the originals; it may leave `stryker-setup-*.js` files behind (git-ignored). ⚠️ Interrupt only the main `stryker`
+  process (SIGINT) and let it finish restoring: killing its children, or deleting `.stryker-tmp/` first,
+  strands the whole tree with a `// @ts-nocheck` header and the mutants' instrumentation (1,286 files
+  were left modified once; `git checkout -- frontend/src` recovers them if nothing there is yours).
+  Stryker runs `inPlace: true` (the originals are backed up to `.stryker-tmp/` and restored on exit):
+  `windowFirstTopics.test.js` reads a backend source file by a path that climbs out of `frontend/`,
+  which the default one-level-deeper sandbox copy breaks. Run it on a clean checkout, and if a run is
+  killed, check `git status` for a half-mutated `src/utils` file. The pool is `forks`, not the runner's
+  default `threads`, because the suite pins `process.env.TZ`.
+- **Shape:** ten shards, split by first letters of the file name and balanced by line count (about 5k
+  lines, 1.9k mutants each), because one job would run for most of a day. The `plan` job owns the
+  shard list and fails the run if the globs do not match `src/utils/*.js` exactly once, so a new file
+  whose name starts outside every shard (for example `e…`, `k…`, `n…`) fails that check loudly: add its
+  glob to the lightest shard. **Add shards, never widen one**, if the run time grows; the first full run
+  of a shard must fit in its 350-minute job cap on its own.
+- **Incremental state** (`incremental: true`) is saved only when a shard's run finishes. It travels as an
+  artifact `stryker-incremental-<shard>` (30-day retention, uploaded `if: always()`), fetched at the start
+  from the latest completed `stryker.yml` run on `main`, whatever its conclusion; `actions/cache` is not
+  used because GitHub evicts caches unused for 7 days, which is the weekly boundary. With no earlier run,
+  a shard starts from scratch.
+- **Forced runs.** Incremental mode cannot see changes to `setup.js`, `vite.config.js` or dependency
+  bumps, so `stryker run --force` re-tests everything: via the `force` input of a manual dispatch, and
+  automatically on any scheduled run whose UTC day of the month is 7 or less (the first Wednesday).
+- **Deliberate trade-offs, revisit once reports exist:** `ignoreStatic: true` (module-level tables are
+  static mutants that re-run every covering test) and `mutator.excludedMutations: ['StringLiteral']`
+  (strings in `utils` are mostly user-facing labels: low value, high cost). `coverageAnalysis` is not
+  set; the vitest runner always uses per-test coverage.
+- **Reading survivors.** A mutant in code that only runs inside a `React.lazy` import can survive falsely:
+  the first test that triggers the lazy load may time out, and a covering test that runs only after the
+  module is cached sees no difference. Check the report (`reports/mutation/mutation.html`, uploaded as the
+  `stryker-report-<shard>` artifact) before writing a test for a survivor.
+- `.stryker-tmp/` and `reports/` are git-ignored and docker-ignored, and `**/.stryker-tmp/**` is excluded
+  from Vitest so a failed run's leftovers cannot duplicate tests.
+
+---
+
 ## solar-utils
 
 Resolved from **JitPack**, not GitHub Packages. `backend/pom.xml` declares
