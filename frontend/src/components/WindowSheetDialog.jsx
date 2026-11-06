@@ -233,10 +233,11 @@ export default function WindowSheetDialog({
   /**
    * Whether the reach axis COULD act on this window — is there a drive time anywhere to gate on.
    *
-   * <p>⚠️ Measured over {@code allSpots}, not over the drawn set. A reader with no home postcode has
-   * no drive time at all, and an unmeasured spot passes every tier (plan §2.5: absence means
-   * unknown, never out of reach), so the tier gates nothing and naming it describes an act that did
-   * not happen — §6 clause 7's own sentence. Asking the DRAWN set instead would make the claim
+   * <p>⚠️ A claim about the READER (reach-scoped-card-plan D2: one answer for the active origin, computed in
+   * the provider and folded onto the card), not about the drawn set or this window's {@code allSpots}. A reader
+   * with no home postcode has no drive time at all, and an unmeasured spot passes every tier (plan §2.5:
+   * absence means unknown, never out of reach, until a full measurement says otherwise), so the tier gates
+   * nothing and naming it describes an act that did not happen — §6 clause 7's own sentence. Asking the DRAWN set instead would make the claim
    * flicker: a window whose survivors all happen to be measured would print it while its neighbour
    * did not, which is a different and worse claim than one that is simply true of the account.
    *
@@ -587,7 +588,8 @@ export default function WindowSheetDialog({
                 {/* ⚠️ THE SAME `reachMeasured` GUARD THE FOOTER TAKES, added at M5's review after
                     three lenses charged this line independently. `gateSpotsByReach` returns its
                     input untouched when a drive time is unknown (plan §2.5 — absence means unknown,
-                    never out of reach), so for a reader with no home postcode the pool is the whole
+                    never out of reach; only a confirmed UNROUTABLE is dropped, and only for a measured
+                    reader), so for a reader with no home postcode the pool is the whole
                     origin scope and "within reach" names a filter that never ran. That is §6
                     clause 7's own sentence, and it was still true 250px above the footer M5 had
                     just repaired. The FIGURE is unchanged either way — what goes is the claim about

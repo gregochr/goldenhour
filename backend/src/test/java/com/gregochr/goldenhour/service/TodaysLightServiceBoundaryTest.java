@@ -186,11 +186,11 @@ class TodaysLightServiceBoundaryTest {
     void getTodaysLight_incompleteHome_null() {
         Authentication auth = mock(Authentication.class);
         when(settings.getHomeLocation(auth)).thenReturn(
-                new UserSettingsService.HomeLocation(7L, LAT, null, 30, POSTCODE));
+                new UserSettingsService.HomeLocation(7L, LAT, null, 30, POSTCODE, null));
         assertThat(service.getTodaysLight(auth)).isNull();
 
         when(settings.getHomeLocation(auth)).thenReturn(
-                new UserSettingsService.HomeLocation(7L, LAT, LON, 30, null));
+                new UserSettingsService.HomeLocation(7L, LAT, LON, 30, null, null));
         assertThat(service.getTodaysLight(auth)).isNull();
         verifyNoInteractions(solar);
     }

@@ -115,9 +115,12 @@ export async function markComingUpSeen() {
  * `locationId`.
  *
  * <p>Every enabled location is present, with null figures for a caller who has saved no home
- * postcode — the normal first-run state. An absent figure means "unknown", never "out of reach".
+ * postcode — the normal first-run state. An absent figure means "unknown", never "out of reach", unless
+ * `driveStatus` says `UNROUTABLE`: the home was fully measured after the place last moved and there is no
+ * route (reach-scoped-card-plan D1), which a finite reach tier drops. `PENDING` is still unknown.
  *
- * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number}>>}
+ * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number,
+ *   driveStatus: 'MEASURED'|'PENDING'|'UNROUTABLE'}>>}
  */
 export async function getReach() {
   const response = await apiClient.get(`${BASE_URL}/reach`);

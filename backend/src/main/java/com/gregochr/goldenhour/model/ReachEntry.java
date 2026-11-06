@@ -12,9 +12,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * out of the revalidatable set for exactly that reason. Shared window content comes from the
  * briefing; reach comes from here; the client joins them on {@code locationId}.
  *
- * <p><b>Both figures are independently nullable, and neither absence means "out of reach".</b> A
+ * <p><b>Both figures are independently nullable, and neither absence alone means "out of reach".</b> A
  * lens is not a gate when it has no data: a location with no drive time is <em>unknown</em>, so it
- * passes every tier and simply renders without its drive line. Emptying the page instead would make
+ * passes every tier and simply renders without its drive line. The one exception is {@code driveStatus}
+ * {@code UNROUTABLE}: ORS was asked after the location last moved and had no route, which is a
+ * confirmed omission and not an unknown. Emptying the page instead would make
  * the control look broken to the one user who most needs it to be honest — the first-run user, who
  * has no home postcode at all. That is the normal starting state, not a failure.
  *
@@ -23,9 +25,13 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  *                      location — which is every location until drive times are first calculated
  * @param distanceMiles straight-line distance from the caller's home, rounded to whole miles to
  *                      match the spot card that renders it, or null when no home postcode is saved
+ * @param driveStatus   whether the drive is measured, not measured yet, or confirmed to have no route
+ *                      ({@link DriveStatus}); a finite reach tier drops UNROUTABLE and keeps PENDING.
+ *                      Never null: a caller with no stamp reads PENDING for every unmeasured location
  */
 public record ReachEntry(
         Long locationId,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer driveMinutes,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Integer distanceMiles) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer distanceMiles,
+        DriveStatus driveStatus) {
 }

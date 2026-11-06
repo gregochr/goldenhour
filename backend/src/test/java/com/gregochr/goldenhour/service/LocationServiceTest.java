@@ -20,6 +20,8 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -62,13 +65,20 @@ class LocationServiceTest {
     @Mock
     private SubRegionMembershipService subRegionMembership;
 
+    @Mock
+    private UserDriveTimeWriter userDriveTimeWriter;
+
+    @Mock
+    private RegionDriveTimeWriter regionDriveTimeWriter;
+
     private LocationService locationService;
     private final ServedBriefingEpoch epoch = new ServedBriefingEpoch();
 
     @BeforeEach
     void setUp() {
         locationService = new LocationService(locationRepository, regionRepository,
-                tideService, locationEnrichmentService, nameGuard, subRegionMembership, epoch);
+                tideService, locationEnrichmentService, nameGuard, subRegionMembership, epoch,
+                userDriveTimeWriter, regionDriveTimeWriter);
     }
 
     @Test
@@ -430,6 +440,56 @@ class LocationServiceTest {
 
         assertThat(result.getLat()).isEqualTo(55.0);
         assertThat(result.getLon()).isEqualTo(-1.0);
+    }
+
+    @Test
+    @DisplayName("update() moving the coordinates bumps the drive target and discards that location's drive times")
+    void update_coordinatesMoved_invalidatesDriveTimes() {
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        LocalDateTime before = LocalDateTime.now(ZoneOffset.UTC).minusSeconds(1);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest(null, 54.577, -2.931, null, null, null, null));
+
+        ArgumentCaptor<LocalDateTime> bumped = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(locationRepository).updateDriveTargetChangedAt(eq(1L), bumped.capture());
+        assertThat(bumped.getValue()).isAfterOrEqualTo(before);
+        // The managed copy is kept in step with the scoped update (the column is updatable = false).
+        assertThat(result.getDriveTargetChangedAt()).isEqualTo(bumped.getValue());
+        verify(userDriveTimeWriter).clearForLocation(1L);
+        verify(regionDriveTimeWriter).clearForLocation(1L);
+    }
+
+    @Test
+    @DisplayName("update() restating the same coordinates, or editing anything else, invalidates no drive time")
+    void update_coordinatesUnchanged_leavesDriveTimesAlone() {
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, new UpdateLocationRequest(null, 54.5275, -3.0162, null, null, null, null));
+        locationService.update(1L, new UpdateLocationRequest(null, null, null, null, null, null, null));
+
+        verify(locationRepository, never()).updateDriveTargetChangedAt(anyLong(), any());
+        verifyNoInteractions(userDriveTimeWriter, regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("add() starts a location's drive target at its creation instant")
+    void add_setsDriveTargetChangedAtToCreatedAt() {
+        when(locationRepository.existsByName("Glenridding")).thenReturn(false);
+        when(nameGuard.locationNameClash("Glenridding", null)).thenReturn(Optional.empty());
+        when(locationRepository.save(argThat(l -> l != null && "Glenridding".equals(l.getName()))))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity saved = locationService.add(new AddLocationRequest(
+                "Glenridding", 54.54, -2.95,
+                null, null, null, null, null, null, null, null, null, null, null));
+
+        assertThat(saved.getCreatedAt()).isNotNull();
+        assertThat(saved.getDriveTargetChangedAt()).isEqualTo(saved.getCreatedAt());
     }
 
     @Test

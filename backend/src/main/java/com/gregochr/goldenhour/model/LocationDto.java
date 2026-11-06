@@ -27,6 +27,10 @@ import java.util.Set;
  * @param region                     the geographic region this location belongs to, or {@code null}
  * @param enabled                    whether this location is enabled for forecast runs
  * @param createdAt                  UTC timestamp when this location was created
+ * @param driveTargetChangedAt       UTC timestamp the point drive times are routed to last changed (creation, or a
+ *                                   coordinate move); with a region's {@code drivesMeasuredAt} it lets the Plan
+ *                                   tab tell an unroutable place from one not measured yet. A role-free fact
+ *                                   (ETag-safe)
  * @param consecutiveFailures        number of consecutive forecast failures
  * @param lastFailureAt              UTC timestamp of the most recent forecast failure, or {@code null}
  * @param disabledReason             reason this location was disabled, or {@code null}
@@ -69,6 +73,7 @@ public record LocationDto(
         LocationRegionDto region,
         boolean enabled,
         LocalDateTime createdAt,
+        LocalDateTime driveTargetChangedAt,
         Integer consecutiveFailures,
         LocalDateTime lastFailureAt,
         String disabledReason,

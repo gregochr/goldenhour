@@ -92,7 +92,8 @@ function nearestDrive(spots) {
  * @param {Array}   spots    the window's DRAWN spots (reach- and rating-gated)
  * @param {Array}   allSpots the window's spots before either gate
  * @param {object}  [lens]   {@code limitMinutes} and {@code minRating}, each null when that control
- *                           gates nothing
+ *                           gates nothing, and {@code measured}, the reader-level {@code reachMeasured}
+ *                           the card's own gate ran with (reach-scoped-card-plan D1)
  * @param {?Map<string, {allowedPlaces: number}>} [regionPicks] from {@code pickGeography.regionPickSummaries};
  *        present ONLY for a body the server shaped by the reader's sub-region picks (S5b-1). Each row then carries
  *        {@code shaped}, {@code hasPicks} (the reader holds a pick in that region, a served fact), the served
@@ -115,7 +116,7 @@ export function buildRegionRows(es, spots, allSpots, lens, regionPicks = null) {
     // Re-derived from `allSpots` rather than taken as a fourth argument, and it is the SAME gate the
     // card ran: `gateSpotsByReach` is pure and the threshold is the one that produced `spots`, so
     // there is no second answer to disagree with — only a second application of one rule.
-    const survivedReach = gateSpotsByReach(all, limitMinutes).length;
+    const survivedReach = gateSpotsByReach(all, limitMinutes, { measured: lens?.measured === true }).length;
     // Only when REACH is what emptied it — see the method comment.
     const away = drawn.length === 0 && survivedReach === 0 ? nearestDrive(all) : null;
     const reachHolds = reachWordHolds(drawn, limitMinutes, minRating);

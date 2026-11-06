@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionDriveTimeEntity;
+import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +26,12 @@ class LocationRepositoryTest {
 
     @Autowired
     private TestEntityManager entityManager;
+
+    @Autowired
+    private UserDriveTimeRepository userDriveTimeRepository;
+
+    @Autowired
+    private RegionDriveTimeRepository regionDriveTimeRepository;
 
     @Test
     @DisplayName("existsByName returns true when a location with that name is saved")
@@ -382,6 +390,78 @@ class LocationRepositoryTest {
         assertThat(points).containsExactlyInAnyOrder(
                 new LocationPoint(fellSaved.getId(), 54.6, -3.12, 368),
                 new LocationPoint(beachSaved.getId(), 55.609, -1.71, null));
+    }
+
+    @Test
+    @DisplayName("a location saved without a drive target gets its creation time as the default")
+    void save_withoutDriveTarget_defaultsToCreatedAt() {
+        LocationEntity saved = repository.save(buildLocation("Helvellyn", 54.527, -3.016));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(repository.findById(saved.getId()).orElseThrow().getDriveTargetChangedAt())
+                .isEqualTo(LocalDateTime.of(2026, 2, 22, 12, 0));
+    }
+
+    @Test
+    @DisplayName("updateDriveTargetChangedAt writes the column; a stale whole-entity save cannot rewind it")
+    void updateDriveTargetChangedAt_isColumnScoped() {
+        LocationEntity saved = repository.save(buildLocation("Helvellyn", 54.527, -3.016));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity stale = repository.findById(saved.getId()).orElseThrow();
+        entityManager.clear();
+        LocalDateTime moved = LocalDateTime.of(2026, 11, 5, 9, 30);
+
+        assertThat(repository.updateDriveTargetChangedAt(saved.getId(), moved)).isEqualTo(1);
+        stale.setName("Helvellyn Summit");
+        repository.save(stale);
+        entityManager.flush();
+        entityManager.clear();
+
+        LocationEntity stored = repository.findById(saved.getId()).orElseThrow();
+        assertThat(stored.getName()).isEqualTo("Helvellyn Summit");
+        assertThat(stored.getDriveTargetChangedAt()).isEqualTo(moved);
+    }
+
+    @Test
+    @DisplayName("findMaxDriveTargetChangedAt sees a coordinate move that created_at never would")
+    void findMaxDriveTargetChangedAt_seesAMove() {
+        assertThat(repository.findMaxDriveTargetChangedAt()).isNull();
+        LocationEntity older = repository.save(buildLocation("Keswick", 54.6, -3.13));
+        repository.save(buildLocation("Ambleside", 54.43, -2.96));
+        LocalDateTime moved = LocalDateTime.of(2026, 11, 5, 9, 30);
+
+        repository.updateDriveTargetChangedAt(older.getId(), moved);
+
+        assertThat(repository.findMaxDriveTargetChangedAt()).isEqualTo(moved);
+    }
+
+    @Test
+    @DisplayName("deleteMovedSince drops only the rows of locations moved after the roster was read")
+    void deleteMovedSince_dropsOnlyLocationsMovedAfterTheRead() {
+        LocalDateTime read = LocalDateTime.of(2026, 11, 5, 2, 0);
+        LocationEntity stable = repository.save(buildLocation("Stable", 54.6, -3.13));
+        LocationEntity moved = repository.save(buildLocation("Moved", 54.5, -3.0));
+        repository.updateDriveTargetChangedAt(moved.getId(), read.plusMinutes(5));
+        userDriveTimeRepository.save(new UserDriveTimeEntity(7L, stable.getId(), 1200));
+        userDriveTimeRepository.save(new UserDriveTimeEntity(7L, moved.getId(), 1500));
+        userDriveTimeRepository.save(new UserDriveTimeEntity(8L, moved.getId(), 1500));
+        regionDriveTimeRepository.save(new RegionDriveTimeEntity(3L, stable.getId(), 600));
+        regionDriveTimeRepository.save(new RegionDriveTimeEntity(3L, moved.getId(), 900));
+        entityManager.flush();
+
+        userDriveTimeRepository.deleteMovedSince(7L, read);
+        regionDriveTimeRepository.deleteMovedSince(3L, read);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(userDriveTimeRepository.findByUserId(7L)).extracting(UserDriveTimeEntity::getLocationId)
+                .containsExactly(stable.getId());
+        // Another user's row is not this writer's to touch.
+        assertThat(userDriveTimeRepository.findByUserId(8L)).hasSize(1);
+        assertThat(regionDriveTimeRepository.findAll()).extracting(RegionDriveTimeEntity::getLocationId)
+                .containsExactly(stable.getId());
     }
 
     private LocationEntity buildLocation(String name, double lat, double lon) {

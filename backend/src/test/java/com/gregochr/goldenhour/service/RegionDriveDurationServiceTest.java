@@ -15,12 +15,18 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -57,11 +63,13 @@ class RegionDriveDurationServiceTest {
     private static final Long REGION_ID = 7L;
     private static final double BASE_LAT = 54.601;
     private static final double BASE_LON = -3.135;
+    private static final Instant NOW = Instant.parse("2026-11-05T02:00:00Z");
 
     @BeforeEach
     void setUp() {
         service = new RegionDriveDurationService(orsClient, orsProperties,
-                locationRepository, driveTimeRepository, driveTimeWriter, new RegionDriveMatrixMemo());
+                locationRepository, driveTimeRepository, driveTimeWriter, new RegionDriveMatrixMemo(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static RegionEntity based() {
@@ -72,6 +80,22 @@ class RegionDriveDurationServiceTest {
         region.setBaseLat(BASE_LAT);
         region.setBaseLon(BASE_LON);
         return region;
+    }
+
+    /** Makes the writer accept a store of exactly these location ids, stamped (or not) as given. */
+    private void writerAccepts(boolean complete, Long... locationIds) {
+        when(driveTimeWriter.storeIfBaseUnchanged(eq(REGION_ID), eq(BASE_LAT), eq(BASE_LON),
+                argThat(rows -> rows.stream().map(RegionDriveTimeEntity::getLocationId).toList()
+                        .equals(List.of(locationIds))),
+                eq(NOW), eq(complete))).thenReturn(true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private ArgumentCaptor<List<RegionDriveTimeEntity>> verifyStored(boolean complete) {
+        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = ArgumentCaptor.forClass(List.class);
+        verify(driveTimeWriter).storeIfBaseUnchanged(eq(REGION_ID), eq(BASE_LAT), eq(BASE_LON),
+                rows.capture(), eq(NOW), eq(complete));
+        return rows;
     }
 
     private static LocationEntity location(Long id, double lat, double lon) {
@@ -176,6 +200,7 @@ class RegionDriveDurationServiceTest {
                 location(11L, 54.52, -3.30), location(12L, 54.43, -3.01)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(1500.0, 2400.0));
+        writerAccepts(true, 11L, 12L);
 
         assertThat(service.refreshForRegion(based())).isEqualTo(2);
 
@@ -195,12 +220,11 @@ class RegionDriveDurationServiceTest {
                 location(11L, 54.52, -3.30), location(12L, 54.43, -3.01)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(1500.4, 2400.0));
+        writerAccepts(true, 11L, 12L);
 
         service.refreshForRegion(based());
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = ArgumentCaptor.forClass(List.class);
-        verify(driveTimeWriter).replaceForRegion(eq(REGION_ID), rows.capture());
+        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = verifyStored(true);
         assertThat(rows.getValue()).hasSize(2);
         assertThat(rows.getValue().get(0).getLocationId()).isEqualTo(11L);
         assertThat(rows.getValue().get(0).getDriveDurationSeconds()).isEqualTo(1500);
@@ -216,12 +240,13 @@ class RegionDriveDurationServiceTest {
                 location(11L, 54.52, -3.30), location(12L, 54.43, -3.01)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(Arrays.asList(null, 2400.0));
+        // A null slot is ORS's "no route": the answer is still complete, so the stamp is written and the
+        // omitted location reads UNROUTABLE.
+        writerAccepts(true, 12L);
 
         assertThat(service.refreshForRegion(based())).isEqualTo(1);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = ArgumentCaptor.forClass(List.class);
-        verify(driveTimeWriter).replaceForRegion(eq(REGION_ID), rows.capture());
+        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = verifyStored(true);
         assertThat(rows.getValue()).singleElement()
                 .extracting(RegionDriveTimeEntity::getLocationId).isEqualTo(12L);
     }
@@ -236,12 +261,11 @@ class RegionDriveDurationServiceTest {
         when(locationRepository.findAll()).thenReturn(List.of(location(11L, 54.60, -3.13)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(0.0));
+        writerAccepts(true, 11L);
 
         assertThat(service.refreshForRegion(based())).isEqualTo(1);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = ArgumentCaptor.forClass(List.class);
-        verify(driveTimeWriter).replaceForRegion(eq(REGION_ID), rows.capture());
+        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = verifyStored(true);
         assertThat(rows.getValue()).singleElement()
                 .extracting(RegionDriveTimeEntity::getDriveDurationSeconds).isEqualTo(0);
     }
@@ -254,6 +278,7 @@ class RegionDriveDurationServiceTest {
                 location(11L, 54.52, -3.30), location(12L, 54.43, -3.01)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(-1.0, 2400.0));
+        writerAccepts(true, 12L);
 
         assertThat(service.refreshForRegion(based())).isEqualTo(1);
     }
@@ -284,14 +309,69 @@ class RegionDriveDurationServiceTest {
                 location(11L, 54.52, -3.30), location(12L, 54.43, -3.01)));
         when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(1500.0));
+        writerAccepts(false, 11L);
 
         assertThat(service.refreshForRegion(based())).isEqualTo(1);
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = ArgumentCaptor.forClass(List.class);
-        verify(driveTimeWriter).replaceForRegion(eq(REGION_ID), rows.capture());
+        // Stored, but NOT stamped: location 12 was never answered for, so it must stay PENDING.
+        ArgumentCaptor<List<RegionDriveTimeEntity>> rows = verifyStored(false);
         assertThat(rows.getValue()).singleElement()
                 .extracting(RegionDriveTimeEntity::getLocationId).isEqualTo(11L);
+    }
+
+    @Test
+    @DisplayName("the stamp instant is taken before the roster is read, not after routing")
+    void refreshForRegion_stampIsTakenBeforeTheRosterRead() {
+        // A location created while ORS is routing must carry a drive_target_changed_at later than the stamp, or
+        // it would read UNROUTABLE although no measurement ever covered it.
+        List<String> order = new ArrayList<>();
+        Clock recording = new Clock() {
+            @Override
+            public ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                order.add("clock");
+                return NOW;
+            }
+        };
+        RegionDriveDurationService timed = new RegionDriveDurationService(orsClient, orsProperties,
+                locationRepository, driveTimeRepository, driveTimeWriter, new RegionDriveMatrixMemo(), recording);
+        when(orsProperties.isConfigured()).thenReturn(true);
+        when(locationRepository.findAll()).thenAnswer(inv -> {
+            order.add("roster");
+            return List.of(location(11L, 54.52, -3.30));
+        });
+        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), argThat(d -> d.size() == 1)))
+                .thenAnswer(inv -> {
+                    order.add("ors");
+                    return List.of(1500.0);
+                });
+        writerAccepts(true, 11L);
+
+        timed.refreshForRegion(based());
+
+        assertThat(order).containsExactly("clock", "roster", "ors");
+    }
+
+    @Test
+    @DisplayName("a base that moved while ORS was routing stores nothing and reports 0")
+    void refreshForRegion_baseMovedMidFlight_isDiscarded() {
+        when(orsProperties.isConfigured()).thenReturn(true);
+        when(locationRepository.findAll()).thenReturn(List.of(location(11L, 54.52, -3.30)));
+        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON), argThat(d -> d.size() == 1)))
+                .thenReturn(List.of(1500.0));
+        when(driveTimeWriter.storeIfBaseUnchanged(eq(REGION_ID), eq(BASE_LAT), eq(BASE_LON),
+                argThat(rows -> rows.size() == 1), eq(NOW), eq(true))).thenReturn(false);
+
+        assertThat(service.refreshForRegion(based())).isZero();
     }
 
     @Test

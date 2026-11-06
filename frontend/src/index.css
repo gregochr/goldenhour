@@ -2782,7 +2782,12 @@ button.wf-hc.on:hover {
    case at 320px is three lines ("Northumberland &" / "Tyneside · beyond" / "45 min"), ~39px
    against the slot's 32px minimum: the card grows ~7px at the narrowest width and the grid rows
    stretch to match, which is the wrap `.wf-hc-best` already budgets for ("Newcastle and Gateshead
-   Quayside"). Wider cards fit it in two. */
+   Quayside"). Wider cards fit it in two.
+   Reach-scoped-card-plan R1 adds two shorter variants: "<region> · no route" (the origin rides the
+   title and the spoken form) and the mixed "<region> · beyond 45 min / no route". The mixed one is the
+   longest: with the value column at ~70px at 320px it can reach four lines (~52px) for the longest
+   region name, so that is the budget for this row, three more px than the slot's minimum per extra
+   line; the "or" is a "/" and the origin is left out of the visible text to hold it there. */
 .wf-hc-best.beyond {
   font-size: 10px;
   font-weight: 400;

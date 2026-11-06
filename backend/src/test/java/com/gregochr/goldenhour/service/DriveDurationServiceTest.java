@@ -256,7 +256,8 @@ class DriveDurationServiceTest {
     @Test
     @DisplayName("more durations than locations — only location-indexed entries are measured")
     void measureForUser_moreDurationsThanLocations_onlyMatchingMeasured() {
-        // Math.min(locations, durations) loop bound — mutating to durations.size() causes IOOBE.
+        // The loop is bounded by the roster, so surplus durations are ignored; bounding it by
+        // durations.size() would read past the roster.
         orsAnswers(List.of(location(1L, "Durham", 54.78, -1.58),
                 location(2L, "Bamburgh", 55.61, -1.71)), List.of(1800.0, 3600.0, 5400.0, 7200.0));
 
@@ -267,17 +268,14 @@ class DriveDurationServiceTest {
     }
 
     @Test
-    @DisplayName("fewer durations than locations — only the answered locations are measured")
-    void measureForUser_fewerDurationsThanLocations_onlyAnsweredMeasured() {
-        // The other side of the same bound: mutating it to locations.size() reads past the end of
-        // a short ORS list.
+    @DisplayName("fewer durations than locations is no answer, so nothing partial is stored or stamped")
+    void measureForUser_fewerDurationsThanLocations_noAnswer() {
+        // The caller stamps what it stores as "measured in full". Storing one of two would let the other read
+        // UNROUTABLE (no row, newer stamp) although ORS was never asked about it.
         orsAnswers(List.of(location(1L, "Durham", 54.78, -1.58),
                 location(2L, "Bamburgh", 55.61, -1.71)), List.of(1800.0));
 
-        List<UserDriveTimeEntity> rows =
-                service.measureForUser(USER_ID, SOURCE_LAT, SOURCE_LON).orElseThrow();
-
-        assertThat(rows).extracting(UserDriveTimeEntity::getLocationId).containsExactly(1L);
+        assertThat(service.measureForUser(USER_ID, SOURCE_LAT, SOURCE_LON)).isEmpty();
     }
 
     private static LocationEntity location(Long id, String name, double lat, double lon) {

@@ -62,7 +62,8 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
- *   reachMeasured: boolean, bestReach: ?object, badges: Array,
+ *   reachMeasured: boolean, reachUnroutableCount: number, reachUnroutableRemoved: number,
+ *   reachFarRemoved: number, reachTotal: number, reachOriginName: ?string, bestReach: ?object, badges: Array,
  *   hotRegionName: ?string, tide: ?object, tideFit: ?object}>} descriptors
  */
 export function buildHeatStripCards(
@@ -171,6 +172,15 @@ export function buildHeatStripCards(
       // The active tier's minutes (null under "Any" and on an away day) — folded like
       // `reachMeasured`, for the H2 "region · beyond 45 min" line (plan-card-verdict-honesty-plan.md).
       reachLimitMinutes: card?.reachLimitMinutes ?? null,
+      // The three unroutable-aware counts and the base name, folded like `reachMeasured` (reach-scoped-card-plan
+      // D1): the Best row's "beyond" line and the Spread tooltip read them. Zero/null on an away day (no card).
+      reachUnroutableCount: card?.reachUnroutableCount ?? 0,
+      reachUnroutableRemoved: card?.reachUnroutableRemoved ?? 0,
+      reachFarRemoved: card?.reachFarRemoved ?? 0,
+      // How many places the lens chose from, folded for `reachActed`: the empty-pool "in reach" words need a
+      // finite tier to have been over something.
+      reachTotal: card?.reachTotal ?? 0,
+      reachOriginName: card?.reachOriginName ?? null,
       bestReach: card?.bestReach ?? null,
       // Folded beside `bestReach` (the fold passes no unknown field through): a neighbour outlier
       // was skipped and nothing clears the named floor, so the line says "no clear pick".

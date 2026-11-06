@@ -190,3 +190,17 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 - **Which rows**: Briefing = `BRIEFING` runs' `briefing-best-bet` rows (not the gloss rows); Aurora = `AURORA_EVALUATION` runs plus `au-` batch rows; the batch tabs = `fc-`/`bb-`/`wd-` batch rows whose `forecast_batch.pipeline_run_id` is set (the admin force-submit route is excluded), bucketed by `days_ahead` (0-1 near, 2+ far) in Java. Batch "runs" are pipeline cycles. Per-call figures use succeeded calls only; per-day spend includes every row.
 - **Estimates** price the tab's average token mix through `CostCalculator` (batch cache writes at the 1-hour rate); they ignore tokeniser and thinking differences.
 - **Not included**: the cache-priming call (`pw-`) logs nothing; a refused or truncated synchronous aurora call is logged at zero cost; admin aurora runs for a chosen night and the aurora gloss log nothing; `BRIEFING_GLOSS` has no tab.
+
+**Drive status: unroutable vs pending (reach-scoped-card-plan R1).** A place OpenRouteService has no route to used
+to read as "unknown" and pass every reach tier. Each (origin, location) drive is now MEASURED / PENDING /
+UNROUTABLE (`model/DriveStatus`), decided from the origin's stamp (`app_user.drive_times_calculated_at` for a
+home, `regions.drives_measured_at` for a base) against `locations.drive_target_changed_at`. A stamp means "fully
+measured from this point, as of this instant": it is taken **before** the roster read, written only when ORS
+returned a duration slot for every destination (`DriveDurationService` treats a short answer as no answer;
+`RegionDriveDurationService` stores a short answer's rows without stamping), and for a region only while the base
+is still the one routed from (`RegionDriveTimeWriter.storeIfBaseUnchanged`, a compare-and-set). A coordinate
+move in `LocationService.update` bumps `drive_target_changed_at` and deletes the location's drive-time rows, so a
+moved location reads PENDING until re-measured and `DriveTimeRefreshJob` (which now reads
+`findMaxDriveTargetChangedAt`, not the newest `created_at`) re-measures every home that night. A region base
+move (`RegionService.setBase`) also nulls the base's stamp. The admin "Run now" is no longer needed for a
+coordinate correction.

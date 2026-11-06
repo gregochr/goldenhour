@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
+import com.gregochr.goldenhour.model.DriveStatus;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -264,8 +265,8 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         // always be present. The two figures are independently absent, and NON_NULL keeps them off
         // the wire entirely rather than as nulls a consumer might render as a zero.
         when(reachService.getReach(any())).thenReturn(List.of(
-                new ReachEntry(1L, 62, 44),
-                new ReachEntry(2L, null, 24)));
+                new ReachEntry(1L, 62, 44, DriveStatus.MEASURED),
+                new ReachEntry(2L, null, 24, DriveStatus.PENDING)));
 
         mockMvc.perform(get("/api/user/settings/reach"))
                 .andExpect(status().isOk())
@@ -285,8 +286,8 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         // The normal first-run state. An empty body here would make the reach lens look broken to
         // exactly the user it most needs to be honest with.
         when(reachService.getReach(any())).thenReturn(List.of(
-                new ReachEntry(1L, null, null),
-                new ReachEntry(2L, null, null)));
+                new ReachEntry(1L, null, null, DriveStatus.PENDING),
+                new ReachEntry(2L, null, null, DriveStatus.PENDING)));
 
         mockMvc.perform(get("/api/user/settings/reach"))
                 .andExpect(status().isOk())

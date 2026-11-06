@@ -274,6 +274,10 @@ export function buildSearchGroups(query, {
    *
    * <p>Asked of the reach map the PAGE plans from, which is the same map the sub-lines read, so the
    * box cannot caption a figure "in reach" on a row whose own sub-line has no drive to show.
+   *
+   * <p>Already the reader-level answer (the whole effective map, the very definition of
+   * {@code reachIsMeasured} in reach-scoped-card-plan D2), so unthreaded by decision: a window row's
+   * {@code bestReach} comes from the card's pool, which the gate has already made unroutable-free.
    */
   const reachMeasured = Boolean(reachById)
     && Array.from(reachById.values()).some((entry) => entry?.driveMinutes != null);

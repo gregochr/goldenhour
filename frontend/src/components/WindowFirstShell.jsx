@@ -445,7 +445,7 @@ export default function WindowFirstShell({
     heatSpots, reachById, regionSeries,
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
-    origin, setOrigin, regions, effectiveReachById,
+    origin, setOrigin, regions, effectiveReachById, reachMeasured,
     comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked,
     allowedLocationIds,
   } = useWindowFirstBriefing();
@@ -1419,6 +1419,9 @@ export default function WindowFirstShell({
   const fieldLens = useMemo(() => ({
     limitMinutes: reachLens?.tier?.limitMinutes ?? null,
     tierLabel: reachLens?.tier?.label ?? null,
+    // The reader-level "is a drive measured for this origin" (D2), so the rail's per-region reach gate runs
+    // with the same `measured` the cards' did.
+    measured: reachMeasured === true,
     minRating: ratingLens?.minRating ?? null,
     ratingLabel: ratingLens?.floor?.label ?? null,
     // Optional all the way down, unlike the conditional reads further below. This memo runs on every
@@ -1426,7 +1429,7 @@ export default function WindowFirstShell({
     // unconditionally — and a provider-less or partial context (which several shell suites hand over
     // deliberately, to keep their files about one seam) would otherwise throw here before rendering
     // anything at all.
-  }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor]);
+  }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor, reachMeasured]);
 
   /**
    * The popup's inputs — built for the OPEN window only, and null while none is.
@@ -2267,8 +2270,9 @@ export default function WindowFirstShell({
     limitMinutes: reachLens?.tier?.limitMinutes ?? null,
     floorId: ratingLens?.floorId,
     minRating: ratingLens?.minRating ?? null,
+    reachMeasured,
   }), [windowCards, origin, homePlace, reachLens?.tierId, reachLens?.tier,
-    ratingLens?.floorId, ratingLens?.minRating]);
+    ratingLens?.floorId, ratingLens?.minRating, reachMeasured]);
 
   /**
    * The safety warning a topic on this plan carries, and the window it is about.

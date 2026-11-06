@@ -1,4 +1,5 @@
 import { areaRegions } from './planningArea.js';
+import { DRIVE_UNROUTABLE } from './reachLens.js';
 
 /**
  * The origin — the frame of reference the whole Plan tab is written from (plan §4.8, D5).
@@ -46,6 +47,46 @@ import { areaRegions } from './planningArea.js';
  * from the threshold there — the one place it is allowed to be written down.
  */
 export const AWAY_TIER_ID = '90';
+
+/**
+ * How far before a base's last full measurement a place may have moved and still read PENDING.
+ *
+ * <p>The client twin of the server's {@code DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN} (one hour), which
+ * {@code DriveStatus.of} applies to the home status the same way. A place whose routing point changed within
+ * this margin BEFORE the stamp may not have been visible to the roster read that produced it, so it reads
+ * PENDING (kept by every tier), never UNROUTABLE. Keep the two in step.
+ */
+export const ROSTER_VISIBILITY_MARGIN_MS = 60 * 60 * 1000;
+
+/** Milliseconds since the epoch for a served timestamp, or null when absent or unparseable. */
+function servedMs(value) {
+  if (typeof value !== 'string' || value === '') return null;
+  // A region's stamp is an Instant ("...Z"); a location's `driveTargetChangedAt` is a UTC wall-clock
+  // `LocalDateTime` with no zone designator, which `Date.parse` would read as LOCAL time.
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+  const ms = Date.parse(zoned);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * What a missing drive from a region base is: PENDING, or UNROUTABLE (reach-scoped-card-plan D1).
+ *
+ * <p>The away counterpart of the server's {@code DriveStatus.of}, derived here because the matrix
+ * ({@code GET /api/regions/drive-times}) keeps its shape: UNROUTABLE needs the base fully measured
+ * ({@code region.drivesMeasuredAt}) after the place's routing point last changed
+ * ({@code location.driveTargetChangedAt}), by more than {@link ROSTER_VISIBILITY_MARGIN_MS}. Either input
+ * absent, or unparseable, reads PENDING: unknown, never a guess at "no route".
+ *
+ * @param {?string} measuredAt      the base's last full-measurement stamp ({@code drivesMeasuredAt})
+ * @param {?string} targetChangedAt the place's {@code driveTargetChangedAt}
+ * @returns {'PENDING'|'UNROUTABLE'} the status of a drive that has no row
+ */
+export function missingDriveStatus(measuredAt, targetChangedAt) {
+  const measured = servedMs(measuredAt);
+  const changed = servedMs(targetChangedAt);
+  if (measured == null || changed == null) return 'PENDING';
+  return changed < measured - ROSTER_VISIBILITY_MARGIN_MS ? DRIVE_UNROUTABLE : 'PENDING';
+}
 
 /**
  * Whether a region can be an origin at all.
@@ -135,26 +176,45 @@ export function toOrigin(region) {
  *
  * <p>{@code distanceMiles} is always null — see the module comment for why it is not borrowed.
  *
+ * <p><b>Each entry carries a {@code driveStatus}</b> (reach-scoped-card-plan D1): MEASURED for a matrix row,
+ * and, when the roster is passed, an entry with no drive for every location the matrix has no row for, either
+ * PENDING or UNROUTABLE by {@link missingDriveStatus}. Without {@code locations} only the matrix rows appear,
+ * as before.
+ *
  * <p>Null (not an empty map) when there is no origin, so the caller's "am I away" test is the
  * origin itself rather than the emptiness of a map that is legitimately empty before the first
  * nightly sweep.
  *
  * @param {?object} origin the origin descriptor, or null for home
  * @param {?object} matrix {@code {regionId: {locationId: minutes}}} from the shared endpoint
- * @returns {?Map} location id to {driveMinutes, distanceMiles}, or null at home
+ * @param {object} [status]
+ * @param {?string} [status.measuredAt] the origin region's {@code drivesMeasuredAt}
+ * @param {?Array<{id: *, driveTargetChangedAt: ?string}>} [status.locations] the roster, for the places the
+ *        matrix has no row for
+ * @returns {?Map} location id to {driveMinutes, distanceMiles, driveStatus}, or null at home
  */
-export function originReachMap(origin, matrix) {
+export function originReachMap(origin, matrix, { measuredAt = null, locations = null } = {}) {
   if (!origin) return null;
   const rows = matrix?.[origin.id] ?? matrix?.[String(origin.id)] ?? null;
   const map = new Map();
-  if (!rows) return map;
-  for (const [locationId, minutes] of Object.entries(rows)) {
-    if (typeof minutes !== 'number' || !Number.isFinite(minutes)) continue;
-    // The keys arrive as JSON object keys, i.e. strings, and every consumer looks a spot up by its
-    // numeric `locationId`. Coerced here, once, rather than at each `get`.
-    const id = Number(locationId);
-    if (!Number.isFinite(id)) continue;
-    map.set(id, { driveMinutes: minutes, distanceMiles: null });
+  if (rows) {
+    for (const [locationId, minutes] of Object.entries(rows)) {
+      if (typeof minutes !== 'number' || !Number.isFinite(minutes)) continue;
+      // The keys arrive as JSON object keys, i.e. strings, and every consumer looks a spot up by its
+      // numeric `locationId`. Coerced here, once, rather than at each `get`.
+      const id = Number(locationId);
+      if (!Number.isFinite(id)) continue;
+      map.set(id, { driveMinutes: minutes, distanceMiles: null, driveStatus: 'MEASURED' });
+    }
+  }
+  for (const location of Array.isArray(locations) ? locations : []) {
+    const id = Number(location?.id);
+    if (!Number.isFinite(id) || map.has(id)) continue;
+    map.set(id, {
+      driveMinutes: null,
+      distanceMiles: null,
+      driveStatus: missingDriveStatus(measuredAt, location.driveTargetChangedAt),
+    });
   }
   return map;
 }

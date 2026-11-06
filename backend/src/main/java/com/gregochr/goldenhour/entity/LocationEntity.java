@@ -12,6 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import com.gregochr.goldenhour.model.CoastalParameters;
 import lombok.AllArgsConstructor;
@@ -22,6 +23,7 @@ import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -130,6 +132,18 @@ public class LocationEntity {
     /** UTC timestamp when this location was created. */
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    /**
+     * UTC instant the point OpenRouteService routes to last changed: {@code created_at} on creation, bumped when a
+     * coordinate moves. Not updatable through the entity: written only by
+     * {@code LocationRepository.updateDriveTargetChangedAt}, so a stale snapshot saved later cannot rewind it
+     * (the column-scoped writes invariant). A drive time stored before this instant describes a different point;
+     * a home or base measured in full after it, with no row for this location, reads UNROUTABLE
+     * ({@code DriveStatus}).
+     */
+    @Column(name = "drive_target_changed_at", nullable = false, updatable = false,
+            columnDefinition = "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    private LocalDateTime driveTargetChangedAt;
 
     /** Number of consecutive forecast failures for this location. Used for auto-disabling. */
     @Column(name = "consecutive_failures", updatable = false)
@@ -457,5 +471,16 @@ public class LocationEntity {
     @Override
     public String toString() {
         return "LocationEntity(id=" + id + ", name=" + name + ")";
+    }
+
+    /**
+     * Defaults {@link #driveTargetChangedAt} to the creation time on insert, so every builder and test fixture
+     * that never sets it still satisfies the NOT NULL column.
+     */
+    @PrePersist
+    void defaultDriveTargetChangedAt() {
+        if (driveTargetChangedAt == null) {
+            driveTargetChangedAt = createdAt != null ? createdAt : LocalDateTime.now(ZoneOffset.UTC);
+        }
     }
 }
