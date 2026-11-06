@@ -5,6 +5,181 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.1] - 2026-11-06
+
+### Added — Plan headline follows the drive tier
+
+The At a Glance card's verdict word, its mean, the pick (BEST BET / ALSO GOOD), the confidence haze and the `· N rated`
+count now describe the places inside the drive tier you chose, not the whole roster. Change the tier from 45 minutes to
+an hour and a half and the headline moves with the Spread row beside it. The scope is printed under the word (`within
+45m`) and read out in the card's spoken sentence. Under Any nothing changes, and neither does the Map (its pill follows
+the tier in the next change).
+
+The server does the arithmetic: `GET /api/user/settings/reach-verdicts` (Pro and Admin) prunes the served briefing to the
+places in reach and re-runs the same verdict, ranking and pick code, returning all three tiers in one response, so a tier
+tap is instant. `/api/briefing` gains `briefingVersion`, a content hash that lets the page tell its answer was computed
+from the briefing it holds. A place with no road route (unroutable) is out of every finite tier, a still-unmeasured one is
+kept. When every rated place of the leading region lies beyond the tier, the card says so by naming the region-wide verdict
+("Northumberland is Worth it; its rated places are beyond 45 min").
+
+### Changed — The Map follows the drive tier
+
+The Map and the Plan bar now share one drive tier. Pick 45 minutes on either tab and the other follows, and the Map's
+"All" is the Plan's "Any". **This is a visible change: the Map now opens on the same tier the Plan bar shows (a weekday
+default of 45 min, a weekend default of 2h 30) instead of always opening on All.** Readers with no measured drive times
+(no postcode) are unaffected, and Lite readers stay on Any.
+
+The window pill's verdict word, its region line (`Northumberland +1`, `everywhere`) and its `· N rated` count now describe
+the places inside the tier, intersected with the My area / Everywhere scope you chose. The words come from the same
+server answer as the Plan card, so at Everywhere the pill and the card agree at every tier. The scope is printed beside
+the word (`within 45m`) and read out in full (`within 45 min`); on a phone, where the region line is hidden, the scope
+takes its place. The window list and the phone's Windows section say which tier their verdict words are for, and the
+window panel's header and note do the same while its region rows stay each region as a whole. Under Any, or when the
+server's answer is not held, nothing changes. Opening the Map from a Plan door no longer copies a drive limit across
+(the tier is already shared).
+
+### Added — a named drive point for places no road reaches
+
+A location can now carry a drive point: the village or car park a driver actually reaches, such as Glenridding for
+Helvellyn. Drive times to that place are measured to the drive point instead of the summit pin, and the Map callout, the
+Plan strip's peek and the four-day location sheet say where the minutes are to ("1h 20min to Glenridding", with the miles
+to the pin left off that line). Straight-line distance and Ask's home radius still use the place itself.
+
+The admin location form has a Drive point field: type a village name or a postcode, pick from the nearest matches (within
+25 km), or clear it. The location page shows "Drive to: Glenridding" with an Edit control. Creating a place, moving its pin,
+or clearing its drive point is now refused with a 422 when no road route reaches the point it would be measured to, and the
+form then shows the drive point as required. The check is one OpenRouteService call made before the save; if ORS is busy,
+unconfigured or failing, or no region base can be routed from, the save goes ahead. Every other edit is never refused, and
+places that already have no route are only flagged, as before. Migration V221 adds the three nullable columns.
+
+### Added — admins can see which places have no drive route
+
+A new admin-only read, `GET /api/admin/drive-times/unroutable`, lists the enabled locations that
+OpenRouteService could not route to from at least one measured Pro/Admin home or region base, with
+how many said so out of how many could judge (for example "no route from 3 of 3 homes, 2 of 4
+bases"). It uses the same unroutable rule the Plan card uses. The drive-time job's panel in
+Operations shows the list with a count badge, and the admin Locations list and location page flag
+each such place "Needs a drive point". Pro and Lite readers never see it.
+
+### Fixed — the "Needs a drive point" flag refreshes, and a re-enabled place is no longer falsely flagged
+
+The admin Locations screen now re-reads the flag after every save, add, toggle and failure reset, so
+a place whose pin was fixed stops being flagged. The location page no longer says "none could be
+routed" when only some origins could not. Re-enabling a place now bumps its drive-target time (without
+deleting its drive times), so a place switched off during the nightly sweep reads as pending rather
+than unroutable until it is measured again.
+
+### Changed — ZAP gate ignores a SQL-injection false positive on admin paths
+
+The weekly ZAP gate now carries a narrow `ignore` exception for rule 40018 (SQL injection) on
+backend URLs under `/api/admin/`. The scan runs as a non-admin, so the security filter answers every
+request there with the same 403 before any parameter is read, which ZAP's expression check misreads
+as a hit. The exception is scoped by URI: a 40018 alert on any other path, or an alert that mixes
+admin and non-admin instances, still fails the gate.
+
+### Fixed — saving a home postcode with a control character now gets 400 instead of 500
+
+`PUT /api/user/settings/home` accepted a postcode containing a control character, such as a NUL byte.
+PostgreSQL refuses to store a NUL in a text column, so on production the save failed in the database and
+answered 500. `SaveHomeRequest` now rejects control characters in the postcode when the body is bound, so
+the caller gets the generic 400 `{"error":"Invalid request"}` and nothing is written or echoed.
+
+`POST /api/user/settings/home/lookup` had the matching gap: a body with no postcode reached the lookup
+client as null and answered 500. `PostcodeLookupRequest` is now validated the same way (present, not blank,
+no control characters), so these answer 400 as well.
+
+### Fixed — the Scheduler Day tab tests no longer fail intermittently in CI
+
+Two tests in `SchedulerDayTab.test.jsx` were racing the screen. "follows the container when it is wider"
+sometimes failed with `expected 360 to be 912`: the Day picture sizes its SVG with a `ResizeObserver` that
+`useElementWidth` constructs in a passive effect, and the test fired its fake resize as soon as the SVG was
+on screen, which can be before that effect has run, so the resize reached nothing. Both width tests now wait
+until the plot's own observer is watching the plot before they resize it; "is never narrower than the minimum" could previously
+pass without testing anything. "is not moved by Rewind" waited for the day label, which is on screen from
+the first paint, and then looked for the Now line before the served day had landed; it now waits for the
+Now line first. Test-only change.
+
+### Fixed — a place with no road route no longer counts as within your drive
+
+A place OpenRouteService cannot route to (a summit such as Helvellyn) has no drive time, and a missing drive
+time used to pass every reach tier, so the 45-minute window card could name it as the best place "within
+reach". The drive from your home, and from an away base, is now one of three kinds: measured, pending (nothing
+has measured it yet, still shown) or unroutable (your home or the base was fully measured after the place last
+moved, and there is no route). A finite drive tier now drops the unroutable places, for the spread, the Best
+line, the tide fit, the region rail, the "See all spots" sheet and the plan messages alike; "Any" and a reader
+with no postcode are unchanged. The Best line's "beyond 45 min" never calls an unroutable place far (it says
+"no route from home", or from the base town when planning away), and the spread tooltip says how many places
+have no route.
+
+Moving a location's coordinates now discards the drive times to its old point and re-measures them that night
+(it used to leave them, and only the admin "Run now" refreshed them); until then it reads as pending. New
+column `locations.drive_target_changed_at` (migration V220) records when a place's routing point last changed,
+and `regions.drives_measured_at` when a base was last measured in full; both are served (`/api/locations`,
+`/api/regions`) and `/api/user/settings/reach` now carries a `driveStatus` per place. A measurement that
+returns fewer durations than places is no longer stamped as complete, and a region base measurement that
+finishes after the base moved is discarded.
+
+### Changed — phone legend shows the stand-down item as a plain label
+
+The phone Map tab's Layers sheet, in its Ground row, now shows the stand-down item as a plain
+"stood down by the weather" label that matches "not rated yet" and "no places", instead of a bold term
+followed by a long explanation that wrapped badly. The desktop and tablet legend is unchanged.
+
+### Changed — patched glob and minimatch for frontend build and lint tooling
+
+The frontend `package.json` `overrides` now pin `glob` 14.0.3 under `workbox-build` (used by
+`vite-plugin-pwa`) and `minimatch` 11.0.4 under `eslint` and `@eslint/config-array`. This clears
+GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249 in dev and build tooling, which is never shipped to the
+browser. The other `minimatch` copies (3.x, 5.x) are outside the affected range and are unchanged.
+
+### CI — Hold every backend class to 95% of lines and 90% of branches
+
+`jacoco:check` now fails the build when any backend class covers under 95% of its lines or 90% of its branches
+(it was 80% of lines, with 32 classes excluded). The exclusions are gone. Seven classes with a branch that cannot
+be reached have their own floor in `backend/pom.xml`, each with its reason, and a whole-codebase floor of 99.3% of
+lines and 95.8% of branches sits behind them. No production code changed.
+
+### Testing — Cover service-package branches, part 2 (backend B6)
+
+The second half of the flat `service` package (Inversion to Woodland) now has behaviour tests for its missing-data and failure paths:
+the hot-topic strategies, Open-Meteo parsing and failure logging, tide size and run builders, the surge curve and its facts, the
+sky-rating eval batch reconciler, the run progress stream, the solar trigger fallbacks and the account link writers. No production code changed.
+
+### Testing — Cover service-package branches, part 1 (backend B5)
+
+The first half of the flat `service` package (`AstroConditionsService` through `HotTopicGlanceDecorator`, 34 classes) now sits at 95% lines and 90% branches or better. The new tests cover the briefing's optional-sink failures, the served-briefing overlays and single-flight joins, the scheduler's unfireable schedules and fire-log summaries, the cloud-verification archive gaps, the aurora summary caches, the hot-topic strategies' missing-data paths and the git-info fallbacks. No production code changed.
+
+### Testing — Cover client, controller, config, model and utility branches (backend B4)
+
+The `client`, `controller`, `config`, `entity`, `model`, `model.comingup`, `repository`, `util` and `eval` classes in the B4 list now sit at
+95% lines and 90% branches or better, with behaviour tests for the NOAA, NLCNET, Environment Agency and OpenRouteService clients (cache windows,
+retained values after a failed fetch, malformed rows), the controllers' missing-input and refused-issue paths, the status stream's lifecycle, the
+CORS and caching configuration, the model records' null handling, the entity accessors and the dormant-account state records. No production code
+changed.
+
+### Testing — Cover batch, pipeline and aurora service branches (backend B3)
+
+The `service.batch`, `service.pipeline` and `service.aurora` classes now have behaviour tests for their retry, orphan, partial-failure and fallback paths, reaching 95% lines and 90% branches.
+Tests only: no production code changed.
+
+### Testing — Cover Ask, runs, Coming up and notification branches (backend B2)
+
+Behaviour tests now cover the `service.ask`, `service.runs`, `service.comingup` and `service.notification` classes that sat below 95% of lines or 90% of branches: the Ask spend guard, engine edge cases, thread context and snapshot builder, the Runs loaders and cost view, the Lite Coming up shaper and the user emails.
+No production code changed; the branches that cannot be reached are listed in the pull request as override candidates for the coverage floor.
+
+### Testing — Cover the evaluation services' branches (backend B1)
+
+The `service.evaluation` and `service.evaluation.visitor` classes now sit at 95% lines and 90% branches or better, with behaviour tests for the
+batch result handlers, the best-bet ranker, validator, parser and enricher, the superseding-disposition rules, custom-id parsing and the
+call gate on the Ask client. No production code changed.
+
+### CI — Check coverage of the backend lines each change touches
+
+Pull requests now also fail when under 90% of the `backend/src/main` lines they add or change are covered by tests,
+the same check the frontend has had since #1697. The per-class and whole-codebase floors cannot see a change that
+adds untested code to an already well-covered class; this one can. The step runs `diff-cover` over the JaCoCo report
+and writes its table to the job summary. No production code changed.
+
 ## [v2.39.0] - 2026-11-05
 
 ### Docs — "How it's built" describes the app's coverage minimums
