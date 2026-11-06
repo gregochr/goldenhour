@@ -19,3 +19,7 @@ updates:
         patterns:
           - "vitest"
           - "@vitest/*"
+      # core and the vitest runner are pinned to each other's exact version, so they bump together.
+      stryker:
+        patterns:
+          - "@stryker-mutator/*"

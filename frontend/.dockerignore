@@ -3,3 +3,6 @@ dist
 .env
 .env.*
 coverage
+.stryker-tmp/
+reports/
+stryker-setup-*.js

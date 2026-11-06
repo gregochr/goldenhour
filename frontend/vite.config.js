@@ -158,7 +158,7 @@ export default defineConfig(({ mode }) => {
     setupFiles: ['./src/test/setup.js'],
     css: false,
     globals: true,
-    exclude: ['**/node_modules/**', '**/e2e/**'],
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/.stryker-tmp/**'],
     // ⚠️ Raised from Vitest's 5000 ms default, because the suite's OWN async ceiling is 4000 ms and
     // the two were incoherent. `setup.js` sets `asyncUtilTimeout: 4000` so a cold `React.lazy`
     // boundary has room; a Plan-shell test crosses two of them in sequence, which a 5000 ms budget
