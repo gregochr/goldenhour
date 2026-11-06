@@ -218,6 +218,19 @@ class OpenRouteServiceClientProbeContractTest {
     }
 
     @Test
+    @DisplayName("a 6010 whose coordinate index overflows an int reports index -1, not a NumberFormatException")
+    void error6010WithAnOverflowingIndex_reportsMinusOne() {
+        server.expect(requestTo(MATRIX_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"code\":6010,\"message\":\"Could not find routable point of "
+                                + "specified coordinate 99999999999999999999: 1 2\"}}"));
+
+        assertThatThrownBy(() -> client.probe(SOURCE_LAT, SOURCE_LON, DESTINATIONS, TIMEOUT))
+                .isInstanceOfSatisfying(OrsUnroutablePointException.class,
+                        e -> assertThat(e.getCoordinateIndex()).isEqualTo(-1));
+    }
+
+    @Test
     @DisplayName("a 404 that is not code 6010 propagates untouched")
     void notFoundWithoutTheCode_propagates() {
         server.expect(requestTo(MATRIX_URL))

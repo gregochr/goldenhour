@@ -190,7 +190,16 @@ public class OpenRouteServiceClient {
             return e;
         }
         Matcher m = COORDINATE_INDEX.matcher(error.path("message").asString(""));
-        return new OrsUnroutablePointException(m.find() ? Integer.parseInt(m.group(1)) : -1);
+        int index = -1;
+        if (m.find()) {
+            try {
+                index = Integer.parseInt(m.group(1));
+            } catch (NumberFormatException overflow) {
+                // A digit run too long for an int is not an index we can name: unknown, which the caller allows.
+                index = -1;
+            }
+        }
+        return new OrsUnroutablePointException(index);
     }
 
     /** Builds the one-row matrix request: the source at index 0, then each {@code [lat, lon]} as {@code [lon, lat]}. */

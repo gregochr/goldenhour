@@ -42,11 +42,10 @@ public record DrivePoint(String name, double lat, double lon) {
     public static DrivePoint parse(String name, Double lat, Double lon) {
         String trimmed = name == null ? "" : name.trim();
         boolean hasName = !trimmed.isEmpty();
-        int present = (hasName ? 1 : 0) + (lat != null ? 1 : 0) + (lon != null ? 1 : 0);
-        if (present == 0) {
+        if (!hasName && lat == null && lon == null) {
             return null;
         }
-        if (present < 3) {
+        if (!hasName || lat == null || lon == null) {
             throw new IllegalArgumentException("A drive point needs a name, a latitude and a longitude together");
         }
         if (trimmed.length() > MAX_NAME_LENGTH) {
