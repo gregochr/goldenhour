@@ -1,3 +1,0 @@
-### Fixed — weekly PIT mutation testing timed out silently for four weeks; now sharded on ubuntu-latest
-
-The weekly PIT run was cancelled by its 180-minute cap on 2026-10-12, 10-19, 10-26 and 11-02, and no issue was raised because `notify-failure` only fired on `failure`, not `cancelled`. PIT now runs on `ubuntu-latest` instead of the shared self-hosted runner, split into five parallel package shards (`pit.targetClasses` in `pom.xml`, with a plan job asserting every class is in exactly one shard), with a 350-minute job cap, a 320-minute PIT step and a score line per shard in the run summary. `pitest.yml` and `stryker.yml` now open a failure issue on `cancelled` as well as `failure`.
