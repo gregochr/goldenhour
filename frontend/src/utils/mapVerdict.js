@@ -148,6 +148,38 @@ export function buildShapedLeadIndex(days) {
   return index;
 }
 
+/**
+ * The reach answer's per-region verdicts for ONE drive tier, indexed the way {@link buildRegionVerdictIndex} indexes
+ * the served ones (reach-scoped-card-plan R3, D9): {@code date|targetType|regionName} to a record.
+ *
+ * <p><b>The record is the server's, not a derivation.</b> Each is the served {@code regions[]} entry of the tier's
+ * window ({@code regionName}, {@code displayVerdict}, {@code meanRating}), plus {@code reachRank}: its position in the
+ * server's own best-first order. The served index ranks with the sample gate ({@code verdictEligible}), a flag
+ * these entries do not carry; the order the server already ranked them in (the projector's, over the pruned tree, the
+ * window-level canopy rule applied) is the ranking, and {@link windowVerdict} selects by it. No verdict is derived
+ * here and no number is compared with a threshold.
+ *
+ * <p>{@code windowKeys} is the set of {@code date|targetType} the tier answered for at all, so a window the answer
+ * does not name keeps today's served verdict (the card builder does the same: no entry, today's word).
+ *
+ * @param {?Array<object>} windows one tier's windows from {@code GET /api/user/settings/reach-verdicts}
+ * @returns {{index: Map<string, object>, windowKeys: Set<string>}} the per-region records and the answered windows
+ */
+export function buildReachVerdictIndex(windows) {
+  const index = new Map();
+  const windowKeys = new Set();
+  for (const window of Array.isArray(windows) ? windows : []) {
+    if (!window?.date || !window?.targetType) continue;
+    windowKeys.add(`${window.date}|${window.targetType}`);
+    (Array.isArray(window.regions) ? window.regions : []).forEach((region, reachRank) => {
+      if (!region?.regionName) return;
+      const key = keyOf(window.date, window.targetType, region.regionName);
+      if (!index.has(key)) index.set(key, { ...region, reachRank });
+    });
+  }
+  return { index, windowKeys };
+}
+
 /** The served verdict tiers, best first: the order a shaped window's regions are ranked in without a mean. */
 const TIER_ORDER = ['WORTH_IT', 'MAYBE', 'UNRATED', 'STAND_DOWN', 'AWAITING'];
 
@@ -184,6 +216,23 @@ function pickShapedTop(records, leadName) {
     || rank(a) - rank(b)
     || compareNames(a.regionName, b.regionName)
   ))[0] ?? null;
+}
+
+/**
+ * The top of a reach window's in-scope records, by the server's own best-first order ({@code reachRank}). A record with
+ * no finite mean is skipped, exactly as {@link pickTopEligibleRegion} skips one, so an unrated window is still no
+ * answer.
+ *
+ * @param {Array<object>} records in-scope records from {@link buildReachVerdictIndex}
+ * @returns {?object} the best-ranked record carrying a finite mean, or null
+ */
+function pickTopServedOrder(records) {
+  let best = null;
+  for (const record of records) {
+    if (!Number.isFinite(record?.meanRating)) continue;
+    if (best === null || record.reachRank < best.reachRank) best = record;
+  }
+  return best;
 }
 
 /**
@@ -248,11 +297,13 @@ function pickShapedTop(records, leadName) {
  *        body the server shaped by the reader's picks, where it replaces the mean-ranked pick (a shaped
  *        region carries no mean, so {@link pickTopEligibleRegion} would find none and the pill would
  *        lose its verdict word). Null or absent leaves the pick exactly as it was.
+ * @param {?number} [args.scopeTierMinutes] set when {@code index} is the reach answer's
+ *        ({@link buildReachVerdictIndex}): stamped onto the result as {@code scope.tierMinutes}
  * @returns {?{tier: string, regionName: ?string, sharingCount: number, allInScope: boolean,
- *          scopedRegionCount: number}}
+ *          scopedRegionCount: number, scope: ({tierMinutes: number}|undefined)}}
  */
 export function windowVerdict({
-  index, date, targetType, regionsInScope, shapedLeads = null,
+  index, date, targetType, regionsInScope, shapedLeads = null, scopeTierMinutes = null,
 }) {
   if (!index || !date || !targetType) return null;
   const names = [...new Set((Array.isArray(regionsInScope) ? regionsInScope : []).filter(Boolean))];
@@ -264,9 +315,11 @@ export function windowVerdict({
     if (record) records.push(record);
   }
 
+  // A record carrying `reachRank` is the reach answer's (R3): ranked by the server's own order, not re-ranked here.
+  const reachRanked = records.length > 0 && records.every((record) => Number.isInteger(record.reachRank));
   const top = shapedLeads instanceof Map
     ? pickShapedTop(records, shapedLeads.get(`${date}|${targetType}`) ?? null)
-    : pickTopEligibleRegion(records);
+    : (reachRanked ? pickTopServedOrder(records) : pickTopEligibleRegion(records));
   if (!top) return null;
 
   // Through the app's shared helper, not `top.displayVerdict` raw: it prefers the served field and
@@ -287,6 +340,9 @@ export function windowVerdict({
     sharingCount,
     allInScope: names.length > 1 && sharingCount + 1 === names.length,
     scopedRegionCount: names.length,
+    // Present only on a verdict taken from the reach answer: the drive tier the word is true within. The pill,
+    // the panel and the lists print and speak it (D6); its absence means the word is the scope's whole-region one.
+    ...(scopeTierMinutes != null ? { scope: { tierMinutes: scopeTierMinutes } } : {}),
   };
 }
 
@@ -349,10 +405,13 @@ export function regionNamesOf(spots) {
  * @param {Array<string>} args.regionsInScope region names currently in scope
  * @param {?Map<string, string>} [args.shapedLeads] the shaped body's lead regions
  *        ({@link buildShapedLeadIndex}); null for everyone else
+ * @param {?{index: Map<string, object>, windowKeys: Set<string>, regionsInScope: Array<string>, tierMinutes: number}}
+ *        [args.reach] the active drive tier's served per-region verdicts ({@link buildReachVerdictIndex}), with
+ *        the regions in scope that have a place in reach; null leaves every row exactly as it was
  * @returns {Map<string, object>} row id to that window's verdict, omitting rows that have none
  */
 export function buildEvVerdicts({
-  events, index, regionsInScope, shapedLeads = null,
+  events, index, regionsInScope, shapedLeads = null, reach = null,
 }) {
   const out = new Map();
   if (!index) return out;
@@ -375,9 +434,21 @@ export function buildEvVerdicts({
     // Found by the cross-vendor review on #792. `mapLanding.landingRows` already gated on this
     // (L4's own step 2); the pill and the drilldown did not.
     if (row.served === false) continue;
-    const verdict = windowVerdict({
-      index, date: row.date, targetType: row.eventType, regionsInScope, shapedLeads,
-    });
+    // A window the reach answer names is answered from it, over the regions in scope AND in reach (R3); one it does
+    // not name keeps today's served verdict, so an absent entry is never a different headline.
+    const fromReach = reach != null
+      && reach.windowKeys.has(`${row.date}|${row.eventType}`);
+    const verdict = fromReach
+      ? windowVerdict({
+        index: reach.index,
+        date: row.date,
+        targetType: row.eventType,
+        regionsInScope: reach.regionsInScope,
+        scopeTierMinutes: reach.tierMinutes,
+      })
+      : windowVerdict({
+        index, date: row.date, targetType: row.eventType, regionsInScope, shapedLeads,
+      });
     if (verdict) out.set(row.id, verdict);
   }
   return out;
@@ -424,4 +495,20 @@ export function verdictRegionLabel(verdict, { scopeIsArea = true } = {}) {
   return verdict.sharingCount > 0
     ? `${verdict.regionName} +${verdict.sharingCount}`
     : verdict.regionName;
+}
+
+/**
+ * The drive-tier scope the verdicts of a list of windows are true within, or null when none was taken from the reach
+ * answer. Every reach verdict on the tab is for the one active tier, so the first carrying a {@code scope} speaks for
+ * the list: the dropdown and the phone's Windows section caption their rows with it (reach-scoped-card-plan D6, R3).
+ *
+ * @param {?Map<string, {scope: ?{tierMinutes: number}}>} verdicts row id to verdict ({@link buildEvVerdicts})
+ * @returns {?{tierMinutes: number}} the scope, or null
+ */
+export function verdictsScope(verdicts) {
+  if (!(verdicts instanceof Map)) return null;
+  for (const verdict of verdicts.values()) {
+    if (verdict?.scope) return verdict.scope;
+  }
+  return null;
 }

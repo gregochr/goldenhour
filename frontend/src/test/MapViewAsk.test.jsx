@@ -123,6 +123,7 @@ import MapView from '../components/MapView.jsx';
 import { getAstroAvailableDates } from '../api/astroApi.js';
 import { getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { deferred } from './askFixtures.js';
+import { reachLensStub } from './reachLensStub.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -332,14 +333,17 @@ describe('askWindow follows a chosen pick\'s window — on its own channel', () 
     const door = {
       ...DOOR, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 7,
     };
-    await renderTab({ planHandoff: door });
+    await renderTab({ planHandoff: door, reachLens: reachLensStub(150), reachMeasured: true });
     expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
     expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
 
     await rerenderTab({
-      planHandoff: door, askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 1 },
+      planHandoff: door,
+      reachLens: reachLensStub(150),
+      reachMeasured: true,
+      askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 1 },
     });
 
     // The window moved...

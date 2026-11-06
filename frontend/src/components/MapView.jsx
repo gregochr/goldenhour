@@ -70,6 +70,8 @@ import {
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
+import { scopePoolWithinReach } from '../utils/mapReach.js';
+import { ANY_TIER_ID, reachIsMeasured, tierById } from '../utils/reachLens.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
 import {
   GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, splitGround,
@@ -1240,7 +1242,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1375,12 +1377,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [showStandDown, setShowStandDown] = useState(() => {
     return readMapFilter('mapFilterShowStandDown') === '1';
   });
-  const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
-  // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9).
-  // The value is forced to Any where it is APPLIED, not at the setters (a click, the Plan handoff's
-  // limit, the reset and the breadcrumb all set it), so a locked reader can never narrow the map by it;
-  // the count badge, the popover and the breadcrumb read this effective value too.
-  const effectiveDriveTimeFilter = driveLocked ? 0 : driveTimeFilter;
   /**
    * How far a location is, from wherever the caller is planning from.
    *
@@ -1414,6 +1410,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (driveOverride) return driveOverride.get(Number(locId))?.driveMinutes ?? null;
     return reachById?.get(Number(locId))?.driveMinutes ?? null;
   }, [driveOverride, reachById]);
+  /**
+   * The reach entry for a location from the map in force (home's, or the away origin's override), for the gate that
+   * narrows the scope pool by the drive tier. The SAME precedence {@code driveMinutesFor} applies.
+   */
+  const reachEntryFor = useCallback((locId) => (
+    (driveOverride ?? reachById)?.get(Number(locId)) ?? null
+  ), [driveOverride, reachById]);
+
+  /**
+   * The Map's drive tier IS the Plan bar's (reach-scoped-card-plan R3, D9): one shared {@code useReachLens} state, so
+   * a tier chosen on either tab is the tier on both, and the Map's "All" is the lens's Any. It replaced the Map's own
+   * {@code useState(0)}, which only caught up with the Plan on a door handoff.
+   *
+   * <p>⚠️ <b>Applied only where the reader's drives are measured.</b> The Plan's gate passes every spot for a reader
+   * with no measured drive (nothing to gate on), and a tier that is on by default (a weekday opens on 45 min) must
+   * not empty the Map of a reader whose home has no postcode. {@code reachMeasured} is the provider's once-computed
+   * answer for the active origin; a standalone mount derives it from the reach map in force.
+   *
+   * <p>A mount with no shared lens (a test, or any host without the provider) keeps a local state pinned to Any, so it
+   * draws exactly what the Map drew before. In the app the pane always hands the lens down.
+   */
+  const [localTierId, setLocalTierId] = useState(ANY_TIER_ID);
+  const driveTier = reachLens ? reachLens.tier : tierById(localTierId);
+  const selectDriveTier = reachLens ? reachLens.selectTier : setLocalTierId;
+  const driveTierMeasured = reachMeasured ?? reachIsMeasured(driveOverride ?? reachById);
+  // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9). The value is forced
+  // to Any where it is APPLIED, not at the setters (a click, the reset and the breadcrumb all set it), so a locked
+  // reader can never narrow the map by it; the count badge, the popover and the breadcrumb read this effective value.
+  const effectiveDriveTimeFilter = driveLocked || !driveTierMeasured ? 0 : (driveTier?.limitMinutes ?? 0);
+  /** Sets the shared tier from the popover's minutes (0 is Any). */
+  const setDriveTimeFilter = useCallback((minutes) => {
+    selectDriveTier(minutes > 0 ? String(minutes) : ANY_TIER_ID);
+  }, [selectDriveTier]);
   /**
    * The drive point the callout's Drive minutes are measured to ("Glenridding"), when the place has one
    * (reach-scoped-card-plan R1c) — read from the SAME map `driveMinutesFor` reads, so the name never describes a
@@ -2131,7 +2160,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         const nextMinStars = planHandoff.minRating ?? 1;
         setMinStars(nextMinStars);
         writeMapFilter('mapFilterMinStars', String(nextMinStars));
-        setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+        // The drive tier is NOT copied from the door any more (reach-scoped-card-plan R3): the Map and the Plan bar
+        // share one tier, so there is nothing to carry.
         // `focusPoints` is the multi-pin door's camera: it fits those pins through the same
         // `FitBoundsController` (the retired overlay's `focus.points` camera), so a scope reset (which refits
         // to the planning area) would race it for the camera. A standing region jump is dropped
@@ -3485,10 +3515,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return rating >= minStars;
     });
 
-    // ⚠️ The Map's own drive filter is a DELIBERATE exception to the Plan's rule (reach-scoped-card-plan R1):
-    // it drops EVERY place without a drive time, unroutable or merely unmeasured (`mins != null`), where the
-    // Plan's `gateSpotsByReach` keeps a PENDING place and drops only an UNROUTABLE one. Unchanged until R3
-    // gives the Map the shared drive state; do not "fix" it with a status here.
+    // ⚠️ The Map's field filter is still a DELIBERATE exception to the Plan's rule (reach-scoped-card-plan R1): it
+    // drops EVERY place without a drive time, unroutable or merely unmeasured (`mins != null`), where the Plan's
+    // `gateSpotsByReach` keeps a PENDING place and drops only an UNROUTABLE one. R3 shared the TIER with the Plan
+    // bar and the pill's words (which use the Plan's gate, `reachPool`), not this pin filter: what is DRAWN is
+    // unchanged by it, and a place waiting for its first measurement is simply not drawn under a finite tier.
     const driveFiltered = effectiveDriveTimeFilter === 0
       ? ratingFiltered
       : ratingFiltered.filter((loc) => {
@@ -3651,6 +3682,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
   const regionsInScope = useMemo(() => regionNamesOf(verdictScopePool), [verdictScopePool]);
+  /**
+   * The scope pool narrowed to the places inside the active drive tier (reach-scoped-card-plan R3), or the pool itself
+   * when the pill is not reach-scoped. The ONE population the scoped pill's tally, its rated count and its region
+   * names describe: the Plan's own gate over the scope segment's pool, so "WORTH IT · Lakes +1" and "· 3 rated"
+   * are about the same places the tier answer was computed for.
+   */
+  const reachPool = useMemo(
+    () => (reachScope ? scopePoolWithinReach(verdictScopePool, reachEntryFor, reachScope.tierMinutes, driveTierMeasured)
+      : verdictScopePool),
+    [reachScope, verdictScopePool, reachEntryFor, driveTierMeasured],
+  );
+  /** The regions in scope AND in reach, which the scoped pill's tally counts (its {@code scopedRegionCount}). */
+  const reachRegionsInScope = useMemo(() => regionNamesOf(reachPool), [reachPool]);
+  /** The reach answer {@code buildEvVerdicts} reads, or null when the pill is not reach-scoped. */
+  const reachVerdictSource = useMemo(
+    () => (reachScope ? { ...reachScope, regionsInScope: reachRegionsInScope } : null),
+    [reachScope, reachRegionsInScope],
+  );
 
   // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
   // results only (D-14), so a real alert whose scoring run has not stored anything yet had a live field
@@ -3848,7 +3897,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // A shaped body carries no region mean to rank by (the server strips it), so the lead region comes
     // served; `null` for everyone else keeps the pick exactly as it was.
     shapedLeads: shaped ? shapedLeadIndex : null,
-  }), [mapEvents, regionVerdictIndex, regionsInScope, shaped, shapedLeadIndex]);
+    reach: shaped ? null : reachVerdictSource,
+  }), [mapEvents, regionVerdictIndex, regionsInScope, shaped, shapedLeadIndex, reachVerdictSource]);
   /**
    * The picks across each region (S5a-2), for a shaped body only: `pickGeography.regionPickSummaries`, from the
    * served ids and each place's served sub-region. Null for every Pro, Admin and flag-off reader.
@@ -3891,7 +3941,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     verdicts: evVerdicts,
     windowStates: heat?.windowStates,
     scopePool: verdictScopePool,
-  }), [mapEvents, evVerdicts, heat, verdictScopePool]);
+    // A reach-scoped verdict (R3) is about the places inside the tier, so its rated count is over those.
+    reachPool,
+  }), [mapEvents, evVerdicts, heat, verdictScopePool, reachPool]);
 
   /**
    * Your next two solar windows (map-landing-plan.md §3 L4's row selection, kept after the card was
@@ -6377,7 +6429,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     subjectChips: MAP_FILTER_CHIPS,
     seasonalFeatures,
     role,
-    driveTimeFilter: effectiveDriveTimeFilter,
+    // The shared tier as the bar shows it (Any when locked), not the gated value: for a reader whose drives are
+    // unmeasured the tier is still the one the Plan bar shows, though it filters nothing (see `driveTierMeasured`).
+    driveTimeFilter: driveLocked ? 0 : (driveTier?.limitMinutes ?? 0),
     driveLocked,
     onSelectDriveTime: setDriveTimeFilter,
     darkSkyFilter,
@@ -8120,6 +8174,26 @@ MapView.propTypes = {
   /** The Map's tide curve and per-location tide match are Pro (tide-pro-gate-plan.md): true for LITE. */
   tideLocked: PropTypes.bool,
   driveLocked: PropTypes.bool,
+  /**
+   * The Plan bar's shared reach lens (`hooks/useReachLens.js`'s return value), handed down by the pane
+   * (reach-scoped-card-plan R3): the Map's drive tier IS this one. Absent (a standalone mount), the Map keeps a
+   * local tier pinned to Any.
+   */
+  reachLens: PropTypes.shape({
+    tier: PropTypes.shape({ id: PropTypes.string, limitMinutes: PropTypes.number }),
+    selectTier: PropTypes.func,
+  }),
+  /** The provider's reader-level "are this origin's drives measured" answer; absent, derived from the reach map. */
+  reachMeasured: PropTypes.bool,
+  /**
+   * The active drive tier's served per-region verdicts (`mapVerdict.buildReachVerdictIndex` plus `tierMinutes`), or
+   * null when the pill is not reach-scoped (Any, Lite, unmeasured, version mismatch, a shaped body).
+   */
+  reachScope: PropTypes.shape({
+    tierMinutes: PropTypes.number.isRequired,
+    index: PropTypes.instanceOf(Map).isRequired,
+    windowKeys: PropTypes.instanceOf(Set).isRequired,
+  }),
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
   /**

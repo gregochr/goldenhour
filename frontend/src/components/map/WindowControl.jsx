@@ -7,7 +7,8 @@ import { calDow } from '../../utils/windowFirstStrip.js';
 import BoltIcon from './BoltIcon.jsx';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import VerdictWord from '../shared/VerdictWord.jsx';
-import { verdictRegionLabel } from '../../utils/mapVerdict.js';
+import { verdictRegionLabel, verdictsScope } from '../../utils/mapVerdict.js';
+import { verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
@@ -190,6 +191,8 @@ export default function WindowControl({
     return row && !row.past ? (verdicts?.get(row.id) ?? null) : null;
   }
   const activeVerdict = active && !active.past ? (verdicts?.get(active.id) ?? null) : null;
+  const listScope = verdictsScope(verdicts);
+  const listScopeText = verdictScopeText(listScope);
 
   /**
    * A stepper's accessible name, carrying the neighbour's verdict when there is one.
@@ -267,6 +270,7 @@ export default function WindowControl({
   }, [fontsReady]);
   const fitSig = [
     activeVerdict?.tier, activeVerdict ? verdictRegionLabel(activeVerdict, { scopeIsArea }) : '',
+    verdictScopeText(activeVerdict?.scope) ?? '',
     active?.pickKind, thinCounts?.get(active?.id), loading, scopeIsArea,
   ].join('~');
   const fitKey = betterNext
@@ -657,6 +661,14 @@ export default function WindowControl({
               is pre-existing, and it is left alone rather than quietly rolled into an unrelated
               commit; but it is the same class of problem, and this note must not be read as saying
               it was handled. */}
+          {listScopeText && (
+            // Every verdict word below is for the active drive tier (reach-scoped-card-plan R3, D6). Printed short,
+            // spoken long; outside the listbox, which admits only options.
+            <div className="wf-win-scope-note" data-testid="wf-win-scope-note">
+              <span aria-hidden="true">{`Verdicts ${listScopeText}`}</span>
+              <span className="sr-only">{`Verdicts ${verdictScopeSpoken(listScope)}`}</span>
+            </div>
+          )}
           <div
             role="listbox"
             id="wf-win-listbox"
@@ -955,6 +967,8 @@ Medallion.propTypes = { kind: PropTypes.oneOf(['best', 'also']) };
 function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
   if (!verdict) return null;
   const region = verdictRegionLabel(verdict, { scopeIsArea });
+  const scopeText = verdictScopeText(verdict.scope);
+  const scopeSpoken = verdictScopeSpoken(verdict.scope);
   return (
     <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
       {/* ⚠️ `mode="swap"`: "TOO FEW RATED" (91px) clipped the day label at 320–430px and itself at
@@ -985,7 +999,23 @@ function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
       {' '}
       {/* A `<span>`, not an `<em>`: `<em>` means stress emphasis, some AT announces it, and the
           stylesheet immediately sets `font-style: normal` on it — the tell that none is intended. */}
-      {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
+      {scopeText ? (
+        // The second line of a reach-scoped verdict. On desktop and tablet the region and the drive-tier scope share it;
+        // at ≤639px the stylesheet hides the region (and the rated count) and the scope words take that slot
+        // (reach-scoped-card-plan R3, step 4). Printed short, spoken long, as the Plan card's scope line is (R2): the
+        // visible form is aria-hidden and the long form rides sr-only, so the name reads "Worth it, Northumberland +2,
+        // within 45 min". An unscoped verdict renders exactly the region span below, unchanged.
+        <span className="wf-win-verdict-sub" data-testid="wf-win-verdict-sub">
+          {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
+          {region && <span aria-hidden="true" className="wf-win-verdict-scope-sep">&middot;</span>}
+          <span aria-hidden="true" className="wf-win-verdict-scope" data-testid="wf-win-verdict-scope">
+            {scopeText}
+          </span>
+          <span className="sr-only">{`, ${scopeSpoken}`}</span>
+        </span>
+      ) : (
+        region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>
+      )}
     </span>
   );
 }
@@ -996,6 +1026,7 @@ VerdictCell.propTypes = {
     regionName: PropTypes.string,
     sharingCount: PropTypes.number,
     allInScope: PropTypes.bool,
+    scope: PropTypes.shape({ tierMinutes: PropTypes.number }),
   }),
   scopeIsArea: PropTypes.bool,
   ratedCount: PropTypes.number,

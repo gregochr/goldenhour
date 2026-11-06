@@ -7,6 +7,7 @@ import { eventInstantOf, lookupForWindow } from './locationSheet.js';
 import { calloutLeaveBy } from './mapCallout.js';
 import { tierOf } from './mapTideFit.js';
 import { shapedTierRank } from './mapVerdict.js';
+import { verdictScopeSpoken } from './reachLens.js';
 import { compareNames } from './pickGeography.js';
 
 /**
@@ -315,6 +316,14 @@ function inSentence(name) {
 export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
   if (!isSolar) return NIGHT_NOTE;
   if (!verdict) return RANKING_NOTE;
+  // A verdict taken from the drive tier's answer (reach-scoped-card-plan R3) is about the places inside the tier, while
+  // the rows below are regional by definition and show each region as a whole: say so, and name the tier. The
+  // tally sentences below count regions in the tier and would sit beside rows that list them all.
+  if (verdict.scope) {
+    return `Verdict is the strongest region’s average over its places ${verdictScopeSpoken(verdict.scope)}. `
+      + 'The rows below show each region as a whole, ranked on its average, best first; a region too thinly '
+      + 'rated for a verdict ranks last.';
+  }
   if (verdict.allInScope && verdict.tier === 'STAND_DOWN') {
     const area = scopeIsArea ? ' in your area' : '';
     return `Poor in all ${verdict.scopedRegionCount} regions${area} — nothing here is worth the `

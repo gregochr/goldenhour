@@ -5298,6 +5298,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      rule above it as a different block. */
   .wf-map-tab .wf-win-verdict-region { display: none; }
   .wf-map-tab .wf-win-verdict-count { display: none; }
+  /* The drive-tier scope words (reach-scoped-card-plan R3) take the hidden region line's slot: the region and its
+     separator go, the scope stays (printed short, spoken long; the long form is in the accessible name). */
+  .wf-map-tab .wf-win-verdict-scope-sep { display: none; }
   .wf-map-tab .wf-win-pick { padding: 3px 5px; }
   .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
   /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
@@ -6431,6 +6434,33 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   letter-spacing: 0.02em;
   color: var(--color-plex-text-secondary);
 }
+/* The second line of a reach-scoped verdict (reach-scoped-card-plan R3): the region and the drive-tier scope share
+   it. The region yields first (ellipsis, a tighter cap than its own so the line is no wider than an unscoped one);
+   the scope never cuts. An unscoped verdict has no `.wf-win-verdict-sub` and is unchanged. */
+.wf-win-verdict-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.wf-win-verdict-sub .wf-win-verdict-region {
+  max-width: 72px;
+  min-width: 0;
+}
+.wf-win-verdict-scope-sep {
+  flex: none;
+  font-size: 9px;
+  color: #857c70;
+}
+.wf-win-verdict-scope {
+  flex: none;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
 
 /* The pick medallion — OUTLINE ONLY, never filled. A filled chip became the loudest thing on a
    control whose job is the verdict; it was built and cut, and the rejection is part of the spec.
@@ -6769,6 +6799,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    (unrated-verdict-plan.md U2): a verdict hue here would put "Worth it"'s green back on a window no
    rating has called. */
 .wf-win-panel-verdict[data-tier="UNRATED"] { color: rgba(242, 231, 211, 0.52); }
+/* The drive-tier scope beside the header word (reach-scoped-card-plan R3): smaller and calmer than the word. */
+.wf-win-panel-verdict-scope {
+  margin-left: 6px;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--color-plex-text-secondary);
+}
 .wf-win-panel-note {
   margin: 0;
   padding: 9px 12px;
@@ -15770,3 +15809,13 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
 .wf-lens-count .wf-guide-link { display: inline-flex; vertical-align: middle; margin-left: 12px; }
 /* The drive-time lock: segments (and the Pro pill) on one line, the guide link on its own beneath. */
 .wf-filters-drive-lock { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+
+/* The drive-tier scope caption over a list of verdict words (reach-scoped-card-plan R3, D6): the pill's dropdown and the
+   phone's Windows section. Quiet, one line, never wider than the list. */
+.wf-win-scope-note,
+.wf-map-peek-scope {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}

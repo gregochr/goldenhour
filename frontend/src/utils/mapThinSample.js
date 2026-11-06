@@ -7,7 +7,9 @@ import { isGatedIn } from './pickScope.js';
  *
  * <p>⚠️ <b>Its own population, not the Plan card's.</b> The Plan card counts its REACH pool; the Map
  * tab has no reach pool, its verdict follows the SCOPE segment ({@code utils/mapVerdict.js}), so
- * this counts the rated SKY places in that scope pool. The two surfaces may print different numbers
+ * this counts the rated SKY places in that scope pool. Under a drive tier whose answer the pill wears
+ * (reach-scoped-card-plan R3) the pool is the scope pool narrowed to the places inside the tier, so the count
+ * describes the same places as the scoped word beside it. The two surfaces may print different numbers
  * for one window; each names its own population. A wood or a wildlife hide ({@code skySubject}
  * false) is never in the pool, rated or not.
  *
@@ -58,19 +60,24 @@ export function thinRatedCount({ verdict, states, scopePool }) {
  * @param {Map<string, object>} args.verdicts row id to verdict ({@code buildEvVerdicts})
  * @param {?Map<string, {states: Map<string, string>}>} args.windowStates window key to its states
  * @param {Array<object>} args.scopePool the scope pool's spots
+ * @param {?Array<object>} [args.reachPool] the scope pool narrowed to the active drive tier, for verdicts that carry a
+ *        {@code scope}; null leaves every row on {@code scopePool}
  * @returns {Map<string, number>} row id to rated count, omitting rows that show none
  */
 export function buildThinCounts({
-  events, verdicts, windowStates, scopePool,
+  events, verdicts, windowStates, scopePool, reachPool = null,
 }) {
   const out = new Map();
   if (!(windowStates instanceof Map)) return out;
   for (const row of Array.isArray(events) ? events : []) {
     if (row?.kind !== 'solar' || row.served === false || row.past) continue;
+    const verdict = verdicts?.get(row.id) ?? null;
     const count = thinRatedCount({
-      verdict: verdicts?.get(row.id) ?? null,
+      verdict,
       states: windowStates.get(`${row.date}:${row.eventType}`)?.states,
-      scopePool,
+      // A verdict taken from the drive tier's answer (it carries `scope`) is about the places inside the tier, so its
+      // rated count is over those; any other row keeps the scope pool (reach-scoped-card-plan R3).
+      scopePool: verdict?.scope && reachPool ? reachPool : scopePool,
     });
     if (count != null) out.set(row.id, count);
   }

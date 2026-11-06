@@ -1048,7 +1048,7 @@ export function WindowFirstBriefingProvider({
       heatSpots: heatSpotList,
       heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
-      reachById, todayStr, tomorrowStr, reachLens,
+      reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
@@ -1061,7 +1061,7 @@ export function WindowFirstBriefingProvider({
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
-      reachById, todayStr, tomorrowStr, reachLens,
+      reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       origin, setOrigin, regions, effectiveReachById, reachMeasured,
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds],
@@ -1123,7 +1123,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           paneItems: Array, upcomingEvents: Array,
  *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
- *           reachLens: object, ratingLens: object, homePlace: ?string,
+ *           reachLens: object, reachVerdicts: ?Object<string, Array>, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, tideLocked: boolean, scoresLocked: boolean,
  *           picksLocked: boolean,

@@ -372,8 +372,8 @@ Tests:
 | R1 | `fix/reach-unroutable-drive` | [#1717](https://github.com/gregochr/goldenhour/pull/1717) | 2026-11-06 (squash 30767fcf9) | Built 2026-11-05 (V220). Notes: the home stamp already took its instant before the roster read in both `DriveTimeRefreshJob` and `UserSettingsService`; the only home change was `DriveDurationService` treating a short ORS answer as no answer (the client already refused one). `RegionDriveTimeWriter.storeIfBaseUnchanged` makes the region rows conditional on the base too, not only the stamp. The card also carries `reachFarRemoved`, `reachUnroutableCount` and `reachOriginName` beside `reachUnroutableRemoved`. `regions.drives_measured_at` is not backfilled: every away drive reads PENDING until the first nightly region sweep after deploy. |
 | R1b | `feature/admin-unroutable-locations` | [#1718](https://github.com/gregochr/goldenhour/pull/1718) | 2026-11-06 (squash 36be2ebaf) | Built 2026-11-06. `GET /api/admin/drive-times/unroutable` (`UnroutableLocationService`): stamps and id pairs by four small queries, then `DriveStatus.of` per (origin, location) in memory, so the count is by construction what a reader's card does. The denominator is MEASURED + UNROUTABLE origins (PENDING left out of both counts). The "Operations drive-time panel" is the Scheduler job panel for `drive_time_refresh` (there is no separate drive section). No migration. |
 | R1c | `feature/location-drive-point` | [#1719](https://github.com/gregochr/goldenhour/pull/1719) | 2026-11-06 (squash f14f5bcea) | Built 2026-11-06 (V221). Notes: the map picker for nudging the point was not built (no map widget exists in the admin UI; the plan said not to build one), so the point is a looked-up place or a postcode as returned. The ORS fixtures for an unsnappable point (`contract/ors/probe-*.json`) are hand-written from ORS's documented behaviour (a null duration and a null `destinations[]` entry; HTTP 404 code 6010 as the error form), not recorded: there is no ORS key in tests and no live call is allowed. The client handles both forms, and a 6010 that names the source or the control (or no coordinate) reads as UNAVAILABLE, never as a refusal. The guard is a separate service called by `LocationController` before the transactional `LocationService` call (the controller holds no logic; the service stays free of ORS). The control destination is central Birmingham; a source with no route to it (a ferry-only island base) reads UNAVAILABLE and the save is allowed. `LocationService.update` invalidates (D1a) only when the ROUTING point moves (drive point when set, else the pin), so a pin move behind a drive point or a rename over the same coordinates deletes nothing. The reach payload's `driveTo` and the roster's `drivePointName` are the same for every reader (no personal data). `driveTo` is added to a reach entry only when set, so every other entry is shaped as before. The place lookup's 25 km cut (`DrivePointLookupService.MAX_DISTANCE_KM`) does not apply to a postcode, which the admin typed exactly. |
-| R2 | `feature/reach-scoped-headline` | | | Built 2026-11-06. Notes: see "R2 build notes" below the table. |
-| R3 | `feature/map-pill-reach-tier` | | | |
+| R2 | `feature/reach-scoped-headline` | [#1720](https://github.com/gregochr/goldenhour/pull/1720) | 2026-11-06 (squash 0617b0d09) | Built 2026-11-06. Notes: see "R2 build notes" below the table. |
+| R3 | `feature/map-pill-reach-tier` | | | Built 2026-11-06. Notes: see "R3 build notes" below the R2 notes. |
 
 ## 6. Review record
 
@@ -460,3 +460,47 @@ Tests:
 - **Grid baseline.** While any card wears a scope, every other non-away card reserves a hidden `.wf-hc-scope.reserved` row so
   Spread and Best share a baseline; under Any, or with nothing held, no row is added. The ellipsis sits on an inner block
   span (`.wf-hc-scope-t`), not the flex container.
+
+### R3 build notes (2026-11-06)
+
+- **One drive state.** `MapView`'s `useState(0)` is gone; it reads the Plan bar's `useReachLens` (the pane hands it down as
+  `reachLens`, with the provider's once-computed `reachMeasured`). The popover writes `selectTier`, the crumb's reach clear
+  and "Clear all" write Any, so the Plan bar follows. A door handoff no longer copies `limitMinutes` (the sheet door's own
+  widened tier is not carried; the bar's tier is the one tier). **The tier is applied only where the reader's drives are
+  measured**: a weekday opens on 45 min, and an unmeasured reader (no postcode) would otherwise have the whole Map emptied by
+  the old rule that drops a place with no drive time. The popover shows the shared tier (Any when drive-locked) even then, as
+  the Plan bar does. A mount with no lens (tests, any host without the provider) keeps a local state pinned to Any. The Map's
+  pin filter stays the deliberate R1 exception (drops every place with no drive time); it governs what is DRAWN, while the
+  pill's population uses the Plan's `gateSpotsByReach` (`utils/mapReach.js`).
+- **Scope x tier.** `buildReachVerdictIndex` indexes the held tier's per-window `regions[]`; each record keeps its position
+  in the server's best-first order (`reachRank`) because the entries carry no sample-gate flag, and `windowVerdict` selects the
+  best-ranked in-scope record with a finite mean (so an `AWAITING` lead with no mean is skipped as the served ranking skips
+  it). The regions in scope for a reach verdict are `regionNamesOf(reachPool)`, `reachPool` being the scope pool narrowed by
+  the tier, so `sharingCount`/`allInScope`/`scopedRegionCount` count regions in scope AND in reach. A window the answer does
+  not name keeps the served verdict (no scope words); a named window with nothing in reach has no verdict (the pill is empty,
+  as the field is). The verdict carries `scope: {tierMinutes}`.
+- **Every Map figure, decided:**
+  - pill word, region line, `+N` / `everywhere` tally: **scoped** (reach records, scope x tier);
+  - `MapWindowPanel` header verdict (`:145-147`): **scoped**, with the scope beside it (`wf-win-panel-verdict-scope`); its note
+    (`windowPanelNote`) says the verdict is over the places within the tier and the rows are each region as a whole, and
+    replaces the tally sentences ("N regions are Worth it, so the choice is drive time") that would sit beside rows listing all
+    regions;
+  - `MapRegionPanel` and `MapWindowPanel` region rows, and their `N of M at 4★+`: **regional by definition, unchanged**
+    (served verdicts, scope-pool counts);
+  - the pill's `· N rated` (`MapView.jsx:3876-3881`): **counted over `reachPool`** for a scoped verdict
+    (`buildThinCounts` `reachPool`), the scope pool for any other row; it is the Map's own client count (licensed member (f)),
+    not the server's `thinCount`, because the server's is over the top region of Everywhere, not of the reader's scope;
+  - the "is better" line (`landingRows`/`betterNext`): **follows the scoped verdicts**; every window is answered at the one
+    tier, so the comparison is like-for-like; the pill beside it carries the scope words;
+  - stepper ticks and `activeWindowTier`: **follow the scoped verdicts** (colour only; the pill is labelled);
+  - the dropdown rows and the phone's Windows section / Other windows value: **follow the scoped verdicts**, captioned
+    `Verdicts within 45m` (the Other windows value speaks the scope and prints none: that cell never cuts);
+  - the haze (`conf`/`confidenceTier`) and the medallion (`pickKind`/`pickRegion`): **the card's**, which is the tier's while
+    the Plan wears a scoped headline (the R2 `served*` trio was removed, nothing reads it);
+  - the four `map-landing-plan.md:557-562` figures: the tally is scoped as above; `allPoor` and `nextWorthIt` **no longer
+    exist in code** (the landing card was removed); "N of M at 4★+" is regional by definition.
+- **Scope words.** Desktop and tablet: on the pill's region line (`.wf-win-verdict-sub`: region capped at 72px so the line is
+  no wider than an unscoped one, scope `flex: none`). At <=639px the stylesheet already hides the region line and the rated
+  count; the region separator is hidden too and the scope takes the slot. Printed `within 45m` (aria-hidden), spoken
+  `within 45 min` (sr-only, in the pill's accessible name). **Not measured in a real browser** (320px/375px width of the
+  second line against the day label): see the PR report.
