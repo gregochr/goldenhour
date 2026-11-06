@@ -230,6 +230,18 @@ export function verdictScopeText(verdictScope) {
 }
 
 /**
+ * The scope in its SHORTEST printed form, for a cell too narrow for {@link verdictScopeText}: {@code ≤45m},
+ * {@code ≤1h30}, {@code ≤2h30} (reach-scoped-card-plan R3). Visible only; speech still takes {@link verdictScopeSpoken}.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the verdict's {@code scope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "≤45m"}, or null when the word is not scoped
+ */
+export function verdictScopeShort(verdictScope) {
+  const minutes = formatDriveDurationCompact(verdictScope?.tierMinutes ?? null);
+  return minutes ? `≤${minutes}` : null;
+}
+
+/**
  * The same scope as {@link verdictScopeText}, in the long form speech takes: {@code within 45 min},
  * {@code within 1h 30min}, {@code within 2h 30min}. The card's own precedent (the Spread qualifier, `spreadQualifier`)
  * prints short and speaks long, because "45m" is voiced as a letter; the visible string is the short one.

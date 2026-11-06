@@ -130,6 +130,8 @@ import MapView from '../components/MapView.jsx';
 import { getAstroAvailableDates } from '../api/astroApi.js';
 import { getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { deferred } from './askFixtures.js';
+import { reachLensStub } from './reachLensStub.js';
+import { tierById } from '../utils/reachLens.js';
 
 const TODAY = '2026-01-15';
 
@@ -307,9 +309,13 @@ describe('MapView — the door-landing effect applies the WHOLE payload atomical
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(0);
   });
 
-  it('tier: a real limitMinutes lands as that exact driveTimeFilter value', async () => {
-    await renderTab({ planHandoff: { ...DOOR_BASE, limitMinutes: 150, nonce: 1 } });
+  it('tier: the Map shows the SHARED tier, and a door\'s limitMinutes neither sets nor resets it (R3)', async () => {
+    // reach-scoped-card-plan R3: the Map and the Plan bar share one tier, so a door has nothing to carry. Both a
+    // finite and a null limit leave the shared 150 exactly as it is, and the lens is never written.
+    const lens = reachLensStub(150);
+    await renderTab({ reachLens: lens, reachMeasured: true, planHandoff: { ...DOOR_BASE, limitMinutes: 45, nonce: 1 } });
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
+    expect(lens.selectTier).not.toHaveBeenCalled();
   });
 
   it('region: a region OUTSIDE "My area" jumps AND flips scope to the whole catalogue', async () => {
@@ -500,22 +506,46 @@ describe('MapView — the crumb never mounts without a live, tab-mode door hando
 describe('MapView — the crumb\'s clear button really resets the map (integration, not just the callback wiring)', () => {
   it('resets the floor to the map\'s own default, the tier to Any, and scope to My area', async () => {
     const onClearOrigin = vi.fn();
-    await renderTab({
-      origin: { id: 'lakes', name: 'Lake District', baseName: 'Keswick' },
-      onClearOrigin,
-      planHandoff: {
-        ...DOOR_BASE, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 1,
-      },
+    // A STATEFUL shared lens (the real contract: selectTier moves the tier the Map reads back), so this integrates the
+    // crumb, the shared state and what the Map then shows, not just the callback wiring.
+    function SharedLensHost(props) {
+      const [id, setId] = React.useState('150');
+      const lens = { tier: tierById(id), tierId: id, selectTier: setId };
+      return (
+        <MapView
+          locations={ALL_LOCATIONS}
+          date={TODAY}
+          autoEventType="SUNSET"
+          forecastDates={[TODAY]}
+          heat={HEAT}
+          reachLens={lens}
+          reachMeasured
+          {...props}
+        />
+      );
+    }
+    await act(async () => {
+      render(
+        <SharedLensHost
+          origin={{ id: 'lakes', name: 'Lake District', baseName: 'Keswick' }}
+          onClearOrigin={onClearOrigin}
+          planHandoff={{
+            ...DOOR_BASE, minRating: 4, limitMinutes: 150, region: 'Lake District', nonce: 1,
+          }}
+        />,
+      );
     });
     expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('within');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'clear' }));
     });
 
     expect(filtersPopoverCalls.at(-1).minStars).toBe(3); // DEFAULT_MIN_STARS
+    // The tier is the SHARED one: clearing writes Any to it, and the Map reads Any back.
     expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(0);
     expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
     // `onClearOrigin` is called — asserted directly, rather than through the `origin` prop
@@ -965,6 +995,8 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
   it('the reader\'s own filters still apply to it: a reach tier with no drive time drops it, and the crumb says WHY, never "showing 0"', async () => {
     await renderTab({
       locations: WITH_UNRATED,
+      reachLens: reachLensStub(45),
+      reachMeasured: true,
       planHandoff: {
         ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A', 'Unrated B'], nonce: 1,
       },
@@ -977,6 +1009,8 @@ describe('MapView — a NAMED spot is exempt from the unrated withholding, not f
   it('...singular for one named spot', async () => {
     await renderTab({
       locations: WITH_UNRATED,
+      reachLens: reachLensStub(45),
+      reachMeasured: true,
       planHandoff: { ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A'], nonce: 1 },
     });
     expect(screen.getByTestId('wf-map-breadcrumb-carrying'))

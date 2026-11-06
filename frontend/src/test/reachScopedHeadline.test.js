@@ -223,7 +223,7 @@ describe('the scope fold and the surfaces that print it', () => {
     return buildHeatStripCards(EVENTS, cards, new Set(), days(), TODAY, TOMORROW)[0];
   }
 
-  it('folds the scope, the served word and mean, and the served confidence and pick for the Map', () => {
+  it('folds the scope and the served word and mean for H2', () => {
     const strip = fold({ reachVerdicts: TIERS });
 
     expect(strip.verdict).toBe('STAND_DOWN');
@@ -234,18 +234,14 @@ describe('the scope fold and the surfaces that print it', () => {
     expect(strip.regionHotRegionName).toBe(REGION);
     expect(strip.hotRegionName).toBe('Lakes');
     expect(strip.scopedThinCount).toBeNull();
-    expect(strip.servedConfidence).toBe('high');
-    expect(strip.servedPickKind).toBe('best');
-    expect(strip.servedPickRegion).toBe(REGION);
-    // The strip's own pick fields are the scoped ones.
+    // The strip's own pick fields are the scoped ones, and the Map reads them (R3).
     expect(strip.pickKind).toBeNull();
   });
 
   it('adds none of it to a card with no scoped headline', () => {
     const strip = fold({});
 
-    for (const key of ['verdictScope', 'regionVerdict', 'regionVerdictMean', 'scopedThinCount',
-      'servedConfidence', 'servedPickKind', 'servedPickRegion']) {
+    for (const key of ['verdictScope', 'regionVerdict', 'regionVerdictMean', 'scopedThinCount']) {
       expect(strip).not.toHaveProperty(key);
     }
     expect(strip.verdict).toBe('WORTH_IT');

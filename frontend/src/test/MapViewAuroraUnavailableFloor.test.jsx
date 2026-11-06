@@ -325,7 +325,8 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
   describe('with a drive-time filter chosen in aurora mode', () => {
     it('keeps the drive-time filter', async () => {
       // A filter the reader sets for this visit only, never saved: it stands like the saved ones.
-      await openMap(tab());
+      // A measured reader: the tier buttons are disabled for one with no drive times (reach-scoped-card-plan R3).
+      await openMap(tab({ reachById: new Map([[1, { driveMinutes: 20, driveStatus: 'MEASURED' }]]) }));
       expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
       fireEvent.click(screen.getByTestId('wf-filters-chip'));
       fireEvent.click(screen.getByTestId('drive-time-filter-45'));

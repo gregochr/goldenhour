@@ -11,10 +11,12 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, verdictRegionLabel, windowVerdict,
+  buildEvVerdicts, buildReachVerdictIndex, buildRegionVerdictIndex, regionNamesOf, verdictRegionLabel,
+  verdictsScope, windowVerdict,
 } from '../utils/mapVerdict.js';
 import { EVENT_KIND, buildMapEvents } from '../utils/mapEvents.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { scopePoolWithinReach } from '../utils/mapReach.js';
 
 const DATE = '2026-09-06';
 const SUNSET = 'SUNSET';
@@ -542,6 +544,320 @@ describe('agreement with the Plan tab (map-landing-plan.md check 8)', () => {
     // "everywhere" is correctly withheld.
     expect(result.scopedRegionCount).toBe(3);
     expect(result.allInScope).toBe(false);
+  });
+});
+
+describe('buildReachVerdictIndex and the reach verdict (reach-scoped-card-plan R3)', () => {
+  /** One tier window as the endpoint serves it: regions best first. */
+  const reachWindow = (regions, extra = {}) => ({
+    date: DATE, targetType: SUNSET, displayVerdict: regions[0]?.displayVerdict ?? 'AWAITING', regions, ...extra,
+  });
+  const rv = (regionName, displayVerdict, meanRating) => ({ regionName, displayVerdict, meanRating });
+
+  it('keys each served region on date|targetType|regionName with its position in the server\'s order', () => {
+    const { index, windowKeys } = buildReachVerdictIndex([
+      reachWindow([rv('Cumbria', 'WORTH_IT', 4.4), rv('Northumberland', 'MAYBE', 3.0)]),
+    ]);
+
+    expect(windowKeys).toEqual(new Set([`${DATE}|SUNSET`]));
+    expect(index.get(`${DATE}|SUNSET|Cumbria`)).toEqual({ ...rv('Cumbria', 'WORTH_IT', 4.4), reachRank: 0 });
+    expect(index.get(`${DATE}|SUNSET|Northumberland`).reachRank).toBe(1);
+  });
+
+  it('records a window with no regions as answered, and skips malformed entries and non-arrays', () => {
+    const { index, windowKeys } = buildReachVerdictIndex([
+      reachWindow([]),
+      { date: DATE, regions: [rv('X', 'MAYBE', 3)] },
+      { date: DATE, targetType: 'SUNRISE', regions: [{ displayVerdict: 'MAYBE' }, rv('Y', 'MAYBE', 3)] },
+      null,
+    ]);
+
+    expect(windowKeys).toEqual(new Set([`${DATE}|SUNSET`, `${DATE}|SUNRISE`]));
+    expect([...index.keys()]).toEqual([`${DATE}|SUNRISE|Y`]);
+    expect(buildReachVerdictIndex(null).index.size).toBe(0);
+    expect(buildReachVerdictIndex(undefined).windowKeys.size).toBe(0);
+  });
+
+  it('keeps the first of a repeated key', () => {
+    const { index } = buildReachVerdictIndex([
+      reachWindow([rv('Cumbria', 'WORTH_IT', 4.4), rv('Cumbria', 'STAND_DOWN', 1.0)]),
+    ]);
+    expect(index.get(`${DATE}|SUNSET|Cumbria`).displayVerdict).toBe('WORTH_IT');
+  });
+
+  it('ranks by the SERVER\'s order, not by mean: a lower-mean region the server put first leads', () => {
+    // The served index ranks with the sample gate; the reach entries carry no such flag, so the order the server
+    // already ranked them in IS the ranking. A mean sort here would pick Northumberland (4.4) over the server's lead.
+    const { index } = buildReachVerdictIndex([
+      reachWindow([rv('Cumbria', 'MAYBE', 3.1), rv('Northumberland', 'UNRATED', 4.4)]),
+    ]);
+
+    const verdict = windowVerdict({
+      index, date: DATE, targetType: SUNSET, regionsInScope: ['Cumbria', 'Northumberland'], scopeTierMinutes: 45,
+    });
+
+    expect(verdict.regionName).toBe('Cumbria');
+    expect(verdict.tier).toBe('MAYBE');
+    expect(verdict.scope).toEqual({ tierMinutes: 45 });
+  });
+
+  it('skips a record with no finite mean, as the served ranking does, and answers null when none has one', () => {
+    const lead = [reachWindow([rv('Cumbria', 'AWAITING', null), rv('Northumberland', 'MAYBE', 3.0)])];
+    const { index } = buildReachVerdictIndex(lead);
+
+    expect(windowVerdict({
+      index, date: DATE, targetType: SUNSET, regionsInScope: ['Cumbria', 'Northumberland'], scopeTierMinutes: 45,
+    }).regionName).toBe('Northumberland');
+    expect(windowVerdict({
+      index, date: DATE, targetType: SUNSET, regionsInScope: ['Cumbria'], scopeTierMinutes: 45,
+    })).toBeNull();
+  });
+
+  it('intersects the tier\'s regions with the scope: an out-of-scope lead is not named, an out-of-reach region is absent', () => {
+    const { index } = buildReachVerdictIndex([
+      reachWindow([rv('Cumbria', 'WORTH_IT', 4.4), rv('Northumberland', 'MAYBE', 3.0)]),
+    ]);
+    const ask = (regionsInScope) => windowVerdict({
+      index, date: DATE, targetType: SUNSET, regionsInScope, scopeTierMinutes: 90,
+    });
+
+    // The scope holds only Northumberland: the tier's lead (Cumbria) is outside it.
+    expect(ask(['Northumberland'])).toMatchObject({ tier: 'MAYBE', regionName: 'Northumberland', sharingCount: 0 });
+    // The scope holds a region the tier left out (nothing of it in reach): no answer, never a different region's.
+    expect(ask(['The Peak'])).toBeNull();
+    // Both in scope, differing tiers: the lead, with nobody sharing.
+    expect(ask(['Cumbria', 'Northumberland'])).toMatchObject({
+      tier: 'WORTH_IT', regionName: 'Cumbria', sharingCount: 0, scopedRegionCount: 2, allInScope: false,
+    });
+  });
+
+  it('keeps sharingCount, allInScope and scopedRegionCount working over the reach records', () => {
+    const { index } = buildReachVerdictIndex([
+      reachWindow([rv('Cumbria', 'WORTH_IT', 4.4), rv('Northumberland', 'WORTH_IT', 4.0)]),
+    ]);
+
+    expect(windowVerdict({
+      index, date: DATE, targetType: SUNSET, regionsInScope: ['Cumbria', 'Northumberland'], scopeTierMinutes: 45,
+    })).toEqual({
+      tier: 'WORTH_IT',
+      regionName: 'Cumbria',
+      sharingCount: 1,
+      allInScope: true,
+      scopedRegionCount: 2,
+      scope: { tierMinutes: 45 },
+    });
+  });
+
+  it('labels a scoped all-in-scope verdict "everywhere" (the scope words qualify it), and an unscoped one as before', () => {
+    const all = {
+      regionName: 'Cumbria', sharingCount: 1, allInScope: true, scopedRegionCount: 2,
+    };
+    expect(verdictRegionLabel({ ...all, scope: { tierMinutes: 45 } }, { scopeIsArea: true })).toBe('everywhere');
+    expect(verdictRegionLabel({ ...all, scope: { tierMinutes: 45 } }, { scopeIsArea: false })).toBe('everywhere');
+    expect(verdictRegionLabel(all, { scopeIsArea: true })).toBe('everywhere in your area');
+  });
+
+  it('stamps no scope on a verdict taken from the served index', () => {
+    const verdict = windowVerdict({
+      index: buildRegionVerdictIndex(days([region('Cumbria', 4.4, 'WORTH_IT')])),
+      date: DATE,
+      targetType: SUNSET,
+      regionsInScope: ['Cumbria'],
+    });
+    expect(verdict).not.toHaveProperty('scope');
+  });
+
+  describe('buildEvVerdicts with a reach answer', () => {
+    const served = () => buildRegionVerdictIndex(days([
+      region('Cumbria', 4.4, 'WORTH_IT'),
+      region('Northumberland', 3.0, 'MAYBE'),
+    ]));
+    const row = (id, date, eventType, extra = {}) => ({
+      id, kind: EVENT_KIND.SOLAR, date, eventType, ...extra,
+    });
+    const reach = (windows, regionsInScope) => ({
+      ...buildReachVerdictIndex(windows), regionsInScope, tierMinutes: 45,
+    });
+
+    it('answers a window the reach answer names from it, over the regions in scope and in reach', () => {
+      const out = buildEvVerdicts({
+        events: [row('a', DATE, SUNSET)],
+        index: served(),
+        regionsInScope: ['Cumbria', 'Northumberland'],
+        reach: reach([reachWindow([rv('Northumberland', 'STAND_DOWN', 2.0)])], ['Northumberland']),
+      });
+
+      expect(out.get('a')).toMatchObject({
+        tier: 'STAND_DOWN', regionName: 'Northumberland', scope: { tierMinutes: 45 },
+      });
+    });
+
+    it('keeps the served verdict for a window the answer does not name, with no scope', () => {
+      const out = buildEvVerdicts({
+        events: [row('b', DATE, 'SUNRISE')],
+        index: buildRegionVerdictIndex(days([region('Cumbria', 4.4, 'WORTH_IT')], { targetType: 'SUNRISE' })),
+        regionsInScope: ['Cumbria'],
+        reach: reach([reachWindow([rv('Cumbria', 'STAND_DOWN', 2.0)])], ['Cumbria']),
+      });
+
+      expect(out.get('b').tier).toBe('WORTH_IT');
+      expect(out.get('b')).not.toHaveProperty('scope');
+    });
+
+    it('answers nothing for a named window with nothing in reach (an empty regions list)', () => {
+      const out = buildEvVerdicts({
+        events: [row('a', DATE, SUNSET)],
+        index: served(),
+        regionsInScope: ['Cumbria'],
+        reach: reach([reachWindow([])], []),
+      });
+      expect(out.has('a')).toBe(false);
+    });
+
+    it('is exactly the served verdict with no reach answer', () => {
+      const out = buildEvVerdicts({
+        events: [row('a', DATE, SUNSET)], index: served(), regionsInScope: ['Cumbria', 'Northumberland'],
+      });
+      expect(out.get('a')).toMatchObject({ tier: 'WORTH_IT', regionName: 'Cumbria' });
+      expect(out.get('a')).not.toHaveProperty('scope');
+    });
+  });
+
+  describe('verdictsScope', () => {
+    it('is the scope when EVERY verdict carries one, and null when any does not or the input is not a Map', () => {
+      expect(verdictsScope(new Map([
+        ['a', { tier: 'MAYBE', scope: { tierMinutes: 90 } }], ['b', { tier: 'MAYBE', scope: { tierMinutes: 90 } }],
+      ]))).toEqual({ tierMinutes: 90 });
+      // The mixed list: a row that fell back to the served word is not true "within 90", so no caption.
+      expect(verdictsScope(new Map([['a', { tier: 'MAYBE' }], ['b', { tier: 'MAYBE', scope: { tierMinutes: 90 } }]])))
+        .toBeNull();
+      expect(verdictsScope(new Map([['a', { tier: 'MAYBE', scope: { tierMinutes: 90 } }], ['b', { tier: 'MAYBE' }]])))
+        .toBeNull();
+      expect(verdictsScope(new Map([['a', { tier: 'MAYBE' }]]))).toBeNull();
+      expect(verdictsScope(null)).toBeNull();
+      expect(verdictsScope(new Map([['a', null]]))).toBeNull();
+    });
+  });
+});
+
+describe('agreement with the Plan tab at every drive tier, both origins (reach-scoped-card-plan R3)', () => {
+  const slot = (locationId, locationName, claudeRating) => ({
+    locationId, locationName, claudeRating, canopy: false,
+  });
+  const REGIONS = [
+    region('The Peak', 2.2, 'STAND_DOWN', { slots: [slot(1, 'Kinder Scout', 2)] }),
+    region('Northumberland', 4.4, 'WORTH_IT', { slots: [slot(2, 'Bamburgh Beach', 4)] }),
+    region('Cumbria', 4.4, 'WORTH_IT', { slots: [slot(3, 'Derwentwater', 4)] }),
+  ];
+  const served = [{
+    date: DATE,
+    eventSummaries: [{
+      targetType: SUNSET,
+      regions: REGIONS,
+      window: { verdict: 'WORTH_IT', bestRating: 4, confidence: 'high', badges: [] },
+    }],
+  }];
+  const rv = (regionName, displayVerdict, meanRating) => ({ regionName, displayVerdict, meanRating });
+  const entry = (regions) => ({
+    date: DATE,
+    targetType: SUNSET,
+    displayVerdict: regions[0]?.displayVerdict ?? 'AWAITING',
+    meanRating: regions[0]?.meanRating ?? null,
+    topMeanRating: regions[0]?.meanRating ?? null,
+    confidence: 'medium',
+    topRegionName: regions[0]?.regionName ?? null,
+    blanked: false,
+    pick: null,
+    regions,
+  });
+
+  /** HOME: the server's prune-and-re-rank at each tier, best first. The three tiers give three different words. */
+  // Consistent with REACH below: The Peak (30 min) and Northumberland (40) are in the 45 tier, Cumbria (80) joins at 90.
+  const HOME = {
+    45: [entry([rv('Northumberland', 'MAYBE', 3.0), rv('The Peak', 'STAND_DOWN', 2.2)])],
+    90: [entry([rv('Cumbria', 'STAND_DOWN', 2.4), rv('The Peak', 'STAND_DOWN', 2.2), rv('Northumberland', 'STAND_DOWN', 2.0)])],
+    150: [entry([rv('Cumbria', 'WORTH_IT', 4.4), rv('Northumberland', 'WORTH_IT', 4.4), rv('The Peak', 'STAND_DOWN', 2.2)])],
+  };
+  /** AWAY (from The Peak's base): that region alone, pruned to its in-tier places. */
+  const AWAY = {
+    45: [entry([rv('The Peak', 'STAND_DOWN', 2.2)])],
+    90: [entry([rv('The Peak', 'MAYBE', 2.7)])],
+    150: [entry([rv('The Peak', 'UNRATED', 3.1)])],
+  };
+
+  const REACH = new Map([
+    [1, { driveMinutes: 30, driveStatus: 'MEASURED' }],
+    [2, { driveMinutes: 40, driveStatus: 'MEASURED' }],
+    [3, { driveMinutes: 80, driveStatus: 'MEASURED' }],
+  ]);
+
+  function card(limitMinutes, reachVerdicts, origin = null) {
+    const [built] = buildWindowCards(
+      [{ date: DATE, targetType: SUNSET }], served, DATE, '2026-09-07', new Set(), REACH,
+      { limitMinutes, defaultLimitMinutes: 45, reachMeasured: true, reachVerdicts, origin },
+    );
+    return built;
+  }
+
+  const SPOTS = [
+    { id: 1, regionName: 'The Peak' },
+    { id: 2, regionName: 'Northumberland' },
+    { id: 3, regionName: 'Cumbria' },
+  ];
+
+  /** The regions the MAP's own narrowing puts in scope AND in reach (the production path: `scopePoolWithinReach`). */
+  function clientRegions(limitMinutes, pool = SPOTS) {
+    return regionNamesOf(scopePoolWithinReach(pool, (id) => REACH.get(id), limitMinutes, true));
+  }
+
+  function mapAnswer(limitMinutes, tiers, regionsInScope) {
+    const { index, windowKeys } = buildReachVerdictIndex(tiers[String(limitMinutes)]);
+    const out = buildEvVerdicts({
+      events: [{ id: 'row', kind: EVENT_KIND.SOLAR, date: DATE, eventType: SUNSET }],
+      index: buildRegionVerdictIndex(served),
+      regionsInScope: REGIONS.map((r) => r.regionName),
+      reach: { index, windowKeys, regionsInScope, tierMinutes: limitMinutes },
+    });
+    return out.get('row');
+  }
+
+  it.each([45, 90, 150])('home, Everywhere, %i min: the pill\'s word and region are the Plan card\'s', (minutes) => {
+    const planned = card(minutes, HOME);
+    // The regions come from the CLIENT's own narrowing, not from the answer, so the fixture and the gate must agree.
+    const regionsInScope = clientRegions(minutes);
+    expect([...regionsInScope].sort()).toEqual(HOME[String(minutes)][0].regions.map((r) => r.regionName).sort());
+    const mapped = mapAnswer(minutes, HOME, regionsInScope);
+
+    expect(mapped.tier).toBe(planned.verdict);
+    expect(mapped.regionName).toBe(planned.hotRegionName);
+    expect(planned.verdictScope).toEqual({ tierMinutes: minutes });
+    expect(mapped.scope).toEqual({ tierMinutes: minutes });
+  });
+
+  it('home: the three tiers really do give three different words (a tier-blind Map would fail)', () => {
+    expect([45, 90, 150].map((m) => mapAnswer(m, HOME, clientRegions(m)).tier))
+      .toEqual(['MAYBE', 'STAND_DOWN', 'WORTH_IT']);
+  });
+
+  it.each([45, 90, 150])('away from The Peak, %i min: the pill\'s word is the origin region\'s, as the card\'s', (minutes) => {
+    const planned = card(minutes, AWAY, { id: 7, name: 'The Peak', baseName: 'Buxton' });
+    // Away the pool is the origin region's places alone, narrowed by the base-measured drives.
+    const regionsInScope = clientRegions(minutes, SPOTS.filter((s) => s.regionName === 'The Peak'));
+    expect(regionsInScope).toEqual(['The Peak']);
+    const mapped = mapAnswer(minutes, AWAY, regionsInScope);
+
+    expect(mapped.tier).toBe(planned.verdict);
+    expect(mapped.regionName).toBe('The Peak');
+  });
+
+  it('keeps the My-area divergence the existing agreement test pins: narrowing scope moves the pill, not the card', () => {
+    const planned = card(150, HOME);
+    const everywhere = mapAnswer(150, HOME, ['Cumbria', 'Northumberland', 'The Peak']);
+    const mine = mapAnswer(150, HOME, ['The Peak']);
+
+    expect(everywhere.tier).toBe(planned.verdict);
+    expect(mine.tier).toBe('STAND_DOWN');
+    expect(mine.tier).not.toBe(planned.verdict);
   });
 });
 
