@@ -111,20 +111,20 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p reports
-          # Latest COMPLETED run on main, whatever its conclusion (a failed run still uploaded state).
-          run_id=$(gh run list --workflow stryker.yml --branch main --status completed --limit 1 \
-            --json databaseId --jq '.[0].databaseId // empty' || true)
-          if [ -z "$run_id" ]; then
-            echo "No earlier completed run: starting from scratch."
-            exit 0
-          fi
-          rm -rf prev-incremental
-          if gh run download "$run_id" --name "stryker-incremental-${SHARD}" --dir prev-incremental; then
-            mv prev-incremental/stryker-incremental.json reports/stryker-incremental.json
-            echo "Reusing incremental state from run $run_id."
-          else
-            echo "Run $run_id has no incremental artifact for shard ${SHARD}: starting from scratch."
-          fi
+          # The last 10 COMPLETED runs on main, newest first, whatever their conclusion. The newest may
+          # have no artifact for this shard (plan job failed, run cancelled, shard timed out before
+          # uploading), so walk back to the first one that does.
+          ids=$(gh run list --workflow stryker.yml --branch main --status completed --limit 10 \
+            --json databaseId --jq '.[].databaseId' || true)
+          for id in $ids; do
+            rm -rf prev-incremental
+            if gh run download "$id" --name "stryker-incremental-${SHARD}" --dir prev-incremental; then
+              mv prev-incremental/stryker-incremental.json reports/stryker-incremental.json
+              echo "Reusing incremental state from run $id."
+              exit 0
+            fi
+          done
+          echo "No usable incremental artifact for shard ${SHARD}: starting from scratch."
 
       - name: Decide whether to force a full re-test
         id: force

@@ -264,7 +264,7 @@ the first full measurement (plan Phase 2).
   incremental file and restores the originals; it may leave `stryker-setup-*.js` files behind (git-ignored). ⚠️ Interrupt only the main `stryker`
   process (SIGINT) and let it finish restoring: killing its children, or deleting `.stryker-tmp/` first,
   strands the whole tree with a `// @ts-nocheck` header and the mutants' instrumentation (1,286 files
-  were left modified once; `git checkout -- frontend/src` recovers them if nothing there is yours).
+  were left modified once). **Run mutation testing only in a separate clean worktree** (`git worktree add`), so nothing of yours is in the tree; then the recovery is to delete that worktree. If you must recover in place, commit or copy your own work out first, then restore (CLAUDE.md forbids restoring with `git checkout --` over uncommitted work).
   Stryker runs `inPlace: true` (the originals are backed up to `.stryker-tmp/` and restored on exit):
   `windowFirstTopics.test.js` reads a backend source file by a path that climbs out of `frontend/`,
   which the default one-level-deeper sandbox copy breaks. Run it on a clean checkout, and if a run is
@@ -278,7 +278,7 @@ the first full measurement (plan Phase 2).
   of a shard must fit in its 350-minute job cap on its own.
 - **Incremental state** (`incremental: true`) is saved only when a shard's run finishes. It travels as an
   artifact `stryker-incremental-<shard>` (30-day retention, uploaded `if: always()`), fetched at the start
-  from the latest completed `stryker.yml` run on `main`, whatever its conclusion; `actions/cache` is not
+  from the newest of the last 10 completed `stryker.yml` runs on `main` that has one for the shard, whatever its conclusion; `actions/cache` is not
   used because GitHub evicts caches unused for 7 days, which is the weekly boundary. With no earlier run,
   a shard starts from scratch.
 - **Forced runs.** Incremental mode cannot see changes to `setup.js`, `vite.config.js` or dependency

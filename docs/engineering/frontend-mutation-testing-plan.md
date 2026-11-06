@@ -129,6 +129,26 @@ Then pick the shape:
 ### 6. Landing copy
 None in Phase 1. The claim is not true until a run has completed and a floor exists.
 
+## Phase 1 as built (2026-11-06)
+
+**Measurements** (a loaded laptop, four runners; the rate comes from the alphabetically first files only):
+- dry run: 17m52s for 15,426 tests, serial;
+- 18,902 mutants to test (22,884 before `ignoreStatic` and the StringLiteral exclusion);
+- about 18 mutants a minute (range 8–28), so about 17.5 h extrapolated for a single job.
+
+**Shape:** ten shards plus a `plan` job that asserts the globs cover `src/utils/*.js` exactly once; about 1.9k
+mutants each; the Stryker step has `timeout-minutes: 320` against the job's 350.
+
+**Deviations from the plan:**
+- `inPlace: true`. The default sandbox copy sits one level deeper, which breaks `windowFirstTopics.test.js`
+  (it reads a backend source file by a path that climbs out of `frontend/`) and fails the dry run.
+- `stryker-setup-*.js` is also git- and docker-ignored (an interrupted run leaves them behind).
+- Schedule Wednesday 03:00 UTC; `dryRunTimeoutMinutes` 180, `timeoutMS` 30000, concurrency 4.
+- The incremental fetch walks the last 10 completed runs rather than taking only the latest.
+
+**Unverified until the first CI run:** whether each shard fits in its job cap on `ubuntu-latest`; incremental
+reuse between runs; the force logic (`--force`, the day-of-month rule).
+
 ## Between phases
 
 After Phase 1 merges, dispatch `stryker.yml` on `main` and wait for it. Read the score per shard (or
