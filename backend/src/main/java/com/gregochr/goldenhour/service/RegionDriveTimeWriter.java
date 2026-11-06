@@ -110,8 +110,11 @@ public class RegionDriveTimeWriter {
      */
     @Transactional
     public void clearForRegion(Long regionId) {
-        repository.deleteAllByRegionId(regionId);
+        // Region row FIRST (this UPDATE flushes the caller's pending base change and takes the row lock), then
+        // the drive rows: the order storeIfBaseUnchanged uses (lockIfBaseIs / stamp, then delete), so the two
+        // can never wait on each other's locks.
         regionRepository.clearDrivesMeasuredAt(regionId);
+        repository.deleteAllByRegionId(regionId);
         matrixMemo.invalidateAfterCommit();
     }
 
@@ -125,6 +128,10 @@ public class RegionDriveTimeWriter {
      */
     @Transactional
     public void clearForLocation(Long locationId) {
+        // Lock order: this takes no region row lock, only the one row per region for this location. A writer
+        // (storeIfBaseUnchanged) holds ONE region's lock plus that region's rows, and never waits on another
+        // region's row, so whoever holds this location's rows here cannot be waiting on a writer that is
+        // waiting on them: no cycle, hence no deadlock with the region-first order above.
         repository.deleteAllByLocationId(locationId);
         matrixMemo.invalidateAfterCommit();
     }

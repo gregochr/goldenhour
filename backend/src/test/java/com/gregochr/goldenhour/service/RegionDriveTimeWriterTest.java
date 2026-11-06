@@ -177,6 +177,16 @@ class RegionDriveTimeWriterTest {
     }
 
     @Test
+    @DisplayName("clearForRegion locks the region row before deleting its drive rows (same order as the store)")
+    void clearForRegion_locksRegionBeforeDeletingRows() {
+        writer.clearForRegion(REGION_ID);
+
+        InOrder order = inOrder(regionRepository, repository);
+        order.verify(regionRepository).clearDrivesMeasuredAt(REGION_ID);
+        order.verify(repository).deleteAllByRegionId(REGION_ID);
+    }
+
+    @Test
     @DisplayName("replaceForRegion clears the memoised matrix (no transaction: at once)")
     void replaceForRegion_clearsMemo() {
         AtomicInteger loads = new AtomicInteger();
