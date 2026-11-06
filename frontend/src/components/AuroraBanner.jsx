@@ -444,7 +444,15 @@ function AuroraToggle({
       data-testid="aurora-banner-toggle"
       className={`wf-aurora-tog ${className}`.trim()}
     >
-      <span aria-hidden="true">{expanded ? '˄' : '˅'}</span>
+      <span className="wf-aurora-tog-pill">
+        {expanded ? <span aria-hidden="true">▴</span> : (
+          <>
+            Open
+            {' '}
+            <span aria-hidden="true">▾</span>
+          </>
+        )}
+      </span>
     </button>
   );
 }
