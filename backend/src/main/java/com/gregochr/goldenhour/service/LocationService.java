@@ -379,6 +379,20 @@ public class LocationService {
     }
 
     /**
+     * Stamps {@code drive_target_changed_at} with now, on the row and on the managed copy. Used by a coordinate move
+     * and by a re-enable (reach-scoped-card-plan D1a): the nightly roster reads only enabled places, so a place that
+     * was off during a sweep must read PENDING, never UNROUTABLE, until it is measured again.
+     *
+     * @param saved the location whose routing destination changed or re-entered the roster
+     */
+    private void bumpDriveTargetChangedAt(LocationEntity saved) {
+        LocalDateTime changedAt = LocalDateTime.now(ZoneOffset.UTC);
+        locationRepository.updateDriveTargetChangedAt(saved.getId(), changedAt);
+        // The column is updatable = false, so the managed copy would otherwise keep serving the old instant.
+        saved.setDriveTargetChangedAt(changedAt);
+    }
+
+    /**
      * Records that a moved location is a new routing destination, and discards every drive time to the old one
      * (reach-scoped-card-plan D1a), in the caller's transaction.
      *
@@ -391,10 +405,7 @@ public class LocationService {
      * @param saved the location that has just been saved with new coordinates
      */
     private void invalidateDriveTimes(LocationEntity saved) {
-        LocalDateTime changedAt = LocalDateTime.now(ZoneOffset.UTC);
-        locationRepository.updateDriveTargetChangedAt(saved.getId(), changedAt);
-        // The column is updatable = false, so the managed copy would otherwise keep serving the old instant.
-        saved.setDriveTargetChangedAt(changedAt);
+        bumpDriveTargetChangedAt(saved);
         userDriveTimeWriter.clearForLocation(saved.getId());
         regionDriveTimeWriter.clearForLocation(saved.getId());
         LOG.info("Location '{}' moved — drive times to it discarded, to be re-measured", saved.getName());
@@ -636,9 +647,13 @@ public class LocationService {
         }
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
+        boolean reEnabled = enabled && !saved.isEnabled();
         locationRepository.updateEnabled(saved.getId(), enabled);
         servedEpoch.bump();
         saved.setEnabled(enabled);
+        if (reEnabled) {
+            bumpDriveTargetChangedAt(saved);
+        }
         if (enabled) {
             locationRepository.clearFailureState(saved.getId());
             saved.setConsecutiveFailures(0);
@@ -693,8 +708,12 @@ public class LocationService {
         // enabled and the failure columns are not updatable through the entity (see LocationEntity):
         // write them with scoped updates, and mirror that on the in-memory copy that is returned.
         if (saved.getDisabledReason() != null) {
+            boolean wasEnabled = saved.isEnabled();
             locationRepository.updateEnabled(saved.getId(), true);
             saved.setEnabled(true);
+            if (!wasEnabled) {
+                bumpDriveTargetChangedAt(saved);
+            }
         }
         servedEpoch.bump();
         locationRepository.clearFailureState(saved.getId());

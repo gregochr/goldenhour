@@ -203,4 +203,15 @@ move in `LocationService.update` bumps `drive_target_changed_at` and deletes the
 moved location reads PENDING until re-measured and `DriveTimeRefreshJob` (which now reads
 `findMaxDriveTargetChangedAt`, not the newest `created_at`) re-measures every home that night. A region base
 move (`RegionService.setBase`) also nulls the base's stamp. The admin "Run now" is no longer needed for a
-coordinate correction.
+coordinate correction. A **re-enable** (`LocationService.setEnabled` false to true, and `resetFailures` re-enabling an auto-disabled place) also bumps `drive_target_changed_at`, without deleting rows: the nightly roster reads only enabled places, so a place switched off during a sweep must read PENDING, not UNROUTABLE, until it is measured again.
+
+**Admin view of unroutable places (reach-scoped-card-plan R1b).** `GET /api/admin/drive-times/unroutable` (ADMIN, read-only,
+no-store; `UnroutableLocationService`) counts, per enabled location, how many measured Pro/Admin homes and region bases
+read it `UNROUTABLE`, out of how many could judge it (a `PENDING` pair, an origin not yet late enough to judge, is in
+neither count), using `DriveStatus.of` and the same `ROSTER_VISIBILITY_MARGIN`. Only locations with at least one
+`UNROUTABLE` are listed. The frontend shows it in three admin-only places: a **Needs a drive point** section (count
+badge, a link `#manage/locations/{id}` per place) on the Scheduler job panel for `drive_time_refresh`
+(`components/scheduler/UnroutableLocationsSection.jsx`), a flag line under the name on the admin Locations list, and a
+Drive point section on the location panel above Shooting ("Needs a drive point · no route from 3 of 3 homes, 2 of 4
+bases"). All three read `useUnroutableLocations` once on mount; a failed read flags nothing. Pro and Lite never fetch
+it (the Operations pane and the Manage tab are withheld from them, and the endpoint answers 403).

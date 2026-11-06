@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Spring Data repository for the shared region-base drive-time matrix.
@@ -46,4 +47,18 @@ public interface RegionDriveTimeRepository
     @Modifying
     @Query("DELETE FROM RegionDriveTimeEntity rdt WHERE rdt.locationId = :locationId")
     void deleteAllByLocationId(@Param("locationId") Long locationId);
+
+    /**
+     * Lists which measured region base has a stored drive time to which location: ids only, for the admin
+     * unroutable-places read. The origins are selected by the same conditions as
+     * {@code RegionRepository.findMeasuredBaseStamps} (enabled, with a base and a stamp) in a subquery, so no id
+     * list is bound (Postgres caps a statement at 32767 binds).
+     *
+     * @return one {@link DrivePair} per stored row of a measured base
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.DrivePair(rdt.regionId, rdt.locationId) "
+            + "FROM RegionDriveTimeEntity rdt WHERE rdt.regionId IN (SELECT r.id FROM RegionEntity r "
+            + "WHERE r.enabled = true AND r.baseLat IS NOT NULL AND r.baseLon IS NOT NULL "
+            + "AND r.drivesMeasuredAt IS NOT NULL)")
+    List<DrivePair> findMeasuredBasePairs();
 }

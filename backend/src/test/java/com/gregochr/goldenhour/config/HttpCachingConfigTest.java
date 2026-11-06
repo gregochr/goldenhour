@@ -135,6 +135,13 @@ class HttpCachingConfigTest {
     }
 
     @Test
+    @DisplayName("The admin unroutable-places read is never ETag-filtered (admin data stays no-store)")
+    void adminUnroutableDriveTimesAreNeverFiltered() {
+        assertThat(filter.shouldNotFilter(get("/api/admin/drive-times/unroutable"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/admin/drive-times"))).isTrue();
+    }
+
+    @Test
     @DisplayName("Only the region drive-time matrix is revalidatable under /api/regions")
     void regionWhitelistIsTheMatrixAlone() {
         // Exact match, so the matrix's entry cannot pull the region list or a write path in with

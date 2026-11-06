@@ -14,8 +14,10 @@ import useLocationFailureReset from '../hooks/useLocationFailureReset.js';
 import useLocationFilters from '../hooks/useLocationFilters.js';
 import useLocationToggle from '../hooks/useLocationToggle.js';
 import useLocationsData from '../hooks/useLocationsData.js';
+import useUnroutableLocations from '../hooks/useUnroutableLocations.js';
 import usePanelEscape from '../hooks/usePanelEscape.js';
 import { needsAttention } from '../utils/locationAdmin.js';
+import { unroutableById } from '../utils/unroutableLocations.js';
 
 /** The Manage tab key; a selected location adds `/{id}` ({@code #manage/locations/12}). */
 const TAB = 'locations';
@@ -44,9 +46,18 @@ const locationId = (loc) => loc.id;
  */
 export default function LocationManagementView({ onLocationsChanged, onAttentionCountChange = undefined }) {
   const data = useLocationsData();
+  // Admin-only decoration (this view is withheld from everyone else): a failed read flags nothing.
+  const { rows: unroutableRows, refetch: refetchUnroutable } = useUnroutableLocations();
+  const unroutable = useMemo(() => unroutableById(unroutableRows), [unroutableRows]);
   const {
     locations, regions, loading, loadError, areas, subRegions, aliasesFailed, refreshLocations, refreshAreas,
   } = data;
+  // Every path that re-reads the locations (a save, an add, a toggle, a failure reset) re-reads the flag too: a moved
+  // pin or a re-enable changes whether a place is listed.
+  const refreshAll = useCallback(async () => {
+    refetchUnroutable();
+    await refreshLocations();
+  }, [refreshLocations, refetchUnroutable]);
   const { selectedId, select, clear } = useHashSelection(TAB);
   const [adding, setAdding] = useState(false);
   const panelRef = useRef(null);
@@ -58,16 +69,16 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
     subRegions,
     aliasesByLocation: data.aliasesByLocation,
     setAliasesByLocation: data.setAliasesByLocation,
-    refreshLocations,
+    refreshLocations: refreshAll,
     refreshAreas,
     onLocationsChanged,
   });
-  const add = useLocationAdd({ refreshLocations, refreshAreas });
+  const add = useLocationAdd({ refreshLocations: refreshAll, refreshAreas });
   const toggle = useLocationToggle({
-    locations, setLocations: data.setLocations, refreshLocations, refreshAreas, onChanged: onLocationsChanged,
+    locations, setLocations: data.setLocations, refreshLocations: refreshAll, refreshAreas, onChanged: onLocationsChanged,
   });
   const failureReset = useLocationFailureReset(() => {
-    refreshLocations();
+    refreshAll();
     onLocationsChanged();
   });
 
@@ -192,6 +203,7 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
         onToggle={toggle.toggle}
         toggling={toggle.pendingIds.has(selected.id)}
         failureLocation={stored}
+        unroutable={unroutable.get(selected.id) ?? null}
         toggleError={toggle.error?.id === selected.id ? toggle.error.message : ''}
         resetting={failureReset.pending.has(selected.name)}
         resetError={failureReset.errors[selected.name] ?? null}
@@ -226,6 +238,7 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
               selectedId={selected ? selected.id : null}
               onSelect={selectLocation}
               onAdd={startAdd}
+              unroutable={unroutable}
             />
           )}
           panel={panel}
