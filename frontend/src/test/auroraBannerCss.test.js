@@ -255,8 +255,26 @@ describe('the aurora banner stylesheet', () => {
       expect(forced[0]).toContain('.wf-aurora-tog:focus-visible');
       // A 44px target, shared with the dismiss, so the two never drift apart.
       const body = ruleBody('.wf-aurora-tog');
-      expect(declares(body, 'width', '44px')).toBe(true);
       expect(declares(body, 'height', '44px')).toBe(true);
+      // Wide enough for "Open ▾", never narrower than the 44px target.
+      expect(declares(body, 'min-width', '44px')).toBe(true);
+      expect(/\.wf-aurora-tog\s*\{[^{}]*width:\s*auto/.test(block)).toBe(true);
+    });
+
+    it('draws the toggle as a Hot topics style pill and restyles it, not a grey square, on hover', () => {
+      const pill = ruleBody('.wf-aurora-tog-pill');
+      expect(pill).not.toBeNull();
+      expect(declares(pill, 'border', '1px solid var(--color-plex-border)')).toBe(true);
+      expect(declares(pill, 'border-radius', '6px')).toBe(true);
+      expect(declares(pill, 'font-size', '10px')).toBe(true);
+      expect(declares(pill, 'padding', '2px 8px')).toBe(true);
+      expect(declares(pill, 'min-height', '22px')).toBe(true);
+      const hover = ruleBody('.wf-aurora-tog:hover .wf-aurora-tog-pill');
+      expect(declares(hover, 'border-color', 'var(--color-plex-border-light)')).toBe(true);
+      expect(declares(hover, 'color', 'var(--color-plex-text)')).toBe(true);
+      // The hit area itself no longer gets the grey hover; the dismiss keeps it.
+      expect(ruleBody('.wf-aurora-tog:hover')).toBeNull();
+      expect(ruleBody('.wf-aurora-x:hover')).toContain('background: rgba(255, 255, 255, 0.06)');
     });
 
     it('seats the toggle in the strip and, beside the dismiss, in the card\'s corner', () => {

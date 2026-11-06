@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AuroraBanner from '../components/AuroraBanner.jsx';
 import { mockOpenGuide } from './guideContextMock.js';
@@ -82,6 +84,20 @@ describe('AuroraBanner collapse (640px and up)', () => {
       fireEvent.click(toggle());
       expect(layout()).toBe('strip');
       expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('reads "Open" with an aria-hidden ▾ when collapsed, and just ▴ when expanded', () => {
+      mountBanner(MODERATE);
+      expect(toggle()).toHaveTextContent('Open ▾');
+      expect(within(toggle()).getByText('Open')).toBeInTheDocument();
+      expect(within(toggle()).getByText('▾')).toHaveAttribute('aria-hidden', 'true');
+      expect(toggle()).toHaveAccessibleName('Show aurora details');
+
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveTextContent(/^▴$/);
+      expect(within(toggle()).getByText('▴')).toHaveAttribute('aria-hidden', 'true');
+      expect(within(toggle()).queryByText('Open')).not.toBeInTheDocument();
+      expect(toggle()).toHaveAccessibleName('Hide aurora details');
     });
 
     it('is not the door: neither click calls onViewOnMap', () => {

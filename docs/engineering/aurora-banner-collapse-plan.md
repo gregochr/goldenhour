@@ -35,7 +35,7 @@ dismisses at the current level (`dismissedLevel`, in memory, re-shown on escalat
    beside ✕ in the card. Its click handler calls `stopPropagation`, as `handleDismiss` does, so the
    synthesised click never reaches the root's `onClick`. `activates` already ignores keydown whose
    target is not the root, so it needs no change. Accessible name: "Show aurora details" / "Hide
-   aurora details", with `aria-expanded`. Glyph: a chevron (˅ / ˄), `aria-hidden`.
+   aurora details", with `aria-expanded`. Glyph: a chevron (˅ / ˄), `aria-hidden`. *(Superseded 2026-11-06: the toggle is now a bordered button in the Map Hot topics style, `Open ▾` collapsed and `▴` expanded; the chevron alone was easy to miss.)*
 6. **Focus follows the toggle.** Toggling swaps the whole root, so the pressed button unmounts.
    In the click handler, record whether `document.activeElement` is the toggle (Safari does not focus
    a button on mouse click). If it was, move focus to the counterpart toggle in a `useLayoutEffect`

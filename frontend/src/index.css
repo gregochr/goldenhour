@@ -14037,9 +14037,32 @@ button.wf-mchip:hover {
   cursor: pointer;
   color: var(--color-plex-text-secondary);
 }
-.wf-aurora-x:hover,
-.wf-aurora-tog:hover {
+.wf-aurora-x:hover {
   background: rgba(255, 255, 255, 0.06);
+  color: var(--color-plex-text);
+}
+/* The expand toggle: the button stays the 44px transparent hit area (wide enough for "Open ▾"); the
+   bordered mono pill drawn inside it follows the Map's Hot topics toggle, and the hover restyles the pill. */
+.wf-aurora-tog {
+  width: auto;
+  min-width: 44px;
+}
+.wf-aurora-tog-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-tog:hover .wf-aurora-tog-pill {
+  border-color: var(--color-plex-border-light);
   color: var(--color-plex-text);
 }
 .wf-aurora-x.wf-aurora-x-strip,
