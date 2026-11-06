@@ -445,7 +445,13 @@ function AuroraToggle({
       className={`wf-aurora-tog ${className}`.trim()}
     >
       <span className="wf-aurora-tog-pill">
-        {expanded ? <span aria-hidden="true">▴</span> : (
+        {expanded ? (
+          <>
+            Close
+            {' '}
+            <span aria-hidden="true">▴</span>
+          </>
+        ) : (
           <>
             Open
             {' '}

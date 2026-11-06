@@ -14042,7 +14042,9 @@ button.wf-mchip:hover {
   color: var(--color-plex-text);
 }
 /* The expand toggle: the button stays the 44px transparent hit area (wide enough for "Open ▾"); the
-   bordered mono pill drawn inside it follows the Map's Hot topics toggle, and the hover restyles the pill. */
+   bordered mono pill drawn inside it follows the Map's Hot topics toggle, and the hover restyles the pill.
+   The pill has one fixed width so "Open ▾" and "Close ▴" take the same room: the toggle, guide and dismiss
+   must sit in the same place on the strip and the card, so nothing shifts when the reader flips between them. */
 .wf-aurora-tog {
   width: auto;
   min-width: 44px;
@@ -14050,8 +14052,11 @@ button.wf-mchip:hover {
 .wf-aurora-tog-pill {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   box-sizing: border-box;
+  /* 7ch of mono text plus the 2 x 8px padding and 2 x 1px border; "Close ▴" is 6ch + gap, "Open ▾" 5ch + gap. */
+  min-width: calc(7ch + 18px);
   min-height: 22px;
   padding: 2px 8px;
   border: 1px solid var(--color-plex-border);
@@ -14071,12 +14076,18 @@ button.wf-mchip:hover {
   margin: 0;
 }
 /* The desktop expand/collapse toggle (640px and up only; a phone renders none). In the card it shares
-   a wrapper with the dismiss, which takes the dismiss's corner placement. */
+   a wrapper with the dismiss, which takes the dismiss's corner placement. The three controls (toggle, guide
+   "?", dismiss) must sit in the same place on the strip and the card: centred on one line, 14px apart (the
+   strip's gap; the guide link adds its own 10px each side), the dismiss 8px from the right edge (the card's
+   14px padding less this -6px margin), and 28px down from the top as on the 56px strip (the card's 1px border
+   + 10px top padding, less this -5px margin, plus half the 44px button, is 28px). */
 .wf-aurora-actions {
   flex: none;
   align-self: flex-start;
   display: flex;
-  margin: -4px -8px 0 0;
+  align-items: center;
+  gap: 14px;
+  margin: -5px -6px 0 0;
 }
 .wf-aurora-actions .wf-aurora-x,
 .wf-aurora-actions .wf-aurora-tog {
