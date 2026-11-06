@@ -221,6 +221,10 @@ recognises, plus the point ORS routes to.
      (`fetchDurations` → `List.of()`) means "unavailable", and the save is allowed. Flyway seed inserts
      bypass the service, so seeds and tests are unaffected.
    - **Existing places:** flag and badge only (R1b), never a 422 on an unrelated edit.
+   - **Refuse only where a drive point would help (owner intent, R1c review):** a target ORS could not place on a road
+     (a null `destinations[]` entry, or a 6010 naming it) is refused; a target ORS snapped but returned no duration for,
+     with the control routed (a ferry-only island from a mainland base), is UNAVAILABLE and the save is allowed. The
+     server also rejects (400) a drive point more than 25 km from the pin, on create and update.
 6. Tests: all-or-none; place lookup (results, empty, 25 km filter, sorting, a failure); the
    routability check (routable, unroutable destination, bad source, timeout, unconfigured, a 4xx
    fixture); a 422 only on the three triggers; invalidation and bump; the nightly job picks it up; only

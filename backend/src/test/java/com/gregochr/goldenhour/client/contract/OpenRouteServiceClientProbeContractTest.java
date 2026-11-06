@@ -182,6 +182,33 @@ class OpenRouteServiceClientProbeContractTest {
     }
 
     @Test
+    @DisplayName("a non-6010 404 whose message merely contains '6010' (an echoed coordinate) is not unroutable")
+    void echoedCoordinateContaining6010_isNotUnroutable() {
+        server.expect(requestTo(MATRIX_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":{\"code\":2099,\"message\":\"Bad value at coordinate 2: -2.6010 54.5\"}}"));
+
+        assertThatThrownBy(() -> client.probe(SOURCE_LAT, SOURCE_LON, DESTINATIONS, TIMEOUT))
+                .isNotInstanceOf(OrsUnroutablePointException.class);
+    }
+
+    @Test
+    @DisplayName("a 404 whose body is not JSON, or carries no error object, propagates untouched")
+    void unparseableOrErrorlessBody_propagates() {
+        server.expect(requestTo(MATRIX_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).body("<html>6010 coordinate 2</html>"));
+        assertThatThrownBy(() -> client.probe(SOURCE_LAT, SOURCE_LON, DESTINATIONS, TIMEOUT))
+                .isNotInstanceOf(OrsUnroutablePointException.class);
+
+        server.reset();
+        server.expect(requestTo(MATRIX_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"message\":\"6010 coordinate 2\"}"));
+        assertThatThrownBy(() -> client.probe(SOURCE_LAT, SOURCE_LON, DESTINATIONS, TIMEOUT))
+                .isNotInstanceOf(OrsUnroutablePointException.class);
+    }
+
+    @Test
     @DisplayName("any other HTTP failure propagates untouched, for the caller to treat as unavailable")
     void otherHttpFailures_propagate() {
         server.expect(requestTo(MATRIX_URL)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));

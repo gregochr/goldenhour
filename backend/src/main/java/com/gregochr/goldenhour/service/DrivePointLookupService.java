@@ -30,7 +30,7 @@ public class DrivePointLookupService {
      * same-named village across the country out of the list. The same figure bounds a tide point
      * ({@code LocationService.MAX_TIDE_POINT_DISTANCE_KM}).
      */
-    static final double MAX_DISTANCE_KM = 25.0;
+    static final double MAX_DISTANCE_KM = com.gregochr.goldenhour.model.DrivePoint.MAX_DISTANCE_KM;
 
     /** How many matches the picker shows. */
     private static final int MAX_RESULTS = 10;

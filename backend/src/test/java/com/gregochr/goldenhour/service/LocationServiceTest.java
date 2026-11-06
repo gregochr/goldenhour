@@ -2173,6 +2173,24 @@ class LocationServiceTest {
         verify(locationRepository, never()).save(existing);
     }
 
+    @Test
+    @DisplayName("add() and update() refuse a drive point more than 25 km from the pin as a 400")
+    void drivePointTooFar_isRefusedOnAddAndUpdate() {
+        when(locationRepository.existsByName("Helvellyn")).thenReturn(false);
+        when(nameGuard.locationNameClash("Helvellyn", null)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> locationService.add(new AddLocationRequest(
+                "Helvellyn", 54.5275, -3.0162, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, "London", 51.5, -0.1))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("25 km");
+
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        assertThatThrownBy(() -> locationService.update(1L,
+                drivePointUpdate(null, null, "London", 51.5, -0.1, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+        verify(locationRepository, never()).save(existing);
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)

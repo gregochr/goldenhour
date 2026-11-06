@@ -42,8 +42,10 @@ import java.util.Optional;
  * <p>An outage must never stop an admin saving. So "no answer" of any kind is {@link Routability#UNAVAILABLE} and the
  * save goes ahead: ORS not configured, no region base to route from, no permit within {@link #PERMIT_TIMEOUT}, an ORS
  * error, a short or empty answer, or a source that itself cannot be routed from (the control destination, a point
- * known to be on a road, comes back null: an all-null row means the <em>source</em> is bad, not the target). Only a
- * clear "this point has no route" refuses.
+ * known to be on a road, comes back null: an all-null row means the <em>source</em> is bad, not the target). A target
+ * ORS snapped to a road but returned no duration for (a ferry-only island from a mainland base) is also unavailable:
+ * a drive point would not help there. Only a target ORS could not place on a road (a null {@code destinations[]} entry,
+ * or a 6010 naming it) refuses.
  *
  * <h2>Why before the transaction</h2>
  *
@@ -120,6 +122,7 @@ public class DriveRoutabilityGuard {
         DrivePoint drivePoint = DrivePoint.parse(
                 request.drivePointName(), request.drivePointLat(), request.drivePointLon());
         if (drivePoint != null) {
+            drivePoint.requireWithinRangeOf(request.lat(), request.lon());
             require(drivePoint.lat(), drivePoint.lon(), request.regionId(), DRIVE_POINT_MESSAGE);
         } else {
             require(request.lat(), request.lon(), request.regionId(), PIN_MESSAGE);
@@ -151,6 +154,8 @@ public class DriveRoutabilityGuard {
                 : (stored.getRegion() == null ? null : stored.getRegion().getId());
 
         if (requested != null) {
+            requested.requireWithinRangeOf(request.lat() != null ? request.lat() : stored.getLat(),
+                    request.lon() != null ? request.lon() : stored.getLon());
             boolean unchanged = stored.hasDrivePoint()
                     && requested.equals(new DrivePoint(stored.getDrivePointName(), stored.getDrivePointLat(),
                             stored.getDrivePointLon()));
@@ -214,8 +219,13 @@ public class DriveRoutabilityGuard {
             // An all-null row: the source is bad, so nothing was learned about the target.
             return Routability.UNAVAILABLE;
         }
-        boolean targetRouted = result.durations().get(1) != null && result.snapped().get(1);
-        return targetRouted ? Routability.ROUTABLE : Routability.UNROUTABLE;
+        if (!result.snapped().get(1)) {
+            // ORS could not place the target on a road at all: a drive point (a place on a road) would help.
+            return Routability.UNROUTABLE;
+        }
+        // Snapped but no duration, with the control routed: the target is on a road network the source cannot drive to
+        // (a ferry-only island from a mainland base). A drive point would not help, so the save is allowed.
+        return result.durations().get(1) != null ? Routability.ROUTABLE : Routability.UNAVAILABLE;
     }
 
     /**

@@ -62,4 +62,14 @@ class DrivePointTest {
         assertThat(DrivePoint.parse("A", 90.0, 180.0)).isNotNull();
         assertThat(DrivePoint.parse("A", -90.0, -180.0)).isNotNull();
     }
+
+    @Test
+    @DisplayName("a drive point within 25 km of the pin passes, one beyond it is refused")
+    void requireWithinRangeOf_enforcesTheLimit() {
+        DrivePoint glenridding = new DrivePoint("Glenridding", 54.5442, -2.9505);
+
+        glenridding.requireWithinRangeOf(54.5275, -3.0162);
+        assertThatThrownBy(() -> glenridding.requireWithinRangeOf(55.5, -1.7))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+    }
 }

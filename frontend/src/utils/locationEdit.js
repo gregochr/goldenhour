@@ -355,6 +355,7 @@ export function withSavedBaselines(prev) {
     floorCleared: false,
     tideBaseline: tidePointBaseline(prev),
     drivePointBaseline: prev.drivePoint ? { ...prev.drivePoint } : null,
+    drivePointRequired: false,
     latBaseline: parseFloat(prev.lat),
     lonBaseline: parseFloat(prev.lon),
   };

@@ -139,19 +139,25 @@ class DriveRoutabilityGuardTest {
         }
 
         @Test
-        @DisplayName("a null target duration, or a target ORS could not snap, is UNROUTABLE")
-        void nullTargetOrUnsnapped_isUnroutable() {
+        @DisplayName("a target ORS could not snap to a road is UNROUTABLE, with or without a stray duration")
+        void unsnappedTarget_isUnroutable() {
             keswickRegion();
             probeReturns(PIN_LAT, PIN_LON, targetUnroutable());
             assertThat(guard.check(PIN_LAT, PIN_LON, KESWICK_REGION_ID)).isEqualTo(Routability.UNROUTABLE);
 
             probeReturns(PIN_LAT, PIN_LON,
-                    Optional.of(new RouteProbe(Arrays.asList(5400.0, null), List.of(true, true))));
-            assertThat(guard.check(PIN_LAT, PIN_LON, KESWICK_REGION_ID)).isEqualTo(Routability.UNROUTABLE);
-
-            probeReturns(PIN_LAT, PIN_LON,
                     Optional.of(new RouteProbe(List.of(5400.0, 2700.0), List.of(true, false))));
             assertThat(guard.check(PIN_LAT, PIN_LON, KESWICK_REGION_ID)).isEqualTo(Routability.UNROUTABLE);
+        }
+
+        @Test
+        @DisplayName("a target snapped to a road with no duration (a ferry-only island) is UNAVAILABLE")
+        void snappedTargetWithoutDuration_isUnavailable() {
+            keswickRegion();
+            probeReturns(PIN_LAT, PIN_LON,
+                    Optional.of(new RouteProbe(Arrays.asList(5400.0, null), List.of(true, true))));
+
+            assertThat(guard.check(PIN_LAT, PIN_LON, KESWICK_REGION_ID)).isEqualTo(Routability.UNAVAILABLE);
         }
 
         @Test
@@ -302,6 +308,15 @@ class DriveRoutabilityGuardTest {
         }
 
         @Test
+        @DisplayName("a drive point more than 25 km from the pin is a 400 before ORS is asked")
+        void farDrivePoint_isABadRequest() {
+            assertThatThrownBy(() -> guard.requireRoutableOnAdd(add(KESWICK_REGION_ID, "London", 51.5, -0.1)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+
+            verifyNoInteractions(orsClient);
+        }
+
+        @Test
         @DisplayName("an ORS outage never refuses a create")
         void outage_neverRefuses() {
             keswickRegion();
@@ -423,6 +438,17 @@ class DriveRoutabilityGuardTest {
                     update(null, null, null, "Glenridding", DP_LAT, DP_LON, null)))
                     .isInstanceOf(NoRoadRouteException.class)
                     .hasMessageContaining("that drive point");
+        }
+
+        @Test
+        @DisplayName("a new drive point more than 25 km from the pin as this request leaves it is a 400")
+        void farDrivePointOnUpdate_isABadRequest() {
+            stored(false, KESWICK_REGION_ID);
+
+            assertThatThrownBy(() -> guard.requireRoutableOnUpdate(LOCATION_ID,
+                    update(null, null, null, "London", 51.5, -0.1, null)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+            verifyNoInteractions(orsClient);
         }
 
         @Test

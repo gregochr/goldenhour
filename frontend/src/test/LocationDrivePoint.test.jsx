@@ -31,7 +31,7 @@ vi.mock('../api/driveTimesAdminApi', () => ({
 }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
-import { fetchLocations, updateLocation, addLocation } from '../api/forecastApi';
+import { fetchLocations, updateLocation, addLocation, geocodePlace, enrichLocation } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases } from '../api/areaApi';
 import { fetchTideStats } from '../api/tideApi';
@@ -252,6 +252,9 @@ describe('Locations — the drive point (admin)', () => {
         fireEvent.click(await screen.findByTestId('location-edit-drive-point-result-0'));
         fireEvent.click(screen.getByTestId('location-edit-save'));
 
+        // Picking ended "required" and cleared its message.
+        expect(screen.queryByText('Drive point (required)')).toBeNull();
+        expect(screen.queryByTestId('location-edit-error')).toBeNull();
         await waitFor(() => expect(updateLocation).toHaveBeenCalledTimes(2));
         expect(updateLocation.mock.calls[1][1]).toMatchObject({ lat: 54.7, drivePointName: 'Glenridding' });
       });
@@ -303,6 +306,69 @@ describe('Locations — the drive point (admin)', () => {
 
       await waitFor(() => expect(addLocation).toHaveBeenCalled());
       expect(addLocation.mock.calls[0][0]).not.toHaveProperty('drivePointName');
+    });
+
+    it('drops a drive point picked for another pin when the coordinate source or the pin changes', async () => {
+      fetchDrivePointPlaces.mockResolvedValue([GLENRIDDING]);
+      geocodePlace.mockResolvedValue({ lat: 54.5275, lon: -3.0162, displayName: 'Helvellyn' });
+      enrichLocation.mockResolvedValue({});
+      renderView();
+      fireEvent.click(await screen.findByTestId('add-location-btn'));
+      await screen.findByTestId('location-add-panel');
+      const pick = async () => {
+        fireEvent.change(screen.getByTestId('location-add-drive-point-query'), { target: { value: 'Glen' } });
+        fireEvent.click(screen.getByTestId('location-add-drive-point-lookup'));
+        fireEvent.click(await screen.findByTestId('location-add-drive-point-result-0'));
+        expect(screen.getByTestId('location-add-drive-point-name')).toHaveTextContent('Glenridding');
+      };
+      const lookUpPlace = async (name) => {
+        fireEvent.change(screen.getByTestId('place-name-input'), { target: { value: name } });
+        fireEvent.click(screen.getByTestId('geocode-btn'));
+        await screen.findByTestId('location-geocode-result');
+      };
+
+      // A new lookup is a new pin.
+      await lookUpPlace('Helvellyn');
+      await pick();
+      await lookUpPlace('Bamburgh');
+      expect(screen.getByTestId('location-add-drive-point-none')).toBeInTheDocument();
+
+      // Switching to manual coordinates is a new pin, and so is typing one.
+      await pick();
+      fireEvent.click(screen.getByTestId('manual-entry-btn'));
+      fireEvent.change(screen.getByTestId('manual-lat-input'), { target: { value: '54.5' } });
+      fireEvent.change(screen.getByTestId('manual-lon-input'), { target: { value: '-3.0' } });
+      await pick();
+      fireEvent.change(screen.getByTestId('manual-lat-input'), { target: { value: '55.6' } });
+      expect(screen.getByTestId('location-add-drive-point-none')).toBeInTheDocument();
+
+      // And back to the lookup.
+      await pick();
+      fireEvent.click(screen.getByTestId('back-to-geocode-btn'));
+      fireEvent.click(screen.getByTestId('manual-entry-btn'));
+      fireEvent.change(screen.getByTestId('manual-name-input'), { target: { value: 'X' } });
+      fireEvent.change(screen.getByTestId('manual-lat-input'), { target: { value: '54.5' } });
+      fireEvent.change(screen.getByTestId('manual-lon-input'), { target: { value: '-3.0' } });
+      fireEvent.click(screen.getByTestId('location-add-submit'));
+      await waitFor(() => expect(addLocation).toHaveBeenCalled());
+      expect(addLocation.mock.calls[0][0]).not.toHaveProperty('drivePointName');
+    });
+
+    it('ends "required" and its message when a point is picked, on the add form', async () => {
+      fetchDrivePointPlaces.mockResolvedValue([GLENRIDDING]);
+      addLocation.mockRejectedValueOnce(NO_ROUTE);
+      await openAddManual();
+      fireEvent.click(screen.getByTestId('location-add-submit'));
+      await screen.findByTestId('location-add-error');
+      expect(screen.getByText('Drive point (required)')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByTestId('location-add-drive-point-query'), { target: { value: 'Glen' } });
+      fireEvent.click(screen.getByTestId('location-add-drive-point-lookup'));
+      fireEvent.click(await screen.findByTestId('location-add-drive-point-result-0'));
+
+      expect(screen.queryByText('Drive point (required)')).toBeNull();
+      expect(screen.queryByTestId('location-add-error')).toBeNull();
+      expect(screen.getByTestId('location-add-drive-point')).not.toHaveAttribute('data-required');
     });
 
     it('a refused create (422 NO_ROAD_ROUTE) makes the drive point required and keeps the form open', async () => {

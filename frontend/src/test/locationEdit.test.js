@@ -213,6 +213,7 @@ describe('the drive point (reach-scoped-card-plan R1c)', () => {
     expect(planEditSave(picked).payload).toMatchObject({ drivePointName: 'Glenridding' });
     expect(withSavedBaselines(picked).drivePointBaseline).toEqual(GLENRIDDING);
     expect(withSavedBaselines({ ...picked, drivePoint: null }).drivePointBaseline).toBeNull();
+    expect(withSavedBaselines({ ...picked, drivePointRequired: true }).drivePointRequired).toBe(false);
   });
 
   it('puts the drive point into the add payload only when one is chosen', () => {

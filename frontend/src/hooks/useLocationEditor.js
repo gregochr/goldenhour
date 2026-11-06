@@ -167,8 +167,15 @@ export default function useLocationEditor({
 
   /** Picks (or, with null, clears) the drive point; the lookup itself lives in the field. */
   const setDrivePoint = useCallback((point) => {
-    setValues((prev) => (prev ? { ...prev, drivePoint: point } : prev));
-  }, []);
+    // Picking one ends "required": the refusal it answered is spent, and so is its message.
+    setValues((prev) => (prev ? {
+      ...prev, drivePoint: point, drivePointRequired: point ? false : prev.drivePointRequired,
+    } : prev));
+    if (point && errorField === 'drivePoint') {
+      setError('');
+      setErrorField(null);
+    }
+  }, [errorField]);
 
   function clearTidePoint() {
     setValues((prev) => ({ ...prev, tideLat: '', tideLng: '' }));

@@ -9,6 +9,9 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +39,8 @@ public class OpenRouteServiceClient {
     private static final Logger LOG = LoggerFactory.getLogger(OpenRouteServiceClient.class);
     private static final String MATRIX_URL = "https://api.openrouteservice.org/v2/matrix/driving-car";
     /** ORS's error code for "no routable point near that coordinate" (reach-scoped-card-plan R1c). */
-    private static final String UNROUTABLE_POINT_CODE = "6010";
+    private static final int UNROUTABLE_POINT_CODE = 6010;
+    private static final JsonMapper ERROR_MAPPER = JsonMapper.builder().build();
     private static final Pattern COORDINATE_INDEX = Pattern.compile("coordinate (\\d+)");
 
     private final RestClient restClient;
@@ -171,12 +175,22 @@ public class OpenRouteServiceClient {
      * failure as it was.
      */
     private static RuntimeException unroutableOrOriginal(RestClientResponseException e) {
-        String text = e.getResponseBodyAsString();
-        if (e.getStatusCode().value() == 404 && text.contains(UNROUTABLE_POINT_CODE)) {
-            Matcher m = COORDINATE_INDEX.matcher(text);
-            return new OrsUnroutablePointException(m.find() ? Integer.parseInt(m.group(1)) : -1);
+        if (e.getStatusCode().value() != 404) {
+            return e;
         }
-        return e;
+        // Parsed, not searched: a message that echoes a coordinate such as -2.6010 must not read as code 6010, and the
+        // coordinate index is read only from error.message.
+        JsonNode error;
+        try {
+            error = ERROR_MAPPER.readTree(e.getResponseBodyAsString()).path("error");
+        } catch (RuntimeException parseFailure) {
+            return e;
+        }
+        if (error.path("code").asInt(-1) != UNROUTABLE_POINT_CODE) {
+            return e;
+        }
+        Matcher m = COORDINATE_INDEX.matcher(error.path("message").asString(""));
+        return new OrsUnroutablePointException(m.find() ? Integer.parseInt(m.group(1)) : -1);
     }
 
     /** Builds the one-row matrix request: the source at index 0, then each {@code [lat, lon]} as {@code [lon, lat]}. */

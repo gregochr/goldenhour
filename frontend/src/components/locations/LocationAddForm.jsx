@@ -232,7 +232,7 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
           <div className={BLOCK}>
             <DrivePointField
               value={form.drivePoint}
-              onChange={(point) => add.set('drivePoint', point)}
+              onChange={add.setDrivePoint}
               lat={pin?.lat ?? ''}
               lon={pin?.lon ?? ''}
               required={form.drivePointRequired}

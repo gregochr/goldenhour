@@ -173,7 +173,13 @@ export default function WindowSpotPeek({
             to rgb(53,43,37) and the ratio to 5.82:1 — not the 6.44:1 the bare panel gives. Still
             clears AA. This project has now got that wrong often enough to be worth the sentence. */}
         {drive && (
-          <span data-testid="wf-peek-drive" className="wf-peek-chip font-mono">
+          <span
+            data-testid="wf-peek-drive"
+            // A long drive-point name must not overflow the fixed-width panel: truncate visually, keep the full
+            // text in the DOM (the accessible name) and in the title.
+            className={`wf-peek-chip font-mono${driveTo ? ' inline-block max-w-full overflow-hidden align-bottom text-ellipsis' : ''}`}
+            title={driveTo ? `${drive} to ${driveTo}` : undefined}
+          >
             🚗 {driveTo ? `${drive} to ${driveTo}` : drive}
           </span>
         )}

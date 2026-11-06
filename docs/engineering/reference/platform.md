@@ -223,8 +223,10 @@ a coordinate move on a place with no drive point, and clearing a drive point are
 village or car park.") when the point drive times would be routed to has none; setting or changing a drive point
 checks that point too. Every other edit is never refused, and an existing unroutable place is only flagged (R1b). The
 check is one ORS matrix call (`OpenRouteServiceClient.probe`): source is the location's region base, else the nearest
-base; destinations are a known-routable **control** (central Birmingham) then the target. A null target duration,
-or a null `destinations[]` snap entry, or a 404 code 6010 naming the target's coordinate index, is UNROUTABLE; an
+base; destinations are a known-routable **control** (central Birmingham) then the target. A null `destinations[]` snap entry (the target
+could not be placed on a road), or a 404 whose parsed `error.code` is 6010 naming the target's coordinate index in
+`error.message`, is UNROUTABLE; a target snapped to a road with no duration (a ferry-only island) is UNAVAILABLE, because a
+drive point would not help; the server also rejects (400) a drive point more than 25 km from the pin; an
 all-null row (the control fails too: the source is bad) is UNAVAILABLE. **Never blocked by an outage**: no permit within
 5 s (`OrsRateLimiter.tryWithPermit`), no base, ORS unconfigured, any ORS error, or a short answer is UNAVAILABLE and the
 save goes ahead. ORS's unsnappable-point answer is handled in both documented forms; the fixtures under

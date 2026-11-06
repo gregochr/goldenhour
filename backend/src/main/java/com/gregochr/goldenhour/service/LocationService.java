@@ -198,6 +198,9 @@ public class LocationService {
 
         DrivePoint drivePoint = DrivePoint.parse(
                 request.drivePointName(), request.drivePointLat(), request.drivePointLon());
+        if (drivePoint != null) {
+            drivePoint.requireWithinRangeOf(request.lat(), request.lon());
+        }
         LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
         LocationEntity entity = LocationEntity.builder()
                 .name(request.name())
@@ -355,6 +358,10 @@ public class LocationService {
         applyTidePoint(location, request);
         requireStoredTidePointNearPin(location, previousLat, previousLon);
         DrivePointChange drivePointChange = resolveDrivePointChange(location, request);
+        if (drivePointChange.next() != null) {
+            // The drive point as this request leaves it, against the pin as this request leaves it.
+            drivePointChange.next().requireWithinRangeOf(location.getLat(), location.getLon());
+        }
 
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
                 || Double.compare(previousLon, location.getLon()) != 0;
