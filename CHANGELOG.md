@@ -5,6 +5,80 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.2] - 2026-11-06
+
+### Changed — weekly ZAP gate after v2.39.1
+
+The weekly scan of v2.39.1 no longer raises the server-error alert (rule 100000), so its temporary
+exception is removed. Rules 100000 and 100001 are script alerts that appear in the scan log only
+when they fire, so they are no longer in the backend known-rules list; leaving them there made a
+clean result read as a rule that did not run. CI configuration only.
+
+### Tests — kill Stryker survivors in mapDoor.js and mapEvents.js
+
+Added `mapDoorEdges.test.js` and `mapEventsEdges.test.js`: behaviour tests for the Plan-to-Map door's
+clock, day and event wording, roster filter, best-spot and neighbour-outlier arithmetic, trigger
+normalisation, and for the Map event list's past-window ordering, malformed inputs, defaults, night and
+High-water rows, row shapes and clock boundaries. `mapDoor.js` went from 75.2% (361 of 480 scored mutants killed, 119 survived or uncovered) to 95.6%
+(459 killed, 21 left); `mapEvents.js` from 80.2% (438 of 546, 108 left) to 92.3% (504 killed, 42 left).
+Every mutant left is equivalent: array defaults and fallbacks whose replacement no input can tell apart,
+optional chains on values already known non-null, and `<`/`<=` swaps on values that are never equal.
+
+### Tests — kill Stryker survivors in locationEdit and mapTopics
+
+Batch 2 of the frontend mutation-score work (first full run 87.81%). Two new behaviour test files,
+`locationEditEdges.test.js` and `mapTopicsEdges.test.js`, pin the boundaries and gaps the existing tests
+left open: coordinate, height and tide-point limits; which parts of a stored floor, tide point or drive
+point make it "stored"; the field-change rules; the strip's column, High-water tick and tide-at-the-light
+words; and `barTarget` / `labelTarget` on grids with fewer columns than the bar. No source change.
+
+Mutation score (killed plus timeout, of all scored mutants), measured locally with Stryker 10.1.1:
+
+- `utils/locationEdit.js`: 80.4% (452 killed, 104 survived, 6 no coverage) to 99.3% (558 killed, 4 survived).
+- `utils/mapTopics.js`: 87.0% (543 killed or timed out, 79 survived, 2 no coverage) to 95.8% (598 killed or timed out, 25 survived, 1 no coverage).
+
+Every survivor left is an equivalent mutant (no input can tell it from the original).
+
+### Tests — kill Stryker survivors in heatField and heatSpots
+
+Batch 1 of the frontend mutation clean-up (first full run, GitHub run 42202344388). New suites `heatFieldEdges.test.js` and `heatSpotsEdges.test.js` pin the cut-off distance, canvas call order, hatch and veil geometry, marching-squares edge ids, id-first lookup and malformed-input handling. Mutation results, survivors plus no-coverage mutants:
+
+- `heatField.js`: 139 survived and 19 no coverage before, 58 survived and 0 no coverage after (killed 862 to 947, timeouts 15). Raw score 94.3%.
+- `heatSpots.js`: 57 survived and 1 no coverage before, 18 survived after (killed 234 to 274). Raw score 93.8%.
+
+Every remaining survivor is an equivalent mutant (unreachable bucket bounds guards, loops running one iteration past an ignored write, `typeof` guards implied by `Number.isFinite`/`Number.isInteger`, empty-array fallbacks whose string stand-in has no fields, defensive filters). No source changed.
+
+### Removed — the Map's separate best-aurora-location card
+
+On an aurora night the Map no longer shows its own 🏆 best-location card. It ranked every site by stars with no tie-break, so it could name a different place from the aurora banner. The banner's best site, which uses the planning area and the shorter drive from home to break a tie, is now the only recommendation, and each location's summary stays in its callout.
+
+### Fixed — weekly PIT mutation testing timed out silently for four weeks; now sharded on ubuntu-latest
+
+The weekly PIT run was cancelled by its 180-minute cap on 2026-10-12, 10-19, 10-26 and 11-02, and no issue was raised because `notify-failure` only fired on `failure`, not `cancelled`. PIT now runs on `ubuntu-latest` instead of the shared self-hosted runner, split into five parallel package shards (`pit.targetClasses` in `pom.xml`, with a plan job asserting every class is in exactly one shard), with a 350-minute job cap, a 320-minute PIT step and a score line per shard in the run summary. `pitest.yml` and `stryker.yml` now open a failure issue on `cancelled` as well as `failure`.
+
+### Added — weekly frontend mutation testing (Stryker) on src/utils
+
+A new weekly workflow, `stryker.yml`, runs Stryker mutation testing over the client logic in
+`frontend/src/utils/`, the way `pitest.yml` does for the backend. It never blocks a pull request, and
+it opens a failure report through `ci-failure-issue.yml` if the run fails. The incremental state is
+carried between weeks as an artifact (not a cache, which GitHub would evict at the weekly boundary),
+and a run is forced on the first scheduled run of each month and on request. No score floor is set
+yet (`thresholds.break` is null): it comes from the first real measurement. `npm run test:mutation`
+runs it locally.
+
+### Docs — the aurora guide shows the real banner strip and an aurora night on the Map
+
+The Aurora and night sky guide now describes the banner as it is: every reader sees the strength,
+where to look and a link to the guide, and Pro's banner starts as a strip with Kp, the best
+dark-sky location, Map → and a glow along its edge that shows the strength, opening to the full
+banner on a computer or tablet (a Strong alert opens in full). Two placeholders are replaced with
+screenshots from the live aurora forecast of 6 November 2026: the Pro strip, and the Map on an
+aurora night.
+
+### Changed — the aurora banner's expand control reads "Open"
+
+On a computer or tablet, the collapsed aurora strip's bare chevron is now a bordered "Open ▾" button in the style of the Map's Hot topics panel, and the open banner closes with "▴". Phones and the Lite banner are unchanged.
+
 ## [v2.39.1] - 2026-11-06
 
 ### Added — Plan headline follows the drive tier
