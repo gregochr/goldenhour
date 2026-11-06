@@ -836,7 +836,9 @@ class LocationServiceTest {
         locationService.setEnabled(1L, true);
         locationService.setEnabled(1L, false);
 
-        verify(locationRepository, org.mockito.Mockito.never()).updateDriveTargetChangedAt(anyLong(), any());
+        ArgumentCaptor<LocalDateTime> none = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(locationRepository, org.mockito.Mockito.never())
+                .updateDriveTargetChangedAt(eq(on.getId()), none.capture());
     }
 
     @Test
