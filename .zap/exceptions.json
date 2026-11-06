@@ -1,7 +1,5 @@
 {
   "backend": [
-    {"pluginid": "100000", "level": "warn", "until": "phase-4",
-     "reason": "server-error responses to malformed input; tracked for a follow-up PR"},
     {"pluginid": "100001", "uri_regex": "^http://pentest-backend:8082/api/status/stream", "level": "ignore",
      "reason": "SSE endpoint: text/event-stream is correct"},
     {"pluginid": "40018", "uri_regex": "^http://pentest-backend:8082/api/admin/", "level": "ignore",
