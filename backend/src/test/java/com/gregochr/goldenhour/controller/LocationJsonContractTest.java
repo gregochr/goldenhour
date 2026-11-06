@@ -87,6 +87,9 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .valleyFloorLng(-1.72)
                 .tideLat(55.39)
                 .tideLng(-1.6)
+                .drivePointName("Seahouses")
+                .drivePointLat(55.5834)
+                .drivePointLon(-1.6537)
                 .build();
         LocationEntity minimal = LocationEntity.builder()
                 .id(2L).name("Minimal Spot").lat(1.0).lon(2.0)
@@ -116,7 +119,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"coastalStructure\":\"PIER\",\"structureFacesDeg\":45,\"structureLabel\":\"Bamburgh Pier\","
                 + "\"woodlandOnly\":false,\"subRegionId\":71,\"subRegionName\":\"Northumberland Coast\","
                 + "\"valleyFloorMetres\":120,\"valleyFloorLat\":55.6,\"valleyFloorLng\":-1.72,"
-                + "\"tideLat\":55.39,\"tideLng\":-1.6},"
+                + "\"tideLat\":55.39,\"tideLng\":-1.6,\"drivePointName\":\"Seahouses\","
+                + "\"drivePointLat\":55.5834,\"drivePointLon\":-1.6537},"
                 + "{\"id\":2,\"name\":\"Minimal Spot\",\"lat\":1.0,\"lon\":2.0,"
                 + "\"solarEventType\":[],\"tideType\":[],\"locationType\":[],\"region\":null,"
                 + "\"enabled\":true,\"createdAt\":\"2026-01-01T00:00:00\","
@@ -129,7 +133,8 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 + "\"bluebellExposure\":null,\"coastalStructure\":null,\"structureFacesDeg\":null,"
                 + "\"structureLabel\":null,\"woodlandOnly\":false,\"subRegionId\":null,"
                 + "\"subRegionName\":null,\"valleyFloorMetres\":null,\"valleyFloorLat\":null,"
-                + "\"valleyFloorLng\":null,\"tideLat\":null,\"tideLng\":null}"
+                + "\"valleyFloorLng\":null,\"tideLat\":null,\"tideLng\":null,\"drivePointName\":null,"
+                + "\"drivePointLat\":null,\"drivePointLon\":null}"
                 + "]";
 
         mockMvc.perform(get("/api/locations"))

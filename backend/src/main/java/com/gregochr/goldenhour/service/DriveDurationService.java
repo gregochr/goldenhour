@@ -86,8 +86,10 @@ public class DriveDurationService {
             return Optional.empty();
         }
 
+        // ORS routes to the drive point when a place has one (reach-scoped-card-plan R1c) and to the pin otherwise.
+        // Only ORS does: straight-line miles stay on the pin.
         List<double[]> destinations = locations.stream()
-                .map(loc -> new double[]{loc.getLat(), loc.getLon()})
+                .map(loc -> new double[]{loc.routingLat(), loc.routingLon()})
                 .toList();
 
         LOG.info("Measuring drive times for user {} from ({}, {}) to {} locations via ORS",

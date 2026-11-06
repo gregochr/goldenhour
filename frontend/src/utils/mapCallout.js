@@ -185,6 +185,8 @@ export function calloutLeaveBy(eventTimeIso, driveMinutes) {
  * @param {?number} args.driveMinutes  measured drive time, or null/undefined when unmeasured
  * @param {?number} [args.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null for an away origin so this never prints a distance measured from the wrong place
+ * @param {?string} [args.driveTo] the place's drive point name when the minutes are measured to one; the line then
+ *        reads "1h 20min to Glenridding" and prints no miles
  * @param {?string} [args.eventTimeIso] the window's event instant, for the leave-by fact
  * @param {?number} [args.bortleClass] the location's Bortle class, or null when unknown
  * @param {boolean} [args.past] whether the window has gone (outcome-rating-plan.md §2 #2) — Drive
@@ -193,17 +195,22 @@ export function calloutLeaveBy(eventTimeIso, driveMinutes) {
  * @returns {Array<{key: string, label: string, value: string}>} the facts to render, in order
  */
 export function calloutFacts({
-  driveMinutes, distanceMiles = null, eventTimeIso = null, bortleClass = null, past = false,
+  driveMinutes, distanceMiles = null, driveTo = null, eventTimeIso = null, bortleClass = null, past = false,
 }) {
   const facts = [];
   if (!past && Number.isFinite(driveMinutes)) {
-    facts.push({
-      key: 'drive',
-      label: 'Drive',
-      value: Number.isFinite(distanceMiles)
-        ? `${formatDriveDuration(driveMinutes)} · ${distanceMiles} mi`
-        : formatDriveDuration(driveMinutes),
-    });
+    let driveValue;
+    if (driveTo) {
+      // "1h 20min to Glenridding": the minutes are to the drive point, not the pin, so say where. Miles are
+      // dropped here because they are measured to the pin (a summit), which would sit beside minutes to a village
+      // (reach-scoped-card-plan R1c).
+      driveValue = `${formatDriveDuration(driveMinutes)} to ${driveTo}`;
+    } else if (Number.isFinite(distanceMiles)) {
+      driveValue = `${formatDriveDuration(driveMinutes)} · ${distanceMiles} mi`;
+    } else {
+      driveValue = formatDriveDuration(driveMinutes);
+    }
+    facts.push({ key: 'drive', label: 'Drive', value: driveValue });
     const leave = calloutLeaveBy(eventTimeIso, driveMinutes);
     if (leave) {
       facts.push({

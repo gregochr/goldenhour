@@ -1113,6 +1113,16 @@ describe('buildLocationSheet rows', () => {
   });
 });
 
+describe('buildLocationSheet drive point', () => {
+  it('carries the drive point name the minutes are to, and null when the place has none', () => {
+    const named = build({ reachById: new Map([[7, { driveMinutes: 80, driveTo: 'Glenridding' }]]) });
+    expect(named.driveTo).toBe('Glenridding');
+    expect(named.driveMinutes).toBe(80);
+    expect(build().driveTo).toBeNull();
+    expect(build({ reachById: null }).driveTo).toBeNull();
+  });
+});
+
 describe('buildLocationSheet departures', () => {
   it('computes the departure from THIS location\'s own event time', () => {
     // 20:41 BST − 1h6 − 20 min = 19:15. Deriving from the window header would answer 19:11, which

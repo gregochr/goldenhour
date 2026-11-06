@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.client;
 
+import com.gregochr.goldenhour.model.PlaceResult;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -241,5 +243,53 @@ class PostcodesIoClientTest {
 
         assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
                 .isInstanceOf(PostcodeLookupUnavailableException.class);
+    }
+
+    // ---- searchPlaces ----
+
+    @Test
+    @DisplayName("searchPlaces returns the matches as they came, dropping a null element or one with no name")
+    void searchPlaces_returnsMatches() {
+        PlaceResult village = new PlaceResult("Glenridding", "Village", 54.5442, -2.9505, "Cumberland", "North West");
+        RestClientMocks.stubGet(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                new PostcodesIoClient.PostcodesIoPlacesResponse(200, Arrays.asList(
+                        village, null, new PlaceResult(null, "Hamlet", 1.0, 2.0, null, null))));
+
+        assertThat(client.searchPlaces("Glenridding")).containsExactly(village);
+    }
+
+    @Test
+    @DisplayName("searchPlaces answers an empty list for an empty result, a null result and a null body")
+    void searchPlaces_noMatches_isEmpty() {
+        RestClientMocks.stubGet(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                new PostcodesIoClient.PostcodesIoPlacesResponse(200, List.of()));
+        assertThat(client.searchPlaces("Nowhere")).isEmpty();
+
+        RestClientMocks.stubGet(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                new PostcodesIoClient.PostcodesIoPlacesResponse(200, null));
+        assertThat(client.searchPlaces("Nowhere")).isEmpty();
+
+        RestClientMocks.stubGet(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class, null);
+        assertThat(client.searchPlaces("Nowhere")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("searchPlaces maps a 400 to 'not found' and a 5xx or transport failure to 'unavailable'")
+    void searchPlaces_failures_areClassified() {
+        RestClientMocks.stubGetThrows(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "Bad Request", HttpHeaders.EMPTY,
+                        new byte[0], null));
+        assertThatThrownBy(() -> client.searchPlaces("x"))
+                .isInstanceOf(PostcodeLookupException.class)
+                .hasMessage("No place found for that name");
+
+        RestClientMocks.stubGetThrows(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                HttpServerErrorException.create(HttpStatus.INTERNAL_SERVER_ERROR, "boom", HttpHeaders.EMPTY,
+                        new byte[0], null));
+        assertThatThrownBy(() -> client.searchPlaces("x")).isInstanceOf(PostcodeLookupUnavailableException.class);
+
+        RestClientMocks.stubGetThrows(restClient, PostcodesIoClient.PostcodesIoPlacesResponse.class,
+                new ResourceAccessException("timeout"));
+        assertThatThrownBy(() -> client.searchPlaces("x")).isInstanceOf(PostcodeLookupUnavailableException.class);
     }
 }

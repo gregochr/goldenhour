@@ -259,6 +259,17 @@ describe('LocationFourDaySheet', () => {
     expect(screen.getAllByTestId('location-sheet-leave-day')).toHaveLength(1);
   });
 
+  it('names the drive point the minutes are to, before the origin', () => {
+    setup({ reachById: new Map([[7, { driveMinutes: 80, driveTo: 'Glenridding' }]]) });
+    expect(screen.getByTestId('location-sheet-meta'))
+      .toHaveTextContent('Northumberland · 1h 20min to Glenridding from Newcastle');
+  });
+
+  it('names the drive point with no origin label too, and never for a place with none', () => {
+    setup({ reachById: new Map([[7, { driveMinutes: 80, driveTo: 'Glenridding' }]]), originLabel: null });
+    expect(screen.getByTestId('location-sheet-meta').textContent).toBe('Northumberland · 1h 20min to Glenridding');
+  });
+
   it('prints no departure line at all when the drive is unknown', () => {
     // Plan §2.5: absence means "unknown", never "out of reach" — the normal state for a reader with
     // no home postcode, and never a guess.

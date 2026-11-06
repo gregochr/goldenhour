@@ -58,6 +58,27 @@ export default function LocationPanel({
       mono: true,
     },
   ];
+  if (location.drivePointName) {
+    // Drive times are measured to this place, not to the pin (reach-scoped-card-plan R1c). Edit opens the form, whose
+    // Drive point field is the lookup.
+    place.splice(3, 0, {
+      label: 'Drive to',
+      testId: 'location-drive-to',
+      value: (
+        <span className="flex flex-wrap items-center gap-2">
+          <span data-testid="location-drive-to-name">{location.drivePointName}</span>
+          <button
+            type="button"
+            className={`${textButtonClass} py-0 text-xs`}
+            onClick={onEdit}
+            data-testid="location-drive-to-edit"
+          >
+            Edit
+          </button>
+        </span>
+      ),
+    });
+  }
   if (location.valleyFloorMetres != null) {
     place.push({
       label: 'Valley floor',

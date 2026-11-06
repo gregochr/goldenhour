@@ -632,6 +632,9 @@ export function WindowFirstBriefingProvider({
             // MEASURED / PENDING / UNROUTABLE, served (reach-scoped-card-plan D1). Absent from an older
             // backend mid-deploy, which reads as unknown: nothing is dropped.
             driveStatus: entry.driveStatus ?? null,
+            // The drive point the minutes are to ("Glenridding"), when the place has one (R1c). Only when served, so
+            // an ordinary place's entry is shaped exactly as it was.
+            ...(entry.driveTo ? { driveTo: entry.driveTo } : {}),
           });
         }
         setReachById(next);

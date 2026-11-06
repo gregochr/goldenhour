@@ -425,6 +425,53 @@ class LocationRepositoryTest {
     }
 
     @Test
+    @DisplayName("a drive point set on insert is stored and read back whole")
+    void save_withDrivePoint_storesIt() {
+        LocationEntity helvellyn = buildLocation("Helvellyn", 54.527, -3.016);
+        helvellyn.setDrivePointName("Glenridding");
+        helvellyn.setDrivePointLat(54.5442);
+        helvellyn.setDrivePointLon(-2.9505);
+        LocationEntity saved = repository.save(helvellyn);
+        entityManager.flush();
+        entityManager.clear();
+
+        LocationEntity stored = repository.findById(saved.getId()).orElseThrow();
+        assertThat(stored.hasDrivePoint()).isTrue();
+        assertThat(stored.getDrivePointName()).isEqualTo("Glenridding");
+        assertThat(stored.routingLat()).isEqualTo(54.5442);
+        assertThat(stored.routingLon()).isEqualTo(-2.9505);
+        assertThat(stored.getLat()).isEqualTo(54.527);
+    }
+
+    @Test
+    @DisplayName("updateDrivePoint sets then clears the three columns; a stale whole-entity save cannot rewrite them")
+    void updateDrivePoint_isColumnScoped() {
+        LocationEntity saved = repository.save(buildLocation("Helvellyn", 54.527, -3.016));
+        entityManager.flush();
+        entityManager.clear();
+        LocationEntity stale = repository.findById(saved.getId()).orElseThrow();
+        entityManager.clear();
+
+        assertThat(repository.updateDrivePoint(saved.getId(), "Glenridding", 54.5442, -2.9505)).isEqualTo(1);
+        stale.setName("Helvellyn Summit");
+        stale.setDrivePointName("Stale Name");
+        repository.save(stale);
+        entityManager.flush();
+        entityManager.clear();
+
+        LocationEntity stored = repository.findById(saved.getId()).orElseThrow();
+        assertThat(stored.getName()).isEqualTo("Helvellyn Summit");
+        assertThat(stored.getDrivePointName()).isEqualTo("Glenridding");
+        assertThat(stored.getDrivePointLat()).isEqualTo(54.5442);
+        assertThat(stored.getDrivePointLon()).isEqualTo(-2.9505);
+
+        assertThat(repository.updateDrivePoint(saved.getId(), null, null, null)).isEqualTo(1);
+        entityManager.clear();
+        assertThat(repository.findById(saved.getId()).orElseThrow().hasDrivePoint()).isFalse();
+        assertThat(repository.updateDrivePoint(999_999L, "Nowhere", 1.0, 2.0)).isZero();
+    }
+
+    @Test
     @DisplayName("findMaxDriveTargetChangedAt sees a coordinate move that created_at never would")
     void findMaxDriveTargetChangedAt_seesAMove() {
         assertThat(repository.findMaxDriveTargetChangedAt()).isNull();

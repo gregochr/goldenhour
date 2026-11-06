@@ -145,6 +145,25 @@ public class LocationEntity {
             columnDefinition = "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
     private LocalDateTime driveTargetChangedAt;
 
+    /**
+     * Name of the drive point (reach-scoped-card-plan R1c): the place a driver can reach, e.g. "Glenridding" for a
+     * summit with no road to it, or null when drive times are routed to the pin itself. Set with
+     * {@link #drivePointLat} and {@link #drivePointLon}, all three or none. Not updatable through the entity:
+     * written only by {@code LocationRepository.updateDrivePoint} (which {@code LocationService} pairs with the
+     * {@code drive_target_changed_at} bump and the drive-time deletion) and the insert, so a stale snapshot saved
+     * later cannot rewind it (the column-scoped writes invariant).
+     */
+    @Column(name = "drive_point_name", length = 120, updatable = false)
+    private String drivePointName;
+
+    /** Latitude of the drive point, or null when there is none. */
+    @Column(name = "drive_point_lat", updatable = false)
+    private Double drivePointLat;
+
+    /** Longitude of the drive point, or null when there is none. */
+    @Column(name = "drive_point_lon", updatable = false)
+    private Double drivePointLon;
+
     /** Number of consecutive forecast failures for this location. Used for auto-disabling. */
     @Column(name = "consecutive_failures", updatable = false)
     @Builder.Default
@@ -455,6 +474,34 @@ public class LocationEntity {
             return new TidePoint(tideLat, tideLng);
         }
         return new TidePoint(lat, lon);
+    }
+
+    /**
+     * Whether this location has a complete drive point.
+     *
+     * @return true when the name and both coordinates are set
+     */
+    public boolean hasDrivePoint() {
+        return drivePointName != null && drivePointLat != null && drivePointLon != null;
+    }
+
+    /**
+     * The latitude OpenRouteService routes to: the drive point's when one is set, otherwise the pin's. Only ORS
+     * reads this; straight-line miles and Ask's home radius stay on {@link #getLat()}.
+     *
+     * @return the latitude of the point drive times are measured to
+     */
+    public double routingLat() {
+        return hasDrivePoint() ? drivePointLat : lat;
+    }
+
+    /**
+     * The longitude OpenRouteService routes to: the drive point's when one is set, otherwise the pin's.
+     *
+     * @return the longitude of the point drive times are measured to
+     */
+    public double routingLon() {
+        return hasDrivePoint() ? drivePointLon : lon;
     }
 
     /**

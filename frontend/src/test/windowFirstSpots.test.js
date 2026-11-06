@@ -86,6 +86,13 @@ describe('buildWindowSpots', () => {
     expect(s.distanceMiles).toBe(47);
   });
 
+  it('copies the drive point name onto the spot when the reach entry has one, and no key when it has none', () => {
+    const reach = new Map([[1, { driveMinutes: 80, distanceMiles: 20, driveTo: 'Glenridding' }]]);
+    expect(buildWindowSpots(summary([slot()]), reach)[0].driveTo).toBe('Glenridding');
+    const plain = new Map([[1, { driveMinutes: 80, distanceMiles: 20 }]]);
+    expect(buildWindowSpots(summary([slot()]), plain)[0]).not.toHaveProperty('driveTo');
+  });
+
   it('leaves reach null when this location is not in the reach payload', () => {
     // The gap is real: reach covers the ENABLED roster, and a briefing cached before a location
     // was disabled still carries its slot.

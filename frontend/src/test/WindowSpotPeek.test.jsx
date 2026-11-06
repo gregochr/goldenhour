@@ -100,6 +100,27 @@ describe('WindowSpotPeek', () => {
       expect(screen.getByTestId('wf-peek-drive')).toHaveTextContent('🚗 1h 6min');
     });
 
+    it('names the drive point the minutes are to (reach-scoped-card-plan R1c)', () => {
+      renderPeek({ driveMinutes: 80, driveTo: 'Glenridding', clause: 'Clear.' });
+      expect(screen.getByTestId('wf-peek-drive')).toHaveTextContent('🚗 1h 20min to Glenridding');
+    });
+
+    it('keeps a long drive-point name inside the panel: truncated visually, whole in the title and the text', () => {
+      const name = 'Llanberis Pass Pen-y-Pass Car Park and Visitor Centre';
+      renderPeek({ driveMinutes: 80, driveTo: name, clause: 'Clear.' });
+      const chip = screen.getByTestId('wf-peek-drive');
+      expect(chip).toHaveAttribute('title', `1h 20min to ${name}`);
+      expect(chip).toHaveTextContent(`1h 20min to ${name}`);
+      expect(chip).toHaveClass('max-w-full', 'overflow-hidden', 'text-ellipsis');
+    });
+
+    it('puts no title or truncation on a chip with no drive point', () => {
+      renderPeek({ driveMinutes: 66, clause: 'Clear.' });
+      const chip = screen.getByTestId('wf-peek-drive');
+      expect(chip).not.toHaveAttribute('title');
+      expect(chip).not.toHaveClass('text-ellipsis');
+    });
+
     it('omits the drive chip entirely when the drive time is unknown', () => {
       // Absent, never zeroed — plan §2.5. This is the normal state for a user with no home.
       renderPeek({ driveMinutes: null, clause: 'Clear.' });

@@ -193,6 +193,25 @@ class RegionDriveDurationServiceTest {
     }
 
     @Test
+    @DisplayName("routes to a place's drive point when it has one, and to the pin when it has none")
+    void refreshForRegion_routesToTheDrivePointWhenSet() {
+        LocationEntity helvellyn = location(11L, 54.5275, -3.0162);
+        helvellyn.setDrivePointName("Glenridding");
+        helvellyn.setDrivePointLat(54.5442);
+        helvellyn.setDrivePointLon(-2.9505);
+        when(orsProperties.isConfigured()).thenReturn(true);
+        when(locationRepository.findAll()).thenReturn(List.of(helvellyn, location(12L, 54.43, -3.01)));
+        when(orsClient.fetchDurations(eq(BASE_LAT), eq(BASE_LON),
+                argThat(actual -> actual != null && actual.size() == 2
+                        && actual.get(0)[0] == 54.5442 && actual.get(0)[1] == -2.9505
+                        && actual.get(1)[0] == 54.43 && actual.get(1)[1] == -3.01)))
+                .thenReturn(List.of(1500.0, 2400.0));
+        writerAccepts(true, 11L, 12L);
+
+        assertThat(service.refreshForRegion(based())).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("routes from the BASE coordinates, in [lat, lon] order, to every location")
     void refreshForRegion_routesFromTheBase() {
         when(orsProperties.isConfigured()).thenReturn(true);

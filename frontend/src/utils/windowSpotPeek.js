@@ -157,7 +157,7 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  * @param {string}  date       the window's date
  * @param {string}  targetType SUNRISE or SUNSET
  * @param {?Map}    scoreIndex briefing-score index, from {@code buildBriefingScoreIndex}
- * @returns {?{rating: ?number, driveMinutes: ?number, leaveBy: ?string, fierySky: ?number,
+ * @returns {?{rating: ?number, driveMinutes: ?number, driveTo?: string, leaveBy: ?string, fierySky: ?number,
  *          goldenHour: ?number, clause: ?string}} the peek's content, or null when there is
  *          nothing to show
  */
@@ -174,6 +174,9 @@ export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
     // outside 1–5 that the index would still hand back.
     rating: spot.rating ?? null,
     driveMinutes: spot.driveMinutes ?? null,
+    // The drive point the minutes are to, when the place has one (reach-scoped-card-plan R1c): "to Glenridding"
+    // beside the minutes. Only when present, so a peek for an ordinary place is shaped exactly as it was.
+    ...(spot.driveTo ? { driveTo: spot.driveTo } : {}),
     // Computed AFTER the gate, deliberately: a leave-by time is on the card, so a peek carrying
     // nothing else would restate what the pointer is already resting on.
     leaveBy: leaveBy(spot.solarEventTime, spot.driveMinutes),

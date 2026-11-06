@@ -278,6 +278,29 @@ class DriveDurationServiceTest {
         assertThat(service.measureForUser(USER_ID, SOURCE_LAT, SOURCE_LON)).isEmpty();
     }
 
+    @Test
+    @DisplayName("a home is routed to a place's drive point when it has one, and to the pin when it has none")
+    void measureForUser_routesToTheDrivePointWhenSet() {
+        LocationEntity helvellyn = location(1L, "Helvellyn", 54.5275, -3.0162);
+        helvellyn.setDrivePointName("Glenridding");
+        helvellyn.setDrivePointLat(54.5442);
+        helvellyn.setDrivePointLon(-2.9505);
+        LocationEntity durham = location(2L, "Durham UK", 54.78, -1.58);
+        when(orsProperties.isConfigured()).thenReturn(true);
+        when(locationRepository.findAll()).thenReturn(List.of(helvellyn, durham));
+        when(orsClient.fetchDurations(eq(SOURCE_LAT), eq(SOURCE_LON),
+                argThat(actual -> actual != null && actual.size() == 2
+                        && actual.get(0)[0] == 54.5442 && actual.get(0)[1] == -2.9505
+                        && actual.get(1)[0] == 54.78 && actual.get(1)[1] == -1.58)))
+                .thenReturn(List.of(4800.0, 600.0));
+
+        Optional<List<UserDriveTimeEntity>> result = service.measureForUser(USER_ID, SOURCE_LAT, SOURCE_LON);
+
+        assertThat(result).isPresent();
+        assertThat(result.get()).hasSize(2);
+        assertThat(result.get().get(0).getDriveMinutes()).isEqualTo(80);
+    }
+
     private static LocationEntity location(Long id, String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(id)

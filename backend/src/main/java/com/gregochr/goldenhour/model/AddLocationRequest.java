@@ -29,6 +29,9 @@ import java.util.Set;
  *                           riverside, lake shore); null is read as false
  * @param subRegionId        optional sub-region (an area of kind SUB_REGION) to place the location in; it must
  *                           be in the location's region
+ * @param drivePointName     optional drive point name (e.g. "Glenridding"); set with the next two or not at all
+ * @param drivePointLat      optional drive point latitude
+ * @param drivePointLon      optional drive point longitude
  */
 public record AddLocationRequest(
         String name,
@@ -46,8 +49,41 @@ public record AddLocationRequest(
         Boolean overlooksWater,
         Boolean coastalTidal,
         Boolean mistProne,
-        Long subRegionId
+        Long subRegionId,
+        String drivePointName,
+        Double drivePointLat,
+        Double drivePointLon
 ) {
+    /**
+     * Constructor for callers that predate the drive point: it reads as absent.
+     *
+     * @param name             human-readable location identifier
+     * @param lat              latitude in decimal degrees
+     * @param lon              longitude in decimal degrees
+     * @param solarEventTypes  which solar events to evaluate
+     * @param locationTypes    photography types
+     * @param tideTypes        tide preferences
+     * @param regionId         optional region ID
+     * @param bortleClass      auto-detected Bortle class (nullable)
+     * @param skyBrightnessSqm auto-detected sky brightness (nullable)
+     * @param elevationMetres  auto-detected elevation in metres (nullable)
+     * @param gridLat          Open-Meteo snapped grid latitude (nullable)
+     * @param gridLng          Open-Meteo snapped grid longitude (nullable)
+     * @param overlooksWater   manual toggle — overlooks a body of water
+     * @param coastalTidal     manual toggle — coastal and tidally influenced
+     * @param mistProne        manual toggle — mist forms around this location
+     * @param subRegionId      optional sub-region
+     */
+    public AddLocationRequest(String name, double lat, double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId, Integer bortleClass, Double skyBrightnessSqm,
+            Integer elevationMetres, Double gridLat, Double gridLng, Boolean overlooksWater,
+            Boolean coastalTidal, Boolean mistProne, Long subRegionId) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, bortleClass,
+                skyBrightnessSqm, elevationMetres, gridLat, gridLng, overlooksWater, coastalTidal,
+                mistProne, subRegionId, null, null, null);
+    }
+
     /**
      * Constructor for callers that predate the sub-region field: {@code subRegionId} reads as absent.
      *
@@ -74,7 +110,7 @@ public record AddLocationRequest(
             Boolean coastalTidal, Boolean mistProne) {
         this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, bortleClass,
                 skyBrightnessSqm, elevationMetres, gridLat, gridLng, overlooksWater, coastalTidal,
-                mistProne, null);
+                mistProne, null, null, null, null);
     }
 
     /**
@@ -102,7 +138,7 @@ public record AddLocationRequest(
             Boolean coastalTidal) {
         this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, bortleClass,
                 skyBrightnessSqm, elevationMetres, gridLat, gridLng, overlooksWater, coastalTidal,
-                null, null);
+                null, null, null, null, null);
     }
 
     /** Compact canonical constructor — defensive copy of mutable sets. */

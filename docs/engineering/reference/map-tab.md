@@ -124,3 +124,12 @@ A `GuideLink` `?` sits in each Map panel: the window control menu's footer (`wf-
 `driveFiltered`) still drops every place with no drive time (`mins != null`), unroutable or merely unmeasured. That
 is a recorded exception to the Plan tab's rule, which keeps PENDING places and drops only UNROUTABLE ones under a
 measured finite tier; it is unchanged until R3 gives the Map the shared drive state.
+
+**The callout's Drive line names a drive point (reach-scoped-card-plan R1c).** A place may carry a drive point (a village
+below a summit); its drive minutes are then measured to that point, not the pin. The reach entry (`driveTo`, home from
+`GET /api/user/settings/reach`, away from `originReachMap` reading `drivePointName` off the roster) reaches
+`calloutFacts({ driveTo })`, so the Drive fact reads `1h 20min to Glenridding` and prints **no miles** (they are
+measured to the pin). `MapView.driveToFor` reads the same map as `driveMinutesFor` (the override away), so the name never
+describes a different journey from the minutes beside it. The same name rides the Plan strip's peek chip
+(`WindowSpotPeek`) and the four-day location sheet's meta line (`1h 20min to Glenridding from Keswick`); it is not printed
+on list rows, leave-by times or popup verdicts. The Map's drive filter is unchanged.

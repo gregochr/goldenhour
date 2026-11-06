@@ -230,6 +230,15 @@ describe('resolveSpotPeek', () => {
     }]))).toBeNull();
   });
 
+  it('carries the drive point name from the card when it has one, and no key when it has none', () => {
+    const scores = scoreIndex([{
+      date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle', fierySkyPotential: 68,
+    }]);
+    expect(resolveSpotPeek({ ...SPOT, driveMinutes: 80, driveTo: 'Glenridding' }, DATE, EVENT, scores).driveTo)
+      .toBe('Glenridding');
+    expect(resolveSpotPeek({ ...SPOT, driveMinutes: 80 }, DATE, EVENT, scores)).not.toHaveProperty('driveTo');
+  });
+
   it('takes the rating and the drive from the CARD, never from the index', () => {
     // A peek that disagreed with the card it hangs off is the exact failure the single-source
     // contract exists to prevent — and `buildWindowSpots` has already discarded an out-of-range

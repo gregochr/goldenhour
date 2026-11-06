@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.entity.SolarEventType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.DrivePoint;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
@@ -195,6 +196,11 @@ public class LocationService {
             subRegionMembership.requireAssignable(request.subRegionId(), region);
         }
 
+        DrivePoint drivePoint = DrivePoint.parse(
+                request.drivePointName(), request.drivePointLat(), request.drivePointLon());
+        if (drivePoint != null) {
+            drivePoint.requireWithinRangeOf(request.lat(), request.lon());
+        }
         LocalDateTime createdAt = LocalDateTime.now(ZoneOffset.UTC);
         LocationEntity entity = LocationEntity.builder()
                 .name(request.name())
@@ -215,6 +221,9 @@ public class LocationService {
                 .createdAt(createdAt)
                 // The routing point is new, so no drive time can describe it yet.
                 .driveTargetChangedAt(createdAt)
+                .drivePointName(drivePoint == null ? null : drivePoint.name())
+                .drivePointLat(drivePoint == null ? null : drivePoint.lat())
+                .drivePointLon(drivePoint == null ? null : drivePoint.lon())
                 .build();
         LocationEntity saved = locationRepository.save(entity);
         servedEpoch.bump();
@@ -250,6 +259,8 @@ public class LocationService {
         // coordinate edit looks like a no-op.
         double previousLat = location.getLat();
         double previousLon = location.getLon();
+        double previousRouteLat = location.routingLat();
+        double previousRouteLon = location.routingLon();
         LocationEntity.TidePoint previousTidePoint = location.getEffectiveTidePoint();
 
         // Handle name change — no cascade needed, forecast_evaluation
@@ -346,6 +357,11 @@ public class LocationService {
         applyHeights(location, request);
         applyTidePoint(location, request);
         requireStoredTidePointNearPin(location, previousLat, previousLon);
+        DrivePointChange drivePointChange = resolveDrivePointChange(location, request);
+        if (drivePointChange.next() != null) {
+            // The drive point as this request leaves it, against the pin as this request leaves it.
+            drivePointChange.next().requireWithinRangeOf(location.getLat(), location.getLon());
+        }
 
         boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
                 || Double.compare(previousLon, location.getLon()) != 0;
@@ -353,7 +369,13 @@ public class LocationService {
 
         LocationEntity saved = locationRepository.save(location);
         servedEpoch.bump();
-        if (coordinatesMoved) {
+        if (drivePointChange.changed()) {
+            writeDrivePoint(saved, drivePointChange.next());
+        }
+        // The point ORS routes to is the drive point when there is one, else the pin: a pin move behind a drive
+        // point, or a drive point set to where the pin already was, changes nothing a stored drive time describes.
+        if (Double.compare(previousRouteLat, saved.routingLat()) != 0
+                || Double.compare(previousRouteLon, saved.routingLon()) != 0) {
             invalidateDriveTimes(saved);
         }
 
@@ -379,6 +401,63 @@ public class LocationService {
     }
 
     /**
+     * What an update does to a location's drive point.
+     *
+     * @param changed whether the stored drive point differs from {@code next}
+     * @param next    the drive point after the update, or null for none
+     */
+    private record DrivePointChange(boolean changed, DrivePoint next) {
+    }
+
+    /**
+     * Reads the drive-point fields of an update (reach-scoped-card-plan R1c), mirroring the tide point: all three
+     * values or none, {@code clearDrivePoint} alone nulls them and is rejected alongside any value, all null means
+     * "don't change". Every failure is an {@link IllegalArgumentException} (HTTP 400). Mutates nothing.
+     *
+     * @param location the location being updated, with this request's other fields applied
+     * @param request  the update request
+     * @return whether the stored drive point changes, and what it becomes
+     */
+    private DrivePointChange resolveDrivePointChange(LocationEntity location, UpdateLocationRequest request) {
+        DrivePoint requested = DrivePoint.parse(
+                request.drivePointName(), request.drivePointLat(), request.drivePointLon());
+        boolean clear = Boolean.TRUE.equals(request.clearDrivePoint());
+        if (clear && requested != null) {
+            throw new IllegalArgumentException("Clear the drive point or set it, not both");
+        }
+        DrivePoint current = location.hasDrivePoint()
+                ? new DrivePoint(location.getDrivePointName(), location.getDrivePointLat(),
+                        location.getDrivePointLon())
+                : null;
+        if (clear) {
+            return new DrivePointChange(current != null, null);
+        }
+        if (requested == null) {
+            return new DrivePointChange(false, current);
+        }
+        return new DrivePointChange(!requested.equals(current), requested);
+    }
+
+    /**
+     * Writes a changed drive point through the column-scoped update, and onto the managed copy (the columns are
+     * {@code updatable = false}, so {@code save} writes none of them).
+     *
+     * @param saved the saved location
+     * @param next  the new drive point, or null to clear
+     */
+    private void writeDrivePoint(LocationEntity saved, DrivePoint next) {
+        String name = next == null ? null : next.name();
+        Double lat = next == null ? null : next.lat();
+        Double lon = next == null ? null : next.lon();
+        locationRepository.updateDrivePoint(saved.getId(), name, lat, lon);
+        saved.setDrivePointName(name);
+        saved.setDrivePointLat(lat);
+        saved.setDrivePointLon(lon);
+        LOG.info("Location '{}' drive point {}", saved.getName(),
+                next == null ? "cleared" : "set to '" + next.name() + "'");
+    }
+
+    /**
      * Stamps {@code drive_target_changed_at} with now, on the row and on the managed copy. Used by a coordinate move
      * and by a re-enable (reach-scoped-card-plan D1a): the nightly roster reads only enabled places, so a place that
      * was off during a sweep must read PENDING, never UNROUTABLE, until it is measured again.
@@ -396,7 +475,8 @@ public class LocationService {
      * Records that a moved location is a new routing destination, and discards every drive time to the old one
      * (reach-scoped-card-plan D1a), in the caller's transaction.
      *
-     * <p>Moving the pin changes the point OpenRouteService routes to, so each stored home and region-base drive time
+     * <p>Moving the pin (or, behind a drive point, the drive point itself) changes the point OpenRouteService routes
+     * to, so each stored home and region-base drive time
      * describes a journey to somewhere else. They are deleted, and {@code drive_target_changed_at} is bumped, which
      * does two things: the location reads PENDING (kept in by a reach tier) rather than UNROUTABLE until it is
      * measured again, and {@code DriveTimeRefreshJob} re-measures every home that night with no other change. The
@@ -408,7 +488,8 @@ public class LocationService {
         bumpDriveTargetChangedAt(saved);
         userDriveTimeWriter.clearForLocation(saved.getId());
         regionDriveTimeWriter.clearForLocation(saved.getId());
-        LOG.info("Location '{}' moved — drive times to it discarded, to be re-measured", saved.getName());
+        LOG.info("Location '{}' drive target changed — drive times to it discarded, to be re-measured",
+                saved.getName());
     }
 
     /**

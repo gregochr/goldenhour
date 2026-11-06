@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.exception.NameClashException;
+import com.gregochr.goldenhour.exception.NoRoadRouteException;
 import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
@@ -144,6 +145,22 @@ public class GlobalExceptionHandler {
                 "error", ex.getMessage(),
                 "code", SubRegionsLockedException.CODE,
                 "nextChangeOn", ex.getNextChangeOn().toString()));
+    }
+
+    /**
+     * Maps {@link NoRoadRouteException} to HTTP 422 {@code {error, code: NO_ROAD_ROUTE, field: drivePoint}}: the
+     * save would leave a location with a point no road route reaches (reach-scoped-card-plan R1c). The form reads
+     * {@code code} to show its drive-point field as required.
+     *
+     * @param ex the exception, whose message is a plain sentence for the admin
+     * @return the 422 response
+     */
+    @ExceptionHandler(NoRoadRouteException.class)
+    public ResponseEntity<Map<String, String>> handleNoRoadRoute(NoRoadRouteException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", ex.getMessage(),
+                "code", NoRoadRouteException.CODE,
+                "field", NoRoadRouteException.FIELD));
     }
 
     /**

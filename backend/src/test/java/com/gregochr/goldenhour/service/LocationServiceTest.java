@@ -1998,6 +1998,199 @@ class LocationServiceTest {
         return RegionEntity.builder().id(id).name(name).enabled(enabled).build();
     }
 
+    // ---- drive point (reach-scoped-card-plan R1c) ----
+
+    private static UpdateLocationRequest drivePointUpdate(Double lat, Double lon, String name, Double dpLat,
+            Double dpLon, Boolean clear) {
+        return new UpdateLocationRequest(null, lat, lon, null, null, null, null, null, null, null, null, null,
+                null, null, null, null, null, name, dpLat, dpLon, clear);
+    }
+
+    private LocationEntity helvellynWithDrivePoint() {
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        existing.setDrivePointName("Glenridding");
+        existing.setDrivePointLat(54.5442);
+        existing.setDrivePointLon(-2.9505);
+        return existing;
+    }
+
+    @Test
+    @DisplayName("add() stores a complete drive point on the new row")
+    void add_withDrivePoint_storesIt() {
+        when(locationRepository.existsByName("Helvellyn")).thenReturn(false);
+        when(nameGuard.locationNameClash("Helvellyn", null)).thenReturn(Optional.empty());
+        when(locationRepository.save(argThat(l -> l != null && "Helvellyn".equals(l.getName()))))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity saved = locationService.add(new AddLocationRequest(
+                "Helvellyn", 54.5275, -3.0162, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, " Glenridding ", 54.5442, -2.9505));
+
+        assertThat(saved.getDrivePointName()).isEqualTo("Glenridding");
+        assertThat(saved.getDrivePointLat()).isEqualTo(54.5442);
+        assertThat(saved.getDrivePointLon()).isEqualTo(-2.9505);
+        assertThat(saved.routingLat()).isEqualTo(54.5442);
+        assertThat(saved.routingLon()).isEqualTo(-2.9505);
+        // Miles and Ask's radius read the pin, which a drive point must never move.
+        assertThat(saved.getLat()).isEqualTo(54.5275);
+    }
+
+    @Test
+    @DisplayName("add() without a drive point routes to the pin")
+    void add_withoutDrivePoint_routesToThePin() {
+        when(locationRepository.existsByName("Glenridding")).thenReturn(false);
+        when(nameGuard.locationNameClash("Glenridding", null)).thenReturn(Optional.empty());
+        when(locationRepository.save(argThat(l -> l != null && "Glenridding".equals(l.getName()))))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        LocationEntity saved = locationService.add(new AddLocationRequest(
+                "Glenridding", 54.54, -2.95, null, null, null, null, null, null, null, null, null, null, null));
+
+        assertThat(saved.hasDrivePoint()).isFalse();
+        assertThat(saved.routingLat()).isEqualTo(54.54);
+        assertThat(saved.routingLon()).isEqualTo(-2.95);
+    }
+
+    @Test
+    @DisplayName("add() refuses a half-supplied drive point as a 400 and saves nothing")
+    void add_partialDrivePoint_isRefused() {
+        when(locationRepository.existsByName("Helvellyn")).thenReturn(false);
+        when(nameGuard.locationNameClash("Helvellyn", null)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> locationService.add(new AddLocationRequest(
+                "Helvellyn", 54.5275, -3.0162, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, "Glenridding", 54.5442, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(locationRepository, never()).save(argThat(l -> l != null && "Helvellyn".equals(l.getName())));
+    }
+
+    @Test
+    @DisplayName("update() setting a drive point writes it by the scoped update, on the managed copy too, and "
+            + "invalidates the drive times to the old routing point")
+    void update_setDrivePoint_writesScopedAndInvalidates() {
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        LocationEntity result = locationService.update(1L,
+                drivePointUpdate(null, null, "Glenridding", 54.5442, -2.9505, null));
+
+        verify(locationRepository).updateDrivePoint(1L, "Glenridding", 54.5442, -2.9505);
+        assertThat(result.getDrivePointName()).isEqualTo("Glenridding");
+        assertThat(result.routingLat()).isEqualTo(54.5442);
+        ArgumentCaptor<LocalDateTime> bumped = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(locationRepository).updateDriveTargetChangedAt(eq(1L), bumped.capture());
+        assertThat(bumped.getValue()).isNotNull();
+        verify(userDriveTimeWriter).clearForLocation(1L);
+        verify(regionDriveTimeWriter).clearForLocation(1L);
+    }
+
+    @Test
+    @DisplayName("update() clearing the drive point nulls the columns and invalidates, as the target is the pin again")
+    void update_clearDrivePoint_writesNullsAndInvalidates() {
+        LocationEntity existing = helvellynWithDrivePoint();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        LocationEntity result = locationService.update(1L, drivePointUpdate(null, null, null, null, null, true));
+
+        verify(locationRepository).updateDrivePoint(1L, null, null, null);
+        assertThat(result.hasDrivePoint()).isFalse();
+        assertThat(result.routingLat()).isEqualTo(54.5275);
+        verify(userDriveTimeWriter).clearForLocation(1L);
+        verify(regionDriveTimeWriter).clearForLocation(1L);
+    }
+
+    @Test
+    @DisplayName("update() restating the stored drive point writes nothing and invalidates nothing")
+    void update_sameDrivePoint_isANoOp() {
+        LocationEntity existing = helvellynWithDrivePoint();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, drivePointUpdate(null, null, "Glenridding", 54.5442, -2.9505, null));
+        locationService.update(1L, drivePointUpdate(null, null, null, null, null, false));
+
+        verify(locationRepository, never()).updateDrivePoint(1L, "Glenridding", 54.5442, -2.9505);
+        verify(locationRepository, never()).updateDrivePoint(1L, null, null, null);
+        verifyNoInteractions(userDriveTimeWriter, regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("update() moving the pin behind a drive point invalidates nothing: ORS routes to the drive point")
+    void update_pinMovesBehindDrivePoint_invalidatesNothing() {
+        LocationEntity existing = helvellynWithDrivePoint();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, drivePointUpdate(54.58, -2.93, null, null, null, null));
+
+        verifyNoInteractions(userDriveTimeWriter, regionDriveTimeWriter);
+        assertThat(existing.getLat()).isEqualTo(54.58);
+        assertThat(existing.routingLat()).isEqualTo(54.5442);
+    }
+
+    @Test
+    @DisplayName("update() renaming the drive point over the same coordinates writes the name and invalidates "
+            + "nothing")
+    void update_renamedDrivePoint_writesButDoesNotInvalidate() {
+        LocationEntity existing = helvellynWithDrivePoint();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, drivePointUpdate(null, null, "Glenridding village", 54.5442, -2.9505, null));
+
+        verify(locationRepository).updateDrivePoint(1L, "Glenridding village", 54.5442, -2.9505);
+        verifyNoInteractions(userDriveTimeWriter, regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("update() moving the pin while setting a drive point invalidates once")
+    void update_moveAndSetDrivePoint_invalidatesOnce() {
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(existing)).thenReturn(existing);
+
+        locationService.update(1L, drivePointUpdate(54.58, -2.93, "Glenridding", 54.5442, -2.9505, null));
+
+        verify(userDriveTimeWriter, times(1)).clearForLocation(1L);
+        verify(regionDriveTimeWriter, times(1)).clearForLocation(1L);
+    }
+
+    @Test
+    @DisplayName("update() refuses clearing and setting the drive point together, and a half-set one, as a 400")
+    void update_badDrivePointCombinations_areRefused() {
+        LocationEntity existing = helvellynWithDrivePoint();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> locationService.update(1L,
+                drivePointUpdate(null, null, "Glenridding", 54.5442, -2.9505, true)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not both");
+        assertThatThrownBy(() -> locationService.update(1L, drivePointUpdate(null, null, "Glenridding", null, null,
+                null))).isInstanceOf(IllegalArgumentException.class);
+
+        verify(locationRepository, never()).save(existing);
+    }
+
+    @Test
+    @DisplayName("add() and update() refuse a drive point more than 25 km from the pin as a 400")
+    void drivePointTooFar_isRefusedOnAddAndUpdate() {
+        when(locationRepository.existsByName("Helvellyn")).thenReturn(false);
+        when(nameGuard.locationNameClash("Helvellyn", null)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> locationService.add(new AddLocationRequest(
+                "Helvellyn", 54.5275, -3.0162, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, "London", 51.5, -0.1))).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("25 km");
+
+        LocationEntity existing = buildEntity("Helvellyn", 54.5275, -3.0162);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        assertThatThrownBy(() -> locationService.update(1L,
+                drivePointUpdate(null, null, "London", 51.5, -0.1, null)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("25 km");
+        verify(locationRepository, never()).save(existing);
+    }
+
     private LocationEntity buildEntity(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .id(1L)

@@ -291,6 +291,9 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null,
         // (reach-scoped-card-plan D1); null when the origin has no entry for this place. A spot with no drive
         // time and no status is unknown and passes every tier, exactly as before; only the gate reads UNROUTABLE.
         driveStatus: reach?.driveStatus ?? null,
+        // The drive point the minutes are measured to ("Glenridding"), when the place has one (R1c). Only when
+        // present, so a spot with none is shaped exactly as it was.
+        ...(reach?.driveTo ? { driveTo: reach.driveTo } : {}),
         far: isFarSpot(driveMinutes, farOverMinutes),
         // The three tide facts `windowFirstCards.js#buildWindowCards` derives `tideFit` from, and
         // `windowFirstTideRun.js` ranks the run on — copied flat from THIS WINDOW'S served tide facts

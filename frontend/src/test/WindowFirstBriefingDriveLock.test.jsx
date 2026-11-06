@@ -132,6 +132,25 @@ describe('WindowFirstBriefingProvider — the drive-time lock', () => {
     expect(latest.current.reachMeasured).toBe(true);
   });
 
+  it('keeps the served drive point name as driveTo, and adds nothing for a place without one', async () => {
+    mockRole = 'PRO_USER';
+    getReach.mockResolvedValue([
+      {
+        locationId: 7, driveMinutes: 80, distanceMiles: 20, driveStatus: 'MEASURED', driveTo: 'Glenridding',
+      },
+      { locationId: 8, driveMinutes: 30, distanceMiles: 9, driveStatus: 'MEASURED' },
+    ]);
+    renderProvider();
+    await settle();
+
+    expect(latest.current.reachById.get(7)).toEqual({
+      driveMinutes: 80, distanceMiles: 20, driveStatus: 'MEASURED', driveTo: 'Glenridding',
+    });
+    expect(latest.current.reachById.get(8)).toEqual({
+      driveMinutes: 30, distanceMiles: 9, driveStatus: 'MEASURED',
+    });
+  });
+
   it('reads a reader whose every drive is pending as NOT measured, so no tier acts', async () => {
     mockRole = 'PRO_USER';
     getReach.mockResolvedValue([{ locationId: 7, distanceMiles: 18, driveStatus: 'PENDING' }]);

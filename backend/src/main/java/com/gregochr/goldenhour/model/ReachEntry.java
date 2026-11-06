@@ -28,10 +28,27 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param driveStatus   whether the drive is measured, not measured yet, or confirmed to have no route
  *                      ({@link DriveStatus}); a finite reach tier drops UNROUTABLE and keeps PENDING.
  *                      Never null: a caller with no stamp reads PENDING for every unmeasured location
+ * @param driveTo       the location's drive point name (e.g. "Glenridding") when drive times are routed to a
+ *                      point other than the pin, so the drive line can say where the minutes are to; omitted when
+ *                      the location has none (reach-scoped-card-plan R1c). The same for every reader, so it adds
+ *                      nothing personal to the payload
  */
 public record ReachEntry(
         Long locationId,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer driveMinutes,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer distanceMiles,
-        DriveStatus driveStatus) {
+        DriveStatus driveStatus,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String driveTo) {
+
+    /**
+     * An entry with no drive point: {@code driveTo} reads as absent.
+     *
+     * @param locationId    the location this describes
+     * @param driveMinutes  driving time from the caller's home, or null
+     * @param distanceMiles straight-line distance from the caller's home, or null
+     * @param driveStatus   whether the drive is measured, not measured yet, or confirmed to have no route
+     */
+    public ReachEntry(Long locationId, Integer driveMinutes, Integer distanceMiles, DriveStatus driveStatus) {
+        this(locationId, driveMinutes, distanceMiles, driveStatus, null);
+    }
 }

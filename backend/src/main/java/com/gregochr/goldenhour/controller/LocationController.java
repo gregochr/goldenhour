@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.model.ValleyFloorCandidates;
 import com.gregochr.goldenhour.model.ValleyFloorCell;
+import com.gregochr.goldenhour.service.DriveRoutabilityGuard;
 import com.gregochr.goldenhour.service.LocationEnrichmentService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.SubRegionMembershipService;
@@ -37,6 +38,7 @@ public class LocationController {
     private final LocationEnrichmentService locationEnrichmentService;
     private final LocationDtoMapper locationDtoMapper;
     private final SubRegionMembershipService subRegionMembership;
+    private final DriveRoutabilityGuard routabilityGuard;
 
     /**
      * Constructs a {@code LocationController}.
@@ -45,15 +47,19 @@ public class LocationController {
      * @param locationEnrichmentService the service for enriching location metadata
      * @param locationDtoMapper         maps persisted locations to their API projection
      * @param subRegionMembership       reads each location's sub-region for the roster, in one query
+     * @param routabilityGuard          refuses (422) a create, move or clear that leaves no road route, before the
+     *                                  service's transaction opens
      */
     public LocationController(LocationService locationService,
             LocationEnrichmentService locationEnrichmentService,
             LocationDtoMapper locationDtoMapper,
-            SubRegionMembershipService subRegionMembership) {
+            SubRegionMembershipService subRegionMembership,
+            DriveRoutabilityGuard routabilityGuard) {
         this.locationService = locationService;
         this.locationEnrichmentService = locationEnrichmentService;
         this.locationDtoMapper = locationDtoMapper;
         this.subRegionMembership = subRegionMembership;
+        this.routabilityGuard = routabilityGuard;
     }
 
     /**
@@ -85,10 +91,14 @@ public class LocationController {
      * @return the saved location entity
      * @throws IllegalArgumentException if the name is blank, lat/lon are out of range,
      *                                  or a location with the same name already exists (HTTP 400)
+     * @throws com.gregochr.goldenhour.exception.NoRoadRouteException if no road route reaches the point drive times
+     *                                  would be measured to (HTTP 422); an ORS outage never refuses
      */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public LocationEntity addLocation(@RequestBody AddLocationRequest request) {
+        // The ORS check waits on a permit and a round trip, so it runs before the service's transaction opens.
+        routabilityGuard.requireRoutableOnAdd(request);
         return locationService.add(request);
     }
 
@@ -99,11 +109,15 @@ public class LocationController {
      * @param request the updated metadata (solarEventTypes, locationType, tideType)
      * @return the updated location entity
      * @throws java.util.NoSuchElementException if no location with that ID exists (HTTP 404)
+     * @throws com.gregochr.goldenhour.exception.NoRoadRouteException if the update moves the pin, or clears the
+     *                                  drive point, onto a point no road route reaches, or sets a drive point that
+     *                                  has none (HTTP 422); no other edit is ever refused
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public LocationEntity updateLocation(@PathVariable Long id,
             @RequestBody UpdateLocationRequest request) {
+        routabilityGuard.requireRoutableOnUpdate(id, request);
         return locationService.update(id, request);
     }
 
