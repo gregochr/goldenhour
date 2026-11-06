@@ -55,13 +55,17 @@ public interface UserDriveTimeRepository extends JpaRepository<UserDriveTimeEnti
     void deleteAllByLocationId(@Param("locationId") Long locationId);
 
     /**
-     * Lists which of the given users has a stored drive time to which location: ids only, for the admin
-     * unroutable-places read.
+     * Lists which measured home has a stored drive time to which location: ids only, for the admin
+     * unroutable-places read. The origins are selected by the same conditions as
+     * {@code AppUserRepository.findMeasuredHomeStamps} (enabled, of the given roles, with a home and a stamp) in a
+     * subquery, so no id list is bound (Postgres caps a statement at 32767 binds).
      *
-     * @param userIds the users to read (non-empty)
-     * @return one {@link DrivePair} per stored row
+     * @param roles the roles whose homes are measured (Pro and Admin)
+     * @return one {@link DrivePair} per stored row of a measured home
      */
     @Query("SELECT new com.gregochr.goldenhour.repository.DrivePair(udt.userId, udt.locationId) "
-            + "FROM UserDriveTimeEntity udt WHERE udt.userId IN :userIds")
-    List<DrivePair> findPairsByUserIds(@Param("userIds") List<Long> userIds);
+            + "FROM UserDriveTimeEntity udt WHERE udt.userId IN (SELECT u.id FROM AppUserEntity u "
+            + "WHERE u.enabled = true AND u.role IN :roles AND u.homeLatitude IS NOT NULL "
+            + "AND u.homeLongitude IS NOT NULL AND u.driveTimesCalculatedAt IS NOT NULL)")
+    List<DrivePair> findMeasuredHomePairs(@Param("roles") List<com.gregochr.goldenhour.entity.UserRole> roles);
 }

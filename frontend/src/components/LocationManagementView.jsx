@@ -47,11 +47,17 @@ const locationId = (loc) => loc.id;
 export default function LocationManagementView({ onLocationsChanged, onAttentionCountChange = undefined }) {
   const data = useLocationsData();
   // Admin-only decoration (this view is withheld from everyone else): a failed read flags nothing.
-  const { rows: unroutableRows } = useUnroutableLocations();
+  const { rows: unroutableRows, refetch: refetchUnroutable } = useUnroutableLocations();
   const unroutable = useMemo(() => unroutableById(unroutableRows), [unroutableRows]);
   const {
     locations, regions, loading, loadError, areas, subRegions, aliasesFailed, refreshLocations, refreshAreas,
   } = data;
+  // Every path that re-reads the locations (a save, an add, a toggle, a failure reset) re-reads the flag too: a moved
+  // pin or a re-enable changes whether a place is listed.
+  const refreshAll = useCallback(async () => {
+    refetchUnroutable();
+    await refreshLocations();
+  }, [refreshLocations, refetchUnroutable]);
   const { selectedId, select, clear } = useHashSelection(TAB);
   const [adding, setAdding] = useState(false);
   const panelRef = useRef(null);
@@ -63,16 +69,16 @@ export default function LocationManagementView({ onLocationsChanged, onAttention
     subRegions,
     aliasesByLocation: data.aliasesByLocation,
     setAliasesByLocation: data.setAliasesByLocation,
-    refreshLocations,
+    refreshLocations: refreshAll,
     refreshAreas,
     onLocationsChanged,
   });
-  const add = useLocationAdd({ refreshLocations, refreshAreas });
+  const add = useLocationAdd({ refreshLocations: refreshAll, refreshAreas });
   const toggle = useLocationToggle({
-    locations, setLocations: data.setLocations, refreshLocations, refreshAreas, onChanged: onLocationsChanged,
+    locations, setLocations: data.setLocations, refreshLocations: refreshAll, refreshAreas, onChanged: onLocationsChanged,
   });
   const failureReset = useLocationFailureReset(() => {
-    refreshLocations();
+    refreshAll();
     onLocationsChanged();
   });
 

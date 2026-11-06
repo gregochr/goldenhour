@@ -49,13 +49,16 @@ public interface RegionDriveTimeRepository
     void deleteAllByLocationId(@Param("locationId") Long locationId);
 
     /**
-     * Lists which of the given regions has a stored drive time to which location: ids only, for the admin
-     * unroutable-places read.
+     * Lists which measured region base has a stored drive time to which location: ids only, for the admin
+     * unroutable-places read. The origins are selected by the same conditions as
+     * {@code RegionRepository.findMeasuredBaseStamps} (enabled, with a base and a stamp) in a subquery, so no id
+     * list is bound (Postgres caps a statement at 32767 binds).
      *
-     * @param regionIds the regions to read (non-empty)
-     * @return one {@link DrivePair} per stored row
+     * @return one {@link DrivePair} per stored row of a measured base
      */
     @Query("SELECT new com.gregochr.goldenhour.repository.DrivePair(rdt.regionId, rdt.locationId) "
-            + "FROM RegionDriveTimeEntity rdt WHERE rdt.regionId IN :regionIds")
-    List<DrivePair> findPairsByRegionIds(@Param("regionIds") List<Long> regionIds);
+            + "FROM RegionDriveTimeEntity rdt WHERE rdt.regionId IN (SELECT r.id FROM RegionEntity r "
+            + "WHERE r.enabled = true AND r.baseLat IS NOT NULL AND r.baseLon IS NOT NULL "
+            + "AND r.drivesMeasuredAt IS NOT NULL)")
+    List<DrivePair> findMeasuredBasePairs();
 }

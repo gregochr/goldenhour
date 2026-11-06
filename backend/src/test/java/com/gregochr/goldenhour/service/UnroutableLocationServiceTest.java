@@ -78,13 +78,13 @@ class UnroutableLocationServiceTest {
         when(userRepository.findMeasuredHomeStamps(ROLES)).thenReturn(List.of(
                 new DriveStamp(10L, Instant.parse("2026-11-05T02:00:00Z")),
                 new DriveStamp(11L, Instant.parse("2026-11-05T03:00:00Z"))));
-        when(userDriveTimeRepository.findPairsByUserIds(List.of(10L, 11L))).thenReturn(List.of(
+        when(userDriveTimeRepository.findMeasuredHomePairs(ROLES)).thenReturn(List.of(
                 new DrivePair(10L, BAMBURGH),
                 new DrivePair(11L, HELVELLYN),
                 new DrivePair(11L, BAMBURGH)));
         when(regionRepository.findMeasuredBaseStamps()).thenReturn(List.of(
                 new DriveStamp(20L, Instant.parse("2026-11-05T02:00:00Z"))));
-        when(regionDriveTimeRepository.findPairsByRegionIds(List.of(20L))).thenReturn(List.of(
+        when(regionDriveTimeRepository.findMeasuredBasePairs()).thenReturn(List.of(
                 new DrivePair(20L, BAMBURGH)));
 
         List<UnroutableLocationDto> result = service.findUnroutable();
@@ -104,7 +104,7 @@ class UnroutableLocationServiceTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(location(BAMBURGH, "Bamburgh", longAgo)));
         when(userRepository.findMeasuredHomeStamps(ROLES)).thenReturn(List.of(
                 new DriveStamp(10L, Instant.parse("2026-11-05T02:00:00Z"))));
-        when(userDriveTimeRepository.findPairsByUserIds(List.of(10L))).thenReturn(List.of(
+        when(userDriveTimeRepository.findMeasuredHomePairs(ROLES)).thenReturn(List.of(
                 new DrivePair(10L, BAMBURGH)));
         when(regionRepository.findMeasuredBaseStamps()).thenReturn(List.of());
 
@@ -121,8 +121,8 @@ class UnroutableLocationServiceTest {
 
         assertThat(service.findUnroutable()).isEmpty();
 
-        verify(userDriveTimeRepository, never()).findPairsByUserIds(any());
-        verify(regionDriveTimeRepository, never()).findPairsByRegionIds(any());
+        verify(userDriveTimeRepository, never()).findMeasuredHomePairs(any());
+        verify(regionDriveTimeRepository, never()).findMeasuredBasePairs();
     }
 
     @Test

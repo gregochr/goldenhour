@@ -18,7 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * The admin read behind "Needs a drive point" (reach-scoped-card-plan R1b): which enabled locations OpenRouteService
@@ -31,7 +31,8 @@ import java.util.function.Function;
  * (the origin cannot yet judge that location). Only measured origins take part: enabled Pro and Admin accounts with
  * a home and a stamp, and enabled regions with a base and a stamp.
  *
- * <p>A fixed number of queries (stamps, then the stored pairs for those origins) and one pass in memory, never a
+ * <p>A fixed number of queries (stamps, then the stored pairs of those origins, selected by a subquery so no id list
+ * is bound) and one pass in memory, never a
  * per-user loop of queries. Read-only, admin data: it is served from its own no-store admin path.
  */
 @Service
@@ -74,9 +75,9 @@ public class UnroutableLocationService {
     public List<UnroutableLocationDto> findUnroutable() {
         List<LocationEntity> locations = locationService.findAllEnabled();
         Map<Long, int[]> homes = tally(locations, userRepository.findMeasuredHomeStamps(MEASURED_ROLES),
-                userDriveTimeRepository::findPairsByUserIds);
+                () -> userDriveTimeRepository.findMeasuredHomePairs(MEASURED_ROLES));
         Map<Long, int[]> bases = tally(locations, regionRepository.findMeasuredBaseStamps(),
-                regionDriveTimeRepository::findPairsByRegionIds);
+                regionDriveTimeRepository::findMeasuredBasePairs);
         return locations.stream()
                 .filter(location -> location.getId() != null)
                 .map(location -> toDto(location, homes.get(location.getId()), bases.get(location.getId())))
@@ -95,13 +96,13 @@ public class UnroutableLocationService {
      * location is PENDING is in neither count.
      */
     private static Map<Long, int[]> tally(List<LocationEntity> locations, List<DriveStamp> stamps,
-            Function<List<Long>, List<DrivePair>> pairReader) {
+            Supplier<List<DrivePair>> pairReader) {
         Map<Long, int[]> counts = new HashMap<>();
         if (stamps.isEmpty()) {
             return counts;
         }
         Map<Long, Set<Long>> rowsByOrigin = new HashMap<>();
-        for (DrivePair pair : pairReader.apply(stamps.stream().map(DriveStamp::originId).toList())) {
+        for (DrivePair pair : pairReader.get()) {
             rowsByOrigin.computeIfAbsent(pair.originId(), id -> new HashSet<>()).add(pair.locationId());
         }
         for (DriveStamp stamp : stamps) {

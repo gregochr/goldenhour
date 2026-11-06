@@ -808,6 +808,50 @@ class LocationServiceTest {
         verify(locationRepository, org.mockito.Mockito.never()).save(any());
     }
 
+    @Test
+    @DisplayName("setEnabled(true) on a disabled place bumps drive_target_changed_at and keeps its drive-time rows")
+    void setEnabled_reEnable_bumpsDriveTargetWithoutDeletingRows() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(entity));
+        LocalDateTime before = LocalDateTime.now(java.time.ZoneOffset.UTC).minusSeconds(1);
+
+        LocationEntity result = locationService.setEnabled(1L, true);
+
+        ArgumentCaptor<LocalDateTime> bumped = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(locationRepository).updateDriveTargetChangedAt(eq(entity.getId()), bumped.capture());
+        assertThat(bumped.getValue()).isAfterOrEqualTo(before);
+        assertThat(result.getDriveTargetChangedAt()).isEqualTo(bumped.getValue());
+        // The point did not move, so the stored rows stay; the missing pairs read PENDING and are re-measured.
+        verifyNoInteractions(userDriveTimeWriter, regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("setEnabled(true) on an already-enabled place and setEnabled(false) do not bump")
+    void setEnabled_noReEnable_doesNotBump() {
+        LocationEntity on = buildEntity("Durham UK", 54.7753, -1.5849);
+        on.setEnabled(true);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(on));
+
+        locationService.setEnabled(1L, true);
+        locationService.setEnabled(1L, false);
+
+        verify(locationRepository, org.mockito.Mockito.never()).updateDriveTargetChangedAt(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("resetFailures() re-enabling an auto-disabled place bumps drive_target_changed_at")
+    void resetFailures_reEnable_bumpsDriveTarget() {
+        LocationEntity entity = buildEntity("Durham UK", 54.7753, -1.5849);
+        entity.setEnabled(false);
+        entity.setDisabledReason("Auto-disabled");
+        when(locationRepository.findByName("Durham UK")).thenReturn(Optional.of(entity));
+
+        LocationEntity result = locationService.resetFailures("Durham UK");
+
+        verify(locationRepository).updateDriveTargetChangedAt(eq(entity.getId()), eq(result.getDriveTargetChangedAt()));
+    }
+
     // --- D3: no switched-on location in a switched-off region ---
 
     @Test

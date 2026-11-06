@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import LocationManagementView from '../components/LocationManagementView.jsx';
 
 vi.mock('../api/forecastApi', () => ({
@@ -28,7 +28,7 @@ vi.mock('../api/tideApi', () => ({ fetchTideStats: vi.fn(), fetchAllTideStats: v
 vi.mock('../api/driveTimesAdminApi', () => ({ fetchUnroutableLocations: vi.fn() }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
-import { fetchLocations } from '../api/forecastApi';
+import { fetchLocations, setLocationEnabled } from '../api/forecastApi';
 import { fetchRegions } from '../api/regionApi';
 import { fetchAreas, fetchUncoveredLocations, fetchLocationAliases } from '../api/areaApi';
 import { fetchTideStats } from '../api/tideApi';
@@ -73,6 +73,10 @@ describe('Locations — the "Needs a drive point" flag (admin only)', () => {
     fireEvent.click(screen.getByTestId('locations-row-1'));
     expect(await screen.findByTestId('location-drive-flag-text'))
       .toHaveTextContent('Needs a drive point · no route from 3 of 3 homes, 2 of 4 bases');
+    // A partial case must not be described as "none": only some origins could not route there.
+    const section = screen.getByTestId('location-drive-flag');
+    expect(section).toHaveTextContent('some of them could not be routed there');
+    expect(section).not.toHaveTextContent(/none could/i);
   });
 
   it('shows no drive section on the panel of a place that is not flagged', async () => {
@@ -93,5 +97,18 @@ describe('Locations — the "Needs a drive point" flag (admin only)', () => {
 
     expect(await screen.findByTestId('locations-row-1')).toBeInTheDocument();
     expect(screen.queryByTestId('location-drive-flag-1')).toBeNull();
+  });
+
+  it('re-reads the flag after a toggle succeeds, so a fixed place stops being flagged', async () => {
+    fetchUnroutableLocations.mockResolvedValueOnce([FLAG]).mockResolvedValue([]);
+    setLocationEnabled.mockResolvedValue({ ...HELVELLYN, enabled: false });
+
+    await renderLoaded();
+    await screen.findByTestId('location-drive-flag-1');
+    fireEvent.click(screen.getByTestId('locations-row-1'));
+    fireEvent.click(await screen.findByTestId('toggle-enabled-1'));
+
+    await waitFor(() => expect(screen.queryByTestId('location-drive-flag-1')).toBeNull());
+    expect(fetchUnroutableLocations).toHaveBeenCalledTimes(2);
   });
 });

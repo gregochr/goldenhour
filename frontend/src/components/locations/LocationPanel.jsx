@@ -91,8 +91,8 @@ export default function LocationPanel({
             {driveFlagText(unroutable)}
           </p>
           <p className="mt-1 text-xs text-plex-text-secondary">
-            Drive times from homes and region bases are measured to the coordinates below, and none could be
-            routed there.
+            Drive times from homes and region bases are measured to the coordinates below, and some of them could
+            not be routed there.
           </p>
         </PanelSection>
       )}

@@ -48,6 +48,10 @@ second cause is a location added after the reader's last measurement, which the 
   reads PENDING until re-measured. `LocationRepository.findMaxCreatedAt` (`:170`) becomes the max of this
   column, so `rosterGrewSince` re-measures every home that night with no other change. The region
   matrix needs no trigger: `RegionDriveTimeRefreshJob.runScheduled` re-measures every base nightly.
+  A **re-enable** (disabled to enabled, in `LocationService.setEnabled` and in `resetFailures` for an auto-disabled
+  place) also bumps it, but deletes nothing: the nightly roster reads only enabled places, so a place switched off
+  during a sweep has no rows from it and would otherwise read UNROUTABLE from every home. The point did not move,
+  so the kept rows stay valid, the missing pairs read PENDING, and `rosterGrewSince` re-measures them.
 - **D1b. A stamp means "fully measured, from this point, as of this instant".** It is taken **before**
   the roster read (a location created during the ORS call must not read UNROUTABLE). It is written only
   when ORS returned a duration slot for every destination (a short answer stores its rows without

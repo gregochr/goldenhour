@@ -203,7 +203,7 @@ move in `LocationService.update` bumps `drive_target_changed_at` and deletes the
 moved location reads PENDING until re-measured and `DriveTimeRefreshJob` (which now reads
 `findMaxDriveTargetChangedAt`, not the newest `created_at`) re-measures every home that night. A region base
 move (`RegionService.setBase`) also nulls the base's stamp. The admin "Run now" is no longer needed for a
-coordinate correction.
+coordinate correction. A **re-enable** (`LocationService.setEnabled` false to true, and `resetFailures` re-enabling an auto-disabled place) also bumps `drive_target_changed_at`, without deleting rows: the nightly roster reads only enabled places, so a place switched off during a sweep must read PENDING, not UNROUTABLE, until it is measured again.
 
 **Admin view of unroutable places (reach-scoped-card-plan R1b).** `GET /api/admin/drive-times/unroutable` (ADMIN, read-only,
 no-store; `UnroutableLocationService`) counts, per enabled location, how many measured Pro/Admin homes and region bases

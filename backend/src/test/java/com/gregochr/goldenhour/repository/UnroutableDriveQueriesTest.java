@@ -104,30 +104,40 @@ class UnroutableDriveQueriesTest {
     }
 
     @Test
-    @DisplayName("findPairsByUserIds returns the ids of the requested users' rows only")
-    void findPairsByUserIds_returnsRequestedUsersOnly() {
-        userDriveTimeRepository.save(new UserDriveTimeEntity(7L, 100L, 1200));
-        userDriveTimeRepository.save(new UserDriveTimeEntity(7L, 101L, 900));
-        userDriveTimeRepository.save(new UserDriveTimeEntity(8L, 100L, 600));
-        userDriveTimeRepository.save(new UserDriveTimeEntity(9L, 100L, 300));
+    @DisplayName("findMeasuredHomePairs returns the rows of measured Pro/Admin homes only")
+    void findMeasuredHomePairs_returnsMeasuredHomesRowsOnly() {
+        Long pro = user("pro", UserRole.PRO_USER, true, 54.6, -3.1, STAMP);
+        Long admin = user("admin", UserRole.ADMIN, true, 54.7, -3.2, STAMP);
+        Long lite = user("lite", UserRole.LITE_USER, true, 54.6, -3.1, STAMP);
+        Long unmeasured = user("unmeasured", UserRole.PRO_USER, true, 54.6, -3.1, null);
+        Long disabled = user("disabled", UserRole.PRO_USER, false, 54.6, -3.1, STAMP);
+        Long nohome = user("nohome", UserRole.PRO_USER, true, null, null, STAMP);
+        for (Long id : List.of(pro, lite, unmeasured, disabled, nohome)) {
+            userDriveTimeRepository.save(new UserDriveTimeEntity(id, 100L, 1200));
+        }
+        userDriveTimeRepository.save(new UserDriveTimeEntity(admin, 101L, 900));
         entityManager.flush();
 
-        List<DrivePair> pairs = userDriveTimeRepository.findPairsByUserIds(List.of(7L, 8L));
+        List<DrivePair> pairs = userDriveTimeRepository.findMeasuredHomePairs(MEASURED_ROLES);
 
-        assertThat(pairs).containsExactlyInAnyOrder(
-                new DrivePair(7L, 100L), new DrivePair(7L, 101L), new DrivePair(8L, 100L));
+        assertThat(pairs).containsExactlyInAnyOrder(new DrivePair(pro, 100L), new DrivePair(admin, 101L));
     }
 
     @Test
-    @DisplayName("findPairsByRegionIds returns the ids of the requested regions' rows only")
-    void findPairsByRegionIds_returnsRequestedRegionsOnly() {
-        regionDriveTimeRepository.save(new RegionDriveTimeEntity(3L, 100L, 600));
-        regionDriveTimeRepository.save(new RegionDriveTimeEntity(3L, 101L, 900));
-        regionDriveTimeRepository.save(new RegionDriveTimeEntity(4L, 100L, 300));
+    @DisplayName("findMeasuredBasePairs returns the rows of enabled, based, stamped regions only")
+    void findMeasuredBasePairs_returnsMeasuredBasesRowsOnly() {
+        Long measured = region("Lakes", true, 54.601, -3.135);
+        Long off = region("Off", false, 54.5, -3.0);
+        Long unmeasured = region("Unmeasured", true, 54.4, -2.9);
+        regionRepository.stampDrivesMeasuredAtIfBaseIs(measured, 54.601, -3.135, STAMP);
+        regionRepository.stampDrivesMeasuredAtIfBaseIs(off, 54.5, -3.0, STAMP);
+        regionDriveTimeRepository.save(new RegionDriveTimeEntity(measured, 100L, 600));
+        regionDriveTimeRepository.save(new RegionDriveTimeEntity(off, 100L, 600));
+        regionDriveTimeRepository.save(new RegionDriveTimeEntity(unmeasured, 100L, 600));
         entityManager.flush();
+        entityManager.clear();
 
-        List<DrivePair> pairs = regionDriveTimeRepository.findPairsByRegionIds(List.of(3L));
-
-        assertThat(pairs).containsExactlyInAnyOrder(new DrivePair(3L, 100L), new DrivePair(3L, 101L));
+        assertThat(regionDriveTimeRepository.findMeasuredBasePairs())
+                .containsExactly(new DrivePair(measured, 100L));
     }
 }
