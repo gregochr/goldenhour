@@ -48,7 +48,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -158,6 +158,17 @@ async function openMap(mapElement) {
   return result;
 }
 
+/**
+ * Proves the live alert's scores have been requested and applied before the alert is ended. (The Map
+ * once drew a best-location card here, which these tests used as that proof; the aurora-mode control
+ * is now `openFilters`' own "Sky row is back" check after the alert ends, which fails unless the map
+ * was in aurora mode, where that row is withheld, until then.)
+ */
+async function liveScoresLoaded() {
+  await waitFor(() => expect(getAuroraLocations).toHaveBeenCalled());
+  await act(async () => { await Promise.resolve(); });
+}
+
 /** The alert ends, and the page regains focus: the provider fetches the status and publishes it. */
 async function endAlert() {
   serverStatus = ALL_CLEAR;
@@ -246,7 +257,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
   /** Opens the tab in aurora mode and proves it is there, with the chip named `chipName`. */
   async function openInAurora(chipName) {
     await openMap(tab());
-    expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+    await liveScoresLoaded();
     expect(screen.getByRole('button', { name: chipName })).toBeInTheDocument();
   }
 
@@ -287,7 +298,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
 
     it('keeps 4★+ saved, so the next map opens on it', async () => {
       const { unmount } = await openMap(tab());
-      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+      await liveScoresLoaded();
 
       await endAlert();
       expect(localStorage.getItem('mapFilterMinStars')).toBe(SAVED_FLOOR);
@@ -312,7 +323,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
 
     it('keeps the stand-down lens on, and saved', async () => {
       await openMap(tab());
-      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+      await liveScoresLoaded();
 
       await endAlert();
 
@@ -327,7 +338,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       // A filter the reader sets for this visit only, never saved: it stands like the saved ones.
       // A measured reader: the tier buttons are disabled for one with no drive times (reach-scoped-card-plan R3).
       await openMap(tab({ reachById: new Map([[1, { driveMinutes: 20, driveStatus: 'MEASURED' }]]) }));
-      expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+      await liveScoresLoaded();
       fireEvent.click(screen.getByTestId('wf-filters-chip'));
       fireEvent.click(screen.getByTestId('drive-time-filter-45'));
       expect(screen.getByTestId('drive-time-filter-45')).toHaveAttribute('aria-pressed', 'true');
@@ -379,7 +390,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       await act(async () => {
         rerender(<AuroraStatusProvider>{tab({ locations: WITH_UNSCORED, heat: HEAT_UNSCORED })}</AuroraStatusProvider>);
       });
-      expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+      await liveScoresLoaded();
 
       await endAlert();
 

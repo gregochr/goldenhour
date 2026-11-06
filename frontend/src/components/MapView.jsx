@@ -1903,8 +1903,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * results`, so it always describes the night being looked at. {@code auroraScores} is fetched by
    * `getAuroraLocations()` — <b>no date parameter at all</b> — gated only on the live alert level:
    * it is the NOAA-triggered state for the night in progress. Read unconditionally, it answered for
-   * whichever night was on screen: browse to a future night with no stored run, and the chips and the
-   * "🏆 best location" card all carried TONIGHT's
+   * whichever night was on screen: browse to a future night with no stored run, and the chips carried TONIGHT's
    * live stars and narrative as though they were that night's. The same class of defect as #803's
    * stale-window ratings — a rating answering for a window it does not belong to — through a source
    * with no date to check.
@@ -1974,32 +1973,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
   const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   const [flyTarget, setFlyTarget] = useState(null);
-  // The best-aurora card's dismissal (aurora heat A4): `${nightDate}|${best location name}`, so the
-  // card returns for a different night or a different top spot. Session-only, deliberately.
-  const [bestAuroraDismissedKey, setBestAuroraDismissedKey] = useState(null);
-  /**
-   * Hands focus to a surviving control when the best-aurora card's ✕ is about to unmount the card:
-   * the window pill (this tab's return address) or, when no window exists to draw one, the first
-   * control in the pane that is outside the card, enabled, not hidden/inert/aria-hidden and not
-   * `tabindex="-1"`, and that actually accepts focus (the result is read back from
-   * `document.activeElement`, falling through to the next candidate otherwise).
-   */
-  const moveFocusOffCard = (card) => {
-    const pill = winPillRef.current;
-    if (pill) {
-      pill.focus();
-      if (document.activeElement === pill) return;
-    }
-    const candidates = mapPaneRef.current?.querySelectorAll(
-      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])',
-    ) ?? [];
-    Array.from(candidates).some((el) => {
-      if (card?.contains(el) || el.getAttribute('tabindex') === '-1'
-        || el.closest('[aria-hidden="true"], [inert], [hidden]')) return false;
-      el.focus();
-      return document.activeElement === el;
-    });
-  };
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   // Aurora is available when the user is ADMIN/PRO and either the live alert is active or this map's
   // list of stored aurora nights is non-empty. The list names every night that held a real
@@ -2319,7 +2292,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // no cancellation every one of those requests could land whenever it liked:
   //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
   //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
-  //     every live reader (the rating's live fallback, the best-location card),
+  //     every live reader (the rating's live fallback),
   //     where they stood until the next poll or focus.
   //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
   //     last replaced the newer answer with its own.
@@ -5245,19 +5218,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const hasHomeCoords = homeGeo?.lat != null && homeGeo?.lon != null;
 
-  // Best aurora location — highest-starred entry from the LIVE aurora scores, so only while the
-  // night on screen is the night in progress. The card names a place and a star count and offers to
-  // centre the map on it: on any other night it was naming tonight's best as that night's.
-  const bestAuroraLocation = useMemo(() => {
-    if (!isAuroraMode || !liveAuroraOnScreen) return null;
-    const entries = Object.values(auroraScores);
-    if (entries.length === 0) return null;
-    const best = entries.reduce((b, curr) => (curr.stars > b.stars ? curr : b), entries[0]);
-    // When every location scored 1 star (all overcast / triage-rejected), don't highlight one
-    if (best.stars <= 1) return null;
-    return best;
-  }, [isAuroraMode, auroraScores, liveAuroraOnScreen]);
-
   if (!date || locations.length === 0) {
     return (
       <p className="text-plex-text-muted text-sm text-center py-8">
@@ -6696,45 +6656,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // A programmatic-only focus target (never a tab stop): where focus goes when the callout's ✕ unmounts.
       tabIndex={-1}
     >
-      {/* Best aurora location card — visible only in aurora mode */}
-      {isAuroraMode && bestAuroraLocation
-        && bestAuroraDismissedKey !== `${nightDate}|${bestAuroraLocation.location.name}` && (
-        <div
-          className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
-          data-testid="aurora-best-location-card"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-indigo-300 shrink-0">🏆</span>
-            <div className="min-w-0">
-              <span className="text-indigo-200 font-medium">{bestAuroraLocation.location.name}</span>
-              <span className="text-indigo-400 ml-2">{'★'.repeat(bestAuroraLocation.stars)}{'☆'.repeat(5 - bestAuroraLocation.stars)}</span>
-              {bestAuroraLocation.summary && (
-                <p className="text-indigo-400 text-xs mt-0.5 truncate">{bestAuroraLocation.summary}</p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setFlyTarget({ lat: bestAuroraLocation.location.lat, lon: bestAuroraLocation.location.lon })}
-            className="shrink-0 px-3 py-1 text-xs font-medium rounded-full border border-indigo-500/40 text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/40 transition-colors"
-          >
-            Centre map
-          </button>
-          {/* ⚠️ The card unmounts on this press, so focus is handed to a surviving control first —
-              otherwise it falls to <body>, where the pane's key handler never fires. */}
-          <button
-            type="button"
-            onClick={(pressEvent) => {
-              moveFocusOffCard(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'));
-              setBestAuroraDismissedKey(`${nightDate}|${bestAuroraLocation.location.name}`);
-            }}
-            aria-label="Dismiss best aurora location"
-            data-testid="aurora-best-location-dismiss"
-            className="shrink-0 flex items-center justify-center w-11 h-11 -mr-2 rounded-full text-indigo-300 hover:text-indigo-100 hover:bg-indigo-800/40 transition-colors"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        </div>
-      )}
       {/* All-overcast message now shown inside AuroraBanner */}
 
       {/* The door landing strip (D2, plan-to-map-doors-plan.md §3 D2 task 3) — ABOVE the map
