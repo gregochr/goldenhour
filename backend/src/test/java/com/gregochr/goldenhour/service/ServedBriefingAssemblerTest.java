@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
-import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -152,16 +151,26 @@ class ServedBriefingAssemblerTest {
                 .containsExactly("LOW");
     }
 
-    @Test
-    @DisplayName("the served response carries the briefing version, hashed once from the days it serves")
-    void servedResponseCarriesTheBriefingVersion() {
-        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(summary(
-                TargetType.SUNRISE, List.of(region("Dales", 0, inland(1L, "Hawes"))),
-                List.of())), 0.5);
+    private DailyBriefingResponse servedWith(Integer rating, boolean extraWindow) {
+        BriefingSlot hawes = inland(1L, "Hawes");
+        BriefingSlot slot = rating == null ? hawes : hawes.withClaudeScores(rating, rating, 70, 60, "why", "h");
+        BriefingEventSummary sunrise = summary(TargetType.SUNRISE, List.of(region("Dales", 1, slot)), List.of());
+        BriefingEventSummary sunset = summary(TargetType.SUNSET, List.of(region("Dales", 1, slot)), List.of());
+        return assembler.assembleForPlan(snapshot(extraWindow ? new BriefingEventSummary[] {sunrise, sunset}
+                : new BriefingEventSummary[] {sunrise}), 0.5);
+    }
 
-        assertThat(served.briefingVersion())
-                .isEqualTo(BriefingVersion.of(served.days(), ForecastHorizon.today(CLOCK)))
-                .hasSize(16);
+    @Test
+    @DisplayName("the briefing version moves with the ratings and with the render horizon, and with nothing else")
+    void servedBriefingVersionFollowsItsInputs() {
+        DailyBriefingResponse four = servedWith(4, false);
+
+        assertThat(four.briefingVersion()).hasSize(16);
+        assertThat(servedWith(4, false).briefingVersion()).isEqualTo(four.briefingVersion());
+        assertThat(servedWith(2, false).briefingVersion()).isNotEqualTo(four.briefingVersion());
+        // Identical ratings, but a second window is rendered: the horizon bounds where a pick may land.
+        assertThat(servedWith(4, true).briefingVersion()).isNotEqualTo(four.briefingVersion());
+        assertThat(servedWith(4, true).renderedEvents()).hasSize(2);
     }
 
     @Test

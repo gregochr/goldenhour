@@ -4784,8 +4784,9 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     verdictScope: { tierMinutes: 45 },
     regionVerdict: 'WORTH_IT',
     regionVerdictMean: 3.9,
+    regionHotRegionName: REGION,
     scopedThinCount: null,
-    hotRegionName: REGION,
+    hotRegionName: 'Lakes',
     pool: [poolSpot()],
     bestReach: poolSpot(),
     ...overrides,
@@ -4811,6 +4812,8 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
 
       expect(screen.getByTestId('wf-heat-scope')).toHaveTextContent(text);
       expect(screen.getByTestId('wf-heat-spread-qualifier')).toHaveTextContent(`(${text})`);
+      expect(screen.getByRole('button', { name: new RegExp(`within ${{ 45: '45 min', 90: '1h 30min', 150: '2h 30min' }[tierMinutes]}`) }))
+        .toBeInTheDocument();
     },
   );
 
@@ -4840,7 +4843,9 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
 
     const name = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
     const sentence = document.getElementById(name).textContent;
-    expect(sentence).toMatch(/Tonight Sunset, 21:11, Poor, within 45m, 2\.0 star average/);
+    // Printed short, spoken long: "45m" is voiced as a letter (the Spread qualifier's own precedent).
+    expect(sentence).toMatch(/Tonight Sunset, 21:11, Poor, within 45 min, 2\.0 star average/);
+    expect(sentence).not.toContain('45m');
   });
 
   it.each([
@@ -4860,8 +4865,11 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
       // Glyphs and the separator dot are decoration; the words and figures are the label.
       .map((el) => el.textContent.replace('★', '').replace(/^· /, '').trim());
     expect(visible.length).toBeGreaterThanOrEqual(2);
-    visible.forEach((text) => expect(sentence.toLowerCase()).toContain(text.toLowerCase()));
-    expect(sentence).toContain(screen.getByTestId('wf-heat-scope').textContent);
+    const spokenOf = (text) => (text === 'within 45m' ? 'within 45 min' : text);
+    visible.forEach((text) => expect(sentence.toLowerCase()).toContain(spokenOf(text).toLowerCase()));
+    // The scope maps to its long form, as the qualifier's visible label maps to its `spoken`.
+    expect(screen.getByTestId('wf-heat-scope').textContent).toBe('within 45m');
+    expect(sentence).toContain('within 45 min');
   });
 
   it('prints and voices the SERVER\'s thin count on a scoped word, and the pool\'s only on an unscoped one', async () => {
@@ -4899,6 +4907,53 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     } finally {
       useIsMobile.mockReturnValue(false);
     }
+  });
+
+  it('reserves the scope row on a card with none of its own while a sibling wears one, and nowhere under Any', async () => {
+    const siblings = [
+      scopedCard(),
+      scopedCard({
+        key: `${TODAY}:SUNRISE`, targetType: 'SUNRISE', sunrise: true, label: 'Tonight Sunrise',
+        verdictScope: undefined, regionVerdict: undefined,
+      }),
+    ];
+    await renderStrip({ cards: siblings });
+
+    const reserved = screen.getAllByTestId('wf-heat-scope-reserved');
+    expect(reserved).toHaveLength(1);
+    expect(reserved[0]).toHaveClass('wf-hc-scope', 'reserved');
+    expect(reserved[0]).toHaveAttribute('aria-hidden', 'true');
+    // Hidden, not removed, and in the same place the real row takes: directly after the verdict row.
+    const grid = screen.getByTestId('wf-heat-scope-reserved').parentElement;
+    expect(screen.getByTestId('wf-heat-scope-reserved').previousElementSibling).toBe(
+      grid.querySelector('[data-testid="wf-heat-verdict"]').parentElement,
+    );
+    // Not announced: the sentence says nothing of it.
+    const names = screen.getAllByTestId('wf-heat-card')
+      .map((el) => document.getElementById(el.getAttribute('aria-labelledby')).textContent);
+    expect(names.find((name) => name.startsWith('Tonight Sunrise'))).not.toMatch(/Poor, within/);
+    cleanup();
+
+    const any = [
+      scopedCard({ verdictScope: undefined, reachLimitMinutes: null }),
+      scopedCard({ key: `${TODAY}:SUNRISE`, targetType: 'SUNRISE', verdictScope: undefined, reachLimitMinutes: null }),
+    ];
+    await renderStrip({ cards: any });
+    expect(screen.queryByTestId('wf-heat-scope-reserved')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-scope')).toBeNull();
+  });
+
+  it('puts the ellipsis on an inner block, not on the flex container', async () => {
+    await renderStrip({ cards: [scopedCard()] });
+
+    const outer = screen.getByTestId('wf-heat-scope');
+    expect(outer.firstElementChild).toHaveClass('wf-hc-scope-t');
+    expect(outer.firstElementChild).toHaveTextContent('within 45m');
+    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const rule = css.slice(css.indexOf('.wf-hc-scope-t {'));
+    expect(rule.slice(0, rule.indexOf('}'))).toMatch(/overflow: hidden[\s\S]*text-overflow: ellipsis[\s\S]*white-space: nowrap/);
+    const outerRule = css.slice(css.indexOf('.wf-hc-pls > .wf-hc-scope {'));
+    expect(outerRule.slice(0, outerRule.indexOf('}'))).not.toMatch(/text-overflow|overflow:/);
   });
 
   describe('H2 under a scoped headline', () => {

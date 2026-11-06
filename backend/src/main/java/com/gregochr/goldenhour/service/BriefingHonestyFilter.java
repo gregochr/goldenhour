@@ -391,6 +391,22 @@ final class BriefingHonestyFilter {
      * @param fog    whether a {@code STOOD_DOWN} region's stand-downs were mostly visibility
      * @return the blanked region
      */
+    /**
+     * Words a region that a reach tier left with no rated place the way the served pipeline words a zero-coverage
+     * one (reach-scoped-card-plan R2): STAND_DOWN only where the pipeline really stood a place down on weather,
+     * AWAITING otherwise, so a tier never says "Stand down" for places that were simply not attempted.
+     *
+     * <p>The served filter reads the latest dispositions to tell the two apart; a reach computation may not read the
+     * stores again (D5), so it reads the {@code triaged} stamp the rollup put on each slot from the same evidence.
+     *
+     * @param region    the pruned region, with no rated place
+     * @param standDown whether any of its places was triaged by the weather
+     * @return the region blanked exactly as the filter blanks a zero-coverage one
+     */
+    static BriefingRegion blankedForReach(BriefingRegion region, boolean standDown) {
+        return fullRewrite(region, standDown ? CoverageReason.STOOD_DOWN : CoverageReason.NOT_ATTEMPTED, false);
+    }
+
     private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason,
             boolean fog) {
         Wording w = switch (reason) {

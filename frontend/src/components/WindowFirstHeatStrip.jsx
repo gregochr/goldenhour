@@ -16,7 +16,7 @@ import {
   shortVerdictLabel,
   VERDICT_LABEL,
 } from '../utils/windowFirstCards.js';
-import { verdictScopeText } from '../utils/reachLens.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -234,7 +234,9 @@ function starsSpoken(rating) {
  *          or null when the card is not in this state
  */
 function verdictBeyondReach(card) {
-  const region = card?.hotRegionName;
+  // The region the SERVED word is about: on a scoped card `hotRegionName` is the in-reach top region (the highlight
+  // follows the word), so the region-wide one rides beside it.
+  const region = card?.verdictScope != null ? card?.regionHotRegionName : card?.hotRegionName;
   const limit = card?.reachLimitMinutes;
   // A card wearing the tier's headline (reach-scoped-card-plan R2) has no region-wide mean of its own: its
   // `verdictMean` is the IN-REACH one, null exactly when nothing rated is within reach, which is the state this line
@@ -834,6 +836,9 @@ export default function WindowFirstHeatStrip({
   const movers = useMemo(() => topMovers(cards), [cards]);
   // The grid itself. Days, their holes and the column count all fall out of the rendered windows.
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
+  // Whether any card wears a tier's headline: then every card reserves the scope row (hidden where it has no scope of
+  // its own) so Spread and Best keep one baseline across the grid. False under Any, or while nothing is held.
+  const reserveScope = useMemo(() => cards.some((card) => card.verdictScope != null), [cards]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
   // The day header's topic pills (glance-topic-strip-plan.md): the licensed `buildFourDayTiles` model over the
@@ -1514,6 +1519,8 @@ export default function WindowFirstHeatStrip({
     // tier's headline, never on an away-day cell. ONE string, printed on its own line under the verdict row and
     // spelled exactly so in the hidden sentence (WCAG 2.5.3).
     const scopeText = card.away ? null : verdictScopeText(card.verdictScope);
+    // Printed short, spoken long (the Spread qualifier's own precedent): "45m" is voiced as a letter.
+    const scopeSpoken = card.away ? null : verdictScopeSpoken(card.verdictScope);
     // A scoped word's `· N rated` is the server's: the rated count behind a verdict that stands on a forced sample,
     // in the region the word is about. Unscoped, it is the pool's, read off the Spread row's own figures.
     const thinCount = card.verdictScope != null
@@ -1540,8 +1547,8 @@ export default function WindowFirstHeatStrip({
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
     const accessibleName = [card.label, card.time, card.verdictLabel]
-      // The scope follows the verdict word directly, spelled exactly as printed (WCAG 2.5.3, label in name).
-      .concat(scopeText ? [scopeText] : [])
+      // The scope follows the verdict word directly, in the long form the qualifier speaks.
+      .concat(scopeSpoken ? [scopeSpoken] : [])
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
       // A scoped `· N rated` has no pool clause to say it for it (the pool may be sound while the region is not),
@@ -1725,7 +1732,21 @@ export default function WindowFirstHeatStrip({
               Spread row's qualifier uses; absent (no element) unless the card wears the tier's headline, so under
               "Any" the card is exactly what it was. The sentence above voices the same string. */}
           {scopeText && (
-            <span data-testid="wf-heat-scope" className="wf-hc-scope">{scopeText}</span>
+            <span data-testid="wf-heat-scope" className="wf-hc-scope">
+              <span className="wf-hc-scope-t">{scopeText}</span>
+            </span>
+          )}
+          {/* While a finite tier is active and the tiers are held, a card with no scoped entry of its own keeps the
+              row anyway, hidden, so every card's Spread and Best rows sit on one baseline. Absent under Any and when
+              nothing is held, so those cards are exactly what they were. */}
+          {!scopeText && reserveScope && !card.away && (
+            <span
+              data-testid="wf-heat-scope-reserved"
+              className="wf-hc-scope reserved"
+              aria-hidden="true"
+            >
+              <span className="wf-hc-scope-t">{'\u00a0'}</span>
+            </span>
           )}
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be

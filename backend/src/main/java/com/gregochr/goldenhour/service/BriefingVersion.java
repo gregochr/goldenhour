@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -40,13 +41,21 @@ final class BriefingVersion {
     /**
      * Hashes the ratings and dispositions of a served briefing.
      *
-     * @param days  the served day hierarchy, enriched, filtered and projected
-     * @param today the UK civil date the response was assembled for
+     * @param days     the served day hierarchy, enriched, filtered and projected
+     * @param rendered the events the Plan tab draws, or null: they bound where a pick may land, so they are an input
+     * @param today    the UK civil date the response was assembled for
      * @return a short stable hex string; the same inputs always give the same string
      */
-    static String of(List<BriefingDay> days, LocalDate today) {
+    static String of(List<BriefingDay> days, List<PlanRenderedEvent> rendered, LocalDate today) {
         MessageDigest digest = sha256();
         put(digest, today);
+        if (rendered != null) {
+            for (PlanRenderedEvent event : rendered) {
+                put(digest, event.date());
+                put(digest, event.targetType());
+            }
+        }
+        put(digest, "|days");
         for (BriefingDay day : days) {
             put(digest, day.date());
             for (BriefingEventSummary summary : day.eventSummaries()) {

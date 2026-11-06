@@ -1478,14 +1478,14 @@ describe('WindowSheetDialog — a tier-scoped verdict word names its scope (reac
     renderDialog({ card: scoped({ verdictScope: { tierMinutes: 90 } }), index: 2, total: 6 });
 
     expect(screen.getByTestId('window-sheet-live'))
-      .toHaveTextContent('Tonight Sunset, 3 of 6, Poor, within 1h30');
+      .toHaveTextContent('Tonight Sunset, 3 of 6, Poor, within 1h 30min');
   });
 
   it('keeps the blanked note after the scope in the message', () => {
     renderDialog({ card: scoped({ verdictBlanked: true }) });
 
     expect(screen.getByTestId('window-sheet-live'))
-      .toHaveTextContent('Poor, within 45m, too unsettled to forecast');
+      .toHaveTextContent('Poor, within 45 min, too unsettled to forecast');
   });
 
   it('says nothing of scope on a card that does not wear a scoped headline', () => {

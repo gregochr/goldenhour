@@ -194,7 +194,8 @@ class ServedBriefingAssembler {
         // briefing): a content hash of the ratings and dispositions it carries, which the reach-verdicts endpoint
         // echoes so a client can tell both were computed from one briefing (reach-scoped-card-plan R2 step 5).
         return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas)
-                .withBriefingVersion(BriefingVersion.of(stripped.days(), ForecastHorizon.today(clock)));
+                .withBriefingVersion(BriefingVersion.of(stripped.days(), stripped.renderedEvents(),
+                        ForecastHorizon.today(clock)));
     }
 
     /**

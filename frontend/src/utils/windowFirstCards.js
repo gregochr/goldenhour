@@ -892,6 +892,10 @@ export function buildWindowCards(
 
     // The served (roster-wide, or the origin's own) figures. Computed unconditionally: they are the card when no
     // scoped headline is held, and the `region*` fields beside the scoped one when it is.
+    const servedHotRegionName = scopedRegion
+      ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
+        ? (scopedRegion.regionName ?? null) : null)
+      : (topRegion(es)?.regionName ?? null);
     const servedVerdictMean = verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es));
     const servedPick = !picksLocked && win?.pick && (!origin || win.pick.regionName === origin.name)
       ? cardPick(win.pick)
@@ -947,17 +951,21 @@ export function buildWindowCards(
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
-      movement: scopedRegion ? regionMovement(scopedRegion) : topRegionMovement(es),
+      //
+      // ⚠️ Null while a scoped headline is worn (R2): the served movement is the SERVED top region's, and beside
+      // the tier's word it would name a region the word is no longer about, and a change in places the reader has
+      // excluded. The server serves no in-reach movement, so the honest answer is silence.
+      movement: scoped ? null : (scopedRegion ? regionMovement(scopedRegion) : topRegionMovement(es)),
       // The window's leading region, for the strip's thumbnail (field-geography plan §2.3). The
       // SAME argmax `movement` reads two lines up — never a fresh one, and never recomputed from the
       // heat-spot catalogue (backend-heavy rule) — so the brightened area name and the change line's
       // named mover can never point at two different regions. Away re-points like every sibling
       // field here; null when nothing in scope carries a mean, which is a deliberate deviation from
       // the prototype's seeded `reduce` (that would brighten the first region on an all-null window).
-      hotRegionName: scopedRegion
-        ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
-          ? (scopedRegion.regionName ?? null) : null)
-        : (topRegion(es)?.regionName ?? null),
+      //
+      // Scoped (R2): the in-reach top region the server named, so the brightened area matches the word beside it.
+      // The served one rides `regionHotRegionName` for H2, which is about the region-wide verdict.
+      hotRegionName: scoped ? (scoped.topRegionName ?? null) : servedHotRegionName,
       // The TOP REGION's confidence. Through P14 this was "the single render site", because the
       // retired day rail derived a day-level tier and deliberately rendered nothing from it. That is
       // no longer true and the change is deliberate: the heat strip reads this same field per window
@@ -1131,6 +1139,7 @@ export function buildWindowCards(
         verdictScope: { tierMinutes: limitMinutes },
         regionVerdict: servedVerdict,
         regionVerdictMean: servedVerdictMean,
+        regionHotRegionName: servedHotRegionName,
         regionConfidence: HAZE_VERDICTS.has(servedVerdict) ? servedConfidenceOf(scopedRegion, win) : null,
         regionPick: servedPick,
         scopedThinCount: scoped.thinCount ?? null,

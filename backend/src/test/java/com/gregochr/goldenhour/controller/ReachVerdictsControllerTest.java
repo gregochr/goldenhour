@@ -38,7 +38,7 @@ class ReachVerdictsControllerTest extends AbstractControllerTest {
     private static ReachVerdictResponse body() {
         ReachVerdictResponse.Window window = new ReachVerdictResponse.Window(
                 LocalDate.of(2026, 10, 1), TargetType.SUNRISE, DisplayVerdict.WORTH_IT, 4.0, 4.1, Confidence.HIGH,
-                false, null,
+                "Northumberland", false, null,
                 new BriefingWindow.Pick(BriefingWindow.PickKind.BEST, "Northumberland", "Fiery", null, 4.0,
                         "Bamburgh", 7L),
                 "Northumberland",
@@ -46,7 +46,7 @@ class ReachVerdictsControllerTest extends AbstractControllerTest {
                         new ReachVerdictResponse.RegionVerdict("Lakes", DisplayVerdict.STAND_DOWN, null)));
         ReachVerdictResponse.Window poor = new ReachVerdictResponse.Window(
                 LocalDate.of(2026, 10, 1), TargetType.SUNSET, DisplayVerdict.AWAITING, null, null, null,
-                false, 3, null, null, List.of());
+                null, false, 3, null, null, List.of());
         return new ReachVerdictResponse(true, "abc123", Map.of("45", List.of(window), "90", List.of(window, poor),
                 "150", List.of(window)));
     }
@@ -76,6 +76,8 @@ class ReachVerdictsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.tiers['45'][0].meanRating").value(4.0))
                 .andExpect(jsonPath("$.tiers['45'][0].topMeanRating").value(4.1))
                 .andExpect(jsonPath("$.tiers['45'][0].confidence").value("high"))
+                .andExpect(jsonPath("$.tiers['45'][0].topRegionName").value("Northumberland"))
+                .andExpect(jsonPath("$.tiers['90'][1].topRegionName").doesNotExist())
                 .andExpect(jsonPath("$.tiers['45'][0].blanked").value(false))
                 .andExpect(jsonPath("$.tiers['45'][0].thinCount").doesNotExist())
                 .andExpect(jsonPath("$.tiers['45'][0].pick.kind").value("BEST"))

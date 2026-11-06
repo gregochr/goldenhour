@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,7 +45,7 @@ class BriefingVersionTest {
     }
 
     private static String version(BriefingSlot slot) {
-        return BriefingVersion.of(days(slot, "Fiery", "Northumberland"), TODAY);
+        return BriefingVersion.of(days(slot, "Fiery", "Northumberland"), null, TODAY);
     }
 
     @Test
@@ -65,11 +66,11 @@ class BriefingVersionTest {
         assertThat(version(slot(null, false, false))).isNotEqualTo(base);
         assertThat(version(slot(4, true, false))).isNotEqualTo(base);
         assertThat(version(slot(4, false, true))).isNotEqualTo(base);
-        assertThat(BriefingVersion.of(days(slot(4, false, false), "Fiery", "Northumberland"), TODAY.plusDays(1)))
+        assertThat(BriefingVersion.of(days(slot(4, false, false), "Fiery", "Northumberland"), null, TODAY.plusDays(1)))
                 .isNotEqualTo(base);
-        assertThat(BriefingVersion.of(days(slot(4, false, false), "Changed", "Northumberland"), TODAY))
+        assertThat(BriefingVersion.of(days(slot(4, false, false), "Changed", "Northumberland"), null, TODAY))
                 .isNotEqualTo(base);
-        assertThat(BriefingVersion.of(days(slot(4, false, false), "Fiery", "Elsewhere"), TODAY))
+        assertThat(BriefingVersion.of(days(slot(4, false, false), "Fiery", "Elsewhere"), null, TODAY))
                 .isNotEqualTo(base);
     }
 
@@ -79,8 +80,8 @@ class BriefingVersionTest {
         BriefingSlot marked = slot(4, false, false).withNeighbourOutlier(Boolean.TRUE);
 
         assertThat(version(marked)).isNotEqualTo(version(slot(4, false, false)));
-        assertThat(BriefingVersion.of(days(slot(4, false, false), null, "Northumberland"), TODAY))
-                .isNotEqualTo(BriefingVersion.of(days(slot(4, false, false), "null", "Northumberland"), TODAY));
+        assertThat(BriefingVersion.of(days(slot(4, false, false), null, "Northumberland"), null, TODAY))
+                .isNotEqualTo(BriefingVersion.of(days(slot(4, false, false), "null", "Northumberland"), null, TODAY));
     }
 
     @Test
@@ -89,6 +90,21 @@ class BriefingVersionTest {
         BriefingSlot withProse = slot(4, false, false).withFlags(List.of("Clear"));
 
         assertThat(version(withProse)).isEqualTo(version(slot(4, false, false)));
+    }
+
+    @Test
+    @DisplayName("the rendered events are an input: the same ratings under another render horizon differ")
+    void renderedEventsMoveIt() {
+        List<BriefingDay> days = days(slot(4, false, false), "Fiery", "Northumberland");
+        PlanRenderedEvent sunrise = new PlanRenderedEvent(TODAY, TargetType.SUNRISE);
+        PlanRenderedEvent sunset = new PlanRenderedEvent(TODAY, TargetType.SUNSET);
+
+        String one = BriefingVersion.of(days, List.of(sunrise), TODAY);
+
+        assertThat(BriefingVersion.of(days, List.of(sunrise), TODAY)).isEqualTo(one);
+        assertThat(BriefingVersion.of(days, List.of(sunset), TODAY)).isNotEqualTo(one);
+        assertThat(BriefingVersion.of(days, List.of(sunrise, sunset), TODAY)).isNotEqualTo(one);
+        assertThat(BriefingVersion.of(days, null, TODAY)).isNotEqualTo(one);
     }
 
     @Test

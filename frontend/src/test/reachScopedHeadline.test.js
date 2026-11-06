@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildWindowCards, VERDICT_LABEL } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildSearchGroups } from '../utils/planSearch.js';
-import { verdictScopeText } from '../utils/reachLens.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 
 /**
  * The reach-scoped Plan headline on the card builder (reach-scoped-card-plan R2 steps 8 and 10).
@@ -38,6 +38,7 @@ function days({ pick = SERVED_PICK } = {}) {
         regionName: REGION,
         displayVerdict: 'WORTH_IT',
         meanRating: 3.9,
+        meanRatingDelta: 0.5,
         sampleSufficient: true,
         confidence: 'high',
         slots: SLOTS,
@@ -61,6 +62,7 @@ function entry(overrides = {}) {
     confidence: 'medium',
     blanked: false,
     thinCount: null,
+    topRegionName: 'Lakes',
     pick: null,
     pickRegion: null,
     regions: [],
@@ -107,8 +109,21 @@ describe('buildWindowCards — the reach-scoped headline', () => {
     expect(card.regionVerdictMean).toBe(3.9);
     expect(card.regionConfidence).toBe('high');
     expect(card.regionPick).toMatchObject({ kind: 'best', regionName: REGION, locationName: 'Far Beach' });
-    // The region the card is about is still the served top region: H2 names it.
-    expect(card.hotRegionName).toBe(REGION);
+    // The served top region rides beside the word's own, for H2 to name.
+    expect(card.regionHotRegionName).toBe(REGION);
+  });
+
+  it('points the thumbnail highlight at the in-reach top region the word is about, and drops the served movement', () => {
+    const plain = cardWith({});
+    const card = cardWith({ reachVerdicts: TIERS });
+
+    // Unscoped: the served top region and its delta, exactly as before.
+    expect(plain.hotRegionName).toBe(REGION);
+    expect(plain.movement).toEqual({ regionName: REGION, delta: 0.5 });
+    // Scoped: the server's in-reach region, and no movement (the served one names a region the word is not about).
+    expect(card.hotRegionName).toBe('Lakes');
+    expect(card.movement).toBeNull();
+    expect(cardWith({ reachVerdicts: { 45: [entry({ topRegionName: null })] } }).hotRegionName).toBeNull();
   });
 
   it('is a LOOKUP: the label is the served word\'s, whatever the number, and an unknown word is Awaiting', () => {
@@ -216,6 +231,8 @@ describe('the scope fold and the surfaces that print it', () => {
     expect(strip.verdictScope).toEqual({ tierMinutes: 45 });
     expect(strip.regionVerdict).toBe('WORTH_IT');
     expect(strip.regionVerdictMean).toBe(3.9);
+    expect(strip.regionHotRegionName).toBe(REGION);
+    expect(strip.hotRegionName).toBe('Lakes');
     expect(strip.scopedThinCount).toBeNull();
     expect(strip.servedConfidence).toBe('high');
     expect(strip.servedPickKind).toBe('best');
@@ -242,6 +259,12 @@ describe('the scope fold and the surfaces that print it', () => {
     expect(verdictScopeText(undefined)).toBeNull();
     expect(verdictScopeText(null)).toBeNull();
     expect(verdictScopeText({ tierMinutes: null })).toBeNull();
+    // Spoken long, as the Spread qualifier's own `spoken` does.
+    expect(verdictScopeSpoken({ tierMinutes: 45 })).toBe('within 45 min');
+    expect(verdictScopeSpoken({ tierMinutes: 90 })).toBe('within 1h 30min');
+    expect(verdictScopeSpoken({ tierMinutes: 150 })).toBe('within 2h 30min');
+    expect(verdictScopeSpoken(null)).toBeNull();
+    expect(verdictScopeSpoken({ tierMinutes: null })).toBeNull();
   });
 
   it('search rows print the scoped word with its scope, and an unscoped one exactly as before', () => {

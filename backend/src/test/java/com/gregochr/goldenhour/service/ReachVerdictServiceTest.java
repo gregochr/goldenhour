@@ -576,7 +576,7 @@ class ReachVerdictServiceTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    @DisplayName("blanked and thinCount: a STAND_DOWN over a region with no slots is blanked; a forced thin sample "
+    @DisplayName("thinCount, and a blanked region dropped at a tier: a forced thin sample "
             + "wearing a rated word carries its rated count")
     void blankedAndThin() {
         BriefingRegion blankedRegion = new BriefingRegion("Blanked", Verdict.STANDDOWN, "s", List.of(), List.of(),
@@ -609,9 +609,13 @@ class ReachVerdictServiceTest {
         assertThat(sunrise.blanked()).isFalse();
         assertThat(sunrise.meanRating()).isEqualTo(4.7);
         assertThat(sunrise.confidence()).isNotNull();
+        assertThat(sunrise.topRegionName()).isEqualTo("Thin");
+        // A region the honesty filter blanked has no place to be reached, so at a tier it is dropped, not kept:
+        // the window it alone filled takes the projector's empty answer.
         ReachVerdictResponse.Window sunset = window(response, 45, TODAY, TargetType.SUNSET);
-        assertThat(sunset.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
-        assertThat(sunset.blanked()).isTrue();
+        assertThat(sunset.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(sunset.blanked()).isFalse();
+        assertThat(sunset.topRegionName()).isNull();
         assertThat(sunset.meanRating()).isNull();
         assertThat(sunset.thinCount()).isNull();
     }
@@ -671,5 +675,117 @@ class ReachVerdictServiceTest {
         assertThat(window(response, 150, TODAY, TargetType.SUNSET).pick()).isNotNull();
         assertThat(Set.copyOf(response.tiers().get("150").stream().map(ReachVerdictResponse.Window::date).toList()))
                 .contains(TODAY, TODAY.plusDays(1));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Review fixes: away canopy rule, blanked far regions, honesty for an emptied sample
+    // ---------------------------------------------------------------------------------------------
+
+    private DailyBriefingResponse servedOf(List<BriefingRegion> regions, Map<String, BriefingEvaluationResult> results,
+            java.util.Set<String> triaged) {
+        List<BriefingDay> days = List.of(new BriefingDay(TODAY, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, regions, List.of()))));
+        List<BriefingDay> enriched = rollup.enrich(days, (regionName, date, targetType) -> results,
+                (regionName, date, targetType) -> triaged);
+        DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", enriched,
+                List.of(), null, null, false, null, List.of(), List.of(), null, null, null, null, null);
+        return PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), Map.of(), Map.of())
+                .withBriefingVersion(VERSION);
+    }
+
+    @Test
+    @DisplayName("AWAY: a base whose only place in reach is a wood still gets ITS region's card, not AWAITING "
+            + "(the projector's window-level canopy rule thins the ranking, not the card)")
+    void awayWoodlandOnlyRegionKeepsItsCard() {
+        BriefingSlot wood1 = BriefingSlot.canopySlot(501L, "Place 501", SUNRISE, Verdict.GO, WEATHER, List.of());
+        BriefingSlot wood2 = BriefingSlot.canopySlot(502L, "Place 502", SUNRISE, Verdict.GO, WEATHER, List.of());
+        Map<String, BriefingEvaluationResult> results = new HashMap<>();
+        results.put("Place 501", rating(501, 4));
+        results.put("Place 502", rating(502, 4));
+        for (long id = 201; id <= 206; id++) {
+            results.put("Place " + id, rating(id, 4));
+        }
+        DailyBriefingResponse served = servedOf(List.of(rawRegion(NORTH, slots(201, 6)),
+                rawRegion("Woods", List.of(wood1, wood2))), results, Set.of());
+        when(briefingService.getCachedBriefingForApi()).thenReturn(served);
+        awayOrigin("Woods");
+        Map<Long, Integer> row = new HashMap<>();
+        row.put(501L, 20);
+        row.put(502L, 20);
+        when(regionDriveDurationService.getMatrix()).thenReturn(Map.of(LAKES_BASE_REGION_ID, row));
+        List<LocationEntity> locations = new ArrayList<>();
+        for (long id : new long[] {501L, 502L}) {
+            locations.add(LocationEntity.builder().id(id).name("Place " + id)
+                    .driveTargetChangedAt(LocalDateTime.of(2026, 1, 1, 0, 0)).build());
+        }
+        when(locationService.findAllEnabled()).thenReturn(locations);
+
+        ReachVerdictResponse.Window card = window(service.compute(auth, LAKES_BASE_REGION_ID), 45, TODAY,
+                TargetType.SUNRISE);
+
+        assertThat(card.topRegionName()).isEqualTo("Woods");
+        assertThat(card.displayVerdict()).isNotEqualTo(DisplayVerdict.AWAITING);
+        assertThat(card.regions()).extracting(ReachVerdictResponse.RegionVerdict::regionName)
+                .containsExactly("Woods");
+    }
+
+    @Test
+    @DisplayName("a distant blanked region is dropped at every tier, never left to speak for the window")
+    void blankedFarRegionIsDropped() {
+        BriefingRegion blanked = new BriefingRegion("Far", Verdict.STANDDOWN, "s", List.of(), List.of(),
+                null, null, null, null, null, "detail", DisplayVerdict.STAND_DOWN, 0);
+        Map<String, BriefingEvaluationResult> results = new HashMap<>();
+        for (long id = 701; id <= 706; id++) {
+            results.put("Place " + id, rating(id, 2));
+        }
+        DailyBriefingResponse served = servedOf(List.of(rawRegion("Near", slots(701, 6)), blanked), results, Set.of());
+        List<ReachEntry> entries = new ArrayList<>();
+        for (long id = 701; id <= 706; id++) {
+            entries.add(new ReachEntry(id, 100, 30, DriveStatus.MEASURED));
+        }
+        home(served, entries);
+
+        ReachVerdictResponse response = service.compute(auth, null);
+
+        for (int tier : List.of(45, 90)) {
+            ReachVerdictResponse.Window window = window(response, tier, TODAY, TargetType.SUNRISE);
+            assertThat(window.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+            assertThat(window.blanked()).isFalse();
+            assertThat(window.topRegionName()).isNull();
+            assertThat(window.regions()).isEmpty();
+        }
+        assertThat(window(response, 150, TODAY, TargetType.SUNRISE).topRegionName()).isEqualTo("Near");
+    }
+
+    private ReachVerdictResponse.Window emptiedSample(Set<String> triaged) {
+        Map<String, BriefingEvaluationResult> results = new HashMap<>();
+        results.put("Place 601", rating(601, 4));
+        DailyBriefingResponse served = servedOf(List.of(rawRegion("Mixed", slots(601, 3))), results, triaged);
+        List<ReachEntry> entries = List.of(new ReachEntry(601L, 100, 30, DriveStatus.MEASURED),
+                new ReachEntry(602L, 20, 5, DriveStatus.MEASURED), new ReachEntry(603L, 20, 5, DriveStatus.MEASURED));
+        home(served, entries);
+        return window(service.compute(auth, null), 45, TODAY, TargetType.SUNRISE);
+    }
+
+    @Test
+    @DisplayName("honesty, stood-down arm: the tier leaves only places the weather really stood down - STAND_DOWN, "
+            + "blanked, no mean")
+    void emptiedSampleStoodDown() {
+        ReachVerdictResponse.Window window = emptiedSample(Set.of("Place 602"));
+
+        assertThat(window.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(window.blanked()).isTrue();
+        assertThat(window.meanRating()).isNull();
+        assertThat(window.topRegionName()).isEqualTo("Mixed");
+    }
+
+    @Test
+    @DisplayName("honesty, not-attempted arm: places simply not scored read AWAITING, never 'Stand down'")
+    void emptiedSampleNotAttempted() {
+        ReachVerdictResponse.Window window = emptiedSample(Set.of());
+
+        assertThat(window.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(window.blanked()).isFalse();
+        assertThat(window.meanRating()).isNull();
     }
 }

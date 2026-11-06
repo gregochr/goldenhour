@@ -148,6 +148,7 @@ export function buildHeatStripCards(
         verdictScope: card.verdictScope,
         regionVerdict: card.regionVerdict ?? null,
         regionVerdictMean: card.regionVerdictMean ?? null,
+        regionHotRegionName: card.regionHotRegionName ?? null,
         scopedThinCount: card.scopedThinCount ?? null,
         servedConfidence: card.regionConfidence ?? null,
         servedPickKind: card.regionPick?.kind ?? null,

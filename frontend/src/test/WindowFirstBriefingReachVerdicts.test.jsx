@@ -17,7 +17,8 @@ vi.mock('../api/settingsApi.js', () => ({
 vi.mock('../api/regionApi.js', () => ({ fetchRegions: vi.fn(), fetchRegionDriveTimes: vi.fn() }));
 
 let mockRole = 'PRO_USER';
-vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
+let mockUser = 'ann';
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole, username: mockUser }) }));
 
 /**
  * The provider's half of the reach-scoped headline (reach-scoped-card-plan R2 step 7): when it asks the server for
@@ -251,6 +252,34 @@ describe('WindowFirstBriefingProvider — the reach-scoped headline', () => {
     expect(getReachVerdicts).toHaveBeenCalledTimes(2);
     expect(latest.current.windowCards[0].verdictScope).toEqual({ tierMinutes: 45 });
     expect(latest.current.briefing.briefingVersion).toBe('v2');
+  });
+
+  it('asks again when the saved home or the drive times change, though the briefing has not', async () => {
+    const view = await mount('PRO_USER');
+    expect(getReachVerdicts).toHaveBeenCalledTimes(1);
+
+    view.rerender(
+      <WindowFirstBriefingProvider homeSettingsVersion={1}><Probe /></WindowFirstBriefingProvider>,
+    );
+    await settle();
+    expect(getReachVerdicts).toHaveBeenCalledTimes(2);
+
+    view.rerender(
+      <WindowFirstBriefingProvider homeSettingsVersion={1} driveTimesVersion={1}><Probe /></WindowFirstBriefingProvider>,
+    );
+    await settle();
+    expect(getReachVerdicts).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks again for another signed-in user on the same page', async () => {
+    const view = await mount('PRO_USER');
+    mockUser = 'bob';
+
+    view.rerender(<WindowFirstBriefingProvider><Probe /></WindowFirstBriefingProvider>);
+    await settle();
+    mockUser = 'ann';
+
+    expect(getReachVerdicts).toHaveBeenCalledTimes(2);
   });
 
   it('asks for the away origin\'s region when the origin moves, from the base\'s measured drives', async () => {

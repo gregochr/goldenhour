@@ -424,9 +424,7 @@ Tests:
   `thinCount` is the number of rated places behind a rated word whose region is verdict-eligible only through force-evaluation
   (`sampleSufficient` false, `forcedSample` true); it adds no threshold. A place not on the reader's reach list is kept (unknown),
   as the client keeps a spot with no reach entry; a null `locationId` is out.
-- **Scope words.** The scope is printed in the Spread qualifier's compact spelling (`within 45m`, `within 1h30`, `within 2h30`),
-  and the hidden sentence spells it exactly as printed (WCAG 2.5.3: the visible string is a substring of the spoken one), so the
-  long form `within 45 min` is NOT used for the scope. It sits on its own grid row under the verdict row (`wf-hc-scope`).
+- **Scope words.** The scope is printed in the Spread qualifier's compact spelling (`within 45m`, `within 1h30`, `within 2h30`) and spoken in its long form (see the review fixes below). It sits on its own grid row under the verdict row (`wf-hc-scope`).
 - **`card.verdictLabel` consumers, each decided:**
   - matrix card and its hidden sentence (`WindowFirstHeatStrip`): **scoped, with the scope words** (scope line, then the scope straight after the word in the sentence);
   - `WindowSheetDialog` header badge: **scoped**, the scope printed beside the badge (`window-sheet-verdict-scope`);
@@ -439,3 +437,26 @@ Tests:
   - Map surfaces (`MapRegionPanel`, `MapWindowPanel`, the pill, `mapDrilldown`): **left to R3**. `WindowFirstMapPane` keeps handing the Map the SERVED confidence and pick (`servedConfidence`, `servedPickKind`, `servedPickRegion`) so Map output is unchanged.
 - **H2.** `verdictBeyondReach` reads `regionVerdictMean` on a scoped card (the scoped mean is null exactly when nothing rated is in reach) and its title names the region-wide verdict: "Northumberland is Worth it; its rated places are beyond 45 min", with R1's unroutable wording kept.
 - **Order control.** There is no Order control in this tree; its key is `card.topMeanRating`, which now follows the tier's `topMeanRating` while a scoped headline is worn.
+
+**R2 review fixes (2026-11-06).**
+- **Away card and the canopy rule.** `PlanWindowProjector.ScopedWindow` carries `all` (the window's regions before the
+  window-level canopy rule thins `ranked`), and the away branch finds the origin region there by name, as the client's
+  `originRegion` does. A base whose only place in reach is a wood keeps its card.
+- **A blanked far region is dropped at a finite tier.** A region with no slot has no place in reach, so `prune` drops it like
+  any emptied region; the window it alone filled takes the projector's empty answer (AWAITING).
+- **Honesty for an emptied sample.** A pruned region left with no rated place is worded as the served filter words a
+  zero-coverage region (`BriefingHonestyFilter.blankedForReach`): STAND_DOWN only when a surviving place carries the
+  `triaged` stamp (the weather really stood it down), AWAITING otherwise. The served filter reads the latest dispositions;
+  D5 forbids re-reading them, so the stamp (from the same evidence) stands in.
+- **`briefingVersion` also hashes the rendered events** (they bound where a pick may land), and each window carries
+  `topRegionName` (the in-reach top region; away, the origin region).
+- **Fetch key.** `useReachVerdicts` keys on `briefingVersion | origin | homeSettingsVersion | driveTimesVersion | user`
+  (the inputs `getReach` keys on, plus who is signed in) and forgets what it held when the key becomes null.
+- **Speech.** The scope is printed short (`within 45m`) and spoken long (`within 45 min`, `within 1h 30min`: the Spread
+  qualifier's own `spoken` form, `verdictScopeSpoken`), in the matrix sentence and the dialog's live message. The
+  substring test maps visible to spoken as the qualifier's does.
+- **Scoped card extras.** `movement` is null while a scoped headline is worn (the served mover names a region the word is no
+  longer about); `hotRegionName` is the in-reach `topRegionName`, with the served one kept as `regionHotRegionName` for H2.
+- **Grid baseline.** While any card wears a scope, every other non-away card reserves a hidden `.wf-hc-scope.reserved` row so
+  Spread and Best share a baseline; under Any, or with nothing held, no row is added. The ellipsis sits on an inner block
+  span (`.wf-hc-scope-t`), not the flex container.

@@ -223,10 +223,12 @@ public final class PlanWindowProjector {
     public static Map<WindowKey, ScopedWindow> reproject(List<BriefingDay> days, Set<WindowKey> rendered) {
         List<Draft> drafts = new ArrayList<>();
         List<List<RankedRegion>> rankedRegions = new ArrayList<>();
+        List<List<BriefingRegion>> allRegions = new ArrayList<>();
         for (BriefingDay day : days) {
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 drafts.add(draft(day.date(), summary, Map.of()));
                 rankedRegions.add(rank(day.date(), summary, canopyCounts(summary)));
+                allRegions.add(summary.regions());
             }
         }
         Map<WindowKey, BriefingWindow.Pick> picks = selectPicks(drafts, rendered);
@@ -235,7 +237,7 @@ public final class PlanWindowProjector {
             Draft dr = drafts.get(i);
             List<RankedRegion> ranked = rankedRegions.get(i);
             out.put(dr.key(), new ScopedWindow(dr.toWindow(picks.get(dr.key()), null, null),
-                    ranked.stream().map(RankedRegion::region).toList()));
+                    ranked.stream().map(RankedRegion::region).toList(), allRegions.get(i)));
         }
         return out;
     }
@@ -246,8 +248,11 @@ public final class PlanWindowProjector {
      * @param window the window as the projector would have built it (verdict, confidence, pick; no tide, no badges)
      * @param ranked the window's regions in the projector's rank order, best first; the first is the one whose
      *               verdict the window wears
+     * @param all    every region of the window as handed in, before the projector's window-level canopy rule thins
+     *               {@code ranked}: an away card is about ONE named region and must find it here, as the client's
+     *               {@code originRegion} finds it among the eligible regions with no canopy rule of its own
      */
-    public record ScopedWindow(BriefingWindow window, List<BriefingRegion> ranked) {
+    public record ScopedWindow(BriefingWindow window, List<BriefingRegion> ranked, List<BriefingRegion> all) {
     }
 
     /**

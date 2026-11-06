@@ -28,12 +28,29 @@ import { getReachVerdicts } from '../api/settingsApi.js';
  * @param {?string} args.briefingVersion the version of the briefing the page holds, or null/undefined when it
  *                                       carries none (an older backend mid-deploy): nothing is fetched
  * @param {?number} args.originId       the away origin's region id, or null for home
+ * @param {number}  [args.homeSettingsVersion] moves when the home on record changes (a saved postcode)
+ * @param {number}  [args.driveTimesVersion]   moves when the drive times are recalculated
+ * @param {?string} [args.userId]       who is signed in; another account is another question
  * @returns {?Object<string, Array<Object>>} the tiers, keyed by minutes ({@code "45"}, {@code "90"},
  *          {@code "150"}), or null while there is no matching answer
  */
-export default function useReachVerdicts({ enabled, briefingVersion, originId }) {
-  const key = enabled && briefingVersion ? `${briefingVersion}|${originId ?? 'home'}` : null;
+export default function useReachVerdicts({
+  enabled, briefingVersion, originId, homeSettingsVersion = 0, driveTimesVersion = 0, userId = null,
+}) {
+  // Whose drive times the answer was computed from is part of the question (the same inputs `getReach` keys on): a
+  // saved postcode, a recalculation, another account on the same page or a home cleared and set again each make the
+  // held tiers an answer about a different journey.
+  const key = enabled && briefingVersion
+    ? `${briefingVersion}|${originId ?? 'home'}|${homeSettingsVersion}|${driveTimesVersion}|${userId ?? ''}`
+    : null;
   const [held, setHeld] = useState({ key: null, tiers: null });
+
+  // Logout, a demotion, an unmeasured reader: drop what was held, so the same key coming back later (the same
+  // account on the same briefing) cannot be answered from a copy that outlived the reason it was valid. Adjusted
+  // during render, React's own pattern for state derived from a changing input.
+  if (key === null && held.key !== null) {
+    setHeld({ key: null, tiers: null });
+  }
 
   useEffect(() => {
     if (key === null) return undefined;

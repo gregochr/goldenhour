@@ -2411,11 +2411,22 @@ button.wf-hc.on:hover {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text-secondary);
+}
+/* The ellipsis lives on the inner span, not the flex container: `text-overflow` does not apply to a flex container's
+   own text, only to a block-level box that clips it. */
+.wf-hc-scope-t {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A card with no scope of its own, in a grid whose other cards have one: the row is kept so every card's Spread and
+   Best rows share a baseline, and drawn as nothing. */
+.wf-hc-pls > .wf-hc-scope.reserved {
+  visibility: hidden;
 }
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict

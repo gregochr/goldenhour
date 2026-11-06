@@ -250,7 +250,7 @@ the card wears today's served word without scope words. The word stays a lookup 
 
 A card that wears the tier's headline carries `verdictScope: {tierMinutes}` and prints the scope on its own line under the
 verdict row (`wf-hc-scope`, the Spread qualifier's compact spelling: `within 45m`, `within 1h30`, `within 2h30`); the hidden
-sentence says it straight after the word, spelled exactly as printed (WCAG 2.5.3). The dialog's badge and live message, and
+sentence says it straight after the word in the long form the Spread qualifier speaks (`within 45 min`, `within 1h 30min`). While any card wears a scope, the others reserve a hidden row so baselines hold; `movement` is null and `hotRegionName` is the in-reach `topRegionName` on a scoped card. The dialog's badge and live message, and
 the search row's sub-line, say it too. The card also keeps the served `regionVerdict` / `regionVerdictMean` (H2's
 `verdictBeyondReach` reads the region-wide mean, because the scoped mean is null exactly when nothing rated is in reach; its
 title then names the region-wide verdict: `Northumberland is Worth it; its rated places are beyond 45 min`) and the served

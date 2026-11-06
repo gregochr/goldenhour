@@ -191,8 +191,11 @@ public class ReachVerdictService {
      */
     private BriefingRegion prune(BriefingRegion region, Map<Long, Cell> cells, int tier, BriefingDay day,
             BriefingEventSummary summary) {
+        // A region with no place to measure (the honesty filter blanked it) has no place in reach either, so at
+        // a finite tier it is dropped like any region the tier empties: a distant blanked region must not speak
+        // for a window it cannot be reached for.
         if (region.slots().isEmpty()) {
-            return region;
+            return null;
         }
         List<BriefingSlot> inReach = region.slots().stream()
                 .filter(slot -> isInReach(slot, cells, tier))
@@ -203,7 +206,13 @@ public class ReachVerdictService {
         if (inReach.isEmpty()) {
             return null;
         }
-        return rollup.rerollRegion(region, inReach, day.date(), summary.targetType());
+        BriefingRegion rerolled = rollup.rerollRegion(region, inReach, day.date(), summary.targetType());
+        // Nothing rated survived: word it as the served pipeline words a zero-coverage region, not as a rating.
+        boolean scoreable = inReach.stream().anyMatch(BriefingSlot::couldCarryRating);
+        if (rerolled.scoredLocationCount() == 0 && scoreable) {
+            return BriefingHonestyFilter.blankedForReach(rerolled, inReach.stream().anyMatch(BriefingSlot::triaged));
+        }
+        return rerolled;
     }
 
     private static boolean isInReach(BriefingSlot slot, Map<Long, Cell> cells, int tier) {
@@ -241,7 +250,9 @@ public class ReachVerdictService {
             regions = scoped.ranked().stream().map(ReachVerdictService::regionVerdict).toList();
         } else {
             // Away: the card is the origin region's, whatever the window's top region is.
-            region = scoped.ranked().stream()
+            // Found among ALL the window's regions, not the ranked ones: the projector's window-level canopy rule
+            // thins `ranked`, and an away card about a base whose only place in reach is a wood is still that card.
+            region = scoped.all().stream()
                     .filter(r -> originName.equals(r.regionName()))
                     .findFirst()
                     .orElse(null);
@@ -252,7 +263,7 @@ public class ReachVerdictService {
         }
         return new ReachVerdictResponse.Window(key.date(), key.targetType(), verdict,
                 printableMean(region, verdict), region == null ? null : region.meanRating(),
-                region == null ? null : region.confidence(),
+                region == null ? null : region.confidence(), region == null ? null : region.regionName(),
                 verdict == DisplayVerdict.STAND_DOWN && region != null && region.slots().isEmpty(),
                 thinCount(region, verdict), pick, pick == null ? null : pick.regionName(), regions);
     }

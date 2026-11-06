@@ -21,7 +21,7 @@ class ReachVerdictResponseTest {
 
     private static ReachVerdictResponse.Window window(List<ReachVerdictResponse.RegionVerdict> regions) {
         return new ReachVerdictResponse.Window(LocalDate.of(2026, 10, 1), TargetType.SUNRISE,
-                DisplayVerdict.MAYBE, 3.0, 3.0, Confidence.MEDIUM, false, null, null, null, regions);
+                DisplayVerdict.MAYBE, 3.0, 3.0, Confidence.MEDIUM, "Lakes", false, null, null, null, regions);
     }
 
     @Test

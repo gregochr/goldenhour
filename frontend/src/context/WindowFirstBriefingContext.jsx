@@ -351,7 +351,7 @@ export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, driveTimesVersion, subRegionsVersion = 0, homePlace, comingUpLastSeenDate,
   setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY, onOpenSubRegions = null,
 }) {
-  const { role } = useAuth();
+  const { role, username } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
   // Drive times from home are Pro (docs/engineering/pro-features-gate-plan.md §9). Declared up here
   // because the reach fetch below needs it. `isPro` is declared here once, for every lock below.
@@ -840,6 +840,9 @@ export function WindowFirstBriefingProvider({
     enabled: isPro && !driveLocked && allowedIdSet === null && reachMeasured,
     briefingVersion: briefing?.briefingVersion ?? null,
     originId: origin?.id ?? null,
+    homeSettingsVersion,
+    driveTimesVersion,
+    userId: username ?? null,
   });
 
   const windowCards = useMemo(

@@ -156,6 +156,46 @@ describe('useReachVerdicts', () => {
     expect(result.current).toBe(TIERS);
   });
 
+  describe('the key is whose drive times, not only which briefing', () => {
+    const base = {
+      enabled: true, briefingVersion: 'v1', originId: null, homeSettingsVersion: 1, driveTimesVersion: 1, userId: 'ann',
+    };
+
+    it.each([
+      ['a saved postcode (homeSettingsVersion)', { homeSettingsVersion: 2 }],
+      ['a recalculation (driveTimesVersion)', { driveTimesVersion: 2 }],
+      ['another account on the page (userId)', { userId: 'bob' }],
+    ])('asks again, and answers null meanwhile, on %s', async (_n, change) => {
+      const second = deferred();
+      getReachVerdicts.mockResolvedValueOnce(body('v1')).mockReturnValueOnce(second.promise);
+      const { result, rerender } = renderHook((props) => useReachVerdicts(props), { initialProps: base });
+      await waitFor(() => expect(result.current).toBe(TIERS));
+
+      rerender({ ...base, ...change });
+
+      expect(result.current).toBeNull();
+      await waitFor(() => expect(getReachVerdicts).toHaveBeenCalledTimes(2));
+      const next = { ...TIERS };
+      await act(async () => { second.resolve(body('v1', { tiers: next })); });
+      expect(result.current).toBe(next);
+    });
+
+    it('forgets what it held when the question goes away, so the same key coming back is asked afresh', async () => {
+      getReachVerdicts.mockResolvedValue(body('v1'));
+      const { result, rerender } = renderHook((props) => useReachVerdicts(props), { initialProps: base });
+      await waitFor(() => expect(result.current).toBe(TIERS));
+
+      // Logged out / demoted / unmeasured: no question.
+      rerender({ ...base, enabled: false });
+      expect(result.current).toBeNull();
+      // The very same account and briefing again: not answered from the copy that outlived its reason.
+      rerender(base);
+      expect(result.current).toBeNull();
+      await waitFor(() => expect(getReachVerdicts).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(result.current).toBe(TIERS));
+    });
+  });
+
   it('stops answering the moment it is disabled (a demotion, a shaped body, a cleared home)', async () => {
     getReachVerdicts.mockResolvedValue(body('v1'));
     const { result, rerender } = renderHook(

@@ -53,6 +53,8 @@ public record ReachVerdictResponse(
      * @param topMeanRating  the top region's mean regardless of eligibility, for the Order control's Best ranking;
      *                       null when it carries none
      * @param confidence     the top region's confidence, or null
+     * @param topRegionName  the in-reach region whose word the window wears (away: the origin region), or null when
+     *                       nothing is in reach; the thumbnail's highlight names it
      * @param blanked        true when the word is a STAND_DOWN over a region the honesty filter blanked
      * @param thinCount      the number of rated places behind a rated word whose region is verdict-eligible only by
      *                       force-evaluation (the sample gate failed), or null; the card's {@code · N rated}
@@ -69,6 +71,7 @@ public record ReachVerdictResponse(
             @JsonInclude(JsonInclude.Include.NON_NULL) Double meanRating,
             @JsonInclude(JsonInclude.Include.NON_NULL) Double topMeanRating,
             @JsonInclude(JsonInclude.Include.NON_NULL) Confidence confidence,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String topRegionName,
             boolean blanked,
             @JsonInclude(JsonInclude.Include.NON_NULL) Integer thinCount,
             @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow.Pick pick,
