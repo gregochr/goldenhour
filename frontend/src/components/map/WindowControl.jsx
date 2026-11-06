@@ -8,7 +8,7 @@ import BoltIcon from './BoltIcon.jsx';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import VerdictWord from '../shared/VerdictWord.jsx';
 import { verdictRegionLabel, verdictsScope } from '../../utils/mapVerdict.js';
-import { verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
+import { verdictScopeShort, verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
@@ -206,7 +206,9 @@ export default function WindowControl({
    */
   function stepLabel(base, verdict) {
     const word = verdict ? VERDICT_LABEL[verdict.tier] : null;
-    return word ? `${base}, ${word}` : base;
+    // A scoped word is spoken with its scope, as the pill's name is (reach-scoped-card-plan R3, D6).
+    const scope = word ? verdictScopeSpoken(verdict.scope) : null;
+    return word ? `${base}, ${word}${scope ? `, ${scope}` : ''}` : base;
   }
   /**
    * One stepper's accessible name for the neighbour at {@code index}: the bare base when the
@@ -664,7 +666,7 @@ export default function WindowControl({
           {listScopeText && (
             // Every verdict word below is for the active drive tier (reach-scoped-card-plan R3, D6). Printed short,
             // spoken long; outside the listbox, which admits only options.
-            <div className="wf-win-scope-note" data-testid="wf-win-scope-note">
+            <div id="wf-win-scope-note" className="wf-win-scope-note" data-testid="wf-win-scope-note">
               <span aria-hidden="true">{`Verdicts ${listScopeText}`}</span>
               <span className="sr-only">{`Verdicts ${verdictScopeSpoken(listScope)}`}</span>
             </div>
@@ -674,6 +676,7 @@ export default function WindowControl({
             id="wf-win-listbox"
             data-testid="wf-win-listbox"
             aria-label="Choose an event"
+            aria-describedby={listScopeText ? 'wf-win-scope-note' : undefined}
             onFocus={rowFocus.onFocus}
             onBlur={rowFocus.onBlur}
             onPointerDown={rowFocus.onPointerDown}
@@ -970,7 +973,11 @@ function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
   const scopeText = verdictScopeText(verdict.scope);
   const scopeSpoken = verdictScopeSpoken(verdict.scope);
   return (
-    <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
+    <span
+      className={`wf-win-verdict${scopeText ? ' wf-win-verdict--scoped' : ''}`}
+      data-tier={verdict.tier}
+      data-testid="wf-win-verdict"
+    >
       {/* ⚠️ `mode="swap"`: "TOO FEW RATED" (91px) clipped the day label at 320–430px and itself at
           640–700px (measured), so the pill swaps to the short form at 811px and below on one media
           query (`.wf-vw-short` / `.wf-vw-full` in index.css) and the full word stays in the
@@ -1008,8 +1015,12 @@ function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
         <span className="wf-win-verdict-sub" data-testid="wf-win-verdict-sub">
           {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
           {region && <span aria-hidden="true" className="wf-win-verdict-scope-sep">&middot;</span>}
+          {/* Two printed spellings swapped by the stylesheet (the pattern of `VerdictWord mode="swap"`): the full
+              `within 45m` where the cell has room, `≤45m` where it does not (≤811px). Both are aria-hidden; the
+              long form is spoken. */}
           <span aria-hidden="true" className="wf-win-verdict-scope" data-testid="wf-win-verdict-scope">
-            {scopeText}
+            <span className="wf-scope-full" data-testid="wf-win-verdict-scope-full">{scopeText}</span>
+            <span className="wf-scope-short" data-testid="wf-win-verdict-scope-short">{verdictScopeShort(verdict.scope)}</span>
           </span>
           <span className="sr-only">{`, ${scopeSpoken}`}</span>
         </span>

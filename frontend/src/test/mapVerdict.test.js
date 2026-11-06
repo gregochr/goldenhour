@@ -16,6 +16,7 @@ import {
 } from '../utils/mapVerdict.js';
 import { EVENT_KIND, buildMapEvents } from '../utils/mapEvents.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { scopePoolWithinReach } from '../utils/mapReach.js';
 
 const DATE = '2026-09-06';
 const SUNSET = 'SUNSET';
@@ -647,6 +648,15 @@ describe('buildReachVerdictIndex and the reach verdict (reach-scoped-card-plan R
     });
   });
 
+  it('labels a scoped all-in-scope verdict "everywhere" (the scope words qualify it), and an unscoped one as before', () => {
+    const all = {
+      regionName: 'Cumbria', sharingCount: 1, allInScope: true, scopedRegionCount: 2,
+    };
+    expect(verdictRegionLabel({ ...all, scope: { tierMinutes: 45 } }, { scopeIsArea: true })).toBe('everywhere');
+    expect(verdictRegionLabel({ ...all, scope: { tierMinutes: 45 } }, { scopeIsArea: false })).toBe('everywhere');
+    expect(verdictRegionLabel(all, { scopeIsArea: true })).toBe('everywhere in your area');
+  });
+
   it('stamps no scope on a verdict taken from the served index', () => {
     const verdict = windowVerdict({
       index: buildRegionVerdictIndex(days([region('Cumbria', 4.4, 'WORTH_IT')])),
@@ -714,9 +724,15 @@ describe('buildReachVerdictIndex and the reach verdict (reach-scoped-card-plan R
   });
 
   describe('verdictsScope', () => {
-    it('is the first verdict\'s scope, and null when none carries one or the input is not a Map', () => {
+    it('is the scope when EVERY verdict carries one, and null when any does not or the input is not a Map', () => {
+      expect(verdictsScope(new Map([
+        ['a', { tier: 'MAYBE', scope: { tierMinutes: 90 } }], ['b', { tier: 'MAYBE', scope: { tierMinutes: 90 } }],
+      ]))).toEqual({ tierMinutes: 90 });
+      // The mixed list: a row that fell back to the served word is not true "within 90", so no caption.
       expect(verdictsScope(new Map([['a', { tier: 'MAYBE' }], ['b', { tier: 'MAYBE', scope: { tierMinutes: 90 } }]])))
-        .toEqual({ tierMinutes: 90 });
+        .toBeNull();
+      expect(verdictsScope(new Map([['a', { tier: 'MAYBE', scope: { tierMinutes: 90 } }], ['b', { tier: 'MAYBE' }]])))
+        .toBeNull();
       expect(verdictsScope(new Map([['a', { tier: 'MAYBE' }]]))).toBeNull();
       expect(verdictsScope(null)).toBeNull();
       expect(verdictsScope(new Map([['a', null]]))).toBeNull();
@@ -756,9 +772,10 @@ describe('agreement with the Plan tab at every drive tier, both origins (reach-s
   });
 
   /** HOME: the server's prune-and-re-rank at each tier, best first. The three tiers give three different words. */
+  // Consistent with REACH below: The Peak (30 min) and Northumberland (40) are in the 45 tier, Cumbria (80) joins at 90.
   const HOME = {
-    45: [entry([rv('Northumberland', 'MAYBE', 3.0)])],
-    90: [entry([rv('Cumbria', 'STAND_DOWN', 2.4), rv('The Peak', 'STAND_DOWN', 2.2)])],
+    45: [entry([rv('Northumberland', 'MAYBE', 3.0), rv('The Peak', 'STAND_DOWN', 2.2)])],
+    90: [entry([rv('Cumbria', 'STAND_DOWN', 2.4), rv('The Peak', 'STAND_DOWN', 2.2), rv('Northumberland', 'STAND_DOWN', 2.0)])],
     150: [entry([rv('Cumbria', 'WORTH_IT', 4.4), rv('Northumberland', 'WORTH_IT', 4.4), rv('The Peak', 'STAND_DOWN', 2.2)])],
   };
   /** AWAY (from The Peak's base): that region alone, pruned to its in-tier places. */
@@ -782,6 +799,17 @@ describe('agreement with the Plan tab at every drive tier, both origins (reach-s
     return built;
   }
 
+  const SPOTS = [
+    { id: 1, regionName: 'The Peak' },
+    { id: 2, regionName: 'Northumberland' },
+    { id: 3, regionName: 'Cumbria' },
+  ];
+
+  /** The regions the MAP's own narrowing puts in scope AND in reach (the production path: `scopePoolWithinReach`). */
+  function clientRegions(limitMinutes, pool = SPOTS) {
+    return regionNamesOf(scopePoolWithinReach(pool, (id) => REACH.get(id), limitMinutes, true));
+  }
+
   function mapAnswer(limitMinutes, tiers, regionsInScope) {
     const { index, windowKeys } = buildReachVerdictIndex(tiers[String(limitMinutes)]);
     const out = buildEvVerdicts({
@@ -795,7 +823,9 @@ describe('agreement with the Plan tab at every drive tier, both origins (reach-s
 
   it.each([45, 90, 150])('home, Everywhere, %i min: the pill\'s word and region are the Plan card\'s', (minutes) => {
     const planned = card(minutes, HOME);
-    const regionsInScope = HOME[String(minutes)][0].regions.map((r) => r.regionName);
+    // The regions come from the CLIENT's own narrowing, not from the answer, so the fixture and the gate must agree.
+    const regionsInScope = clientRegions(minutes);
+    expect([...regionsInScope].sort()).toEqual(HOME[String(minutes)][0].regions.map((r) => r.regionName).sort());
     const mapped = mapAnswer(minutes, HOME, regionsInScope);
 
     expect(mapped.tier).toBe(planned.verdict);
@@ -805,13 +835,16 @@ describe('agreement with the Plan tab at every drive tier, both origins (reach-s
   });
 
   it('home: the three tiers really do give three different words (a tier-blind Map would fail)', () => {
-    expect([45, 90, 150].map((m) => mapAnswer(m, HOME, HOME[String(m)][0].regions.map((r) => r.regionName)).tier))
+    expect([45, 90, 150].map((m) => mapAnswer(m, HOME, clientRegions(m)).tier))
       .toEqual(['MAYBE', 'STAND_DOWN', 'WORTH_IT']);
   });
 
   it.each([45, 90, 150])('away from The Peak, %i min: the pill\'s word is the origin region\'s, as the card\'s', (minutes) => {
     const planned = card(minutes, AWAY, { id: 7, name: 'The Peak', baseName: 'Buxton' });
-    const mapped = mapAnswer(minutes, AWAY, ['The Peak']);
+    // Away the pool is the origin region's places alone, narrowed by the base-measured drives.
+    const regionsInScope = clientRegions(minutes, SPOTS.filter((s) => s.regionName === 'The Peak'));
+    expect(regionsInScope).toEqual(['The Peak']);
+    const mapped = mapAnswer(minutes, AWAY, regionsInScope);
 
     expect(mapped.tier).toBe(planned.verdict);
     expect(mapped.regionName).toBe('The Peak');

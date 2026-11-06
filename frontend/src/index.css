@@ -6435,14 +6435,19 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text-secondary);
 }
 /* The second line of a reach-scoped verdict (reach-scoped-card-plan R3): the region and the drive-tier scope share
-   it. The region yields first (ellipsis, a tighter cap than its own so the line is no wider than an unscoped one);
-   the scope never cuts. An unscoped verdict has no `.wf-win-verdict-sub` and is unchanged. */
+   it. The region yields first (ellipsis at a 72px cap, against 112px unscoped, so the scope has room); the scope
+   never cuts. The line is ADDED width on desktop and tablet (72px + gap + separator + the ~47px "within 45m" is about
+   130px against the unscoped 112px cap), and a scoped "everywhere in your area" is shortened to "everywhere" in
+   `verdictRegionLabel` because the longer form could never fit here. The line clips inside its cell
+   (`overflow: hidden`), so nothing can paint into the caret. An unscoped verdict has no `.wf-win-verdict-sub` and is
+   unchanged. */
 .wf-win-verdict-sub {
   display: flex;
   align-items: baseline;
   gap: 4px;
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
   white-space: nowrap;
 }
 .wf-win-verdict-sub .wf-win-verdict-region {
@@ -6461,6 +6466,11 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   letter-spacing: 0.02em;
   color: var(--color-plex-text-secondary);
 }
+/* The two printed spellings of the scope (the `VerdictWord mode="swap"` pattern): the full `within 45m` by default,
+   `≤45m` at 811px and below, where the verdict cell is squeezed (a phone's pill, and the 640-811px band where the
+   control is `max-width: calc(100% - 308px)`). Both are aria-hidden; the long form is in the accessible name. */
+.wf-scope-short { display: none; }
+/* (The ≤811px swap rules live inside the existing ≤811px block further down, with the verdict word's own swap.) */
 
 /* The pick medallion — OUTLINE ONLY, never filled. A filled chip became the loudest thing on a
    control whose job is the verdict; it was built and cut, and the rejection is part of the spec.
@@ -6579,6 +6589,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     white-space: nowrap;
     border: 0;
   }
+  /* The drive-tier scope's two spellings (reach-scoped-card-plan R3), swapped at the same breakpoint and for the same
+     reason as the verdict word: the cell is squeezed here. These are scoped-state rules only (an unscoped verdict has no
+     scope element), so unscoped output is unchanged. */
+  .wf-map-tab .wf-win-verdict-scope .wf-scope-full { display: none; }
+  .wf-map-tab .wf-win-verdict-scope .wf-scope-short { display: inline; }
+  /* A scoped cell never shrinks below its own content, so the short scope is never clipped by the pill squeezing the
+     cell under its word (measured at 320px: a Poor cell was 22px for a 26px word and cut "≤45m"). Its content is the
+     word or the short scope, whichever is wider, so the cell grows by a few px at most and the day label absorbs it. */
+  .wf-map-tab .wf-win-verdict--scoped { min-width: max-content; }
 }
 
 
@@ -15817,5 +15836,13 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
   padding: 4px 12px 2px;
   font-size: 10px;
   letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The Filters popover's hint under a disabled drive-time segment (reach-scoped-card-plan R3): the reader has no measured drive. */
+.wf-filters-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
   color: var(--color-plex-text-secondary);
 }

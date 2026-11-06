@@ -3688,17 +3688,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * names describe: the Plan's own gate over the scope segment's pool, so "WORTH IT · Lakes +1" and "· 3 rated"
    * are about the same places the tier answer was computed for.
    */
-  const reachPool = useMemo(
-    () => (reachScope ? scopePoolWithinReach(verdictScopePool, reachEntryFor, reachScope.tierMinutes, driveTierMeasured)
-      : verdictScopePool),
-    [reachScope, verdictScopePool, reachEntryFor, driveTierMeasured],
-  );
+  // Away, the server's answer is the ORIGIN region's alone (reach-scoped-card-plan D3: an away card never re-ranks other
+  // regions). It is therefore true of the Map only while the scope is that region (My area); at Everywhere it would say
+  // "Poor · The Peak · within 2h30" over a field that draws and counts the neighbouring regions too. So away at
+  // Everywhere the pill keeps the served verdict, with no scope words. Home is unaffected.
+  const reachActive = reachScope != null && (origin == null || (heatArea && Boolean(heat?.hasHome)));
+  const reachPool = useMemo(() => {
+    if (!reachActive) return verdictScopePool;
+    // Away, narrowed to the origin region itself: the base-to-everywhere drive map reaches into neighbours.
+    const own = origin ? verdictScopePool.filter((spot) => spot?.regionName === origin.name) : verdictScopePool;
+    return scopePoolWithinReach(own, reachEntryFor, reachScope.tierMinutes, driveTierMeasured);
+  }, [reachActive, reachScope, origin, verdictScopePool, reachEntryFor, driveTierMeasured]);
   /** The regions in scope AND in reach, which the scoped pill's tally counts (its {@code scopedRegionCount}). */
   const reachRegionsInScope = useMemo(() => regionNamesOf(reachPool), [reachPool]);
   /** The reach answer {@code buildEvVerdicts} reads, or null when the pill is not reach-scoped. */
   const reachVerdictSource = useMemo(
-    () => (reachScope ? { ...reachScope, regionsInScope: reachRegionsInScope } : null),
-    [reachScope, reachRegionsInScope],
+    () => (reachActive ? { ...reachScope, regionsInScope: reachRegionsInScope } : null),
+    [reachActive, reachScope, reachRegionsInScope],
   );
 
   // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
@@ -6433,6 +6439,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // unmeasured the tier is still the one the Plan bar shows, though it filters nothing (see `driveTierMeasured`).
     driveTimeFilter: driveLocked ? 0 : (driveTier?.limitMinutes ?? 0),
     driveLocked,
+    driveUnmeasured: !driveLocked && !driveTierMeasured,
     onSelectDriveTime: setDriveTimeFilter,
     darkSkyFilter,
     onToggleDarkSky: toggleDarkSky,
@@ -7270,6 +7277,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
                 isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
                 scopeIsArea: heatArea && Boolean(heat?.hasHome),
+                // A window the tier's answer names but with nothing in reach in the scope has no verdict: its own note.
+                emptyScope: reachVerdictSource?.windowKeys.has(`${activeMapEvent?.date}|${activeMapEvent?.eventType}`)
+                  ? { tierMinutes: reachVerdictSource.tierMinutes } : null,
               })}
             rows={panelRows}
             noteStrong={regionPicks && activeMapEvent?.kind === EVENT_KIND.SOLAR

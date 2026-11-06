@@ -250,6 +250,99 @@ describe('the pill follows the shared drive tier', () => {
   });
 });
 
+describe('an away origin', () => {
+  // The server's away answer is the ORIGIN region's alone, so it is true of the Map only while the scope is that
+  // region (My area); at Everywhere the field draws and counts the neighbouring regions too.
+  const ORIGIN = { id: 'ne', name: NE, baseName: 'Alnwick' };
+  const FAR_NE = {
+    id: 3, name: 'Far NE', lat: 55.9, lon: -2.0, regionName: NE, locationType: ['LANDSCAPE'], forecastsByDate: FORECASTS(),
+  };
+  const ALL = [...LOCATIONS, FAR_NE];
+  const awaySpots = ALL.map((l) => ({ ...SPOT(l), skySubject: true }));
+  // Base-measured: Near 20, the neighbouring Lakes place 60 (inside 90), the far North East place 200 (outside).
+  const OVERRIDE = new Map([
+    [1, { driveMinutes: 20, driveStatus: 'MEASURED' }],
+    [2, { driveMinutes: 60, driveStatus: 'MEASURED' }],
+    [3, { driveMinutes: 200, driveStatus: 'MEASURED' }],
+  ]);
+  const states = new Map(awaySpots.map((s) => [`#${s.id}`, 'rated']));
+  const awayHeat = () => heat({
+    hasHome: true,
+    spots: awaySpots,
+    areaSpots: awaySpots.filter((s) => s.regionName === NE),
+    driveOverrideById: OVERRIDE,
+    windowStates: new Map([[`${TODAY}:SUNSET`, { states, unrated: [], stood: [] }]]),
+  });
+  const awayProps = (extra = {}) => ({
+    locations: ALL,
+    origin: ORIGIN,
+    reachLens: reachLensStub(90),
+    reachMeasured: true,
+    heat: awayHeat(),
+    // The origin region alone, as the server serves an away answer; the wide answer is NOT a neighbour's.
+    reachScope: scopeOf(90, [rv(NE, 'MAYBE', 3.0)]),
+    ...extra,
+  });
+
+  it('My area (the origin region): the scoped verdict, with a rated count over the origin\'s in-reach places only', async () => {
+    await renderTab(awayProps());
+
+    expect(word()).toBe('Maybe');
+    expect(screen.getByTestId('wf-win-verdict-scope')).toHaveTextContent('within 1h30');
+    // 3 rated places are in the map, but only Near (20 min) is the origin's AND inside 90: the count is 1.
+    expect(screen.getByTestId('wf-win-verdict-count')).toHaveTextContent('1 rated');
+  });
+
+  it('⚠️ Everywhere: the served verdict and NO scope words, though a neighbouring region lies within the tier', async () => {
+    await renderTab(awayProps());
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    // The served index has the North East Worth it (4.4): not the origin-only "Maybe within 1h30".
+    expect(word()).toBe('Worth it');
+    expect(screen.queryByTestId('wf-win-verdict-scope')).toBeNull();
+    // The count is the scope pool's (all three rated places), not the origin's in-reach one.
+    expect(screen.getByTestId('wf-win-verdict-count')).toHaveTextContent('3 rated');
+  });
+
+  it('an origin answer with nothing in reach does not empty the Everywhere pill', async () => {
+    await renderTab(awayProps({ reachScope: scopeOf(90, []) }));
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    expect(word()).toBe('Worth it');
+  });
+});
+
+describe('the popover for a reader whose drives are unmeasured', () => {
+  it('shows the tier buttons disabled with a hint, and no pressed tier', async () => {
+    await renderTab({ reachLens: reachLensStub(45), reachMeasured: false, reachById: new Map() });
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+
+    for (const value of [0, 45, 90, 150]) {
+      expect(screen.getByTestId(`drive-time-filter-${value}`)).toBeDisabled();
+    }
+    expect(screen.getByTestId('drive-time-filter-unmeasured')).toHaveTextContent('No drive times yet: set your home in Settings');
+  });
+
+  it('does not show the hint for a measured reader, and a locked reader keeps the Pro treatment instead', async () => {
+    await renderTab({ reachLens: reachLensStub(45), reachMeasured: true });
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    expect(screen.queryByTestId('drive-time-filter-unmeasured')).toBeNull();
+    expect(screen.getByTestId('drive-time-filter-45')).not.toBeDisabled();
+  });
+
+  it('a locked, unmeasured reader sees the locked treatment and no unmeasured hint', async () => {
+    await renderTab({
+      reachLens: reachLensStub(45), reachMeasured: false, reachById: new Map(), driveLocked: true,
+    });
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+
+    expect(screen.getByTestId('drive-time-filter-upsell')).toBeInTheDocument();
+    expect(screen.queryByTestId('drive-time-filter-unmeasured')).toBeNull();
+  });
+});
+
 describe('one drive state', () => {
   it('a popover tier tap writes the SHARED lens (the Plan bar follows), not a local copy', async () => {
     const lens = reachLensStub(null);

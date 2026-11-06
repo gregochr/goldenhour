@@ -50,7 +50,7 @@ export default function FiltersPopover({
   open, onOpenChange,
   minStars, onSelectMinStars,
   activeTypeFilters, onToggleType, subjectChips, seasonalFeatures, role,
-  driveTimeFilter, onSelectDriveTime, driveLocked = false,
+  driveTimeFilter, onSelectDriveTime, driveLocked = false, driveUnmeasured = false,
   darkSkyFilter, onToggleDarkSky, darkSkyThreshold,
   hasHome, heatArea, onSelectScope, areaLabel,
   isAuroraMode, isAstroMode,
@@ -216,7 +216,7 @@ export default function FiltersPopover({
                   key={value}
                   type="button"
                   // A real `disabled` as well as the wrapper's `pointer-events: none`: that does not stop a keyboard.
-                  disabled={driveLocked}
+                  disabled={driveLocked || driveUnmeasured}
                   data-testid={`drive-time-filter-${value}`}
                   aria-pressed={driveTimeFilter === value}
                   className={`wf-filters-seg-btn${driveTimeFilter === value ? ' on' : ''}`}
@@ -237,7 +237,16 @@ export default function FiltersPopover({
               {/* On its own line under the segments, so the four buttons keep their single row. */}
               <GuideWhy section="mapFilters" testId="guide-why-drive" />
             </div>
-          ) : seg;
+          ) : (driveUnmeasured ? (
+            // The reader has no measured drive time, so no tier can act (reach-scoped-card-plan R3): the buttons are
+            // disabled and say why, rather than showing a tier pressed that filters nothing.
+            <div className="wf-filters-drive-lock">
+              {seg}
+              <span className="wf-filters-hint" data-testid="drive-time-filter-unmeasured">
+                No drive times yet: set your home in Settings
+              </span>
+            </div>
+          ) : seg);
         })()}
       </div>
 
@@ -404,6 +413,8 @@ FiltersPopover.propTypes = {
   role: PropTypes.string,
   driveTimeFilter: PropTypes.number.isRequired,
   driveLocked: PropTypes.bool,
+  /** True when the reader's drives are unmeasured (not LITE): the tier buttons are disabled with a hint. */
+  driveUnmeasured: PropTypes.bool,
   onSelectDriveTime: PropTypes.func.isRequired,
   darkSkyFilter: PropTypes.bool.isRequired,
   onToggleDarkSky: PropTypes.func.isRequired,

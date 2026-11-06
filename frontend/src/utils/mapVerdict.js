@@ -490,7 +490,9 @@ export function buildEvVerdicts({
  */
 export function verdictRegionLabel(verdict, { scopeIsArea = true } = {}) {
   if (!verdict) return '';
-  if (verdict.allInScope) return scopeIsArea ? 'everywhere in your area' : 'everywhere';
+  // A scoped verdict is qualified by its scope words on the same line ("everywhere · within 45m"), and the longer
+  // "everywhere in your area" is always cut there, so it takes the short word.
+  if (verdict.allInScope) return scopeIsArea && !verdict.scope ? 'everywhere in your area' : 'everywhere';
   if (!verdict.regionName) return '';
   return verdict.sharingCount > 0
     ? `${verdict.regionName} +${verdict.sharingCount}`
@@ -498,17 +500,22 @@ export function verdictRegionLabel(verdict, { scopeIsArea = true } = {}) {
 }
 
 /**
- * The drive-tier scope the verdicts of a list of windows are true within, or null when none was taken from the reach
- * answer. Every reach verdict on the tab is for the one active tier, so the first carrying a {@code scope} speaks for
- * the list: the dropdown and the phone's Windows section caption their rows with it (reach-scoped-card-plan D6, R3).
+ * The drive-tier scope the verdicts of a list of windows are true within, or null unless EVERY verdict in the list was
+ * taken from the reach answer. Every reach verdict on the tab is for the one active tier, so the first speaks for the
+ * list: the dropdown and the phone's Windows section caption their rows with it (reach-scoped-card-plan D6, R3). A row
+ * that fell back to the served word (a window the answer does not name) would sit under "Verdicts within 45m" and not
+ * be, so one unscoped verdict withdraws the caption.
  *
  * @param {?Map<string, {scope: ?{tierMinutes: number}}>} verdicts row id to verdict ({@link buildEvVerdicts})
  * @returns {?{tierMinutes: number}} the scope, or null
  */
 export function verdictsScope(verdicts) {
   if (!(verdicts instanceof Map)) return null;
+  let scope = null;
   for (const verdict of verdicts.values()) {
-    if (verdict?.scope) return verdict.scope;
+    if (!verdict) continue;
+    if (!verdict.scope) return null;
+    scope = scope ?? verdict.scope;
   }
-  return null;
+  return scope;
 }

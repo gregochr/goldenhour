@@ -7,7 +7,6 @@ import { eventInstantOf, lookupForWindow } from './locationSheet.js';
 import { calloutLeaveBy } from './mapCallout.js';
 import { tierOf } from './mapTideFit.js';
 import { shapedTierRank } from './mapVerdict.js';
-import { verdictScopeSpoken } from './reachLens.js';
 import { compareNames } from './pickGeography.js';
 
 /**
@@ -313,20 +312,25 @@ function inSentence(name) {
  * @param {boolean} [args.scopeIsArea]
  * @returns {string}
  */
-export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
+export function windowPanelNote({
+  verdict, isSolar, scopeIsArea = true, emptyScope = null,
+}) {
   if (!isSolar) return NIGHT_NOTE;
+  // A window the drive tier's answer names, with nothing in reach in the scope (reach-scoped-card-plan R3): its own
+  // note, since RANKING_NOTE would describe a verdict the pill is not showing.
+  if (!verdict && emptyScope) return `Nothing rated ${driveWords(emptyScope)}. ${WHOLE_REGION_ROWS}`;
   if (!verdict) return RANKING_NOTE;
-  // A verdict taken from the drive tier's answer (reach-scoped-card-plan R3) is about the places inside the tier, while
-  // the rows below are regional by definition and show each region as a whole: say so, and name the tier. The
-  // tally sentences below count regions in the tier and would sit beside rows that list them all.
-  if (verdict.scope) {
-    return `Verdict is the strongest region’s average over its places ${verdictScopeSpoken(verdict.scope)}. `
-      + 'The rows below show each region as a whole, ranked on its average, best first; a region too thinly '
-      + 'rated for a verdict ranks last.';
-  }
+  // A verdict taken from the drive tier's answer is about the places inside the tier, while the rows below are
+  // regional by definition and show each region as a whole. Every branch below is qualified with the tier, and the
+  // ranking sentence says the rows are whole regions (RANKING_NOTE's "the reach filter only decides what the map
+  // draws" is false for a scoped verdict).
+  const drive = verdict.scope ? ` ${driveWords(verdict.scope)}` : '';
+  const ranking = verdict.scope
+    ? `Verdict is the strongest region’s average over its places${drive}. ${WHOLE_REGION_ROWS}`
+    : RANKING_NOTE;
   if (verdict.allInScope && verdict.tier === 'STAND_DOWN') {
     const area = scopeIsArea ? ' in your area' : '';
-    return `Poor in all ${verdict.scopedRegionCount} regions${area} — nothing here is worth the `
+    return `Poor in all ${verdict.scopedRegionCount} regions${area}${drive} — nothing here is worth the `
       + 'drive on this window. Rows are ranked by average, best first; a region too thinly '
       + 'rated for a verdict ranks last.';
   }
@@ -339,9 +343,9 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
   if (verdict.tier === 'UNRATED') {
     const area = scopeIsArea ? ' in your area' : '';
     const subject = verdict.allInScope
-      ? `No region${area} has enough ratings for a verdict on this window`
+      ? `No region${area} has enough ratings${drive} for a verdict on this window`
       : verdict.sharingCount > 0
-        ? `${verdict.sharingCount + 1} regions have too few ratings for a verdict on this window`
+        ? `${verdict.sharingCount + 1} regions have too few ratings${drive} for a verdict on this window`
         : null;
     if (subject) {
       return `${subject} — the weather does not rule them out, but nothing has called them. Rows `
@@ -351,7 +355,7 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
     // it): RANKING_NOTE opens "Verdict is the strongest region’s average", which is false here —
     // the word is "Too few rated", and the average it quotes is the very figure the sample gate
     // declined to turn into a verdict (review F8).
-    return UNRATED_LONE_NOTE;
+    return drive ? UNRATED_LONE_NOTE.replace('Too few rated to call:', `Too few rated to call${drive}:`) : UNRATED_LONE_NOTE;
   }
   const sharing = verdict.sharingCount + 1;
   if (sharing > 1) {
@@ -364,15 +368,24 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
     // independently. The design's condition was `all AND Poor`; its stated REASON is "there is no
     // choice to make between N write-offs", and the reason is the part to implement.
     if (verdict.tier === 'STAND_DOWN') {
-      return `${sharing} regions are poor for this window — nothing there is worth the drive. `
+      return `${sharing} regions are poor for this window${drive} — nothing there is worth the drive. `
         + 'Rows are ranked by average, best first; a region too thinly rated for a verdict ranks last.';
     }
     const word = (VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING).toLowerCase();
-    return `${sharing} regions are ${word} for this window, so the choice between them is drive `
-      + `time. ${RANKING_NOTE}`;
+    return `${sharing} regions are ${word} for this window${drive}, so the choice between them is drive `
+      + `time. ${ranking}`;
   }
-  return RANKING_NOTE;
+  return ranking;
 }
+
+/** The tier in words for a note: {@code within a 45 min drive}, {@code within a 1h 30min drive}. */
+function driveWords(scope) {
+  return `within a ${formatDriveDuration(scope.tierMinutes).toLowerCase()} drive`;
+}
+
+/** The scoped notes' closing sentence: the rows are NOT narrowed by the tier. */
+const WHOLE_REGION_ROWS = 'The rows below show each region as a whole, ranked on its average, best first; a region '
+  + 'too thinly rated for a verdict ranks last.';
 
 /** Why the rows are in the order they are in — the answer the ranking itself provokes. */
 const RANKING_NOTE = 'Verdict is the strongest region’s average. Regions rank on that average, '
