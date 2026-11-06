@@ -100,6 +100,11 @@ describe('WindowSpotPeek', () => {
       expect(screen.getByTestId('wf-peek-drive')).toHaveTextContent('🚗 1h 6min');
     });
 
+    it('names the drive point the minutes are to (reach-scoped-card-plan R1c)', () => {
+      renderPeek({ driveMinutes: 80, driveTo: 'Glenridding', clause: 'Clear.' });
+      expect(screen.getByTestId('wf-peek-drive')).toHaveTextContent('🚗 1h 20min to Glenridding');
+    });
+
     it('omits the drive chip entirely when the drive time is unknown', () => {
       // Absent, never zeroed — plan §2.5. This is the normal state for a user with no home.
       renderPeek({ driveMinutes: null, clause: 'Clear.' });

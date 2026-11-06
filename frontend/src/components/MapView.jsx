@@ -1415,6 +1415,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return reachById?.get(Number(locId))?.driveMinutes ?? null;
   }, [driveOverride, reachById]);
   /**
+   * The drive point the callout's Drive minutes are measured to ("Glenridding"), when the place has one
+   * (reach-scoped-card-plan R1c) — read from the SAME map `driveMinutesFor` reads, so the name never describes a
+   * different journey from the minutes beside it (home map at home, the override away).
+   */
+  const driveToFor = useCallback((locId) => {
+    const entry = driveOverride ? driveOverride.get(Number(locId)) : reachById?.get(Number(locId));
+    return entry?.driveTo ?? null;
+  }, [driveOverride, reachById]);
+  /**
    * Straight-line miles, for the selection callout's facts row ONLY (map-tab-v2-plan.md §3 P9) —
    * `driveMinutesFor` above never carries a mile figure at all (it is minutes-only), so the callout's own {@code distanceMiles} fact reads
    * this separate map instead.
@@ -6998,6 +7007,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               dayMode={hideDayCard}
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
+              driveTo={driveToFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
               tideAlignmentIndex={mapTideIndex}
               eclipseSight={getEclipseForLocation(selectedLoc)}

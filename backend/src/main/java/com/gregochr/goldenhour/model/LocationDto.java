@@ -61,6 +61,11 @@ import java.util.Set;
  * @param valleyFloorLng            longitude of the chosen valley-floor point, or {@code null}
  * @param tideLat                   latitude WorldTides is asked about in place of the pin, or {@code null}
  * @param tideLng                   longitude WorldTides is asked about in place of the pin, or {@code null}
+ * @param drivePointName            name of the drive point drive times are routed to in place of the pin (e.g.
+ *                                  "Glenridding"), or {@code null}; a role-free fact (ETag-safe), also served per
+ *                                  reader as {@code driveTo} on the reach payload
+ * @param drivePointLat             latitude of the drive point, or {@code null}
+ * @param drivePointLon             longitude of the drive point, or {@code null}
  */
 public record LocationDto(
         Long id,
@@ -99,5 +104,8 @@ public record LocationDto(
         Double valleyFloorLat,
         Double valleyFloorLng,
         Double tideLat,
-        Double tideLng) {
+        Double tideLng,
+        String drivePointName,
+        Double drivePointLat,
+        Double drivePointLon) {
 }

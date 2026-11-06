@@ -205,6 +205,34 @@ moved location reads PENDING until re-measured and `DriveTimeRefreshJob` (which 
 move (`RegionService.setBase`) also nulls the base's stamp. The admin "Run now" is no longer needed for a
 coordinate correction. A **re-enable** (`LocationService.setEnabled` false to true, and `resetFailures` re-enabling an auto-disabled place) also bumps `drive_target_changed_at`, without deleting rows: the nightly roster reads only enabled places, so a place switched off during a sweep must read PENDING, not UNROUTABLE, until it is measured again.
 
+**A named drive point, enforced where there is no route (reach-scoped-card-plan R1c).** A summit is not on a road, so
+ORS has no route to its pin. A location may carry a **drive point**: `locations.drive_point_name/lat/lon` (V221, all
+three or none, `DrivePoint.parse` enforces it; `updatable = false`, written only by `LocationRepository.updateDrivePoint`
+and the insert), the nearest place a driver can reach (a village or car park, e.g. Glenridding for Helvellyn). **Only ORS
+uses it**: `DriveDurationService` and `RegionDriveDurationService` send `LocationEntity.routingLat/routingLon` (the drive
+point when set, else the pin); straight-line miles (`ReachService`) and Ask's home radius stay on the pin. Setting,
+changing or clearing it changes the routing target, so `LocationService.update` applies D1a (bump
+`drive_target_changed_at`, delete the location's `user_drive_time` and `region_drive_time` rows, via
+`invalidateDriveTimes`); a pin move behind a drive point, or a rename over the same coordinates, changes no target and
+invalidates nothing. The reach payload carries `driveTo` (the name) and the Plan/Map drive line reads
+`1h 20min to Glenridding` (callout, the Plan strip's peek chip, the four-day sheet's meta line), with miles dropped on
+that line; list rows, leave times and popup verdicts do not name it.
+**The 422** (`DriveRoutabilityGuard`, called by `LocationController` *before* the service's transaction opens): a create,
+a coordinate move on a place with no drive point, and clearing a drive point are refused with `422
+{error, code: NO_ROAD_ROUTE, field: drivePoint}` ("No road route reaches this point. Add a drive point, e.g. the nearest
+village or car park.") when the point drive times would be routed to has none; setting or changing a drive point
+checks that point too. Every other edit is never refused, and an existing unroutable place is only flagged (R1b). The
+check is one ORS matrix call (`OpenRouteServiceClient.probe`): source is the location's region base, else the nearest
+base; destinations are a known-routable **control** (central Birmingham) then the target. A null target duration,
+or a null `destinations[]` snap entry, or a 404 code 6010 naming the target's coordinate index, is UNROUTABLE; an
+all-null row (the control fails too: the source is bad) is UNAVAILABLE. **Never blocked by an outage**: no permit within
+5 s (`OrsRateLimiter.tryWithPermit`), no base, ORS unconfigured, any ORS error, or a short answer is UNAVAILABLE and the
+save goes ahead. ORS's unsnappable-point answer is handled in both documented forms; the fixtures under
+`contract/ors/probe-*.json` are hand-written from ORS's documentation, not recorded (no key, no live calls in tests).
+The admin form's lookup is `GET /api/admin/drive-times/places?q=&lat=&lon=` (postcodes.io `/places` sorted by distance and
+cut at 25 km; a postcode goes through the postcode lookup). The admin location page shows `Drive to: Glenridding` with
+an Edit control, and the form's Drive point field becomes required after a 422.
+
 **Admin view of unroutable places (reach-scoped-card-plan R1b).** `GET /api/admin/drive-times/unroutable` (ADMIN, read-only,
 no-store; `UnroutableLocationService`) counts, per enabled location, how many measured Pro/Admin homes and region bases
 read it `UNROUTABLE`, out of how many could judge it (a `PENDING` pair, an origin not yet late enough to judge, is in

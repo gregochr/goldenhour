@@ -119,8 +119,11 @@ export async function markComingUpSeen() {
  * `driveStatus` says `UNROUTABLE`: the home was fully measured after the place last moved and there is no
  * route (reach-scoped-card-plan D1), which a finite reach tier drops. `PENDING` is still unknown.
  *
+ * <p>`driveTo` names the place's drive point ("Glenridding") when its minutes are measured to one rather than to the
+ * pin (R1c); it is absent otherwise, and the miles are always to the pin.
+ *
  * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number,
- *   driveStatus: 'MEASURED'|'PENDING'|'UNROUTABLE'}>>}
+ *   driveStatus: 'MEASURED'|'PENDING'|'UNROUTABLE', driveTo?: string}>>}
  */
 export async function getReach() {
   const response = await apiClient.get(`${BASE_URL}/reach`);

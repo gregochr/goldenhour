@@ -106,6 +106,43 @@ class ReachServiceTest {
     }
 
     @Nested
+    @DisplayName("the drive point (reach-scoped-card-plan R1c)")
+    class DrivePoint {
+
+        @Test
+        @DisplayName("a place with a drive point names it as driveTo, and miles stay measured to the pin")
+        void namesTheDrivePoint_milesStayOnThePin() {
+            stubHome(HOME_LAT, HOME_LON);
+            LocationEntity helvellyn = LocationEntity.builder().id(ID_BUTTERMERE).name("Helvellyn")
+                    .lat(54.5275).lon(-3.0162)
+                    .drivePointName("Glenridding").drivePointLat(54.5442).drivePointLon(-2.9505).build();
+            stubRoster(simonside(), helvellyn);
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of(ID_BUTTERMERE, 80));
+
+            List<ReachEntry> reach = service.getReach(auth);
+
+            ReachEntry withPoint = reach.get(1);
+            assertThat(withPoint.driveTo()).isEqualTo("Glenridding");
+            assertThat(withPoint.driveMinutes()).isEqualTo(80);
+            // Straight-line miles are to the summit pin, not to Glenridding.
+            assertThat(withPoint.distanceMiles()).isEqualTo((int) Math.round(
+                    com.gregochr.goldenhour.util.GeoUtils.distanceMiles(HOME_LAT, HOME_LON, 54.5275, -3.0162)));
+            assertThat(reach.get(0).driveTo()).isNull();
+        }
+
+        @Test
+        @DisplayName("a half-set drive point (not a state the service writes) names nothing")
+        void partialDrivePoint_namesNothing() {
+            stubHome(HOME_LAT, HOME_LON);
+            stubRoster(LocationEntity.builder().id(ID_BAMBURGH).name("Bamburgh").lat(55.6094).lon(-1.7092)
+                    .drivePointName("Seahouses").build());
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveTo()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("drive status: measured, pending or unroutable")
     class Status {
 

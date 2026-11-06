@@ -96,6 +96,21 @@ describe('planOrigin', () => {
       expect(map.size).toBe(2);
     });
 
+    it('names the drive point of a place that has one, on its matrix entry only', () => {
+      const locations = [
+        { id: 11, drivePointName: 'Glenridding', driveTargetChangedAt: '2026-11-01T00:00:00' },
+        { id: 12, drivePointName: null, driveTargetChangedAt: '2026-11-01T00:00:00' },
+        { id: 13, drivePointName: 'Seahouses', driveTargetChangedAt: '2026-11-01T00:00:00' },
+      ];
+      const map = originReachMap(origin, { 7: { 11: 80, 12: 40 } }, { measuredAt: '2026-11-05T00:00:00', locations });
+      expect(map.get(11)).toEqual({
+        driveMinutes: 80, distanceMiles: null, driveStatus: 'MEASURED', driveTo: 'Glenridding',
+      });
+      expect(map.get(12)).toEqual({ driveMinutes: 40, distanceMiles: null, driveStatus: 'MEASURED' });
+      // No minutes to name a destination for: a place the matrix has no row for says nothing of its drive point.
+      expect(map.get(13)).not.toHaveProperty('driveTo');
+    });
+
     it('reads a region id that arrived as a string key', () => {
       const map = originReachMap(origin, { '7': { '11': 25 } });
       expect(map.get(11).driveMinutes).toBe(25);

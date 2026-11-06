@@ -124,7 +124,11 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
       return created ?? {};
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-      setErrorField(null);
+      // 422 NO_ROAD_ROUTE: no road reaches the new place. The sentence belongs to the drive-point field, which
+      // becomes required (reach-scoped-card-plan R1c).
+      const noRoute = err?.response?.status === 422 && err.response.data?.code === 'NO_ROAD_ROUTE';
+      setErrorField(noRoute ? 'drivePoint' : null);
+      if (noRoute) set('drivePointRequired', true);
       return null;
     } finally {
       setSaving(false);

@@ -191,12 +191,17 @@ export function toOrigin(region) {
  * @param {?string} [status.measuredAt] the origin region's {@code drivesMeasuredAt}
  * @param {?Array<{id: *, driveTargetChangedAt: ?string}>} [status.locations] the roster, for the places the
  *        matrix has no row for
- * @returns {?Map} location id to {driveMinutes, distanceMiles, driveStatus}, or null at home
+ * @returns {?Map} location id to {driveMinutes, distanceMiles, driveStatus, driveTo}, or null at home
  */
 export function originReachMap(origin, matrix, { measuredAt = null, locations = null } = {}) {
   if (!origin) return null;
   const rows = matrix?.[origin.id] ?? matrix?.[String(origin.id)] ?? null;
   const map = new Map();
+  const driveToByLocation = new Map();
+  for (const location of Array.isArray(locations) ? locations : []) {
+    const locationId = Number(location?.id);
+    if (Number.isFinite(locationId) && location.drivePointName) driveToByLocation.set(locationId, location.drivePointName);
+  }
   if (rows) {
     for (const [locationId, minutes] of Object.entries(rows)) {
       if (typeof minutes !== 'number' || !Number.isFinite(minutes)) continue;
@@ -204,7 +209,15 @@ export function originReachMap(origin, matrix, { measuredAt = null, locations = 
       // numeric `locationId`. Coerced here, once, rather than at each `get`.
       const id = Number(locationId);
       if (!Number.isFinite(id)) continue;
-      map.set(id, { driveMinutes: minutes, distanceMiles: null, driveStatus: 'MEASURED' });
+      map.set(id, {
+        driveMinutes: minutes,
+        distanceMiles: null,
+        driveStatus: 'MEASURED',
+        // The matrix is measured to the place's drive point when it has one, so the away line says where to
+        // (reach-scoped-card-plan R1c). Served on the roster, which is already passed for the missing-drive status.
+        // Only when set, so an entry for an ordinary place is shaped exactly as it was.
+        ...(driveToByLocation.has(id) ? { driveTo: driveToByLocation.get(id) } : {}),
+      });
     }
   }
   for (const location of Array.isArray(locations) ? locations : []) {

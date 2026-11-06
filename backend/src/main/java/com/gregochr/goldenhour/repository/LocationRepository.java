@@ -191,6 +191,26 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     int updateDriveTargetChangedAt(@Param("id") Long id, @Param("changedAt") LocalDateTime changedAt);
 
     /**
+     * Sets or clears a location's drive point (reach-scoped-card-plan R1c), touching no other column. The three
+     * {@code LocationEntity.drivePoint*} fields are {@code updatable = false}, so this is their only writer after
+     * the insert (the column-scoped writes invariant). Like {@link #updateDriveTargetChangedAt} it does not clear
+     * the persistence context: {@code LocationService.update} calls it with the entity still managed and sets the
+     * in-memory fields to the same values.
+     *
+     * @param id   the location's primary key
+     * @param name the drive point name, or null to clear
+     * @param lat  the drive point latitude, or null to clear
+     * @param lon  the drive point longitude, or null to clear
+     * @return rows updated (0 or 1)
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE LocationEntity l SET l.drivePointName = :name, l.drivePointLat = :lat, l.drivePointLon = :lon "
+            + "WHERE l.id = :id")
+    int updateDrivePoint(@Param("id") Long id, @Param("name") String name, @Param("lat") Double lat,
+            @Param("lon") Double lon);
+
+    /**
      * Records one counted failed scheduled cycle against an enabled location: sets the consecutive
      * failure count and the time of the failure and touches no other column.
      *

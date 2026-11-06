@@ -59,6 +59,35 @@ export function tidePointBaseline(values) {
   return blank || !Number.isFinite(lat) || !Number.isFinite(lng) ? null : { lat, lng };
 }
 
+/** The drive point a stored location holds (reach-scoped-card-plan R1c), or null when it has none. */
+export function storedDrivePoint(loc) {
+  return loc.drivePointName != null && loc.drivePointLat != null && loc.drivePointLon != null
+    ? { name: loc.drivePointName, lat: loc.drivePointLat, lon: loc.drivePointLon }
+    : null;
+}
+
+/** The three drive-point request fields for a chosen point, or none. */
+function drivePointFields(point) {
+  return point ? { drivePointName: point.name, drivePointLat: point.lat, drivePointLon: point.lon } : {};
+}
+
+/**
+ * Drive-point fields of the save payload: present only when they differ from what the server holds. Clearing a stored
+ * point sends {@code clearDrivePoint}; the server refuses (422) a clear whose pin has no road route.
+ *
+ * @param {object} values the form values
+ * @returns {{fields: object}}
+ */
+export function drivePointPayload(values) {
+  const current = values.drivePoint ?? null;
+  const baseline = values.drivePointBaseline ?? null;
+  if (!current) return { fields: baseline ? { clearDrivePoint: true } : {} };
+  if (baseline && baseline.name === current.name && baseline.lat === current.lat && baseline.lon === current.lon) {
+    return { fields: {} };
+  }
+  return { fields: drivePointFields(current) };
+}
+
 /** True when the edited lat/lon text is a valid coordinate pair. */
 export function coordsValid(lat, lon) {
   const a = parseFloat(lat);
@@ -103,6 +132,7 @@ export function currentSubRegionId(subRegions, locationId) {
 export function buildEditValues(loc, { subRegions, areasLoaded, aliasesByLocation }) {
   const hasStoredFloor = loc.valleyFloorMetres != null && loc.valleyFloorLat != null && loc.valleyFloorLng != null;
   const hasStoredTidePoint = loc.tideLat != null && loc.tideLng != null;
+  const drivePoint = storedDrivePoint(loc);
   return {
     name: loc.name,
     lat: String(loc.lat),
@@ -137,6 +167,11 @@ export function buildEditValues(loc, { subRegions, areasLoaded, aliasesByLocatio
     tideLat: hasStoredTidePoint ? String(loc.tideLat) : '',
     tideLng: hasStoredTidePoint ? String(loc.tideLng) : '',
     tideBaseline: hasStoredTidePoint ? { lat: loc.tideLat, lng: loc.tideLng } : null,
+    // Drive point: the named place drive times are measured to instead of the pin. A save sends it only when it
+    // differs from the baseline; `drivePointRequired` turns on when the server refuses a save for want of a road route.
+    drivePoint,
+    drivePointBaseline: drivePoint ? { ...drivePoint } : null,
+    drivePointRequired: false,
     floorCandidates: null,
     floorCell: null,
     floorStatus: '',
@@ -277,6 +312,7 @@ export function planEditSave(values) {
   if (heights.error) return { error: heights.error, field: heights.field };
   const tidePoint = tidePointPayload(values);
   if (tidePoint.error) return { error: tidePoint.error, field: 'tidePoint' };
+  const drivePoint = drivePointPayload(values);
   const subRegionChange = values.subRegionId && values.subRegionId !== values.subRegionBaseline
     ? { subRegionId: Number(values.subRegionId) }
     : {};
@@ -293,6 +329,7 @@ export function planEditSave(values) {
       ...subRegionChange,
       ...heights.fields,
       ...tidePoint.fields,
+      ...drivePoint.fields,
     },
   };
 }
@@ -317,6 +354,7 @@ export function withSavedBaselines(prev) {
       : null,
     floorCleared: false,
     tideBaseline: tidePointBaseline(prev),
+    drivePointBaseline: prev.drivePoint ? { ...prev.drivePoint } : null,
     latBaseline: parseFloat(prev.lat),
     lonBaseline: parseFloat(prev.lon),
   };
@@ -341,6 +379,9 @@ export function emptyAddForm() {
     overlooksWater: false,
     coastalTidal: false,
     mistProne: false,
+    // The optional drive point, and whether a refused create has made it required (reach-scoped-card-plan R1c).
+    drivePoint: null,
+    drivePointRequired: false,
   };
 }
 
@@ -374,6 +415,7 @@ export function planAdd(form) {
     coastalTidal: form.coastalTidal,
     mistProne: form.mistProne === true,
     ...(form.subRegionId ? { subRegionId: Number(form.subRegionId) } : {}),
+    ...drivePointFields(form.drivePoint),
   };
   if (form.manualEntry) {
     const name = form.manualName.trim();

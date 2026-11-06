@@ -92,7 +92,10 @@ public class LocationDtoMapper {
                 entity.getValleyFloorLat(),
                 entity.getValleyFloorLng(),
                 entity.getTideLat(),
-                entity.getTideLng());
+                entity.getTideLng(),
+                entity.getDrivePointName(),
+                entity.getDrivePointLat(),
+                entity.getDrivePointLon());
     }
 
     private LocationRegionDto toRegionDto(RegionEntity region) {

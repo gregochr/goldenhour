@@ -165,6 +165,11 @@ export default function useLocationEditor({
     }));
   }
 
+  /** Picks (or, with null, clears) the drive point; the lookup itself lives in the field. */
+  const setDrivePoint = useCallback((point) => {
+    setValues((prev) => (prev ? { ...prev, drivePoint: point } : prev));
+  }, []);
+
   function clearTidePoint() {
     setValues((prev) => ({ ...prev, tideLat: '', tideLng: '' }));
   }
@@ -219,7 +224,11 @@ export default function useLocationEditor({
     } catch (err) {
       if (current()) {
         setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-        setErrorField(null);
+        // 422 NO_ROAD_ROUTE: no road reaches the pin (moved, or its drive point cleared) or the drive point itself.
+        // The sentence belongs to the drive-point field, which becomes required.
+        const noRoute = err?.response?.status === 422 && err.response.data?.code === 'NO_ROAD_ROUTE';
+        setErrorField(noRoute ? 'drivePoint' : null);
+        if (noRoute) setValues((prev) => (prev ? { ...prev, drivePointRequired: true } : prev));
       }
       return false;
     } finally {
@@ -229,6 +238,6 @@ export default function useLocationEditor({
 
   return {
     editingId, values, error, errorField, aliasDetail, saving,
-    start, cancel, discard, change, patch, suggestFloor, pickFloor, changeFloorHeight, clearFloor, clearTidePoint, save,
+    start, cancel, discard, change, patch, suggestFloor, pickFloor, changeFloorHeight, clearFloor, clearTidePoint, setDrivePoint, save,
   };
 }

@@ -1,0 +1,38 @@
+{
+  "status": 200,
+  "result": [
+    {
+      "code": "osgb4000000074559125",
+      "name_1": "Glenridding",
+      "name_1_lang": null,
+      "name_2": null,
+      "name_2_lang": null,
+      "local_type": "Village",
+      "outcode": "CA11",
+      "county_unitary": "Cumberland",
+      "county_unitary_type": "UnitaryAuthority",
+      "district_borough": null,
+      "district_borough_type": null,
+      "region": "North West",
+      "country": "England",
+      "longitude": -2.9505,
+      "latitude": 54.5442,
+      "eastings": 338700,
+      "northings": 516900,
+      "min_eastings": 338300,
+      "min_northings": 516400,
+      "max_eastings": 339100,
+      "max_northings": 517400
+    },
+    {
+      "code": "osgb4000000074559130",
+      "name_1": "Glenridding",
+      "local_type": "Hamlet",
+      "county_unitary": null,
+      "region": "North West",
+      "country": "England",
+      "longitude": -2.9988,
+      "latitude": 54.5031
+    }
+  ]
+}

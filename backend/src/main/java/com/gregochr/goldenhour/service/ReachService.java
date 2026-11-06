@@ -104,7 +104,10 @@ public class ReachService {
                                 location.getLat(), location.getLon())) : null,
                         DriveStatus.of(minutesByLocation.containsKey(location.getId()),
                                 home.driveTimesCalculatedAt(), location.getDriveTargetChangedAt(),
-                                DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN)))
+                                DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN),
+                        // Said on the reach payload so the drive line names where the minutes are to. Miles above
+                        // stay measured to the pin itself (reach-scoped-card-plan R1c).
+                        location.hasDrivePoint() ? location.getDrivePointName() : null))
                 .toList();
     }
 }

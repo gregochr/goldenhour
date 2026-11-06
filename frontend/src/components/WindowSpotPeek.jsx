@@ -72,6 +72,8 @@ function starGlyphs(rating) {
  * @param {object}    props
  * @param {?number}   props.rating       1–5 stars, or null when unrated
  * @param {?number}   props.driveMinutes the caller's drive time, or null
+ * @param {?string}   props.driveTo      the place's drive point name when the minutes are measured to one
+ *        (reach-scoped-card-plan R1c): the chip then reads "🚗 1h 20min to Glenridding"
  * @param {?string}   props.leaveBy      when to leave, `HH:mm` on the UK clock, or null when
  *        either the drive time or this slot's event time is unknown
  * @param {?number}   props.fierySky     Fiery Sky potential 0–100, or null
@@ -91,6 +93,7 @@ function starGlyphs(rating) {
 export default function WindowSpotPeek({
   rating = null,
   driveMinutes = null,
+  driveTo = null,
   leaveBy = null,
   fierySky = null,
   goldenHour = null,
@@ -171,7 +174,7 @@ export default function WindowSpotPeek({
             clears AA. This project has now got that wrong often enough to be worth the sentence. */}
         {drive && (
           <span data-testid="wf-peek-drive" className="wf-peek-chip font-mono">
-            🚗 {drive}
+            🚗 {driveTo ? `${drive} to ${driveTo}` : drive}
           </span>
         )}
         {/* The departure time, beside what it is derived from. Conditional on its own value like
@@ -253,6 +256,7 @@ export default function WindowSpotPeek({
 WindowSpotPeek.propTypes = {
   rating: PropTypes.number,
   driveMinutes: PropTypes.number,
+  driveTo: PropTypes.string,
   leaveBy: PropTypes.string,
   fierySky: PropTypes.number,
   goldenHour: PropTypes.number,
