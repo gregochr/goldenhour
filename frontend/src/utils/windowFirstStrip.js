@@ -138,6 +138,22 @@ export function buildHeatStripCards(
       // away origin has scoped its region out, so this is null in exactly the cases the kind is.
       pickRegion: card?.pick?.regionName ?? null,
       away,
+      // The reach-scoped headline's facts (reach-scoped-card-plan R2), folded like everything else here and present
+      // ONLY when the card wears one, so a card without it is the object it always was. `verdictScope` is what the
+      // scope line, the spoken sentence and the search row print; `regionVerdict`/`regionVerdictMean` are the served
+      // region-wide word and mean that H2's "beyond the tier" line needs; `scopedThinCount` is the server's `· N rated`.
+      // The `served*` trio is what the Map's window control keeps reading (it follows the tier in R3, not here): the
+      // confidence and the pick the card would wear with no scoped headline.
+      ...(card?.verdictScope ? {
+        verdictScope: card.verdictScope,
+        regionVerdict: card.regionVerdict ?? null,
+        regionVerdictMean: card.regionVerdictMean ?? null,
+        regionHotRegionName: card.regionHotRegionName ?? null,
+        scopedThinCount: card.scopedThinCount ?? null,
+        servedConfidence: card.regionConfidence ?? null,
+        servedPickKind: card.regionPick?.kind ?? null,
+        servedPickRegion: card.regionPick?.regionName ?? null,
+      } : {}),
       // Feeds the kernel's haze through `confidenceScalar`, so the picture and the card's badge
       // decay by the same number (plan D3).
       confidence: card?.confidence ?? null,

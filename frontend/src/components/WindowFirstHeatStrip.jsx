@@ -14,7 +14,9 @@ import {
   BLANKED_STAND_DOWN_VISIBLE,
   formatRegionMean,
   shortVerdictLabel,
+  VERDICT_LABEL,
 } from '../utils/windowFirstCards.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -232,9 +234,16 @@ function starsSpoken(rating) {
  *          or null when the card is not in this state
  */
 function verdictBeyondReach(card) {
-  const region = card?.hotRegionName;
+  // The region the SERVED word is about: on a scoped card `hotRegionName` is the in-reach top region (the highlight
+  // follows the word), so the region-wide one rides beside it.
+  const region = card?.verdictScope != null ? card?.regionHotRegionName : card?.hotRegionName;
   const limit = card?.reachLimitMinutes;
-  if (card?.away || !region || card?.verdictMean == null) return null;
+  // A card wearing the tier's headline (reach-scoped-card-plan R2) has no region-wide mean of its own: its
+  // `verdictMean` is the IN-REACH one, null exactly when nothing rated is within reach, which is the state this line
+  // exists to explain. The region-wide word and mean it is about are the served ones the card carries beside it.
+  const scopedWord = card?.verdictScope != null;
+  const regionMean = scopedWord ? card?.regionVerdictMean : card?.verdictMean;
+  if (card?.away || !region || regionMean == null) return null;
   // A shaped (Lite) body has no reach tier to be beyond; its pool is emptied by the picks, which this line never says.
   if (card.picksScoped === true) return null;
   if (!card.reachMeasured || limit == null) return null;
@@ -247,9 +256,15 @@ function verdictBeyondReach(card) {
   // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
   // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
   // title is unchanged.
-  const lead = card.verdict === 'UNRATED'
+  const regionWord = scopedWord ? card.regionVerdict : card.verdict;
+  const lead = regionWord === 'UNRATED'
     ? `Too few rated in ${region} to call it, and`
     : `The verdict is ${region}'s, and`;
+  // The scoped title names the region-wide verdict outright ("Northumberland is Worth it; its rated places are
+  // beyond 45 min"): the word printed above this line is the IN-REACH one, so "the verdict is" would claim it.
+  const scopedLead = regionWord === 'UNRATED'
+    ? `Too few rated in ${region} to call it; its rated places`
+    : `${region} is ${VERDICT_LABEL[regionWord] ?? VERDICT_LABEL.AWAITING}; its rated places`;
   // Nothing was dropped as unroutable: the line is exactly what it was.
   if (unroutable === 0) {
     return {
@@ -258,7 +273,9 @@ function verdictBeyondReach(card) {
       value: `${region} · beyond ${tier}`,
       muted: false,
       beyond: true,
-      title: `${lead} its rated places are all further than ${tier} away`,
+      title: scopedWord
+        ? `${scopedLead} are beyond ${tier}`
+        : `${lead} its rated places are all further than ${tier} away`,
       tideAligned: false,
       tideState: null,
       // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
@@ -274,9 +291,13 @@ function verdictBeyondReach(card) {
     value: mixed ? `${region} · beyond ${tier} / no route` : `${region} · no route`,
     muted: false,
     beyond: true,
-    title: mixed
-      ? `${lead} its rated places are all further than ${tier} away or have no route from ${from}`
-      : `${lead} its rated places have no route from ${from}`,
+    title: scopedWord
+      ? (mixed
+        ? `${scopedLead} are beyond ${tier} or have no route from ${from}`
+        : `${scopedLead} have no route from ${from}`)
+      : (mixed
+        ? `${lead} its rated places are all further than ${tier} away or have no route from ${from}`
+        : `${lead} its rated places have no route from ${from}`),
     tideAligned: false,
     tideState: null,
     spoken: mixed
@@ -662,6 +683,12 @@ function areaLabel(regionName, tiny) {
  * The picks are the served {@code BriefingWindow.pick}, so an away plan whose pick names a
  * scoped-out region legitimately shows no legend at all (D-5).
  *
+ * <p><b>The word follows the tier, and is still a lookup</b> (reach-scoped-card-plan R2). Under a finite tier the
+ * server serves each window's headline recomputed over the places in reach, and a card that wears it carries
+ * {@code verdictScope}; the scope is printed under the verdict row and voiced straight after the word. The headline
+ * used to ignore the tier by design, which left it describing the roster beside a Spread row that counted only what
+ * was in reach. Nothing here compares a number to decide the word, before or after.
+ *
  * <h2>The two client derivations, and why they are client-side</h2>
  *
  * <p>The spread histogram and the best-reachable line are measured over the card's <b>pool</b> —
@@ -809,6 +836,9 @@ export default function WindowFirstHeatStrip({
   const movers = useMemo(() => topMovers(cards), [cards]);
   // The grid itself. Days, their holes and the column count all fall out of the rendered windows.
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
+  // Whether any card wears a tier's headline: then every card reserves the scope row (hidden where it has no scope of
+  // its own) so Spread and Best keep one baseline across the grid. False under Any, or while nothing is held.
+  const reserveScope = useMemo(() => cards.some((card) => card.verdictScope != null), [cards]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
   // The day header's topic pills (glance-topic-strip-plan.md): the licensed `buildFourDayTiles` model over the
@@ -1485,9 +1515,19 @@ export default function WindowFirstHeatStrip({
     const blankedNote = !card.away && card.verdictBlanked === true && !regionMean;
     // thin-sample plan F3: `· N rated` on a rated verdict over a thin reach pool. Read off the SAME
     // `facts.spread` the Spread row draws, so "6/83 rated" and "· 6 rated" are one figure.
-    const thinCount = thinVerdictCount({
-      verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
-    });
+    // The scope the verdict word is printed with (reach-scoped-card-plan D6): present only while the card wears the
+    // tier's headline, never on an away-day cell. ONE string, printed on its own line under the verdict row and
+    // spelled exactly so in the hidden sentence (WCAG 2.5.3).
+    const scopeText = card.away ? null : verdictScopeText(card.verdictScope);
+    // Printed short, spoken long (the Spread qualifier's own precedent): "45m" is voiced as a letter.
+    const scopeSpoken = card.away ? null : verdictScopeSpoken(card.verdictScope);
+    // A scoped word's `· N rated` is the server's: the rated count behind a verdict that stands on a forced sample,
+    // in the region the word is about. Unscoped, it is the pool's, read off the Spread row's own figures.
+    const thinCount = card.verdictScope != null
+      ? (card.away || notScored ? null : (card.scopedThinCount ?? null))
+      : thinVerdictCount({
+        verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
+      });
     // A stood-down window is not "not scored": it was looked at (the Map's wording).
     const stoodHere = card.away ? [] : stoodInFrame(card.key);
     const stoodUnrated = ((shaped ? groundSets?.get?.(card.key)?.unrated : unratedSets?.get?.(card.key))?.length
@@ -1507,8 +1547,13 @@ export default function WindowFirstHeatStrip({
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      // The scope follows the verdict word directly, in the long form the qualifier speaks.
+      .concat(scopeSpoken ? [scopeSpoken] : [])
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
+      // A scoped `· N rated` has no pool clause to say it for it (the pool may be sound while the region is not),
+      // so it is voiced here, as printed.
+      .concat(scopeText && thinCount != null ? [`${thinCount} rated`] : [])
       // The verdict line's `· N rated` is not voiced separately: below the gate the pool clause
       // below already says "N of M rated" in words, the same fact with its denominator.
       .filter(Boolean)
@@ -1682,6 +1727,27 @@ export default function WindowFirstHeatStrip({
               </span>
             )}
           </span>
+          {/* The scope of the word above, on its OWN short line: the verdict row is one line with no wrap and an
+              83-89px value column, so a scope inside it would clip the word or the figure. The compact spelling the
+              Spread row's qualifier uses; absent (no element) unless the card wears the tier's headline, so under
+              "Any" the card is exactly what it was. The sentence above voices the same string. */}
+          {scopeText && (
+            <span data-testid="wf-heat-scope" className="wf-hc-scope">
+              <span className="wf-hc-scope-t">{scopeText}</span>
+            </span>
+          )}
+          {/* While a finite tier is active and the tiers are held, a card with no scoped entry of its own keeps the
+              row anyway, hidden, so every card's Spread and Best rows sit on one baseline. Absent under Any and when
+              nothing is held, so those cards are exactly what they were. */}
+          {!scopeText && reserveScope && !card.away && (
+            <span
+              data-testid="wf-heat-scope-reserved"
+              className="wf-hc-scope reserved"
+              aria-hidden="true"
+            >
+              <span className="wf-hc-scope-t">{'\u00a0'}</span>
+            </span>
+          )}
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be
               three claims about a night nobody forecast. */}
@@ -2419,6 +2485,18 @@ WindowFirstHeatStrip.propTypes = {
      */
     verdictMean: PropTypes.number,
     verdictBlanked: PropTypes.bool,
+    /**
+     * Present only while the card wears the tier's headline (reach-scoped-card-plan R2): the tier the word, mean,
+     * confidence and pick are about. Printed as {@link verdictScopeText} under the verdict row and voiced in the
+     * sentence.
+     */
+    verdictScope: PropTypes.shape({ tierMinutes: PropTypes.number }),
+    /** With `verdictScope`: the served region-wide word, which H2's "beyond the tier" title names. */
+    regionVerdict: PropTypes.string,
+    /** With `verdictScope`: the served region-wide printable mean; non-null exactly when H2 may fire. */
+    regionVerdictMean: PropTypes.number,
+    /** With `verdictScope`: the server's `· N rated` for the in-reach region, or null. */
+    scopedThinCount: PropTypes.number,
     /** The active reach tier's threshold in minutes; null under "Any" (H2). */
     reachLimitMinutes: PropTypes.number,
     reachUnroutableCount: PropTypes.number,

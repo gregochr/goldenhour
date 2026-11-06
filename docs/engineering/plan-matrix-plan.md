@@ -573,7 +573,7 @@ origins (D-5); **O-2** full per-day extreme list on `BriefingWindowTide` (the po
 shows the nearest extreme + curve, which matches the bundle); **O-3** `location_alias` store
 for search aliases (A13); **O-4** a never-cached per-user endpoint for the reach-scoped
 figures (spread histogram, best-reachable) — the plan-panel-data-contracts §5 migration path
-and the recorded exit for the client-side derivations A10/A11 add to the per-user-debt class;
+and the recorded exit for the client-side derivations A10/A11 add to the per-user-debt class (**built for the HEADLINE only, 2026-11-06**: `GET /api/user/settings/reach-verdicts` recomputes each window's verdict word, mean, confidence, blanked flag, thin count and pick per drive tier server-side, `reach-scoped-card-plan.md` R2; A10, A11, A27 and the tide fit are still client-side and O-4 is still their exit);
 **O-5** served window-level lead prose (e.g. a `BriefingWindow` gloss) — would upgrade the
 prose slot's unpicked state from the top-region gloss (A21) to true whole-window prose.
 

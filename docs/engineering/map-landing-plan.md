@@ -1334,7 +1334,7 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   reader who wants nearest opens the window panel and reads every in-scope region's nearest measured
   drive beside its verdict, so the pill names the strongest and the level below answers "but which
   of them is closest" — without either surface re-deriving the other's figure.
-- **Q4 — The tally's exit. STILL OPEN, and it now covers four figures rather than one.** Whether a
+- **Q4 — The tally's exit. STILL OPEN, and it now covers four figures rather than one.** *(2026-11-06: the owner's request in `reach-scoped-card-plan.md` answers this for the Plan HEADLINE and the Map pill only. R2 built the headline half, `GET /api/user/settings/reach-verdicts`, whose per-window `regions[]` is the pill's input; the pill itself is R3. The tally, `allPoor`, `nextWorthIt` and the drilldown counts below stay open.)*  Whether a
   served, scope-aware region tally is ever wanted. It cannot ride `/api/briefing` (per-user scope,
   ETag-shared); the shape is `plan-matrix-plan.md` §8's **O-4**, a never-cached per-user endpoint.
   ⚠️ **Not `map-tab-v2-plan.md`'s O-4**, which is curated region short names — two plans, two O-4s,

@@ -207,6 +207,55 @@ public final class PlanWindowProjector {
     }
 
     /**
+     * Re-projects each window of an already-projected tree whose regions were pruned (reach-scoped-card-plan D4):
+     * the same ranking, window verdict and pick, over fewer places.
+     *
+     * <p><b>The same functions, not copies.</b> It builds each window's {@link Draft} with {@link #draft}, ranks
+     * with {@link #rank} and chooses the forecast's two picks with {@link #selectPicks}, restricted to the
+     * <em>served</em> render horizon handed in ({@code rendered}) so the pruned picks can only land on a window
+     * that has a card. Badges, tides and tide facts are not re-derived: the caller wants only what the pruning can
+     * change (verdict, confidence, pick, ranked regions).
+     *
+     * @param days     the day hierarchy, regions already pruned and re-scored
+     * @param rendered the render horizon of the served response; windows outside it never hold a pick
+     * @return each window of {@code days}, keyed by its date and event, in payload order
+     */
+    public static Map<WindowKey, ScopedWindow> reproject(List<BriefingDay> days, Set<WindowKey> rendered) {
+        List<Draft> drafts = new ArrayList<>();
+        List<List<RankedRegion>> rankedRegions = new ArrayList<>();
+        List<List<BriefingRegion>> allRegions = new ArrayList<>();
+        for (BriefingDay day : days) {
+            for (BriefingEventSummary summary : day.eventSummaries()) {
+                drafts.add(draft(day.date(), summary, Map.of()));
+                rankedRegions.add(rank(day.date(), summary, canopyCounts(summary)));
+                allRegions.add(summary.regions());
+            }
+        }
+        Map<WindowKey, BriefingWindow.Pick> picks = selectPicks(drafts, rendered);
+        Map<WindowKey, ScopedWindow> out = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < drafts.size(); i++) {
+            Draft dr = drafts.get(i);
+            List<RankedRegion> ranked = rankedRegions.get(i);
+            out.put(dr.key(), new ScopedWindow(dr.toWindow(picks.get(dr.key()), null, null),
+                    ranked.stream().map(RankedRegion::region).toList(), allRegions.get(i)));
+        }
+        return out;
+    }
+
+    /**
+     * One window re-projected over a pruned tree.
+     *
+     * @param window the window as the projector would have built it (verdict, confidence, pick; no tide, no badges)
+     * @param ranked the window's regions in the projector's rank order, best first; the first is the one whose
+     *               verdict the window wears
+     * @param all    every region of the window as handed in, before the projector's window-level canopy rule thins
+     *               {@code ranked}: an away card is about ONE named region and must find it here, as the client's
+     *               {@code originRegion} finds it among the eligible regions with no canopy rule of its own
+     */
+    public record ScopedWindow(BriefingWindow window, List<BriefingRegion> ranked, List<BriefingRegion> all) {
+    }
+
+    /**
      * The events the Plan tab draws: the leading {@link PlanRenderLimits#MAX_VISIBLE_EVENTS}
      * non-past drafts, in payload order.
      *

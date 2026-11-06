@@ -214,6 +214,34 @@ export function isFarSpot(driveMinutes, defaultLimitMinutes) {
   return driveMinutes > defaultLimitMinutes;
 }
 
+/**
+ * The scope a tier-scoped headline word is printed with, in the compact spelling the Spread row's qualifier uses:
+ * {@code within 45m}, {@code within 1h30}, {@code within 2h30} (reach-scoped-card-plan D6, R2 step 9).
+ *
+ * <p>The PRINTED form: one function for every surface that prints a scoped word (the card's scope line, the dialog
+ * badge, the search row), so they cannot differ. Speech takes {@link verdictScopeSpoken}.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the card's {@code verdictScope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "within 45m"}, or null when the word is not scoped
+ */
+export function verdictScopeText(verdictScope) {
+  const minutes = formatDriveDurationCompact(verdictScope?.tierMinutes ?? null);
+  return minutes ? `within ${minutes}` : null;
+}
+
+/**
+ * The same scope as {@link verdictScopeText}, in the long form speech takes: {@code within 45 min},
+ * {@code within 1h 30min}, {@code within 2h 30min}. The card's own precedent (the Spread qualifier, `spreadQualifier`)
+ * prints short and speaks long, because "45m" is voiced as a letter; the visible string is the short one.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the card's {@code verdictScope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "within 45 min"}, or null when the word is not scoped
+ */
+export function verdictScopeSpoken(verdictScope) {
+  const minutes = formatDriveDuration(verdictScope?.tierMinutes ?? null);
+  return minutes ? `within ${minutes.toLowerCase()}` : null;
+}
+
 /** The served status of a drive that no OpenRouteService route exists for (reach-scoped-card-plan D1). */
 export const DRIVE_UNROUTABLE = 'UNROUTABLE';
 

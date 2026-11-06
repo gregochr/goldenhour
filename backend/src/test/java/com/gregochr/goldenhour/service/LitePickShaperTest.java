@@ -749,7 +749,7 @@ class LitePickShaperTest {
                         "goldenHourPotential", "claudeSummary", "displayVerdict", "claudeHeadline",
                         "neighbourOutlier"),
                 Set.of("locationId", "locationName", "solarEventTime", "weather", "tide", "canopy",
-                        "eclipse"));
+                        "eclipse", "forced", "triaged"));
     }
 
     @Test
@@ -896,7 +896,7 @@ class LitePickShaperTest {
                 Set.of("generatedAt", "headline", "bestBets", "auroraTonight", "auroraTomorrow", "stale",
                         "bestBetModel", "seasonalFeatures",
                         "bestBetStatus", "bestBetsWithdrawn", "renderedEvents", "previousGeneratedAt",
-                        "bigSeas")));
+                        "bigSeas", "briefingVersion")));
         assertThat(names(BriefingDay.class)).containsExactlyInAnyOrderElementsOf(
                 Set.of("eventSummaries", "date", "peak"));
         assertThat(names(BriefingDayPeak.class)).as("the day peak carries a verdict, never a star")

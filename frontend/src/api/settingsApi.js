@@ -131,6 +131,27 @@ export async function getReach() {
 }
 
 /**
+ * Fetches the Plan headline recomputed for each drive tier (reach-scoped-card-plan R2): every window's verdict,
+ * mean, confidence, pick and per-region verdicts when only the places inside 45, 90 and 150 minutes count.
+ *
+ * <p>Personal (it follows the caller's drive times or the chosen base's), so it lives under
+ * `/api/user/settings` and is never ETag-cached. All three tiers arrive in one body so a tier tap is a lookup and
+ * never a request. Pro and Admin only: a Lite account is 403, and the caller must not ask for one.
+ *
+ * <p>The body names the `briefingVersion` it was computed from. The caller discards an answer whose version is
+ * not the briefing it holds, and refetches once.
+ *
+ * @param {?number} [originId] the away origin's region id, or null/undefined for home. A region with no base is 400
+ * @returns {Promise<{measured: boolean, briefingVersion?: string, tiers: Object<string, Array<Object>>}>}
+ */
+export async function getReachVerdicts(originId) {
+  const response = await apiClient.get(`${BASE_URL}/reach-verdicts`, {
+    params: originId == null ? undefined : { origin: originId },
+  });
+  return response.data;
+}
+
+/**
  * Records that the caller has dismissed the one-time "set your home postcode" prompt (login-
  * registration plan §2 #3). Its own endpoint with no body, matching `markComingUpSeen`: "now" is the
  * server's clock, and folding it into `saveHome` would deserialise the home fields to null and wipe

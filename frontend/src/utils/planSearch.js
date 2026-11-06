@@ -1,6 +1,7 @@
 import { originAction } from './planOrigin.js';
 import { lookupForWindow, outsideLabel } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
+import { verdictScopeText } from './reachLens.js';
 
 /**
  * The Plan tab's search — one box over three kinds of thing (plan §4.8).
@@ -320,8 +321,12 @@ export function buildSearchGroups(query, {
           }
           : null),
       action: card.away ? null : 'Open',
-      subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel]),
-      sub: [card.time, card.away ? 'Not forecast' : card.verdictLabel].filter(Boolean).join(' · '),
+      // A tier-scoped word is printed with its scope (reach-scoped-card-plan D6): "Poor · within 45m" says what
+      // the word is about, in the same spelling as the card, so the row never claims the roster-wide word.
+      subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel,
+        card.away ? null : verdictScopeText(card.verdictScope)]),
+      sub: [card.time, card.away ? 'Not forecast' : card.verdictLabel,
+        card.away ? null : verdictScopeText(card.verdictScope)].filter(Boolean).join(' · '),
       // ⚠️ An away window is SHOWN and not choosable, the same treatment a baseless region gets.
       // It has no card — `buildWindowCards` drops travel days, because a "Poor" card under a tile
       // reading "Not forecast" is a contradiction — so choosing one would close the dialog having

@@ -31,6 +31,7 @@ import {
 } from '../utils/confidenceUtils.js';
 import { movementChip } from '../utils/movement.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { calDow } from '../utils/windowFirstStrip.js';
 import { dayNumber } from '../utils/windowFirstMatrix.js';
@@ -172,6 +173,11 @@ export default function WindowSheetDialog({
   colourMode = null, onOpenSubRegions = null,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
+  // The scope of the verdict word (reach-scoped-card-plan D6, R2 step 10): present only while the card wears the
+  // tier's headline. Printed beside the badge and voiced straight after the word in the live message.
+  const scopeText = verdictScopeText(card.verdictScope);
+  // Printed short, spoken long: the live message voices this one.
+  const scopeSpoken = verdictScopeSpoken(card.verdictScope);
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   // ⚠️ The channel is gated on the VERDICT, and the gate now governs the WORD as well as the fill.
   // `buildWindowCards` nulls `confidence` for STAND_DOWN and AWAITING on purpose, and
@@ -388,7 +394,7 @@ export default function WindowSheetDialog({
   const liveMessage = useMemo(() => {
     const where = `${windowLabel}, ${index + 1} of ${total}`;
     const verdict = card.verdictLabel
-      ? `, ${card.verdictLabel}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
+      ? `, ${card.verdictLabel}${scopeSpoken ? `, ${scopeSpoken}` : ''}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
       : '';
     // A Coming up lane's tap-through names the topic it was about — only when this window has that
     // row, so the sentence never points at something the popup does not show.
@@ -400,7 +406,7 @@ export default function WindowSheetDialog({
     if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
     const shown = placesOf(shownSpots).length;
     return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
-  }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion,
+  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, field.selectedRegion,
     shownSpots, emphasisTopic, topicRows]);
 
   // The reader's own places in the strip (S5b-1). Where there are none, the strip is not drawn: a list of places
@@ -546,6 +552,16 @@ export default function WindowSheetDialog({
                 )}
                 {card.verdictLabel}
               </span>
+              {/* The scope of the word beside it, spelled as the matrix card prints it (reach-scoped-card-plan
+                  D6). Absent unless the card wears the tier's headline. */}
+              {scopeText && (
+                <span
+                  data-testid="window-sheet-verdict-scope"
+                  className="wf-wsh-vnote font-mono"
+                >
+                  {scopeText}
+                </span>
+              )}
               {/* H4: the same quiet qualifier the matrix card prints — "Poor" over a blanked region is
                   the weather's call, not a rating. Secondary ink, no badge chrome. */}
               {card.verdictBlanked === true && (
@@ -868,6 +884,8 @@ WindowSheetDialog.propTypes = {
     verdict: PropTypes.string.isRequired,
     verdictLabel: PropTypes.string.isRequired,
     verdictBlanked: PropTypes.bool,
+    /** Present only while the card wears the tier's headline (reach-scoped-card-plan R2). */
+    verdictScope: PropTypes.shape({ tierMinutes: PropTypes.number }),
     bestRating: PropTypes.number,
     confidence: PropTypes.string,
     movement: PropTypes.object,

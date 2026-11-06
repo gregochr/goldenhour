@@ -235,4 +235,27 @@ when both kinds were removed). `isFarSpot` marks nothing for an unroutable place
 `poolWithinReach` / the A28 qualifier stay silent for a pool that still holds a PENDING place. The Map's own drive
 filter keeps dropping every place without a drive: a deliberate exception until R3.
 
+**The reach-scoped headline (reach-scoped-card-plan R2, D4).** Under a finite tier the card's verdict word, its mean, the haze
+confidence, the `unsettled` note, the `· N rated` count and the BEST BET / ALSO GOOD pick are the server's recomputation over
+the places inside the tier, not the roster-wide figures. `GET /api/user/settings/reach-verdicts[?origin=]`
+(`ReachVerdictService`) prunes the memoised served briefing (`getCachedBriefingForApi`; never a rating store) to the places in
+reach (MEASURED within the tier, or PENDING; UNROUTABLE and a null location id out), re-runs the rollup's per-region arithmetic
+(`BriefingRegionEvaluationRollup.rerollRegion`, the block extracted from `enrich`) and the projector's ranking, verdict and
+pick (`PlanWindowProjector.reproject`), and serves all three tiers in one body. `WindowFirstBriefingContext` asks
+(`hooks/useReachVerdicts.js`) only for a Pro or Admin reader, not drive-locked, not on a sub-region-shaped body, with drives
+measured for the active origin, **once per (`briefingVersion`, origin)**; an answer whose `briefingVersion` is not the held
+briefing's is discarded and asked for once more. A tier tap never asks: `buildWindowCards` looks the active tier's entry up
+(`lens.reachVerdicts`), so the swap is synchronous with no intermediate word. Until a matching answer is held, and under Any,
+the card wears today's served word without scope words. The word stays a lookup on the served `displayVerdict`.
+
+A card that wears the tier's headline carries `verdictScope: {tierMinutes}` and prints the scope on its own line under the
+verdict row (`wf-hc-scope`, the Spread qualifier's compact spelling: `within 45m`, `within 1h30`, `within 2h30`); the hidden
+sentence says it straight after the word in the long form the Spread qualifier speaks (`within 45 min`, `within 1h 30min`). While any card wears a scope, the others reserve a hidden row so baselines hold; `movement` is null and `hotRegionName` is the in-reach `topRegionName` on a scoped card. The dialog's badge and live message, and
+the search row's sub-line, say it too. The card also keeps the served `regionVerdict` / `regionVerdictMean` (H2's
+`verdictBeyondReach` reads the region-wide mean, because the scoped mean is null exactly when nothing rated is in reach; its
+title then names the region-wide verdict: `Northumberland is Worth it; its rated places are beyond 45 min`) and the served
+confidence and pick, which the Map's window control keeps reading until R3. Away, the entry is the origin region's own word
+over the places in reach from its base, and a pick is kept only where it names that region. `card.topMeanRating` (the Order
+control's key) follows the tier's top-region mean.
+
 The empty-pool "in reach" words (`nothing in reach`, `Nothing within reach for this one.`) need a tier that acted: `reachActed(card)` = measured reader, a finite tier, and `reachTotal > 0`. `card.reachMeasured` alone is reader-level and would otherwise blame the tier on an empty window under Any. The stood-down Spread tooltip carries the same `N places have no route` clause as the ordinary one.

@@ -10,6 +10,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
+import useReachVerdicts from '../hooks/useReachVerdicts.js';
 import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
@@ -350,7 +351,7 @@ export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, driveTimesVersion, subRegionsVersion = 0, homePlace, comingUpLastSeenDate,
   setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY, onOpenSubRegions = null,
 }) {
-  const { role } = useAuth();
+  const { role, username } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
   // Drive times from home are Pro (docs/engineering/pro-features-gate-plan.md §9). Declared up here
   // because the reach fetch below needs it. `isPro` is declared here once, for every lock below.
@@ -827,6 +828,23 @@ export function WindowFirstBriefingProvider({
     [servedAllowedIds],
   );
 
+  /**
+   * The Plan headline recomputed for each drive tier, from the server (reach-scoped-card-plan R2): while a matching
+   * answer is held, the cards' verdict word, mean, confidence, thin count and pick are the active tier's, with the
+   * scope said beside them. Asked for only when it can be true: a Pro or Admin reader, not drive-locked, not a
+   * body shaped by sub-region picks, and with drives measured for the active origin (D2). Fetched once per
+   * (briefing version, origin); a tier tap is a lookup in what is held and never a request. Null until then, and
+   * the cards wear today's served word without scope words.
+   */
+  const reachVerdicts = useReachVerdicts({
+    enabled: isPro && !driveLocked && allowedIdSet === null && reachMeasured,
+    briefingVersion: briefing?.briefingVersion ?? null,
+    originId: origin?.id ?? null,
+    homeSettingsVersion,
+    driveTimesVersion,
+    userId: username ?? null,
+  });
+
   const windowCards = useMemo(
     () => (briefing
       ? buildWindowCards(
@@ -843,13 +861,15 @@ export function WindowFirstBriefingProvider({
           origin,
           // Outside the reader's sub-regions (S5b-1): null unless the body is shaped.
           allowedIds: allowedIdSet,
+          // The server's headline for each tier (R2), or null until a matching answer is held.
+          reachVerdicts,
         },
         picksLocked,
       )
       : []),
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById, reachMeasured,
       reachLens.tier.limitMinutes, defaultLimitMinutes,
-      ratingLens.minRating, origin, picksLocked, allowedIdSet],
+      ratingLens.minRating, origin, picksLocked, allowedIdSet, reachVerdicts],
   );
 
   /**

@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.repository.LocationPoint;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -189,7 +190,12 @@ class ServedBriefingAssembler {
             return null;
         }
         List<BigSeasDay> bigSeas = bigSeasBuilder.build(stripped.days());
-        return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas);
+        // The version is stamped on the finished response, once per assembly (and so once per memoised served
+        // briefing): a content hash of the ratings and dispositions it carries, which the reach-verdicts endpoint
+        // echoes so a client can tell both were computed from one briefing (reach-scoped-card-plan R2 step 5).
+        return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas)
+                .withBriefingVersion(BriefingVersion.of(stripped.days(), stripped.renderedEvents(),
+                        ForecastHorizon.today(clock)));
     }
 
     /**

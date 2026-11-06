@@ -210,6 +210,29 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.windows[1].pickKind).toBeNull();
   });
 
+  it('keeps handing the Map the SERVED confidence and pick of a card that wears a tier-scoped headline', () => {
+    // reach-scoped-card-plan R2: the Map follows the drive tier in R3, not here. A card wearing the 45-minute
+    // headline carries its own (scoped) confidence and pick; the Map's window control must keep reading the
+    // served ones `buildHeatStripCards` folds beside them, so its output is byte-identical to before.
+    const scoped = {
+      ...STRIP_CARDS[0],
+      confidence: 'low',
+      pickKind: null,
+      pickRegion: null,
+      verdictScope: { tierMinutes: 45 },
+      servedConfidence: 'high',
+      servedPickKind: 'best',
+      servedPickRegion: 'North East',
+    };
+    renderPane(context({ heatStripCards: [scoped, STRIP_CARDS[1]] }));
+
+    const [window] = MapStub.lastProps.heat.windows;
+    expect(window.confidenceTier).toBe('high');
+    expect(window.conf).toBe(1);
+    expect(window.pickKind).toBe('best');
+    expect(window.pickRegion).toBe('North East');
+  });
+
   it('forwards each window\'s served tide object, and null when there is none', () => {
     // ⚠️ The identical join, one field over — and the one that actually shipped broken: the pure
     // builder (`windowFirstCards.test.js`) was tested, the EV row (`mapEvents.test.js`) was
