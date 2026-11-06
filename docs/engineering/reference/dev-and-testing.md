@@ -247,6 +247,17 @@ The core rule: `compile → single-class test → checkstyle:check → full veri
 
 ---
 
+## Backend mutation testing (PIT)
+
+`.github/workflows/pitest.yml` runs PIT weekly (Monday 06:00 UTC) over the service and utility layers; configuration is the `pitest-maven` plugin in `backend/pom.xml` (`mutationThreshold` 60). It never blocks a PR.
+
+- **Runner.** `ubuntu-latest` (free, the repo is public), not the self-hosted runner that serves production deploys. PIT excludes the Testcontainers and full-context tests (`PitExclusionDriftTest` enforces the list), so it needs no Docker.
+- **Shards.** One cold run is ~2h07m (10,506 mutations at the last success), so the workflow runs five parallel shards, each with its own report artifact `pitest-report-<n>` and a summary line. `pom.xml` takes the targets from the `pit.targetClasses` property (default: the full list); explicit plugin configuration beats `-D`, so the property is the only override route. Each shard passes `-Dpit.targetClasses=...`. ⚠️ In PIT globs `*` matches dots, so `service.*` already covers every sub-package: shards split the top-level `service` classes by first letter (class names are uppercase, sub-package names lowercase) and list sub-packages explicitly. The `plan` job asserts that every class under `service/` and `util/` that the default targets match is matched by exactly one shard pattern, so a new class or package cannot be missed or mutated twice; add a new sub-package to a shard when it fails. Run one shard locally with `./mvnw test-compile pitest:mutationCoverage -Dpit.targetClasses='com.gregochr.goldenhour.util.*'`.
+- **No incremental analysis.** Open-source PIT 1.30.1 has none: `historyInputFile` and `historyOutputFile` fail with "History has been enabled but no history plugin has been installed" (history is the commercial arcmutate plugin). Sharding is the answer.
+- **Timeouts.** Each shard 350 minutes (GitHub's cap is 360), the PIT step 320, so the summary and report upload still run.
+- **Why it changed.** The last success (2026-10-05) took 2h23m (PIT 2h07m, 10,506 mutations, 77% killed, test strength 80%). The runs of 2026-10-12, 10-19, 10-26 and 11-02 were all `cancelled` by the old 180-minute cap and nobody was told: `notify-failure` used `if: failure()`, and a timed-out job ends as `cancelled`, so the dependent job was skipped. `pitest.yml` and `stryker.yml` now notify on `failure` **or** `cancelled`; `ci-failure-issue.yml` assumes no particular conclusion (its text says only "failed").
+- **Never run the full PIT locally**: it takes hours.
+
 ## Frontend mutation testing
 
 Stryker (`@stryker-mutator/core` + `@stryker-mutator/vitest-runner`, pinned to the same exact version

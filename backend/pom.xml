@@ -22,6 +22,8 @@
         <!-- built with the SDK's own client since 2026-10-06; see AppConfig#anthropicClient -->
         <anthropic-sdk.version>3.4.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
+        <!-- PIT target classes, comma-separated; pitest.yml overrides this per shard (-Dpit.targetClasses=...) -->
+        <pit.targetClasses>com.gregochr.goldenhour.service.*,com.gregochr.goldenhour.service.evaluation.*,com.gregochr.goldenhour.service.notification.*,com.gregochr.goldenhour.service.aurora.*,com.gregochr.goldenhour.service.batch.*,com.gregochr.goldenhour.util.*</pit.targetClasses>
 
         <!--
             Overrides the version Spring Boot 4.1.0 manages (42.7.11) to clear CVE-2026-54291
@@ -814,14 +816,12 @@
                     </dependency>
                 </dependencies>
                 <configuration>
-                    <targetClasses>
-                        <param>com.gregochr.goldenhour.service.*</param>
-                        <param>com.gregochr.goldenhour.service.evaluation.*</param>
-                        <param>com.gregochr.goldenhour.service.notification.*</param>
-                        <param>com.gregochr.goldenhour.service.aurora.*</param>
-                        <param>com.gregochr.goldenhour.service.batch.*</param>
-                        <param>com.gregochr.goldenhour.util.*</param>
-                    </targetClasses>
+                    <!--
+                        Driven by the pit.targetClasses property (default in <properties>) so that
+                        pitest.yml can shard the run: -Dpit.targetClasses='a.*,b.*'. Explicit plugin
+                        configuration beats -D, so the override must go through a property.
+                    -->
+                    <targetClasses>${pit.targetClasses}</targetClasses>
                     <targetTests>
                         <param>com.gregochr.goldenhour.*</param>
                     </targetTests>
