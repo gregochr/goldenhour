@@ -247,6 +247,16 @@ The core rule: `compile → single-class test → checkstyle:check → full veri
 
 ---
 
+## Backend mutation testing (PIT)
+
+`.github/workflows/pitest.yml` runs PIT weekly (Monday 06:00 UTC) over the service and utility layers; configuration is the `pitest-maven` plugin in `backend/pom.xml` (`mutationThreshold` 60). It never blocks a PR.
+
+- **Runner.** `ubuntu-latest` (free, the repo is public), not the self-hosted runner that serves production deploys. PIT excludes the Testcontainers and full-context tests (`PitExclusionDriftTest` enforces the list), so it needs no Docker.
+- **Incremental analysis.** `historyInputFile` and `historyOutputFile` both point at `target/pit-history/history.bin`. The workflow downloads the newest completed run's `pit-history` artifact (walking back over the last 10 runs on `main`) and uploads its own with `if: always()`, 30 days' retention. It is an artifact, not `actions/cache`, because GitHub evicts caches unused for 7 days, the weekly boundary (same design as `stryker.yml`). History cannot see dependency or config changes, so the fetch is skipped on a `workflow_dispatch` with `force=true` and on scheduled runs whose UTC day of month is 7 or less.
+- **Timeouts.** Job 350 minutes (GitHub's cap is 360), the PIT step 320, so the summary and uploads still run. The score line (mutations, killed, test strength) is written to the run summary.
+- **Why it changed.** The last success (2026-10-05) took 2h23m (PIT 2h07m, 10,506 mutations, 77% killed, test strength 80%). The runs of 2026-10-12, 10-19, 10-26 and 11-02 were all `cancelled` by the old 180-minute cap and nobody was told: `notify-failure` used `if: failure()`, and a timed-out job ends as `cancelled`, so the dependent job was skipped. `pitest.yml` and `stryker.yml` now notify on `failure` **or** `cancelled`; `ci-failure-issue.yml` assumes no particular conclusion (its text says only "failed").
+- **Never run PIT locally**: a cold run takes hours.
+
 ## Frontend mutation testing
 
 Stryker (`@stryker-mutator/core` + `@stryker-mutator/vitest-runner`, pinned to the same exact version

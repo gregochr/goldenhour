@@ -198,7 +198,7 @@ jobs:
 
   notify-failure:
     needs: [plan, stryker]
-    if: failure()
+    if: ${{ always() && (needs.plan.result == 'failure' || needs.plan.result == 'cancelled' || needs.stryker.result == 'failure' || needs.stryker.result == 'cancelled') }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml

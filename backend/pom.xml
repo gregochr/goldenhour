@@ -891,6 +891,9 @@
                     <parseSurefireConfig>false</parseSurefireConfig>
                     <timeoutConstant>10000</timeoutConstant>
                     <threads>4</threads>
+                    <!-- Incremental analysis: pitest.yml carries this file between weeks as an artifact. -->
+                    <historyInputFile>${project.build.directory}/pit-history/history.bin</historyInputFile>
+                    <historyOutputFile>${project.build.directory}/pit-history/history.bin</historyOutputFile>
                     <outputFormats>
                         <outputFormat>HTML</outputFormat>
                         <outputFormat>XML</outputFormat>

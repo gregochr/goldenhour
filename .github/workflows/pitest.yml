@@ -1,19 +1,44 @@
 name: PIT Mutation Testing
 
+# Weekly mutation testing of the backend service and utility layers (backend/pom.xml, pitest plugin).
+# Docs: docs/engineering/reference/dev-and-testing.md ("Backend mutation testing (PIT)").
+#
+# RUNNER. ubuntu-latest (free, the repo is public), not the self-hosted runner shared with production
+# deploys. PIT excludes the Testcontainers and full-context tests, so it needs no Docker.
+#
+# INCREMENTAL ANALYSIS. A cold run is ~2h07m of PIT alone (10,506 mutations) and the weekly runs of
+# 2026-10-12 to 2026-11-02 were all cancelled by a 180-minute cap. pom.xml sets historyInputFile and
+# historyOutputFile, so PIT re-tests only mutants whose class or covering tests changed. The history
+# rides in an artifact, not actions/cache: GitHub evicts caches unused for 7 days, which is exactly the
+# weekly boundary. Each run downloads the newest completed run's `pit-history` and uploads its own
+# (`if: always()`, kept 30 days). History cannot see dependency or config changes, so the fetch is
+# skipped on request (`force`) and on the first scheduled run of each month (day of month <= 7).
+#
+# TIMEOUTS. The job is capped at 350 min (GitHub's hard limit is 360) and the PIT step at 320 min, so
+# the summary, history and report uploads still run when PIT is cut off. A timed-out job ends as
+# `cancelled`, not `failure`, so notify-failure fires on either result.
+
 on:
   schedule:
     - cron: '0 6 * * MON'
   workflow_dispatch:
+    inputs:
+      force:
+        description: Start from scratch (skip the previous run's PIT history)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   pitest:
     name: PIT Mutation Testing
-    runs-on: self-hosted
-    # Shares the single self-hosted runner with Deploy to Production; the slowest
-    # successful run took ~2h23m, so cap well below GitHub's 6-hour default. The cap is
-    # 180 min; PIT excludes the context-booting and Testcontainers tests (see backend/pom.xml)
-    # so the run stays bounded. It compiles only: surefire already runs per PR in CI.
-    timeout-minutes: 180
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      contents: read
+      actions: read   # gh run list / download of the previous run's PIT history
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 25
@@ -22,8 +47,40 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
           cache: maven
+
+      - name: Fetch the previous run's PIT history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          FORCE_INPUT: ${{ inputs.force }}
+        run: |
+          set -uo pipefail
+          mkdir -p backend/target/pit-history
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE_INPUT" = "true" ]; then
+            echo "Forced: starting from scratch."; exit 0
+          fi
+          if [ "$EVENT" = "schedule" ] && [ "$(date -u +%-d)" -le 7 ]; then
+            echo "First scheduled run of the month: starting from scratch."; exit 0
+          fi
+          # The last 10 COMPLETED runs on main, newest first, whatever their conclusion. The newest may
+          # have no artifact (cancelled before uploading), so walk back to the first one that does.
+          ids=$(gh run list --workflow pitest.yml --branch main --status completed --limit 10 \
+            --json databaseId --jq '.[].databaseId' || true)
+          for id in $ids; do
+            rm -rf prev-history
+            if gh run download "$id" --name pit-history --dir prev-history \
+               && [ -f prev-history/history.bin ]; then
+              mv prev-history/history.bin backend/target/pit-history/history.bin
+              echo "Reusing PIT history from run $id."
+              exit 0
+            fi
+          done
+          echo "No usable PIT history: starting from scratch."
+
       - name: Run PIT mutation testing
         id: pitest
+        # Shorter than the job's timeout so the summary and upload steps below always get to run.
+        timeout-minutes: 320
         run: |
           set -o pipefail
           chmod +x backend/mvnw
@@ -32,6 +89,27 @@ jobs:
           MUTATIONS=$(grep 'Generated .* mutations Killed' pitest-output.log | grep -oE 'Generated [0-9]+ mutations Killed [0-9]+' || echo 'No summary found')
           STRENGTH=$(grep 'Test strength' pitest-output.log | grep -oE '[0-9]+%' || echo 'N/A')
           echo "summary=${MUTATIONS} — Test strength ${STRENGTH}" >> "$GITHUB_OUTPUT"
+
+      - name: Write the score to the summary
+        if: steps.pitest.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.pitest.outputs.summary }}
+        run: |
+          {
+            echo "### PIT mutation testing"
+            echo
+            echo "$SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the PIT history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pit-history
+          path: backend/target/pit-history/history.bin
+          retention-days: 30
+          if-no-files-found: ignore
+
       - name: Upload PIT report
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,7 +119,7 @@ jobs:
 
   notify-failure:
     needs: pitest
-    if: failure()
+    if: ${{ always() && (needs.pitest.result == 'failure' || needs.pitest.result == 'cancelled') }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml
