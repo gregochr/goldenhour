@@ -421,12 +421,7 @@ jobs:
     needs: changes
     name: E2E — Playwright smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    # TEMPORARY (reliability proof for back-closes-dialogs PR 2a): drop this commit before merge.
-    strategy:
-      fail-fast: false
-      matrix:
-        run: [1, 2, 3, 4, 5]
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -498,12 +493,9 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npx playwright install-deps chromium
 
-      - name: Run the smoke suite (TEMPORARY: repeat-each=10 for both projects)
+      - name: Run the smoke suite
         if: needs.changes.outputs.docs_only != 'true'
-        run: |
-          cd frontend
-          npx playwright test -c playwright.smoke.config.js --project=smoke --repeat-each=10
-          npx playwright test -c playwright.smoke.config.js --project=logout --repeat-each=10
+        run: cd frontend && npm run test:e2e:smoke
 
       # Browser hygiene cannot see what the BACKEND does, and the backend runs behind a dead outbound proxy, so
       # nothing can leave the machine anyway; this is the belt to that braces. The seeded fixture must never have
