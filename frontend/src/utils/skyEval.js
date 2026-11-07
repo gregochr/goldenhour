@@ -44,7 +44,9 @@ export const MODEL_COLOURS = {
   HAIKU: 'oklch(.72 .11 250)',
   HAIKU_55: 'oklch(.8 .1 200)',
   SONNET: 'oklch(.72 .12 300)',
+  SONNET_ET: 'oklch(.78 .13 150)',
   OPUS: 'oklch(.82 .12 85)',
+  OPUS_ET: 'oklch(.8 .12 55)',
 };
 
 /** The colour of a model with no entry in {@link MODEL_COLOURS}. */
@@ -56,7 +58,9 @@ export const SWATCH_CLASS = {
   HAIKU: 'bg-[oklch(.72_.11_250)]',
   HAIKU_55: 'bg-[oklch(.8_.1_200)]',
   SONNET: 'bg-[oklch(.72_.12_300)]',
+  SONNET_ET: 'bg-[oklch(.78_.13_150)]',
   OPUS: 'bg-[oklch(.82_.12_85)]',
+  OPUS_ET: 'bg-[oklch(.8_.12_55)]',
 };
 
 /** See {@link SWATCH_CLASS}. */
