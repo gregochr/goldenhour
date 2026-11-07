@@ -206,7 +206,7 @@ public class MeteorMoonGate {
         if (!m.matches()) {
             return null;
         }
-        ZonedDateTime start = onNight(night, Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+        ZonedDateTime start = onNight(night, m.group(1), m.group(2));
         ZonedDateTime end;
         if (m.group(3) == null) {
             LocalDateTime dawn = solarCalculator.civilDawn(
@@ -216,14 +216,25 @@ public class MeteorMoonGate {
             }
             end = dawn.atZone(LONDON);
         } else {
-            end = onNight(night, Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)));
+            end = onNight(night, m.group(3), m.group(4));
+        }
+        if (start == null || end == null) {
+            return null;
         }
         return end.isAfter(start) ? new ZonedDateTime[] {start, end} : null;
     }
 
-    private static ZonedDateTime onNight(LocalDate night, int hour, int minute) {
-        LocalDate date = hour >= EVENING_FROM_HOUR ? night : night.plusDays(1);
-        return date.atTime(LocalTime.of(hour, minute)).atZone(LONDON);
+    /** The clock time on the shower's night, or null if the digits do not parse. */
+    static ZonedDateTime onNight(LocalDate night, String hh, String mm) {
+        try {
+            int hour = Integer.parseInt(hh);
+            LocalDate date = hour >= EVENING_FROM_HOUR ? night : night.plusDays(1);
+            return date.atTime(LocalTime.of(hour, Integer.parseInt(mm))).atZone(LONDON);
+        } catch (NumberFormatException e) {
+            // The regex admits only two digits, so this is unreachable today; the catch keeps the
+            // method total.
+            return null;
+        }
     }
 
     /** The old rule, kept as the fallback: bright at noon UTC means washed out. */

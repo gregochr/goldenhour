@@ -185,6 +185,15 @@ class MeteorMoonGateTest {
     }
 
     @Test
+    @DisplayName("clock digits that do not parse give no time rather than throwing")
+    void onNight_nonNumeric_returnsNull() {
+        assertThat(MeteorMoonGate.onNight(LocalDate.of(2026, 11, 17), "ab", "00")).isNull();
+        assertThat(MeteorMoonGate.onNight(LocalDate.of(2026, 11, 17), "03", "xx")).isNull();
+        assertThat(MeteorMoonGate.onNight(LocalDate.of(2026, 11, 17), "03", "00"))
+                .isEqualTo(ZonedDateTime.of(2026, 11, 18, 3, 0, 0, 0, LONDON));
+    }
+
+    @Test
     @DisplayName("a window that ends before it starts has no samples")
     void sampleCount_negativeWindow_isZero() {
         ZonedDateTime start = ZonedDateTime.of(2026, 11, 17, 22, 0, 0, 0, LONDON);
