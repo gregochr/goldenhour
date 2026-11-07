@@ -1281,9 +1281,9 @@ export default function WindowFirstShell({
    * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
    * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
    */
-  // Whether the location sheet now up should return focus through `askSheetFallback` on close (declared here, before
-  // the handoff effect that sets it; the full account is on `askSheetFallback` below).
+  // Declared before the handoff effect that sets them; the account is on `askSheetFallback` below.
   const askSheetReturnRef = useRef(false);
+  const sheetTabReturnRef = useRef(false);
   const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
   const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
   useEffect(() => {
@@ -1309,9 +1309,8 @@ export default function WindowFirstShell({
     // press would both send them somewhere they did not ask to go and overwrite the very element
     // `useDialogFocus` is about to capture as the sheet's return address.
     if (toPlanTab) {
-      // The opener (a button on the Map pane) goes hidden with the pane, and a browser refuses focus in a hidden
-      // subtree, so the sheet's close has nowhere to give it back to: name the return address (the tab in force).
-      askSheetReturnRef.current = true;
+      // The opener (on the Map pane) goes hidden and a browser refuses focus there: close returns to the tab.
+      sheetTabReturnRef.current = true;
       const domId = tabDomId('plan');
       requestAnimationFrame(() => document.getElementById(domId)?.focus());
     }
@@ -1855,8 +1854,11 @@ export default function WindowFirstShell({
    * CLOSE time by the sheet's {@code restoreFocusFallback} and put away when it is gone.
    */
   const askSheetFallback = useCallback(
-    () => (askSheetReturnRef.current ? askRestoreFallback() : null),
-    [askRestoreFallback],
+    () => {
+      if (askSheetReturnRef.current) return askRestoreFallback();
+      return sheetTabReturnRef.current ? selectedTabNode() : null;
+    },
+    [askRestoreFallback, selectedTabNode],
   );
   /**
    * "Open in Plan ›" on a pick's "Plan this" view (F5, plan §2.8): the Plan tab, the pick's own location
@@ -1904,6 +1906,7 @@ export default function WindowFirstShell({
   useEffect(() => {
     if (sheetSpot != null) return;
     askSheetReturnRef.current = false;
+    sheetTabReturnRef.current = false;
     const opener = askOpenerRef.current;
     if (!opener) return;
     askOpenerRef.current = null;
