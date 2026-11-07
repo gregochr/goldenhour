@@ -31,5 +31,29 @@ unset MAIL_PASSWORD WORLDTIDES_API_KEY TURNSTILE_SECRET_KEY || true
 # The browser's Origin is the PREVIEW origin (http://127.0.0.1:4173) and the dev proxy passes it on, so the
 # backend's CORS check sees it. Its built-in patterns allow http://localhost:* but not 127.0.0.1, so every
 # browser POST (the login form's included) would be a 403 without this.
-exec java -jar "$JAR" --spring.profiles.active=local --server.port=8083 \
-  --cors.extra-origins=http://127.0.0.1:4173 >"$LOG_DIR/backend.log" 2>&1
+#
+# The seeded fixture (docs/engineering/engineering-gaps-plan.md, Phase 3a.1):
+#   --photocast.e2e.seed-fixture=true  turns on E2eLocalFixtureSeeder, which writes 3 regions x 6 places and
+#       their ratings through the repositories and the briefing builder beans. It never runs a briefing build,
+#       so it needs neither Open-Meteo nor Claude. Only this script sets it.
+#   ...group.container.include=db,ping,e2eFixture  makes /actuator/health/container wait for the seed:
+#       Tomcat accepts requests before ApplicationReadyEvent listeners finish. Only the smoke group changes.
+#   ...health.cache.time-to-live=0s  so that probe never serves a stale DOWN after the seed lands.
+#
+# NOTHING MAY LEAVE THIS MACHINE. The JVM gets a DEAD proxy (nothing listens on DEAD_PROXY_PORT), so every
+# outbound HTTP(S) call, Open-Meteo, WorldTides and Anthropic alike (the SDK's OkHttp client uses the default
+# ProxySelector, which reads these properties), fails at once with a refused connection. Only loopback is
+# exempt. The external health probes therefore read DOWN and the status stream reports DEGRADED; no spec
+# asserts on that banner. CI also greps backend.log for the build-path log lines (see the e2e job).
+DEAD_PROXY_HOST="127.0.0.1"
+DEAD_PROXY_PORT="${E2E_DEAD_PROXY_PORT:-9}"
+exec java \
+  -Dhttps.proxyHost="$DEAD_PROXY_HOST" -Dhttps.proxyPort="$DEAD_PROXY_PORT" \
+  -Dhttp.proxyHost="$DEAD_PROXY_HOST" -Dhttp.proxyPort="$DEAD_PROXY_PORT" \
+  -Dhttp.nonProxyHosts='localhost|127.0.0.1' \
+  -jar "$JAR" --spring.profiles.active=local --server.port=8083 \
+  --cors.extra-origins=http://127.0.0.1:4173 \
+  --photocast.e2e.seed-fixture=true \
+  --management.endpoint.health.group.container.include=db,ping,e2eFixture \
+  --management.endpoint.health.cache.time-to-live=0s \
+  >"$LOG_DIR/backend.log" 2>&1

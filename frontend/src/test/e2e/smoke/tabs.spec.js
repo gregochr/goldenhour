@@ -1,37 +1,41 @@
-import { test, expect, loginAsAdmin } from './fixture.js';
+import { test, expect, loginAndWaitForForecast, openTab } from './fixture.js';
 
-test.describe('Tabs on an empty database', () => {
+/**
+ * The four tabs on the SEEDED fixture. The Map tab exists only once a forecast has arrived, so every test
+ * waits for it before reading the tab bar, and every test clicks its tab explicitly: the opening tab on a
+ * desktop is a race (Map is preferred only if /api/forecast lands within 1.5 s), so it is never asserted.
+ * The empty states stay covered by Vitest; there is no second, empty backend.
+ */
+test.describe('Tabs on the seeded fixture', () => {
   test.beforeEach(async ({ page }) => {
-    await loginAsAdmin(page);
-    await expect(page.getByTestId('window-first-shell')).toBeVisible();
+    await loginAndWaitForForecast(page);
   });
 
-  test('the Plan matrix (At a Glance) renders its panel and empty state', async ({ page }) => {
-    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+  test('the tab bar offers Plan, Coming up, Map and Operations, in that order', async ({ page }) => {
+    await expect(page.getByRole('tab')).toHaveText([/At a Glance/, /Coming up/, /Map/, /Operations/]);
+  });
+
+  test('the Plan matrix (At a Glance) renders its heat cards, not an empty state', async ({ page }) => {
+    await openTab(page, 'plan');
     await expect(page.getByTestId('window-first-pane')).toBeVisible();
-    await expect(page.getByTestId('window-first-pane-empty')).toHaveText('No forecast to show.');
+    await expect(page.getByTestId('window-first-pane-empty')).toHaveCount(0);
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
   });
 
-  test('Coming up renders its container and empty state', async ({ page }) => {
-    await page.getByTestId('window-first-tab-coming-up').click();
+  test('Coming up renders the almanac list, with no error state', async ({ page }) => {
+    await openTab(page, 'coming-up');
     await expect(page.getByTestId('window-first-coming-up')).toBeVisible();
-    // The feed holds dates fixed in advance (not forecast-driven), so an empty database may still list
-    // some, depending on today's date. Either the list or the "no dates" note is a rendered feed; a
-    // loading or error state is not.
-    await expect(page.getByTestId('coming-up-list').first().or(page.getByTestId('coming-up-empty'))).toBeVisible();
+    await expect(page.getByTestId('coming-up-list').first()).toBeVisible();
     await expect(page.getByTestId('coming-up-error')).toHaveCount(0);
   });
 
-  // The plan expected the Map to draw on an empty database. It cannot: App.jsx offers the Map tab only
-  // when a forecast or a real aurora alert exists (`hasForecastData || auroraTabOn`), so the tab bar here
-  // is exactly the three below. The Leaflet and tile assertions move to Phase 3, with seeded data.
-  test('the tab bar offers Plan, Coming up and Operations, and no Map tab without a forecast', async ({ page }) => {
-    await expect(page.getByRole('tab')).toHaveText([/./, 'Coming up', 'Operations']);
-    await expect(page.getByTestId('window-first-tab-map')).toHaveCount(0);
+  test('the Map tab draws a Leaflet map', async ({ page }) => {
+    await openTab(page, 'map');
+    await expect(page.locator('.leaflet-container').first()).toBeVisible();
   });
 
   test('Operations renders for the admin', async ({ page }) => {
-    await page.getByTestId('window-first-tab-operations').click();
+    await openTab(page, 'operations');
     await expect(page.getByTestId('window-first-panel-operations')).toBeVisible();
   });
 });

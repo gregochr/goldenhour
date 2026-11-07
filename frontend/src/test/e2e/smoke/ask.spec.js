@@ -1,16 +1,15 @@
-import { test, expect, loginAsAdmin } from './fixture.js';
+import { test, expect, loginAndWaitForForecast } from './fixture.js';
 
 test.describe('Ask PhotoCast (stub engine)', () => {
-  test('the box opens on an empty database', async ({ page }) => {
-    await loginAsAdmin(page);
-    await expect(page.getByTestId('window-first-shell')).toBeVisible();
+  test('the box opens and shows its allowance', async ({ page }) => {
+    await loginAndWaitForForecast(page);
     await expect(page.getByTestId('ask-field')).toBeVisible();
     await page.getByTestId('ask-field').click();
     await expect(page.getByTestId('ask-dock')).toBeVisible();
     await expect(page.getByTestId('ask-input')).toBeVisible();
-    // Only the box and its empty state are asserted. On an empty database the stub has nothing to answer
-    // from: a typed question returns 503 TYPED_UNAVAILABLE ("Typed questions are unavailable right now"),
-    // which the dock renders gracefully but which would be a console error here, so none is sent.
+    // Only the box and its allowance are asserted, on the seeded fixture as before. Nothing runs
+    // AskReadyPrecompute here, so no Ready answers exist; and a typed question would go to the stub engine,
+    // which has nothing it can answer from, so none is sent (a 503 TYPED_UNAVAILABLE would be a console error).
     await expect(page.getByTestId('ask-allowance')).toBeVisible();
   });
 });
