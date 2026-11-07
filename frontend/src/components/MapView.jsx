@@ -110,7 +110,7 @@ import AttributionToggle from './map/AttributionToggle.jsx';
 import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
 import { askWindowOf } from '../utils/askMapContext.js';
 import { isNightType } from '../utils/askNights.js';
-import { ranksPhrase } from '../utils/askPickChip.js';
+import { multiRankLabel } from '../utils/askPickChip.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 import { GuideWhy } from './guide/GuideLink.jsx';
 
@@ -4621,7 +4621,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         if (picks.length > 1) {
           askPick.ranks = picks.map((p) => p.rank);
           askPick.selectedRank = chosen?.rank ?? null;
-          askPick.label = `Ask picks ${ranksPhrase(askPick.ranks)}: ${picks.map((p) => p.label).join('; ')}`;
+          askPick.label = multiRankLabel(askPick, loc.name, picks.map((p) => p.label));
         }
         const at = spots.findIndex((s) => s.name === loc.name);
         if (at >= 0) spots[at] = { ...spots[at], askPick };

@@ -26,7 +26,7 @@ describe('askModel on a device west of the UK', () => {
   it('names the full weekday for the accessible label from the same date string', () => {
     const [card] = buildPickCards([pick({ date: '2026-10-05' })], briefing().days, null);
 
-    expect(card.label).toBe('Pick 1, Whitby, Monday sunset, 5 stars');
+    expect(card.label).toBe('Pick 1, Whitby, Mon PM, 5 stars, Monday sunset');
     expect(card.dayWord).toBe('Mon');
   });
 

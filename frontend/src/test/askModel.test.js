@@ -58,14 +58,21 @@ describe('buildPickCards — a served pick joined to the briefing', () => {
   it('gives a rank circle the accessible name the map’s marker for the same pick will carry', () => {
     const [card] = buildPickCards([pick()], briefing().days, null);
 
-    expect(card.label).toBe('Pick 1, Whitby, Monday sunset, 5 stars');
+    expect(card.label).toBe('Pick 1, Whitby, Mon PM, 5 stars, Monday sunset');
+  });
+
+  it('opens the name with the chip\'s visible run: rank, place, short window, then the rating (label in name)', () => {
+    const [card] = buildPickCards([pick()], briefing().days, null);
+
+    // The chip draws "1", "Whitby", "Mon PM", "5★"; axe needs those words contiguous in this order.
+    expect(card.label.startsWith(`Pick ${card.rank}, ${card.name}, ${card.shortWindow}, ${card.rating} stars`)).toBe(true);
   });
 
   it('says "1 star" in the singular', () => {
     const days = briefing().days;
     days[0].eventSummaries[0].regions[0].slots[0].claudeRating = 1;
 
-    expect(buildPickCards([pick()], days, null)[0].label).toBe('Pick 1, Whitby, Monday sunset, 1 star');
+    expect(buildPickCards([pick()], days, null)[0].label).toBe('Pick 1, Whitby, Mon PM, 1 star, Monday sunset');
   });
 
   it('reads a matched tide on the PREFERENCE axis, with the served state', () => {
@@ -180,7 +187,7 @@ describe('buildPickCards — the star and the verdict are the served ones', () =
 
     expect(card.rating).toBeNull();
     expect(card.verdictLabel).toBe('Not scored');
-    expect(card.label).toBe('Pick 1, Whitby, Monday sunset');
+    expect(card.label).toBe('Pick 1, Whitby, Mon PM, Monday sunset');
   });
 
   it.each([0, 6, 491, 3.5, '4'])('refuses a rating of %s, which Claude’s 1–5 scale never produces', (bad) => {
@@ -425,7 +432,7 @@ describe('buildPickCards — a NIGHT pick (docs/engineering/ask-night-plan.md §
   });
 
   it('gives a rank circle a name that says the night and the kind, as the map marker for the pick will', () => {
-    expect(build([nightPick()])[0].label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars');
+    expect(build([nightPick()])[0].label).toBe('Pick 1, Kielder Observatory, Mon night, 4 stars, Tonight astro');
   });
 
   it('joins the HOME drive, never anything else', () => {
@@ -440,7 +447,7 @@ describe('buildPickCards — a NIGHT pick (docs/engineering/ask-night-plan.md §
     const [card] = build([nightPick()], nights);
 
     expect(card).toMatchObject({ rating: 4, astroStars: 4, auroraStars: 3 });
-    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars, aurora 3 stars');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Mon night, 4 stars, Tonight astro, aurora 3 stars');
   });
 
   it('⚠️ never prints an aurora figure for a reader who may not see it, even when one was somehow held', () => {
@@ -459,7 +466,7 @@ describe('buildPickCards — a NIGHT pick (docs/engineering/ask-night-plan.md §
       kind: 'aurora', rating: 3, auroraStars: 3, astroStars: 4, windowKey: `${TODAY}:AURORA`,
     });
     expect(card.summary).toBe('Kp 6 forecast; dark horizon to the north.');
-    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight aurora, 3 stars, astro 4 stars');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Mon aurora, 3 stars, Tonight aurora, astro 4 stars');
   });
 
   it('⚠️ drops an AURORA pick for a reader who may not see aurora: no aurora payload is ever read for them', () => {

@@ -137,7 +137,7 @@ describe('the night pick card', () => {
     expect(within(pill).getByText('4★ sky')).toHaveAttribute('aria-hidden', 'true');
     expect(pill).toHaveTextContent('Sky forecast 4 stars');
     expect(screen.getByTestId('ask-pick-rank-1')).toHaveAccessibleName(
-      'Pick 1, Kielder Observatory, Tonight astro, 4 stars',
+      'Pick 1, Kielder Observatory, Mon night, 4 stars, Tonight astro',
     );
   });
 

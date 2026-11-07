@@ -537,7 +537,7 @@ describe('picks on the map', () => {
         shortWindow: 'Thu AM',
         rating: 4,
         verdict: 'WORTH_IT',
-        label: 'Ask picks 1 and 2: Pick 1, Near, Thursday sunrise, 4 stars; Pick 2, Near, Thursday sunset, 3 stars',
+        label: 'Ask picks 1, 2, Near, Thu AM, 4 stars: Pick 1, Near, Thursday sunrise, 4 stars; Pick 2, Near, Thursday sunset, 3 stars',
         selected: false,
       });
     });

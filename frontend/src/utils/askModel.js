@@ -133,24 +133,34 @@ function slotFor(days, pick) {
   return hit ? hit.slot : null;
 }
 
-/** The accessible name of a pick's rank circle: "Pick 1, Whitby, Saturday sunrise, 5 stars". */
+/**
+ * The accessible name of a pick, on its rank circle and on its map chip:
+ * "Pick 1, Whitby, Sat am, 5 stars, Saturday sunrise".
+ *
+ * <p>Label in name (WCAG 2.5.3): the map chip draws rank, place, short window and rating, so the name
+ * carries that run contiguously and in that order ("1 Whitby Sat am 5"), then spells the window out in
+ * full after it. The same string names the card's rank circle, so a pick is one thing to a screen reader.
+ */
 function pickLabel({ rank, name, date, targetType, rating }) {
   const event = eventWord(targetType);
   const stars = rating == null ? null : `${rating} ${starsWord(rating)}`;
-  return [`Pick ${rank}`, name, `${longDow(date)} ${event}`, stars].filter(Boolean).join(', ');
+  return [`Pick ${rank}`, name, shortWindow({ date, targetType }), stars, `${longDow(date)} ${event}`]
+    .filter(Boolean).join(', ');
 }
 
 /**
- * The accessible name of a NIGHT pick's rank circle: "Pick 1, Hartside, Tonight astro, 4 stars, aurora 3
- * stars". The night's own word is the Map pill's ({@link nightLabel}), so the card and the window control
- * name one night alike.
+ * The accessible name of a NIGHT pick: "Pick 1, Hartside, Sat night, 4 stars, Tonight astro, aurora 3
+ * stars". The chip's visible run (rank, place, short window, rating) comes first, as in {@link pickLabel};
+ * the night's own word is the Map pill's ({@link nightLabel}), so the card and the window control name one
+ * night alike.
  */
 function nightPickLabel({
-  rank, name, nightWord, kindWord, rating, otherKindWord, otherRating,
+  rank, name, windowWord, nightWord, kindWord, rating, otherKindWord, otherRating,
 }) {
   const stars = rating == null ? null : `${rating} ${starsWord(rating)}`;
   const other = otherRating == null ? null : `${otherKindWord} ${otherRating} ${starsWord(otherRating)}`;
-  return [`Pick ${rank}`, name, `${nightWord} ${kindWord}`, stars, other].filter(Boolean).join(', ');
+  const night = `${nightWord} ${kindWord}`;
+  return [`Pick ${rank}`, name, windowWord, stars, night, other].filter(Boolean).join(', ');
 }
 
 /** A served string, trimmed, or null when it is absent or blank. */
@@ -250,6 +260,7 @@ function nightCard(pick, nights, homeReachById) {
     label: nightPickLabel({
       rank: pick.rank,
       name,
+      windowWord: shortWindow(pick),
       nightWord,
       kindWord: isAstro ? 'astro' : 'aurora',
       rating,
