@@ -1,0 +1,3 @@
+### Docs — the landing pages now describe the Playwright smoke test
+
+`landing/engineering.html` and `landing/how-its-built.html` said the real-browser tests run by hand. Since #1764 a Playwright smoke suite runs in Chromium on every PR and every release as a required check, so the checks table, the testing list and both "falls short" lists now say so. They also say what it does not yet cover: the map and planning screens with real forecast data, which are still checked by hand until Phase 3 of `docs/engineering/engineering-gaps-plan.md`. The plan docs and the gaps plan's status are updated to match. The owner publishes the landing pages with `./release-landing.sh`.
