@@ -80,4 +80,12 @@ class MeteorPeakNightTest {
         assertThat(MeteorPeakNight.ofDateOnly(LocalDate.of(2026, 6, 10), "all night"))
                 .isEqualTo(LocalDate.of(2026, 6, 10));
     }
+
+    @Test
+    @DisplayName("garbage best hours (non-ASCII digits, empty) leave the date alone")
+    void dateOnly_garbage_sameDay() {
+        assertThat(MeteorPeakNight.ofDateOnly(LocalDate.of(2026, 6, 10), "٠٢:٠٠–dawn"))
+                .isEqualTo(LocalDate.of(2026, 6, 10));
+        assertThat(MeteorPeakNight.ofDateOnly(LocalDate.of(2026, 6, 10), "")).isEqualTo(LocalDate.of(2026, 6, 10));
+    }
 }

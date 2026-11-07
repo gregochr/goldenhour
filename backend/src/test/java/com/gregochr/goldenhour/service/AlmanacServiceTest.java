@@ -201,6 +201,19 @@ class AlmanacServiceTest {
         assertThat(source.calls.get()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("a meteor peak calendar reload drops the cached feed so the next request rebuilds")
+    void meteorPeakReloadEvictsTheFeed() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
+
+        service.getFeed(30);
+        service.onMeteorPeakCalendarReloaded();
+        service.getFeed(30);
+
+        assertThat(source.calls.get()).isEqualTo(2);
+    }
+
     // ── refresh and the startup warm ────────────────────────────────────────
 
     @Test

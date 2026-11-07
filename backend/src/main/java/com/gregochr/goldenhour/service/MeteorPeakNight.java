@@ -21,9 +21,9 @@ public final class MeteorPeakNight {
     private static final int NIGHT_STARTS_HOURS_BEFORE_MIDNIGHT = 18;
 
     /** A best-hours start before this hour (UK local) marks a pre-dawn shower. */
-    private static final int PRE_DAWN_BEFORE_HOUR = 6;
+    private static final String PRE_DAWN_BEFORE = "06";
 
-    private static final Pattern START_HOUR = Pattern.compile("^(\\d{2}):\\d{2}");
+    private static final Pattern START_HOUR = Pattern.compile("^([0-9]{2}):[0-9]{2}");
 
     private MeteorPeakNight() {
     }
@@ -48,7 +48,8 @@ public final class MeteorPeakNight {
      */
     public static LocalDate ofDateOnly(LocalDate imoDate, String bestHours) {
         Matcher m = START_HOUR.matcher(bestHours);
-        if (m.find() && Integer.parseInt(m.group(1)) < PRE_DAWN_BEFORE_HOUR) {
+        // Total by construction: two ASCII digits compare as text, so no parse can throw; no match means not pre-dawn.
+        if (m.find() && m.group(1).compareTo(PRE_DAWN_BEFORE) < 0) {
             return imoDate.minusDays(1);
         }
         return imoDate;

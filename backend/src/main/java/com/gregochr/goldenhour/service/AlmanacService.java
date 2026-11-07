@@ -303,11 +303,9 @@ public class AlmanacService {
     /**
      * Drops the cached feed when the meteor peak dates are reloaded, so the next request shows the new
      * peaks rather than the ones built before.
-     *
-     * @param event the reload notice
      */
-    @EventListener
-    public void onMeteorPeakCalendarReloaded(MeteorPeakCalendarReloaded event) {
+    @EventListener(MeteorPeakCalendarReloaded.class)
+    public void onMeteorPeakCalendarReloaded() {
         evict();
     }
 
