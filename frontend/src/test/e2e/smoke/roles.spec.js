@@ -76,6 +76,16 @@ test.describe('LITE reader', () => {
     test.setTimeout(60_000);
     await loginAndWaitForForecast(page, 'lite');
 
+    // The Plan tab's "Best bets" door, in the heat strip's key row.
+    await openTab(page, 'plan');
+    const bestBets = page.getByTestId('wf-heat-bestbets-upsell-trigger');
+    await expect(bestBets).toBeVisible();
+    await expect(bestBets.locator('.wf-lens-pro')).toBeVisible();
+    await bestBets.click();
+    await expectWordedUpsell(page, 'wf-heat-bestbets-upsell-popover');
+    await page.getByTestId('wf-heat-bestbets-upsell-dismiss').click();
+    await expect(page.getByTestId('wf-heat-bestbets-upsell-popover')).toHaveCount(0);
+
     // The location sheet of a place INSIDE the picks: "Scores and the why".
     await openMapTab(page);
     await visibleChips(page).first().click();
@@ -90,18 +100,6 @@ test.describe('LITE reader', () => {
     await expect(page.getByTestId('wf-scores-upsell-popover')).toHaveCount(0);
     // The sheet itself stays open under a dismissed door.
     await expect(page.getByTestId('location-sheet')).toBeVisible();
-
-    // The Plan tab's "Best bets" door, in the heat strip's key row. It comes AFTER the Map: opening the Map
-    // after the Plan tab can mount it at an extreme zoom with most chips culled (see the plan's 3a.2 notes).
-    await page.getByTestId('location-sheet-close').click();
-    await openTab(page, 'plan');
-    const bestBets = page.getByTestId('wf-heat-bestbets-upsell-trigger');
-    await expect(bestBets).toBeVisible();
-    await expect(bestBets.locator('.wf-lens-pro')).toBeVisible();
-    await bestBets.click();
-    await expectWordedUpsell(page, 'wf-heat-bestbets-upsell-popover');
-    await page.getByTestId('wf-heat-bestbets-upsell-dismiss').click();
-    await expect(page.getByTestId('wf-heat-bestbets-upsell-popover')).toHaveCount(0);
   });
 
   test('Ask shows the Pro lens, opens the upsell, and no /api/ask request is ever made', async ({ page }) => {
@@ -278,6 +276,10 @@ test.describe('PRO reader', () => {
     await expect(field.locator('.wf-lens-pro')).toHaveCount(0);
     await expect(page.getByTestId('ask-field-upsell')).toHaveCount(0);
 
+    // The Plan tab first: no Best bets door.
+    await openTab(page, 'plan');
+    await expect(page.getByTestId('wf-heat-bestbets-upsell-door')).toHaveCount(0);
+
     // The Map: no gated chip, and every visible chip is rated.
     await openMapTab(page);
     await expect(page.getByTestId('map-label-chip-outside')).toHaveCount(0);
@@ -308,10 +310,5 @@ test.describe('PRO reader', () => {
     await expect(block).toBeVisible();
     await expect(block).toHaveAttribute('data-state', /^(unrated|rated|not-seen)$/);
     await expect(block.getByTestId('pro-pill')).toHaveCount(0);
-
-    // The Plan tab comes last: no Best bets door. (Opening the Map AFTER the Plan tab can mount it at an extreme
-    // zoom with most chips culled, an app quirk found by this phase; see the plan's 3a.2 build notes.)
-    await openTab(page, 'plan');
-    await expect(page.getByTestId('wf-heat-bestbets-upsell-door')).toHaveCount(0);
   });
 });

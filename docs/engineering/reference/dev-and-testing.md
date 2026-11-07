@@ -242,9 +242,9 @@ prints the hygiene findings below instead of failing on them, which is how to di
 - **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke', 'roles-write']`,
   `workers: 1`): signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its
   token. The role specs use `lite` and `pro`, so they carry no such hazard.
-- **Opening the Map after the Plan tab in one session is flaky** (an app quirk found by 3a.2: the map can mount at an extreme
-  zoom with most chips culled, for the admin as well). The role specs open the Map first and the Plan last; a spec that must
-  visit both in that order should not rely on chips being visible.
+- **Opening the Map after the Plan tab used to leave it at zoom 16** (found by 3a.2; fixed in `HeatBoundsController`, see
+  `map-tab.md` "A Map built inside a hidden tab"). `map-hidden-mount.spec.js` holds the Map chunk until after the Plan click
+  and proves it; specs may visit the tabs in any order.
 - **A re-rating answers with the PREVIOUS star** (a stale re-read in `OutcomeRatingService.rate`, found by 3a.2), so the
   "How was it?" block shows the old value until a reload. `roles-write.spec.js` asserts the block's value on a first rating
   only, and the stored row (through `GET`) on every rating.
