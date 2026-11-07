@@ -191,7 +191,7 @@ class InversionHotTopicStrategyTest {
 
     @Test
     @DisplayName("the band label is derived from the score, matching PromptBuilder.InversionPotential "
-            + "at 8 (moderate, never fires), 9 and 10 (strong)")
+            + "at 8 (moderate, fires with softer wording), 9 and 10 (strong)")
     void bandLabel_matchesInversionPotentialFromScore() {
         assertThat(InversionHotTopicStrategy.bandLabel(8)).isEqualTo("moderate");
         assertThat(InversionHotTopicStrategy.bandLabel(9)).isEqualTo("strong");
@@ -207,16 +207,119 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("boundary: score 9 fires (STRONG), score 8 does not (MODERATE)")
-    void detect_strongBandBoundary() {
+    @DisplayName("boundary: 7 does not fire, 8 fires with the possible wording, 9 keeps the strong wording")
+    void detect_alertBoundary() {
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The Lake District", 8.0)));
+                .thenReturn(List.of(signal(FROM, "The Lake District", 7.0)));
         assertThat(strategy.detect(FROM, TO)).isEmpty();
 
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The Lake District", 9.0)));
+                .thenReturn(List.of(signal(FROM, "The Lake District", 8.0)));
         stubAhead(FROM);
-        assertThat(strategy.detect(FROM, TO)).hasSize(1);
+        List<HotTopic> eight = strategy.detect(FROM, TO);
+        assertThat(eight).hasSize(1);
+        assertThat(eight.get(0).label()).isEqualTo("Cloud inversion");
+        assertThat(eight.get(0).detail())
+                .isEqualTo("Inversion possible: valley cloud may sit below elevated viewpoints")
+                .doesNotContainIgnoringCase("likely")
+                .doesNotContainIgnoringCase("strong");
+        assertThat(factWithKey(eight.get(0), "inversion").value()).isEqualTo("8/10 · moderate");
+
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 9.0)));
+        List<HotTopic> nine = strategy.detect(FROM, TO);
+        assertThat(nine).hasSize(1);
+        assertThat(nine.get(0).detail()).isEqualTo("Strong inversion likely at elevated locations");
+    }
+
+    @Test
+    @DisplayName("mixed dates: 8 one morning and 9 the next are each worded by their own best score")
+    void detect_mixedDates_wordedPerDate() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM.plusDays(1), "Northumberland", 9.0),
+                signal(FROM, "The Lake District", 8.0)));
+        stubAhead(FROM, FROM.plusDays(1));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(2);
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        assertThat(topics.get(0).detail()).startsWith("Inversion possible");
+        assertThat(topics.get(1).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics.get(1).detail()).isEqualTo("Strong inversion likely at elevated locations");
+    }
+
+    @Test
+    @DisplayName("one date with a 9 site and an 8 site: only the 9 site is listed, under the strong line")
+    void detect_sameDateNineAndEight_eightNotListedUnderStrong() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "Eight Region", 8.0),
+                signal(FROM, "Nine Region", 9.0)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).isEqualTo("Strong inversion likely at elevated locations");
+        assertThat(topics.get(0).regions()).containsExactly("Nine Region");
+        assertThat(factWithKey(topics.get(0), "inversion").value()).isEqualTo("9/10 · strong");
+    }
+
+    @Test
+    @DisplayName("a date with 8.6 and 9.0 lists both under the strong line (8.6 displays as 9)")
+    void detect_roundedNine_keptWithStrongSites() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "Rounded Region", 8.6),
+                signal(FROM, "Nine Region", 9.0)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).isEqualTo("Strong inversion likely at elevated locations");
+        assertThat(topics.get(0).regions()).containsExactly("Rounded Region", "Nine Region");
+    }
+
+    @Test
+    @DisplayName("a date with 8.4 alone fires with the possible wording (8.4 displays as 8)")
+    void detect_roundedEight_possibleWording() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 8.4)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).startsWith("Inversion possible");
+        assertThat(factWithKey(topics.get(0), "inversion").value()).isEqualTo("8/10 · moderate");
+    }
+
+    @Test
+    @DisplayName("one date with two 8 sites lists both under the possible line")
+    void detect_sameDateTwoEights_bothListed() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "Region A", 8.0),
+                signal(FROM, "Region B", 8.0)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).startsWith("Inversion possible");
+        assertThat(topics.get(0).regions()).containsExactly("Region A", "Region B");
+    }
+
+    @Test
+    @DisplayName("Claude-echo fallback: no calculator score yet but an echoed 8 fires with the possible wording")
+    void detect_preColumnRowWithEchoOfEight_firesPossible() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signalScoresOnly(FROM, "The Lake District", 8)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).startsWith("Inversion possible");
     }
 
     @Test
@@ -250,12 +353,12 @@ class InversionHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("a LOWER calculator reading (8, MODERATE) beats a HIGHER Claude echo (10) — the "
+    @DisplayName("a LOWER calculator reading (7, below the alert) beats a HIGHER Claude echo (10) — the "
             + "reading wins whenever the calculator has scored the slot, even when disagreeing "
             + "downward, so this stays silent")
     void detect_readingBelowThreshold_beatsStrongEcho_silent() {
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 8.0, 10)));
+                .thenReturn(List.of(signalBoth(FROM, "The Lake District", true, 7.0, 10)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
