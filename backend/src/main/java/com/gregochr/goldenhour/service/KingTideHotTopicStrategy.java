@@ -73,6 +73,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
     private final SolarEventFreshness freshness;
     private final CoastalTideFactsBuilder coastalTideFactsBuilder;
     private final TideRunBuilder tideRunBuilder;
+    private final TideRunExtent tideRunExtent;
     private final LunarPhaseService lunarPhaseService;
 
     /**
@@ -84,6 +85,7 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
      * @param freshness                    shared filter dropping solar events already past
      * @param coastalTideFactsBuilder      builds the enriched tide + sea-state fact line
      * @param tideRunBuilder               builds each day's row of the multi-day run
+     * @param tideRunExtent                states each run's real first and last date
      * @param lunarPhaseService            decides which run a date belongs to (perigean or not)
      */
     public KingTideHotTopicStrategy(@Lazy BriefingService briefingService,
@@ -91,12 +93,14 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
             SolarEventFreshness freshness,
             CoastalTideFactsBuilder coastalTideFactsBuilder,
             TideRunBuilder tideRunBuilder,
+            TideRunExtent tideRunExtent,
             LunarPhaseService lunarPhaseService) {
         this.briefingService = briefingService;
         this.locationRepository = locationRepository;
         this.freshness = freshness;
         this.coastalTideFactsBuilder = coastalTideFactsBuilder;
         this.tideRunBuilder = tideRunBuilder;
+        this.tideRunExtent = tideRunExtent;
         this.lunarPhaseService = lunarPhaseService;
     }
 
@@ -156,8 +160,13 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
         // because a sunset has passed — numbering off the survivors made the chip count down
         // through the day (1/4 becoming 1/3 once Monday expired) and could migrate the "peak
         // range" verdict onto a day that is not the run's biggest.
-        Map<LocalDate, TideRunDay> run = tideRunBuilder.build(
-                kingCandidates.stream().map(BriefingDay::date).toList(), coastalLocations, true);
+        List<LocalDate> candidateDates = kingCandidates.stream().map(BriefingDay::date).toList();
+        Map<LocalDate, TideRunDay> built = tideRunBuilder.build(candidateDates, coastalLocations, true);
+        // The run's real extent, stated once from ALL candidates (before the freshness drop) and
+        // stamped on every day so the lanes can draw "began earlier" / "continues after".
+        TideRunExtent.Extent extent = tideRunExtent.extentOf(
+                candidateDates, true, fromDate, toDate, coastalLocations);
+        Map<LocalDate, TideRunDay> run = extent == null ? built : stamp(built, extent);
 
         List<HotTopic> topics = new ArrayList<>();
         for (BriefingDay candidate : kingCandidates) {
@@ -489,4 +498,13 @@ public class KingTideHotTopicStrategy implements HotTopicStrategy {
                         : " coastal locations");
         return sb.toString();
     }
+
+    private static Map<LocalDate, TideRunDay> stamp(Map<LocalDate, TideRunDay> built,
+            TideRunExtent.Extent extent) {
+        Map<LocalDate, TideRunDay> stamped = new java.util.LinkedHashMap<>();
+        built.forEach((date, day) -> stamped.put(date,
+                day == null ? null : day.withRunExtent(extent.start(), extent.end())));
+        return stamped;
+    }
+
 }

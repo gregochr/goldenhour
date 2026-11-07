@@ -49,6 +49,9 @@ class KingTideHotTopicStrategyBranchTest {
     private CoastalTideFactsBuilder coastalTideFactsBuilder;
     @Mock
     private TideRunBuilder tideRunBuilder;
+
+    @Mock
+    private TideRunExtent tideRunExtent;
     @Mock
     private LunarPhaseService lunarPhaseService;
 
@@ -57,7 +60,7 @@ class KingTideHotTopicStrategyBranchTest {
     @BeforeEach
     void setUp() {
         strategy = new KingTideHotTopicStrategy(briefingService, locationRepository, freshness,
-                coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+                coastalTideFactsBuilder, tideRunBuilder, tideRunExtent, lunarPhaseService);
     }
 
     private static BriefingSlot.TideInfo kingTide() {
