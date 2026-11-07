@@ -5,6 +5,262 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.4] - 2026-11-07
+
+### Changed — the days-ahead lanes know when a tide run really began or continues
+
+A spring or king tide run now carries its real first and last date, so At a Glance's lanes draw the
+dotted "began earlier" edge and the faded "continues after" edge for a run that started before today
+or runs past the last day, instead of only when a served topic happened to sit next to it. The
+server walks outward from the edge of the briefing window, capped at seven days, and the lanes key a
+tide run on its real start. Old cached briefings and Lite readers keep the previous behaviour.
+
+### Testing — kill Stryker survivors in the small-file tail (sweep 15)
+
+New `*Edges.test.js` suites pin the boundaries and fallbacks of 34 small frontend utils: the exact tie and edge
+cases of the spot peek's flip and arrow clamp, the run-outcome and scheduler-query address rules, the Ask
+conversation's thread reset, plan view and answer normaliser, the module-level tables (label ladders, reach
+rings, location types, model labels, triage wording), the cycle panel's pending phases and earliest batch, the
+penny and cent boundaries of the cost formatters, the tide run's tie-break, and the preload and invite-token paths.
+
+Survivors before and after (survived plus no coverage; baseline 147, now 59):
+
+- to 0: windowSpotPeek 8, labelPlacement 7, reachRings 6, comingUpSparkline 4, runStatus 2, askScroll 2,
+  auroraChipLevel 2, askPeek 1, modelLabels 1, inviteLinkToken 1, windowFirstAway 1
+- partly: pickScope 9 to 2, askConversation 8 to 2, cacheDiagnostics 8 to 4, schedulerQuery 8 to 4, cycleView 7 to 3,
+  locationTypes 14 to 5, userAdmin 6 to 3, subRegionAction 5 to 2, formatCost 3 to 1, mapPeek 3 to 2,
+  runOutcome 9 to 7, windowFirstTideRun 3 to 2, askMapContext 4 to 3, pickGeography 2 to 1,
+  preloadInitialTab 4 to 1, forecastDetailFacts 6 to 4
+- unchanged, all equivalent: auroraRamp 5, standDown 2, startRunOptions 2, askPickChip 1, initialTab 1,
+  oneTimeLinkToken 1, verdictWord 1
+
+The survivors that remain are equivalent mutants: optional chaining on a value already proved non-null, `[]`
+fallbacks whose stand-in string is skipped by the next line, guards whose removal is caught by the next check
+(JSON.parse of a non-object, the scheduler date round trip), interpolation at a stop that lands on the same
+colour, and `>=` on a tie that an earlier `!==` has already excluded. One module-level table in
+forecastDetailFacts is pinned by a test but Stryker cannot attribute coverage to it. No source changed; this is
+tests only.
+
+### Testing — kill Stryker survivors in the small-file tail (sweep 14)
+
+Adds edge tests for 31 small files in `frontend/src/utils` (runsDay, mapStandDown, jsonMemo, reachLens, outcomeRatingJoin, tideAdmin, mapForeignModal, the window-first rows and matrix, movement, schedulerSolar, the Map thin-sample and reach helpers, the Coming up helpers, waitlistExport, settingsModalChunk and others) to kill mutation survivors: null guards, `==`/`>=` boundaries, empty-string handling, and the DOM side effects of the CSV download and chunk warm-up. Tests only; no source under `src/utils` changed.
+
+### CI — Stryker mutation testing gets a per-shard floor
+
+The weekly Stryker run now fails a shard that scores under its own floor, set from the first full run after the survivor sweeps (94 to 97 percent per shard, 96.28 percent overall). The floor comes from the workflow matrix through `STRYKER_BREAK`; local runs have no floor. The landing pages now say the app's client logic is mutation-tested.
+
+### Tests — Stryker survivors killed in fourDayTiles and ratingLens
+
+The four-day tiles model and the rating lens gain behaviour tests for the floor tables, the tide event identity, the night-topic "began yesterday" fallback, and the glance lanes' row assignment and output order. Frontend tests only; no source change.
+
+### Fixed — dev dependencies: clear the qs and minimatch advisories under Stryker
+
+Added `overrides` in `frontend/package.json` so `@stryker-mutator/core` uses `minimatch` 11.0.4 (already pinned for eslint) and `typed-rest-client` uses `qs` 6.16.1. This clears the moderate npm audit advisories. Dev-only: nothing shipped changes.
+
+### Added — Sky Eval lanes link to their Model Config tab
+
+Each production lane card on Operations > Testing > Sky Eval now has a "Change model" link that opens Operations > Runs > Model Config on that lane's run-type tab, so the model can be switched straight after reading the eval. Model Config now keeps its selected sub-tab in the URL hash (`#manage/models/BATCH_NEAR_TERM`), so the link, a reload and a pasted address all land on the same tab; clicking a sub-tab updates the hash without adding history entries.
+
+### Fixed — re-rating returns the new star
+
+`PUT /api/outcome/ratings` on an existing rating answered with the previous star (and previous seen tag), so "How was it?" snapped back until a reload. The column-scoped bulk updates bypassed the request's persistence context, so the service's re-read returned the stale managed row; the three updates now flush and clear the context (`clearAutomatically`), so the re-read hits the database.
+
+### Changed — remove the unused topic short forms
+
+The phone short names for hot-topic chips (`chipName` in the frontend topic palette and the four-day tile chips) and the briefing's `hotTopics[].glance.shortValue` were dead code since the At a Glance strip started printing the full name and value on every width, and are removed. `hotTopics[].glance` is now `{value, badge, weather}`; stale cached JSON that still carries `shortValue` is ignored on read. No visible change.
+
+### Fixed — phone layout pass: Runs day list, dialog close and confirm targets, Coming up titles
+
+A 390-pixel audit turned up one real break and several undersized touch targets, all on a phone only
+(`max-width: 639px`); 640px and wider is unchanged.
+
+- Runs, Day list: the run name no longer collapses to a few pixels. The grid takes narrower start and
+  status columns, and the name wraps under the swatch and CYCLE chip and truncates at the column width.
+- Runs, job-run panel: a long prompt-cache reason now breaks and the row wraps instead of crushing.
+- The shared confirm dialog's Cancel and confirm buttons, the Settings dialog's close "x" and the map
+  callout's close glyph (hit area grown left and down, as the card clips above and to the right) are now
+  44px targets; so is the Change picks chip's remove "x". The Settings radius value ("10 miles") stays on one line.
+- Coming up: an open card with an Open / Close toggle reserves 36px beside its title instead of 64px, so a
+  long title gets about 30px back; a collapsed card ("Open ▴") keeps the full 64px and never overlaps it.
+
+### Fixed — focus after closing a sheet opened with "Open in Plan"
+
+Closing a location sheet that the Map's "Open in Plan" opened (from a callout or from Ask's phone peek)
+left keyboard focus nowhere, because the button that opened it is hidden with the Map pane. Focus now
+returns to the Plan tab. Found by the jsdom 30.1.3 test update, which, like a browser, refuses to focus
+a hidden element.
+
+### Changed — Operations menu: Model Config moved up
+
+Operations > Runs now lists its tabs as Runs, Model Config, Scheduler, Travel Days, so Model Config sits straight after Runs. Runs is still the group's first tab.
+
+### Changed — meteor shower peaks follow each year's IMO calendar
+
+A shower's peak moves by a day or two between years, so the peak nights and rates now live in a new
+`meteor_shower_peak` table (2026 and 2027 seeded from the IMO calendars) instead of one fixed date in code. The
+Geminids' 2026 peak is the night of 13 to 14 Dec, not 14 to 15, and the Orionids' is 20 Oct, not 21 Oct. The hot
+topic, the Coming up feed and the dark-sky clarity scan all read the same per-year dates and use that year's rate.
+A year with no row falls back to the old date, so nothing breaks if the table is empty.
+
+### Fixed — Map no longer opens at maximum zoom after Plan is clicked first
+
+On desktop and tablet, a reader who clicked Plan before the Map pane had finished loading got a Map stuck at zoom 16
+with almost every location chip hidden. The Map had been built inside a hidden tab, where Leaflet measures a 0x0 box,
+and the framing controller treated that broken opening fit as already applied. It now refits to the planning area (or
+the catalogue box when there is no heat field) the first time the pane is shown. Maps that open visible, including
+every phone, behave exactly as before.
+
+### Changed — Map topic strip shows full topic names
+
+The Map tab's four-day topic strip now labels its rows with the full topic names (Spring tide, Storm surge, Clearance, Snow on the tops, Snow and mist, Lunar eclipse) instead of short forms. The desktop label column is 8px wider, and on the phone sheet a plain name may wrap onto two lines inside its row.
+
+### Docs — the landing pages now describe the Playwright smoke test
+
+`landing/engineering.html` and `landing/how-its-built.html` said the real-browser tests run by hand. Since #1764 a Playwright smoke suite runs in Chromium on every PR and every release as a required check, so the checks table, the testing list and both "falls short" lists now say so. They also say what it does not yet cover: the map and planning screens with real forecast data, which are still checked by hand until Phase 3 of `docs/engineering/engineering-gaps-plan.md`. The plan docs and the gaps plan's status are updated to match. The owner publishes the landing pages with `./release-landing.sh`.
+
+### Added — the meteor peak table keeps itself current from the IMO calendar
+
+A weekly job (Mondays, early morning UK time) now reads the International Meteor Organization's
+calendar PDF for this year and next, and keeps the peak night and rate of each meteor shower up to
+date, so a revised date reaches Coming up and At a Glance without a release. It always re-reads the
+PDF, writes nothing unless the parse is complete and plausible, and emails an admin only when IMO
+revises a stored peak, the calendar's layout stops parsing, the download fails three runs in a row, or
+next year's calendar is still missing after 1 October. Its attempts are logged in a new
+`imo_calendar_fetch` table (V223), and it is a scheduler job (`imo_calendar_refresh`) with Run Now.
+
+### Fixed — the in-app guide no longer adds browser history entries
+
+When the guide runs embedded in the app (`?embed=1`, the help panel's iframe), guide-to-guide links now
+use `location.replace`, `#section` links scroll with `scrollIntoView` and `history.replaceState`, and
+the guide search's Enter key replaces too. In-frame navigations used to join the app page's session
+history, so Back would page through the guide. The `photocast-guide` message is also re-sent after an
+in-page `#section` jump, so the app tracks the current hash. The public guide site (no `?embed=1`) is
+unchanged. The owner publishes this with `./release-landing.sh`, and it must be live before the Back
+PR 2b.
+
+### Docs — the engineering page's mutation testing now includes the app's client logic
+
+`landing/engineering.html` now lists the weekly Stryker run beside PIT in the checks table, says in
+"Testing beyond coverage" that it covers the app's client logic, and corrects "Where it falls short":
+mutation testing covers the server and the app's client logic, but not the app's screens. No score
+threshold is claimed (Stryker's `thresholds.break` is unset). `docs/engineering/engineering-page-plan.md`
+carries the same copy. The owner publishes the landing change with `./release-landing.sh`.
+
+The published test count also moves from "more than 25,000" to "more than 33,000" on the engineering and
+how-it-was-built pages (CI run 42349072217: 14,913 backend and 18,524 frontend tests).
+
+### Testing — the required Playwright smoke now runs through the production nginx config
+
+The `E2E — Playwright smoke` job serves the built frontend through the repo-root `nginx.conf` in an
+`nginx:alpine` container (mounted unedited, as `docker-compose.yml` does), in front of the real backend on 8082,
+instead of `vite preview`. Every existing journey is now also a test of the strict CSP, and a new
+`nginx.spec.js` asserts the security headers, the caching rules, the SPA fallback, the missing-asset 404, the
+nomodule script's CSP hash and the SSE status stream through the proxy, all read from the mounted config file.
+`E2E_WEB=nginx` selects the mode (CI sets it); local runs keep `vite preview` and need no Docker.
+
+### Added — a Playwright smoke suite that blocks merging
+
+CI has a new required check, "E2E — Playwright smoke". It boots the real backend (local profile, a fresh H2
+database, a fake Anthropic key, Ask on its stub) and the built frontend, and drives Chromium through the login
+form, logout, the Plan matrix, Coming up, Operations, Ask PhotoCast's box, a phone-width tab bar and the
+"no scheduled jobs on a fresh database" invariant. Every test also fails on a console error, a page error, a
+non-2xx response from the app or an unexpected off-origin request. Run it locally with
+`cd frontend && npm run test:e2e:smoke` (recipe in `docs/engineering/reference/dev-and-testing.md`).
+
+### Testing — the E2E smoke gate now drives the Map and the Plan on seeded data (gaps plan, Phase 3a.1)
+
+The required "E2E — Playwright smoke" check used to boot an empty database, so the Map tab did not exist and
+the Plan showed only its empty state. A local-only `E2eLocalFixtureSeeder` (gated by `photocast.e2e.seed-fixture`,
+set only by the smoke script; `local & !prod`, H2 only, and only on an empty `locations` table) now writes 3
+regions of 6 places, rated for every window from T-3 to T+4 with a BEST pick, with no Open-Meteo call and no Claude
+call: it assembles the briefing from the same builder beans instead of running a build. Readiness waits for the seed
+through a separate `e2eFixture` health contributor added to the smoke run's `container` group only. The backend runs
+behind a dead outbound proxy (the Anthropic SDK's OkHttp client honours it, proved), and a CI step fails the job if
+`backend.log` shows a briefing build or lacks the `[E2E FIXTURE] seeded` marker.
+
+New real-browser specs: the Map (Leaflet, tiles, every visible chip against the served star, the callout), stepping
+through the windows (forward to the end, back through the past, loading the two older days down to the floor, the
+keyboard, a phone leg), forecast drill-down from the Map and from the Plan (the location sheet and its lazily
+fetched row detail, the rising-tide fact, a dialog-depth observer that never sees a third dialog, Escape one layer
+at a time). `tabs.spec.js` and `phone.spec.js` are rewritten for four tabs, and the Door 1 obstacle sweep moves in
+from the manual folder. One frontend line backs them: `data-placed="true"` on the map's label layer once its chips
+are measured and placed.
+
+The seeder's own tests run in the E2E job under `-Plocal-dev`, with checkstyle over the two local-only source roots
+(`generate-test-sources checkstyle:check`: a bare `checkstyle:check` audits neither).
+
+### Testing — the E2E smoke gate checks role gating as a Lite and a Pro reader (gaps plan, Phase 3a.2)
+
+The required "E2E — Playwright smoke" check now signs in as three seeded accounts. A local-only `E2eRoleUsers` bean
+(called by `E2eLocalFixtureSeeder`, so it inherits its four refusals) inserts a `lite` and a `pro` user beside the
+admin, with one sub-region per region and two of the three as `lite`'s picks, and the smoke backend runs with
+`photocast.sub-regions.enforce=true` as production does.
+
+New real-browser specs: `roles.spec.js` (every non-admin has no Operations tab and a 403 from an admin endpoint; LITE sees
+the Pro doors open a worded upsell and never a link, Ask locked with no `/api/ask*` request, "How was it?" locked, chips
+outside its picks gated with the callout and sheet saying so, and the served forecast, scores and briefing stripped of
+Fiery/Golden scores, the written why and picks; PRO sees none of the locks) and `roles-write.spec.js` (the Pro reader rates
+one past window, in its own serial project before sign-out). `fixture.js` gains `loginAs(page, role)`; `global-setup.js`
+writes the Coming up "seen" mark for all three accounts.
+
+### Added — a history engine so Back can close dialogs (no consumers yet)
+
+`utils/dialogHistory.js` is the store behind the plan in `docs/engineering/back-closes-dialogs-plan.md`: a
+module singleton that gives a dialog one browser-history entry (marker `{session, depth}`, pushed only under user
+activation, otherwise the layer is entry-less), closes the top layers on Back, bounces Forward, absorbs Back on a
+blocking layer, traverses at most one `go` at a time and only when the top entry is ours, and sets
+`history.scrollRestoration` to `'manual'` only while an entry of ours is open. `hooks/useBackLayer.js` and
+`registerBackLayer` are the entry points, and `Modal` and `BottomSheet` take an opt-in
+`back="close" | "cancel" | "block"` prop. Nothing passes `back` yet, so every dialog behaves as before (zero
+history calls). A single constant, `BACK_CLOSES_DIALOGS_ENABLED`, turns the whole engine off.
+
+`BottomSheet`'s body scroll lock is now reference-counted, so two sheets closing in one commit no longer leave
+the page `overflow: hidden`.
+
+### Changed — At a Glance shows the days ahead as lanes
+
+"The days ahead" on At a Glance now draws each event as one lane under the day it falls on, instead of a stack of small labels in every day's column. An event that lasts several days, such as a run of spring tides, is a single lane stretching across the days it covers, with the detail for its biggest day, and events on different days share a row, so a quiet week takes far less room. A dotted left edge means the event began before the first day shown; a faded right edge means it runs on past the last. Tap a lane to open it in Coming up (or the Map or the window, as before). On a phone each day lists the lanes that cover it.
+
+Gone with the old labels: the "WX" box, the "starts / continues" key, the "Dated events in Coming up" link under the days (the Coming up tab already does that job) and the footer note "hatched bar — not yet rated". The legend's "stood down — ruled out by the weather" is now lower case like the other entries. On the sunrise and sunset cards, the best-location name is now lighter and smaller, so the star badge beside it carries the emphasis, and in the desktop and tablet card rows an empty slot ("this morning has gone", "past the end of the forecast") and the "Not forecast" card are slim instead of stretching to the height of the rows, with no heat map drawn for a day you are away. The guide pages are updated to match.
+
+### Navigation — Back closes the Plan dialogs
+
+The browser or phone Back button now closes the top Plan dialog instead of leaving the app: the window popup, the all-spots
+sheet, the four-day location sheet (from the Plan or from the Map callout), the Best bet / Also good dialog and Plan search.
+With a sheet open over the popup, the first Back closes the sheet and the second closes the popup. The Map callout, the phone
+peek sheet, the Map drilldown panels, menus and Operations panels are unchanged: Back never changes the Map selection. Plan
+search can no longer open over the guide.
+
+### Navigation — Back closes Settings, the guide, the Ask sheet and confirms
+
+The browser or phone Back button now closes the top dialog instead of leaving the app, for Settings (and its drive-times
+result), the in-app guide, the Ask sheet (below 1024 px), the sub-region sheet and its confirmation, and the Lite-limit
+dialog. A confirm dialog and the aurora forecast and simulate modals are cancelled by Back (and absorb it while their own
+Cancel is disabled); the temporary-password dialog and Settings during a drive-time recalculation or an account deletion
+absorb Back; a press on the temporary-password dialog's backdrop no longer discards the password. Menus, Map overlays and Operations panels are unchanged. The Plan-shell dialogs follow in the next PR.
+
+### Docs — Ask ready answers: Haiku 4.5 vs Haiku 5.5 comparison recorded
+
+Records the 2026-11-03 comparison of Ask's Ready answers in `ask-ready-cost-plan.md` (lever M) and keeps
+its side-by-side report beside the plan. All 23 tasks passed the validator on both models. Haiku 5.5 cost
+$0.0109 for the run against $0.2576, because its prompt cache now hits. Its one gap is that it returns no
+spot picks on the "sunrise or sunset?" question. The model switch is still the owner's decision.
+
+### Fixed — 44px phone tap targets on the Operations screens
+
+On a phone (narrower than 640px) many Operations controls were 16 to 36px tall and easy to miss. The Lite limit
+dialog (trigger, picks input, Save, Close), the temporary-password Copy and Close, the Areas tab (buttons,
+inputs and member checkbox rows), the Aurora simulate modal, the Hot Topics simulation toggle and checkbox rows,
+Rewind (buttons and date input), the Run Config tab buttons, model Switch buttons and extended-thinking toggle,
+and the Manage section menu are now at least 44px tall. The small "i" info tips keep their look but get a 44px
+tall invisible tap area on a phone; that is the shared `InfoTip`, so it also applies to the tips in the Map
+filters panel and the window popup's topic rows, for every role. Phone-only classes, so tablet and desktop are
+unchanged.
+
+### Changed — cloud inversion alert fires at 8 with softer wording
+
+The Cloud inversion hot topic now fires from an inversion score of 8 instead of 9. Production never reached 9 between 1 October and 6 November, and inversion v2 caps every site under 600 m at 8 by design, so the alert had gone quiet on mornings worth a look. A morning whose best score is 8 says "Inversion possible: valley cloud may sit below elevated viewpoints"; 9 and above keeps "Strong inversion likely at elevated locations". On a date with both, only the strong sites are listed. Scores, the prompt's bands, freshness and the sunrise-only rule are unchanged.
+
 ## [v2.39.3] - 2026-11-07
 
 ### Tests — kill Stryker survivors in scoreRamp, schedulerEdit, scrollToEntry, askCamera and auroraBannerScores
