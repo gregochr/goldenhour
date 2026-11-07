@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { modelLabel } from '../utils/modelLabels.js';
 import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import useHashSelection from '../hooks/useHashSelection.js';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
@@ -14,6 +15,15 @@ const CONFIG_TABS = [
   { key: 'ASK', label: 'Ask', tip: 'Claude model for typed Ask PhotoCast questions.', adminOnly: true },
   { key: 'ASK_READY', label: 'Ask ready answers', tip: 'Claude model for the ready answers precomputed after each forecast cycle.', adminOnly: true },
 ];
+
+/** The tab shown when the hash names no (visible) run type. */
+const DEFAULT_TAB = 'BRIEFING_BEST_BET';
+
+/** Reads {@code #manage/models/{RUN_TYPE}}: the first segment if it is a known run type (visibility is checked later). */
+const parseTabSegments = (segments) => (CONFIG_TABS.some((t) => t.key === segments[0]) ? segments[0] : null);
+
+/** A run type's hash path. */
+const formatTab = (key) => key;
 
 /** How long a transient success banner stays on screen before it clears itself. */
 const SUCCESS_BANNER_MS = 3000;
@@ -255,7 +265,13 @@ export default function ModelSelectionView() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [switching, setSwitching] = useState(false);
-  const [activeTab, setActiveTab] = useState('BRIEFING_BEST_BET');
+  const { selectedId: hashTab, select: selectHashTab } = useHashSelection('models', {
+    parse: parseTabSegments,
+    format: formatTab,
+  });
+  // Visibility is checked here, not in parse: a run type the reader cannot see falls back to the default.
+  const hashTabVisible = CONFIG_TABS.some((t) => t.key === hashTab && (!t.adminOnly || isAdmin));
+  const activeTab = hashTabVisible ? hashTab : DEFAULT_TAB;
 
   /**
    * Clears the success banner {@link SUCCESS_BANNER_MS} after it appears.
@@ -392,7 +408,7 @@ export default function ModelSelectionView() {
         {visibleTabs.map((tab) => (
           <span key={tab.key} className="inline-flex items-center gap-1">
             <button
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => selectHashTab(tab.key, { replace: true })}
               className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === tab.key
                   ? 'text-plex-gold border-plex-gold'

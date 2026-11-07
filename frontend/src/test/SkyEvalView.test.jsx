@@ -189,6 +189,17 @@ describe('SkyEvalView: lane cards', () => {
     expect(screen.getByTestId('sky-eval-lane-BATCH_FAR_TERM')).toHaveTextContent('Haiku 4.5');
   });
 
+  it('links each lane to its Model Config tab with an accessible name', async () => {
+    await mountView();
+    const near = screen.getByTestId('sky-eval-lane-change-model-BATCH_NEAR_TERM');
+    expect(near).toHaveAttribute('href', '#manage/models/BATCH_NEAR_TERM');
+    expect(near).toHaveAccessibleName('Change the T and T+1 forecasts model in Model Config');
+    expect(near.className).toContain('max-[639px]:min-h-11');
+    const far = screen.getByTestId('sky-eval-lane-change-model-BATCH_FAR_TERM');
+    expect(far).toHaveAttribute('href', '#manage/models/BATCH_FAR_TERM');
+    expect(far).toHaveAccessibleName(/^Change the .+ model in Model Config$/);
+  });
+
   it('stacks the lanes under 1000 px and the stat strip two by two under 560 px', async () => {
     await mountView();
     expect(screen.getByTestId('sky-eval-lanes').className).toContain('max-[999px]:grid-cols-[minmax(0,1fr)]');
