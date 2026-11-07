@@ -48,9 +48,11 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,8 +77,13 @@ import static org.mockito.Mockito.when;
  */
 class E2eLocalFixtureSeederTest {
 
-    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-11-07T12:00:00Z"), ZoneOffset.UTC);
-    private static final LocalDate TODAY = LocalDate.of(2026, 11, 7);
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2031-07-14T12:00:00Z"), ZoneOffset.UTC);
+    // Deliberately far from the wall clock (and in BST), so a read of the system clock is caught.
+    private static final LocalDate TODAY = LocalDate.of(2031, 7, 14);
+    private static final Set<TargetType> BOTH_EVENTS = EnumSet.of(TargetType.SUNRISE, TargetType.SUNSET);
+    private static final String SLOT_KEY = "Lake District|2031-07-14|SUNRISE";
+    private static final BriefingEvaluationResult SEEDED_SCORE = new BriefingEvaluationResult("Blencathra", 4, 72,
+            78, "s", null, null, "h");
 
     private RegionRepository regionRepository;
     private LocationRepository locationRepository;
@@ -142,8 +149,12 @@ class E2eLocalFixtureSeederTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of(), null, null)))).toList();
         });
         when(rollup.enrich(anyList(), any(), any())).thenAnswer(inv -> inv.getArgument(0));
-        when(viewService.getScoresForEnrichmentBulk(any(), any(), any())).thenReturn(Map.of());
-        when(viewService.getTriagedByBatchLocationNamesBulk(any(), any(), any())).thenReturn(Map.of());
+        // Exact arguments: today..T+4 and both solar events. A wrong horizon or a dropped SUNSET gets Mockito's
+        // default (an empty map), which the resolver test below then catches.
+        when(viewService.getScoresForEnrichmentBulk(TODAY, TODAY.plusDays(4), BOTH_EVENTS))
+                .thenReturn(Map.of(SLOT_KEY, Map.of("Blencathra", SEEDED_SCORE)));
+        when(viewService.getTriagedByBatchLocationNamesBulk(TODAY, TODAY.plusDays(4), BOTH_EVENTS))
+                .thenReturn(Map.of(SLOT_KEY, Set.of("Wast Water")));
 
         logs = new ListAppender<>();
         logs.start();
@@ -308,8 +319,8 @@ class E2eLocalFixtureSeederTest {
         order.verify(evaluationService, atLeastOnce()).mergeFromBatch(anyString(), anyList());
         order.verify(slotBuilder).snapshotFor(anyCollection(), anyList());
         order.verify(hierarchyBuilder).buildDays(anyList(), anyList(), anyList());
-        order.verify(viewService).getScoresForEnrichmentBulk(any(), any(), any());
-        order.verify(viewService).getTriagedByBatchLocationNamesBulk(any(), any(), any());
+        order.verify(viewService).getScoresForEnrichmentBulk(TODAY, TODAY.plusDays(4), BOTH_EVENTS);
+        order.verify(viewService).getTriagedByBatchLocationNamesBulk(TODAY, TODAY.plusDays(4), BOTH_EVENTS);
         order.verify(rollup).enrich(anyList(), any(), any());
         order.verify(headlineGenerator).generateHeadline(anyList());
         order.verify(cacheRepository).save(any(DailyBriefingCacheEntity.class));
@@ -320,6 +331,23 @@ class E2eLocalFixtureSeederTest {
         assertThat(health.health().getStatus()).isEqualTo(Status.UP);
         assertThat(logs.list).anySatisfy(e -> assertThat(e.getFormattedMessage())
                 .startsWith(E2eLocalFixtureSeeder.SEEDED_MARKER));
+    }
+
+    @Test
+    @DisplayName("the resolvers handed to enrich return the seeded scores and triage for a known slot, only there")
+    void resolversCarryTheSeededValues() throws SQLException {
+        seeder(databaseCalled("H2"), "local").onApplicationReady();
+
+        ArgumentCaptor<RegionScoreResolver> scores = ArgumentCaptor.forClass(RegionScoreResolver.class);
+        ArgumentCaptor<TriagedByBatchResolver> triaged = ArgumentCaptor.forClass(TriagedByBatchResolver.class);
+        verify(rollup).enrich(anyList(), scores.capture(), triaged.capture());
+
+        assertThat(scores.getValue().resolve("Lake District", TODAY, TargetType.SUNRISE))
+                .containsExactly(Map.entry("Blencathra", SEEDED_SCORE));
+        assertThat(triaged.getValue().resolve("Lake District", TODAY, TargetType.SUNRISE))
+                .containsExactly("Wast Water");
+        assertThat(scores.getValue().resolve("Lake District", TODAY, TargetType.SUNSET)).isEmpty();
+        assertThat(triaged.getValue().resolve("Yorkshire Dales", TODAY, TargetType.SUNRISE)).isEmpty();
     }
 
     @Test
@@ -370,8 +398,8 @@ class E2eLocalFixtureSeederTest {
         verify(evaluationService, org.mockito.Mockito.times(3 * 5 * 2)).mergeFromBatch(keys.capture(),
                 results.capture());
         assertThat(keys.getAllValues())
-                .contains("Lake District|2026-11-07|SUNRISE", "Yorkshire Dales|2026-11-11|SUNSET")
-                .doesNotContain("Lake District|2026-11-06|SUNRISE");
+                .contains("Lake District|2031-07-14|SUNRISE", "Yorkshire Dales|2031-07-18|SUNSET")
+                .doesNotContain("Lake District|2031-07-13|SUNRISE");
         for (int i = 0; i < keys.getAllValues().size(); i++) {
             String[] parts = keys.getAllValues().get(i).split("\\|");
             int region = E2eLocalFixtureSeeder.REGIONS.indexOf(parts[0]);
@@ -495,10 +523,10 @@ class E2eLocalFixtureSeederTest {
                 h.getRelativeHumidity2m(), h.getTemperature2m(), h.getApparentTemperature())) {
             assertThat(series).hasSize(n);
         }
-        assertThat(h.getTime().getFirst()).isEqualTo("2026-11-05T00:00");
+        assertThat(h.getTime().getFirst()).isEqualTo("2031-07-12T00:00");
         assertThat(new HashSet<>(h.getTime())).hasSize(n);
         // A T+4 sunset (and a T-1 sunrise) both land inside the series.
         int sunset = TimeSlotUtils.findBestIndex(h.getTime(), TODAY.plusDays(4).atTime(16, 10), TargetType.SUNSET);
-        assertThat(h.getTime().get(sunset)).isEqualTo("2026-11-11T16:00");
+        assertThat(h.getTime().get(sunset)).isEqualTo("2031-07-18T16:00");
     }
 }

@@ -15,6 +15,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import javax.sql.DataSource;
 import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -45,7 +47,7 @@ class E2eLocalFixtureSeederGuardTest {
                 .withBean(SolarEventFreshness.class, () -> mock(SolarEventFreshness.class))
                 .withBean(DataSource.class, () -> mock(DataSource.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
-                .withBean(Clock.class, Clock::systemUTC)
+                .withBean(Clock.class, () -> Clock.fixed(Instant.parse("2031-07-14T12:00:00Z"), ZoneOffset.UTC))
                 .withUserConfiguration(E2eLocalFixtureSeeder.class, E2eFixtureHealthIndicator.class);
     }
 
