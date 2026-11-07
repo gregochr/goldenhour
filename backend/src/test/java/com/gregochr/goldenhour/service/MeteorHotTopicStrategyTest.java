@@ -83,6 +83,60 @@ class MeteorHotTopicStrategyTest {
         assertThat(moon.optional()).isTrue();
     }
 
+    // ── Leonids, minor showers and the table itself ──────────────────────────────
+
+    @Test
+    @DisplayName("the Leonids fire in a 14-17 Nov window under a dark moon")
+    void detect_leonidsInWindow_fires() {
+        LocalDate leonids = LocalDate.of(2026, 11, 17);
+        when(lunarPhaseService.getIlluminationFraction(leonids)).thenReturn(0.3);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubNoClarity();
+
+        List<HotTopic> topics = strategy.detect(LocalDate.of(2026, 11, 14), leonids);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).contains("Leonids");
+        assertThat(topics.get(0).date()).isEqualTo(leonids);
+        assertThat(factWithKey(topics.get(0), "radiant").dir()).isEqualTo("SE");
+    }
+
+    @Test
+    @DisplayName("a minor shower never fires, even under a dark moon")
+    void detect_minorShower_neverFires() {
+        // N. Taurids 12 Nov and Eta Aquariids 6 May: no illumination stub is needed (and strict
+        // stubs would flag one) because the minor showers are skipped before the moon is read.
+        assertThat(strategy.detect(LocalDate.of(2026, 11, 10), LocalDate.of(2026, 11, 13))).isEmpty();
+        assertThat(strategy.detect(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 8))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("peakDatesWithin returns a major peak (Leonids, 17 Nov) and not a minor one (12 Nov)")
+    void peakDatesWithin_majorOnly() {
+        List<LocalDate> nights = List.of(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 17),
+                LocalDate.of(2026, 5, 6));
+
+        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights))
+                .containsExactly(LocalDate.of(2026, 11, 17));
+    }
+
+    @Test
+    @DisplayName("the table holds twelve showers in calendar order, each with a distinct peak day")
+    void showerTable_distinctPeaksInCalendarOrder() {
+        List<MeteorHotTopicStrategy.Shower> showers = MeteorHotTopicStrategy.SHOWERS;
+
+        assertThat(showers).hasSize(12);
+        assertThat(showers).extracting(MeteorHotTopicStrategy.Shower::peak).doesNotHaveDuplicates();
+        assertThat(showers).extracting(MeteorHotTopicStrategy.Shower::peak).isSorted();
+        assertThat(showers).filteredOn(MeteorHotTopicStrategy.Shower::major)
+                .extracting(MeteorHotTopicStrategy.Shower::name)
+                .containsExactly("Quadrantids", "Lyrids", "Perseids", "Orionids", "Leonids", "Geminids");
+        assertThat(showers).filteredOn(shower -> shower.ukRate() != null)
+                .extracting(MeteorHotTopicStrategy.Shower::name)
+                .containsExactly("Eta Aquariids", "S. Delta Aquariids");
+    }
+
     // ── Clear-sky fact (overhead dark-sky clarity for the peak night) ────────────
 
     @Test

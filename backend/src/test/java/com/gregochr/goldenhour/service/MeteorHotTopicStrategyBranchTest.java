@@ -1,6 +1,8 @@
 package com.gregochr.goldenhour.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
@@ -61,6 +63,22 @@ class MeteorHotTopicStrategyBranchTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(PERSEIDS_PEAK);
         assertThat(topics.get(0).detail()).startsWith("Perseids peak");
+    }
+
+    @Test
+    @DisplayName("a minor peak earlier in the window is skipped: the later Leonids are chosen, and the "
+            + "minor night's moon is never read")
+    void detect_minorThenMajor_choosesMajor() {
+        LocalDate leonids = LocalDate.of(2026, 11, 17);
+        when(lunarPhaseService.getIlluminationFraction(leonids)).thenReturn(0.1);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(darkSkyLocation());
+        when(meteorClarityService.getCached()).thenReturn(MeteorClarity.EMPTY);
+
+        List<HotTopic> topics = strategy.detect(LocalDate.of(2026, 11, 10), LocalDate.of(2026, 11, 20));
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).startsWith("Leonids peak");
+        verify(lunarPhaseService, never()).getIlluminationFraction(LocalDate.of(2026, 11, 12));
     }
 
     @Test

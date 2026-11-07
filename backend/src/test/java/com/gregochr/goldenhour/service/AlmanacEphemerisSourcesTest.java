@@ -39,12 +39,15 @@ class AlmanacEphemerisSourcesTest {
         void reportsEveryShowerNotJustTheFirst() {
             when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
 
-            // 1 Aug to 31 Dec covers Perseids (12 Aug), Orionids (21 Oct) and Geminids (14 Dec).
+            // 1 Aug to 31 Dec covers Perseids (12 Aug), Draconids (8 Oct), Orionids (21 Oct),
+            // S. Taurids (5 Nov), N. Taurids (12 Nov), Leonids (17 Nov), Geminids (14 Dec) and
+            // Ursids (22 Dec).
             List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31));
 
             assertThat(events).extracting(AlmanacEvent::title)
-                    .containsExactlyInAnyOrder("Perseids", "Orionids", "Geminids");
+                    .containsExactlyInAnyOrder("Perseids", "Draconids", "Orionids",
+                            "S. Taurids", "N. Taurids", "Leonids", "Geminids", "Ursids");
         }
 
         @Test
@@ -83,7 +86,7 @@ class AlmanacEphemerisSourcesTest {
                     .events(LocalDate.of(2026, 12, 10), LocalDate.of(2027, 1, 10));
 
             assertThat(events).extracting(AlmanacEvent::title)
-                    .containsExactlyInAnyOrder("Geminids", "Quadrantids");
+                    .containsExactlyInAnyOrder("Geminids", "Ursids", "Quadrantids");
         }
 
         @Test
@@ -99,6 +102,70 @@ class AlmanacEphemerisSourcesTest {
                     .containsEntry("radiant", "E")
                     .containsEntry("bestHours", "22:00–02:00");
             assertThat(geminids.dayCount()).isEqualTo(1);
+        }
+
+        @Test
+            @DisplayName("a 7-30 Nov 2026 range returns the Leonids and the N. Taurids (minor), but not the "
+                    + "S. Taurids of 5 Nov")
+        void novemberReturnsLeonidsAndMinorTaurids() {
+            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+
+            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
+                    .events(LocalDate.of(2026, 11, 7), LocalDate.of(2026, 11, 30));
+
+            assertThat(events).extracting(AlmanacEvent::title)
+                    .containsExactly("N. Taurids", "Leonids");
+            assertThat(events.get(0).meta()).containsEntry("minor", "true")
+                    .doesNotContainKeys("ukRate", "lowRadiant");
+            assertThat(events.get(1).meta()).doesNotContainKeys("minor", "ukRate", "lowRadiant")
+                    .containsEntry("zhr", "15")
+                    .containsEntry("radiant", "SE");
+            assertThat(events.get(1).startDate()).isEqualTo(LocalDate.of(2026, 11, 17));
+        }
+
+        @Test
+        @DisplayName("a low-radiant shower names the UK rate and the low radiant, and does not present the ZHR "
+                + "as the expected rate")
+        void lowRadiantShowerNamesTheUkRate() {
+            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+
+            AlmanacEvent eta = new MeteorAlmanacSource(lunarPhaseService)
+                    .events(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6)).getFirst();
+
+            assertThat(eta.title()).isEqualTo("Eta Aquariids");
+            assertThat(eta.meta()).containsEntry("ukRate", "5")
+                    .containsEntry("lowRadiant", "true")
+                    .containsEntry("minor", "true")
+                    .containsEntry("zhr", "50");
+            assertThat(eta.detail()).contains("expect nearer 5")
+                    .contains("radiant stays low from the UK")
+                    .doesNotContain("around 50 meteors an hour at best");
+        }
+
+        @Test
+        @DisplayName("a major shower carries no ukRate, lowRadiant or minor key")
+        void majorShowerOmitsTheLowRadiantKeys() {
+            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+
+            AlmanacEvent perseids = new MeteorAlmanacSource(lunarPhaseService)
+                    .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
+
+            assertThat(perseids.meta()).doesNotContainKeys("ukRate", "lowRadiant", "minor");
+        }
+
+        @Test
+        @DisplayName("every shower's detail stays under Ask's 200-character cap, moonlit suffix included")
+        void everyDetailFitsAsksCap() {
+            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.99);
+
+            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
+                    .events(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
+
+            assertThat(events).hasSize(12);
+            assertThat(events).allSatisfy(event -> {
+                assertThat(event.detail()).as(event.title()).hasSizeLessThan(200);
+                assertThat(event.detail()).as(event.title()).contains("99% lit");
+            });
         }
 
         @Test

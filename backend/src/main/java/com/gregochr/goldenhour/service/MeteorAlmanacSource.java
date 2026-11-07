@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Every major meteor shower peaking in the feed's range.
+ * Every catalogued meteor shower peaking in the feed's range (major and minor).
  *
  * <p><strong>Why this exists when {@code MeteorHotTopicStrategy} already does.</strong> That
  * strategy is range-capable in the sense that it reads {@code fromDate} and {@code toDate} — but it
@@ -44,8 +44,14 @@ public class MeteorAlmanacSource implements AlmanacSource {
             "%s peaks, around %d meteors an hour at best under a dark sky, radiating from the %s."
                     + " Best watched %s.";
 
+    /** For a radiant that stays low from the UK: the catalogue rate is not a fair guide. Kept short:
+     * Ask caps the detail at 200 characters, the moonlit suffix included. */
+    private static final String LOW_RADIANT_DETAIL_TEMPLATE =
+            "%s peak. Catalogue rate is %d an hour, but the radiant stays low from the UK:"
+                    + " expect nearer %d, from the %s. Best %s.";
+
     private static final String MOONLIT_SUFFIX =
-            " The moon is %d%% lit that night, so expect only the brightest to show.";
+            " The moon is %d%% lit, so only the brightest will show.";
 
     private final LunarPhaseService lunarPhaseService;
 
@@ -89,8 +95,12 @@ public class MeteorAlmanacSource implements AlmanacSource {
         // cannot explain.
         boolean washedOut = illuminationPct >= WASHED_OUT_ILLUMINATION_PCT;
 
-        String detail = DETAIL_TEMPLATE.formatted(
-                shower.name(), shower.zhrPeak(), shower.radiantCompass(), shower.bestHours());
+        boolean lowRadiant = shower.ukRate() != null;
+        String detail = lowRadiant
+                ? LOW_RADIANT_DETAIL_TEMPLATE.formatted(shower.name(), shower.zhrPeak(),
+                        shower.ukRate(), shower.radiantCompass(), shower.bestHours())
+                : DETAIL_TEMPLATE.formatted(
+                        shower.name(), shower.zhrPeak(), shower.radiantCompass(), shower.bestHours());
         if (washedOut) {
             detail += MOONLIT_SUFFIX.formatted(illuminationPct);
         }
@@ -106,7 +116,10 @@ public class MeteorAlmanacSource implements AlmanacSource {
                         "radiant", shower.radiantCompass(),
                         "bestHours", shower.bestHours(),
                         "moonIllumination", illuminationPct + "%",
-                        "washedOut", washedOut ? "true" : null),
+                        "washedOut", washedOut ? "true" : null,
+                        "ukRate", lowRadiant ? String.valueOf(shower.ukRate()) : null,
+                        "lowRadiant", lowRadiant ? "true" : null,
+                        "minor", shower.major() ? null : "true"),
                 List.of());
     }
 }

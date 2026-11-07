@@ -60,6 +60,14 @@ import static org.mockito.Mockito.when;
  * {@code coldStartMinObservations = 60} floor, roughly 4–5 months of accrued runs past first
  * maturity — not the coarser "once-in-200-runs" figure an earlier draft of this note gave.
  *
+ * <p><b>Re-census, Nov 2026: the Leonids and six minor showers.</b> The shower table grew from five
+ * to twelve. The Leonids are a named major shower on the annual rung (9.5), so they badge: badge
+ * arrivals 11 → 12, meteor badges 5 → 6, interrupts unchanged (the eclipse alone). The six minor
+ * showers (Eta and S. Delta Aquariids, Draconids, both Taurids, Ursids) score on
+ * {@code minorMeteorShowerMeanGapDays} (60.875, a configured figure, not a measured rate), so
+ * they land on the supermoon rung (≈ 6.93) under the announce edge: all twelve showers arrive in
+ * the feed, six of them badge.
+ *
  * <p><b>What is deliberately out of the numerator, and the one open question that leaves.</b> Tide
  * runs (interim under cold start — D4's "list, don't badge"; {@code TideAlmanacSource} is not
  * wired in here, and a fixture comment below records why that omission cannot change the counts
@@ -174,11 +182,12 @@ class ComingUpAnnualBadgeCensusTest {
     @Test
     @DisplayName("the year's badge-firing arrivals sit at the design's ~10/year target")
     void badgeRateIsNearTheDesignTarget() {
-        // 5 named showers + 4 solar turning points + the NLC season boundary + one catalogued
-        // eclipse (2 Aug 2027, arriving 5 May 2027). 11 against the design's "roughly 10" is the
-        // honest nearest reachable on this inventory: the next rung down (announce past 8.5) drops
-        // to 7/year, and the next rung up (admitting supermoons at 6.9) rises to ~14.
-        assertThat(badgeArrivals).hasSize(11);
+        // 6 named major showers (the Leonids joined in the Nov 2026 re-census) + 4 solar turning
+        // points + the NLC season boundary + one catalogued eclipse (2 Aug 2027, arriving 5 May
+        // 2027). 12 against the design's "roughly 10" is the honest nearest reachable on this
+        // inventory: the next rung down (announce past 8.5) drops to 6/year, and the next rung up
+        // (admitting supermoons and minor showers at ~6.9) rises to ~24.
+        assertThat(badgeArrivals).hasSize(12);
     }
 
     @Test
@@ -202,11 +211,21 @@ class ComingUpAnnualBadgeCensusTest {
                 .collect(java.util.stream.Collectors.groupingBy(ComingUpEntry::type,
                         java.util.stream.Collectors.counting()));
         assertThat(byType).containsOnly(
-                Map.entry("meteor", 5L),
+                Map.entry("meteor", 6L),
                 Map.entry("equinox", 2L),
                 Map.entry("solstice", 2L),
                 Map.entry("nlc-season", 1L),
                 Map.entry("eclipse", 1L));
+    }
+
+    @Test
+    @DisplayName("every one of the twelve showers arrives in the feed, but only the six major ones badge")
+    void allTwelveShowersArriveAndSixBadge() {
+        assertThat(arrivalsByType).containsEntry("meteor", 12);
+        List<ComingUpEntry> minorMeteors = badgeArrivals.stream()
+                .filter(entry -> "meteor".equals(entry.type()) && entry.bits() < 7.5)
+                .toList();
+        assertThat(minorMeteors).isEmpty();
     }
 
     @Test
