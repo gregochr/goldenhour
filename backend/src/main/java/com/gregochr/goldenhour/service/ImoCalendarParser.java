@@ -141,10 +141,10 @@ final class ImoCalendarParser {
             return shower.zhrPeak();
         }
         last = last.replaceFirst("^[+≈]+", "").replaceFirst("\\+$", "");
-        if (!last.matches("\\d{1,4}")) {
+        if (!last.matches("\\d{1,3}")) {
             return null;
         }
-        return Integer.parseInt(last);
+        return parseIntOrNull(last);
     }
 
     private static Instant sectionTime(List<String> lines, String code, int year, LocalDate imoDate) {
@@ -191,16 +191,16 @@ final class ImoCalendarParser {
             if (day == null || Math.abs(ChronoUnit.DAYS.between(imoDate, day)) > 1) {
                 continue;
             }
-            int hour = Integer.parseInt(m.group(3));
-            int minute = m.group(4) == null ? 0 : Integer.parseInt(m.group(4));
-            if (hour > MAX_HOUR || minute > MAX_MINUTE) {
+            Integer hourBoxed = parseIntOrNull(m.group(3));
+            Integer minuteBoxed = m.group(4) == null ? Integer.valueOf(0) : parseIntOrNull(m.group(4));
+            if (hourBoxed == null || minuteBoxed == null || hourBoxed > MAX_HOUR || minuteBoxed > MAX_MINUTE) {
                 continue;
             }
-            int start = hour * MINUTES_PER_HOUR + minute;
+            int start = hourBoxed * MINUTES_PER_HOUR + minuteBoxed;
             int minutes = start;
             if (m.group(5) != null) {
-                int endHour = Integer.parseInt(m.group(5));
-                if (endHour > MAX_HOUR) {
+                Integer endHour = parseIntOrNull(m.group(5));
+                if (endHour == null || endHour > MAX_HOUR) {
                     continue;
                 }
                 int end = endHour * MINUTES_PER_HOUR;
@@ -214,13 +214,26 @@ final class ImoCalendarParser {
         return null;
     }
 
+    /** The one place digits from the untrusted PDF become an int: null when it does not fit. */
+    private static Integer parseIntOrNull(String digits) {
+        try {
+            return Integer.valueOf(digits);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     private static LocalDate date(int year, String monthName, String day) {
         Month month = MONTHS.get(monthName);
         if (month == null) {
             return null;
         }
+        Integer dayOfMonth = parseIntOrNull(day);
+        if (dayOfMonth == null) {
+            return null;
+        }
         try {
-            return LocalDate.of(year, month, Integer.parseInt(day));
+            return LocalDate.of(year, month, dayOfMonth);
         } catch (DateTimeException e) {
             return null;
         }

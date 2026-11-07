@@ -228,4 +228,28 @@ class ImoCalendarParserTest {
         assertThat(parsed).isEmpty();
         assertThat(ImoCalendarParser.problems(parsed, 2026)).hasSize(6);
     }
+
+    @Test
+    @DisplayName("an overflowing ZHR leaves the row absent, so validation reports the shower")
+    void overflowingZhrIsAbsent() {
+        String text = ImoCalendarFixtures.TEXT_2026.replaceFirst(
+                "(\\(013 LEO\\)\\s*Nov 06.Nov 30\\s+Nov 17[^\\n]*?)\\s\\S+\\s*\\n", "$1 99999999999\n");
+
+        Map<String, ParsedPeak> parsed = ImoCalendarParser.parse(text, 2026);
+
+        assertThat(parsed).doesNotContainKey("LEO");
+        assertThat(ImoCalendarParser.problems(parsed, 2026)).anyMatch(p -> p.contains("LEO"));
+    }
+
+    @Test
+    @DisplayName("hour 25 and minute 75 in a section line give no time; a huge day is no date")
+    void impossibleDigitsGiveNoTime() {
+        String row = "Leonids (013 LEO) Nov 06–Nov 30 Nov 17 235 ◦. 27 152◦ +22◦ 71 2.5 15\n"
+                + "Leonids (013 LEO)\nActive: November 6–30; Maximum: November 17, ";
+
+        assertThat(ImoCalendarParser.parse(row + "25h UT\n", 2026).get("LEO").maxUtc()).isNull();
+        assertThat(ImoCalendarParser.parse(row + "10h 75m UT\n", 2026).get("LEO").maxUtc()).isNull();
+        assertThat(ImoCalendarParser.parse(row.replace("November 17,", "November 99999999999,") + "10h UT\n", 2026)
+                .get("LEO").maxUtc()).isNull();
+    }
 }

@@ -428,6 +428,24 @@ class ImoCalendarRefreshServiceTest {
                 any(String.class));
     }
 
+    @Test
+    @DisplayName("an unchecked exception from the parser makes the year INVALID with its message, writes nothing")
+    void runtimeErrorInParseIsInvalid() {
+        when(client.fetch(2026)).thenReturn(found(URL_2026, calendar()));
+        when(client.fetch(2027)).thenReturn(notFound(URL_2027));
+
+        SchedulerFireOutcome.Report report;
+        try (org.mockito.MockedStatic<ImoCalendarParser> parser = Mockito.mockStatic(ImoCalendarParser.class)) {
+            parser.when(() -> ImoCalendarParser.parse(any(String.class), eq(2026)))
+                    .thenThrow(new IllegalStateException("surprise"));
+            report = run(service(NOW));
+        }
+
+        assertThat(report.summary()).isEqualTo("2026 invalid · 2027 not published");
+        assertThat(savedLog().get(0).getDetail()).contains("surprise");
+        assertThat(savedPeaks()).isEmpty();
+    }
+
     // ---- FAILED / NOT_PUBLISHED ---------------------------------------------------------------------------
 
     @Test

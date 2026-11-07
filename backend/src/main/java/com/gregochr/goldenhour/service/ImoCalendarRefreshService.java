@@ -194,7 +194,7 @@ public class ImoCalendarRefreshService {
         try {
             parsed = ImoCalendarParser.parse(ImoCalendarPdfExtractor.extract(fetched.pdf()), year);
             problems = ImoCalendarParser.problems(parsed, year);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             return invalid(year, now, sha, List.of("the PDF could not be read: " + e.getMessage()), url, out);
         }
         if (!problems.isEmpty()) {
