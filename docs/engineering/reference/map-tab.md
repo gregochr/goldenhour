@@ -135,3 +135,15 @@ measured to the pin). `MapView.driveToFor` reads the same map as `driveMinutesFo
 describes a different journey from the minutes beside it. The same name rides the Plan strip's peek chip
 (`WindowSpotPeek`) and the four-day location sheet's meta line (`1h 20min to Glenridding from Keswick`); it is not printed
 on list rows, leave-by times or popup verdicts. The Map's drive filter is unchanged.
+
+## Back and the Map tab (back-closes-dialogs-plan.md, PR 2b, 2026-11-07)
+
+The browser or phone Back button **never changes the Map selection**. These are not Back layers, and have no history entry:
+the location callout (`map-callout`), the phone peek sheet (`wf-map-peek`, open or expanded), the window and region
+drilldown panels (`wf-win-panel`, `wf-reg-panel`), and every Map menu and popover (Regions, Filters, the legend, the spot
+hover peek, `MapPeekAsk`). Escape and the on-screen controls keep closing them exactly as before.
+
+The one Map route that is a layer is the **location sheet opened over the map** (the callout's "Four days here ›", or a
+region row's peek): `WindowFirstShell` registers it from `sheetSpot != null`, like the Plan's. Back closes the sheet only,
+focus returns to the callout's reason line (`map-callout-reason`), and the callout stays mounted behind it; a second Back is
+today's Back (it leaves the page). Covered by `smoke/back.spec.js` ("over the Map").

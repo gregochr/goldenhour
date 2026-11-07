@@ -155,7 +155,7 @@ bundle and the codebase were made to disagree on purpose.
 
 **Neighbour guard** (`docs/engineering/neighbour-guard-plan.md`, G1b–G4 merged, **on by default since G4 (2026-10-17)**; rollback is `photocast.neighbour-guard.enabled: false` and a restart, with which no slot is marked and `LocationPointProvider` is never called): a sky rating far above SEVERAL neighbours that see the same sky is far more likely model noise than a real local difference (`same-cell-rating-spread-plan.md`), and the harm is when a surface NAMES that place as the best. `NeighbourOutlierGuard` (pure, `service/`) marks a served slot `neighbourOutlier: true` (`BriefingSlot`, `TRUE` or absent, never `false`) when it is a regioned, non-canopy SUNRISE/SUNSET slot with a `skyRating` at least `min-rating` (3) and NO other sky slot in the same window (same date and target type, any region) within `radius-km` (5) is rated within `margin - 1` of it (or above it) — a supporter at ANY height clears it — while at least `min-neighbours` (2) nearby sky slots are at a similar height (both elevations unknown, or both known and within `max-elevation-gap-m`, 150). It reads `skyRating`, never the served `claudeRating`, which averages in each coastal place's tide score; a null id, point or `skyRating` is neither candidate nor neighbour. ⚠️ **It runs at SERVE time only**: a step in `ServedBriefingAssembler.assembleForPlan` after the honesty filter and movement (so a zero-coverage region's emptied slots are not neighbours) and BEFORE `PlanWindowProjector.apply`, never on the build path, so `daily_briefing_cache` never carries the flag; coordinates come from `LocationPointProvider` (60 s memo on `System.nanoTime`, never the rewind-aware `Clock`, over one `LocationRepository.findEnabledPoints()` projection), and a failed read is memoised for the same minute, WARNed once, and serves the response unmarked; that query (at most one a minute) sits outside the serve and build query counts stated elsewhere in this file, which are unchanged. The flag keeps the star everywhere; its G1b effect is `PlanWindowProjector.topSlot`, which never names an outlier as the window pick's destination: if it skipped one, the next slot must be rated at least `NeighbourOutlierGuard.NAMED_FLOOR` (a fixed 3 — Ask's `MIN_PICK_RATING`, mirrored by the client in G3, deliberately NOT the configurable `min-rating`) or the pick names the region only (`locationName`/`locationId` null, which every consumer already handles). `NeighbourGuardLog` writes one INFO line per first-flagged (location id, date, type, sky rating) and one summary when the briefing or the flagged count changes (`Flagged N of M rated sky slots over W windows, sky-rating coverage K%`), ids and ints only. ⚠️ **G2 (Ask)**: `AskSnapshot.Slot.neighbourOutlier` (read off the served mark) makes `isPickEligible` refuse a marked slot, so `rank_spots`, the validator, the thread re-join, `AskReadyFreshness.recheck` (and so the typed cache), `ReadyRelevance`, the Ready anchors and the stub stop offering it with no change of their own; `list_windows`' `bestRating` is the window's existing maximum with only the outliers left out (`PlanWindowProjector.bestRatingWithoutOutliers`, the projector's own population — NOT derived from pick eligibility, which would drop a verdict-ineligible region's star, a sub-3★ best and an all-canopy window) and equals the served figure whenever no slot is marked. `rank_spots` adds a tool-result `note` (never a prompt change) counting the distinct places in the searched windows, scope and regions that `AskSnapshot.isHeldBack` refuses for the mark alone — a number, never a name, id or star — so a fresh question about a withheld place is not answered as "not in the forecast". A thread pick that became an outlier re-joins as `· held back: rated well above the places beside it` (tested before the generic not-eligible line: its rating has not fallen), `ThreadFact.heldBack` records those picks, the thread rules (follow-ups only; a fresh prompt is byte for byte unchanged) allow only "not being suggested because its rating is out of line with the places beside it" and forbid calling it low, poor or unreliable or quoting its star, and the stale-thread can't-answer reads, after the client's "PhotoCast doesn't have:", `a trustworthy rating for those places` when every submitted pick is held back, `those places as suggestions` when the reasons are mixed, and today's text otherwise. G3 (client) is built: the Plan card's best-reachable line, the popup header and the search figure name no outlier (with a spoken "no clear pick" reason when nothing clears the floor), the dawn-race fallback skips an outlier and `planConflicts.ceilingOf` keeps its figure but names no outlier (Plan matrix bullet).
 
-## Back (back-closes-dialogs-plan.md, PR 2a)
+## Back (back-closes-dialogs-plan.md, PR 2a and 2b)
 
 The browser or phone Back button closes the top dialog, where Escape closes it today. Entries go only through
 `utils/dialogHistory.js`; a layer opts in with `back="close" | "cancel" | "block"` on `Modal` / `BottomSheet` or
@@ -174,8 +174,32 @@ The browser or phone Back button closes the top dialog, where Escape closes it t
 - **never registered:** menus and popovers, the docked Ask panel and guide, the Map callout / peek sheet / drilldown panels,
   and Operations `#manage/...` panels or their in-panel confirm steps: those already push hash entries, so Back would answer twice.
 
-The Plan-shell dialogs (popup, spots, location sheet, picks, search) follow in PR 2b. Tests: see "Back (dialog history)" in
-`dev-and-testing.md`.
+**PR 2b wires the Plan-shell dialogs, all `close`, all registered by `WindowFirstShell` with `useBackLayer` from its DERIVED
+open state and outside every `Suspense`, never from the lazy dialog's mount** (so a cold chunk neither delays the entry nor
+turns a swap into a pop and a push):
+
+| Dialog | `open` | `onBack` (the close Escape runs) |
+|---|---|---|
+| window popup `window-sheet` | `openCard != null` | `openWindow(null)` |
+| all spots `window-spot-sheet` | `sheetCard != null` | `openOverPopup(null)` |
+| location sheet `location-sheet` | `sheetSpot != null` | `openOverPopup(null)` |
+| pick dialog `window-pick-dialog` | `openPick?.pick != null` | `openOverPopup(null)` |
+| Plan search `plan-search` | `searchSeed != null` | `setSearchSeed(null)` |
+
+- **Always registered while open, never mirrored from `escapeEnabled` / `stacked`**: the store's order picks the top layer, so
+  popup then sheet gives depth 2 and the first Back closes the sheet only.
+- **A swap is the same depth.** `openOverPopup` replaces the layer over the popup in one commit (a place to another place, the
+  sheet to the pick), so the registration stays and the engine makes no `go` and no push. There is NO `openWindow(null)` on a
+  vanished card: a card that leaves `windowCards` on a data refresh simply unregisters (the engine traverses; `go` needs no
+  activation), and a card that returns registers entry-less, which is today's behaviour.
+- **`selectTab` with two layers makes one `go(-2)`**: every route out of the Plan closes its dialogs, and the engine coalesces.
+- **`!guideModal` on BOTH search doors**: `onOpenSearch` and the beyond line's `onSearchRegion` refuse while the modal guide is
+  up, which closes the one three-deep route (popup, guide, search).
+- Over the Map the location sheet (from the callout's "Four days here") is a layer; the callout under it is not, so Back
+  closes the sheet and the callout stays (see `map-tab.md`).
+
+Tests: `backDialogsPlan.test.jsx` (the shell, over the fake history) and `smoke/back.spec.js` (the Plan surfaces). See "Back
+(dialog history)" in `dev-and-testing.md`.
 
 ## The Plan window door and topic emphasis (hot-topics-by-day C1, 2026-10-23)
 

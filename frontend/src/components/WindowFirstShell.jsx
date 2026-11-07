@@ -1365,6 +1365,17 @@ export default function WindowFirstShell({
     : windowCards.find((card) => card.key === openWindowKey) || null;
   /** Where the open window sits among the openable ones, for the popup's `‹ n/6 ›` nav. */
   const openIndex = openCard ? windowCards.indexOf(openCard) : -1;
+  // Back closes the Plan dialogs (back-closes-dialogs-plan.md, PR 2b). Each registers from the shell's DERIVED open
+  // state, outside every `Suspense`, never from the lazy dialog's mount: a cold chunk neither delays the entry nor
+  // turns a swap into a pop and a push, and a card that leaves `windowCards` on a data refresh unregisters (the engine
+  // traverses). `onBack` is the close Escape runs. Always registered while open, never mirrored from `escapeEnabled` or
+  // `stacked`: the store's order picks the top layer. An `openOverPopup` swap A -> B keeps the same layer open, so it is
+  // the same depth: no `go`, no extra push.
+  useBackLayer({ open: openCard != null, onBack: () => openWindow(null) });
+  useBackLayer({ open: sheetCard != null, onBack: () => openOverPopup(null) });
+  useBackLayer({ open: sheetSpot != null, onBack: () => openOverPopup(null) });
+  useBackLayer({ open: openPick?.pick != null, onBack: () => openOverPopup(null) });
+  useBackLayer({ open: searchSeed != null, onBack: () => setSearchSeed(null) });
   /**
    * The popup's dawn-race source — each location's lunar eclipse sight per window (L4,
    * `docs/engineering/lunar-eclipse-plan.md` §2.7). Gated on the popup being open for the same
@@ -2575,7 +2586,7 @@ export default function WindowFirstShell({
           // are already stacked on the popup, and a third layer has nowhere to go" — so the button was
           // simply bypassing it.
           onOpenSearch={effectiveTab === 'plan'
-            ? () => { if (!stackedOverPopup) setSearchSeed(''); }
+            ? () => { if (!stackedOverPopup && !guideModal) setSearchSeed(''); }
             : undefined}
           // ⚠️ Takes every dialog down first — but at M5 the two calls stopped being on the same
           // footing, and the difference is worth stating so neither is later read as dead.
@@ -3007,7 +3018,7 @@ export default function WindowFirstShell({
             origin={origin ?? null}
             homeCoords={homeCoords}
             picksLocked={picksLocked}
-            onSearchRegion={(regionName) => { if (stackedOverPopup) return; setSearchSeed(regionName); }}
+            onSearchRegion={(regionName) => { if (stackedOverPopup || guideModal) return; setSearchSeed(regionName); }}
           />
         </Suspense>
 

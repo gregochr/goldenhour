@@ -455,3 +455,24 @@ What the engine does where the plan was silent or its formula needed a correctio
 - **Tests:** `smoke/back.spec.js` drives the guide with the repo's real `landing/guide/guide.js` served from a stubbed origin
   (`stubGuideFrame`). The Ask-highlight scroll route is not covered by Playwright (it needs a Ready answer, which nothing seeds in
   the smoke stack); the phone scroll case scrolls while the Ask sheet is up and asserts the value survives each close.
+
+---
+
+## PR 2b build notes (2026-11-07)
+
+- **Wiring.** Five `useBackLayer` calls in `WindowFirstShell`, placed just after `openCard` is derived and outside every
+  `Suspense`: popup `openCard != null`, all spots `sheetCard != null`, location sheet `sheetSpot != null`, pick
+  `openPick?.pick != null`, search `searchSeed != null`. Each `onBack` is the close Escape runs. No `openWindow(null)` on
+  vanish (refuter amendment 6): a vanished card unregisters and the engine traverses.
+- **The `!guideModal` guard** is on both doors (`onOpenSearch`, the beyond line's `onSearchRegion`). Proved by mutation: with
+  the masthead guard removed the Vitest case fails. The beyond-line door has the same one-line guard but no separate test.
+- **Plan ambiguity: "Two layers, then click the Map tab".** The tab bar sits under the modal scrim, so a real click cannot
+  reach it. The spec uses the location sheet's own "show on map" door (`location-sheet-map`), which closes both layers and
+  calls `selectTab`; the Vitest case clicks the tab directly and asserts one `go(-2)`.
+- **Plan ambiguity: "`goBack` reopens nothing (index check)" after `selectTab`.** From the baseline `goBack` leaves the origin
+  (to the login entry), which is correct and not what is being asserted, so the spec presses **Forward** instead: the two stale
+  entries ahead are bounced, nothing reopens, and the page ends on the baseline.
+- **Same-depth swap proof.** Vitest swaps the location sheet's place through a second `locationSheetHandoff` and asserts no
+  `go` and no second `pushState`.
+- **Discovery.** `E2E_HYGIENE=record` over the whole smoke suite (smoke, roles-write, logout): no hygiene findings from the new
+  specs.
