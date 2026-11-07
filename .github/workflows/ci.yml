@@ -421,7 +421,13 @@ jobs:
     needs: changes
     name: E2E — Playwright smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # TEMPORARY (reliability proof): 20 -> 75 for the repeat step below. Revert with the proof commit.
+    timeout-minutes: 75
+    # TEMPORARY (reliability proof): five independent runs of the whole job. Revert with the proof commit.
+    strategy:
+      fail-fast: false
+      matrix:
+        proof-run: [1, 2, 3, 4, 5]
 
     steps:
       - uses: actions/checkout@v4
@@ -497,6 +503,18 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run test:e2e:smoke
 
+      # TEMPORARY (reliability proof): the whole suite 10 times over. --repeat-each repeats only the projects it
+      # is asked for (and runs dependencies once), so smoke, roles-write and logout are three invocations.
+      # Revert with the proof commit.
+      - name: TEMPORARY reliability proof (repeat-each=10)
+        if: needs.changes.outputs.docs_only != 'true'
+        timeout-minutes: 45
+        run: |
+          cd frontend
+          npx playwright test -c playwright.smoke.config.js --project=smoke --repeat-each=10
+          npx playwright test -c playwright.smoke.config.js --project=roles-write --repeat-each=10
+          npx playwright test -c playwright.smoke.config.js --project=logout --repeat-each=10
+
       # Browser hygiene cannot see what the BACKEND does, and the backend runs behind a dead outbound proxy, so
       # nothing can leave the machine anyway; this is the belt to that braces. The seeded fixture must never have
       # run a briefing build (live Open-Meteo weather and two Claude calls) or the Ask fixture seeder. The marker
@@ -517,7 +535,8 @@ jobs:
         if: failure() && needs.changes.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-smoke
+          # TEMPORARY (reliability proof): suffixed with the matrix index so five runs do not collide.
+          name: playwright-smoke-${{ matrix.proof-run }}
           path: |
             frontend/playwright-report/
             frontend/test-results/
