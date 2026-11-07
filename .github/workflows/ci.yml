@@ -422,6 +422,12 @@ jobs:
     name: E2E — Playwright smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # TEMPORARY: reliability proof, remove before merge. Runs the whole job (jar build and boot included)
+    # five times, to prove it passes every time before it becomes a required check.
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3, 4, 5]
 
     steps:
       - uses: actions/checkout@v4
@@ -481,12 +487,19 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run test:e2e:smoke
 
+      # TEMPORARY: reliability proof, remove before merge. The suite 20 times over in one run
+      # (~180 test executions against the already-booted servers); every one must pass.
+      - name: Reliability proof (--repeat-each=20)
+        if: needs.changes.outputs.docs_only != 'true'
+        timeout-minutes: 10
+        run: cd frontend && npm run test:e2e:smoke -- --repeat-each=20
+
       # The report, the traces and both servers' logs, so a red run can be diagnosed without a re-run.
       - name: Upload Playwright report, traces and server logs
         if: failure() && needs.changes.outputs.docs_only != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-smoke
+          name: playwright-smoke-${{ matrix.attempt }}
           path: |
             frontend/playwright-report/
             frontend/test-results/
