@@ -167,7 +167,7 @@ class HotTopicInputsEquivalenceTest {
                     new MeteorHotTopicStrategy(
                             new MeteorMoonGate(new LunarCalculator(), new SolarCalculator(),
                                     new MoonriseMoonsetCalculator()),
-                            locations, meteorClarity));
+                            locations, meteorClarity, MeteorPeakCalendars.empty()));
             enricher = new HotTopicEventEnricher(solar, locations, freshness);
             aggregator = new HotTopicAggregator(strategies, simulation, travelDays, enricher,
                     new HotTopicGlanceDecorator(), reader, locations);

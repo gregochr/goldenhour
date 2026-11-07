@@ -10,13 +10,12 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.MonthDay;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 
 /**
- * Detects meteor-shower hot topics from a fixed calendar of shower peaks.
+ * Detects meteor-shower hot topics from the shower peaks in {@link MeteorPeakCalendar} (IMO's per-year
+ * nights, else the table below).
  *
  * <p>The table holds twelve showers, but only the {@linkplain Shower#major() major} ones reach the
  * hot-topic path. The rule: a shower fires a Plan-tab pill only when a UK observer can expect about
@@ -47,9 +46,12 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
     /**
      * A meteor shower and the stable astronomical constants that describe its peak.
      *
+     * @param code           the IAU code (QUA, LYR, ...), the key of the {@code meteor_shower_peak} rows
      * @param name           short shower name shown in the pill detail
-     * @param peak           the approximate calendar day of maximum activity
-     * @param zhrPeak        zenithal hourly rate at peak under ideal dark skies (IMO catalogue)
+     * @param peak           the approximate calendar day of maximum activity; the fallback when
+     *                       {@link MeteorPeakCalendar} has no row for the year
+     * @param zhrPeak        zenithal hourly rate at peak under ideal dark skies (IMO catalogue); the
+     *                       fallback when {@link MeteorPeakCalendar} has no row for the year
      * @param radiantCompass compass point the radiant sits toward (drives the look direction)
      * @param bestHours      the local hours the radiant is highest and the shower is best watched
      * @param major          true when a UK observer can expect about 10 or more an hour at peak, so
@@ -57,7 +59,7 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      * @param ukRate         the realistic best hourly rate from the UK when the radiant stays too low
      *                       for the ZHR to be a fair guide; null otherwise
      */
-    record Shower(String name, MonthDay peak, int zhrPeak, String radiantCompass, String bestHours,
+    record Shower(String code, String name, MonthDay peak, int zhrPeak, String radiantCompass, String bestHours,
             boolean major, Integer ukRate) { }
 
     /**
@@ -67,22 +69,23 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      * peaks must be distinct (the almanac entry id is built from them).
      */
     static final List<Shower> SHOWERS = List.of(
-            new Shower("Quadrantids", MonthDay.of(1, 3), 80, "NE", "04:00–dawn", true, null),
-            new Shower("Lyrids", MonthDay.of(4, 22), 18, "SE", "02:00–04:00", true, null),
-            new Shower("Eta Aquariids", MonthDay.of(5, 5), 50, "E", "03:00–dawn", false, 5),
-            new Shower("S. Delta Aquariids", MonthDay.of(7, 30), 25, "S", "01:00–04:00", false, 8),
-            new Shower("Perseids", MonthDay.of(8, 12), 100, "NE", "01:00–04:00", true, null),
-            new Shower("Draconids", MonthDay.of(10, 8), 5, "NW", "20:00–23:00", false, null),
-            new Shower("Orionids", MonthDay.of(10, 21), 20, "SE", "02:00–05:00", true, null),
-            new Shower("S. Taurids", MonthDay.of(11, 5), 7, "S", "23:00–03:00", false, null),
-            new Shower("N. Taurids", MonthDay.of(11, 12), 5, "S", "22:00–02:00", false, null),
-            new Shower("Leonids", MonthDay.of(11, 17), 15, "SE", "03:00–dawn", true, null),
-            new Shower("Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00", true, null),
-            new Shower("Ursids", MonthDay.of(12, 22), 10, "N", "00:00–dawn", false, null));
+            new Shower("QUA", "Quadrantids", MonthDay.of(1, 3), 80, "NE", "04:00–dawn", true, null),
+            new Shower("LYR", "Lyrids", MonthDay.of(4, 22), 18, "SE", "02:00–04:00", true, null),
+            new Shower("ETA", "Eta Aquariids", MonthDay.of(5, 5), 50, "E", "03:00–dawn", false, 5),
+            new Shower("SDA", "S. Delta Aquariids", MonthDay.of(7, 30), 25, "S", "01:00–04:00", false, 8),
+            new Shower("PER", "Perseids", MonthDay.of(8, 12), 100, "NE", "01:00–04:00", true, null),
+            new Shower("DRA", "Draconids", MonthDay.of(10, 8), 5, "NW", "20:00–23:00", false, null),
+            new Shower("ORI", "Orionids", MonthDay.of(10, 20), 20, "SE", "02:00–05:00", true, null),
+            new Shower("STA", "S. Taurids", MonthDay.of(11, 5), 7, "S", "23:00–03:00", false, null),
+            new Shower("NTA", "N. Taurids", MonthDay.of(11, 12), 5, "S", "22:00–02:00", false, null),
+            new Shower("LEO", "Leonids", MonthDay.of(11, 17), 15, "SE", "03:00–dawn", true, null),
+            new Shower("GEM", "Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00", true, null),
+            new Shower("URS", "Ursids", MonthDay.of(12, 22), 10, "N", "00:00–dawn", false, null));
 
     private final MeteorMoonGate moonGate;
     private final LocationRepository locationRepository;
     private final MeteorClarityService meteorClarityService;
+    private final MeteorPeakCalendar peakCalendar;
 
     /**
      * Constructs a {@code MeteorHotTopicStrategy}.
@@ -90,36 +93,15 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      * @param moonGate             decides whether a bright moon is up during the shower's best hours
      * @param locationRepository   repository for dark-sky region lookups
      * @param meteorClarityService cache of how many dark-sky locations are clear overhead on the peak
+     * @param peakCalendar         each year's peak night and rate
      */
     public MeteorHotTopicStrategy(MeteorMoonGate moonGate,
-            LocationRepository locationRepository, MeteorClarityService meteorClarityService) {
+            LocationRepository locationRepository, MeteorClarityService meteorClarityService,
+            MeteorPeakCalendar peakCalendar) {
         this.moonGate = moonGate;
         this.locationRepository = locationRepository;
         this.meteorClarityService = meteorClarityService;
-    }
-
-    /**
-     * Returns the dates within {@code nights} that coincide with a catalogued shower peak — the nights
-     * the overhead-clarity scan needs to sample (usually none, occasionally one). Shared with
-     * {@link MeteorClarityService} so the scan fetches only on shower nights, never idly. Only
-     * {@linkplain Shower#major() major} showers count: the scan feeds the hot-topic "clear at X of Y"
-     * fact, which a minor shower never produces, so a fetch on its night would buy nothing.
-     *
-     * @param nights the forecast-window nights to test
-     * @return the subset falling on a shower peak, in input order
-     */
-    static List<LocalDate> peakDatesWithin(List<LocalDate> nights) {
-        List<LocalDate> peaks = new ArrayList<>();
-        for (LocalDate night : nights) {
-            MonthDay monthDay = MonthDay.from(night);
-            for (Shower shower : SHOWERS) {
-                if (shower.major() && shower.peak().equals(monthDay)) {
-                    peaks.add(night);
-                    break;
-                }
-            }
-        }
-        return peaks;
+        this.peakCalendar = peakCalendar;
     }
 
     /**
@@ -139,43 +121,28 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate,
             HotTopicInputs inputs) {
-        // Candidate years cover a window that may straddle a year boundary (e.g. Dec→Jan).
-        Set<Integer> years = new LinkedHashSet<>();
-        years.add(fromDate.getYear());
-        years.add(toDate.getYear());
-
-        Shower best = null;
-        LocalDate bestPeak = null;
+        // Sorted by night, so the first shower the moon does not wash out is the earliest qualifying peak.
+        MeteorPeakCalendar.ShowerNight best = null;
         MeteorMoonGate.MoonOverShower bestMoon = null;
-        for (Shower shower : SHOWERS) {
-            if (!shower.major()) {
-                continue;
-            }
-            for (int year : years) {
-                LocalDate peak = shower.peak().atYear(year);
-                if (peak.isBefore(fromDate) || peak.isAfter(toDate)) {
-                    continue;
-                }
-                MeteorMoonGate.MoonOverShower moon = moonGate.assess(shower, peak);
-                if (moon.washedOut()) {
-                    continue;
-                }
-                if (bestPeak == null || peak.isBefore(bestPeak)) {
-                    best = shower;
-                    bestPeak = peak;
-                    bestMoon = moon;
-                }
+        for (MeteorPeakCalendar.ShowerNight candidate : peakCalendar.peakNightsIn(fromDate, toDate, true)) {
+            MeteorMoonGate.MoonOverShower moon = moonGate.assess(candidate.shower(), candidate.night());
+            if (!moon.washedOut()) {
+                best = candidate;
+                bestMoon = moon;
+                break;
             }
         }
 
         if (best == null) {
             return List.of();
         }
-        return List.of(buildTopic(best, bestPeak, bestMoon, inputs));
+        return List.of(buildTopic(best, bestMoon, inputs));
     }
 
-    private HotTopic buildTopic(Shower shower, LocalDate peak, MeteorMoonGate.MoonOverShower moon,
+    private HotTopic buildTopic(MeteorPeakCalendar.ShowerNight night, MeteorMoonGate.MoonOverShower moon,
             HotTopicInputs inputs) {
+        Shower shower = night.shower();
+        LocalDate peak = night.night();
         List<String> darkSkyRegions =
                 inputs.darkSkyLocations().stream()
                         .map(LocationEntity::getRegion)
@@ -207,7 +174,7 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
             viewingCue = "some moonlight, still worth a look";
         }
         List<HotTopicFact> facts = new ArrayList<>(List.of(
-                HotTopicFact.metric("ZHR", "~" + shower.zhrPeak() + " at peak"),
+                HotTopicFact.metric("ZHR", "~" + night.zhr() + " at peak"),
                 HotTopicFact.directional("radiant", "best " + shower.bestHours(),
                         shower.radiantCompass(), false),
                 new HotTopicFact("moon", moonPct + "% · " + moonQuality, null, false, true)));

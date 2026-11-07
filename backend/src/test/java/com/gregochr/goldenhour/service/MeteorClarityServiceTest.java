@@ -40,7 +40,7 @@ class MeteorClarityServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MeteorClarityService(overheadCloudSampler, locationRepository);
+        service = new MeteorClarityService(overheadCloudSampler, locationRepository, MeteorPeakCalendars.empty());
     }
 
     private static LocationEntity darkSky(long id) {
@@ -55,6 +55,34 @@ class MeteorClarityServiceTest {
 
         assertThat(service.getCached().byNight()).isEmpty();
         verifyNoInteractions(overheadCloudSampler, locationRepository);
+    }
+
+    @Test
+    @DisplayName("no nights at all: caches empty and makes no fetch")
+    void refresh_noNights_emptyNoFetch() {
+        service.refresh(List.of());
+
+        assertThat(service.getCached().byNight()).isEmpty();
+        verifyNoInteractions(overheadCloudSampler, locationRepository);
+    }
+
+    @Test
+    @DisplayName("two peaks in one window: each gets its own deep-night hour and count, in date order")
+    void refresh_twoPeaks_oneHourEach() {
+        LocationEntity clear = darkSky(1);
+        LocationEntity cloudy = darkSky(2);
+        List<LocationEntity> darkSky = List.of(clear, cloudy);
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(darkSky);
+        when(overheadCloudSampler.sample(eq(darkSky), eq(List.of("2026-11-18T00:00", "2026-12-15T00:00"))))
+                .thenReturn(Map.of(clear, new int[]{10, 90}, cloudy, new int[]{20, 95}));
+
+        // Passed out of order: the scan runs from the earliest to the latest night.
+        service.refresh(List.of(LocalDate.of(2026, 12, 14), LocalDate.of(2026, 11, 17)));
+
+        assertThat(service.getCached().forNight(LocalDate.of(2026, 11, 17)).orElseThrow().clearLocationCount())
+                .isEqualTo(2);
+        assertThat(service.getCached().forNight(LocalDate.of(2026, 12, 14)).orElseThrow().clearLocationCount())
+                .isZero();
     }
 
     @Test

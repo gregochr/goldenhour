@@ -29,7 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class MeteorHotTopicStrategyBranchTest {
 
     private static final LocalDate PERSEIDS_PEAK = LocalDate.of(2026, 8, 12);
-    private static final LocalDate ORIONIDS_PEAK = LocalDate.of(2026, 10, 21);
+    private static final LocalDate ORIONIDS_PEAK = LocalDate.of(2026, 10, 20);
 
     @Mock
     private MeteorMoonGate moonGate;
@@ -42,7 +42,8 @@ class MeteorHotTopicStrategyBranchTest {
 
     @BeforeEach
     void setUp() {
-        strategy = new MeteorHotTopicStrategy(moonGate, locationRepository, meteorClarityService);
+        strategy = new MeteorHotTopicStrategy(moonGate, locationRepository, meteorClarityService,
+                MeteorPeakCalendars.empty());
     }
 
     private static MeteorHotTopicStrategy.Shower shower(String name) {
@@ -65,7 +66,6 @@ class MeteorHotTopicStrategyBranchTest {
     @DisplayName("two qualifying peaks in one window: the earlier one is kept")
     void detect_twoPeaksInWindow_keepsEarliest() {
         stubMoon("Perseids", PERSEIDS_PEAK, 10);
-        stubMoon("Orionids", ORIONIDS_PEAK, 10);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue()).thenReturn(darkSkyLocation());
         when(meteorClarityService.getCached()).thenReturn(MeteorClarity.EMPTY);
 
@@ -74,6 +74,8 @@ class MeteorHotTopicStrategyBranchTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(PERSEIDS_PEAK);
         assertThat(topics.get(0).detail()).startsWith("Perseids peak");
+        // The peaks are walked in date order, so the later Orionids night is never assessed.
+        verify(moonGate, never()).assess(shower("Orionids"), ORIONIDS_PEAK);
     }
 
     @Test

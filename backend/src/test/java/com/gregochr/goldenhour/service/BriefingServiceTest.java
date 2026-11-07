@@ -302,7 +302,7 @@ class BriefingServiceTest {
     /** Meteor clarity service wired with a real overhead sampler over the mocked Open-Meteo client. */
     private MeteorClarityService meteor() {
         return new MeteorClarityService(
-                new OverheadCloudSampler(openMeteoClient), locationRepository);
+                new OverheadCloudSampler(openMeteoClient), locationRepository, MeteorPeakCalendars.empty());
     }
 
     @Nested

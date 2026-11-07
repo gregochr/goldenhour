@@ -5,11 +5,13 @@ import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.MeteorShowerPeakRepository;
 import com.gregochr.goldenhour.service.AlmanacSource;
 import com.gregochr.goldenhour.service.EclipseAlmanacSource;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.MeteorAlmanacSource;
 import com.gregochr.goldenhour.service.MeteorMoonGate;
+import com.gregochr.goldenhour.service.MeteorPeakCalendar;
 import com.gregochr.goldenhour.service.NlcClarityService;
 import com.gregochr.goldenhour.service.NlcSeasonAlmanacSource;
 import com.gregochr.goldenhour.service.SolarAlignmentAlmanacSource;
@@ -22,6 +24,7 @@ import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -131,7 +134,9 @@ class ComingUpAnnualBadgeCensusTest {
 
         List<AlmanacSource> sources = List.of(
                 new MeteorAlmanacSource(new MeteorMoonGate(new LunarCalculator(), new SolarCalculator(),
-                        new MoonriseMoonsetCalculator())),
+                        new MoonriseMoonsetCalculator()),
+                        new MeteorPeakCalendar(mock(MeteorShowerPeakRepository.class),
+                                mock(ApplicationEventPublisher.class))),
                 new SupermoonAlmanacSource(lunar),
                 new SolarAlignmentAlmanacSource(),
                 new NlcSeasonAlmanacSource(nlcClarity),
