@@ -3,8 +3,9 @@ import { shiftDateStr } from './mapDates.js';
 import { topicStyle } from './topicPalette.js';
 
 /**
- * The "Next four days" topic tiles' model — now the At a Glance day header's topic pills, drawn by
- * {@code WindowGlanceDayTopics} through {@code WindowFirstHeatStrip} (glance-topic-strip-plan.md). It began as
+ * The "Next four days" topic tiles' model — now the source of At a Glance's "The days ahead" lanes, which
+ * {@link buildGlanceLanes} re-buckets and {@code WindowGlanceLanes} draws through {@code WindowFirstHeatStrip}
+ * (days-ahead-lanes-plan.md; it began as the stacked day-header pills of glance-topic-strip-plan.md). It began as
  * the Coming up tab's block of the same name (coming-up-glance-plan §3 T1), which that plan moved here, and
  * it replaced the hot-topics-by-day C1 lanes ({@code fourDayLanes.js}) before that.
  *
@@ -17,7 +18,7 @@ import { topicStyle } from './topicPalette.js';
  * <p><b>One chip per type per day.</b> The chip is the first topic of that type in served order;
  * its {@code glance} is the first non-null one among that type's topics that day, and its
  * {@code events} list every SUNRISE/SUNSET window those topics land on (chronological order). Within
- * a tile the non-weather chips come first, then the weather ("WX") chips, each group in served order
+ * a tile the non-weather chips come first, then the weather chips, each group in served order
  * (§1.9: the order is the server's, never re-ranked here).
  *
  * <p><b>The jump rule (§2.3).</b> A chip jumps only to a RENDERED almanac entry whose OWN span covers
@@ -61,6 +62,36 @@ const SUNRISE = 'SUNRISE';
 const SUNSET = 'SUNSET';
 const NIGHT = 'NIGHT';
 const TIDE_TOPICS = new Set(['KING_TIDE', 'SPRING_TIDE']);
+
+/**
+ * The dates a served topic covers FOR THE LANES. A NIGHT topic (aurora, NLC) covers its own dusk date(s) only
+ * ({@code date}…{@code endDate}) — not the next morning its second window falls on — so a one-night aurora is a
+ * one-column lane and an NLC dated on the last day does not "continue after". Every other topic covers the dates
+ * its windows land on ({@link laneDates}).
+ */
+function laneCoveredDates(topic) {
+  if (topic.eventType === NIGHT) {
+    const dates = [];
+    const last = topic.endDate ?? topic.date;
+    for (let d = topic.date; d <= last; d = shiftDateStr(d, 1)) dates.push(d);
+    return dates;
+  }
+  return [...new Set(laneDates(topic).map((item) => item.date))];
+}
+
+/**
+ * The identity of the EVENT a served topic is one day of: the topic itself ({@code type} and {@code date}), or,
+ * for a tide, its whole run — the served {@code tideRun} states which day of how many this is, so the run's first
+ * date is {@code date - (dayNumber - 1)}. Two separate MIST topics on adjacent days are two events; a four-day
+ * spring run is one.
+ */
+function eventIdOf(topic) {
+  const run = topic.tideRun;
+  if (TIDE_TOPICS.has(topic.type) && run?.dayNumber >= 1 && run?.dayCount >= 1) {
+    return `TIDE:${run.runLabel ?? ''}:${run.dayCount}:${shiftDateStr(topic.date, 1 - run.dayNumber)}`;
+  }
+  return `${topic.type}:${topic.date}`;
+}
 
 const RELATIVE = ['today', 'tomorrow', 'in 2 days', 'in 3 days'];
 const RELATIVE_SHORT = ['today', 'tmrw', '+2', '+3'];
@@ -137,10 +168,15 @@ function jumpFor(type, date, entries, rendered) {
  *
  * @param {string} type the topic type
  * @param {string} date the tile's date
- * @param {Array<{topic: object, item: object}>} records the type's topics landing on {@code date},
+ * @param {Array<{topic: object, item: object}>} allRecords the type's topics landing on {@code date},
  *        each with the lane item (date, window, key) that put it there, in served order
  */
-function buildChip(type, date, records, ctx) {
+function buildChip(type, date, allRecords, ctx) {
+  // Lane identity: only the records whose topic really covers this date speak for the chip, so a NIGHT topic's
+  // spill onto the next morning never lends its glance or routes to another night's topic merged beside it.
+  const covering = allRecords.filter(({ topic }) => laneCoveredDates(topic).includes(date));
+  const coversDay = covering.length > 0;
+  const records = coversDay ? covering : allRecords;
   const first = records[0].topic;
   const style = topicStyle(type, first.label);
   const glanceRecord = records.find((r) => r.topic?.glance) ?? null;
@@ -175,7 +211,8 @@ function buildChip(type, date, records, ctx) {
     shortValue: glance?.shortValue ?? null,
     badge: glance?.badge ?? null,
     weather,
-    isContinuation: false,
+    eventId: eventIdOf(first),
+    coversDay,
     events,
     jump: jumpFor(type, date, ctx.entries, ctx.rendered),
     mapDoor,
@@ -240,45 +277,119 @@ export function buildFourDayTiles({
   }
 
   const seenTypes = new Set();
-  let previous = new Set();
   for (const day of days) {
     const chips = [...byDate.get(day.date).entries()]
       .map(([type, records]) => buildChip(type, day.date, records, ctx));
     day.chips = [...chips.filter((c) => !c.weather), ...chips.filter((c) => c.weather)];
-    for (const chip of day.chips) {
-      chip.isContinuation = previous.has(chip.type);
-      seenTypes.add(chip.type);
-    }
-    previous = new Set(day.chips.map((c) => c.type));
+    for (const chip of day.chips) seenTypes.add(chip.type);
   }
 
   return { days, topicCount: seenTypes.size };
 }
 
 /**
- * Which of the four days' chips the At a Glance header draws, per matrix column (glance-topic-strip-plan.md
- * R2). The matrix may start tomorrow (after today's sunset) or hold other gaps, so the model's four dates
- * and the strip's columns need not line up.
+ * The At a Glance "days ahead" lanes (days-ahead-lanes-plan.md §2): the four days' chips re-bucketed into one lane
+ * per RUN of an event. It re-buckets served chips and derives no fact — every printed string is a served
+ * {@code glance} field, and the edges read only served topic dates (never the almanac, D14).
  *
- * <p>Only a column whose date is one of the four gets chips; any other column is simply absent from the
- * map. A chip is {@code isContinuation} (drawn dashed: the same topic carried on from the day before) only
- * when the PREVIOUS calendar date is itself a rendered column — otherwise the chip is forced solid, so no
- * column opens with a dashed pill whose start the reader cannot see. Nothing is derived beyond that flag.
+ * <p><b>A run</b> is a maximal sequence of live matrix columns on consecutive calendar dates where each day holds
+ * the same event ({@code eventId}: the same served topic, or the same tide run). A column that is absent from the
+ * four days, or all-away, breaks a run.
+ *
+ * <p>⚠️ {@code startCol}/{@code endCol} are the matrix index + 1 — never a position in the live columns — because
+ * the lanes grid has one track per matrix column, away ones included. Liveness only breaks runs.
+ *
+ * <p>{@code detail} is the PEAK day's served value when the run has a peak (else the first day's), with
+ * {@code detailDate} the day it came from. The routes ({@code jump}, {@code mapDoor}, {@code target}) are each
+ * the first chip's in the run that has one. Only PEAK is a tag ({@code peak} is its date). {@code startsBefore}
+ * / {@code endsAfter} say a SERVED topic of the same event covers the day before / after the run — the briefing
+ * serves topics clipped to today…the last plan date, so a tide run that really began yesterday or runs past the
+ * last day is not visible here (a backend follow-up, not guessed at).
+ *
+ * <p><b>Rows are assigned here</b>, first-fit, longest span first then earliest column then chip order, and the
+ * output is sorted by (row, startCol) — the DOM order — so Tab follows the visual order (WCAG 2.4.3).
  *
  * @param {Array<object>} days the {@code days} of {@link buildFourDayTiles}
- * @param {Array<string>} columnDates the dates of the matrix's rendered columns, in column order
- * @returns {Map<string, Array<object>>} column date to that day's chips; no entry for a column outside
- *          the four
+ * @param {Array<{date: string, live: boolean}>} columns the matrix's columns in order; {@code live} is false for
+ *        an all-away column
+ * @param {?Array<object>} hotTopics the served {@code briefing.hotTopics} (for the edge dates)
+ * @returns {Array<object>} the lanes in DOM order, each with a 1-based {@code row}
  */
-export function glanceTopicsByColumn(days, columnDates) {
-  const rendered = new Set(columnDates);
-  const byDate = new Map();
-  for (const day of days) {
-    if (!rendered.has(day.date)) continue;
-    const startVisible = rendered.has(shiftDateStr(day.date, -1));
-    byDate.set(day.date, day.chips.map((chip) => (
-      chip.isContinuation && !startVisible ? { ...chip, isContinuation: false } : chip
-    )));
+export function buildGlanceLanes(days, columns, hotTopics) {
+  const chipsByDate = new Map(days.map((day) => [day.date, day.chips]));
+  const servedDates = new Map();
+  for (const topic of Array.isArray(hotTopics) ? hotTopics : []) {
+    if (!topic?.type || !topic.date) continue;
+    const id = eventIdOf(topic);
+    if (!servedDates.has(id)) servedDates.set(id, new Set());
+    for (const date of laneCoveredDates(topic)) servedDates.get(id).add(date);
   }
-  return byDate;
+
+  const runs = [];
+  let open = new Map();
+  columns.forEach((column, index) => {
+    const next = new Map();
+    const chips = column.live ? (chipsByDate.get(column.date) ?? []).filter((chip) => chip.coversDay) : [];
+    for (const chip of chips) {
+      const item = { chip, date: column.date };
+      const run = open.get(chip.eventId);
+      if (run && run.items[run.items.length - 1].date === shiftDateStr(column.date, -1)) {
+        run.items.push(item);
+        run.endCol = index + 1;
+        next.set(chip.eventId, run);
+      } else {
+        const created = {
+          id: chip.eventId, items: [item], startCol: index + 1, endCol: index + 1, order: runs.length,
+        };
+        runs.push(created);
+        next.set(chip.eventId, created);
+      }
+    }
+    open = next;
+  });
+
+  const lanes = runs.map((run) => {
+    const { items } = run;
+    const first = items[0];
+    const peakItem = items.find((item) => item.chip.badge === 'PEAK') ?? null;
+    const source = peakItem?.chip.value ? peakItem : first;
+    const firstWith = (field) => items.find((item) => item.chip[field])?.chip[field] ?? null;
+    const dates = items.map((item) => item.date);
+    const served = servedDates.get(run.id);
+    return {
+      key: `${run.id}@${first.date}`,
+      type: first.chip.type,
+      name: first.chip.name,
+      colour: first.chip.colour,
+      startCol: run.startCol,
+      endCol: run.endCol,
+      detail: source.chip.value ?? null,
+      detailDate: source.chip.value ? source.date : null,
+      peak: peakItem ? peakItem.date : null,
+      startsBefore: served?.has(shiftDateStr(first.date, -1)) ?? false,
+      endsAfter: served?.has(shiftDateStr(dates[dates.length - 1], 1)) ?? false,
+      dates,
+      jump: firstWith('jump'),
+      mapDoor: firstWith('mapDoor'),
+      target: firstWith('target'),
+      order: run.order,
+      row: 0,
+    };
+  });
+
+  // First-fit rows: the longest spans take the top rows.
+  const rows = [];
+  const byPriority = [...lanes].sort((a, b) => (b.endCol - b.startCol) - (a.endCol - a.startCol)
+    || a.startCol - b.startCol || a.order - b.order);
+  for (const lane of byPriority) {
+    let row = rows.findIndex((taken) => {
+      for (let c = lane.startCol; c <= lane.endCol; c += 1) if (taken.has(c)) return false;
+      return true;
+    });
+    if (row < 0) { rows.push(new Set()); row = rows.length - 1; }
+    for (let c = lane.startCol; c <= lane.endCol; c += 1) rows[row].add(c);
+    lane.row = row + 1;
+  }
+  return lanes.sort((a, b) => a.row - b.row || a.startCol - b.startCol);
 }
+
