@@ -154,6 +154,8 @@ Model colours (oklch):
 - Haiku 5.5 `oklch(.8 .1 200)`
 - Sonnet 4.6 `oklch(.72 .12 300)`
 - Opus `oklch(.82 .12 85)`
+- Sonnet 4.6 (ET) `oklch(.78 .13 150)`
+- Opus (ET) `oklch(.8 .12 55)`
 
 Type: IBM Plex Sans for the UI, IBM Plex Mono for numbers, ids, chips and axes (uppercase labels 10px with .1–.12em tracking), and Newsreader 600 for the title, verdict and lane model names.
 
