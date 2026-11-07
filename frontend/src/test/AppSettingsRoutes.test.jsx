@@ -761,7 +761,10 @@ describe('App — deleting the account from the real settings dialog (R5b)', () 
 });
 
 describe('App — the Back button and the settings dialog', () => {
-  afterEach(() => uninstallBackBrowser());
+  afterEach(() => {
+    uninstallBackBrowser();
+    window.history.replaceState(null, '');
+  });
 
   it('boots the dialog-history engine at mount: a marker a previous page load left on this entry is stripped', async () => {
     __resetForTests();
@@ -772,7 +775,6 @@ describe('App — the Back button and the settings dialog', () => {
 
     expect(window.history.state?.phLayer).toBeUndefined();
     expect(window.history.state?.keep).toBe(1);
-    window.history.replaceState(null, '');
   });
 
   it('Back closes Settings, and Settings closed with its own × leaves no entry behind', async () => {

@@ -163,12 +163,13 @@ The browser or phone Back button closes the top dialog, where Escape closes it t
 
 - **close:** Settings (ONE registration in `UserSettingsModal`, so Back closes Settings from the body and from the
   "drive times updated" view), `SettingsFallback` and the `ChunkErrorBoundary` overlay (with a Close control), the sub-region
-  sheet and its "Save and lock" confirm, the guide (dialog via `useBackLayer`, sheet via `BottomSheet`), the Ask sheet,
-  `lite-limit-dialog`.
-- **cancel:** `ConfirmDialog` (runs its Cancel path), `AuroraForecastModal`, `AuroraSimulateModal`. While their own Cancel is
-  disabled (`running`, `submitting || clearing`, `ScheduleSwitchDialog`'s `sending`, mirrored to `ConfirmDialog`'s `busy`)
-  the mode switches to `block` in place.
-- **block:** `temp-password-modal` (a generated password cannot be shown again; absorbing Back is best-effort on Chrome),
+  sheet and its "Save and lock" confirm, the guide (dialog via `useBackLayer`, sheet via `BottomSheet`), the Ask sheet
+  (registered from the shell's `askSheetShown`, outside the lazy `Suspense`), `lite-limit-dialog`.
+- **cancel:** `ConfirmDialog` (runs its Cancel path), `AuroraForecastModal`, `AuroraSimulateModal`. While their request is
+  out (`running`, `submitting || clearing`, `ScheduleSwitchDialog`'s `sending`, mirrored to `ConfirmDialog`'s `busy`;
+  a `ConfirmDialog`'s own Cancel is never disabled) the mode switches to `block` in place.
+- **block:** `temp-password-modal` (a generated password cannot be shown again; absorbing Back is best-effort on Chrome, and
+  a scrim press no longer closes it either: `Modal`'s `closeOnBackdrop={false}`),
   Settings while the drive-times spinner is up or a delete is in flight.
 - **never registered:** menus and popovers, the docked Ask panel and guide, the Map callout / peek sheet / drilldown panels,
   and Operations `#manage/...` panels or their in-panel confirm steps: those already push hash entries, so Back would answer twice.

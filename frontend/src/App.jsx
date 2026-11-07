@@ -1158,8 +1158,9 @@ function AppInner() {
  * Root application component. Wraps the app in the authentication provider.
  */
 export default function App() {
-  // Strips a Back marker a previous page load left on this entry and heals `scrollRestoration`, before
-  // any dialog can open (see `utils/dialogHistory.js`; the registration boots it lazily too).
+  // Strips a Back marker a previous page load left on this entry and heals `scrollRestoration`. Idempotent: the
+  // first dialog registration boots the engine lazily as well, so this is only what makes a reload onto a
+  // 'manual' entry heal before any dialog has opened (see `utils/dialogHistory.js`).
   useEffect(() => { bootDialogHistory(); }, []);
   return (
     <AuthProvider>

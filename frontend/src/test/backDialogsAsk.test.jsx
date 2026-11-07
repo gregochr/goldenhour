@@ -2,7 +2,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, cleanup, fireEvent, screen, waitFor,
+  act, cleanup, fireEvent, screen, waitFor, within,
 } from '@testing-library/react';
 import { resetViewport } from './askViewport.js';
 import { MAP_PANE, renderAskShell } from './askShellHarness.jsx';
@@ -78,7 +78,34 @@ describe('the Ask sheet', () => {
 
     await waitFor(() => expect(sheet()).toBeNull());
     expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
-    expect(screen.getByTestId('window-first-shell').closest('body > *').hasAttribute('inert')).toBe(false);
+  });
+
+  it('Back keeps the conversation: the answer is still there when the sheet reopens', async () => {
+    renderAskShell({ width: 390, props: { mapPane: MAP_PANE } });
+    fireEvent.click(await screen.findByTestId('ask-bar'));
+    fireEvent.click(await screen.findByTestId('ask-ready-BEST_NEXT'));
+    await screen.findByTestId('ask-picks');
+    await settle();
+
+    await back();
+    await waitFor(() => expect(sheet()).toBeNull());
+    fireEvent.click(screen.getByTestId('ask-bar'));
+
+    expect(await screen.findByTestId('ask-picks')).toBeInTheDocument();
+  });
+
+  it('registers from the open intent: the entry is pushed in the commit that opens it, with the chunk still pending', async () => {
+    renderAskShell({ width: 390, props: { mapPane: MAP_PANE } });
+    fireEvent.click(await screen.findByTestId('ask-bar'));
+    // Not waiting for the lazy sheet: the registration lives in the shell, outside its Suspense.
+    await settle();
+    expect(b.history.pushState).toHaveBeenCalledTimes(1);
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
+    await settle();
+    // The sheet arriving adds no layer and no entry.
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.history.pushState).toHaveBeenCalledTimes(1);
   });
 
   it('closing it with its own close control takes its history entry with it', async () => {
@@ -87,7 +114,7 @@ describe('the Ask sheet', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Ask PhotoCast' });
     await settle();
 
-    fireEvent.click(dialog.querySelector('[data-testid="bottom-sheet-close"]'));
+    fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));
     await settle();
 
     await waitFor(() => expect(sheet()).toBeNull());

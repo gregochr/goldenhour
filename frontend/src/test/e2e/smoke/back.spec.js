@@ -23,10 +23,20 @@ import {
 /** Waits for the store to settle at `depth` (a closed page is 0), the signal that a traversal is safe. */
 async function settled(page, depth) {
   await expect
-    .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-back-depth')), {
-      message: `data-back-depth settles at ${depth}`,
-    })
+    .poll(
+      async () => {
+        const value = await page.evaluate(() => document.documentElement.getAttribute('data-back-depth'));
+        // A page that never registered a layer has no attribute at all: that is idle, depth 0.
+        return value === null && depth === 0 ? '0' : value;
+      },
+      { message: `data-back-depth settles at ${depth}` },
+    )
     .toBe(String(depth));
+}
+
+/** `history.scrollRestoration`: 'manual' only while a layer entry is up, 'auto' again once the store is idle. */
+function scrollRestoration(page) {
+  return page.evaluate(() => window.history.scrollRestoration);
 }
 
 /** The Navigation API's index of the entry the page is on: the baseline for "no dead press". */
@@ -115,8 +125,14 @@ test.describe('Back closes the top dialog: Settings', () => {
     await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
     await expect(settingsDialog(page)).toHaveCount(0);
     await expect.poll(() => marker(page)).toBeNull();
-    // A Back from here is a harmless dead press (the entry the reload sits on); the page stays usable.
-    await expect(cog(page)).toBeVisible();
+    await settled(page, 0);
+    // The boot heal: the entry reloaded carried 'manual' from the layer that was open.
+    expect(await scrollRestoration(page)).toBe('auto');
+
+    // A Back from here is a harmless dead press (the entry below is the app's own base); nothing reopens.
+    await page.goBack();
+    await expect(page.getByTestId('window-first-shell')).toBeVisible();
+    await expect(settingsDialog(page)).toHaveCount(0);
   });
 });
 
@@ -154,8 +170,11 @@ test.describe('Back closes the top dialog: a confirm over an Operations panel', 
 
     await page.goBack();
 
+    // The hash entry took us out of the panel, back to the list the reader came from: exactly one entry down.
     await expect(panel).toHaveCount(0);
-    await expect(page).not.toHaveURL(new RegExp(`#manage/users/${admin.id}`));
+    await expect(page.getByTestId('user-list')).toBeVisible();
+    await expect(page).toHaveURL(/#manage\/users$/);
+    expect(await entryIndex(page)).toBe(base - 1);
   });
 });
 
@@ -178,6 +197,11 @@ test.describe('Back closes the top dialog: the guide', () => {
       await expect(page.getByTestId('guide-title')).toHaveText('Map');
       await settled(page, 2);
       expect(await entryIndex(page), 'an in-guide link adds no history entry').toBe(base + 2);
+      // A #section link (the real guide.js: replaceState + scrollIntoView) adds none either, and is reported.
+      await frame.locator('#sect').click();
+      await expect(page.getByTestId('guide-new-tab')).toHaveAttribute('href', /#sec$/);
+      await settled(page, 2);
+      expect(await entryIndex(page), 'a #section link adds no history entry').toBe(base + 2);
       return guide;
     };
 
@@ -258,41 +282,45 @@ test.describe('Back closes the top dialog: phone sheets', () => {
     await expectBaseline(page, base);
   });
 
-  test('the page behind keeps its scroll position after closing the Ask sheet with the x, Escape and goBack', async ({ page }) => {
+  test('the page behind keeps the scroll it was given while the sheet was up, after the x, Escape and goBack', async ({ page }) => {
     await loginAndWaitForForecast(page);
     await openTab(page, 'plan');
     await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
     const room = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
-    expect(room, 'the Plan page scrolls at 390 px').toBeGreaterThan(120);
+    expect(room, 'the Plan page scrolls at 390 px').toBeGreaterThan(220);
     const target = Math.min(240, room);
-    await page.evaluate((y) => window.scrollTo(0, y), target);
     const scrollY = () => page.evaluate(() => Math.round(window.scrollY));
+    await page.evaluate((y) => window.scrollTo(0, y), target);
     await expect.poll(scrollY).toBe(target);
 
-    // The bar is fixed to the viewport, so opening the sheet scrolls nothing; every close below traverses
-    // history, and the browser must not restore the base entry's scroll over the reader's.
+    // The scroll is changed WHILE the sheet is up, so each close below must keep that value: with the browser's
+    // own restoration left on, the traversal that closes the sheet would put the base entry's scroll back.
+    let moved = target;
     const open = async () => {
       await page.getByTestId('ask-bar').click();
       await expect(askSheet(page)).toBeVisible();
       await settled(page, 1);
-      expect(await scrollY(), 'on opening').toBe(target);
+      moved -= 40;
+      await page.evaluate((y) => window.scrollTo(0, y), moved);
+      await expect.poll(scrollY).toBe(moved);
     };
+    const expectKept = async (how) => {
+      await expect(askSheet(page)).toHaveCount(0);
+      await settled(page, 0);
+      expect(await scrollY(), `after ${how}`).toBe(moved);
+      expect(await scrollRestoration(page), `restoration is healed after ${how}`).toBe('auto');
+    };
+
     await open();
     await askSheet(page).getByTestId('bottom-sheet-close').click();
-    await expect(askSheet(page)).toHaveCount(0);
-    await settled(page, 0);
-    expect(await scrollY(), 'after the x').toBe(target);
+    await expectKept('the x');
 
     await open();
     await page.keyboard.press('Escape');
-    await expect(askSheet(page)).toHaveCount(0);
-    await settled(page, 0);
-    expect(await scrollY(), 'after Escape').toBe(target);
+    await expectKept('Escape');
 
     await open();
     await page.goBack();
-    await expect(askSheet(page)).toHaveCount(0);
-    await settled(page, 0);
-    expect(await scrollY(), 'after goBack').toBe(target);
+    await expectKept('goBack');
   });
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import GuidePanel from '../components/guide/GuidePanel.jsx';
 import SettingsFallback from '../components/SettingsFallback.jsx';
 import ChunkErrorBoundary from '../components/shared/ChunkErrorBoundary.jsx';
@@ -65,10 +65,15 @@ describe('the guide', () => {
   });
 
   it('closing the dialog with its own close control leaves no marker behind', async () => {
-    const { unmount } = render(<GuidePanel {...baseProps} presentation="dialog" />);
+    function Host() {
+      const [open, setOpen] = React.useState(true);
+      return open ? <GuidePanel {...baseProps} presentation="dialog" onClose={() => setOpen(false)} /> : null;
+    }
+    render(<Host />);
     await b.settle();
-    unmount();
+    fireEvent.click(screen.getByTestId('guide-close'));
     await b.settle();
+    expect(screen.queryByTestId('guide-dialog')).toBeNull();
 
     expect(b.history.go).toHaveBeenCalledWith(-1);
     expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
@@ -120,7 +125,16 @@ describe('the ChunkErrorBoundary overlay', () => {
     await b.back();
 
     expect(screen.getByTestId('chunk-error')).toBeInTheDocument();
-    expect(__inspectForTests().layers).toBe(1);
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
+  });
+
+  it('registers nothing when its owner already holds the layer (backLayer={false})', async () => {
+    render(<ChunkErrorBoundary variant="overlay" label="Ask" onClose={vi.fn()} backLayer={false}><Boom /></ChunkErrorBoundary>);
+    await b.settle();
+
+    expect(__inspectForTests().layers).toBe(0);
+    expect(b.history.pushState).not.toHaveBeenCalled();
   });
 
   it('the inline and page variants register nothing', async () => {

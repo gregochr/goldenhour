@@ -67,7 +67,6 @@ export default function AskSheet({
       onClose={onClose}
       size="tall"
       closeOnEscape
-      back="close"
       reserveCloseStrip
       label={ASK_SHEET_LABEL}
       restoreFallback={restoreFallback}

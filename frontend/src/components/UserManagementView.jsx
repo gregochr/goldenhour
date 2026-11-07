@@ -204,6 +204,8 @@ export default function UserManagementView() {
           onClose={() => setTempPassword(null)}
           // Back is absorbed: closing would lose a password that cannot be shown again.
           back="block"
+          // Nor does a press on the scrim: only the explicit Close button discards it.
+          closeOnBackdrop={false}
           data-testid="temp-password-modal"
         >
           <p className="text-sm font-semibold text-plex-text">

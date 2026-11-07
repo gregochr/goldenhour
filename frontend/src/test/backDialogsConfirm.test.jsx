@@ -16,7 +16,7 @@ vi.mock('../api/auroraApi.js', () => ({
   clearSimulation: vi.fn(),
 }));
 vi.mock('../api/schedulerApi.js', () => ({
-  previewSchedule: vi.fn(() => new Promise(() => {})),
+  previewSchedule: vi.fn(),
   switchScheduleType: vi.fn(),
   updateJobSchedule: vi.fn(),
 }));
@@ -85,8 +85,10 @@ describe('ConfirmDialog', () => {
 
     await b.back();
     expect(onCancel).not.toHaveBeenCalled();
-    expect(screen.getByTestId('confirm-dialog')).toBeInTheDocument();
-    expect(__inspectForTests().layers).toBe(1);
+    expect(screen.getByRole('dialog', { name: 'Sure?' })).toBeInTheDocument();
+    // Absorbed means re-pushed: the layer is still open and still owns exactly one entry.
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
 
     rerender(<ConfirmDialog title="Sure?" message="Really" confirmLabel="Yes" onConfirm={vi.fn()} onCancel={onCancel} />);
     await b.settle();
@@ -110,14 +112,16 @@ describe('ScheduleSwitchDialog', () => {
     render(<ScheduleSwitchDialog job={job} previewJob={null} cronWords="03:00" onCancel={onCancel} onSwitched={vi.fn()} />);
     await b.settle();
 
-    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to fixed time' }));
     await b.settle();
     await b.back();
     expect(onCancel).not.toHaveBeenCalled();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
 
     await act(async () => { reject(new Error('nope')); });
     await b.settle();
-    expect(await screen.findByTestId('switch-error')).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Failed to switch');
 
     await b.back();
     expect(onCancel).toHaveBeenCalledTimes(1);
@@ -147,7 +151,9 @@ describe('AuroraForecastModal', () => {
 
     await b.back();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByTestId('aurora-forecast-modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Aurora forecast night selector' })).toBeInTheDocument();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
 
     await act(async () => { reject(new Error('boom')); });
     await b.settle();
@@ -169,36 +175,44 @@ describe('AuroraSimulateModal', () => {
 
   it('absorbs Back while submitting, and while clearing', async () => {
     let rejectSimulate;
+    let resolveClear;
     simulateAurora.mockReturnValue(new Promise((_res, rej) => { rejectSimulate = rej; }));
-    clearSimulation.mockReturnValue(new Promise(() => {}));
+    clearSimulation.mockReturnValue(new Promise((res) => { resolveClear = res; }));
     const onClose = vi.fn();
     render(<AuroraSimulateModal isActive onClose={onClose} onSuccess={vi.fn()} />);
     await b.settle();
 
-    fireEvent.click(screen.getByTestId('simulate-submit-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate' }));
     await b.settle();
     await b.back();
     expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: 'Aurora simulation controls' })).toBeInTheDocument();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
 
     await act(async () => { rejectSimulate(new Error('x')); });
     await b.settle();
-    fireEvent.click(screen.getByTestId('simulate-clear-btn'));
+    fireEvent.click(screen.getByRole('button', { name: 'Clear Simulation' }));
     await b.settle();
     await b.back();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByTestId('aurora-simulate-modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Aurora simulation controls' })).toBeInTheDocument();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+    expect(b.index).toBe(1);
+
+    await act(async () => { resolveClear({}); });
   });
 });
 
 describe('LiteLimitButton', () => {
   it('Back closes the dialog, as Escape does', async () => {
     render(<LiteLimitButton />);
-    fireEvent.click(await screen.findByTestId('lite-limit-btn'));
-    await screen.findByTestId('lite-limit-dialog');
+    fireEvent.click(await screen.findByRole('button', { name: /Lite limit/ }));
+    await screen.findByRole('dialog', { name: 'Lite sub-region picks' });
     await b.settle();
 
     await b.back();
 
-    expect(screen.queryByTestId('lite-limit-dialog')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Lite sub-region picks' })).toBeNull();
   });
 });

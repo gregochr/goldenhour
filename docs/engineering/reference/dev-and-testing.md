@@ -279,12 +279,13 @@ traversal or reconcile is outstanding).
   to the expected number (it reads `busy` while anything is outstanding); (2) take `navigation.currentEntry.index` before
   anything opens: after a x, Escape or Back it must return to that baseline with no `history.state.phLayer`, which is the
   "no dead press" property; (3) never click `confirm-dialog-confirm` (the Operations case would reset the shared admin);
-  (4) the guide iframe is stubbed by `stubGuideFrame(page, hygiene)` in `fixture.js`: a route-fulfilled page that posts the
-  `photocast-guide` message and replaces its own location on a link click, with the guide host registered as an expected
-  off-origin request for that test only; (5) `bottom-sheet` is shared, so sheets are selected by `aria-label`; (6) an Operations
+  (4) the guide iframe is stubbed by `stubGuideFrame(page, hygiene)` in `fixture.js`: route-fulfilled plain pages that load the repo's REAL
+  `landing/guide/guide.js` (served from the stubbed origin), so the real script reports the page and replaces the location on
+  a guide link and the history on a `#section` link; the guide host is an expected off-origin request for that test only; (5) `bottom-sheet` is shared, so sheets are selected by `aria-label`; (6) an Operations
   panel is closed by Back only when the entry below it is also a `#manage/...` hash (a non-manage hash is ignored by
   `ManageView`), so the spec clicks the Users tab first; (7) opening Settings runs `selectTab`, which scrolls the page to the
-  top and focus-return scrolls to the cog, so the scroll case uses the fixed Ask bar on a phone.
+  top and focus-return scrolls to the cog, so the scroll case uses the fixed Ask bar on a phone, scrolls the page WHILE the sheet is up and asserts that value survives
+  each close (and `history.scrollRestoration` is `'auto'` again), which fails if the engine stops setting `'manual'`.
 
 ## UI Work — Review Cadence
 

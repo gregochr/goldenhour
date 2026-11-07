@@ -74,6 +74,13 @@ describe('Modal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('closes nothing on a backdrop press when closeOnBackdrop is false', () => {
+    const onClose = vi.fn();
+    render(<Modal label="Test" onClose={onClose} closeOnBackdrop={false} data-testid="m"><p>Content</p></Modal>);
+    fireEvent.click(screen.getByTestId('m-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('does not crash when onClose is omitted and backdrop is clicked', () => {
     render(<Modal label="Test" data-testid="m"><p>Content</p></Modal>);
     // backdrop click with no onClose should not throw

@@ -427,3 +427,31 @@ What the engine does where the plan was silent or its formula needed a correctio
 - **Timeout.** A `go` that has not landed re-arms once; the store degrades to entry-less only on the second expiry.
 - **Lazy boot.** `bootDialogHistory()` (strip a stale marker, heal `scrollRestoration`) runs on the first registration.
   **PR 2a must call it once at app mount**, so a reload onto a `'manual'` entry is healed before any dialog opens.
+
+---
+
+## PR 2a build notes (2026-11-07)
+
+- **Deviation: `settings-fallback` and the `ChunkErrorBoundary` overlay are `close`, not Blocking.** The inventory listed them
+  as Blocking, but the stand-in IS Settings (and the overlay is Settings' or Ask's failure surface): a reader who presses Back
+  expects the dialog to go, and an absorbed Back only holds for the first press on Chromium. The overlay is `block` only when it
+  has no Close control. `ChunkErrorBoundary` takes `backLayer={false}` where its owner already registers the layer (Ask's sheet,
+  registered by the shell).
+- **Settings registers ONCE**, with `useBackLayer` in `UserSettingsModal`, not through `Modal back=`: the body, the drive-times
+  spinner and the result view are one `Modal` instance whose `onClose` differs per view, and Back on the result must close
+  Settings. The mode is `block` while `refreshing || deleting`, `close` otherwise.
+- **`lite-limit-dialog` uses `Modal back="close"`** (it already renders through `Modal` with an `onClose`; its window Escape
+  listener is untouched).
+- **The Ask sheet registers from the shell** (`useBackLayer({open: askSheetShown})`, outside `Suspense`), not inside the lazy
+  chunk, so a cold chunk does not delay the entry. `AskSheet`'s `BottomSheet` therefore has no `back`.
+- **`temp-password-modal`:** Back is blocked, and a scrim press no longer closes it (`Modal closeOnBackdrop={false}`): only its
+  Close button discards the password.
+- **Accepted:** the aurora-run case. `AuroraForecastModal`'s `handleRun` ends with a hash push (`RunsView` `clear()`) while the
+  modal is `block`; the hash push reads as depth 0 and the engine's re-push leaves one extra hop on Back. Not fixed in v1.
+- **Manual Android check (release blocker, added to the device pass):** Back during the Settings drive-times spinner, then Back on
+  the result view; the same during an account deletion.
+- **Guide fix live before release:** the guide link fix (#1773, embed-mode links replace history) must be published with
+  `./release-landing.sh` **before any app release that contains 2a**, or Back pages through the guide.
+- **Tests:** `smoke/back.spec.js` drives the guide with the repo's real `landing/guide/guide.js` served from a stubbed origin
+  (`stubGuideFrame`). The Ask-highlight scroll route is not covered by Playwright (it needs a Ready answer, which nothing seeds in
+  the smoke stack); the phone scroll case scrolls while the Ask sheet is up and asserts the value survives each close.

@@ -9,6 +9,7 @@ import UserManagementView from '../components/UserManagementView.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
 import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
+import { __inspectForTests } from '../utils/dialogHistory.js';
 
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
@@ -611,11 +612,29 @@ describe('UserManagementView', () => {
 
         await browser.back();
         // Closing would lose a password that cannot be shown again: Back is absorbed, the entry re-pushed.
-        expect(screen.getByTestId('temp-password-modal')).toBeInTheDocument();
+        expect(screen.getByRole('dialog', { name: 'Temporary password' })).toBeInTheDocument();
         expect(screen.getByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
+        expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
+        expect(browser.index).toBe(1);
       } finally {
         uninstallBackBrowser();
       }
+    });
+
+    it('a press on the scrim does not discard the temporary password; only Close does', async () => {
+      resetUserPassword.mockResolvedValue({ temporaryPassword: 'Temp-1234' });
+      await renderList();
+      await openReader('anna_r');
+      fireEvent.click(await screen.findByRole('button', { name: 'Reset' }));
+      const dialog = await confirmDialog("Reset anna_r's password?");
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }));
+      expect(await screen.findByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
+
+      fireEvent.click(screen.getByTestId('temp-password-modal-backdrop'));
+      expect(screen.getByRole('dialog', { name: 'Temporary password' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('dialog', { name: 'Temporary password' })).not.toBeInTheDocument();
     });
 
     it('Disable: asks with the handoff copy, then disables and refetches', async () => {

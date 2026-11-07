@@ -133,7 +133,7 @@ describe('Back on Settings', () => {
 
     await b.back();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
 
     await act(async () => { reject({ response: { status: 403 } }); });
     await b.settle();
