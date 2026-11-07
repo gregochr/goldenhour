@@ -48,6 +48,12 @@
     },
     "@eslint/config-array": {
       "minimatch": "11.0.4"
+    },
+    "@stryker-mutator/core": {
+      "minimatch": "11.0.4"
+    },
+    "typed-rest-client": {
+      "qs": "6.16.1"
     }
   },
   "devDependencies": {
