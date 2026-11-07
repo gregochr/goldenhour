@@ -106,6 +106,8 @@ describe('the Day\'s jobs tab: the default and the address', () => {
   });
 
   it('shows the viewed day beside the tab: Today, then the chosen day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     expect(await screen.findByTestId('scheduler-day-picture')).toBeInTheDocument();
     expect(screen.getByTestId('scheduler-tab-day-word')).toHaveTextContent('Today');
@@ -255,6 +257,8 @@ describe('the sun and Now lines', () => {
   });
 
   it('draws no Now line on another day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
     mount({ day: otherDay('2026-11-02') });
     expect(await screen.findByTestId('scheduler-day-sunrise')).toBeInTheDocument();
@@ -322,6 +326,8 @@ describe('opening a job from the picture', () => {
 
 describe('the day navigation', () => {
   it('goes back and forward a day, writing ?date= with replaceState and asking for that day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     await screen.findByTestId('scheduler-day-picture');
     const before = window.history.length;
@@ -339,6 +345,8 @@ describe('the day navigation', () => {
   });
 
   it('returns to today with the Today button, which is disabled on today', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-10-30';
     mount({ day: otherDay('2026-10-30') });
     await screen.findByTestId('scheduler-day-picture');
@@ -400,6 +408,8 @@ describe('the day navigation', () => {
   });
 
   it('follows Back and Forward: a changed ?date= in the address moves the day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     await screen.findByTestId('scheduler-day-picture');
     fetchSchedulerDay.mockResolvedValue(otherDay('2026-11-01'));
@@ -875,6 +885,8 @@ describe('the day is re-read after a change to a job', () => {
   });
 
   it('re-reads another date\'s day too, for that date', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     pauseJob.mockResolvedValue({});
     pinClock();
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
@@ -993,6 +1005,8 @@ describe('mark geometry in the picture', () => {
   });
 
   it('draws a running fire on another day as a diamond (Now is not on that axis)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
     mount({
       day: otherDay('2026-11-02', {
