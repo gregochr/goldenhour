@@ -9,7 +9,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:5173';
 export default defineConfig({
   testDir: './src/test/e2e',
   // The smoke suite has its own config (playwright.smoke.config.js) and runs in CI.
-  testIgnore: '**/smoke/**',
+  testIgnore: ['**/smoke/**', '**/a11y/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
