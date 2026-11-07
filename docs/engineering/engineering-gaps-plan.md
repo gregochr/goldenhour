@@ -242,6 +242,121 @@ Planned 2026-11-07 from a research pass over `origin/main` (`3ac0bb8a`). Four PR
 - **`door1-obstacles.spec.js`** moves into `smoke/` on the shared fixture, with its "restart + `POST /api/briefing/run`" setup removed, because the seed replaces it.
 - **Ask:** `ask.spec.js` is re-checked on seeded data, because Ready answers may now exist. It stays non-spending.
 
+### 3a.1 review amendments (2026-11-07). These are binding and win over the bullets above where they conflict.
+
+Two adversarial reviews (one on the seeder, one on the specs) read the plan against `origin/main`. Their findings are folded in here.
+
+**The seeder**
+1. **Enough places to pass the sample gate.**
+   - `VerdictSampleGate` needs at least 5 rated places, covering at least half of each region's roster. "About 12 places in 3 regions" would fail it everywhere, and no Best pick would ever appear.
+   - Seed **3 regions × 6 places**, LANDSCAPE or SEASCAPE only. No WOODLAND, BLUEBELL or WILDLIFE: they don't vote.
+   - Space every place **at least 10 km** from every other, so the neighbour guard (5 km) never flags a slot. Keep them **at least about 40 px apart at the opening zoom**, and off region centroids, so the chips aren't collision-culled.
+   - Avoid ", " in names. Create no marine or big-seas data, so there are no big-seas chips and no `hw:` rows.
+2. **The write order.** Persisting without enrichment drops the gloss and every pick (`BriefingRegionEvaluationRollup:308–310` nulls `glossHeadline` when the verdict changes on serve).
+   1. Regions, places, tides.
+   2. `forecast_evaluation`.
+   3. `cached_evaluation` through `mergeFromBatch`.
+   4. `snapshotFor` → `buildSlot` → `buildDays`.
+   5. **`BriefingRegionEvaluationRollup.enrich(days, scoreResolver, triagedResolver)`**, with the resolvers built as `BriefingService.bulkScoreResolver` / `bulkTriagedResolver` do. That means `EvaluationViewService.getScoresForEnrichmentBulk` and `getTriagedByBatchLocationNamesBulk`.
+   6. Stamp the gloss with `region.withGloss(h, d)`.
+   7. `headlineGenerator.generateHeadline`, with `BestBetResult.noPicks()`.
+   8. Serialise with the injected **Jackson 2** `ObjectMapper` and persist to `daily_briefing_cache` id 1.
+   9. Call `loadPersistedBriefing()`.
+   10. Call **`almanacService.refresh()`**, so Coming up sees the seeded tides.
+   11. Self-check: `getCachedBriefingForApi()` has at least one window with a BEST pick, and the row counts read back. `persistToDb` swallows its own errors.
+
+   Only then does the seeder go UP.
+3. **The ratings.** Use a per-region, per-window base plus a small per-place offset, clamped to 1–5.
+   - Every chip still changes between adjacent solar windows.
+   - Each day has at least one region averaging ≥ 3.5 (WORTH_IT) and one averaging ≤ 2.5, which exercises `AlsoGoodFloor`.
+   - The formula lives in one place that the specs can mirror. Better still, specs read the served `/api/forecast` response as the oracle, rather than re-deriving it.
+4. **The timestamps.**
+   - Every `forecast_evaluation` row has `forecastRunAt` (a naive **UTC** `LocalDateTime`) and `scoredAt` set to `min(seedStart − 1h, event − 6h)`.
+   - The event time comes from `SolarService` and is stored in `solarEventTime`. The client's past/future split must agree with the server's.
+   - Set `daysAhead` consistently. `batchState` and the triage reason are null.
+   - Without this, today's already-passed windows serve no star.
+5. **The past range is T-3..T-1; T-4 is left empty on purpose.** The control then reaches its floor with `wf-win-status` reading "No stored forecast for {day}", and `‹` disabled with `aria-describedby`. That is a real assertion, not an empty status.
+6. **Readiness.**
+   - A separate bean named exactly `e2eFixtureHealthIndicator` (Boot 4 `org.springframework.boot.health.contributor.HealthIndicator`). It is DOWN until the self-check passes.
+   - The seeder runs on `@EventListener(ApplicationReadyEvent.class)` with `@Order(LOWEST_PRECEDENCE)`. `LocalAdminSeeder` runs at `@PostConstruct`, so it has always run first.
+   - On failure it logs an ERROR and stays DOWN. It never swallows the failure the way `AskLocalFixtureSeeder` does.
+   - It refuses to seed unless the `locations` table is empty, as well as the local-profile and H2 refusals.
+   - The script adds `--management.endpoint.health.cache.time-to-live=0s`.
+7. **Nothing leaves the machine.**
+   - The script starts the jar with a **dead HTTPS/HTTP proxy**: `-Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=<unused port> -Dhttp.proxyHost=… -Dhttp.nonProxyHosts='localhost|127.0.0.1'`. Every outbound call fails locally. Prove that OkHttp (Anthropic) honours it in the discovery run.
+   - The external health probes then read DOWN, so the status SSE reports DEGRADED. Specs never assert on that banner, and the discovery run confirms it produces no browser console error.
+   - A CI step after the suite fails if `backend.log` contains `Daily briefing refresh started`, `Briefing weather fetch`, `Horizon cloud fetch` or `[ASK FIXTURE]`. It also fails if `[E2E FIXTURE] seeded` is **absent**, so the check can't pass vacuously.
+8. **The seeder's CI gate.** `src/local` and `src/local-test` are outside CI's backend job, which has no JaCoCo, checkstyle or SpotBugs for them. The E2E job adds, before packaging:
+   - `./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*' -DfailIfNoSpecifiedTests=false`;
+   - `./mvnw -Plocal-dev checkstyle:check`.
+
+   The seeder tests live in `src/local-test/java`.
+9. **Ask:** Ready answers will **not** exist, because nothing runs `AskReadyPrecompute`. `ask.spec.js` keeps asserting the box and its allowance only.
+
+**The specs**
+1. **The opening tab is a race.**
+   - Desktop prefers Map only if `/api/forecast` arrives within 1.5 s.
+   - Every spec clicks its tab explicitly (`window-first-tab-*`), then asserts `aria-selected="true"` and its panel.
+   - Never assert the desktop default.
+   - On phone, assert Plan is selected and the tabs are, in order, `[Plan label, 'Coming up', 'Map', 'Operations']`.
+2. **A placement-settled signal.**
+   - A one-line frontend seam: `data-placed="true"` on `map-labels` once `isMeasured`, with a Vitest test.
+   - Specs also wait for `document.fonts.ready`, and use only retrying assertions (`expect.poll`) over visible chips.
+   - Never read positions once and act on them.
+3. **Chips.**
+   - Select visible chips by role: `getByRole('button', { name: /^(.+?), (\d) star(?:,|$)/ })`. Hidden and culled chips stay in the DOM.
+   - Require at least one visible chip. Every visible chip's star must equal the oracle (the served `/api/forecast`).
+   - Close the callout (Escape or `map-callout-close`, then `map-callout` count 0) before clicking another chip.
+   - Assert `map-callout` `toBeVisible()`, and `map-callout-score` against `/^\d★ /` with the oracle star.
+4. **Tiles:** the fixture's tile route keeps a counter. The spec asserts `expect.poll(() => tiles).toBeGreaterThan(0)` after selecting Map. No `waitForRequest`, which could arm too late.
+5. **Stepping through windows.**
+   - Open the pill menu once and read `[data-testid="wf-win-row"][data-ev-id]` (ids look like `solar:YYYY-MM-DD:TYPE`) and the active row (`aria-selected="true"`). Close the menu with Escape.
+   - Step **solar rows only**.
+   - After each step, the pill text changes; then check that visible chips present in both windows have different stars. Require that intersection to be non-empty. Expected stars come from the oracle by `data-ev-id`, not by step count.
+   - **Keyboard leg:** focus `wf-win-pill` before ArrowLeft/ArrowRight, because focus drops to `<body>` when `›` disables.
+   - **The forward end:** `wf-win-next` is `disabled`, and nothing wraps.
+   - **Loading older days:**
+     - Only two loads happen: T-3 (rows) and T-4 (empty). The initial list covers T-2..T+4.
+     - For each load, register `waitForResponse(/\/api\/forecast\?date=\d{4}-\d\d-\d\d$/)` first, then press `‹` (labelled `Load {day}`), and expect a 200.
+     - Then `wf-win-loading` count is 0, and the pill shows `wf-win-past`.
+     - After a load the selection jumps to that day's **sunset**, so step `‹` to its sunrise before the next load.
+     - Assert `wf-win-past` appears on *some* step back, not on a fixed one.
+   - **The floor** is item 5 under "The seeder" above.
+   - **Phone:** the pill opens the peek sheet, not the menu. Use `wf-map-peek-btn-win`, `aria-expanded`, `wf-map-peek-win-row`, and wait out the 0.28 s transition with web-first assertions.
+6. **The drill-down.**
+   - **From the Map:** chip → `map-callout` → **`map-callout-reason`** ("Four days here ›"; `map-callout-four-days` is the LITE outside-picks variant) → `location-sheet`. The seed must make the callout's reason non-null: confirm `/api/briefing/evaluate/scores` carries the seeded `summary`, or use the region gloss.
+   - **Row expansion:** the sheet opens with one row **already expanded**, and detail responses are cached per module.
+     - Register the waiter for the auto-expanded row before the click that opens the sheet.
+     - For a second row, pick one with `aria-expanded="false"`, take its forecast id from the oracle, and register `waitForResponse(url ends with '/api/forecast/' + id)` before clicking.
+     - Then, scoped to that row, `location-sheet-facts-skeleton` count is 0 and `location-sheet-facts` is visible.
+   - **Values:**
+     - the rating is in `location-sheet-rating`;
+     - comfort is in `location-sheet-comfort`;
+     - `location-sheet-fact-rising-tide` appears only when the seeded `nextHighTideTime` is within ±90 min of the event, so seed one coastal slot to hit it;
+     - `location-sheet-generated` comes from `forecastRunAt`.
+   - **From the Plan:** `wf-heat-card` → `window-sheet` → **`window-spot`** (primary) → `location-sheet`.
+   - **Dialog depth:** an `addInitScript` MutationObserver records the maximum concurrent `.app-safe-modal[role="dialog"]` and `[aria-modal="true"]`. Assert ≤ 2 and ≤ 1 at test end; polling would miss a transient third.
+   - **Escape order:**
+     - On the Plan route, the sheet closes, then the popup.
+     - On the Map route, the sheet closes, then focus returns to `map-callout-reason`, then the selection clears.
+   - **Don't click** guide links (they open a new tab off-origin), `location-sheet-plan` or `location-sheet-map`.
+   - **The browser Back button closes no dialog** (there is no `pushState` for dialogs), so it is **not** tested. That is a UX question for the owner, not a smoke assertion.
+7. **`door1-obstacles.spec.js`**
+   - Use the fixture login. Desktop viewport only in the gate; the 390×844 variant is added only if the discovery run proves it stable.
+   - Wait for `document.fonts.ready` after each sheet opens, and use `expect.poll` stability twice instead of the bounded RAF loop.
+   - Assert `cardCount >= 6`. A sample point outside the viewport fails the test.
+8. **Shared state:** `global-setup.js` also performs the one Coming up "seen" write (`PUT /api/user/settings/coming-up-seen`). Specs never assert the Coming up badge.
+9. **Discovery run on seeded data, per spec, in record mode,** before the hygiene assertions are switched on. Findings go in the PR, as in Phase 2. It covers:
+   - the Operations-tab requests;
+   - the DEGRADED status under the dead proxy;
+   - the door1 phone viewport;
+   - big-seas and `hw:` rows;
+   - the callout reason.
+10. **Time.**
+    - The suite budget becomes **under 3 minutes on 2 workers**.
+    - The temporary proof uses `--repeat-each=10` over the whole suite, with its own `timeout-minutes: 45`, and the job timeout raised **for the proof commit only**. It must pass every time across the 5-run matrix.
+    - The job's permanent timeout becomes 20 minutes, to cover the seeder tests and the boot.
+
 ### 3a.2: role gating
 
 - **Users:** the seeder also inserts `lite` and `pro` users after the admin, with an encoded password, `enabled`, `passwordChangeRequired=false` and `postcodePromptDismissedAt=now`. These are insertable columns, set on the builder at insert time.
