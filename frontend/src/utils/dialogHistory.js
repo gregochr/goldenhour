@@ -472,7 +472,6 @@ export function disposeDialogHistory() {
   listenedWindow = null;
 }
 
-if (import.meta.hot) {
-  import.meta.hot.dispose(disposeDialogHistory);
-}
+// No HMR dispose hook: GitHub CodeQL's JS extractor fails to parse `import.meta.hot` calls (code-scanning alerts
+// 287 and 288). An HMR reload of this module leaves an inert old listener in development, which is harmless.
 listen(getWindow());
