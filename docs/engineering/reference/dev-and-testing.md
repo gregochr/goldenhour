@@ -113,6 +113,70 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 ---
 
+## The E2E smoke gate (Playwright, a required check)
+
+`E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
+and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
+`docs/engineering/engineering-gaps-plan.md`, Phase 2. Phase 3 adds seeded data so the Map and Plan specs run too.
+
+**What it is.** The real backend (local profile, a fresh H2 file, Ask on its stub) and the built frontend behind
+`vite preview`, driven by Chromium through `frontend/playwright.smoke.config.js`. Specs live in
+`frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`; `global-setup.js` dismisses the one-time postcode
+prompt for the local admin. The older `src/test/e2e/*.spec.js` (run by `playwright.config.js`, which now ignores
+`smoke/`) are manual and move to Phase 3.
+
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
+
+```bash
+cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
+cd frontend && npm run build
+cd frontend && npx playwright install chromium                       # once
+cd frontend && npm run test:e2e:smoke
+```
+
+Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
+`frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
+database; stop it first when a spec fails oddly. If the machine's preinstalled Chromium does not match the pinned
+Playwright, `E2E_CHROMIUM_PATH=/path/to/chrome` points the run at it (local only; CI never sets it). `E2E_HYGIENE=record`
+prints the hygiene findings below instead of failing on them, which is how to discover a new tab's errors.
+
+**The rules** (each was put in the plan by an adversarial review):
+
+- **Reliability is the requirement.** Chromium only, `@playwright/test` pinned exactly (also in the lockfile's root
+  entry, or `npm ci` fails), `workers: 2`, `retries: 0`, traces `retain-on-failure`, `serviceWorkers: 'block'` (the PWA's
+  worker would otherwise take over mid-test). No fixed sleeps: web-first assertions and `waitForResponse` only. No clock
+  freezing in this phase.
+- **No spend, by construction.** The job has no secrets and the backend script forces a fake `ANTHROPIC_API_KEY`. The
+  backend still makes outbound health probes (Anthropic 401, Open-Meteo), which are soft and show a DEGRADED banner, so
+  **no spec asserts on the absence of the health banner**. Readiness is `/actuator/health/container` only (db and ping),
+  never the bare `/actuator/health`.
+- **Third parties are fulfilled, never aborted** (an aborted request logs `net::ERR_FAILED` as a console error): ArcGIS
+  tiles get a real 1x1 PNG and the Turnstile script gets a stub that verifies at once. Any other off-origin request is
+  recorded and fails the test.
+- **Hygiene on every test.** The fixture records console errors, `pageerror`s, responses of 400 or more from the app's
+  own origin, and unexpected off-origin requests, and each test ends by asserting there were none apart from a named
+  allow-list (`ALLOW_LIST` in `fixture.js`; each entry needs a reason and a follow-up). A test that provokes an error on
+  purpose declares it with `hygiene.expect(...)`, scoped to that test.
+- **The CORS gotcha.** The browser's `Origin` is the preview origin and the proxy passes it on. The backend allows
+  `http://localhost:*` but not `127.0.0.1`, so the backend script adds `--cors.extra-origins=http://127.0.0.1:4173`; without
+  it every browser POST, the login form's included, is a 403.
+- **Logging in** posts to `/api/auth/login` through the preview origin (so the proxy is exercised) with the local admin
+  `admin` / `golden2026`. `LocalAdminSeeder` makes it.
+- **Never fail the admin's sign-in on purpose.** Ten failed sign-ins lock an account out with a 429, which then
+  rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
+- **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the
+  local profile does not run), so no scheduled job registers. A spec asserts `GET /api/admin/scheduler/jobs` is empty, so a
+  future seeder that adds rows fails loudly. `photocast.ask.seed-local-fixture` stays off: it triggers a briefing build.
+- **An empty database has no Map tab.** `App.jsx` offers it only with a forecast or a real aurora alert. The spec asserts
+  the three-tab bar; Leaflet and tile assertions arrive with Phase 3's seeded data.
+- **Ask on an empty database** renders its box and the allowance line. A typed question returns 503
+  `TYPED_UNAVAILABLE`, which the dock renders gracefully but which is a console error, so the spec sends none.
+- **Time budget:** the job under 10 minutes, the specs under 2.
+
+**After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
+
+---
+
 ## UI Work — Review Cadence
 
 **Every code commit that touches the UI gets an adversarial review before it lands, and the tests go
