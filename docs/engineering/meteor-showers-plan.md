@@ -95,6 +95,42 @@ from the hot-topic path even after Phase 1, and the almanac row carries the "was
 although the moon sets at ~23:35 and the Leonids are a post-midnight shower. Phase 3 fixes this; it
 must also ship before 17 Nov for the Plan tab pill to appear.
 
+### Plan review, round 1 (corrections that supersede the text above)
+
+1. **Order.** The moon-up gate (Phase 3) ships *second*, before per-year dates, so the Leonids pill
+   can appear on 17 Nov. Execution order: 1 → 3 → 2 → 4.
+2. **First-of-type prose.** `ComingUpAssembler.markFirstOfType` gives `prose` (and the client's
+   feature card, `comingUpFeed.js` `isFeature`) to the first meteor entry. A minor shower must
+   never take it: N. Taurids (12 Nov) would otherwise strip the Leonids' card. Minor meteors are
+   skipped by first-of-type; a test puts N. Taurids and Leonids in one window.
+3. **Final strings** (54.8°N, 2°W, local clock):
+
+   | Shower | bestHours | radiant | ukRate | major |
+   |---|---|---|---|---|
+   | Eta Aquariids | 03:00–dawn | E | 5 | no |
+   | S. Delta Aquariids | 01:00–04:00 | S | 8 | no |
+   | Draconids | 20:00–23:00 | NW | – | no |
+   | S. Taurids | 23:00–03:00 | S | – | no |
+   | N. Taurids | 22:00–02:00 | S | – | no |
+   | Leonids | 03:00–dawn | SE | – | yes |
+   | Ursids | 00:00–dawn | N | – | no |
+
+   Lyrids' radiant is corrected from NE to SE (ESE–SE at 50–65° in 02:00–04:00 BST).
+4. **Metric.** Plain `~5/hr` from `ukRate` (no "from UK" suffix, which would imply the other rows
+   are not UK rates); the catalogue rate goes in the accent fact "radiant low from the UK —
+   catalogue rate ~50/hr".
+5. **Minor rarity, stated honestly.** `minorMeteorShowerMeanGapDays` (60.875) is documented as a
+   configured figure: "the six minor showers together peak about every two months; set so a minor
+   shower sits on the supermoon rung and lists without badging". The existing property's
+   "regardless of how many other showers" sentence is kept and scoped to named major showers.
+   `application-example.yml`, the ladder Javadoc in the census test and
+   `reference/configuration.md` are updated. Census asserts meteor arrivals 12, meteor badges 6.
+6. `minor`, `ukRate`, `lowRadiant` are all stripped from served `meta`.
+7. **Ask** caps `detail` at 200 characters (`AskTools`); the almanac detail, moonlit suffix
+   included, must stay under 200 for every shower (a test asserts it).
+8. A table test asserts every shower has a distinct peak `MonthDay` (the entry id is
+   `meteor:date:date`).
+
 ## Phase 2 — per-year peak dates
 
 `MonthDay peak` stays as the fallback; a `Map<Integer, LocalDate>` per shower (2026–2028, IMO
