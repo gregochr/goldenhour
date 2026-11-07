@@ -164,6 +164,7 @@ lower any of them without a stated reason.
 | SpotBugs with FindSecBugs | Every PR | Any High-priority finding | The build fails |
 | Checkstyle | Every PR | Javadoc on every public type and method, indentation, line length, unused imports | The build fails |
 | ESLint, including `jsx-a11y` | Every PR | Any error or warning | The build fails |
+| Playwright smoke (Chromium) | Every PR and every release | Signing in and out and the main tabs, against the real server with an empty database; any console error, failed request or unexpected third-party request | The build fails |
 | `npm audit` | Every PR | Any high or critical advisory | The build fails |
 | CodeQL | Every PR (new alerts) and weekly (whole codebase) | New alerts a change introduces | The check fails |
 | OWASP Dependency-Check | PRs that change server dependencies, and daily | CVSS 7.0 or above, unless investigated and recorded as not applicable | The check fails |
@@ -222,6 +223,10 @@ Coverage says what the tests ran, not whether they'd notice a bug. So:
 
 - **Mutation testing.** PIT runs weekly over the service and utility layers, planting small faults and checking
   the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.
+- **A real browser.** A short Playwright suite drives Chromium against the real server and a fresh, empty
+  database, signs in and out, visits the main tabs and fails on any console error, failed request or unexpected
+  third-party request. It is a required check on every pull request and every release. It does not yet cover the
+  map and planning screens with data.
 - **Testing the model, not just the code.** A weekly evaluation re-rates a fixed set of past sunrises and
   sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a
   model changes, and it decides which model runs which job: a newer model was taken off a production job after
@@ -259,7 +264,9 @@ and challenged before any code exists. [How PhotoCast is built](how-its-built.ht
 English.
 
 ### Where it falls short
-- The app's tests run in a simulated browser. A few real-browser tests exist, but they run by hand.
+- Most of the app's tests run in a simulated browser. A real-browser smoke test now runs on every change and must
+  pass, but it uses an empty database, so the map and planning screens with real forecasts are still checked in a
+  real browser by hand.
 - Mutation testing covers the server and the app's client logic, but not the app's screens, and runs weekly rather than on every change.
 - The prompt regression suite runs by hand, because every run spends real money; the weekly evaluation fills the
   gap in between.
