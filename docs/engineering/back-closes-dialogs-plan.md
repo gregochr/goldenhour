@@ -362,6 +362,69 @@ and tests and rollout.
   `openWindow(null)`-on-vanish fix and the `!guideModal` guard, with their specs. **No release is cut between
   2a and 2b.**
 - **PR 3:** the first-run guard.
+
+#### PR 3 build notes (planned 2026-11-07, from `origin/main` `d6412142`)
+
+**What is guarded.** Two prompts, `PostcodePromptOverlay` (`postcode-prompt`) and `SubRegionSignInPrompt`
+(`sub-region-prompt`). Each is a portalled `role="dialog"` that Escape does not close, and each has only its own
+buttons as exits. Owner decision: once the reader has interacted, Back does nothing while either is open. Before
+any activation, Back leaves the page as it does today.
+
+**The engine stays as it is.** The guard is an ordinary `mode: 'block'` layer, which the engine already handles
+(design item 9: on `popstate` it pushes again and closes nothing). Only *when* it registers is new.
+
+**`useBackLayer` gains `activationGated` (default `false`).** When it is true, an open layer registers only once
+the page has a live activation:
+- **At open:** if `navigator.userActivation?.isActive` is true, register at once.
+- **Otherwise:** add a capture-phase listener for `click` and `keyup`, never `pointerdown`, which does not
+  trigger activation on touch (design item 10). Attach it to the prompt's element when the hook is given a ref,
+  else to `document`.
+  - On the first such event, register if `isActive` is true. If the browser has no `navigator.userActivation`,
+    register too: the event is itself a user gesture.
+  - Then remove the listener.
+- **Clean-up:** closing before any activation removes the listener and pushes nothing. Closing after
+  registration releases the layer, so the engine drops its entry, as for every other layer.
+- **Prompts that are always open from mount** (both are rendered only while shown): `open` is `true`, so the
+  gate alone decides when the entry appears.
+- The off switch (`BACK_CLOSES_DIALOGS_ENABLED=false`) still makes it a no-op, with zero history calls.
+- **No `beforeunload`.**
+
+**Wiring.** Each prompt calls `useBackLayer({ open: true, mode: 'block', activationGated: true, ref: dialogRef })`.
+Back on a registered prompt is absorbed: the prompt stays open, focus stays inside it, and the URL does not change.
+
+**Stacking.** The postcode prompt already waits for the sub-region prompt to close (`useModalPresent`), so at most
+one guard is live at a time. Neither prompt can sit under an included dialog.
+
+**Tests (Vitest).**
+- `useBackLayer` with `activationGated`, under a fake `navigator.userActivation`:
+  - an already active page registers at open;
+  - an inactive page registers on the first `click` or `keyup`, and not on `pointerdown`;
+  - with no `userActivation` API, it registers on the gesture;
+  - closing before activation makes zero history calls and leaves no listener;
+  - StrictMode's double mount nets to one push;
+  - the off switch makes zero history calls.
+- Each prompt component:
+  - after a click inside it, a simulated Back keeps it open and closes nothing beneath it;
+  - before any activation, nothing is pushed;
+  - Save, Not now and Continue release the guard.
+
+**Tests (Playwright smoke, `back.spec.js`).** Use an account that sees the prompt: the seeded `lite` or `pro`
+account has no `postcode-prompt-dismissed` path in `global-setup.js`. If neither shows the prompt, add a seeded
+user for it in `E2eRoleUsers`.
+- Click inside the prompt, then `page.goBack()`: the prompt is still visible, the URL is unchanged, and
+  `data-back-depth` is settled.
+- Not now: the prompt closes and the depth returns to 0.
+- No dead press: one more `goBack` then leaves to whatever is below.
+- **Before any click:** there is no history entry (assert on `history.length` or `data-back-depth`). Playwright's
+  `goBack` always grants activation, so the "Back leaves before a tap" claim itself is left to the manual pass.
+
+**Manual pass (release blocker, already listed above).** On Android Chrome, both in a tab and as a standalone PWA,
+check the first-run guard after a tap and before any tap. Record the result here.
+
+**Docs.**
+- `plan-tab.md` 'Back': the guarded prompts.
+- This plan's status.
+- A `changelog.d/` entry.
 - **Each PR** gets the full UI review cadence (about six lenses plus refuters), and amends the 3a.1 line "the
   browser Back button closes no dialog … not tested".
 
