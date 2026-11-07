@@ -99,6 +99,8 @@ must also ship before 17 Nov for the Plan tab pill to appear.
 
 1. **Order.** The moon-up gate (Phase 3) ships *second*, before per-year dates, so the Leonids pill
    can appear on 17 Nov. Execution order: 1 → 3 → 2 → 4.
+   (Values in Phase 1 were corrected on 2026-11-07 from the IMO 2026 Table 5 itself, once imo.net
+   was reachable: Quadrantids ZHR 80, Eta Aquariids 5 May, Draconids ZHR 5, S. Taurids 5 Nov ZHR 7.)
 2. **First-of-type prose.** `ComingUpAssembler.markFirstOfType` gives `prose` (and the client's
    feature card, `comingUpFeed.js` `isFeature`) to the first meteor entry. A minor shower must
    never take it: N. Taurids (12 Nov) would otherwise strip the Leonids' card. Minor meteors are
@@ -131,48 +133,85 @@ must also ship before 17 Nov for the Plan tab pill to appear.
 8. A table test asserts every shower has a distinct peak `MonthDay` (the entry id is
    `meteor:date:date`).
 
-## Phase 2 — per-year peak dates
+## Phase 2 — per-year peak dates, stored in the database
 
-`MonthDay peak` stays as the fallback; a `Map<Integer, LocalDate>` per shower (2026–2028, IMO
-calendar) overrides it. One static lookup, `peakIn(int year)`, used by `detect`, `peakDatesWithin`,
-`MeteorClarityService` (through `peakDatesWithin`) and `MeteorAlmanacSource`. Detailed when Phase 1
-has merged.
+Rewritten 2026-11-07 after the owner asked that the table update itself (Phase 4), as the
+fortnightly WorldTides refresh does for tides. The per-year peaks therefore live in a table, not in
+code, so a job can write them.
+
+- `meteor_shower_peak (shower_code, year, peak_night, max_utc NULL, zhr, source_url, source_sha256,
+  fetched_at)`, PK `(shower_code, year)`. `shower_code` is the IAU three-letter code (`LEO`,
+  `GEM`, …), which `Shower` gains as a field. Seeded by migration for 2026 and 2027 from the IMO
+  calendars (both are already published; 2028 is not, so it falls back).
+- **Evening-date rule** (one function, unit-tested): with a maximum time, `peak_night` is the
+  evening before the UK local midnight nearest the maximum (Leonids 17 Nov 23h45 UT → 17 Nov;
+  Draconids 9 Oct 01h UT → 8 Oct; Geminids 14 Dec 14h UT → 14 Dec). With a date only, it is the
+  table date minus one day when the shower's best hours start between 00:00 and 06:00 (a pre-dawn
+  shower: Eta Aquariids 6 May → 5 May), else the table date.
+- `MeteorPeakCalendar` (bean): `peakNight(shower, year)` and `zhr(shower, year)` read an in-memory
+  snapshot of the table, reloaded at start-up and after each refresh; a missing row falls back to
+  the code's `MonthDay` and catalogue ZHR. `detect`, `peakDatesWithin` (so `MeteorClarityService`)
+  and `MeteorAlmanacSource` all read it, so the clarity scan, the Plan tab and Coming up agree.
+  `peakDatesWithin` stops being static; the strategy and the clarity service get the bean.
 
 ## Phase 3 — moon-up gate
 
 Replace "illumination ≥ 50% at noon on the peak date" with "a moon ≥ 50% lit is above the horizon
-for most of the shower's `bestHours`", sampled hourly with `LunarCalculator.calculate(time, lat,
-lon).altitude()` at a UK reference point; `bestHours` becomes structured (start hour, end hour or
-dawn). The almanac `washedOut` caveat uses the same predicate. Detailed when Phase 2 has merged.
+for most of the shower's `bestHours`", sampled every 15 minutes with
+`LunarCalculator.calculate(time, lat, lon).altitude()` at a UK reference point (54.8°N, 2°W);
+`bestHours` becomes structured (start, end or dawn, where dawn is nautical dawn from solar-utils).
+The almanac `washedOut` caveat uses the same predicate. 17 Nov 2026: the moon sets about 23:35, so
+the Leonids (03:00–dawn) are not gated. Detailed before its build.
 
-## Phase 4 — weekly IMO calendar watch (owner request, 2026-11-07)
+## Phase 4 — the IMO calendar refresh keeps the table current
 
-The per-year table (Phase 2) runs out. Nobody will remember to look for the 2029 calendar, so a
-weekly job looks for it and alerts the admins. **It alerts; it never edits the table.** The shower
-table is code reviewed in a PR, the IMO calendar is a typeset PDF whose layout changes, and a
-parser that silently wrote wrong peak dates would be worse than the gap it closes.
+The owner's decision: the job **updates the table itself**, like the WorldTides refresh, and an
+email is only the exception path, as `sendTideSourceChangeAlert` is for tides.
 
-- Job `imo_calendar_check`, registered with `DynamicSchedulerService.registerJobTarget` and seeded
-  by a migration in the `V81__refresh_token_cleanup_scheduler.sql` shape: `CRON`, weekly
-  (Monday 06:17 UK, off the hour), `ACTIVE`. No Claude spend.
-- **Coverage check (needs no network).** Read the last year in the per-year peak table. When today
-  is within 13 months of that year's end and the following year has no row, send one admin alert
-  ("the meteor peak table ends with 2028; add 2029 from the IMO calendar"). This is the safety net
-  that works even if imo.net changes its URLs.
-- **Publication check.** For each year from this year to this year + 2 that the table does not
-  cover, `GET https://www.imo.net/files/meteor-shower/cal{year}.pdf` (5 s connect / 20 s read
-  timeout, `Content-Type` must be `application/pdf`). A 200 is "published": one admin alert
-  naming the year and the URL. For a year the table does cover, store the PDF's SHA-256 the first
-  time it is seen and alert once when it changes (IMO revises a calendar mid-year when an outburst
-  is predicted).
-- State in a small table `imo_calendar_check (year PK, first_seen_at, sha256, alerted_at)` so each
-  finding alerts **once**, not every Monday. A failed fetch is logged and retried next week; it
-  never alerts on its own (three consecutive failures do, so a moved URL is noticed).
-- Client: an `@HttpExchange` interface like the others in `client/`, with tests on a mock server;
-  the job's tests mock the client and the clock. The cloud build container cannot reach imo.net;
-  production must (add it to any egress allowlist there).
-- `docs/engineering/reference/platform.md` (scheduler/admin) and `configuration.md` gain a line.
-- Lands after Phase 2, since it reads Phase 2's table.
+**Source.** `https://www.imo.net/files/meteor-shower/cal{year}.pdf`, published about six months
+ahead (on 2026-11-07, 2026 and 2027 return 200 and 2028 returns 404). Each calendar has the same
+**Table 5, "Working List of Visual Meteor Showers"**, one row per shower keyed by IAU number and
+code, for example:
+
+```
+ Leonids (013 LEO)          Nov 06–Nov 30   Nov 17     235 ◦. 27   152◦   +22◦   71     2.5    15
+ Quadrantids (010 QUA)      Dec 28–Jan 12   Jan 04     283 ◦. 15   230◦   +49◦   41     2.1    80+
+```
+
+and a per-shower section whose first line carries the time, when IMO gives one:
+`Leonids (013 LEO)` / `Active: November 6–30; Maximum: November 17, 23h 45m UT (…); ZHR ≈ 15`.
+
+**Job.** `imo_calendar_refresh`, `DynamicSchedulerService` target, seeded by migration (`CRON`,
+Mondays 03:17 UK, `ACTIVE`; weekly, because a revision ahead of an outburst can land mid-year).
+For each year from this year to this year + 1:
+1. Fetch the PDF (5 s connect / 30 s read, `application/pdf` only, at most 10 MB). A 404 is
+   "not published yet": no write, no alert.
+2. Skip it when the SHA-256 matches the stored `source_sha256` for that year.
+3. Extract text with Apache PDFBox (new dependency, Apache 2.0) and parse Table 5 rows for the
+   codes `SHOWERS` knows; take the maximum time from that code's section where present. Leading
+   `+`/`≈` and trailing `+`/`(?)` on a ZHR are dropped; `Var` keeps the catalogue ZHR.
+4. **Validate before writing anything for the year.** Every major shower (QUA, LYR, PER, ORI, LEO,
+   GEM) must parse; every parsed date must fall within ±3 days of the shower's `MonthDay` (the
+   Quadrantids across the year boundary); ZHR must be 1–500. If any check fails, write nothing for
+   that year, keep the stored rows, and send one admin alert naming the year, the failing
+   shower and the URL. That is the "IMO changed its layout" signal.
+5. Upsert the year's rows in one transaction. Diff against the stored rows; when a peak night
+   moves or a ZHR changes for a year already stored, send one admin alert listing before and
+   after (IMO revised its calendar). A first fill for a new year is logged and reported in the run
+   summary, not emailed.
+6. Reload `MeteorPeakCalendar`. Report `SchedulerFireOutcome` like `tide_refresh` ("2027 stored ·
+   2028 not published").
+
+Showers the code does not know are ignored: which showers PhotoCast shows, and with what UK
+judgement (major/minor, UK rate, compass, best hours), stays a reviewed code decision. A
+fetch failure is logged; three consecutive failed weeks send one alert (a moved URL).
+
+**Tests.** The 2026 and 2027 PDFs are committed as test resources (`src/test/resources/imo/`) and
+the parser is tested against both: every expected `(code, peak_night, zhr)` for the twelve
+showers, the Leonids' 23h45 time, the Quadrantids' `80+`, and the Draconids' `5 (?)`. A mutated
+fixture (a row removed, a date moved by five days) proves validation refuses to write. The job
+is tested with a mocked client and an injected `Clock`. Production must be able to reach
+`www.imo.net` (add it to any egress allowlist on the host).
 
 ## Landing site copy (lands with Phase 1)
 
