@@ -164,7 +164,7 @@ Peak nights after the evening-date rule:
 | code | 2026 night | 2026 ZHR | 2026 max | 2027 night | 2027 ZHR | 2027 max |
 |---|---|---|---|---|---|---|
 | QUA | 01-03 | 80 | 01-03 21:00Z | 01-03 | 80 | 01-04 03:25Z |
-| LYR | 04-22 | 18 | 04-22 19:40Z | 04-22 | 18 | – (Apr 23) |
+| LYR | 04-22 | 18 | 04-22 19:40Z | 04-22 | 18 | 04-23 01:40Z |
 | ETA | 05-05 | 50 | – (May 06) | 05-05 | 50 | 05-06 09:00Z |
 | SDA | 07-30 | 25 | – (Jul 31) | 07-30 | 25 | – (Jul 31) |
 | PER | 08-12 | 100 | 08-13 03:00Z | 08-12 | 110 | 08-13 09:00Z |
@@ -173,7 +173,7 @@ Peak nights after the evening-date rule:
 | STA | 11-05 | 7 | – | 11-06 | 7 | – |
 | NTA | 11-12 | 5 | – | 11-13 | 5 | – |
 | LEO | 11-17 | 15 | 11-17 23:45Z | 11-17 | 15 | 11-18 06:00Z |
-| GEM | 12-14 | 150 | 12-14 14:00Z | 12-14 | 150 | – |
+| GEM | 12-13 | 150 | 12-14 14:00Z | 12-14 | 150 | 12-14 20:00Z |
 | URS | 12-22 | 10 | 12-22 22:00Z | 12-22 | 10 | 12-23 04:00Z |
 
 A range ("02h to 04h UT") is stored as its midpoint.
@@ -208,6 +208,62 @@ rule applied to IMO's standard 21 Oct (AMS also gives "peak night 20–21 Oct").
   repository (code fallback), so their counts must not change. One added test proves a row
   overrides the fallback, e.g. Orionids 2027 → 21 Oct, N. Taurids 2027 → 13 Nov.
 - `docs/engineering/reference/database-migrations.md` gets a V222 line.
+
+### Phase 2 plan review, round 1 (supersedes the text above where they differ)
+
+1. **`source_sha256 VARCHAR(64)`**, not `CHAR(64)`. Postgres reports CHAR as `bpchar`, and
+   Hibernate `validate` in prod rejects it against a `String`. Add `CHECK (source_sha256 IS NULL OR
+   length(source_sha256) = 64)`.
+2. **`calendar_year`**, not `year`. H2 rejects `year` as a column name, and `ddl-auto: update`
+   would only log it, leaving the table missing locally.
+3. **The evening-date rule changes to "a night runs 18:00 to 18:00 UK local time"**:
+   `peak_night = localDate(max − 18 h)`.
+   - The nearest-midnight rule put the Geminids 2026 maximum (14 Dec 14h UT) on the night of
+     14/15. IMO's reliable maxima run from 13 Dec 21h to 14 Dec 18h UT, which covers the 13/14
+     dark hours and not the 14/15 ones. AMS also gives 13–14 Dec.
+   - The new rule gives **12-13** for the Geminids 2026 and leaves every other seeded row
+     unchanged (all 22 times re-checked).
+   - The date-only rule is unchanged.
+4. **Two more seed times** from the IMO prose. Neither changes its night.
+   - LYR 2027: `2027-04-23 01:40Z` ("expected on April 23, 01h 40m UT").
+   - GEM 2027: `2027-12-14 20:00Z` ("centred around 20h UT").
+
+   Phase 4's parser must read prose times as well as "Maximum:" lines, so that the seed and the
+   parser agree. The Phase 4 tests assert exactly this seed table.
+5. **Load order.**
+   - `MeteorPeakCalendar` loads in `@PostConstruct`, inside a try. Flyway has run by then.
+   - It keeps the snapshot in an `AtomicReference` of `Map.copyOf` maps, so the first briefing
+     tail, the scheduler catch-up and the almanac warm-up all see the table.
+   - `reload()` publishes a `MeteorPeakCalendarReloaded` application event, and `AlmanacService`
+     listens and evicts its cache. An event, not a call, avoids a dependency cycle.
+   - Tests:
+     - a failed load keeps the code fallback;
+     - reload swaps the snapshot and publishes the event;
+     - a row overrides the fallback.
+6. **One scan for all three classes.** `List<ShowerNight> peakNightsIn(LocalDate from, LocalDate
+   to, boolean majorOnly)` scans calendar years `from.year − 1 … to.year + 1` and returns
+   `(shower, peakNight, zhr)` whose night lies in `[from, to]`, sorted by night. `detect`,
+   `MeteorAlmanacSource.events` and `MeteorClarityService` (via the nights' min/max) all use it.
+7. **Ripple to update.**
+   - Every `new Shower(...)` (e.g. `MeteorMoonGateTest:40`).
+   - Every constructor caller:
+     - `HotTopicInputsEquivalenceTest:167`
+     - `ComingUpAnnualBadgeCensusTest:133`
+     - `MeteorHotTopicStrategyTest:46`
+     - `MeteorHotTopicStrategyBranchTest:45`
+     - `AlmanacEphemerisSourcesTest` (all sites)
+     - `MeteorClarityServiceTest:43`
+     - `BriefingServiceTest:304`
+   - The `peakDatesWithin` tests move to `MeteorPeakCalendarTest`.
+   - Tests that hard-code the Orionids on 2026-10-21 move to 10-20 or use another shower:
+     - `MeteorHotTopicStrategyTest:276`
+     - `MeteorHotTopicStrategyBranchTest:32`
+     - `AlmanacEphemerisSourcesTest:60,123,128`
+     - `MeteorMoonGateTest:56` (re-check that verdict for the 20th with the real calculators)
+   - The census is **re-run**, not assumed. If its counts change, stop and report.
+8. **Coverage.** The id class uses Lombok `@EqualsAndHashCode` (`lombok.config` excludes generated
+   code). `MeteorPeakNight.of` is tested on both branches plus the 18:00 boundary. A distinct-night
+   test runs per year over the seed rows (the entry id is `type:start:end`).
 
 ## Phase 3 — moon-up gate (detailed 2026-11-07)
 
