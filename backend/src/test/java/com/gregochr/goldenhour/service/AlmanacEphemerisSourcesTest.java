@@ -37,7 +37,14 @@ class AlmanacEphemerisSourcesTest {
         @DisplayName("reports every shower peaking in the range, where the hot-topic strategy "
                 + "reports only the first")
         void reportsEveryShowerNotJustTheFirst() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 8))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 21))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 5))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.1);
 
             // 1 Aug to 31 Dec covers Perseids (12 Aug), Draconids (8 Oct), Orionids (21 Oct),
             // S. Taurids (5 Nov), N. Taurids (12 Nov), Leonids (17 Nov), Geminids (14 Dec) and
@@ -80,7 +87,9 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("a range straddling new year picks up both December and January showers")
         void straddlesTheYearBoundary() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2027, 1, 3))).thenReturn(0.1);
 
             List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 12, 10), LocalDate.of(2027, 1, 10));
@@ -108,7 +117,8 @@ class AlmanacEphemerisSourcesTest {
             @DisplayName("a 7-30 Nov 2026 range returns the Leonids and the N. Taurids (minor), but not the "
                     + "S. Taurids of 5 Nov")
         void novemberReturnsLeonidsAndMinorTaurids() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.1);
 
             List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 11, 7), LocalDate.of(2026, 11, 30));
@@ -127,7 +137,7 @@ class AlmanacEphemerisSourcesTest {
         @DisplayName("a low-radiant shower names the UK rate and the low radiant, and does not present the ZHR "
                 + "as the expected rate")
         void lowRadiantShowerNamesTheUkRate() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 5, 5))).thenReturn(0.1);
 
             AlmanacEvent eta = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6)).getFirst();
@@ -145,7 +155,7 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("a major shower carries no ukRate, lowRadiant or minor key")
         void majorShowerOmitsTheLowRadiantKeys() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.1);
 
             AlmanacEvent perseids = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
@@ -156,7 +166,18 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("every shower's detail stays under Ask's 200-character cap, moonlit suffix included")
         void everyDetailFitsAsksCap() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 1, 3))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 4, 22))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 5, 5))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 7, 30))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 8))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 21))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 5))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.99);
+            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.99);
 
             List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
                     .events(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
