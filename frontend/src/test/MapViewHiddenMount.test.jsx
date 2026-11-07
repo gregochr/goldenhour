@@ -47,13 +47,15 @@ const cameraLog = [];
 const fitArgs = [];
 /** What the mock Leaflet map measures; flipped between 0x0 (hidden) and a real box per test. */
 const size = { w: 0, h: 0 };
+/** The Leaflet `resize` listeners the controller holds while it waits for a real box. */
+const resizeHandlers = new Set();
 const mockMap = {
   eachLayer: () => {},
   getSize: () => ({ x: size.w, y: size.h }),
   getContainer: () => ({ clientWidth: size.w, clientHeight: size.h }),
   getZoom: () => 9,
-  once: () => {},
-  off: () => {},
+  once: (evt, fn) => { if (evt === 'resize') resizeHandlers.add(fn); },
+  off: (evt, fn) => { if (evt === 'resize') resizeHandlers.delete(fn); },
   addControl: () => {},
   invalidateSize: () => { cameraLog.push('invalidateSize'); },
   flyTo: () => { cameraLog.push('flyTo'); },
@@ -164,6 +166,10 @@ async function update(rerender, props) {
 const fits = () => cameraLog.filter((c) => c === 'fitBounds').length;
 
 beforeEach(() => {
+  // `MapSizeSync` mounts for real and ticks `invalidateSize` every 60 ms for 340 ms. Frozen timers keep that
+  // background traffic out of `cameraLog`, which must only ever show the controller's own calls.
+  vi.useFakeTimers({ toFake: ['setInterval', 'setTimeout', 'clearInterval', 'clearTimeout'] });
+  resizeHandlers.clear();
   size.w = 0;
   size.h = 0;
   localStorage.clear();
@@ -175,6 +181,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   localStorage.clear();
   cornerEl.remove();
   vi.clearAllMocks();
@@ -226,5 +233,42 @@ describe('MapView opened inside a hidden tab', () => {
     expect(fits()).toBe(1);
     expect(fitArgs[0][0]).toEqual(LOCATIONS.map((l) => [l.lat, l.lon]));
     expect(fitArgs[0][1]).toEqual({ padding: [60, 60], animate: false });
+  });
+
+  it('with panelShown true throughout, a Leaflet resize to a real box fits exactly once (no ResizeObserver flip)', async () => {
+    await renderTab({ panelShown: true });
+    expect(fits()).toBe(0);
+    expect(resizeHandlers.size).toBe(1);
+
+    size.w = 900;
+    size.h = 600;
+    await act(async () => { [...resizeHandlers].forEach((fn) => fn()); });
+    expect(fits()).toBe(1);
+    expect(fitArgs[0][0]).toEqual(AREA);
+    expect(cameraLog.indexOf('invalidateSize')).toBeLessThan(cameraLog.indexOf('fitBounds'));
+  });
+
+  it('drops its resize listener on unmount', async () => {
+    const { unmount } = await renderTab({ panelShown: true });
+    expect(resizeHandlers.size).toBe(1);
+    unmount();
+    expect(resizeHandlers.size).toBe(0);
+  });
+
+  it('a map that opened sized never takes the catalogue fallback when the heat field later disappears', async () => {
+    size.w = 900;
+    size.h = 600;
+    const { rerender } = await renderTab({ panelShown: true });
+    await update(rerender, { heat: null, panelShown: true });
+    expect(fits()).toBe(0);
+  });
+
+  it('a 900x0 box counts as sized: the opening fit is adopted and nothing refits', async () => {
+    size.w = 900;
+    const { rerender } = await renderTab({ panelShown: true });
+    expect(resizeHandlers.size).toBe(0);
+    await update(rerender, { panelShown: false });
+    await update(rerender, { panelShown: true });
+    expect(fits()).toBe(0);
   });
 });

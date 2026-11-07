@@ -269,6 +269,11 @@ function HeatBoundsController({
    */
   const applied = useRef(null);
   const key = `${nonce}|${JSON.stringify(bounds)}`;
+  /**
+   * Bumped by Leaflet's own `resize` while a fit is held at 0x0, so the effect re-runs without relying on the
+   * pane's ResizeObserver flipping `active` (a browser may skip that initial 0x0 observation).
+   */
+  const [sizeTick, setSizeTick] = useState(0);
   useEffect(() => {
     if (applied.current === null) {
       // MapContainer fitted its opening bounds at construction against whatever box Leaflet measured then.
@@ -277,21 +282,27 @@ function HeatBoundsController({
       const opened = map?.getSize?.();
       if (!opened || opened.x > 0 || opened.y > 0) {
         applied.current = key;
-        return;
+        return undefined;
       }
       applied.current = OPENED_UNSIZED;
     }
-    if (applied.current === key) return;
+    if (applied.current === key) return undefined;
     // Hidden pane: Leaflet holds a cached 0x0 size, so a fit now would clamp to the map's maxZoom. Leave
     // `applied` alone so the change replays once `active` turns true.
-    if (!active) return;
+    if (!active) return undefined;
     // `panelShown` starts true and only falls on the pane's first ResizeObserver tick, so read the box too.
-    // Never `invalidateSize` (or any view call) on a 0x0 container: Leaflet would compute NaN and throw.
+    // Never make a view move (fit, fly, zoom) on a 0x0 container: Leaflet computes NaN and clamps or throws.
     const box = map?.getContainer?.();
-    if (box && box.clientWidth === 0 && box.clientHeight === 0) return;
+    if (box && box.clientWidth === 0 && box.clientHeight === 0) {
+      // Hold, and wake on Leaflet's `resize`, which `invalidateSize` fires once the box really changes.
+      if (typeof map?.once !== 'function') return undefined;
+      const wake = () => setSizeTick((n) => n + 1);
+      map.once('resize', wake);
+      return () => map.off?.('resize', wake);
+    }
     const wasUnsized = applied.current === OPENED_UNSIZED;
     applied.current = key;
-    if (typeof map?.fitBounds !== 'function') return;
+    if (typeof map?.fitBounds !== 'function') return undefined;
     if (!bounds) {
       // No heat field, but the map was built unsized and sits at maxZoom: refit to the catalogue box
       // MapContainer itself was given.
@@ -300,19 +311,20 @@ function HeatBoundsController({
         map.invalidateSize?.({ animate: false });
         map.fitBounds(fallbackBounds, { padding: [60, 60], animate: false });
       }
-      return;
+      return undefined;
     }
     // A programmatic move: the tide upsell's map-move close must not read its zoom as a hand's.
     onProgrammaticMove?.();
     // Re-measure first (see `FitBoundsController`); the optional call keeps size-less test maps working.
     map.invalidateSize?.({ animate: false });
     map.fitBounds(bounds, { padding, animate: false });
+    return undefined;
     // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
     // `padding` is deliberately NOT a dependency either: it always changes in lockstep with `bounds`
     // (both are derived from the SAME `jumpFitOverride` presence one level up), so the closure read
     // here is never stale at the moment `key` actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, active]);
+  }, [key, active, sizeTick]);
   return null;
 }
 

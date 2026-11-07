@@ -143,6 +143,8 @@ before the lazy Map chunk lands gets a `MapContainer` constructed inside a `disp
 `MapContainer`'s own opening `fitBounds` clamps to maxZoom 16. `HeatBoundsController` therefore never adopts the opening fit
 as its baseline when `map.getSize()` is 0x0 (it records `OPENED_UNSIZED`, so the current key replays once the pane is
 shown), and holds a fit (without recording it) while the container is still 0x0 even when `active` is true. Rules:
-never call `invalidateSize` or any view call on a 0x0 container (Leaflet throws `Invalid LatLng (NaN, NaN)`), and with no
-heat bounds the replay refits to the catalogue box at `[60, 60]`. A map that opened sized (every phone, every Map-first
+never make a view move (fit, `flyTo`, zoom) on a 0x0 container (an animated or zoomed move computes NaN and throws
+`Invalid LatLng (NaN, NaN)`; `invalidateSize` itself returns early at 0x0 but the guard stays). A held fit does not wait
+on the pane's ResizeObserver flipping `panelShown`, which a browser may skip: it also listens once for Leaflet's own
+`resize` and re-runs when the box is real. With no heat bounds the replay refits to the catalogue box at `[60, 60]`. A map that opened sized (every phone, every Map-first
 opening) behaves as before, so the fix needs no phone or desktop split. Proved by `map-hidden-mount.spec.js`.

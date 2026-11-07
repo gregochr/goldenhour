@@ -25,9 +25,12 @@ test('Plan then Map: a Map pane that mounted hidden still opens on the planning 
   // hidden panel — the race the bug needs, made deterministic.
   let release;
   const gate = new Promise((r) => { release = r; });
-  await page.route('**/assets/WindowFirstMapPane-*.js', async (route) => { await gate; await route.continue(); });
+  let hits = 0;
+  await page.route('**/assets/WindowFirstMapPane-*.js', async (route) => { hits += 1; await gate; await route.continue(); });
   await loginAndWaitForForecast(page, 'admin');
   await openTab(page, 'plan');
+  // The chunk was really held: a renamed chunk would otherwise let this spec pass without the race it exists for.
+  await expect.poll(() => hits).toBeGreaterThan(0);
   release();
   // The pane has mounted (hidden) under the Plan tab before the reader comes back.
   await expect(page.locator('[data-testid="window-first-panel-map"] .leaflet-container')).toHaveCount(1);
