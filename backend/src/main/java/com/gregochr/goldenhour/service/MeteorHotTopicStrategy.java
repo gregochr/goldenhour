@@ -26,10 +26,12 @@ import java.util.Set;
  *
  * <p>During a shower, shooting stars are far more frequent than usual — best captured
  * from dark-sky locations on a long exposure. Fires when a shower peak falls within the
- * detection window AND the Moon is less than {@value #MAX_ILLUMINATION} illuminated at
- * peak (a washed-out peak is not worth a pill). Dark-sky suitability is mentioned in the
- * copy but is not a hard gate — a bright shower is still worth flagging near a town.
- * Makes no external API calls.
+ * detection window AND {@link MeteorMoonGate} does not call it washed out: a bright moon
+ * (half lit or more) up for more than half of the shower's best hours. A moon that has set
+ * before the best hours, or sets early in them, does not drop the shower (the Leonids of
+ * 17 Nov 2026 are half lit at noon but down from about 23:35, and are best from 03:00).
+ * Dark-sky suitability is mentioned in the copy but is not a hard gate — a bright shower is
+ * still worth flagging near a town. Makes no external API calls.
  */
 @Component
 public class MeteorHotTopicStrategy implements HotTopicStrategy {
@@ -41,12 +43,6 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
 
     /** Topic priority — calendar heads-up, sorts below the act-on-it topics. */
     private static final int PRIORITY = 7;
-
-    /** Maximum lunar illumination (fraction) at peak for the topic to fire. */
-    private static final double MAX_ILLUMINATION = 0.5;
-
-    /** Lunar illumination percent below which the sky is genuinely dark for meteors. */
-    private static final int MOON_DARK_PCT = 25;
 
     /**
      * A meteor shower and the stable astronomical constants that describe its peak.
@@ -84,20 +80,20 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
             new Shower("Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00", true, null),
             new Shower("Ursids", MonthDay.of(12, 22), 10, "N", "00:00–dawn", false, null));
 
-    private final LunarPhaseService lunarPhaseService;
+    private final MeteorMoonGate moonGate;
     private final LocationRepository locationRepository;
     private final MeteorClarityService meteorClarityService;
 
     /**
      * Constructs a {@code MeteorHotTopicStrategy}.
      *
-     * @param lunarPhaseService    lunar illumination service for the dark-moon gate
+     * @param moonGate             decides whether a bright moon is up during the shower's best hours
      * @param locationRepository   repository for dark-sky region lookups
      * @param meteorClarityService cache of how many dark-sky locations are clear overhead on the peak
      */
-    public MeteorHotTopicStrategy(LunarPhaseService lunarPhaseService,
+    public MeteorHotTopicStrategy(MeteorMoonGate moonGate,
             LocationRepository locationRepository, MeteorClarityService meteorClarityService) {
-        this.lunarPhaseService = lunarPhaseService;
+        this.moonGate = moonGate;
         this.locationRepository = locationRepository;
         this.meteorClarityService = meteorClarityService;
     }
@@ -130,8 +126,9 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      * {@inheritDoc}
      *
      * <p>Emits a single topic for the earliest qualifying major shower peak in the window
-     * (minor showers never qualify; peak in range and Moon below {@value #MAX_ILLUMINATION} illuminated). Returns
-     * empty when no qualifying peak falls in the window.
+     * (minor showers never qualify; peak in range and not washed out by a bright moon that is up
+     * for most of the shower's best hours, per {@link MeteorMoonGate}). Returns empty when no
+     * qualifying peak falls in the window.
      */
     @Override
     public List<HotTopic> detect(LocalDate fromDate, LocalDate toDate) {
@@ -149,6 +146,7 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
 
         Shower best = null;
         LocalDate bestPeak = null;
+        MeteorMoonGate.MoonOverShower bestMoon = null;
         for (Shower shower : SHOWERS) {
             if (!shower.major()) {
                 continue;
@@ -158,12 +156,14 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
                 if (peak.isBefore(fromDate) || peak.isAfter(toDate)) {
                     continue;
                 }
-                if (lunarPhaseService.getIlluminationFraction(peak) >= MAX_ILLUMINATION) {
+                MeteorMoonGate.MoonOverShower moon = moonGate.assess(shower, peak);
+                if (moon.washedOut()) {
                     continue;
                 }
                 if (bestPeak == null || peak.isBefore(bestPeak)) {
                     best = shower;
                     bestPeak = peak;
+                    bestMoon = moon;
                 }
             }
         }
@@ -171,10 +171,11 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
         if (best == null) {
             return List.of();
         }
-        return List.of(buildTopic(best, bestPeak, inputs));
+        return List.of(buildTopic(best, bestPeak, bestMoon, inputs));
     }
 
-    private HotTopic buildTopic(Shower shower, LocalDate peak, HotTopicInputs inputs) {
+    private HotTopic buildTopic(Shower shower, LocalDate peak, MeteorMoonGate.MoonOverShower moon,
+            HotTopicInputs inputs) {
         List<String> darkSkyRegions =
                 inputs.darkSkyLocations().stream()
                         .map(LocationEntity::getRegion)
@@ -183,13 +184,28 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
                         .distinct()
                         .toList();
 
-        int moonPct = (int) Math.round(lunarPhaseService.getIlluminationFraction(peak) * 100);
-        boolean darkEnough = moonPct < MOON_DARK_PCT;
-        // The headline claim must track the same illumination band as the moon chip: the fire gate
-        // admits up to MAX_ILLUMINATION (50%), so a half-lit peak still qualifies and must not be
-        // sold as a "dark moon" beside a chip that reads "some moonlight".
-        String moonQuality = darkEnough ? "dark enough" : "some moonlight";
-        String viewingCue = darkEnough ? "dark moon, good viewing" : "some moonlight, still worth a look";
+        int moonPct = moon.illuminationPct();
+        boolean darkEnough = moonPct < MeteorMoonGate.DARK_MOON_PCT;
+        // The headline claim tracks the same band as the moon chip: a shower can fire under a
+        // half-lit moon (down, or setting early), so the copy says which, never "dark moon".
+        String moonQuality;
+        String viewingCue;
+        if (darkEnough) {
+            moonQuality = "dark enough";
+            viewingCue = "dark moon, good viewing";
+        } else if (moon.downThroughout()) {
+            moonQuality = "down in the best hours";
+            viewingCue = "moon down, good viewing";
+        } else if (moon.moonset().isPresent()) {
+            moonQuality = "sets " + moon.moonset().get();
+            viewingCue = "some moonlight, still worth a look";
+        } else if (moon.moonrise().isPresent()) {
+            moonQuality = "rises " + moon.moonrise().get();
+            viewingCue = "some moonlight, still worth a look";
+        } else {
+            moonQuality = "some moonlight";
+            viewingCue = "some moonlight, still worth a look";
+        }
         List<HotTopicFact> facts = new ArrayList<>(List.of(
                 HotTopicFact.metric("ZHR", "~" + shower.zhrPeak() + " at peak"),
                 HotTopicFact.directional("radiant", "best " + shower.bestHours(),

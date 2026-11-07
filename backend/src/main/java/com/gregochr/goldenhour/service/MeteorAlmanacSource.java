@@ -26,19 +26,18 @@ import java.util.Set;
  * a divergence would show up as a feed disagreeing with the Plan tab about when the Perseids peak.
  *
  * <p><strong>The moon filter is deliberately not applied here.</strong> The strategy suppresses a
- * shower whose peak falls under a bright moon, which is right for "is tonight worth going out" and
- * wrong for an almanac: a washed-out Perseid peak is still when the Perseids peak, and a reader
- * planning three months out wants the date plus the caveat, not silence. The illumination is
- * reported in {@code meta} instead, so the caller can grey the row rather than lose it.
+ * shower whose best hours are washed out by a bright moon (see {@link MeteorMoonGate}), which is
+ * right for "is tonight worth going out" and wrong for an almanac: a washed-out Perseid peak is
+ * still when the Perseids peak, and a reader planning three months out wants the date plus the
+ * caveat, not silence. The moon's mean illumination over the best hours is reported in
+ * {@code meta}, and {@code washedOut} is set from the same gate, so the caller can grey the row
+ * rather than lose it.
  */
 @Component
 public class MeteorAlmanacSource implements AlmanacSource {
 
     /** Machine-readable discriminator. */
     static final String TYPE = "meteor";
-
-    /** Illumination percentage at or above which the moon meaningfully washes a shower out. */
-    private static final int WASHED_OUT_ILLUMINATION_PCT = 50;
 
     private static final String DETAIL_TEMPLATE =
             "%s peaks, around %d meteors an hour at best under a dark sky, radiating from the %s."
@@ -53,15 +52,20 @@ public class MeteorAlmanacSource implements AlmanacSource {
     private static final String MOONLIT_SUFFIX =
             " The moon is %d%% lit, so only the brightest will show.";
 
-    private final LunarPhaseService lunarPhaseService;
+    private static final String MOON_DOWN_SUFFIX =
+            " The moon is %d%% lit but down during the best hours.";
+
+    private static final String MOON_PARTIAL_SUFFIX = " The moon is %d%% lit and %s around %s.";
+
+    private final MeteorMoonGate moonGate;
 
     /**
      * Constructs a {@code MeteorAlmanacSource}.
      *
-     * @param lunarPhaseService supplies the peak night's lunar illumination
+     * @param moonGate decides whether a bright moon is up during the shower's best hours
      */
-    public MeteorAlmanacSource(LunarPhaseService lunarPhaseService) {
-        this.lunarPhaseService = lunarPhaseService;
+    public MeteorAlmanacSource(MeteorMoonGate moonGate) {
+        this.moonGate = moonGate;
     }
 
     @Override
@@ -86,14 +90,12 @@ public class MeteorAlmanacSource implements AlmanacSource {
     }
 
     private AlmanacEvent toEvent(MeteorHotTopicStrategy.Shower shower, LocalDate peak) {
-        int illuminationPct = (int) Math.round(
-                lunarPhaseService.getIlluminationFraction(peak) * 100);
-
-        // The flag is tested against the SAME rounded figure that is reported, not the raw
-        // fraction. Comparing the unrounded value would let two rows both read "50% lit" while
-        // one carries the caveat and the other does not — a difference a reader can see and
-        // cannot explain.
-        boolean washedOut = illuminationPct >= WASHED_OUT_ILLUMINATION_PCT;
+        // The flag is a moon-up decision (a bright moon up for most of the best hours), not a
+        // threshold on the reported figure, so a row can read "50% lit" with no caveat when the
+        // moon is down while the shower is best; the detail says why in that case.
+        MeteorMoonGate.MoonOverShower moon = moonGate.assess(shower, peak);
+        int illuminationPct = moon.illuminationPct();
+        boolean washedOut = moon.washedOut();
 
         boolean lowRadiant = shower.ukRate() != null;
         String detail = lowRadiant
@@ -101,9 +103,7 @@ public class MeteorAlmanacSource implements AlmanacSource {
                         shower.ukRate(), shower.radiantCompass(), shower.bestHours())
                 : DETAIL_TEMPLATE.formatted(
                         shower.name(), shower.zhrPeak(), shower.radiantCompass(), shower.bestHours());
-        if (washedOut) {
-            detail += MOONLIT_SUFFIX.formatted(illuminationPct);
-        }
+        detail += moonSuffix(moon);
 
         return AlmanacEvent.onDay(
                 peak,
@@ -121,5 +121,25 @@ public class MeteorAlmanacSource implements AlmanacSource {
                         "lowRadiant", lowRadiant ? "true" : null,
                         "minor", shower.major() ? null : "true"),
                 List.of());
+    }
+
+    private static String moonSuffix(MeteorMoonGate.MoonOverShower moon) {
+        int pct = moon.illuminationPct();
+        if (moon.washedOut()) {
+            return MOONLIT_SUFFIX.formatted(pct);
+        }
+        if (pct < MeteorMoonGate.DARK_MOON_PCT) {
+            return "";
+        }
+        if (moon.downThroughout()) {
+            return MOON_DOWN_SUFFIX.formatted(pct);
+        }
+        if (moon.moonset().isPresent()) {
+            return MOON_PARTIAL_SUFFIX.formatted(pct, "sets", moon.moonset().get());
+        }
+        if (moon.moonrise().isPresent()) {
+            return MOON_PARTIAL_SUFFIX.formatted(pct, "rises", moon.moonrise().get());
+        }
+        return "";
     }
 }

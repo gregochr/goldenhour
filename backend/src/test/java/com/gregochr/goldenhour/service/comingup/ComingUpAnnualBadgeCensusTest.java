@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.service.AlmanacSource;
 import com.gregochr.goldenhour.service.EclipseAlmanacSource;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.MeteorAlmanacSource;
+import com.gregochr.goldenhour.service.MeteorMoonGate;
 import com.gregochr.goldenhour.service.NlcClarityService;
 import com.gregochr.goldenhour.service.NlcSeasonAlmanacSource;
 import com.gregochr.goldenhour.service.SolarAlignmentAlmanacSource;
@@ -16,6 +17,8 @@ import com.gregochr.goldenhour.service.SupermoonAlmanacSource;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
 import com.gregochr.solarutils.LunarCalculator;
+import com.gregochr.solarutils.MoonriseMoonsetCalculator;
+import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -127,7 +130,8 @@ class ComingUpAnnualBadgeCensusTest {
         NlcClarityService nlcClarity = new NlcClarityService(null, null, null);
 
         List<AlmanacSource> sources = List.of(
-                new MeteorAlmanacSource(lunar),
+                new MeteorAlmanacSource(new MeteorMoonGate(new LunarCalculator(), new SolarCalculator(),
+                        new MoonriseMoonsetCalculator())),
                 new SupermoonAlmanacSource(lunar),
                 new SolarAlignmentAlmanacSource(),
                 new NlcSeasonAlmanacSource(nlcClarity),
