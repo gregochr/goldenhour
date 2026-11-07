@@ -400,6 +400,174 @@ fixture (a row removed, a date moved by five days) proves validation refuses to 
 is tested with a mocked client and an injected `Clock`. Production must be able to reach
 `www.imo.net` (add it to any egress allowlist on the host).
 
+### Phase 4 detail (2026-11-07, after Phase 2 was built)
+
+Phase 2 shipped `meteor_shower_peak` (`calendar_year`, `VARCHAR(64)` hash), `MeteorPeakNight`
+(`of(Instant)` with the 18:00–18:00 night, `ofDateOnly(date, bestHours)`), and
+`MeteorPeakCalendar.reload()`, which publishes the event that evicts the almanac cache. Phase 4
+builds on all three and changes none of them.
+
+**Parser (`ImoCalendarParser`, pure, no Spring).** It takes the extracted text and the calendar
+year and returns `Map<String code, ParsedPeak(LocalDate imoDate, Instant maxUtc /*nullable*/,
+int zhr)>`.
+
+- **Table 5 rows.** Match a line containing `(NNN CODE)` followed by an activity range, a `Mon dd`
+  maximum and the ZHR as the last token. Take the FIRST such row per code; the 2027 calendar has
+  extra "trails & filament" rows for PER and LEO with a different shape.
+- **ZHR.** Drop a trailing `+` and `(?)`. `Var` keeps the code's catalogue ZHR.
+- **The year of the date.** The month and day come from the row, and the year is the calendar
+  year (the Quadrantids "Jan 04" in `cal2027` is 2027-01-04).
+- **Maximum time.** These sources apply in order, all scoped to the code:
+  1. The per-shower section: the heading line ending in `(NNN CODE)`, then within 3 lines
+     `Maximum: <Month> <d>, HHh [MMm] UT`. A range `HHh to HHh UT` takes its midpoint.
+  2. The prose: a sentence naming `(NNN CODE)` with `<Month> <d>[,] [close to|shortly after|around|
+     centred around|expected on …] HHh [MMm] UT` within 2 lines. Seen in 2026/27:
+     - QUA 2026 "peak on January 3 close to 21h UT"
+     - URS 2026 "reach their maximum on December 22, 22h UT"
+     - LYR 2027 "expected on April 23, 01h 40m UT"
+     - GEM 2027 "centred around 20h UT"
+  3. None: date only.
+
+  A time whose month and day differ from the Table 5 date by more than one day is ignored.
+- **Peak night.** `MeteorPeakNight.of(maxUtc)` when there is a time, else
+  `MeteorPeakNight.ofDateOnly(imoDate, shower.bestHours())`.
+- **The decisive test.** It extracts both committed PDFs with PDFBox (not pdftotext; the layout
+  differs) and asserts the parser returns exactly the V222 seed: the 24 `(code, night, zhr,
+  max_utc)` rows, using `MeteorSeed` from the Phase 2 tests. If PDFBox's text breaks a pattern,
+  fix the pattern, never the expectation.
+
+**Validation (per year, before any write).**
+- All six major codes are present.
+- Every parsed night is within ±3 days of the code's fallback `MonthDay` in that year. For the
+  Quadrantids, compare across the year boundary.
+- ZHR is 1–500, and the nights are distinct within the year.
+- A failure writes nothing for that year.
+
+**State: `imo_calendar_fetch` (V223).** Columns: `id`, `calendar_year`, `attempted_at`,
+`outcome`, `http_status`, `sha256`, `detail VARCHAR(500)`. The outcome is one of
+`STORED | UNCHANGED | NOT_PUBLISHED | FAILED | INVALID`, stored as a string with a CHECK.
+
+Use a plain `VARCHAR`, not a JPA enum, so `LocalH2EnumWidener` is not needed. If an
+`@Enumerated(STRING)` field is used anyway, add the `TARGETS` line.
+
+Alert decisions read this log, as tides read `tide_fetch`, so nothing lives in memory:
+- **INVALID:** alert unless the previous row for the year was INVALID with the same sha.
+- **FAILED:** alert only when this is the third FAILED in a row for the year.
+- **Revision:** a STORED write that changes the night or ZHR of an existing row alerts once with
+  before and after.
+- **First fill:** a STORED write into a year with no rows is not emailed. It is reported in the
+  fire outcome.
+
+**Job.**
+- `ImoCalendarRefreshService`, registered as `imo_calendar_refresh` with `DynamicSchedulerService`.
+  Use the plain `Runnable` overload, and follow how `refresh_token_cleanup` is wired end to end:
+  the `SchedulerJobCatalogue` entry with `usesClaude=false`, the V81-style seed row and
+  `docs/engineering/reference/platform.md`.
+- The V223 seed row is `CRON`, `0 17 3 * * MON`, in the zone the scheduler already uses for UK
+  crons. Read `DynamicSchedulerService` near its zone constants.
+- **Years:** today's UK year and the next, via the injected `Clock` and `ForecastHorizon`.
+- **Fetch.** `ImoCalendarClient`, a `RestClient` with the shared timeout pattern
+  (`EnvironmentAgencyGaugeClient`).
+  - Base URL is `photocast.meteor.imo.base-url`, default `https://www.imo.net/files/meteor-shower/`.
+    Put it in `application-example.yml` and `reference/configuration.md`.
+  - Connect timeout 5 s, read timeout 30 s.
+  - Refuse a body over 10 MB, and refuse a content type other than `application/pdf`.
+  - A 404 means `NOT_PUBLISHED`.
+- **Write.** Upsert the year's rows in one transaction, with `source_url`, `source_sha256` and
+  `fetched_at`. Then call `MeteorPeakCalendar.reload()`.
+- **Outcome.** Report a `SchedulerFireOutcome`: `SUCCEEDED` with "2026 unchanged · 2027 stored",
+  `PARTIAL` when a year failed or was invalid. A failure never throws out of the job.
+- **Alerts.** One new method, `AdminAlertService.sendMeteorCalendarAlert(String subject, String
+  body)`, following `sendTideSourceChangeAlert`. A failed send is logged and never fails the job.
+
+**Dependency.** Add `org.apache.pdfbox:pdfbox` at its current 3.x release, and check
+`npm`-style audit equivalents: the OWASP dependency check runs in CI. Bound every load: use
+`Loader.loadPDF(byte[])` under the 10 MB cap and stop after 60 pages.
+
+**Fixtures.** `backend/src/test/resources/imo/cal2026.pdf` and `cal2027.pdf` (owner approved).
+The planner downloaded them to the session scratchpad. The build agent copies them from
+`/tmp/claude-0/-home-user-goldenhour/1e6a23e1-1607-533a-bbec-d917a647aca7/scratchpad/imo/`.
+
+**Docs.**
+- `reference/platform.md`: the job row in the scheduler table.
+- `reference/conditions.md` or `hot-topics-tides-eclipse.md`, whichever already mentions meteors:
+  a paragraph on the meteor calendar and its refresh.
+- `database-migrations.md`: the V223 line.
+- The changelog.
+
+### Phase 4 plan review, round 1 (supersedes the detail above where they differ)
+
+A prototype parser built from these patterns ran over PDFBox 3.0.8 text, both in default mode and
+in sort-by-position mode. It returns exactly the 24 V222 seed rows, and it parses `cal2025`
+cleanly. Every parsed night is within 1 day of its fallback `MonthDay`. The prototype and the
+extracted text are in the session scratchpad (`p4/`).
+
+1. **404 semantics.** A 404 means `NOT_PUBLISHED` only for year + 1. For the current year, a 404
+   or 403 is `FAILED`, so a moved URL raises the three-in-a-row alert. If year + 1 is still
+   `NOT_PUBLISHED` after 1 October, alert once that year.
+2. **Patterns for PDFBox text.** PDFBox writes `19h40m UT`, `01h40mUT`, `22hUT` and `4hUT`;
+   GEM 2027 appears as `(centred around 20h UT)`; QUA 2026 is split over a line break.
+   - Time: `(\d{1,2})h\s*(?:(\d{2})m)?\s*(?:to\s+(\d{1,2})h\s*)?UT`. The third group
+     takes PER's range, and the stored time is its midpoint.
+   - Qualifiers may have a leading `(`. Add `near` to the list.
+   - Join lines with a space, and search forward from the code only.
+   - Table row: `\(\d{3} CODE\)\s*` (PDFBox can drop the space), then an en-dash range
+     (U+2013). The ZHR is the last token.
+3. **Prose scope.** Search only the sentence that names the code (split on `\.\s+[A-Z]`), and keep
+   the ±1-day filter. Add a test: in 2026 the URS time follows the ORI prose and must not be
+   taken for ORI.
+4. **Always parse; no SHA short-circuit.** A parse takes about a second, and a fixed parser must
+   be able to re-apply to an unchanged PDF. `UNCHANGED` means a diff against stored rows finds no
+   change. The first run over the seeded rows (hash NULL, no diff) only fills `source_sha256`. It
+   is logged `UNCHANGED` and is never a revision.
+5. **Alert state.**
+   - **INVALID dedupe** compares with the latest row for the year whose outcome is `INVALID`,
+     `STORED` or `UNCHANGED`; `FAILED` and `NOT_PUBLISHED` rows are skipped.
+   - **FAILED** alerts when the trailing run of FAILED rows equals exactly 3. Run Now counts as a
+     run, and the copy says "three runs".
+6. **Transactions.**
+   - Upsert, diff read and the STORED/UNCHANGED log row happen in one `TransactionTemplate`. A
+     self-invoked `@Transactional` would bypass the proxy.
+   - **After commit:** `reload()`, then the alerts.
+   - FAILED and INVALID log rows are written in their own `REQUIRES_NEW`, as `TideFetchRecorder`
+     does.
+   - An `AtomicBoolean` running guard, as the tide refresh has, so overlapping Run Now and cron
+     fires cannot double-alert or race.
+7. **Fetch mechanics.**
+   - Use `exchange`. Reject a `Content-Length` over 10 MB, then `readNBytes(MAX + 1)` and reject
+     anything longer.
+   - Accept only `MediaType.isCompatibleWith(APPLICATION_PDF)` with a body starting `%PDF-`.
+   - Use the shared `AppConfig` timeouts (10 s connect / 30 s read).
+   - Inject `RestClient.Builder` so the tests can bind `MockRestServiceServer`.
+   - Build the URL with `UriComponentsBuilder` and require `https`.
+8. **PDFBox bounds.**
+   - Load with `Loader.loadPDF(bytes, "", null, null,
+     MemoryUsageSetting.setupMainMemoryOnly(64 MB).streamCache)`.
+   - Reject more than 60 pages before extracting, and also `setEndPage(60)`.
+   - Set `setLineSeparator("\n")` and `setSortByPosition(false)` explicitly.
+   - `IOException` and `RuntimeException` (encrypted or corrupt files) mean `INVALID`.
+   - `detail` is truncated to 500 characters.
+9. **Zone.** The V223 job seed sets `time_zone = 'Europe/London'`; a NULL means UTC since V204.
+10. **Catalogue.** `SchedulerJobCatalogueTest` goes from `hasSize(28)` to 29. The copy carries no
+    clock time or "every N". `SchedulerJobCatalogueSeedTest` (CI) checks that the seed matches.
+    The parser lives in package `service`, because `Shower` is package-private.
+11. **Expectations.**
+    - Table 5 gives DRA a ZHR of `5`; the `(?)` is only in the section text.
+    - QUA 2026 is `80`. The 2027 values `80+`, `110+` and `15+` strip to 80, 110 and 15.
+    - `Var` appears in neither year, so test it with a synthetic string.
+12. **Schema.** The outcome is `@Enumerated(STRING)` with a `LocalH2EnumWidener` `TARGETS` line,
+    as `scheduler_fire_log` has. The id is `BIGINT GENERATED BY DEFAULT AS IDENTITY`, with an
+    index on `(calendar_year, attempted_at DESC, id DESC)`.
+13. **Dependency.** `org.apache.pdfbox:pdfbox:3.0.8` has no CVE at CVSS 7 or above, and Boot
+    manages `commons-logging`.
+14. **Coverage.** Synthetic inputs cover:
+    - `Var`, a missing row, more than 60 pages;
+    - an encrypted and a corrupt PDF (generated with PDFBox in the test);
+    - a wrong content type, an oversize body, and 404, 403 and 500 responses;
+    - every alert state.
+
+    Each fixture is extracted once into a static.
+
 ## Landing site copy (lands with Phase 1)
 
 Plain, first-person-where-needed, short sentences, matching `landing/faq.html` and

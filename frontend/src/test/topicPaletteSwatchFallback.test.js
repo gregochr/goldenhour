@@ -14,7 +14,6 @@ describe('topicStyle swatch fallback', () => {
       const style = topicStyle('mist');
       expect(style.colour).toBe(DEFAULT_SWATCH_COLOR);
       expect(style.name).toBe('Mist');
-      expect(style.chipName).toBe('Mist');
     } finally {
       SWATCH_COLOR.MIST = saved;
     }

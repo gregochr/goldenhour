@@ -73,9 +73,7 @@ class HotTopicGlanceDecoratorTest {
         List<HotTopic> out = decorator.decorate(List.of(lowSunrise, peakSunrise, peakSunset));
 
         assertThat(out.get(0).glance().badge()).isNull();
-        assertThat(out.get(0).glance().shortValue()).isEqualTo("+0.40 m");
         assertThat(out.get(1).glance().badge()).isEqualTo("PEAK");
-        assertThat(out.get(1).glance().shortValue()).isEqualTo("+0.72 m pk");
         assertThat(out.get(2).glance().badge()).isEqualTo("PEAK");
     }
 
@@ -108,7 +106,7 @@ class HotTopicGlanceDecoratorTest {
     void surge_nullSurgeRun_nullValue() {
         GlanceLine glance = glanceOf(topic("STORM_SURGE", D1));
 
-        assertThat(glance).isEqualTo(new GlanceLine(null, null, null, true));
+        assertThat(glance).isEqualTo(new GlanceLine(null, null, true));
     }
 
     @Test
@@ -119,7 +117,6 @@ class HotTopicGlanceDecoratorTest {
         GlanceLine glance = glanceOf(t);
 
         assertThat(glance.value()).isEqualTo("+0.72 m");
-        assertThat(glance.shortValue()).isEqualTo("+0.72 m pk");
     }
 
     @Test
@@ -153,13 +150,13 @@ class HotTopicGlanceDecoratorTest {
     }
 
     @Test
-    @DisplayName("a surge with a high-water time but no peak string prints the HW time alone and no short value")
+    @DisplayName("a surge with a high-water time but no peak string prints the HW time alone")
     void surge_noPeakString_printsHighWaterOnly() {
         HotTopic t = topic("STORM_SURGE", D1).withSurgeRun(surge(null, "16:02", 0.72));
 
         GlanceLine glance = glanceOf(t);
 
-        assertThat(glance).isEqualTo(new GlanceLine("HW 16:02", null, "PEAK", true));
+        assertThat(glance).isEqualTo(new GlanceLine("HW 16:02", "PEAK", true));
     }
 
     @Test
@@ -167,7 +164,7 @@ class HotTopicGlanceDecoratorTest {
     void surge_neitherHighWaterNorPeak_noValue() {
         HotTopic t = topic("STORM_SURGE", D1).withSurgeRun(surge(null, null, 0.72));
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, null, "PEAK", true));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, "PEAK", true));
     }
 
     // ── Tides ───────────────────────────────────────────────────────────────
@@ -177,7 +174,7 @@ class HotTopicGlanceDecoratorTest {
     void tide_noRange_nullLinesKeepsBadge() {
         HotTopic t = topic("KING_TIDE", D2).withTideRun(tide(2, 3, null, true));
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, null, "PEAK", false));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, "PEAK", false));
     }
 
     @Test
@@ -190,21 +187,19 @@ class HotTopicGlanceDecoratorTest {
         List<HotTopic> out = decorator.decorate(List.of(start, single, middle));
 
         assertThat(out.get(0).glance().value()).isEqualTo("5.6 m · run starts");
-        assertThat(out.get(0).glance().shortValue()).isEqualTo("5.6 m");
         assertThat(out.get(1).glance().value()).isEqualTo("6.1 m");
         assertThat(out.get(2).glance().value()).isEqualTo("5.8 m");
         assertThat(out).allSatisfy(t -> assertThat(t.glance().weather()).isFalse());
     }
 
     @Test
-    @DisplayName("the peak tide day carries PEAK and a ' pk' short value")
+    @DisplayName("the peak tide day carries PEAK")
     void tide_peakDay() {
         HotTopic t = topic("KING_TIDE", D2).withTideRun(tide(2, 3, "6.4 m", true));
 
         GlanceLine glance = glanceOf(t);
 
         assertThat(glance.badge()).isEqualTo("PEAK");
-        assertThat(glance.shortValue()).isEqualTo("6.4 m pk");
         assertThat(glance.value()).isEqualTo("6.4 m");
     }
 
@@ -212,7 +207,7 @@ class HotTopicGlanceDecoratorTest {
     @DisplayName("a tide with no tideRun has a null value")
     void tide_nullTideRun() {
         assertThat(glanceOf(topic("SPRING_TIDE", D1)))
-                .isEqualTo(new GlanceLine(null, null, null, false));
+                .isEqualTo(new GlanceLine(null, null, false));
     }
 
     // ── Supermoon ───────────────────────────────────────────────────────────
@@ -226,7 +221,7 @@ class HotTopicGlanceDecoratorTest {
 
         GlanceLine glance = glanceOf(t);
 
-        assertThat(glance).isEqualTo(new GlanceLine("rise 16:34", "full", "FULL", false));
+        assertThat(glance).isEqualTo(new GlanceLine("rise 16:34", "FULL", false));
     }
 
     @Test
@@ -236,7 +231,7 @@ class HotTopicGlanceDecoratorTest {
 
         GlanceLine glance = glanceOf(t);
 
-        assertThat(glance).isEqualTo(new GlanceLine(null, "full", "FULL", false));
+        assertThat(glance).isEqualTo(new GlanceLine(null, "FULL", false));
     }
 
     @Test
@@ -245,7 +240,7 @@ class HotTopicGlanceDecoratorTest {
         HotTopic t = topic("SUPERMOON", D1).withScience(List.of(
                 HotTopicFact.directional("rises", "16:34", "ENE", false)), null);
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("rise 16:34", "full", "FULL", false));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("rise 16:34", "FULL", false));
     }
 
     @Test
@@ -254,7 +249,7 @@ class HotTopicGlanceDecoratorTest {
         HotTopic t = topic("SUPERMOON", D1).withScience(List.of(
                 new HotTopicFact("rises", null, "ENE", false, false)), null);
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, "full", "FULL", false));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine(null, "FULL", false));
     }
 
     // ── Dust ────────────────────────────────────────────────────────────────
@@ -266,13 +261,13 @@ class HotTopicGlanceDecoratorTest {
                 HotTopicFact.context("afterglow"),
                 HotTopicFact.metric("AOD", "0.45 · thick")), null);
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("0.45 · thick", null, true));
     }
 
     @Test
     @DisplayName("dust with no AOD fact has null lines but stays weather-driven")
     void dust_noAod() {
-        assertThat(glanceOf(topic("DUST", D1))).isEqualTo(new GlanceLine(null, null, null, true));
+        assertThat(glanceOf(topic("DUST", D1))).isEqualTo(new GlanceLine(null, null, true));
     }
 
     // ── First-fact types ────────────────────────────────────────────────────
@@ -284,7 +279,7 @@ class HotTopicGlanceDecoratorTest {
             HotTopic t = topic(type, D1).withScience(List.of(HotTopicFact.metric("k", "first"),
                     HotTopicFact.metric("k2", "second")), null);
 
-            assertThat(glanceOf(t)).as(type).isEqualTo(new GlanceLine("first", "first", null, true));
+            assertThat(glanceOf(t)).as(type).isEqualTo(new GlanceLine("first", null, true));
         }
     }
 
@@ -294,7 +289,7 @@ class HotTopicGlanceDecoratorTest {
         for (String type : List.of("METEOR", "EQUINOX", "ECLIPSE", "LUNAR_ECLIPSE", "BLUEBELL")) {
             HotTopic t = topic(type, D1).withScience(List.of(HotTopicFact.metric("k", "first")), null);
 
-            assertThat(glanceOf(t)).as(type).isEqualTo(new GlanceLine("first", "first", null, false));
+            assertThat(glanceOf(t)).as(type).isEqualTo(new GlanceLine("first", null, false));
         }
     }
 
@@ -305,13 +300,13 @@ class HotTopicGlanceDecoratorTest {
                 new HotTopicFact("kp", null, null, false, false),
                 HotTopicFact.metric("k", "Kp 6")), null);
 
-        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("Kp 6", "Kp 6", null, true));
+        assertThat(glanceOf(t)).isEqualTo(new GlanceLine("Kp 6", null, true));
     }
 
     @Test
     @DisplayName("a first-fact type with no facts has null lines")
     void firstFactType_noFacts() {
-        assertThat(glanceOf(topic("AURORA", D1))).isEqualTo(new GlanceLine(null, null, null, true));
+        assertThat(glanceOf(topic("AURORA", D1))).isEqualTo(new GlanceLine(null, null, true));
     }
 
     // ── Guards ──────────────────────────────────────────────────────────────
@@ -319,9 +314,9 @@ class HotTopicGlanceDecoratorTest {
     @Test
     @DisplayName("an unstamped weather type (simulated inversion or mist) is still marked WX")
     void unstampedWeatherType_markedWeather() {
-        assertThat(glanceOf(topic("INVERSION", D1))).isEqualTo(new GlanceLine(null, null, null, true));
-        assertThat(glanceOf(topic("MIST", D1))).isEqualTo(new GlanceLine(null, null, null, true));
-        assertThat(glanceOf(topic("SEA_MIST", D1))).isEqualTo(new GlanceLine(null, null, null, true));
+        assertThat(glanceOf(topic("INVERSION", D1))).isEqualTo(new GlanceLine(null, null, true));
+        assertThat(glanceOf(topic("MIST", D1))).isEqualTo(new GlanceLine(null, null, true));
+        assertThat(glanceOf(topic("SEA_MIST", D1))).isEqualTo(new GlanceLine(null, null, true));
     }
 
     @Test
@@ -333,7 +328,7 @@ class HotTopicGlanceDecoratorTest {
     @Test
     @DisplayName("an existing glance is never overwritten")
     void existingGlance_neverOverwritten() {
-        GlanceLine own = new GlanceLine("dawn · 9/10", "9/10", null, true);
+        GlanceLine own = new GlanceLine("dawn · 9/10", null, true);
         HotTopic inversion = topic("INVERSION", D1).withGlance(own);
         HotTopic dust = topic("DUST", D1).withGlance(own).withScience(
                 List.of(HotTopicFact.metric("AOD", "0.45 · thick")), null);

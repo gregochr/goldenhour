@@ -43,35 +43,31 @@ export const SWATCH_COLOR = {
 };
 
 /**
- * Glyph, full name and short (phone) name for each of the backend's nineteen types
+ * Glyph and full name for each of the backend's nineteen types
  * ({@code TopicRarity.RANK_BY_TYPE}). {@code placeNoun} marks the types that live on the coast.
- *
- * <p>{@code chipName} is the Coming up day tile's phone name (coming-up-glance-plan T1): at 375px a
- * tile's name area fits about six characters at 10.5px/600, so every value is six or fewer. It is a
- * separate key because the Map's topic strip reads {@code shortName} and must not change.
  */
 const TOPIC_META = {
-  KING_TIDE: { glyph: '🌊', name: 'King tide', shortName: 'King tide', chipName: 'King', placeNoun: 'coastal' },
-  SPRING_TIDE: { glyph: '🌊', name: 'Spring tide', shortName: 'Tide', chipName: 'Spring', placeNoun: 'coastal' },
-  STORM_SURGE: { glyph: '🌊', name: 'Storm surge', shortName: 'Surge', chipName: 'Surge', placeNoun: 'coastal' },
-  INVERSION: { glyph: '☁️', name: 'Inversion', shortName: 'Inversion', chipName: 'Invert' },
-  MIST: { glyph: '🌫️', name: 'Mist', shortName: 'Mist', chipName: 'Mist' },
+  KING_TIDE: { glyph: '🌊', name: 'King tide', placeNoun: 'coastal' },
+  SPRING_TIDE: { glyph: '🌊', name: 'Spring tide', placeNoun: 'coastal' },
+  STORM_SURGE: { glyph: '🌊', name: 'Storm surge', placeNoun: 'coastal' },
+  INVERSION: { glyph: '☁️', name: 'Inversion' },
+  MIST: { glyph: '🌫️', name: 'Mist' },
   // Sea mist (coastal-mist-plan Phase 2). No placeNoun: 'coastal' is reserved for the tide types (a test pins
   // it), and the topic's own copy already says "sea".
-  SEA_MIST: { glyph: '🌁', name: 'Sea mist', shortName: 'Sea mist', chipName: 'Sea' },
-  DUST: { glyph: '🏜️', name: 'Dust', shortName: 'Dust', chipName: 'Dust' },
-  SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops', shortName: 'Snow tops', chipName: 'Tops' },
-  SNOW_MIST: { glyph: '❄️', name: 'Snow and mist', shortName: 'Snow mist', chipName: 'Snow' },
-  SNOW_FRESH: { glyph: '❄️', name: 'Fresh snow', shortName: 'Fresh snow', chipName: 'Snow' },
-  CLEARANCE: { glyph: '🌤️', name: 'Clearance', shortName: 'Clearing', chipName: 'Clear' },
-  BLUEBELL: { glyph: '🌸', name: 'Bluebells', shortName: 'Bluebells', chipName: 'Bells' },
-  AURORA: { glyph: '🌌', name: 'Aurora', shortName: 'Aurora', chipName: 'Aurora' },
-  NLC: { glyph: '✦', name: 'NLC', shortName: 'NLC', chipName: 'NLC' },
-  METEOR: { glyph: '☄️', name: 'Meteors', shortName: 'Meteors', chipName: 'Meteor' },
-  SUPERMOON: { glyph: '🌙', name: 'Supermoon', shortName: 'Supermoon', chipName: 'Moon' },
-  EQUINOX: { glyph: '☀️', name: 'Equinox', shortName: 'Equinox', chipName: 'Equinx' },
-  ECLIPSE: { glyph: '◐', name: 'Eclipse', shortName: 'Eclipse', chipName: 'Eclips' },
-  LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse', shortName: 'Lunar ecl.', chipName: 'Lunar' },
+  SEA_MIST: { glyph: '🌁', name: 'Sea mist' },
+  DUST: { glyph: '🏜️', name: 'Dust' },
+  SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops' },
+  SNOW_MIST: { glyph: '❄️', name: 'Snow and mist' },
+  SNOW_FRESH: { glyph: '❄️', name: 'Fresh snow' },
+  CLEARANCE: { glyph: '🌤️', name: 'Clearance' },
+  BLUEBELL: { glyph: '🌸', name: 'Bluebells' },
+  AURORA: { glyph: '🌌', name: 'Aurora' },
+  NLC: { glyph: '✦', name: 'NLC' },
+  METEOR: { glyph: '☄️', name: 'Meteors' },
+  SUPERMOON: { glyph: '🌙', name: 'Supermoon' },
+  EQUINOX: { glyph: '☀️', name: 'Equinox' },
+  ECLIPSE: { glyph: '◐', name: 'Eclipse' },
+  LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse' },
 };
 
 /**
@@ -79,8 +75,7 @@ const TOPIC_META = {
  *
  * @param {?string} type  the served {@code HotTopic.type}
  * @param {?string} label the served {@code label}, used as the name of an unknown type
- * @returns {{colour: string, glyph: string, name: string, shortName: string, chipName: string,
- *          placeNoun?: string}}
+ * @returns {{colour: string, glyph: string, name: string, placeNoun?: string}}
  *          the topic's style; never null
  */
 export function topicStyle(type, label) {
@@ -88,11 +83,10 @@ export function topicStyle(type, label) {
   const meta = TOPIC_META[key];
   if (!meta) {
     const name = label || type || 'Topic';
-    return { colour: DEFAULT_SWATCH_COLOR, glyph: '•', name, shortName: name, chipName: name };
+    return { colour: DEFAULT_SWATCH_COLOR, glyph: '•', name };
   }
   return {
     colour: SWATCH_COLOR[key] ?? DEFAULT_SWATCH_COLOR,
     ...meta,
-    chipName: meta.chipName ?? meta.shortName,
   };
 }

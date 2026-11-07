@@ -356,6 +356,12 @@ public final class SchedulerJobCatalogue {
                 "Fetches 97 days of high and low tides from WorldTides for seascape locations that have a "
                         + "tide preference.",
                 "Weekly. 97 days covers the 90-day Coming up feed plus a week of slack."));
+        add(draft("imo_calendar_refresh", "Meteor shower calendar", Purpose.NIGHT_SKY, false,
+                List.of("International Meteor Organization"),
+                "Reads the International Meteor Organization's calendar for this year and next, and keeps "
+                        + "the meteor shower peak nights and rates current. Changes nothing it cannot read "
+                        + "cleanly, and emails an admin if the calendar changes shape or goes missing.",
+                "Weekly, because a calendar can be revised ahead of an outburst."));
         add(draft("cloud_verification_backfill", "Checks old forecasts against reality", Purpose.FORECAST, false,
                 List.of("Open-Meteo archive (ERA5)"),
                 "Checks past forecasts against what the sky actually did (ERA5 reanalysis). Works through "

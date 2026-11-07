@@ -281,6 +281,27 @@ public class AdminAlertService {
     }
 
     /**
+     * Sends a meteor-calendar alert from the weekly IMO calendar refresh: IMO revised a stored peak, a calendar
+     * could not be parsed or fetched, or next year's calendar is overdue. The refresh decides when to send (from
+     * its own log) and writes the copy.
+     *
+     * <p>Same channel, recipients and best-effort rules as {@link #sendTideSourceChangeAlert}: asynchronous, never
+     * throws, silent when alerts are disabled or no mail sender or admin address exists.
+     *
+     * @param subject the email subject
+     * @param body    the plain-text body
+     */
+    @Async
+    public void sendMeteorCalendarAlert(String subject, String body) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping meteor-calendar admin alert ({})",
+                    subject);
+            return;
+        }
+        deliver(() -> subject, () -> body, "meteor-calendar", subject);
+    }
+
+    /**
      * Sends a tide-gauge drift alert: a gauge's median timing error moved more than the threshold
      * from its trailing median (tide-source-integrity-plan P4). Sent once, when the gauge becomes
      * newly flagged.

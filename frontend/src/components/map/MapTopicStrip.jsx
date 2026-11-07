@@ -108,7 +108,7 @@ function spanWords(grid, bar) {
  * @param {?Function} [props.onHeightChange] called with the strip's height in px, null on unmount
  * @param {?Function} [props.fallbackFocus] where focus goes if the strip unmounts holding it
  * @param {'panel'|'sheet'} [props.variant] {@code 'sheet'} (M4, phone only) is the same grid inside the peek
- *   sheet's Windows body: full width, 70px label column, no frame-height default (it starts closed when no
+ *   sheet's Windows body: full width, 78px label column, no frame-height default (it starts closed when no
  *   preference is stored (unless {@code openByDefault}), no height report, its own storage key
  *   ({@link TOPIC_STRIP_OPEN_SHEET_KEY}), and a scroll into view when the reader opens it. The model, names and
  *   presses are the panel's own.
@@ -509,8 +509,8 @@ export default function MapTopicStrip({
             if (first >= 0) jump = `jump to ${columnWord(grid, first)}`;
             // The toggle's name must not flip with its state: `aria-pressed` carries that.
             let labelName = onHere
-              ? `${topicRow.shortName}: show on the map`
-              : `${topicRow.shortName}: ${jump}`;
+              ? `${topicRow.name}: show on the map`
+              : `${topicRow.name}: ${jump}`;
             // A locked row opens the upsell: "show on the map" / "jump to ..." would be false.
             if (rowLocked) labelName = `${topicRow.name}, a Pro map view${doorDisabled ? DOOR_DISABLED_SUFFIX : ''}`;
             // The tide runs' peak (served: tideRun.peak) rides under the name; the sheet keeps the day only.
@@ -518,8 +518,8 @@ export default function MapTopicStrip({
             let subText = null;
             if (sub) subText = inSheet || !sub.range ? `peak ${sub.dow.slice(0, 3)}` : `peak ${sub.dow.slice(0, 3)} \u00B7 ${sub.range}`;
             if (sub) {
-              labelName = labelName.replace(`${topicRow.shortName}:`,
-                `${topicRow.shortName}, ${subText}:`);
+              labelName = labelName.replace(`${topicRow.name}:`,
+                `${topicRow.name}, ${subText}:`);
             }
             return (
               <React.Fragment key={topicRow.type}>
@@ -547,12 +547,12 @@ export default function MapTopicStrip({
                       <span className="wf-tl-n1">
                         <span className="wf-tl-g">{topicRow.glyph}</span>
                         {' '}
-                        {topicRow.shortName}
+                        {topicRow.name}
                       </span>
                       <span className="wf-tl-sub" data-testid={`wf-topic-strip-sub-${topicRow.type}`}>{subText}</span>
                     </span>
                   ) : (
-                    <span aria-hidden="true">{topicRow.shortName}</span>
+                    <span aria-hidden="true">{topicRow.name}</span>
                   )}
                 </button>
                 {topicRow.bars.map((bar) => {
@@ -594,13 +594,13 @@ export default function MapTopicStrip({
                     return (
                       <span key={key} {...barProps} data-interactive="false">
                         <span className="sr-only">
-                          {`${topicRow.shortName}, ${span}, no window to open`}
+                          {`${topicRow.name}, ${span}, no window to open`}
                         </span>
                       </span>
                     );
                   }
-                  let name = `${topicRow.shortName}, ${span}, opens ${columnWord(grid, target.column)}`;
-                  if (target.stay) name = `${topicRow.shortName}, ${span}, current window`;
+                  let name = `${topicRow.name}, ${span}, opens ${columnWord(grid, target.column)}`;
+                  if (target.stay) name = `${topicRow.name}, ${span}, current window`;
                   if (target.stay && isSelected) name += ', selected';
                   return (
                     <button
@@ -720,7 +720,6 @@ MapTopicStrip.propTypes = {
     })),
     rows: PropTypes.arrayOf(PropTypes.shape({
       type: PropTypes.string,
-      shortName: PropTypes.string,
       glyph: PropTypes.string,
       colour: PropTypes.string,
       bigSeas: PropTypes.bool,

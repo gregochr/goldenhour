@@ -82,7 +82,7 @@ class HotTopicAggregatorTest {
 
         assertThat(topics).hasSize(1);
         assertThat(topics.getFirst().glance())
-                .isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
+                .isEqualTo(new GlanceLine("0.45 · thick", null, true));
     }
 
     @Test

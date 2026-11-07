@@ -186,6 +186,12 @@ photocast:
   #   coastal-mist:
   #     enabled: true               # false = the band is never computed, stored (null band, scored false) or
   #                                 # put in the prompt (PHOTOCAST_COASTAL_MIST_ENABLED)
+  # Meteor calendar refresh (docs/engineering/meteor-showers-plan.md, Phase 4). The folder the IMO's yearly
+  # cal{year}.pdf calendars are fetched from by the weekly imo_calendar_refresh job. Optional: the default is
+  # shown. https only. Production must be able to reach www.imo.net.
+  #   meteor:
+  #     imo:
+  #       base-url: https://www.imo.net/files/meteor-shower/
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:

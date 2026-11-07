@@ -137,7 +137,7 @@ final class ReviewedTypes {
                 "aligned", "axisLabels", "datumNote", "highWaterTime", "locationName", "peak", "peakTime",
                 "phrase", "sunrise", "sunset", "surgeMetres", "verdict")),
         entry("GlanceLine", Set.of(
-                "badge", "shortValue", "value", "weather")),
+                "badge", "value", "weather")),
         entry("PlanRenderedEvent", Set.of(
                 "date", "targetType")),
         entry("BigSeasDay", Set.of(

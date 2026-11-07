@@ -32,7 +32,7 @@ export const BIG_SEAS_TYPE = 'BIG_SEAS';
  * component, which the chip draws itself, so {@code glyph} is null.
  */
 export const BIG_SEAS_STYLE = Object.freeze({
-  colour: '#8FC0C7', glyph: null, name: 'Big seas', shortName: 'Big seas',
+  colour: '#8FC0C7', glyph: null, name: 'Big seas',
 });
 
 /** The word a whole-sky chip carries in place of a count. */
@@ -219,7 +219,7 @@ function rowTopics(row, topicIndex, hotTopics) {
  * @param {boolean} [args.tideLight] draw the tide-at-the-light clause on the tide and surge chips of a
  *        solar row (Pro and Admin only: the caller passes {@code !tideLocked}); the clause is the
  *        window's served {@code lightAlignment}, never computed here
- * @returns {Array<{type: string, name: string, shortName: string, glyph: ?string, colour: string,
+ * @returns {Array<{type: string, name: string, glyph: ?string, colour: string,
  *          where: ?string, label: string, wholeSky: boolean, bigSeas: boolean, topics: object[],
  *          places: ?object[]}>} one entry per chip; empty when the window has none
  */
@@ -267,7 +267,6 @@ export function topicsOnRow({
     chips.push({
       type,
       name: style.name,
-      shortName: style.shortName,
       glyph: style.glyph,
       colour: style.colour,
       where,
@@ -423,7 +422,7 @@ function runsOf(on) {
  * @returns {{days: Array<{date: string, dow: string, dayNum: string, today: boolean}>,
  *   columns: Array<{index: number, date: string, eventType: string, row: ?object,
  *   interactive: boolean, current: boolean}>, currentColumn: number,
- *   rows: Array<{type: string, name: string, shortName: string, glyph: ?string, colour: string,
+ *   rows: Array<{type: string, name: string, glyph: ?string, colour: string,
  *   bigSeas: boolean, on: boolean[], bars: Array<{start: number, end: number}>}>}}
  */
 export function fourDayGrid({
@@ -499,7 +498,6 @@ export function fourDayGrid({
     const row = {
       type,
       name: style.name,
-      shortName: style.shortName,
       glyph: style.glyph,
       colour: style.colour,
       bigSeas: false,

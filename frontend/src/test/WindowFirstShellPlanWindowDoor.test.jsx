@@ -215,7 +215,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     const onOpenMapTab = vi.fn();
     const mist = {
       type: 'MIST', label: 'Valley mist', date: TODAY, eventType: 'SUNRISE', regions: ['Lake District'],
-      glance: { value: 'dawn · likely at 2 sites', shortValue: 'likely', weather: true },
+      glance: { value: 'dawn · likely at 2 sites', weather: true },
     };
     await renderShell(
       { briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [mist], days: DAYS } },

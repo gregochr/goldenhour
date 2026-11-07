@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phases 1 and 2 are in progress.
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3 next.
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -10,7 +10,7 @@ English, without overclaiming.
 | # | Gap as published | Plan |
 |---|---|---|
 | 1 | Mutation testing covers the server only | **Out of date.** Stryker now tests `frontend/src/utils` weekly (`frontend-mutation-testing-plan.md`). Phase 1 corrects `engineering.html`. |
-| 2 | The real-browser tests run by hand | Phase 2: a Playwright smoke suite in CI, **a required check**. Phase 3: seeded data, so the Map and Plan specs run too. |
+| 2 | The real-browser tests run by hand | **Partly closed.** Phase 2 (merged, #1764): a Playwright smoke suite in CI, **a required check**. The rest is Phase 3: seeded data, so the Map and Plan specs run too. |
 | 3 | The prompt regression suite runs by hand | Phase 5: run it on PRs that change prompts or evaluation code, behind an approval environment. |
 | 4 | One host, no staging copy | Phase 4: a smoke check straight after deploy and an automatic rollback. A staging host is an owner decision (below). |
 | 5 | Not a professional penetration test | `security.txt` (Phase 6). Whether to pay for a test is an owner decision. |
@@ -44,78 +44,124 @@ In `landing/engineering.html`, every claim must match the merged `stryker.yml` a
 ## Phase 2: a Playwright smoke suite that blocks merging
 
 Owner decision (2026-11-07): the smoke suite is a **required check**, so it must be reliable enough to block a
-merge. Reliability is a design requirement, not something to tune afterwards.
+merge, and (because `deploy.yml` calls `ci.yml`) a tagged release too. Reliability is a design requirement,
+not something to tune afterwards. This section was revised after an adversarial review on 2026-11-07; the
+numbered review items are folded in below.
 
-### Shape
-- **Where it runs:** a new job, `e2e`, in `.github/workflows/ci.yml`. It runs on `ubuntu-latest`, never the
-  self-hosted runner, which is shared with production. It `needs: changes` and skips its expensive
-  **steps** on a docs-only diff, exactly as the `backend` and `frontend` jobs do. The job therefore always
-  reports, which a required check needs.
-- **The stack:**
-  - **Backend:** build the jar with `./mvnw -Plocal-dev -DskipTests package` and start it on the `local`
-    profile, on a fresh H2 file in the job's workspace.
-  - **Frontend:** `npm run build`, then `vite preview` with `VITE_API_TARGET` pointing at the backend.
-    That serves built code, which is closer to production than the dev server.
-  - **Startup:** wait on `/actuator/health`, with a timeout and logs printed on failure.
+### The stack
+- **Job:** a new `e2e` job in `.github/workflows/ci.yml`, named exactly **`E2E — Playwright smoke`** (the
+  branch-protection string).
+  - Runs on `ubuntu-24.04`: pinned, never `ubuntu-latest`, and never the self-hosted runner, which is shared
+    with production.
+  - `needs: changes`, with `timeout-minutes: 15`.
+  - Every expensive step carries `if: needs.changes.outputs.docs_only != 'true'`, plus the same "skipped"
+    echo step the other jobs use. **No job-level `if`**, so the check always reports, Dependabot PRs
+    included (the job needs no secrets).
+- **Backend:**
+  - Build: `./mvnw -Plocal-dev -Dmaven.test.skip=true package`. `-Plocal-dev` adds H2 and `src/local/java`
+    to the jar.
+  - Run: `java -jar target/*.jar --spring.profiles.active=local --server.port=8083`, from a temporary
+    working directory, so the H2 file is fresh on every run.
+  - **Readiness: `/actuator/health/container` only**, which covers `db` and `ping`. The bare `/actuator/health`
+    aggregates the Open-Meteo, tide and Anthropic probes. Those make real outbound calls, so waiting on it
+    would tie the gate to third-party uptime.
+- **Frontend:** `npm run build`, then `vite preview --host 127.0.0.1 --port 4173 --strictPort` with
+  `VITE_API_TARGET=http://127.0.0.1:8083`. Preview inherits `server.proxy`. Without the variable the proxy
+  falls back to 8082 and every call returns 502.
+- **Both servers start from Playwright:** a `webServer` array in `playwright.smoke.config.js`, so the recipe
+  is the same locally and in CI, with built-in timeouts and the servers' output on failure.
+- **Logging in:** the specs post to `/api/auth/login` **through the preview origin**, so the proxy is
+  exercised and no backend port is hard-coded. The local admin is created by `LocalAdminSeeder`
+  (`admin` / `golden2026`).
 - **No spend, by construction:**
-  - The job is given **no secrets**. `ANTHROPIC_API_KEY` is set to an obviously fake value, and the
-    WorldTides and mail keys stay empty.
-  - Ask stays on its stub (the local default). No forecast run or briefing build is triggered.
-  - Any accidental Anthropic call fails with a 401 rather than spending money.
-- **Login:** the specs log in through `/api/auth/login` (as `forecast.spec.js` does) with the local default
-  admin. Check how the Turnstile widget behaves when `turnstile.secret-key` is empty. If the login form
-  needs a site key, the specs that exercise the form must account for it.
+  - The job gets no secrets, and `ANTHROPIC_API_KEY` is set to a fake value. Ask is on its stub (local
+    default: enabled, stub).
+  - The backend does make outbound calls: the status stream runs the health probes, which call
+    `api.anthropic.com` and get a free 401, and `api.open-meteo.com`. Those components are soft, so a failure
+    shows a DEGRADED banner and fails nothing.
+  - So **no spec asserts on the absence of the health banner**.
+- **Invariant: the smoke database has no `scheduler_job_config` rows.** Every scheduled job (aurora polling,
+  NLC scraping, tide gauges, forecast runs) registers only from those rows, and they come from Flyway
+  migrations, which are off on the `local` profile.
+  - A spec asserts that `/api/scheduler/jobs` returns an empty list, so a future seeder that adds rows fails
+    loudly instead of quietly starting jobs.
+  - `photocast.ask.seed-local-fixture` stays off, because it triggers a briefing build.
 
-### Reliability rules (these are what make it fit to block)
-1. **No third-party network.** In a Playwright fixture shared by every spec, `page.route` stubs:
-   - map tiles (`server.arcgisonline.com`) with a 1×1 PNG;
-   - Turnstile (`challenges.cloudflare.com`);
-   - anything else off-origin.
+### Reliability rules
+1. **No service worker:** `use: { serviceWorkers: 'block' }`. The PWA's worker (`autoUpdate`, `CacheFirst`
+   on `/assets/`, a navigation fallback) would otherwise take over partway through a test, and requests it
+   handles bypass `page.route`.
+   - If blocking registration makes `registerSW.js` raise a `pageerror`, build the smoke bundle with the PWA
+     register disabled. Do not allow-list the error.
+2. **Third parties are fulfilled, never aborted:** an aborted request logs `net::ERR_FAILED` as a console
+   error. A shared fixture fulfils:
+   - `server.arcgisonline.com` tiles, with a real 1×1 PNG;
+   - `challenges.cloudflare.com/turnstile/v0/api.js`, with a script defining
+     `window.turnstile = { render: (el, o) => { o.callback('e2e-token'); return 'w1'; }, remove() {} }`.
+     The widget otherwise waits 10 s before enabling the submit button. The backend's empty
+     `turnstile.secret-key` admits the login on the verified path, so the fallback budget never applies.
 
-   Any unexpected off-origin request fails the test, so a new third-party dependency is noticed.
-2. **No fixed sleeps.** Only web-first assertions (`expect(locator).toBeVisible()` and so on) and
-   `waitForResponse`. No `waitForTimeout`.
-3. **The clock is frozen** with `page.clock`, at a fixed UK date, wherever a spec depends on "today".
-4. **Chromium only** in the required job. Pin the Playwright version exactly, not with a caret, and keep
-   the browser install cached on that version.
-5. **Retries: 0 in the required job.** A retry hides flakiness, which is the thing a gate must not tolerate.
-   `trace: 'retain-on-failure'`, with the report and traces uploaded as an artifact when the job fails.
-6. **Console errors fail the test.** A fixture collects `console.error` and `pageerror` events. Each spec
-   ends by asserting there were none, apart from a named allow-list, which should be empty to begin with.
-   This catches the class of bug the owner saw on logout.
-7. **Time budget:** the whole job runs under 8 minutes and the specs under 2.
-8. **Proof before it becomes required:**
-   - The PR runs the suite with `--repeat-each=20` in a temporary step, and it must pass every time.
-   - The step is then removed before merge.
-   - The repeat-20 result is posted on the PR.
+   Every other off-origin request is **recorded** and asserted empty at the end of each test. On-demand
+   third parties (the guide iframe, Nominatim) are not touched by these specs.
+3. **No fixed sleeps.** Only web-first assertions and `waitForResponse`.
+4. **No clock freezing in Phase 2:** nothing on an empty database depends on "today", and freezing only the
+   browser clock splits the client's date from the server's. Pinning the date belongs to Phase 3, together
+   with the backend's clock or Rewind.
+5. **Chromium only, pinned:**
+   - `"@playwright/test": "1.64.1"` exactly. Update the lockfile's root `packages[""]` entry too, or
+     `npm ci` fails.
+   - Cache `~/.cache/ms-playwright` keyed on that version, and always run
+     `npx playwright install-deps chromium`, because the apt packages are not cached.
+   - `workers: 2`, fixed.
+5a. **Sign-out runs alone, last** (its own project, `dependencies: ['smoke']`, `workers: 1`): logout bumps the account-wide credentials version and would 401 any parallel spec sharing the admin.
+6. **Retries: 0.** Traces with `retain-on-failure`; on failure, the report, traces and both servers' logs are
+   uploaded as an artifact.
+7. **Console and network hygiene.** A fixture records `console` messages of type `error`, `pageerror`
+   events, and responses with status ≥ 400 from the app's own origin. Each test ends by asserting there were
+   none, apart from a **named allow-list**, where each entry gives its reason and a pointer to its fix.
+   Chromium logs every failed XHR as a console error, so this rule also covers 4xx and 5xx responses.
+8. **Time budget:** the job runs in under 10 minutes and the specs in under 2.
 
-### What the smoke suite covers (empty database, no ratings)
-- **Login and logout:** the login form renders and the admin logs in. Logging out returns to the login form
-  with no console errors.
-- **Each top-level tab renders:** Map, the Plan matrix (*At a Glance*), Coming up, and Operations (as
-  admin). Each shows its own container `data-testid`, and the empty states draw without errors.
-- **The Map pane:** the Leaflet container draws and the tile layer is requested, though stubbed.
-- **Phone width** (`devices['iPhone 13']` viewport on Chromium): the tab bar works and the Map's phone peek
-  sheet does not cover the tabs. Use only checks that hold with no data.
-- **Ask PhotoCast:** check whether it is enabled locally. If it is, the box opens and a stubbed answer
-  renders. If it is off by default, leave it out of the suite.
+### Build order
+1. **Local proof of a fresh boot.** Delete the data directory, build and run the jar as above on JDK 25, and
+   record in the PR that `/actuator/health/container` is UP and admin login works. No `application.yml` is
+   present (it is gitignored, and CI won't have one).
+2. **Discovery run.** Write the specs, then run them with the hygiene assertions switched to *record only*.
+   List every console error, `pageerror` and non-2xx response per tab in the PR. Each must be fixed in this
+   PR if it is small and clearly a bug, or otherwise allow-listed with a reason and a follow-up.
+   - Check logout specifically: the owner saw console errors on logout around v2.38.1.
+3. Turn the assertions on.
+4. **Proof of reliability:** both are temporary and removed before merge, and both results are posted on the
+   PR.
+   - `--repeat-each=20` in a temporary step, with its own `timeout-minutes`, and it must pass every time.
+   - The whole job, boot included, 5 times. Use a temporary `attempt: [1, 2, 3, 4, 5]` matrix; it must pass
+     every time.
 
-### Existing specs
-- `forecast.spec.js`: keep the specs that pass on an empty database in the new suite and move the rest to
-  Phase 3. List which went where in the PR.
-- `door1-obstacles.spec.js`: needs seeded ratings, so it moves to Phase 3.
-- **Separate configs:** put the required suite under `src/test/e2e/smoke/`, with its own
-  `playwright.smoke.config.js` (retries 0, Chromium, preview server). Add a `test:e2e:smoke` script. The
-  existing config and its local recipe stay as they are.
+### What the smoke suite covers (empty database)
+- **Login and logout:** the form renders and accepts input (with the Turnstile stub), and the admin logs in.
+  Logging out returns to the form cleanly.
+- **Each top-level tab renders its container `data-testid` and empty state:** Map, the Plan matrix
+  (*At a Glance*), Coming up, and Operations (as admin).
+- **The Map:** the Leaflet container draws and tile requests are made, though fulfilled by the stub.
+- **Ask PhotoCast** (enabled locally): the box opens. If the stub answers on an empty database, the answer
+  renders; if it doesn't, assert only that the box and its empty state render. Record which in the PR.
+- **Phone width:** use an iPhone-sized viewport on Chromium and assert only on the tab bar. The peek sheet
+  can't be tested with no locations.
+- **The scheduler invariant above.**
+
+### Files
+- `frontend/src/test/e2e/smoke/*.spec.js`, the shared fixture, and `frontend/playwright.smoke.config.js`.
+- `"test:e2e:smoke"` in `package.json`.
+- The existing `playwright.config.js` gains `testIgnore: '**/smoke/**'`. Otherwise it and the two existing
+  specs are unchanged; they move to Phase 3.
+- Docs:
+  - `docs/engineering/reference/dev-and-testing.md`: the gate, the local recipe and the rules above.
+  - CLAUDE.md: one line beside the frontend commands.
+  - A changelog entry.
 
 ### After merge (owner)
-Add **"E2E — Playwright smoke"** to the branch-protection required checks, as was done for OWASP.
-
-### Docs
-Update `docs/engineering/reference/dev-and-testing.md` with the new gate, how to run it locally, and the
-reliability rules above, plus CLAUDE.md's frontend-commands line (one line). Changelog entry.
-
----
+Add **"E2E — Playwright smoke"** to the branch-protection required checks. The landing copy changes only once
+the check is required.
 
 ## Phase 3: seeded data, so the Map and Plan specs run in CI
 

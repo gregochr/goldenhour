@@ -65,7 +65,7 @@ class BluebellGlossServiceTest {
         when(modelSelectionService.getActiveModel(RunType.BLUEBELL_GLOSS))
                 .thenReturn(EvaluationModel.HAIKU);
         mockClaudeResponse("{\"headline\": \"Misty dawn — ideal woodland light\"}");
-        GlanceLine glance = new GlanceLine("first", "first", null, false);
+        GlanceLine glance = new GlanceLine("first", null, false);
         List<HotTopicFact> facts = List.of(HotTopicFact.metric("k", "first"));
         HotTopic original = bluebellTopic("Northumberland").withEvent("SUNRISE", "05:30")
                 .withScience(facts, "a note").withGlance(glance);

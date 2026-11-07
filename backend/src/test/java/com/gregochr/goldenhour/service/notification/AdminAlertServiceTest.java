@@ -382,6 +382,26 @@ class AdminAlertServiceTest {
     }
 
     @Test
+    @DisplayName("the meteor-calendar alert mails its subject and body to every admin, and is silent when disabled")
+    void meteorCalendarAlert_sendsToEveryAdminAndIsSilentWhenDisabled() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendMeteorCalendarAlert("PhotoCast: IMO revised its 2026 meteor calendar",
+                "GEM: night 2026-12-13 -> 2026-12-14");
+
+        verify(mailSender, times(1)).send(message);
+        assertThat(message.getSubject()).isEqualTo("PhotoCast: IMO revised its 2026 meteor calendar");
+        assertThat((String) message.getContent()).contains("GEM: night 2026-12-13 -> 2026-12-14");
+
+        new AdminAlertService(mailSender, appUserRepository, false).sendMeteorCalendarAlert("s", "b");
+
+        verify(mailSender, times(1)).createMimeMessage();
+    }
+
+    @Test
     @DisplayName("with admin alerts disabled the tide-gauge drift alert sends nothing")
     void tideGaugeDriftAlert_silentWhenDisabled() {
         new AdminAlertService(mailSender, appUserRepository, false).sendTideGaugeDriftAlert("Tynemouth", "d");

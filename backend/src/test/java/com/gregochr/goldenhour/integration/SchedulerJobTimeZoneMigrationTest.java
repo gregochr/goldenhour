@@ -41,8 +41,17 @@ class SchedulerJobTimeZoneMigrationTest extends IntegrationTestBase {
     void otherJobsStayUtc() {
         List<String> zoned = jdbc.queryForList(
                 "SELECT job_key FROM scheduler_job_config WHERE time_zone IS NOT NULL "
-                        + "AND job_key <> 'evening_sunrise_refresh'", String.class);
+                        + "AND job_key NOT IN ('evening_sunrise_refresh', 'imo_calendar_refresh')", String.class);
 
         assertThat(zoned).isEmpty();
+    }
+
+    @Test
+    @DisplayName("V223 puts the IMO calendar refresh in Europe/London")
+    void imoCalendarRefreshIsInLondon() {
+        String zone = jdbc.queryForObject(
+                "SELECT time_zone FROM scheduler_job_config WHERE job_key = 'imo_calendar_refresh'", String.class);
+
+        assertThat(zone).isEqualTo("Europe/London");
     }
 }

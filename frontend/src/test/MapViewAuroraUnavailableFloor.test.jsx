@@ -254,11 +254,11 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
     />
   );
 
-  /** Opens the tab in aurora mode and proves it is there, with the chip named `chipName`. */
-  async function openInAurora(chipName) {
+  /** Opens the tab in aurora mode and proves it is there, with the chip named `chipLabel`. */
+  async function openInAurora(chipLabel) {
     await openMap(tab());
     await liveScoresLoaded();
-    expect(screen.getByRole('button', { name: chipName })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: chipLabel })).toBeInTheDocument();
   }
 
   /** Opens the popover from `chip`, and proves the map has left aurora mode. */

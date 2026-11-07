@@ -28,11 +28,11 @@ const run = (date, n, count, glance = {}) => ({
 const dust = { type: 'DUST', label: 'Saharan dust', date: MON, eventType: 'SUNSET' };
 const inversion = {
   type: 'INVERSION', label: 'Inversion', date: SUN, eventType: 'SUNRISE',
-  glance: { value: 'dawn · 9/10 · strong', shortValue: '9/10', weather: true },
+  glance: { value: 'dawn · 9/10 · strong', weather: true },
 };
 const aurora = {
   type: 'AURORA', label: 'Aurora', date: SUN, eventType: 'NIGHT',
-  glance: { value: 'Kp 6', shortValue: 'Kp6', weather: true },
+  glance: { value: 'Kp 6', weather: true },
 };
 
 /** A strip's lanes the way it builds them. */

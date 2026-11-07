@@ -106,7 +106,7 @@ class MistHotTopicStrategyTest {
         assertThat(fact.value()).isEqualTo("likely at 1 site");
         assertThat(topic.note()).isEqualTo("get there before the sun — it burns off within the hour");
         assertThat(topic.glance())
-                .isEqualTo(new GlanceLine("dawn · likely, 1 site", "likely", null, true));
+                .isEqualTo(new GlanceLine("dawn · likely, 1 site", null, true));
     }
 
     @Test
@@ -122,7 +122,7 @@ class MistHotTopicStrategyTest {
         assertThat(topics.getFirst().eventType()).isEqualTo("SUNSET");
         assertThat(topics.getFirst().note()).contains("blue hour");
         assertThat(topics.getFirst().glance())
-                .isEqualTo(new GlanceLine("dusk · likely, 1 site", "likely", null, true));
+                .isEqualTo(new GlanceLine("dusk · likely, 1 site", null, true));
     }
 
     @Test

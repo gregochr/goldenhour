@@ -224,13 +224,13 @@ describe('locationTypes', () => {
 describe('topicPalette', () => {
   it('styles a known type with its colour and a chip name', () => {
     expect(topicStyle('king_tide', 'ignored')).toMatchObject({
-      colour: '#6FA8B0', glyph: '🌊', name: 'King tide', chipName: 'King', placeNoun: 'coastal',
+      colour: '#6FA8B0', glyph: '🌊', name: 'King tide', placeNoun: 'coastal',
     });
   });
 
   it('names an unknown type by its label, then its type, then a default', () => {
     expect(topicStyle('WEIRD', 'Weird thing')).toEqual({
-      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Weird thing', shortName: 'Weird thing', chipName: 'Weird thing',
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Weird thing',
     });
     expect(topicStyle('WEIRD').name).toBe('WEIRD');
     expect(topicStyle(null).name).toBe('Topic');
