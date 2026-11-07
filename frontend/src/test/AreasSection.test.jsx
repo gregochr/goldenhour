@@ -132,6 +132,23 @@ describe('AreasSection', () => {
     expect(updateArea).not.toHaveBeenCalled();
   });
 
+  it('makes the buttons, inputs and member rows 44px tap targets on a phone', async () => {
+    render(<AreasSection locations={LOCATIONS} />);
+
+    expect(await screen.findByTestId('add-area-btn')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('area-edit-7')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('area-delete-7')).toHaveClass('max-[639px]:min-h-11');
+
+    fireEvent.click(screen.getByTestId('area-edit-7'));
+    expect(screen.getByTestId('area-name-input')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('area-member-filter')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('area-save-names')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('area-save-members')).toHaveClass('max-[639px]:min-h-11');
+    const checkbox = screen.getByTestId('area-member-1');
+    expect(checkbox).toHaveClass('max-[639px]:size-5');
+    expect(checkbox.closest('label')).toHaveClass('max-[639px]:min-h-11', 'max-[639px]:py-0');
+  });
+
   it('filters the member picker by name without losing ticks on hidden rows', async () => {
     setAreaLocations.mockResolvedValue(WALL);
     render(<AreasSection locations={LOCATIONS} />);

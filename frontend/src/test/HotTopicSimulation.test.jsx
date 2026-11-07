@@ -45,6 +45,14 @@ describe('HotTopicSimulation', () => {
     expect(screen.getByTestId('simulation-checkbox-AURORA')).not.toBeChecked();
   });
 
+  it('makes the toggle and the checkbox rows 44px tap targets on a phone', async () => {
+    getSimulationState.mockResolvedValue(state(true, [true, false, false]));
+    render(<HotTopicSimulation />);
+    expect(await screen.findByTestId('simulation-master-toggle')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('simulation-type-AURORA')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('simulation-checkbox-AURORA')).toHaveClass('max-[639px]:size-5');
+  });
+
   it('when on, says what is being simulated and shows the tab hint', async () => {
     getSimulationState.mockResolvedValue(state(true, [true, false, false]));
     render(<HotTopicSimulation />);

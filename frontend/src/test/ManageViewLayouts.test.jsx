@@ -147,6 +147,8 @@ describe('ManageView — phone section menu', () => {
     const select = screen.getByTestId('manage-section-select');
     expect(select.tagName).toBe('SELECT');
     expect(select).toHaveClass('field');
+    // A 44px tap target on a phone, the only layout that shows this select.
+    expect(select).toHaveClass('max-[639px]:min-h-11');
     expect(screen.getByLabelText('Section')).toBe(select);
     expect(screen.getByText('Section')).toHaveClass('sr-only');
     expect(navigationCount()).toBe(1);

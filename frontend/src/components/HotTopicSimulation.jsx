@@ -76,7 +76,7 @@ export default function HotTopicSimulation() {
         <button
           data-testid="simulation-master-toggle"
           onClick={handleToggleEnabled}
-          className={`px-4 py-1.5 rounded text-xs font-semibold transition-colors ${
+          className={`px-4 py-1.5 rounded text-xs font-semibold transition-colors max-[639px]:min-h-11 ${
             state.enabled
               ? 'bg-plex-gold text-plex-bg hover:bg-plex-gold/80'
               : 'bg-plex-surface border border-plex-border text-plex-text-muted hover:text-plex-text'
@@ -95,14 +95,14 @@ export default function HotTopicSimulation() {
         {state.types.map((t) => (
           <label
             key={t.type}
-            className="flex items-center gap-2.5 cursor-pointer group"
+            className="flex items-center gap-2.5 cursor-pointer group max-[639px]:min-h-11"
             data-testid={`simulation-type-${t.type}`}
           >
             <input
               type="checkbox"
               checked={t.active}
               onChange={() => handleToggleType(t.type)}
-              className="accent-plex-gold"
+              className="accent-plex-gold max-[639px]:size-5"
               data-testid={`simulation-checkbox-${t.type}`}
             />
             <span className="text-sm text-plex-text group-hover:text-plex-text">

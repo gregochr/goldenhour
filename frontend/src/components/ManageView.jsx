@@ -238,7 +238,7 @@ export default function ManageView({ onComplete }) {
       <label htmlFor="manage-section-select" className="sr-only">Section</label>
       <select
         id="manage-section-select"
-        className="field"
+        className="field max-[639px]:min-h-11"
         value={activeTab}
         onChange={(e) => handleSelectTab(e.target.value)}
         data-testid="manage-section-select"
