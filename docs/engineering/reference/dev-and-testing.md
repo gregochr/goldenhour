@@ -291,6 +291,32 @@ prints the hygiene findings below instead of failing on them, which is how to di
 
 **After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
 
+### The accessibility scan (advisory, Phase 3c)
+
+`E2E — accessibility (advisory)` (`.github/workflows/a11y.yml`) runs `@axe-core/playwright` (pinned exactly) on the same seeded,
+nginx-served stack as the smoke gate. ⚠️ It is **its own workflow, not a job in `ci.yml`**: `deploy.yml` calls `ci.yml` through
+`workflow_call`, so a red advisory job there would block every release. It triggers on `pull_request` and pushes to `main`, with
+`paths-ignore` for `**/*.md` and `docs/**` (nothing waits on it, so a skipped run is harmless), its own `concurrency` group and a
+20 minute timeout. Config: `frontend/playwright.a11y.config.js`, which imports the smoke config and overrides only `testDir`,
+`outputDir`, `reporter` and `projects` (`a11y-desktop` 1280x800 and `a11y-phone` Pixel 7, both with `reducedMotion: 'reduce'`, never
+`bypassCSP`). The default `playwright.config.js` ignores `**/a11y/**`.
+
+- **Run it:** build the jar and `npm run build` as above, then `cd frontend && E2E_WEB=nginx E2E_API_PORT=8082 npm run test:e2e:a11y`
+  (needs Docker), or without `E2E_WEB` for `vite preview` on 8083. `npm run a11y:summary` prints the folded table
+  (`scripts/a11y-summary.mjs`, also saved as `test-results/a11y/summary.md` and appended to `$GITHUB_STEP_SUMMARY` in CI).
+- **What is scanned**, each as its own test per project: the sign-in page, Plan, Coming up, Map, Operations, the Plan window sheet,
+  the location sheet (opened over the window sheet) and the Map callout (the peek sheet on a phone). Whole page, tags `wcag2a`,
+  `wcag2aa`, `wcag21a`, `wcag21aa`, **no `disableRules` and no `exclude`**. A test fails only on `serious` or `critical`; each
+  scan writes `test-results/a11y/<project>-<scan>.json` and attaches the full axe result. The records live beside
+  `test-results/a11y-artifacts` (Playwright's outputDir, emptied at each start), never inside it.
+- **Not covered:** the basemap tiles are a stubbed 1x1 PNG, so contrast of chips over real imagery is not tested; axe's `incomplete`
+  results (what it could not decide, mostly contrast) are counted separately in the summary, never as failures.
+- **Existing violations are fixed in their own PRs, never suppressed.** The job lands red; the owner makes it required once clean.
+- ⚠️ **The advisory merge exception.** CLAUDE.md merges on "CI green". For this one job, by name (`E2E — accessibility
+  (advisory)`), a red result never blocks a merge: the merge decision reads the **required** checks plus Codex, and the red job is
+  reported in the PR summary. That includes the PR that adds the job. The exception ends when the owner adds it to branch
+  protection.
+
 ---
 
 ## Dialog history tests (`utils/dialogHistory.js`)

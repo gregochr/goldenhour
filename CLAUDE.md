@@ -51,6 +51,8 @@ plans and this file may be written by the planning session.)
    comment.
 6. **Merge (squash) only when CI is green and Codex has given 👍 on the exact head commit.** Re-read
    both immediately before `gh pr merge`.
+   **One exception (owner, 2026-11-07):** the `E2E — accessibility (advisory)` workflow (`.github/workflows/a11y.yml`)
+   never blocks a merge until the owner makes it a required check; report a red run in the PR summary instead.
 7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
    updated `main` after the previous phase merged.
 
