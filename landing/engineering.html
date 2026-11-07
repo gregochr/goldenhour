@@ -77,7 +77,7 @@
 <tr><td>SpotBugs with FindSecBugs</td><td>Every PR</td><td>Any High-priority finding</td><td>The build fails</td></tr>
 <tr><td>Checkstyle</td><td>Every PR</td><td>Javadoc on every public type and method, indentation, line length, unused imports</td><td>The build fails</td></tr>
 <tr><td>ESLint, including <code>jsx-a11y</code></td><td>Every PR</td><td>Any error or warning</td><td>The build fails</td></tr>
-<tr><td>Playwright smoke (Chromium)</td><td>Every PR and every release</td><td>Signing in and out and each screen, against the real server with an empty database; any console error, failed request or unexpected third-party request</td><td>The build fails</td></tr>
+<tr><td>Playwright smoke (Chromium)</td><td>Every PR and every release</td><td>Signing in and out and the main tabs, against the real server with an empty database; any console error, failed request or unexpected third-party request</td><td>The build fails</td></tr>
 <tr><td><code>npm audit</code></td><td>Every PR</td><td>Any high or critical advisory</td><td>The build fails</td></tr>
 <tr><td>CodeQL</td><td>Every PR (new alerts) and weekly (whole codebase)</td><td>New alerts a change introduces</td><td>The check fails</td></tr>
 <tr><td>OWASP Dependency-Check</td><td>PRs that change server dependencies, and daily</td><td>CVSS 7.0 or above, unless investigated and recorded as not applicable</td><td>The check fails</td></tr>
@@ -112,7 +112,7 @@
 <p>Coverage says what the tests ran, not whether they'd notice a bug. So:</p>
 <ul>
 <li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.</li>
-<li><b>A real browser.</b> A short Playwright suite drives Chromium against the real server and a fresh, empty database, signs in and out, visits each screen and fails on any console error, failed request or unexpected third-party request. It is a required check on every pull request and every release. It does not yet cover the map and planning screens with data.</li>
+<li><b>A real browser.</b> A short Playwright suite drives Chromium against the real server and a fresh, empty database, signs in and out, visits the main tabs and fails on any console error, failed request or unexpected third-party request. It is a required check on every pull request and every release. It does not yet cover the map and planning screens with data.</li>
 <li><b>Testing the model, not just the code.</b> A weekly evaluation re-rates a fixed set of past sunrises and sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a model changes, and it decides which model runs which job: a newer model was taken off a production job after a day, when the evaluation showed it under-rating a clear-horizon morning.</li>
 <li><b>Prompt regression tests.</b> A larger suite checks real model output against ground truth from what was actually observed. Only I change those expectations; the AI tools that write the code are forbidden to.</li>
 <li><b>Recorded contracts.</b> Saved real responses from the weather, space-weather, postcode, routing and light-pollution services pin how PhotoCast parses them, and a contract test pins the JSON date format the API puts on the wire.</li>

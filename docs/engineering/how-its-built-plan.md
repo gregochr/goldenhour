@@ -89,7 +89,7 @@ should have warned you off, and where it is consistently too hopeful or too caut
   plants small bugs in the core forecasting code and checks that the tests catch them.
 - **Real data, recorded.** The weather, space-weather, postcode and light-pollution services PhotoCast relies on
   are tested against recorded real responses, so a change in their format is caught before it reaches you.
-- **In a real browser.** A short set of tests opens the app in a real browser, signs in and visits each screen, and
+- **In a real browser.** A short set of tests opens the app in a real browser, signs in and opens the main tabs, and
   fails if anything goes wrong on the page. It runs whenever a code change is proposed and before every release,
   and a change can't be merged until it passes.
 - **A real database.** Every change to how data is stored (more than 200 so far) is tested against a real copy of
@@ -120,7 +120,7 @@ See the [Privacy notice](privacy.html) for what PhotoCast stores and why.
 Being honest about the gaps is part of the same standard.
 - Most of the app's tests run in a simulated browser: a program that imitates a web page, so the tests run quickly
   without opening one. A shorter set now runs in a real browser on every change, and a change can't be merged
-  unless it passes. It checks signing in and each screen, but without real forecast data, so the map and planning
+  unless it passes. It checks signing in and the main tabs, but without real forecast data, so the map and planning
   screens are still checked by hand in a real browser.
 - The server's tests are checked by mutation testing and a coverage minimum. The app's tests have a coverage minimum too, but not mutation testing yet.
 - The larger forecast regression suite is run by hand rather than on every change, because each run asks the AI
