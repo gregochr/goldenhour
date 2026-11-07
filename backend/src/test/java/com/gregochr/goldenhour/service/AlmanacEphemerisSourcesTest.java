@@ -57,17 +57,17 @@ class AlmanacEphemerisSourcesTest {
         void reportsEveryShowerNotJustTheFirst() {
             stubDark("Perseids", LocalDate.of(2026, 8, 12), 10);
             stubDark("Draconids", LocalDate.of(2026, 10, 8), 10);
-            stubDark("Orionids", LocalDate.of(2026, 10, 21), 10);
+            stubDark("Orionids", LocalDate.of(2026, 10, 20), 10);
             stubDark("S. Taurids", LocalDate.of(2026, 11, 5), 10);
             stubDark("N. Taurids", LocalDate.of(2026, 11, 12), 10);
             stubDark("Leonids", LocalDate.of(2026, 11, 17), 10);
             stubDark("Geminids", LocalDate.of(2026, 12, 14), 10);
             stubDark("Ursids", LocalDate.of(2026, 12, 22), 10);
 
-            // 1 Aug to 31 Dec covers Perseids (12 Aug), Draconids (8 Oct), Orionids (21 Oct),
+            // 1 Aug to 31 Dec covers Perseids (12 Aug), Draconids (8 Oct), Orionids (20 Oct),
             // S. Taurids (5 Nov), N. Taurids (12 Nov), Leonids (17 Nov), Geminids (14 Dec) and
             // Ursids (22 Dec).
-            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -82,7 +82,7 @@ class AlmanacEphemerisSourcesTest {
             when(moonGate.assess(shower("Perseids"), LocalDate.of(2026, 8, 12))).thenReturn(
                     new MeteorMoonGate.MoonOverShower(92, true, false, Optional.empty(), Optional.empty()));
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.title()).isEqualTo("Perseids");
@@ -96,7 +96,7 @@ class AlmanacEphemerisSourcesTest {
         void aDarkPeakOmitsTheFlag() {
             stubDark("Perseids", LocalDate.of(2026, 8, 12), 5);
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.meta()).doesNotContainKey("washedOut");
@@ -109,7 +109,7 @@ class AlmanacEphemerisSourcesTest {
             when(moonGate.assess(shower("Leonids"), LocalDate.of(2026, 11, 17))).thenReturn(
                     new MeteorMoonGate.MoonOverShower(57, false, true, Optional.empty(), Optional.empty()));
 
-            AlmanacEvent leonids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent leonids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 18)).getFirst();
 
             assertThat(leonids.meta()).doesNotContainKey("washedOut")
@@ -120,12 +120,12 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("a moon that sets inside the best hours says when")
         void aMoonSettingInTheWindowSaysWhen() {
-            when(moonGate.assess(shower("Orionids"), LocalDate.of(2026, 10, 21))).thenReturn(
+            when(moonGate.assess(shower("Orionids"), LocalDate.of(2026, 10, 20))).thenReturn(
                     new MeteorMoonGate.MoonOverShower(60, false, false,
                             Optional.of(LocalTime.of(2, 56)), Optional.empty()));
 
-            AlmanacEvent orionids = new MeteorAlmanacSource(moonGate)
-                    .events(LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 22)).getFirst();
+            AlmanacEvent orionids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
+                    .events(LocalDate.of(2026, 10, 19), LocalDate.of(2026, 10, 21)).getFirst();
 
             assertThat(orionids.meta()).doesNotContainKey("washedOut");
             assertThat(orionids.detail()).endsWith(" The moon is 60% lit and sets around 02:56.");
@@ -138,7 +138,7 @@ class AlmanacEphemerisSourcesTest {
                     new MeteorMoonGate.MoonOverShower(40, false, false,
                             Optional.empty(), Optional.of(LocalTime.of(0, 30))));
 
-            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 12, 13), LocalDate.of(2026, 12, 15)).getFirst();
 
             assertThat(geminids.detail()).endsWith(" The moon is 40% lit and rises around 00:30.");
@@ -149,7 +149,7 @@ class AlmanacEphemerisSourcesTest {
         void aThinMoonUpAllWindowAddsNoSuffix() {
             stubDark("Perseids", LocalDate.of(2026, 8, 12), 40);
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.detail()).doesNotContain("The moon is");
@@ -162,7 +162,7 @@ class AlmanacEphemerisSourcesTest {
             stubDark("Ursids", LocalDate.of(2026, 12, 22), 10);
             stubDark("Quadrantids", LocalDate.of(2027, 1, 3), 10);
 
-            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 12, 10), LocalDate.of(2027, 1, 10));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -174,7 +174,7 @@ class AlmanacEphemerisSourcesTest {
         void carriesCatalogueFacts() {
             stubDark("Geminids", LocalDate.of(2026, 12, 14), 10);
 
-            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 12, 13), LocalDate.of(2026, 12, 15)).getFirst();
 
             assertThat(geminids.meta())
@@ -191,7 +191,7 @@ class AlmanacEphemerisSourcesTest {
             stubDark("N. Taurids", LocalDate.of(2026, 11, 12), 10);
             stubDark("Leonids", LocalDate.of(2026, 11, 17), 10);
 
-            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 11, 7), LocalDate.of(2026, 11, 30));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -210,7 +210,7 @@ class AlmanacEphemerisSourcesTest {
         void lowRadiantShowerNamesTheUkRate() {
             stubDark("Eta Aquariids", LocalDate.of(2026, 5, 5), 10);
 
-            AlmanacEvent eta = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent eta = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6)).getFirst();
 
             assertThat(eta.title()).isEqualTo("Eta Aquariids");
@@ -228,7 +228,7 @@ class AlmanacEphemerisSourcesTest {
         void majorShowerOmitsTheLowRadiantKeys() {
             stubDark("Perseids", LocalDate.of(2026, 8, 12), 10);
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.meta()).doesNotContainKeys("ukRate", "lowRadiant", "minor");
@@ -250,7 +250,7 @@ class AlmanacEphemerisSourcesTest {
                     when(gate.assess(s, s.peak().atYear(2026))).thenReturn(variant);
                 }
 
-                List<AlmanacEvent> events = new MeteorAlmanacSource(gate)
+                List<AlmanacEvent> events = new MeteorAlmanacSource(gate, MeteorPeakCalendars.empty())
                         .events(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
 
                 assertThat(events).hasSize(12);
@@ -264,7 +264,7 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("a quiet range yields nothing")
         void aQuietRangeIsEmpty() {
-            assertThat(new MeteorAlmanacSource(moonGate)
+            assertThat(new MeteorAlmanacSource(moonGate, MeteorPeakCalendars.empty())
                     .events(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30))).isEmpty();
         }
     }

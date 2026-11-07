@@ -44,7 +44,7 @@ class MeteorHotTopicStrategyTest {
     @BeforeEach
     void setUp() {
         strategy = new MeteorHotTopicStrategy(
-                moonGate, locationRepository, meteorClarityService);
+                moonGate, locationRepository, meteorClarityService, MeteorPeakCalendars.empty());
     }
 
     private static MeteorHotTopicStrategy.Shower shower(String name) {
@@ -127,16 +127,6 @@ class MeteorHotTopicStrategyTest {
         // stubs would flag one) because the minor showers are skipped before the moon is read.
         assertThat(strategy.detect(LocalDate.of(2026, 11, 10), LocalDate.of(2026, 11, 13))).isEmpty();
         assertThat(strategy.detect(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 8))).isEmpty();
-    }
-
-    @Test
-    @DisplayName("peakDatesWithin returns a major peak (Leonids, 17 Nov) and not a minor one (12 Nov)")
-    void peakDatesWithin_majorOnly() {
-        List<LocalDate> nights = List.of(LocalDate.of(2026, 11, 12), LocalDate.of(2026, 11, 17),
-                LocalDate.of(2026, 5, 6));
-
-        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights))
-                .containsExactly(LocalDate.of(2026, 11, 17));
     }
 
     @Test
@@ -273,7 +263,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("a moon that sets in the best hours reads 'sets HH:mm' in the chip")
     void detect_moonSetsInBestHours_chipSaysWhen() {
-        LocalDate orionids = LocalDate.of(2026, 10, 21);
+        LocalDate orionids = LocalDate.of(2026, 10, 20);
         stubMoon("Orionids", orionids, new MeteorMoonGate.MoonOverShower(60, false, false,
                 Optional.of(LocalTime.of(2, 56)), Optional.empty()));
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
@@ -335,27 +325,6 @@ class MeteorHotTopicStrategyTest {
         assertThat(topics).hasSize(1);
         assertThat(topics.get(0).date()).isEqualTo(quadrantids);
         assertThat(topics.get(0).detail()).contains("Quadrantids");
-    }
-
-    // ── peakDatesWithin (shared with MeteorClarityService) ───────────────────────
-
-    @Test
-    @DisplayName("peakDatesWithin returns only the nights that fall on a shower peak")
-    void peakDatesWithin_returnsShowerPeakNightsOnly() {
-        List<LocalDate> nights = List.of(
-                LocalDate.of(2026, 8, 10), PERSEIDS_PEAK, LocalDate.of(2026, 8, 13));
-
-        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights))
-                .containsExactly(PERSEIDS_PEAK);
-    }
-
-    @Test
-    @DisplayName("peakDatesWithin returns empty when no night is a shower peak")
-    void peakDatesWithin_noPeaks_empty() {
-        List<LocalDate> nights = List.of(
-                LocalDate.of(2026, 6, 17), LocalDate.of(2026, 6, 18), LocalDate.of(2026, 6, 19));
-
-        assertThat(MeteorHotTopicStrategy.peakDatesWithin(nights)).isEmpty();
     }
 
     private static HotTopicFact factWithKey(HotTopic topic, String key) {

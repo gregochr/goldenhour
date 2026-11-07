@@ -6,9 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Every catalogued meteor shower peaking in the feed's range (major and minor).
@@ -21,9 +19,10 @@ import java.util.Set;
  * {@code SupermoonHotTopicStrategy}, which returns on its first match.
  *
  * <p>The shower table itself is <em>not</em> duplicated. {@link MeteorHotTopicStrategy#SHOWERS} is
- * the single source of truth for peak dates and catalogue rates, and this class reads it, which is
- * why both live in the same package. Copying it would have created two tables to keep in step, and
- * a divergence would show up as a feed disagreeing with the Plan tab about when the Perseids peak.
+ * the single source of shower constants, and {@link MeteorPeakCalendar} supplies each year's peak
+ * night and rate over it, which is why they all live in the same package. Copying it would have
+ * created two tables to keep in step, and a divergence would show up as a feed disagreeing with the
+ * Plan tab about when the Perseids peak.
  *
  * <p><strong>The moon filter is deliberately not applied here.</strong> The strategy suppresses a
  * shower whose best hours are washed out by a bright moon (see {@link MeteorMoonGate}), which is
@@ -58,38 +57,31 @@ public class MeteorAlmanacSource implements AlmanacSource {
     private static final String MOON_PARTIAL_SUFFIX = " The moon is %d%% lit and %s around %s.";
 
     private final MeteorMoonGate moonGate;
+    private final MeteorPeakCalendar peakCalendar;
 
     /**
      * Constructs a {@code MeteorAlmanacSource}.
      *
-     * @param moonGate decides whether a bright moon is up during the shower's best hours
+     * @param moonGate     decides whether a bright moon is up during the shower's best hours
+     * @param peakCalendar each year's peak night and rate
      */
-    public MeteorAlmanacSource(MeteorMoonGate moonGate) {
+    public MeteorAlmanacSource(MeteorMoonGate moonGate, MeteorPeakCalendar peakCalendar) {
         this.moonGate = moonGate;
+        this.peakCalendar = peakCalendar;
     }
 
     @Override
     public List<AlmanacEvent> events(LocalDate from, LocalDate to) {
-        // A 90-day window can straddle a year boundary, and the December/January showers are the
-        // ones that would be lost if it were not enumerated this way.
-        Set<Integer> years = new LinkedHashSet<>();
-        years.add(from.getYear());
-        years.add(to.getYear());
-
         List<AlmanacEvent> events = new ArrayList<>();
-        for (MeteorHotTopicStrategy.Shower shower : MeteorHotTopicStrategy.SHOWERS) {
-            for (int year : years) {
-                LocalDate peak = shower.peak().atYear(year);
-                if (peak.isBefore(from) || peak.isAfter(to)) {
-                    continue;
-                }
-                events.add(toEvent(shower, peak));
-            }
+        for (MeteorPeakCalendar.ShowerNight night : peakCalendar.peakNightsIn(from, to, false)) {
+            events.add(toEvent(night));
         }
         return events;
     }
 
-    private AlmanacEvent toEvent(MeteorHotTopicStrategy.Shower shower, LocalDate peak) {
+    private AlmanacEvent toEvent(MeteorPeakCalendar.ShowerNight night) {
+        MeteorHotTopicStrategy.Shower shower = night.shower();
+        LocalDate peak = night.night();
         // The flag is a moon-up decision (a bright moon up for most of the best hours), not a
         // threshold on the reported figure, so a row can read "50% lit" with no caveat when the
         // moon is down while the shower is best; the detail says why in that case.
@@ -99,10 +91,10 @@ public class MeteorAlmanacSource implements AlmanacSource {
 
         boolean lowRadiant = shower.ukRate() != null;
         String detail = lowRadiant
-                ? LOW_RADIANT_DETAIL_TEMPLATE.formatted(shower.name(), shower.zhrPeak(),
+                ? LOW_RADIANT_DETAIL_TEMPLATE.formatted(shower.name(), night.zhr(),
                         shower.ukRate(), shower.radiantCompass(), shower.bestHours())
                 : DETAIL_TEMPLATE.formatted(
-                        shower.name(), shower.zhrPeak(), shower.radiantCompass(), shower.bestHours());
+                        shower.name(), night.zhr(), shower.radiantCompass(), shower.bestHours());
         detail += moonSuffix(moon);
 
         return AlmanacEvent.onDay(
@@ -112,7 +104,7 @@ public class MeteorAlmanacSource implements AlmanacSource {
                 shower.name(),
                 detail,
                 AlmanacEvent.metaOf(
-                        "zhr", String.valueOf(shower.zhrPeak()),
+                        "zhr", String.valueOf(night.zhr()),
                         "radiant", shower.radiantCompass(),
                         "bestHours", shower.bestHours(),
                         "moonIllumination", illuminationPct + "%",

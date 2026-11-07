@@ -37,7 +37,7 @@ class MeteorMoonGateTest {
     }
 
     private static Shower withHours(String bestHours) {
-        return new Shower("Test", MonthDay.of(6, 15), 10, "N", bestHours, true, null);
+        return new Shower("TST", "Test", MonthDay.of(6, 15), 10, "N", bestHours, true, null);
     }
 
     @Test
@@ -51,8 +51,20 @@ class MeteorMoonGateTest {
     }
 
     @Test
-    @DisplayName("Orionids 2026: the moon sets inside the best hours, so not washed out")
-    void orionids2026_moonSetsInBestHours() {
+    @DisplayName("Orionids 2026 (night of 20 Oct): 73% lit but already down for the best hours, so not washed out")
+    void orionids2026_moonDownThroughout() {
+        MoonOverShower moon = gate.assess(shower("Orionids"), LocalDate.of(2026, 10, 20));
+
+        assertThat(moon.washedOut()).isFalse();
+        assertThat(moon.downThroughout()).isTrue();
+        assertThat(moon.illuminationPct()).isEqualTo(73);
+        assertThat(moon.moonset()).isEmpty();
+        assertThat(moon.moonrise()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Orionids on the night of 21 Oct 2026: the moon sets inside the best hours, so not washed out")
+    void orionids2026_nextNight_moonSetsInBestHours() {
         MoonOverShower moon = gate.assess(shower("Orionids"), LocalDate.of(2026, 10, 21));
 
         assertThat(moon.washedOut()).isFalse();
