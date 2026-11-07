@@ -43,6 +43,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -80,6 +81,7 @@ class ImoCalendarRefreshServiceTest {
     private DynamicSchedulerService scheduler;
     private PlatformTransactionManager txManager;
     private TransactionStatus txStatus;
+    private TransactionStatus isolatedStatus;
 
     @BeforeEach
     void setUp() {
@@ -91,7 +93,12 @@ class ImoCalendarRefreshServiceTest {
         scheduler = mock(DynamicSchedulerService.class);
         txManager = mock(PlatformTransactionManager.class);
         txStatus = mock(TransactionStatus.class);
-        when(txManager.getTransaction(any(TransactionDefinition.class))).thenReturn(txStatus);
+        isolatedStatus = mock(TransactionStatus.class);
+        when(txManager.getTransaction(argThat((TransactionDefinition d) -> d != null
+                && d.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRED))).thenReturn(txStatus);
+        when(txManager.getTransaction(argThat((TransactionDefinition d) -> d != null
+                && d.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW)))
+                .thenReturn(isolatedStatus);
         when(client.urlFor(2026)).thenReturn(URL_2026);
         when(client.urlFor(2027)).thenReturn(URL_2027);
         when(peaks.findAll()).thenReturn(List.of());
@@ -444,6 +451,60 @@ class ImoCalendarRefreshServiceTest {
         assertThat(report.summary()).isEqualTo("2026 invalid · 2027 not published");
         assertThat(savedLog().get(0).getDetail()).contains("surprise");
         assertThat(savedPeaks()).isEmpty();
+    }
+
+    // ---- transaction propagation ---------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("the upsert and its STORED/UNCHANGED log row run in the default REQUIRED transaction, never "
+            + "REQUIRES_NEW")
+    void storePathIsRequired() {
+        byte[] bytes = calendar();
+        when(client.fetch(2026)).thenReturn(found(URL_2026, bytes));
+        when(client.fetch(2027)).thenReturn(found(URL_2027, bytes));
+        when(peaks.findAll()).thenReturn(storedFrom(bytes, 2027, sha(bytes)));
+
+        run(service(NOW));
+
+        // 2026 is STORED, 2027 is UNCHANGED: one REQUIRED transaction each.
+        verify(txManager, times(2)).commit(txStatus);
+        verify(txManager, never()).commit(isolatedStatus);
+    }
+
+    @Test
+    @DisplayName("a FAILED log row is written in its own REQUIRES_NEW transaction")
+    void failedLogIsRequiresNew() {
+        when(client.fetch(2026)).thenThrow(new ImoCalendarException("HTTP 500", 500, null));
+        when(client.fetch(2027)).thenReturn(found(URL_2027, calendar()));
+
+        run(service(NOW));
+
+        verify(txManager, times(1)).commit(isolatedStatus);
+        verify(txManager, times(1)).commit(txStatus);
+    }
+
+    @Test
+    @DisplayName("an INVALID log row is written in its own REQUIRES_NEW transaction")
+    void invalidLogIsRequiresNew() {
+        when(client.fetch(2026)).thenReturn(found(URL_2026, calendarWithout("GEM")));
+        when(client.fetch(2027)).thenReturn(found(URL_2027, calendar()));
+
+        run(service(NOW));
+
+        verify(txManager, times(1)).commit(isolatedStatus);
+        verify(txManager, times(1)).commit(txStatus);
+    }
+
+    @Test
+    @DisplayName("a NOT_PUBLISHED log row is written in its own REQUIRES_NEW transaction")
+    void notPublishedLogIsRequiresNew() {
+        when(client.fetch(2026)).thenReturn(found(URL_2026, calendar()));
+        when(client.fetch(2027)).thenReturn(notFound(URL_2027));
+
+        run(service(NOW));
+
+        verify(txManager, times(1)).commit(isolatedStatus);
+        verify(txManager, times(1)).commit(txStatus);
     }
 
     // ---- FAILED / NOT_PUBLISHED ---------------------------------------------------------------------------
