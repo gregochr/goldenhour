@@ -82,6 +82,7 @@
 <tr><td>OWASP Dependency-Check</td><td>PRs that change server dependencies, and daily</td><td>CVSS 7.0 or above, unless investigated and recorded as not applicable</td><td>The check fails</td></tr>
 <tr><td>OWASP ZAP</td><td>Weekly</td><td>Any alert of Low risk or above without a written exception, or a scan that didn't run properly</td><td>An issue is opened for me</td></tr>
 <tr><td>PIT mutation testing</td><td>Weekly</td><td>60% of mutants killed in the service and utility layers</td><td>An issue is opened for me</td></tr>
+<tr><td>Stryker mutation testing</td><td>Weekly</td><td>The app's client logic</td><td>An issue is opened for me if the run fails</td></tr>
 </tbody></table></div>
 <p>Per-class coverage is the one I'd defend hardest. An overall average lets a well-tested utility package hide an untested service; per class, a new class can't lean on the rest of the codebase for its number. The lines a change touches must be covered too, on the server and in the app, and every app file has its own floor.</p>
 <h2 id="security">Security and the OWASP Top 10</h2>
@@ -109,13 +110,13 @@
 <h2 id="testing">Testing beyond coverage</h2>
 <p>Coverage says what the tests ran, not whether they'd notice a bug. So:</p>
 <ul>
-<li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed.</li>
+<li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.</li>
 <li><b>Testing the model, not just the code.</b> A weekly evaluation re-rates a fixed set of past sunrises and sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a model changes, and it decides which model runs which job: a newer model was taken off a production job after a day, when the evaluation showed it under-rating a clear-horizon morning.</li>
 <li><b>Prompt regression tests.</b> A larger suite checks real model output against ground truth from what was actually observed. Only I change those expectations; the AI tools that write the code are forbidden to.</li>
 <li><b>Recorded contracts.</b> Saved real responses from the weather, space-weather, postcode, routing and light-pollution services pin how PhotoCast parses them, and a contract test pins the JSON date format the API puts on the wire.</li>
 <li><b>Time is injected.</b> "Today" in the UK is derived from an injected clock everywhere, so the tests cover midnight, daylight-saving changes and a server running on UTC.</li>
 </ul>
-<p>In all, more than 25,000 automated tests across the server and the app.</p>
+<p>In all, more than 33,000 automated tests across the server and the app.</p>
 <h2 id="ai">AI inside the product</h2>
 <ul>
 <li><b>Ask PhotoCast uses tool calling rather than document retrieval.</b> It's retrieval-augmented generation (RAG), but instead of searching a pile of documents, the model queries PhotoCast's own served forecasts through tools, in a loop of at most four turns, and replies through a structured tool call rather than free text. A validator checks every pick against the live forecast before it's shown. Common questions are matched to precomputed answers by keyword rules rather than embeddings, deliberately, so behaviour is predictable and testable.</li>
@@ -128,7 +129,7 @@
 <h2 id="falls-short">Where it falls short</h2>
 <ul>
 <li>The app's tests run in a simulated browser. A few real-browser tests exist, but they run by hand.</li>
-<li>Mutation testing covers the server only, and runs weekly rather than on every change.</li>
+<li>Mutation testing covers the server and the app's client logic, but not the app's screens, and runs weekly rather than on every change.</li>
 <li>The prompt regression suite runs by hand, because every run spends real money; the weekly evaluation fills the gap in between.</li>
 <li>PhotoCast runs as Docker containers on a single Linux host, with no separate staging copy of the live service. Backups, health checks and rollback reduce the risk; they don't remove it.</li>
 <li>The security checks are automated, not a professional penetration test.</li>

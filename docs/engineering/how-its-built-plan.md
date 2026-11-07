@@ -32,7 +32,7 @@ warm, straightforward, knowledgeable, measured. British English. Third person / 
 - The prompt-regression suite runs by hand (it calls Claude and costs money). The Sky Eval runs weekly in production.
 - Do NOT publish: security scan results or status, which scans block what, tool versions, header configuration,
   host names, costs, or the self-hosted runner. Security stays high-level.
-- Numbers are rounded and dated-proof: "more than 25,000 automated tests" (≈13.9k frontend + ≈12.5k backend),
+- Numbers are rounded and dated-proof: "more than 33,000 automated tests" (≈18.5k frontend + ≈14.9k backend, 2026-11-07),
   "more than 200 database migrations", "over 120 written plans". Don't add others.
 
 ## Copy (use as written; light edits for flow are fine, facts are not)
@@ -46,7 +46,7 @@ reviewed, tested and checked against real skies before it reaches you. This page
 ### The short version
 - Every change starts as a written plan, and the plan is challenged before any code is written.
 - The code is written by one AI model and reviewed by others. No model approves its own work.
-- More than 25,000 automated tests run on every change, and nothing is released until they pass.
+- More than 33,000 automated tests run on every change, and nothing is released until they pass.
 - The forecasts themselves are tested against real sunrises and sunsets, every week.
 - A person decides what ships, and when.
 
@@ -81,7 +81,7 @@ should have warned you off, and where it is consistently too hopeful or too caut
    Each release is recorded in a changelog, and a backup is taken first.
 
 ### The automated checks
-- **Tests.** More than 25,000 automated tests cover the server and the app: the forecasting rules, the
+- **Tests.** More than 33,000 automated tests cover the server and the app: the forecasting rules, the
   maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is
   in the UK when the server runs on a different clock.
 - **Tests that are tested.** It's possible to write tests that pass whatever the code does. The server's code is
