@@ -289,8 +289,11 @@ store's reconcile microtask run; in a React test wrap `tick()` and `b.flush()` i
 **jsdom limits** (why the fake exists): two `history.back()` calls merge into one, a traversal followed by `pushState`
 is dropped, and there is no `navigator.userActivation` and no `history.scrollRestoration`. Real jsdom is used only for
 a few wiring tests. **Playwright limits**: `goBack` ignores Chromium's skippable-entry rule and always grants user
-activation, so the activation gate, the first-run guard and the history-manipulation intervention cannot be
-automated; they belong to the manual device pass in the plan (a release blocker). Before any `goBack`/`goForward`/
+activation, so Chromium's own activation gate, skippable-entry behaviour and history-manipulation intervention cannot
+be automated; they belong to the manual device pass in the plan (a release blocker). The first-run guard's
+"before the first click" state IS covered in `smoke/back.spec.js`, by an init script that stubs `navigator.userActivation`
+to report active only after a trusted click or key press (the stub never expires and cannot tell click from pointerdown;
+the Vitest hook test covers that). Before any `goBack`/`goForward`/
 reload, wait for the store to settle by polling `data-back-depth` on `<html>` (a number when idle, `busy` while a
 traversal or reconcile is outstanding).
 
