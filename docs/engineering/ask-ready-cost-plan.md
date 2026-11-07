@@ -184,6 +184,47 @@ Context: the Briefing tab already runs on Haiku 5.5 (measured £0.0012 a call ag
   `EvaluationModel`, and Haiku 5.5's cache minimum may differ; read it from the model's documentation,
   not memory).
 
+**M — result of the comparison, run 2026-11-03.** The owner has not yet decided; the `ASK_READY` row is
+still `HAIKU`.
+- **Harness:** `AskReadyModelComparisonTest` (tagged `prompt-regression`; it skips without a key). It
+  runs every Ready question the four Ask fixtures offer, scope ALL (23 tasks), through the real
+  `ClaudeAskEngine` on each model. The harness is **not on `main`**: it is commit `13105c7b8` on the
+  local, unpushed branch `test/ask-ready-model-comparison`. The output is kept beside this plan in
+  `ask-ready-model-comparison-2026-11-03/`: `report.html` (the side-by-side page for the owner's
+  read), `results.json` and `summary.txt`.
+- **Mechanical result:**
+
+  | | Haiku 4.5 | Haiku 5.5 |
+  |---|---|---|
+  | Answers that passed `AskAnswerValidator` | 23 of 23 | 23 of 23 |
+  | Discarded or errored | 0 | 0 |
+  | Mean model turns | 2.70 | 2.30 |
+  | Total cost (23 tasks) | $0.2576 | $0.0109 |
+  | Per task | $0.0112 | $0.0005 |
+  | Uncached input / cache-read tokens | 144,515 / 37,120 | 6,686 / 219,463 |
+
+- **Cost is about 24 times lower, not 10.** The price ratio gives 10x. Most of the rest is the cache:
+  on Haiku 4.5 most input is uncached, because the static prefix is under its 4,096-token minimum (§2).
+  On Haiku 5.5 almost all of it is a cache read, which suggests the larger tokeniser count clears
+  Haiku 5.5's minimum. That answers §4's "unverified" note in practice, and makes lever C nearly moot
+  on Haiku 5.5. Fewer turns account for the remainder.
+- **Picks:** 14 of 23 tasks return the same pick list. 20 of 23 share the first pick, or both have
+  none. The other three are all `AM_OR_PM`, one per fixture (`ask-fixture-snapshot`,
+  `ask-stay-home-weekend`, `ask-game-on-weekend`). On them Haiku 5.5 answers in prose only, with **no
+  picks**. Haiku 4.5 adds two or three cards (Bamburgh, Whitby, Cheviot Edge, Saltwick Bay).
+  - On all three, Haiku 5.5's prose names the same window as Haiku 4.5's.
+  - On `ask-game-on-weekend`, Haiku 4.5 calls a window with about 5% game-on places "worth it". Haiku
+    5.5 calls both windows mostly stay-home, which is closer to the served verdicts.
+  - Both models return no picks on every `RARE_EVENTS` and `SNOW_TOPS` task, as expected.
+- **Answerable:** on two `SNOW_TOPS` tasks (`ask-game-on-weekend` and `ask-mixed-weekend`), Haiku 5.5
+  marks the question unanswerable ("snow cover on the tops"). Haiku 4.5 answers "no snow flagged".
+  Both readings are honest. Haiku 5.5's routes the reader to the missing-data line instead.
+- **What the owner decides:**
+  - Whether `AM_OR_PM` answers without spot cards are acceptable. If not, a prompt line asking for the
+    leading window's best spots is the likely fix, re-checked with this harness.
+  - Then whether to switch "Ask ready answers" on Run Config to Haiku 5.5.
+  - Typed Ask (`ASK`) was not compared.
+
 **T — answer the opening tool call in the prompt.**
 - For Ready only, put the result of the turn-1 tool (from R-prep) in the opening user message.
 - Tell the model it already has that result, and keep the tool available.
@@ -205,7 +246,7 @@ the numbers still say so.
 | Lever | Ready cost after it (rough) | Confidence |
 |---|---|---|
 | Today | ~$0.30 a run, ~$25–30 a month | measured |
-| M (Haiku 5.5) | ~$0.03 a run, ~$3 a month | price arithmetic; quality not yet checked |
+| M (Haiku 5.5) | ~$0.01–0.03 a run, ~$1–3 a month | comparison measured $0.0109 for 23 tasks (§5, M result); quality read pending |
 | T (no opening call) | −25–30% of whatever is left | arithmetic from the run in §2 |
 | C, R | a few percent of what is left | small |
 
