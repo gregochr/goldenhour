@@ -76,7 +76,7 @@ copy is corrected.
 | Haiku 5.5 ran Batch Far-Term for a day and was moved off after the eval check | `reference/pipeline.md` |
 | Production model calls (forecast runs and Ask) logged with input, output and cache token counts; the sky eval records its own tokens separately | `api_call_log`, `api-endpoints.md` |
 | Ask: at most 4 turns, structured `submit_answer`, validator, keyword-matched Ready answers (no embeddings), cached static prompt and tools | `reference/ask-photocast.md` |
-| "More than 25,000 automated tests", "more than 200 database migrations", "more than 120 written plans" | about 27,000 tests, 215 migrations, 133 plans on 2026-11-05 |
+| "More than 33,000 automated tests", "more than 200 database migrations", "more than 120 written plans" | about 33,400 tests (14,913 backend + 18,524 frontend, CI run 42349072217, 2026-11-07); migrations and plans unchanged in kind (217 migration files, 134 plans on 2026-11-07, both still above the claimed 200 and 120) |
 
 **OWASP names.** Use the 2025 edition's exact titles: Broken Access Control, Security Misconfiguration, Software
 Supply Chain Failures, Injection. No numbering. Anything that isn't a category goes under "Beyond the
@@ -234,7 +234,7 @@ Coverage says what the tests ran, not whether they'd notice a bug. So:
 - **Time is injected.** "Today" in the UK is derived from an injected clock everywhere, so the tests cover
   midnight, daylight-saving changes and a server running on UTC.
 
-In all, more than 25,000 automated tests across the server and the app.
+In all, more than 33,000 automated tests across the server and the app.
 
 ### AI inside the product
 - **Ask PhotoCast uses tool calling rather than document retrieval.** It's retrieval-augmented generation

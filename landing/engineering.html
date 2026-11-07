@@ -116,7 +116,7 @@
 <li><b>Recorded contracts.</b> Saved real responses from the weather, space-weather, postcode, routing and light-pollution services pin how PhotoCast parses them, and a contract test pins the JSON date format the API puts on the wire.</li>
 <li><b>Time is injected.</b> "Today" in the UK is derived from an injected clock everywhere, so the tests cover midnight, daylight-saving changes and a server running on UTC.</li>
 </ul>
-<p>In all, more than 25,000 automated tests across the server and the app.</p>
+<p>In all, more than 33,000 automated tests across the server and the app.</p>
 <h2 id="ai">AI inside the product</h2>
 <ul>
 <li><b>Ask PhotoCast uses tool calling rather than document retrieval.</b> It's retrieval-augmented generation (RAG), but instead of searching a pile of documents, the model queries PhotoCast's own served forecasts through tools, in a loop of at most four turns, and replies through a structured tool call rather than free text. A validator checks every pick against the live forecast before it's shown. Common questions are matched to precomputed answers by keyword rules rather than embeddings, deliberately, so behaviour is predictable and testable.</li>
