@@ -32,6 +32,16 @@ class AppConfigTest {
     }
 
     @Test
+    @DisplayName("restClientBuilder hands out a fresh builder each time (the timeouts are asserted on the factory)")
+    void restClientBuilder_isAFreshBuilderEachCall() {
+        RestClient.Builder first = config.restClientBuilder();
+        RestClient.Builder second = config.restClientBuilder();
+
+        assertThat(first).isNotNull().isNotSameAs(second);
+        assertThat(first.build()).isNotNull();
+    }
+
+    @Test
     @DisplayName("outbound request factory carries both a connect and a read timeout")
     void timeoutRequestFactory_setsBothTimeouts() {
         // The shared RestClient was built by RestClient.create() until 2026-08-26 — no request
