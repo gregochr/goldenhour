@@ -16,7 +16,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Detects meteor-shower hot topics from a fixed calendar of major shower peaks.
+ * Detects meteor-shower hot topics from a fixed calendar of shower peaks.
+ *
+ * <p>The table holds twelve showers, but only the {@linkplain Shower#major() major} ones reach the
+ * hot-topic path. The rule: a shower fires a Plan-tab pill only when a UK observer can expect about
+ * 10 or more meteors an hour at its peak (ZHR scaled by the radiant's altitude in the best hours).
+ * The six minor showers (Eta and S. Delta Aquariids, Draconids, both Taurids, Ursids) fall short of
+ * that, so they appear in Coming up through {@code MeteorAlmanacSource} only.
  *
  * <p>During a shower, shooting stars are far more frequent than usual — best captured
  * from dark-sky locations on a long exposure. Fires when a shower peak falls within the
@@ -50,16 +56,33 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
      * @param zhrPeak        zenithal hourly rate at peak under ideal dark skies (IMO catalogue)
      * @param radiantCompass compass point the radiant sits toward (drives the look direction)
      * @param bestHours      the local hours the radiant is highest and the shower is best watched
+     * @param major          true when a UK observer can expect about 10 or more an hour at peak, so
+     *                       the shower may reach the hot-topic path; false lists in Coming up only
+     * @param ukRate         the realistic best hourly rate from the UK when the radiant stays too low
+     *                       for the ZHR to be a fair guide; null otherwise
      */
-    record Shower(String name, MonthDay peak, int zhrPeak, String radiantCompass, String bestHours) { }
+    record Shower(String name, MonthDay peak, int zhrPeak, String radiantCompass, String bestHours,
+            boolean major, Integer ukRate) { }
 
-    /** Major showers worth flagging, with standard peak dates and catalogue constants. */
+    /**
+     * Every catalogued shower in calendar order, with peak dates and catalogue constants from the
+     * IMO 2026 Meteor Shower Calendar, Table 5 (working list of visual meteor showers). A peak is the
+     * EVENING date of the night of maximum (a 06:00 UT maximum on the 6th is stored as the 5th), and
+     * peaks must be distinct (the almanac entry id is built from them).
+     */
     static final List<Shower> SHOWERS = List.of(
-            new Shower("Quadrantids", MonthDay.of(1, 3), 120, "NE", "04:00–dawn"),
-            new Shower("Lyrids", MonthDay.of(4, 22), 18, "NE", "02:00–04:00"),
-            new Shower("Perseids", MonthDay.of(8, 12), 100, "NE", "01:00–04:00"),
-            new Shower("Orionids", MonthDay.of(10, 21), 20, "SE", "02:00–05:00"),
-            new Shower("Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00"));
+            new Shower("Quadrantids", MonthDay.of(1, 3), 80, "NE", "04:00–dawn", true, null),
+            new Shower("Lyrids", MonthDay.of(4, 22), 18, "SE", "02:00–04:00", true, null),
+            new Shower("Eta Aquariids", MonthDay.of(5, 5), 50, "E", "03:00–dawn", false, 5),
+            new Shower("S. Delta Aquariids", MonthDay.of(7, 30), 25, "S", "01:00–04:00", false, 8),
+            new Shower("Perseids", MonthDay.of(8, 12), 100, "NE", "01:00–04:00", true, null),
+            new Shower("Draconids", MonthDay.of(10, 8), 5, "NW", "20:00–23:00", false, null),
+            new Shower("Orionids", MonthDay.of(10, 21), 20, "SE", "02:00–05:00", true, null),
+            new Shower("S. Taurids", MonthDay.of(11, 5), 7, "S", "23:00–03:00", false, null),
+            new Shower("N. Taurids", MonthDay.of(11, 12), 5, "S", "22:00–02:00", false, null),
+            new Shower("Leonids", MonthDay.of(11, 17), 15, "SE", "03:00–dawn", true, null),
+            new Shower("Geminids", MonthDay.of(12, 14), 150, "E", "22:00–02:00", true, null),
+            new Shower("Ursids", MonthDay.of(12, 22), 10, "N", "00:00–dawn", false, null));
 
     private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
@@ -82,7 +105,9 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
     /**
      * Returns the dates within {@code nights} that coincide with a catalogued shower peak — the nights
      * the overhead-clarity scan needs to sample (usually none, occasionally one). Shared with
-     * {@link MeteorClarityService} so the scan fetches only on shower nights, never idly.
+     * {@link MeteorClarityService} so the scan fetches only on shower nights, never idly. Only
+     * {@linkplain Shower#major() major} showers count: the scan feeds the hot-topic "clear at X of Y"
+     * fact, which a minor shower never produces, so a fetch on its night would buy nothing.
      *
      * @param nights the forecast-window nights to test
      * @return the subset falling on a shower peak, in input order
@@ -92,7 +117,7 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
         for (LocalDate night : nights) {
             MonthDay monthDay = MonthDay.from(night);
             for (Shower shower : SHOWERS) {
-                if (shower.peak().equals(monthDay)) {
+                if (shower.major() && shower.peak().equals(monthDay)) {
                     peaks.add(night);
                     break;
                 }
@@ -104,8 +129,8 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
     /**
      * {@inheritDoc}
      *
-     * <p>Emits a single topic for the earliest qualifying shower peak in the window
-     * (peak in range and Moon below {@value #MAX_ILLUMINATION} illuminated). Returns
+     * <p>Emits a single topic for the earliest qualifying major shower peak in the window
+     * (minor showers never qualify; peak in range and Moon below {@value #MAX_ILLUMINATION} illuminated). Returns
      * empty when no qualifying peak falls in the window.
      */
     @Override
@@ -125,6 +150,9 @@ public class MeteorHotTopicStrategy implements HotTopicStrategy {
         Shower best = null;
         LocalDate bestPeak = null;
         for (Shower shower : SHOWERS) {
+            if (!shower.major()) {
+                continue;
+            }
             for (int year : years) {
                 LocalDate peak = shower.peak().atYear(year);
                 if (peak.isBefore(fromDate) || peak.isAfter(toDate)) {

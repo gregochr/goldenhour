@@ -558,19 +558,32 @@ public class ComingUpAssembler {
 
     private void enrichMeteor(AlmanacEvent event, Staged s) {
         s.family = "night-sky";
-        s.rarityBits = SurpriseScore.rarity(scoringProperties.getRarity().getMeteorShowerMeanGapDays());
+        boolean minor = isMinorMeteor(event);
+        ComingUpScoringProperties.Rarity rarity = scoringProperties.getRarity();
+        s.rarityBits = SurpriseScore.rarity(minor
+                ? rarity.getMinorMeteorShowerMeanGapDays()
+                : rarity.getMeteorShowerMeanGapDays());
+        if (minor) {
+            s.rarityIsStatable = false;
+        }
         s.magnitudeBits = SurpriseScore.DEFAULT_MAGNITUDE_BITS;
         s.bits = s.rarityBits + s.magnitudeBits;
 
-        String zhr = event.meta().get("zhr");
-        s.metric = zhr == null ? null : "~" + zhr + "/hr";
+        String rate = event.meta().get("ukRate") != null
+                ? event.meta().get("ukRate") : event.meta().get("zhr");
+        s.metric = rate == null ? null : "~" + rate + "/hr";
         s.facts = meteorFacts(event);
         s.action = new ComingUpAction(
                 "Show dark-sky spots for " + DATE_LABEL.format(event.startDate()) + " →",
                 "dark-sky-spots", event.startDate());
         // zhr → metric; radiant/bestHours/moonIllumination/washedOut → facts (verbatim).
+        // ukRate → metric; lowRadiant → fact; minor → rarity and first-of-type.
         s.meta = withoutKeys(event.meta(), "zhr", "radiant", "bestHours", "moonIllumination",
-                "washedOut");
+                "washedOut", "ukRate", "lowRadiant", "minor");
+    }
+
+    private static boolean isMinorMeteor(AlmanacEvent event) {
+        return "true".equals(event.meta().get("minor"));
     }
 
     private void enrichSupermoon(AlmanacEvent event, Staged s) {
@@ -823,6 +836,10 @@ public class ComingUpAssembler {
                     : "moon " + illumination + " lit";
             facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
                     moon + " — washes out all but the brightest", "accent"))));
+        }
+        if ("true".equals(meta.get("lowRadiant")) && meta.get("zhr") != null) {
+            facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
+                    "radiant low from the UK — catalogue rate ~" + meta.get("zhr") + "/hr", "accent"))));
         }
         regionScopeFact(event).ifPresent(facts::add);
         return facts;
@@ -1237,6 +1254,11 @@ public class ComingUpAssembler {
     private static void markFirstOfType(List<Staged> staged) {
         Set<String> seen = new HashSet<>();
         for (Staged s : staged) {
+            // A minor meteor shower never takes first-of-type (prose and the feature card): it
+            // would strip them from the first major shower in the same window.
+            if (TYPE_METEOR.equals(s.event.type()) && isMinorMeteor(s.event)) {
+                continue;
+            }
             if (seen.add(s.event.type())) {
                 s.prose = s.event.detail();
             }
