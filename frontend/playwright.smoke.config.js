@@ -17,8 +17,11 @@ import { defineConfig, devices } from '@playwright/test';
  * service worker blocked; traces kept on failure; no clock freezing in this phase.
  */
 
-const API_PORT = 8083;
-const WEB_PORT = 4173;
+// The ports are fixed in CI. Two checkouts running the suite on one machine would otherwise collide (and, with
+// `reuseExistingServer`, each silently drive the OTHER's servers), so a local run may move them:
+// E2E_API_PORT and E2E_WEB_PORT (the backend script reads the same two).
+const API_PORT = Number(process.env.E2E_API_PORT || 8083);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT || 4173);
 const LOG_DIR = path.resolve(process.env.E2E_LOG_DIR || 'test-results/e2e-logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
@@ -90,7 +93,7 @@ export default defineConfig({
       // Never reuse a backend in CI. Locally it is the developer's choice, but a reused backend
       // is not a fresh database, and the seeder refuses any database that already holds locations.
       reuseExistingServer: !process.env.CI,
-      env: { E2E_LOG_DIR: LOG_DIR },
+      env: { E2E_LOG_DIR: LOG_DIR, E2E_API_PORT: String(API_PORT), E2E_WEB_PORT: String(WEB_PORT) },
     },
     {
       command: `npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort > ${LOG_DIR}/preview.log 2>&1`,

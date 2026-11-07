@@ -1,6 +1,6 @@
 import {
   test, expect, loginAndWaitForForecast, openMapTab, openTab, visibleChips, fetchForecast, starsOf, activeWindowId,
-  stepIntoPast, apiGet, USERS, CHIP_NAME, OUTSIDE_CHIP,
+  stepIntoPast, clickMiddleChip, apiGet, USERS, CHIP_NAME, OUTSIDE_CHIP,
 } from './fixture.js';
 
 /**
@@ -13,6 +13,11 @@ import {
  * Read-only: these specs write nothing, and they use the role accounts, so signing out elsewhere cannot touch
  * them. The one role spec that writes (the Pro reader rating a past window) is `roles-write.spec.js`.
  */
+
+// A taller viewport than the default 1280x720: a Map callout opens beside its chip and is not scrollable, so with a
+// chip low on a 720px map the rating block's stars can fall below the fold ("Element is outside of the viewport",
+// found by --repeat-each). At 1000px every callout fits whichever chip the spec clicks.
+test.use({ viewport: { width: 1280, height: 1000 } });
 
 /** The Pro door's popover, opened: a worded upsell, with a Pro pill and no link and no "upgrade" wording. */
 async function expectWordedUpsell(page, popoverId) {
@@ -139,7 +144,7 @@ test.describe('LITE reader', () => {
     await loginAndWaitForForecast(page, 'lite');
     await openMapTab(page);
     await stepIntoPast(page);
-    await visibleChips(page).first().click();
+    await clickMiddleChip(page);
 
     const block = page.getByTestId('outcome-rating-block');
     await expect(block).toBeVisible();
@@ -151,7 +156,13 @@ test.describe('LITE reader', () => {
     await expect(block.getByTestId('outcome-rating-note')).not.toContainText('Rating is part of Pro.');
     // `force`: Playwright reads aria-disabled as "not enabled" and would wait forever, but the tap is accepted by
     // design (the control is aria-disabled, never `disabled`, so a press answers in words).
-    await block.getByTestId('outcome-rating-star').nth(3).click({ force: true });
+    const star = block.getByTestId('outcome-rating-star').nth(3);
+    const box = await star.boundingBox();
+    const view = page.viewportSize();
+    expect(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= view.width && box.y + box.height <= view.height,
+      `the star is inside the viewport (star ${JSON.stringify(box)}, viewport ${JSON.stringify(view)}, callout `
+      + `${JSON.stringify(await page.getByTestId('map-callout').boundingBox())})`).toBe(true);
+    await star.click({ force: true });
     await expect(block.getByTestId('outcome-rating-note')).toHaveText('Rating is part of Pro.');
     expect(writes, 'a LITE tap calls nothing').toEqual([]);
   });
@@ -292,7 +303,7 @@ test.describe('PRO reader', () => {
 
     // "How was it?" on a past window: live, with no Pro pill (the rating itself is written in roles-write.spec.js).
     await stepIntoPast(page);
-    await visibleChips(page).first().click();
+    await clickMiddleChip(page);
     const block = page.getByTestId('outcome-rating-block');
     await expect(block).toBeVisible();
     await expect(block).toHaveAttribute('data-state', /^(unrated|rated|not-seen)$/);

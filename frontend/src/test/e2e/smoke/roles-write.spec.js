@@ -1,6 +1,11 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, visibleChips, stepIntoPast, apiGet,
+  test, expect, loginAndWaitForForecast, openMapTab, stepIntoPast, clickMiddleChip, apiGet,
 } from './fixture.js';
+
+// A taller viewport than the default 1280x720: a Map callout opens beside its chip and is not scrollable, so with a
+// chip low on a 720px map the rating block's stars can fall below the fold ("Element is outside of the viewport",
+// found by --repeat-each). At 1000px every callout fits whichever chip the spec clicks.
+test.use({ viewport: { width: 1280, height: 1000 } });
 
 /**
  * The Pro reader rates one past window (docs/engineering/engineering-gaps-plan.md, Phase 3a.2).
@@ -20,7 +25,7 @@ test.describe('Pro reader rates a past window', () => {
     await loginAndWaitForForecast(page, 'pro');
     await openMapTab(page);
     await stepIntoPast(page);
-    await visibleChips(page).first().click();
+    await clickMiddleChip(page);
 
     const block = page.getByTestId('outcome-rating-block');
     await expect(block).toBeVisible();

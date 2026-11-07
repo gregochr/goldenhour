@@ -205,6 +205,12 @@ cd frontend && npx playwright install chromium                       # once
 cd frontend && npm run test:e2e:smoke
 ```
 
+The ports are 8083 and 4173 (fixed in CI). ⚠️ Two checkouts running the suite on one machine collide on them, and because a local
+run reuses whatever already answers there, each can silently drive (and later lose) the OTHER's servers: a run that fails
+with `ERR_CONNECTION_REFUSED` halfway, or a backend that exits 143 under a later invocation, is that. `E2E_API_PORT` and
+`E2E_WEB_PORT` move both (the config and the backend script read the same two), and a `--repeat-each` proof that chains
+invocations should wait for the first one's backend to stop answering before starting the next.
+
 Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
 `frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
 database; stop it first when a spec fails oddly. If the machine's preinstalled Chromium does not match the pinned

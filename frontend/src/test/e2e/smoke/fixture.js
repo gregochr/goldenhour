@@ -345,6 +345,24 @@ export async function activeWindowId(page) {
 }
 
 /**
+ * Clicks the visible chip nearest the vertical middle of the viewport. A Map callout opens beside its chip and
+ * cannot scroll, so a chip low on the map can leave the callout's lower controls (the "How was it?" stars) below
+ * the fold, and which chip is first in the DOM varies with how the label layer culled them. A middle chip always
+ * leaves room both ways.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clickMiddleChip(page) {
+  const chips = visibleChips(page);
+  const middle = page.viewportSize().height / 2;
+  const distances = await chips.evaluateAll((els, mid) => els.map((el) => {
+    const box = el.getBoundingClientRect();
+    return Math.abs(box.top + box.height / 2 - mid);
+  }), middle);
+  await chips.nth(distances.indexOf(Math.min(...distances))).click();
+}
+
+/**
  * Steps the Map's window control back until a past window is active (the pill reads "Past"). Each step waits for
  * the pill to change, so no press is lost to a re-render.
  *
