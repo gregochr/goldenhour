@@ -483,6 +483,37 @@ the proof shows it needs more.
 **Docs in the same PR.** `reference/dev-and-testing.md` ("The E2E smoke gate": the two modes, the 8082 rule, the
 script), the status line at the top of this file, and a `changelog.d/` entry.
 
+**Amendments from the plan review (2026-11-07).** These override the notes above where they differ.
+1. **Container lifecycle.** Playwright SIGKILLs a webServer that has no `gracefulShutdown`, so a trap never runs
+   and the container outlives the run. The nginx entry gets `gracefulShutdown: { signal: 'SIGTERM', timeout:
+   10_000 }`; the script runs `docker run … &` then `wait $!` (never `exec`, never foreground) with the trap doing
+   `docker rm -f`. The entry passes `E2E_LOG_DIR` and `E2E_WEB_PORT` in `env`. In nginx mode `reuseExistingServer`
+   is **false** even locally (a stale container would otherwise be reused silently), and the script's
+   remove-stale-first step covers a container left by a hard kill.
+2. **Header assertions.** Use `page.request.get(...)` and `headersArray()` (duplicate-aware; `headers()` omits some
+   security headers). `/assets/` sends two `Cache-Control` headers (`expires 1y` adds `max-age=31536000`): assert
+   it contains `public` and `immutable`, and that `Expires` exists. The seven names come from the `add_header …
+   always` lines of `location /` only. A browser navigation is kept for the mode guard alone.
+3. **The nomodule hash.** Chromium skips `<script nomodule>` before CSP, so a stale hash logs nothing. nginx.spec
+   adds a Node-side check: the sha256 (base64) of the nomodule body in `dist/index.html` appears in the parsed `$csp`.
+4. **Status-stream timing.** The first `status` event is sent on connect and later ones every 30 s, the same as
+   the suite's 30 s test timeout. So if buffering holds the first event, the test simply times out and never
+   reports how long the event took. Measure in the page with `fetch('/api/status/stream', { headers:
+   { Authorization } })` and a `getReader()` loop until `event:status`. The discovery run uses
+   `test.setTimeout(90_000)` and records the time. The final spec uses a fixed bound well under 30 s.
+   `runProgressApi.js` streams through the same location, so a buffering finding covers it too.
+5. **The mode guard's parse.** It must fail loudly: assert the `set $csp "…";` match is non-null. The script
+   exports the path of the config it actually mounted (`E2E_NGINX_CONF`), and the spec reads that file, so the
+   `sed` fallback copy, if one is ever needed, stays consistent.
+6. **The proof** is `--repeat-each=10` (the count 3a.1, 3a.2 and Back 2b used); "Order and gates" below is
+   updated to match.
+7. **The image pull.** The `nginx:alpine` runs that already exist are in the backend job, on another runner, so
+   the smoke job's own `docker pull` step is required, not optional.
+8. **What the SPA fallback proves.** The app has no client router, so the fallback spec tests nginx's
+   `try_files` and nothing more. Also assert that `/assets/missing.js` is a 404 that still carries the
+   security headers, since that location has no `try_files`.
+9. **Not covered:** `worker-src`. The suite blocks service workers, so do not list `worker-src` as covered.
+
 ### 3c: the accessibility scan (advisory)
 
 - **The job:** a separate job, `E2E — accessibility (advisory)`, on the 3b stack (seeded, nginx), and **not** a required check. `@axe-core/playwright` scans each main tab and the open dialogs (window sheet, location sheet, callout) at desktop and phone widths.
@@ -496,7 +527,7 @@ script), the status line at the top of this file, and a `changelog.d/` entry.
 - **Order:** each PR follows the Phase 2 recipe. The planner reviews it, Sonnet builds it in a worktree, and the full local gates must pass:
   - backend: checkstyle and `clean verify`, with the seeder's own unit tests;
   - frontend: the four commands.
-- **Proof for 3a.1 and 3b:** the temporary 5× job matrix plus `--repeat-each=20`, removed before merge.
+- **Proof for 3a.1 and 3b:** the temporary 5× job matrix plus `--repeat-each=10`, removed before merge.
 - **Copy:** once 3a.1 and 3a.2 are merged, the landing pages drop "the map and planning screens are still checked by hand".
 
 ## Phase 4: post-deploy smoke and automatic rollback
