@@ -14,8 +14,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -29,7 +31,7 @@ class MeteorHotTopicStrategyTest {
     private static final LocalDate PERSEIDS_PEAK = LocalDate.of(2026, 8, 12);
 
     @Mock
-    private LunarPhaseService lunarPhaseService;
+    private MeteorMoonGate moonGate;
 
     @Mock
     private LocationRepository locationRepository;
@@ -42,7 +44,23 @@ class MeteorHotTopicStrategyTest {
     @BeforeEach
     void setUp() {
         strategy = new MeteorHotTopicStrategy(
-                lunarPhaseService, locationRepository, meteorClarityService);
+                moonGate, locationRepository, meteorClarityService);
+    }
+
+    private static MeteorHotTopicStrategy.Shower shower(String name) {
+        return MeteorHotTopicStrategy.SHOWERS.stream()
+                .filter(s -> s.name().equals(name)).findFirst().orElseThrow();
+    }
+
+    /** Stubs the gate: a moon of the given illumination that is up but not washing the shower out. */
+    private void stubMoon(String name, LocalDate night, int pct) {
+        when(moonGate.assess(shower(name), night)).thenReturn(
+                new MeteorMoonGate.MoonOverShower(pct, false, false, Optional.empty(), Optional.empty()));
+    }
+
+    /** Stubs the gate with an arbitrary assessment. */
+    private void stubMoon(String name, LocalDate night, MeteorMoonGate.MoonOverShower moon) {
+        when(moonGate.assess(shower(name), night)).thenReturn(moon);
     }
 
     /** Stubs the clarity cache as empty — the topic fires, but carries no clear-sky fact. */
@@ -59,7 +77,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("shower peak in window with dark moon fires with priority 7 and shower name")
     void detect_peakInWindowDarkMoon_fires() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        stubMoon("Perseids", PERSEIDS_PEAK, 20);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -89,7 +107,7 @@ class MeteorHotTopicStrategyTest {
     @DisplayName("the Leonids fire in a 14-17 Nov window under a dark moon")
     void detect_leonidsInWindow_fires() {
         LocalDate leonids = LocalDate.of(2026, 11, 17);
-        when(lunarPhaseService.getIlluminationFraction(leonids)).thenReturn(0.3);
+        stubMoon("Leonids", leonids, 30);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -142,7 +160,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("clear-sky fact shows clear-of-total dark-sky locations for the peak night")
     void detect_clearSkyFact_present() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        stubMoon("Perseids", PERSEIDS_PEAK, 20);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubClarity(PERSEIDS_PEAK, 12, 30);
@@ -156,7 +174,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("no clear-sky fact when the clarity scan did not cover the peak night")
     void detect_noClarityForPeak_omitsClearFact() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        stubMoon("Perseids", PERSEIDS_PEAK, 20);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -170,7 +188,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("clear-sky fact omitted when the scanned total is zero (no fabricated fraction)")
     void detect_zeroTotal_omitsClearFact() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.2);
+        stubMoon("Perseids", PERSEIDS_PEAK, 20);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubClarity(PERSEIDS_PEAK, 0, 0);
@@ -186,7 +204,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("a half-lit peak still under the gate reads 'some moonlight' in both headline and chip")
     void detect_someMoonlightPeak_headlineAndChipAgree() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.40);
+        stubMoon("Perseids", PERSEIDS_PEAK, 40);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -201,7 +219,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("moon exactly at the 25% dark band boundary reads 'some moonlight'")
     void detect_moonAtDarkBandBoundary_someMoonlight() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.25);
+        stubMoon("Perseids", PERSEIDS_PEAK, 25);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -215,7 +233,7 @@ class MeteorHotTopicStrategyTest {
     @Test
     @DisplayName("moon just below the 25% boundary reads 'dark moon' / 'dark enough'")
     void detect_moonJustBelowDarkBandBoundary_darkMoon() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.24);
+        stubMoon("Perseids", PERSEIDS_PEAK, 24);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
@@ -227,30 +245,74 @@ class MeteorHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("illumination just below 50% fires (boundary)")
-    void detect_illuminationJustBelowHalf_fires() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.49);
+    @DisplayName("a washed-out major shower is dropped")
+    void detect_washedOut_doesNotFire() {
+        when(moonGate.assess(shower("Perseids"), PERSEIDS_PEAK)).thenReturn(
+                new MeteorMoonGate.MoonOverShower(92, true, false, Optional.empty(), Optional.empty()));
+
+        assertThat(strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the Leonids fire in a 14-17 Nov 2026 window with the 'down in the best hours' chip")
+    void detect_leonidsMoonDownInBestHours_fires() {
+        LocalDate leonids = LocalDate.of(2026, 11, 17);
+        stubMoon("Leonids", leonids,
+                new MeteorMoonGate.MoonOverShower(57, false, true, Optional.empty(), Optional.empty()));
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();
 
-        assertThat(strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13))).hasSize(1);
+        List<HotTopic> topics = strategy.detect(LocalDate.of(2026, 11, 14), leonids);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).detail()).isEqualTo("Leonids peak — moon down, good viewing");
+        assertThat(factWithKey(topics.get(0), "moon").value()).isEqualTo("57% · down in the best hours");
     }
 
     @Test
-    @DisplayName("illumination exactly 50% does not fire (boundary)")
-    void detect_illuminationExactlyHalf_doesNotFire() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.5);
+    @DisplayName("a moon that sets in the best hours reads 'sets HH:mm' in the chip")
+    void detect_moonSetsInBestHours_chipSaysWhen() {
+        LocalDate orionids = LocalDate.of(2026, 10, 21);
+        stubMoon("Orionids", orionids, new MeteorMoonGate.MoonOverShower(60, false, false,
+                Optional.of(LocalTime.of(2, 56)), Optional.empty()));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
-        assertThat(strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13))).isEmpty();
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 10, 19), orionids).get(0);
+
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("60% · sets 02:56");
+        assertThat(topic.detail()).isEqualTo("Orionids peak — some moonlight, still worth a look");
     }
 
     @Test
-    @DisplayName("bright moon at peak does not fire")
-    void detect_brightMoon_doesNotFire() {
-        when(lunarPhaseService.getIlluminationFraction(PERSEIDS_PEAK)).thenReturn(0.9);
+    @DisplayName("a moon that rises in the best hours reads 'rises HH:mm' in the chip")
+    void detect_moonRisesInBestHours_chipSaysWhen() {
+        LocalDate geminids = LocalDate.of(2026, 12, 14);
+        stubMoon("Geminids", geminids, new MeteorMoonGate.MoonOverShower(35, false, false,
+                Optional.empty(), Optional.of(LocalTime.of(0, 30))));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubNoClarity();
 
-        assertThat(strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13))).isEmpty();
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 12, 12), geminids).get(0);
+
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("35% · rises 00:30");
+    }
+
+    @Test
+    @DisplayName("a dark moon that is also down reads as dark, not as 'down in the best hours'")
+    void detect_darkAndDown_readsDark() {
+        stubMoon("Perseids", PERSEIDS_PEAK,
+                new MeteorMoonGate.MoonOverShower(10, false, true, Optional.empty(), Optional.empty()));
+        when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
+                .thenReturn(darkSkyLocation());
+        stubNoClarity();
+
+        HotTopic topic = strategy.detect(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 13)).get(0);
+
+        assertThat(factWithKey(topic, "moon").value()).isEqualTo("10% · dark enough");
     }
 
     @Test
@@ -263,7 +325,7 @@ class MeteorHotTopicStrategyTest {
     @DisplayName("window straddling the year boundary finds the next-year Quadrantids peak")
     void detect_windowStraddlesYearBoundary_findsPeak() {
         LocalDate quadrantids = LocalDate.of(2027, 1, 3);
-        when(lunarPhaseService.getIlluminationFraction(quadrantids)).thenReturn(0.1);
+        stubMoon("Quadrantids", quadrantids, 10);
         when(locationRepository.findByBortleClassIsNotNullAndEnabledTrue())
                 .thenReturn(darkSkyLocation());
         stubNoClarity();

@@ -9,11 +9,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -33,23 +35,39 @@ class AlmanacEphemerisSourcesTest {
     @DisplayName("MeteorAlmanacSource")
     class Meteor {
 
+        @Mock
+        private MeteorMoonGate moonGate;
+
+        private MeteorHotTopicStrategy.Shower shower(String name) {
+            return MeteorHotTopicStrategy.SHOWERS.stream()
+                    .filter(s -> s.name().equals(name)).findFirst().orElseThrow();
+        }
+
+        private MeteorMoonGate.MoonOverShower dark(int pct) {
+            return new MeteorMoonGate.MoonOverShower(pct, false, false, Optional.empty(), Optional.empty());
+        }
+
+        private void stubDark(String name, LocalDate night, int pct) {
+            when(moonGate.assess(shower(name), night)).thenReturn(dark(pct));
+        }
+
         @Test
         @DisplayName("reports every shower peaking in the range, where the hot-topic strategy "
                 + "reports only the first")
         void reportsEveryShowerNotJustTheFirst() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 8))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 21))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 5))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.1);
+            stubDark("Perseids", LocalDate.of(2026, 8, 12), 10);
+            stubDark("Draconids", LocalDate.of(2026, 10, 8), 10);
+            stubDark("Orionids", LocalDate.of(2026, 10, 21), 10);
+            stubDark("S. Taurids", LocalDate.of(2026, 11, 5), 10);
+            stubDark("N. Taurids", LocalDate.of(2026, 11, 12), 10);
+            stubDark("Leonids", LocalDate.of(2026, 11, 17), 10);
+            stubDark("Geminids", LocalDate.of(2026, 12, 14), 10);
+            stubDark("Ursids", LocalDate.of(2026, 12, 22), 10);
 
             // 1 Aug to 31 Dec covers Perseids (12 Aug), Draconids (8 Oct), Orionids (21 Oct),
             // S. Taurids (5 Nov), N. Taurids (12 Nov), Leonids (17 Nov), Geminids (14 Dec) and
             // Ursids (22 Dec).
-            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 12, 31));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -61,23 +79,24 @@ class AlmanacEphemerisSourcesTest {
         @DisplayName("a moonlit peak is still reported, with the illumination as a caveat — an "
                 + "almanac states when the shower is, not whether tonight is worth it")
         void aWashedOutShowerIsKeptAndFlagged() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.92);
+            when(moonGate.assess(shower("Perseids"), LocalDate.of(2026, 8, 12))).thenReturn(
+                    new MeteorMoonGate.MoonOverShower(92, true, false, Optional.empty(), Optional.empty()));
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(lunarPhaseService)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.title()).isEqualTo("Perseids");
             assertThat(perseids.meta()).containsEntry("washedOut", "true");
             assertThat(perseids.meta()).containsEntry("moonIllumination", "92%");
-            assertThat(perseids.detail()).contains("92% lit");
+            assertThat(perseids.detail()).contains("92% lit, so only the brightest will show");
         }
 
         @Test
         @DisplayName("a dark peak carries no washedOut key at all rather than washedOut=false")
         void aDarkPeakOmitsTheFlag() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.05);
+            stubDark("Perseids", LocalDate.of(2026, 8, 12), 5);
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(lunarPhaseService)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.meta()).doesNotContainKey("washedOut");
@@ -85,13 +104,65 @@ class AlmanacEphemerisSourcesTest {
         }
 
         @Test
+        @DisplayName("a bright moon that is down throughout is not a caveat, and the detail says why")
+        void aBrightMoonDownThroughoutSaysSo() {
+            when(moonGate.assess(shower("Leonids"), LocalDate.of(2026, 11, 17))).thenReturn(
+                    new MeteorMoonGate.MoonOverShower(57, false, true, Optional.empty(), Optional.empty()));
+
+            AlmanacEvent leonids = new MeteorAlmanacSource(moonGate)
+                    .events(LocalDate.of(2026, 11, 16), LocalDate.of(2026, 11, 18)).getFirst();
+
+            assertThat(leonids.meta()).doesNotContainKey("washedOut")
+                    .containsEntry("moonIllumination", "57%");
+            assertThat(leonids.detail()).endsWith(" The moon is 57% lit but down during the best hours.");
+        }
+
+        @Test
+        @DisplayName("a moon that sets inside the best hours says when")
+        void aMoonSettingInTheWindowSaysWhen() {
+            when(moonGate.assess(shower("Orionids"), LocalDate.of(2026, 10, 21))).thenReturn(
+                    new MeteorMoonGate.MoonOverShower(60, false, false,
+                            Optional.of(LocalTime.of(2, 56)), Optional.empty()));
+
+            AlmanacEvent orionids = new MeteorAlmanacSource(moonGate)
+                    .events(LocalDate.of(2026, 10, 20), LocalDate.of(2026, 10, 22)).getFirst();
+
+            assertThat(orionids.meta()).doesNotContainKey("washedOut");
+            assertThat(orionids.detail()).endsWith(" The moon is 60% lit and sets around 02:56.");
+        }
+
+        @Test
+        @DisplayName("a moon that rises inside the best hours says when")
+        void aMoonRisingInTheWindowSaysWhen() {
+            when(moonGate.assess(shower("Geminids"), LocalDate.of(2026, 12, 14))).thenReturn(
+                    new MeteorMoonGate.MoonOverShower(40, false, false,
+                            Optional.empty(), Optional.of(LocalTime.of(0, 30))));
+
+            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate)
+                    .events(LocalDate.of(2026, 12, 13), LocalDate.of(2026, 12, 15)).getFirst();
+
+            assertThat(geminids.detail()).endsWith(" The moon is 40% lit and rises around 00:30.");
+        }
+
+        @Test
+        @DisplayName("a moon lit 40% with no rise or set in the window adds no suffix")
+        void aThinMoonUpAllWindowAddsNoSuffix() {
+            stubDark("Perseids", LocalDate.of(2026, 8, 12), 40);
+
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
+                    .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
+
+            assertThat(perseids.detail()).doesNotContain("The moon is");
+        }
+
+        @Test
         @DisplayName("a range straddling new year picks up both December and January showers")
         void straddlesTheYearBoundary() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2027, 1, 3))).thenReturn(0.1);
+            stubDark("Geminids", LocalDate.of(2026, 12, 14), 10);
+            stubDark("Ursids", LocalDate.of(2026, 12, 22), 10);
+            stubDark("Quadrantids", LocalDate.of(2027, 1, 3), 10);
 
-            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 12, 10), LocalDate.of(2027, 1, 10));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -101,9 +172,9 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("catalogue facts are carried through from the shared shower table")
         void carriesCatalogueFacts() {
-            when(lunarPhaseService.getIlluminationFraction(any())).thenReturn(0.1);
+            stubDark("Geminids", LocalDate.of(2026, 12, 14), 10);
 
-            AlmanacEvent geminids = new MeteorAlmanacSource(lunarPhaseService)
+            AlmanacEvent geminids = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 12, 13), LocalDate.of(2026, 12, 15)).getFirst();
 
             assertThat(geminids.meta())
@@ -114,13 +185,13 @@ class AlmanacEphemerisSourcesTest {
         }
 
         @Test
-            @DisplayName("a 7-30 Nov 2026 range returns the Leonids and the N. Taurids (minor), but not the "
-                    + "S. Taurids of 5 Nov")
+        @DisplayName("a 7-30 Nov 2026 range returns the Leonids and the N. Taurids (minor), but not the "
+                + "S. Taurids of 5 Nov")
         void novemberReturnsLeonidsAndMinorTaurids() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.1);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.1);
+            stubDark("N. Taurids", LocalDate.of(2026, 11, 12), 10);
+            stubDark("Leonids", LocalDate.of(2026, 11, 17), 10);
 
-            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
+            List<AlmanacEvent> events = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 11, 7), LocalDate.of(2026, 11, 30));
 
             assertThat(events).extracting(AlmanacEvent::title)
@@ -137,9 +208,9 @@ class AlmanacEphemerisSourcesTest {
         @DisplayName("a low-radiant shower names the UK rate and the low radiant, and does not present the ZHR "
                 + "as the expected rate")
         void lowRadiantShowerNamesTheUkRate() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 5, 5))).thenReturn(0.1);
+            stubDark("Eta Aquariids", LocalDate.of(2026, 5, 5), 10);
 
-            AlmanacEvent eta = new MeteorAlmanacSource(lunarPhaseService)
+            AlmanacEvent eta = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 5, 4), LocalDate.of(2026, 5, 6)).getFirst();
 
             assertThat(eta.title()).isEqualTo("Eta Aquariids");
@@ -155,44 +226,45 @@ class AlmanacEphemerisSourcesTest {
         @Test
         @DisplayName("a major shower carries no ukRate, lowRadiant or minor key")
         void majorShowerOmitsTheLowRadiantKeys() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.1);
+            stubDark("Perseids", LocalDate.of(2026, 8, 12), 10);
 
-            AlmanacEvent perseids = new MeteorAlmanacSource(lunarPhaseService)
+            AlmanacEvent perseids = new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 14)).getFirst();
 
             assertThat(perseids.meta()).doesNotContainKeys("ukRate", "lowRadiant", "minor");
         }
 
         @Test
-        @DisplayName("every shower's detail stays under Ask's 200-character cap, moonlit suffix included")
+        @DisplayName("every shower's detail stays under Ask's 200-character cap with every moon suffix at 100%")
         void everyDetailFitsAsksCap() {
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 1, 3))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 4, 22))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 5, 5))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 7, 30))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 8, 12))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 8))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 10, 21))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 5))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 12))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 11, 17))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 14))).thenReturn(0.99);
-            when(lunarPhaseService.getIlluminationFraction(LocalDate.of(2026, 12, 22))).thenReturn(0.99);
+            List<MeteorMoonGate.MoonOverShower> variants = List.of(
+                    new MeteorMoonGate.MoonOverShower(100, true, false, Optional.empty(), Optional.empty()),
+                    new MeteorMoonGate.MoonOverShower(100, false, true, Optional.empty(), Optional.empty()),
+                    new MeteorMoonGate.MoonOverShower(100, false, false,
+                            Optional.of(LocalTime.of(23, 59)), Optional.empty()),
+                    new MeteorMoonGate.MoonOverShower(100, false, false,
+                            Optional.empty(), Optional.of(LocalTime.of(23, 59))));
+            for (MeteorMoonGate.MoonOverShower variant : variants) {
+                MeteorMoonGate gate = mock(MeteorMoonGate.class);
+                for (MeteorHotTopicStrategy.Shower s : MeteorHotTopicStrategy.SHOWERS) {
+                    when(gate.assess(s, s.peak().atYear(2026))).thenReturn(variant);
+                }
 
-            List<AlmanacEvent> events = new MeteorAlmanacSource(lunarPhaseService)
-                    .events(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
+                List<AlmanacEvent> events = new MeteorAlmanacSource(gate)
+                        .events(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31));
 
-            assertThat(events).hasSize(12);
-            assertThat(events).allSatisfy(event -> {
-                assertThat(event.detail()).as(event.title()).hasSizeLessThan(200);
-                assertThat(event.detail()).as(event.title()).contains("99% lit");
-            });
+                assertThat(events).hasSize(12);
+                assertThat(events).allSatisfy(event -> {
+                    assertThat(event.detail()).as(event.title()).hasSizeLessThan(200);
+                    assertThat(event.detail()).as(event.title()).contains("100% lit");
+                });
+            }
         }
 
         @Test
         @DisplayName("a quiet range yields nothing")
         void aQuietRangeIsEmpty() {
-            assertThat(new MeteorAlmanacSource(lunarPhaseService)
+            assertThat(new MeteorAlmanacSource(moonGate)
                     .events(LocalDate.of(2026, 6, 1), LocalDate.of(2026, 6, 30))).isEmpty();
         }
     }

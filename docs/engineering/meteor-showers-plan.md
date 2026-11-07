@@ -154,14 +154,90 @@ code, so a job can write them.
   and `MeteorAlmanacSource` all read it, so the clarity scan, the Plan tab and Coming up agree.
   `peakDatesWithin` stops being static; the strategy and the clarity service get the bean.
 
-## Phase 3 — moon-up gate
+## Phase 3 — moon-up gate (detailed 2026-11-07)
 
-Replace "illumination ≥ 50% at noon on the peak date" with "a moon ≥ 50% lit is above the horizon
-for most of the shower's `bestHours`", sampled every 15 minutes with
-`LunarCalculator.calculate(time, lat, lon).altitude()` at a UK reference point (54.8°N, 2°W);
-`bestHours` becomes structured (start, end or dawn, where dawn is nautical dawn from solar-utils).
-The almanac `washedOut` caveat uses the same predicate. 17 Nov 2026: the moon sets about 23:35, so
-the Leonids (03:00–dawn) are not gated. Detailed before its build.
+**Problem.** The hot-topic gate drops a shower when `LunarPhaseService.getIlluminationFraction(peak)`
+(noon UTC at 0°, 0°) is ≥ 0.5, and the almanac's `washedOut` caveat uses the same figure. Neither asks
+whether the moon is up while the shower is worth watching. 17 Nov 2026: 50.1% lit, sets ~23:35 at
+54.8°N, while the Leonids are best 03:00–dawn, so they are wrongly dropped and wrongly caveated.
+
+**Predicate (one place, `MeteorMoonGate`, a `@Component`).**
+- `bestHours` is parsed into a window on the shower's night (`peak` is the evening date):
+  `"HH:mm–HH:mm"` or `"HH:mm–dawn"`; an hour ≥ 12 falls on the evening date, < 12 on the next
+  morning; `dawn` is `SolarCalculator.civilDawn` at the reference point on the morning date. Times
+  are `Europe/London`. The display string stays as it is (it is served); a test parses all twelve.
+- Reference point 54.8°N, 2.0°W (the region's centre; the moon's altitude differs by well under a
+  degree across it). Constants, not config.
+- Sample the window every 15 minutes, both ends inclusive, with the existing `LunarCalculator`
+  bean: a sample is **bright-moon-up** when `illumination ≥ 0.5` and `altitude > 0`.
+- **Washed out** iff bright-moon-up samples are more than half of all samples.
+- The result record `MoonOverShower(int illuminationPct, boolean washedOut, boolean downThroughout)`
+  where `illuminationPct` is the mean illumination over the window rounded to an integer (it is what
+  the chip and the meta report, so the number shown matches the night, not noon), and
+  `downThroughout` is true when every sample has `altitude ≤ 0`.
+
+**Hot topic.** `detect` drops a shower iff `washedOut`. In `buildTopic`, `darkEnough` becomes
+`illuminationPct < 25 || downThroughout`; when `downThroughout` and the moon is ≥ 25% lit, the chip
+reads `"{pct}% · down in the best hours"` and the cue reads `"moon down, good viewing"`; otherwise the
+existing copy. The `MAX_ILLUMINATION` and `MOON_DARK_PCT` Javadocs are rewritten to the new rule.
+
+**Almanac.** `MeteorAlmanacSource` takes `MeteorMoonGate` (constructor change; update every
+`new MeteorAlmanacSource(...)` in tests, the census included). `washedOut` and the moonlit suffix use
+the gate; `moonIllumination` meta reports the gate's `illuminationPct`. When the moon is bright but
+down throughout, no caveat. The `WASHED_OUT_ILLUMINATION_PCT` comment about rounding is rewritten:
+the flag is now a moon-up decision, so a row can say "50% lit" with no caveat, and the detail must
+say why: append `" The moon is %d%% lit but down during the best hours."` in that case (keep every
+detail < 200 characters; the existing test covers it).
+
+**Tests (real `LunarCalculator`, `SolarCalculator`, no mocks of astronomy):**
+- Leonids 17 Nov 2026: not washed out, `downThroughout` true; the strategy fires a Leonids topic for
+  a 14–17 Nov 2026 window with the "down in the best hours" chip; the almanac row has no
+  `washedOut` and says the moon is down.
+- Ursids 22 Dec 2026 (96%, up all night): washed out (they are minor, so almanac only).
+- Geminids 14 Dec 2026 (24%): not washed out.
+- A synthetic window where a bright moon is up for exactly half the samples: not washed out (the
+  rule is "more than half").
+- The window parser: every `SHOWERS` entry parses; `22:00–02:00` spans midnight; `dawn` resolves to
+  civil dawn on the morning date; a BST night (Perseids, 12 Aug).
+- Census re-run: bits are unaffected, so the counts must not change.
+- `docs/engineering/reference/` mentions of the 50% gate are updated (grep "50%" and "moon gate").
+
+### Phase 3 plan review, round 1 (supersedes the text above where they differ)
+
+Verdicts computed with the real calculators for all 24 shower nights of 2026–2027: the rule flips
+three nights from dropped to shown (Orionids 2026, moon sets 02:56; Leonids 2026, down throughout;
+Perseids 2027, sets 01:01) and none the other way.
+
+1. **Both constructors change.** `MeteorHotTopicStrategy` and `MeteorAlmanacSource` take
+   `MeteorMoonGate` and drop `LunarPhaseService` where nothing else in the class uses it. Their unit
+   tests mock the gate (mocking the gate is not mocking astronomy) and lose their illumination
+   stubs (strict Mockito would flag them). `MeteorMoonGate` itself is tested with the real
+   `LunarCalculator`, `SolarCalculator` and `MoonriseMoonsetCalculator`.
+   `HotTopicInputsEquivalenceTest` and `ComingUpAnnualBadgeCensusTest` build a real gate.
+2. **Moon up for part of the window.** `MoonOverShower` gains `Optional<LocalTime> moonset` and
+   `Optional<LocalTime> moonrise`, set when the moon sets or rises inside the window (from
+   `MoonriseMoonsetCalculator` on the evening and morning dates, UK local time, minutes truncated).
+   When the shower is not washed out, the moon is ≥ 25% lit and it is up for part of the window:
+   - chip `"{pct}% · sets HH:mm"` or `"{pct}% · rises HH:mm"`;
+   - almanac suffix `" The moon is %d%% lit and sets around %s."` (or "rises around").
+   Moon down throughout keeps "down in the best hours". Every detail stays under 200 characters,
+   proved by a test over `SHOWERS` that renders each template with each suffix at 100%.
+3. **Fail soft.** The window is parsed once per call inside a try. An unparseable `bestHours`, or a
+   `dawn` end at or before the start, falls back to the old noon rule (illumination ≥ 0.5 at noon
+   means washed out) and logs a warning, so one bad string can never empty the hot-topic list
+   (`HotTopicAggregator` has no catch). Phase 4 will bring new strings through this path.
+4. **Sampling.** Step the instant with `ZonedDateTime.plusMinutes(15)` from the start to the end,
+   inclusive; build the end from the start plus the window's duration, so a clock-change night
+   still samples the true elapsed time.
+5. **Horizon.** `altitude > 0` is geometric altitude of the moon's centre. It is not refraction
+   corrected, so it can disagree with `MoonriseMoonsetCalculator` by a minute or two at the edge
+   (Perseids 2027: sets 01:01, the 01:00 sample reads −0.3°). That is accepted and documented in
+   the Javadoc; the boundary sample counts as down.
+6. **Reported figure.** The chip and the almanac now report the mean illumination over the window,
+   not noon UTC (Leonids 2026 reads 57%, not 50%).
+7. **Exact half** stays "not washed out". A package-private `evaluate(ZonedDateTime start,
+   ZonedDateTime end)` lets the test build an exact-half window.
+8. Rewrite the class and `detect` Javadocs of `MeteorHotTopicStrategy` to the new rule.
 
 ## Phase 4 — the IMO calendar refresh keeps the table current
 
