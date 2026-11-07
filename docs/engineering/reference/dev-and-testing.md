@@ -418,8 +418,24 @@ so Dependabot bumps them together as the `stryker` group) mutates `frontend/src/
 that some test notices each fault. Config: `frontend/stryker.config.mjs`; workflow:
 `.github/workflows/stryker.yml`; plan and review record: `docs/engineering/frontend-mutation-testing-plan.md`.
 It **runs weekly (Wednesday 03:00 UTC) and never blocks a PR**; a failed run opens a report through
-`ci-failure-issue.yml`, as `pitest.yml` does. `thresholds.break` is `null`: a floor is set only after
-the first full measurement (plan Phase 2).
+`ci-failure-issue.yml`, as `pitest.yml` does. Each shard has a mutation-score floor (`thresholds.break`).
+
+- **Per-shard floors.** `thresholds.break` applies to each Stryker process's own score and each CI shard is its own process, so one number would fail the weaker shards. The floors are the scores of the first full forced run after the survivor sweeps (run 42380927482, 2026-11-07), rounded down: overall 96.28% (18,402 killed, 710 live), up from an 87.81% pre-sweep baseline (run 42202344388).
+
+  | shard | score | floor |
+  |---|---|---|
+  | 1 | 96.77% | 96 |
+  | 2 | 95.99% | 95 |
+  | 3 | 94.15% | 94 |
+  | 4 | 97.90% | 97 |
+  | 5 | 95.47% | 95 |
+  | 6 | 96.51% | 96 |
+  | 7 | 96.75% | 96 |
+  | 8 | 97.21% | 97 |
+  | 9 | 96.20% | 96 |
+  | 10 | 96.50% | 96 |
+
+  The floor lives in the `plan` job's matrix (`"break"` per shard, asserted numeric), reaches Stryker as `STRYKER_BREAK` on the run step, and `stryker.config.mjs` reads it (a whole number 0-100, otherwise it throws; unset, as in every local run, it is `null`, so there is no floor). Ratchet rule: raise a floor, never lower one without the owner's say-so.
 
 - **Locally:** `cd frontend && npm run test:mutation` (add `-- --mutate 'src/utils/heatField.js'` to
   narrow it). The dry run alone is about 18 minutes (15.4k tests, one worker, because the runner forces
