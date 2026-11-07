@@ -1,3 +1,0 @@
-### Fixed — a meteor shower is judged by whether the moon is up while it is best
-
-A meteor shower was dropped from the Plan tab, and caveated in Coming up, whenever the moon was half lit at noon, whether or not it was in the sky while the shower was worth watching. The Leonids of 17 November 2026 were lost that way: the moon is 50% lit but sets about 23:35, and they are best from 03:00 to dawn. A shower is now washed out only when a half-lit-or-brighter moon is up for most of its best hours. The pill and the Coming up row report the moon's average lit share over those hours, and say when the moon is down ("down in the best hours") or when it sets or rises inside them.
