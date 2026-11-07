@@ -5,6 +5,184 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.3] - 2026-11-07
+
+### Tests — kill Stryker survivors in scoreRamp, schedulerEdit, scrollToEntry, askCamera and auroraBannerScores
+
+Five new `*Edges.test.js` suites pin the colour ramp's tables and parsing (read from a freshly evaluated module so the load-time constants are exercised), the scheduler cron parser's shape, range and day-boundary rules, the Coming up jump's focus and scroll guards, the Ask camera's padding clamps, inset and chrome-height reads, and the aurora banner's star, coordinate, name, drive and tie-break rules.
+
+Mutation scores, before then after: `scoreRamp.js` 75.2% (97/129) to 93.8% (121/129), `schedulerEdit.js` 90.1% (228/253) to 99.6% (252/253), `scrollToEntry.js` 69.4% (25/36) to 91.7% (33/36), `askCamera.js` 73.5% (72/98) to 95.9% (94/98), `auroraBannerScores.js` 89.0% (130/146) to 95.2% (139/146). The survivors left are equivalent mutants: boundary comparisons whose two sides give the same value (a ratio of exactly 1, a continuous interpolation at a stop), loop guards that a clamp makes unreachable, optional-chaining or `catch` guards whose failure path is already caught and returns the same falsy value, a redundant `typeof` ahead of `Number.isFinite`, and a sort that is a no-op because the hours are already ordered. No source changed.
+
+### Tests — kill Stryker survivors in the runs utils, regionsJump, jobRunPanel and locationAdmin
+
+Seven new `*Edges.test.js` files pin the boundaries Stryker found unpinned (survivors plus no-coverage mutants,
+before to after): `runsCost.js` 20 to 1, `runsView.js` 17 to 2, `runsTiming.js` 15 to 1, `runsQuery.js` 15 to 4,
+`regionsJump.js` 22 to 9, `jobRunPanel.js` 16 to 0, `locationAdmin.js` 22 to 5 (plus one mutant that crashes the
+runner, which counts as detected). Every remaining survivor is an equivalent mutant (empty-array fallbacks,
+redundant guards). No source file changed.
+
+### Tests — kill Stryker survivors in the plan utils, swrCache, the window-first strip and topics, and four more
+
+Ten new `*Edges.test.js` files in `frontend/src/test/` pin the behaviour behind the baseline mutation survivors in `planSearch`, `planOrigin`, `planningArea`, `subRegionCopy`, `swrCache`, `windowFirstTopics`, `windowFirstStrip`, `windowSpotBrowse`, `confidenceUtils` and `briefingDisplay`. No source changed: tests only.
+
+Survivors plus no-coverage mutants, before to after (the remainder are equivalent mutants):
+
+| File | Before | After |
+|---|---|---|
+| planSearch | 19 | 11 |
+| planOrigin | 14 | 7 |
+| planningArea | 10 | 4 |
+| subRegionCopy | 13 | 1 |
+| swrCache | 18 | 3 |
+| windowFirstTopics | 12 | 6 |
+| windowFirstStrip | 10 | 3 |
+| windowSpotBrowse | 10 | 2 |
+| confidenceUtils | 10 | 1 |
+| briefingDisplay | 10 | 6 |
+
+### Tests — kill Stryker survivors in mapDrilldown, mapLabels, mapCallout, mapLanding, mapTopicDays and mapScopedTime
+
+Batch 9 of the frontend mutation clean-up. Six new behaviour suites, `mapDrilldownEdges.test.js`, `mapLabelsEdges.test.js`, `mapCalloutEdges.test.js`, `mapLandingEdges.test.js`, `mapTopicDaysEdges.test.js` and `mapScopedTimeEdges.test.js`, pin the drilldown's malformed-input and partial-picks rows, the shaped note's article handling, the region panel's day word, tide state and drive-less rows, the hottest-region mean and tie rules, the ring-label frame margins, the chip ordering tie-breaks and the selected-pick and stood-place budgets, the callout band's bar-size and card-span tests and the anchor's exact-fit and flip boundaries, the landing header's missing-row fallbacks, the topic-day dots' targets and sunset wording, and the scoped time's same-array answers and equal-instant rule. Mutation results (detected over detected plus survived plus uncovered):
+
+- `mapDrilldown.js`: 86.6% (214/247) → 95.1% (235/247)
+- `mapLabels.js`: 89.5% (263/294) → 99.0% (291/294)
+- `mapCallout.js`: 89.9% (124/138) → 99.3% (137/138)
+- `mapLanding.js`: 87.8% (72/82) → 96.3% (79/82)
+- `mapTopicDays.js`: 88.5% (108/122) → 97.5% (119/122)
+- `mapScopedTime.js`: 86.7% (72/83) → 94.0% (78/83)
+
+No source changed. Every remaining mutant is equivalent: `[]` fallbacks whose string stand-in has no fields, `typeof` and `!= null` guards implied by `Number.isFinite` or by a later lookup guard, skips whose only effect is an entry in a map that is only read for in-scope names, `formatDriveDuration(null)` already answering null, and a comparison made unobservable by a loop bound or stable sort.
+
+### Tests — kill Stryker survivors in comingUpFeed, windowFirstSpots, windowFirstRegions and windowFirstSpread
+
+Four new test files (`comingUpFeedEdges`, `windowFirstSpotsEdges`, `windowFirstRegionsEdges`, `windowFirstSpreadEdges`) pin behaviour the existing suites left unchecked: the day-chip walk across shoulder days, the default action and passthrough fields, the badge-ink contrast boundary, the tide-fact join order, the shaped region order and comparator, and the spread module's tables and defensive paths. Mutation score per file, before to after (survivors plus no-coverage): `comingUpFeed.js` 34 to 15, 95.6%; `windowFirstSpots.js` 33 to 8, 96.2%; `windowFirstRegions.js` 32 to 9, 96.1%; `windowFirstSpread.js` 16 to 6, 97.8%. Every remaining survivor is an equivalent mutant. No source file changed.
+
+### Tests — kill Stryker survivors in bigSeas, bigSeasChips, guide, hourlyComfort, firstClause, heatGeometry and topicPalette
+
+Seven new `*Edges.test.js` suites pin the behaviour the mutation run found unguarded: the big-seas line's day ordering, same-date tie order, aligned and high-water jump rows and the wave-fact guards on the lead copy; the chips' ring, empty-result identity, selected-first ordering and fallback slotting; the guide's page, tab and section tables, hash and `.html` handling; the comfort rows' `NaN`/string rejection, empty and malformed day entries and "never Today" labels; every `firstClause` boundary and trailing-junk case; the heat field's default frame; and the full style of all nineteen topic types. The module-level tables load through `vi.resetModules()` and a dynamic import so Stryker's mutants are live when they are read.
+
+Mutation scores (killed + timeout / total, before then after): `bigSeas.js` 84.3% (134/159) to 95.6% (152/159); `bigSeasChips.js` 91.4% (148/162) to 97.5% (158/162); `guide.js` 44.2% (19/43) to 97.7% (42/43); `hourlyComfort.js` 89.5% (197/220) to 97.7% (215/220); `firstClause.js` 63.6% (21/33) to 100% (33/33); `heatGeometry.js` 86.8% (66/76) to 100% (76/76); `topicPalette.js` 46.2% (18/39) to 100% (39/39). No source changed. The survivors left are equivalent mutants: a `[]` fallback no outcome can tell from the mutated array, comparator branches whose 0-versus-1 result `Array.prototype.sort` treats alike, optional chains on rows that throw either way, and guards another check already makes redundant.
+
+### Changed — Sky Eval gives the extended-thinking models their own colours
+
+Sonnet 4.6 (ET) and Opus (ET) no longer share the grey fallback in the Sky Eval accuracy chart; they are now green and light orange, so both can be selected and told apart.
+
+### Tests — pin the clock in the Scheduler Day tab tests
+
+Seven Scheduler Day tab tests used hard-coded dates without pinning the clock, so they began failing once the real date left the seven-day window. They now pin the date like their neighbours.
+
+### Fixed — the Leonids and six more meteor showers now appear
+
+The Leonids (peak night 17 November) were missing from Coming up and At a Glance because the shower table held only
+five showers. It now holds twelve, in calendar order: the Eta and S. Delta Aquariids, Draconids, both Taurids, the
+Leonids and the Ursids are added, the Lyrids' radiant is corrected from north-east to south-east, and the Quadrantids' rate from 120 to the IMO's 80. Only showers
+that give a UK observer about ten or more meteors an hour at peak (now including the Leonids) can raise an At a Glance
+pill; the six smaller ones list in Coming up without a badge, and never take the first-of-type explanation from a major
+shower in the same window. The Eta and S. Delta Aquariids, whose radiants stay low from the UK, show the rate you can
+realistically expect here (about 5 and 8 an hour) with the catalogue rate beside it. The landing site credits the
+International Meteor Organization for the calendar.
+
+### Fixed — a meteor shower is judged by whether the moon is up while it is best
+
+A meteor shower was dropped from the Plan tab, and caveated in Coming up, whenever the moon was half lit at noon, whether or not it was in the sky while the shower was worth watching. The Leonids of 17 November 2026 were lost that way: the moon is 50% lit but sets about 23:35, and they are best from 03:00 to dawn. A shower is now washed out only when a half-lit-or-brighter moon is up for most of its best hours. The pill and the Coming up row report the moon's average lit share over those hours, and say when the moon is down ("down in the best hours") or when it sets or rises inside them.
+
+### Tests — kill Stryker survivors in skyEval, windowFirstCards and planConflicts
+
+Batch 4 of the frontend mutation clean-up (first full run, GitHub run 42202344388). Three new behaviour suites, `skyEvalEdges.test.js`, `windowFirstCardsEdges.test.js` and `planConflictsEdges.test.js`, pin formatter thresholds, inclusive chart-window edges, sort tie rules, the rating-history geometry, the region argmax and its name tie-break, the reach counts a card carries when a tier removes places, the away-origin figures with unusable means, and the plan-conflict message's scope, nearest-location and ceiling rules. Mutation results (survivors plus no-coverage mutants before, survivors after):
+
+- `skyEval.js`: 70 before, 11 after (killed 600, 155 ignored). Raw score 98.2%.
+- `windowFirstCards.js`: 66 before, 45 after (killed 478). Raw score 91.4%.
+- `planConflicts.js`: 52 before, 15 after (killed 217). Raw score 93.5%.
+
+Every remaining survivor is an equivalent mutant: optional chaining on values the caller already filtered, `[]` fallbacks whose string stand-in has no fields, `typeof` guards implied by `Number.isFinite`, comparisons made unobservable by an earlier guard or a stable sort, and branches reachable only with a record shape `buildWindowSpots` or the tier ladder cannot produce. No source changed.
+
+### Tests — kill Stryker survivors in schedulerDay, schedulerDayOverlays and schedulerView
+
+Three Scheduler view-model utils had surviving mutants in Stryker shard 9. New edge-case tests
+(`schedulerDayEdges`, `schedulerDayOverlaysEdges`, `schedulerViewEdges`) pin the boundaries, tie-breaks,
+fallbacks and degenerate inputs those mutants relied on. No source changed.
+
+| File | Survived + no coverage before | After | Score before | Score after |
+|---|---|---|---|---|
+| `schedulerDay.js` | 46 + 5 | 11 | 414/465 (89.0%) | 454/465 (97.6%) |
+| `schedulerDayOverlays.js` | 43 | 9 | 362/405 (89.4%) | 396/405 (97.8%) |
+| `schedulerView.js` | 34 + 1 | 6 | 350/385 (90.9%) | 379/385 (98.4%) |
+
+Scores count killed plus timed-out mutants over all non-ignored mutants. Every survivor left is an equivalent
+mutant: `?? []` fallbacks that are filtered or iterated away before anything returns them, `Array.find` on a
+type that always exists, and comparison or arithmetic changes that cannot alter a result.
+
+### Tests — Stryker survivors killed in locationSheet, travelDays and mapVerdict
+
+Three new edge suites (`locationSheetEdges.test.js`, `travelDaysEdges.test.js`,
+`mapVerdictEdges.test.js`) pin answers the happy-path tests never asked for: malformed members of
+the served trees, first-wins and sort tie-breaks, the location sheet's handoff and lead-line rules,
+the Travel days cell class cascade and server-error placement, and the Map verdict's shaped and
+served-order picks. Tests only; nothing under `src/utils` changed.
+
+Mutation score (killed ÷ killed + survived + no coverage), baseline from the first full weekly run:
+
+- `locationSheet.js`: 89.5% (418/467) → 97.2% (454/467)
+- `travelDays.js`: 85.9% (262/305) → 99.0% (302/305)
+- `mapVerdict.js`: 82.0% (191/233) → 94.4% (220/233)
+
+Every mutant left is equivalent. Most are `[]` fallbacks whose replacement element is skipped by
+the loop's first guard and never returned, or optional chains on a value an earlier check has
+already proven non-null. mapVerdict stays just under 95% because its 13 remaining mutants are all
+of that kind.
+
+### Tests — kill Stryker survivors in createEventSource, fourDayTiles and mapTideFit
+
+Three new edge suites (`createEventSourceEdges.test.js`, `fourDayTilesEdges.test.js`,
+`mapTideFitEdges.test.js`) pin answers the happy-path tests never asked for: the event stream's
+closeOn guards, CR/LF line splitting across chunks, late responses after cleanup and the exact
+listener removals; the four-day tiles' topic-to-almanac table, relative-day labels, tide spans and
+earliest-start jump; and the tide strip's cache key, default arguments and earliest-fit search across
+several spots. Tests only; no source changed.
+
+Mutation score (detected ÷ detected + survived + no coverage), baseline from the first full weekly run:
+
+- `createEventSource.js`: 80.4% (168/209) → 90.4% (189/209)
+- `fourDayTiles.js`: 83.2% (198/238) → 93.7% (223/238)
+- `mapTideFit.js`: 87.0% (247/284) → 93.7% (266/284)
+
+Every mutant left is equivalent, which is why each file stays under 95%. In createEventSource most
+are generation guards a stale connection can never reach, because a new connection only starts
+after the previous one has failed and returned. The rest are `[]` fallbacks whose placeholder
+element is skipped and never returned, optional chains on values an earlier check has proven
+non-null, and sort-comparator results V8 never acts on.
+
+### Tests — kill Stryker survivors in askModel, conversions and dawnRace
+
+Three new edge suites (`askModelEdges.test.js`, `conversionsEdges.test.js`, `dawnRaceEdges.test.js`)
+pin answers the happy-path tests never asked for: night cards with out-of-scale stars, blank text and
+a half-served window; holes in the briefing tree; suggestion and run-label lookups over malformed
+lists; the exact bands and boundaries of the relative and elapsed time formatters and of the map's
+auto-selection (30 minutes after the earliest sunset, to the millisecond); first-wins and sort order
+in the forecast grouping; the zone-suffix pattern; the compass tables; and the dawn/dusk race's exact
+hour floor, 15-minute run-on, stop-key check, tick wording and gradient. Tests only; nothing under
+`src/utils` changed.
+
+`conversionsEdges` and `dawnRaceEdges` load their module inside each test (`vi.resetModules()` plus a
+dynamic import in `beforeEach`). Module-level constants are evaluated at load, and a load that happens
+before any test starts is "static" to Stryker, so its mutants never ran against these files.
+
+Mutation score (killed ÷ killed + survived + no coverage), baseline from the first full weekly run:
+
+- `askModel.js`: 87.1% (236/271) → 97.0% (263/271)
+- `conversions.js`: 86.8% (230/265) → 97.1% (268/276; 11 module-constant mutants that used to be
+  ignored as static now run, and are killed)
+- `dawnRace.js`: 85.5% (206/241) → 93.8% (226/241)
+
+Every mutant left is equivalent: `[]` fallbacks whose replacement element is skipped or never returned,
+optional chains on values an earlier check has proven non-null, guards that repeat a check the caller
+or the formatter already made, and comparisons whose two branches return the same value. dawnRace
+stays just under 95% because its 15 remaining mutants are all of that kind.
+
+### Fixed — Aurora banner buttons stay put when you open and close it
+
+On desktop, the aurora banner's Open/Close, guide "?" and dismiss buttons now line up and keep the same spacing and position whether the banner is collapsed or expanded, and the toggle reads "Close ▴" when open at the same width as "Open ▾".
+
 ## [v2.39.2] - 2026-11-06
 
 ### Changed — weekly ZAP gate after v2.39.1
