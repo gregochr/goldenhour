@@ -38,6 +38,12 @@ describe('SubRegionPicker (S4 A1)', () => {
       expect(screen.getByTestId('sub-region-picker-count')).toHaveTextContent('0 of 3 chosen');
     });
 
+    it('widens the chip Remove button to a 44px touch target on a phone only', () => {
+      render(<Harness initial={[12]} onChangeSpy={vi.fn()} />);
+      const remove = screen.getByRole('button', { name: 'Remove Alnwick & the Coquet Coast' });
+      expect(remove).toHaveClass('relative', 'max-[639px]:before:absolute', 'max-[639px]:before:-inset-1.5');
+    });
+
     it('gives each chosen sub-region a chip with a Remove button that unchooses it', async () => {
       const user = userEvent.setup();
       const spy = vi.fn();

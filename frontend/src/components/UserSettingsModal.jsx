@@ -902,7 +902,7 @@ export default function UserSettingsModal({
                     data-testid="settings-radius-slider"
                   />
                   <span
-                    className="font-mono text-sm text-plex-text w-16 text-right"
+                    className="font-mono text-sm text-plex-text w-16 text-right max-[639px]:w-[5.5rem] max-[639px]:whitespace-nowrap"
                     data-testid="settings-radius-value"
                   >
                     {radius ?? DEFAULT_RADIUS_MILES} miles
@@ -1200,7 +1200,7 @@ export default function UserSettingsModal({
         >
           ?
         </button>
-        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
+        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg max-[639px]:min-w-11 max-[639px]:min-h-11 max-[639px]:-mr-2 max-[639px]:inline-flex max-[639px]:items-center max-[639px]:justify-center" aria-label="Close">&times;</button>
       </div>
 
       <div

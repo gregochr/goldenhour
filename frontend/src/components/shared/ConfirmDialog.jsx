@@ -22,14 +22,14 @@ export default function ConfirmDialog({
       {children}
       <div className="flex justify-end gap-2">
         <button
-          className="btn-secondary text-sm"
+          className="btn-secondary text-sm max-[639px]:min-h-11"
           onClick={onCancel}
           data-testid="confirm-dialog-cancel"
         >
           Cancel
         </button>
         <button
-          className={`text-sm px-4 py-1.5 rounded font-medium ${
+          className={`text-sm px-4 py-1.5 rounded font-medium max-[639px]:min-h-11 ${
             destructive
               ? 'bg-red-700 hover:bg-red-600 text-white'
               : 'btn-primary'

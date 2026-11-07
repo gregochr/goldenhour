@@ -9082,6 +9082,13 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 .wf-callout-close:focus-visible {
   color: var(--color-plex-text);
 }
+/* Phone only: a 44px touch target around the glyph, drawn by an invisible ::before so the glyph does not move.
+   The glyph sits in the card's top right corner and `.wf-callout-body` (overflow-y: auto) clips what spills past
+   its top and right edge, so the target grows left and down only, where there is room. */
+@media (max-width: 639px) {
+  .wf-callout-close { position: relative; }
+  .wf-callout-close::before { content: ''; position: absolute; top: 0; right: 0; bottom: -27px; left: -29px; }
+}
 
 /* The verdict block — border/background from the ramp colour at 50%/10% alpha (README §7 item 2),
    set inline by `MapCallout.jsx` since the colour is per-rating data, not a stylesheet constant. */
@@ -11333,6 +11340,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    two-line title never overlaps the tags, which wrap in a row underneath. */
 @media (max-width: 639px) {
   .wf-cu-nm { flex: 1 1 calc(100% - 28px); min-width: 0; }
+  /* The reserve for the Open / Close button, by state. Collapsed ("Open ▴", 54px wide at 390px) keeps the full 64px;
+     open ("▾", 24px wide) needs only the glyph plus its 8px inset and a gap, so the title gets the width back. */
+  .wf-cu-ent:has(> .wf-cu-toggle[aria-expanded='true']) .wf-cu-ttl { padding-right: 36px; }
   /* The tags sit in one wrapping row under the title, indented by the glyph (12.5px, 14px on a feature
      card) plus the title row's 9px gap, so they line up under the title text. */
   .wf-cu-tags {

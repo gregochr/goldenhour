@@ -293,12 +293,12 @@ function CacheDiagnostics({ calls }) {
           <li
             key={call.id ?? call.customId}
             data-testid="cache-diagnostics-row"
-            className="flex items-center justify-between gap-2 rounded-sm border border-plex-border bg-plex-surface px-2 py-1"
+            className="flex items-center justify-between gap-2 rounded-sm border border-plex-border bg-plex-surface px-2 py-1 max-[639px]:flex-wrap"
           >
             <span className="min-w-0 break-all font-mono text-xs text-plex-text">
               {call.customId ?? `${call.targetDate ?? ''} ${call.targetType ?? ''}`.trim()}
             </span>
-            <span className="text-xs text-plex-text-muted" data-testid="cache-badge">{cacheBadge(call)}</span>
+            <span className="min-w-0 break-words [overflow-wrap:anywhere] text-xs text-plex-text-muted" data-testid="cache-badge">{cacheBadge(call)}</span>
           </li>
         ))}
       </ul>

@@ -101,6 +101,17 @@ describe('DayRunList branches', () => {
   });
 });
 
+describe('DayRunList phone layout', () => {
+  it('narrows the grid columns on a phone and lets the name drop under the chip', () => {
+    render(<DayRunList {...baseProps({ day: dayResponse([cycleDayRow()]) })} />);
+    const row = screen.getByTestId('runs-day-row-cycle-412');
+    expect(row).toHaveClass('max-[639px]:grid-cols-[44px_minmax(0,1fr)_76px]', 'max-[639px]:gap-x-2');
+    const name = screen.getByTestId('runs-day-name-cycle-412');
+    expect(name).toHaveClass('max-[639px]:min-w-0', 'max-[639px]:max-w-full');
+    expect(name.parentElement).toHaveClass('max-[639px]:flex-wrap');
+  });
+});
+
 describe('DayRunList expanded rows', () => {
   it('shows the finished facts with speed, batches and answers-ready, and a detail link for a cycle', () => {
     const onOpenDetail = vi.fn();

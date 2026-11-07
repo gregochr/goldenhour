@@ -91,6 +91,16 @@ describe('Settings layout: the header is outside the scroller on a phone only', 
     expect(within(body).getByText('Profile')).toBeInTheDocument();
   });
 
+  it('the × carries a 44px phone hit area without changing its desktop classes', async () => {
+    setPhone(true);
+    render(<UserSettingsModal onClose={vi.fn()} />);
+    await screen.findByTestId('settings-body');
+    expect(screen.getByRole('button', { name: 'Close' })).toHaveClass(
+      'max-[639px]:min-w-11', 'max-[639px]:min-h-11', 'max-[639px]:-mr-2', 'max-[639px]:inline-flex',
+      'max-[639px]:items-center', 'max-[639px]:justify-center',
+    );
+  });
+
   it('desktop: the body wrapper is display: contents, the panel scrolls, and the header is its direct child', async () => {
     setPhone(false);
     render(<UserSettingsModal onClose={vi.fn()} />);
