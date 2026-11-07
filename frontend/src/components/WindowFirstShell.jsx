@@ -1281,6 +1281,9 @@ export default function WindowFirstShell({
    * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
    * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
    */
+  // Whether the location sheet now up should return focus through `askSheetFallback` on close (declared here, before
+  // the handoff effect that sets it; the full account is on `askSheetFallback` below).
+  const askSheetReturnRef = useRef(false);
   const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
   const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
   useEffect(() => {
@@ -1306,6 +1309,9 @@ export default function WindowFirstShell({
     // press would both send them somewhere they did not ask to go and overwrite the very element
     // `useDialogFocus` is about to capture as the sheet's return address.
     if (toPlanTab) {
+      // The opener (a button on the Map pane) goes hidden with the pane, and a browser refuses focus in a hidden
+      // subtree, so the sheet's close has nowhere to give it back to: name the return address (the tab in force).
+      askSheetReturnRef.current = true;
       const domId = tabDomId('plan');
       requestAnimationFrame(() => document.getElementById(domId)?.focus());
     }
@@ -1848,7 +1854,6 @@ export default function WindowFirstShell({
    * reader nowhere. This is what makes the close land on the trigger (or the tab) instead, read at
    * CLOSE time by the sheet's {@code restoreFocusFallback} and put away when it is gone.
    */
-  const askSheetReturnRef = useRef(false);
   const askSheetFallback = useCallback(
     () => (askSheetReturnRef.current ? askRestoreFallback() : null),
     [askRestoreFallback],
