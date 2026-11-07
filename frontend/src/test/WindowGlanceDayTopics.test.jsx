@@ -23,7 +23,7 @@ const DATES = [TODAY, SUN, MON, TUE];
 
 const surge = {
   type: 'STORM_SURGE', label: 'Storm surge', date: TODAY, eventType: null,
-  glance: { value: 'HW 16:02 · +0.4 m', shortValue: '+0.4 m pk', badge: 'PEAK', weather: false },
+  glance: { value: 'HW 16:02 · +0.4 m', badge: 'PEAK', weather: false },
 };
 const tide = (date) => ({
   type: 'SPRING_TIDE', label: 'Spring tide', date, eventType: null,
@@ -31,12 +31,12 @@ const tide = (date) => ({
 });
 const inversion = {
   type: 'INVERSION', label: 'Inversion', date: SUN, eventType: 'SUNRISE',
-  glance: { value: 'dawn · 9/10 · strong', shortValue: '9/10', weather: true },
+  glance: { value: 'dawn · 9/10 · strong', weather: true },
 };
 const dust = { type: 'DUST', label: 'Saharan dust', date: MON, eventType: 'SUNSET' };
 const moon = {
   type: 'SUPERMOON', label: 'Supermoon', date: MON, eventType: 'SUNSET',
-  glance: { value: 'rise 16:34', shortValue: 'super', badge: 'FULL', weather: false },
+  glance: { value: 'rise 16:34', badge: 'FULL', weather: false },
 };
 
 /** A row of stacks the way the strip draws them: one header per date, then one stack per date. */
@@ -187,7 +187,7 @@ describe('WindowGlanceDayTopics — the accessible name is built from content', 
   it('draws a SEA_MIST topic as a "Sea mist" weather pill that opens the Map that morning', () => {
     const seaMist = {
       type: 'SEA_MIST', label: 'Sea mist', date: SUN, eventType: 'SUNRISE',
-      glance: { value: 'dawn · light mist, 1 site', shortValue: 'likely', weather: true },
+      glance: { value: 'dawn · light mist, 1 site', weather: true },
     };
     renderStacks({ topics: [seaMist] });
     const sea = pill('SEA_MIST');

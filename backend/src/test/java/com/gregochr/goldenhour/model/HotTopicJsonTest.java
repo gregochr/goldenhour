@@ -477,19 +477,33 @@ class HotTopicJsonTest {
     }
 
     @Test
-    @DisplayName("a set glance serialises its four keys and round-trips")
-    void serialize_glance_fourKeysAndRoundTrips() throws Exception {
-        GlanceLine glance = new GlanceLine("HW 16:02 · +0.72 m", "+0.72 m pk", "PEAK", true);
+    @DisplayName("a set glance serialises its three keys and round-trips")
+    void serialize_glance_threeKeysAndRoundTrips() throws Exception {
+        GlanceLine glance = new GlanceLine("HW 16:02 · +0.72 m", "PEAK", true);
         HotTopic original = surgeTopic().withGlance(glance);
 
         String json = mapper.writeValueAsString(original);
         var node = mapper.readTree(json).get("glance");
 
         assertThat(node.get("value").asText()).isEqualTo("HW 16:02 · +0.72 m");
-        assertThat(node.get("shortValue").asText()).isEqualTo("+0.72 m pk");
+        assertThat(node.has("shortValue")).isFalse();
         assertThat(node.get("badge").asText()).isEqualTo("PEAK");
         assertThat(node.get("weather").asBoolean()).isTrue();
         assertThat(mapper.readValue(json, HotTopic.class)).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("stale JSON still carrying glance.shortValue deserialises, the key ignored")
+    void deserialize_staleShortValue_ignored() throws Exception {
+        String json = """
+                {"type":"STORM_SURGE","label":"Storm surge","detail":"d","date":"2026-06-17","priority":1,
+                 "regions":[],"glance":{"value":"HW 16:02","shortValue":"+0.72 m pk","badge":"PEAK","weather":true}}
+                """;
+
+        HotTopic topic = mapper.readValue(json, HotTopic.class);
+
+        assertThat(topic.glance()).isEqualTo(new GlanceLine("HW 16:02", "PEAK", true));
+        assertThat(mapper.readTree(mapper.writeValueAsString(topic)).get("glance").has("shortValue")).isFalse();
     }
 
     @Test
@@ -509,7 +523,7 @@ class HotTopicJsonTest {
     @Test
     @DisplayName("every wither carries glance through")
     void withers_carryGlanceThrough() {
-        GlanceLine glance = new GlanceLine("v", "s", null, false);
+        GlanceLine glance = new GlanceLine("v", null, false);
         HotTopic base = surgeTopic().withGlance(glance);
 
         assertThat(base.withEvent("SUNRISE", "05:00").glance()).isSameAs(glance);

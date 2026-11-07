@@ -111,7 +111,7 @@ class SeaMistHotTopicStrategyTest {
         HotTopicFact fact = topic.facts().getFirst();
         assertThat(fact.key()).isEqualTo("sea mist");
         assertThat(fact.value()).isEqualTo("likely at 1 site");
-        assertThat(topic.glance()).isEqualTo(new GlanceLine("dawn · light mist, 1 site", "likely", null, true));
+        assertThat(topic.glance()).isEqualTo(new GlanceLine("dawn · light mist, 1 site", null, true));
     }
 
     @Test

@@ -168,7 +168,7 @@ public class MistHotTopicStrategy implements HotTopicStrategy {
         // its EVENT_STAMPED_BY_DETECTOR.
         String when = event == TargetType.SUNSET ? "dusk" : "dawn";
         String siteCount = sites + (sites == 1 ? " site" : " sites");
-        GlanceLine glance = new GlanceLine(when + " · likely, " + siteCount, "likely", null,
+        GlanceLine glance = new GlanceLine(when + " · likely, " + siteCount, null,
                 HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         return topic.withEvent(event.name(), null)
                 .withScience(List.of(HotTopicFact.metric("valley mist", value)), note)

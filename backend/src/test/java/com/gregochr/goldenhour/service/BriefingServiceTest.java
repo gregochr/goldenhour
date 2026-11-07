@@ -1757,7 +1757,7 @@ class BriefingServiceTest {
             assertThat(second).isSameAs(first);
             assertThat(first.hotTopics()).hasSize(1);
             assertThat(first.hotTopics().getFirst().glance())
-                    .isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
+                    .isEqualTo(new GlanceLine("0.45 · thick", null, true));
         }
 
         /**
