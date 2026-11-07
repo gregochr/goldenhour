@@ -4,25 +4,25 @@ const TIDE = '#6FA8B0';
 const VIOLET = '#8E86D6';
 
 const EXPECTED = {
-  KING_TIDE: { colour: TIDE, glyph: '🌊', name: 'King tide', shortName: 'King tide', placeNoun: 'coastal' },
-  SPRING_TIDE: { colour: TIDE, glyph: '🌊', name: 'Spring tide', shortName: 'Tide', placeNoun: 'coastal' },
-  STORM_SURGE: { colour: '#f59e0b', glyph: '🌊', name: 'Storm surge', shortName: 'Surge', placeNoun: 'coastal' },
-  INVERSION: { colour: TIDE, glyph: '☁️', name: 'Inversion', shortName: 'Inversion' },
-  MIST: { colour: '#8FA3B8', glyph: '🌫️', name: 'Mist', shortName: 'Mist' },
-  SEA_MIST: { colour: '#D5DCD6', glyph: '🌁', name: 'Sea mist', shortName: 'Sea mist' },
-  DUST: { colour: '#f97316', glyph: '🏜️', name: 'Dust', shortName: 'Dust' },
-  SNOW_TOPS: { colour: '#bfdbfe', glyph: '🏔️', name: 'Snow on the tops', shortName: 'Snow tops' },
-  SNOW_MIST: { colour: '#cbd5e1', glyph: '❄️', name: 'Snow and mist', shortName: 'Snow mist' },
-  SNOW_FRESH: { colour: '#e0f2fe', glyph: '❄️', name: 'Fresh snow', shortName: 'Fresh snow' },
-  CLEARANCE: { colour: '#fb923c', glyph: '🌤️', name: 'Clearance', shortName: 'Clearing' },
-  BLUEBELL: { colour: '#8b5cf6', glyph: '🌸', name: 'Bluebells', shortName: 'Bluebells' },
-  AURORA: { colour: VIOLET, glyph: '🌌', name: 'Aurora', shortName: 'Aurora' },
-  NLC: { colour: VIOLET, glyph: '✦', name: 'NLC', shortName: 'NLC' },
-  METEOR: { colour: VIOLET, glyph: '☄️', name: 'Meteors', shortName: 'Meteors' },
-  SUPERMOON: { colour: '#fbbf24', glyph: '🌙', name: 'Supermoon', shortName: 'Supermoon' },
-  EQUINOX: { colour: '#fcd34d', glyph: '☀️', name: 'Equinox', shortName: 'Equinox' },
-  ECLIPSE: { colour: '#C4787F', glyph: '◐', name: 'Eclipse', shortName: 'Eclipse' },
-  LUNAR_ECLIPSE: { colour: '#C4787F', glyph: '🌘', name: 'Lunar eclipse', shortName: 'Lunar ecl.' },
+  KING_TIDE: { colour: TIDE, glyph: '🌊', name: 'King tide', placeNoun: 'coastal' },
+  SPRING_TIDE: { colour: TIDE, glyph: '🌊', name: 'Spring tide', placeNoun: 'coastal' },
+  STORM_SURGE: { colour: '#f59e0b', glyph: '🌊', name: 'Storm surge', placeNoun: 'coastal' },
+  INVERSION: { colour: TIDE, glyph: '☁️', name: 'Inversion' },
+  MIST: { colour: '#8FA3B8', glyph: '🌫️', name: 'Mist' },
+  SEA_MIST: { colour: '#D5DCD6', glyph: '🌁', name: 'Sea mist' },
+  DUST: { colour: '#f97316', glyph: '🏜️', name: 'Dust' },
+  SNOW_TOPS: { colour: '#bfdbfe', glyph: '🏔️', name: 'Snow on the tops' },
+  SNOW_MIST: { colour: '#cbd5e1', glyph: '❄️', name: 'Snow and mist' },
+  SNOW_FRESH: { colour: '#e0f2fe', glyph: '❄️', name: 'Fresh snow' },
+  CLEARANCE: { colour: '#fb923c', glyph: '🌤️', name: 'Clearance' },
+  BLUEBELL: { colour: '#8b5cf6', glyph: '🌸', name: 'Bluebells' },
+  AURORA: { colour: VIOLET, glyph: '🌌', name: 'Aurora' },
+  NLC: { colour: VIOLET, glyph: '✦', name: 'NLC' },
+  METEOR: { colour: VIOLET, glyph: '☄️', name: 'Meteors' },
+  SUPERMOON: { colour: '#fbbf24', glyph: '🌙', name: 'Supermoon' },
+  EQUINOX: { colour: '#fcd34d', glyph: '☀️', name: 'Equinox' },
+  ECLIPSE: { colour: '#C4787F', glyph: '◐', name: 'Eclipse' },
+  LUNAR_ECLIPSE: { colour: '#C4787F', glyph: '🌘', name: 'Lunar eclipse' },
 };
 
 describe('topicPalette tables', () => {
@@ -52,7 +52,7 @@ describe('topicPalette tables', () => {
     vi.resetModules();
     const { topicStyle } = await import('../utils/topicPalette.js');
     const unknown = (name) => ({
-      colour: '#9CA3AF', glyph: '•', name, shortName: name,
+      colour: '#9CA3AF', glyph: '•', name,
     });
     expect(topicStyle('WHIRLWIND', 'Whirlwind')).toEqual(unknown('Whirlwind'));
     expect(topicStyle('WHIRLWIND', null)).toEqual(unknown('WHIRLWIND'));

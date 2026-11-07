@@ -20,13 +20,13 @@ describe('topicStyle', () => {
     expect(Object.keys(SWATCH_COLOR).sort()).toEqual([...NINETEEN].sort());
   });
 
-  it.each(NINETEEN)('%s has a real colour, glyph, name and short name — never the fallback', (type) => {
+  it.each(NINETEEN)('%s has a real colour, glyph, name — never the fallback', (type) => {
     const style = topicStyle(type);
     expect(style.colour).toBe(SWATCH_COLOR[type]);
     expect(style.colour).toMatch(/^#[0-9a-fA-F]{6}$/);
     expect(style.glyph).not.toBe('•');
     expect(style.name).toBeTruthy();
-    expect(style.shortName).toBeTruthy();
+    expect(style).not.toHaveProperty('shortName');
   });
 
   it('uses the names the plan gives', () => {
@@ -34,7 +34,7 @@ describe('topicStyle', () => {
     expect(topicStyle('NLC')).toMatchObject({ name: 'NLC', glyph: '✦' });
     expect(topicStyle('KING_TIDE')).toMatchObject({ name: 'King tide', glyph: '🌊' });
     expect(topicStyle('SPRING_TIDE')).toMatchObject({
-      name: 'Spring tide', shortName: 'Tide', glyph: '🌊',
+      name: 'Spring tide', glyph: '🌊',
     });
     expect(topicStyle('INVERSION')).toMatchObject({ name: 'Inversion', glyph: '☁️' });
     expect(topicStyle('DUST')).toMatchObject({ name: 'Dust', glyph: '🏜️' });
@@ -56,14 +56,14 @@ describe('topicStyle', () => {
 
   it('shows an unknown type with the fallback colour, a bullet and its served label', () => {
     expect(topicStyle('SOLAR_HALO', 'Solar halo')).toEqual({
-      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Solar halo', shortName: 'Solar halo',
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Solar halo',
     });
     expect(topicStyle('SOLAR_HALO').name).toBe('SOLAR_HALO');
   });
 
   it.each([null, undefined, ''])('names a topic with no type "Topic" when it has no label either (%s)', (type) => {
     expect(topicStyle(type)).toEqual({
-      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Topic', shortName: 'Topic',
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Topic',
     });
   });
 
@@ -97,11 +97,16 @@ describe('the live swatch colours survive the move from comingUpHandoff', () => 
   });
 });
 
-describe('shortName — the Map\'s topic strip name', () => {
-  it('keeps the short names the Map\'s topic strip reads', () => {
-    expect(topicStyle('KING_TIDE').shortName).toBe('King tide');
-    expect(topicStyle('SPRING_TIDE').shortName).toBe('Tide');
-    expect(topicStyle('LUNAR_ECLIPSE').shortName).toBe('Lunar ecl.');
+describe('the Map\'s topic strip name', () => {
+  it('is the full name, with no shortName key', () => {
+    expect(topicStyle('SPRING_TIDE').name).toBe('Spring tide');
+    expect(topicStyle('STORM_SURGE').name).toBe('Storm surge');
+    expect(topicStyle('LUNAR_ECLIPSE').name).toBe('Lunar eclipse');
+    expect(topicStyle('CLEARANCE').name).toBe('Clearance');
+    expect(topicStyle('SNOW_TOPS').name).toBe('Snow on the tops');
+    expect(topicStyle('SNOW_MIST').name).toBe('Snow and mist');
+    expect(topicStyle('SPRING_TIDE')).not.toHaveProperty('shortName');
+    expect(topicStyle('WEIRD', 'Weird')).not.toHaveProperty('shortName');
   });
 
   it('carries no phone-only chipName key', () => {
