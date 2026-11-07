@@ -979,7 +979,7 @@ class SpringTideHotTopicStrategyTest {
         when(locationRepository.findCoastalLocations()).thenReturn(coastal);
         for (LocalDate date : List.of(TODAY, TODAY.plusDays(1))) {
             for (TargetType event : List.of(TargetType.SUNRISE, TargetType.SUNSET)) {
-                lenient().when(freshness.isAhead(eq(coastal.get(0)), eq(date), eq(event)))
+                when(freshness.isAhead(eq(coastal.get(0)), eq(date), eq(event)))
                         .thenReturn(false);
             }
         }
