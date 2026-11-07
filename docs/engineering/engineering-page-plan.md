@@ -169,6 +169,7 @@ lower any of them without a stated reason.
 | OWASP Dependency-Check | PRs that change server dependencies, and daily | CVSS 7.0 or above, unless investigated and recorded as not applicable | The check fails |
 | OWASP ZAP | Weekly | Any alert of Low risk or above without a written exception, or a scan that didn't run properly | An issue is opened for me |
 | PIT mutation testing | Weekly | 60% of mutants killed in the service and utility layers | An issue is opened for me |
+| Stryker mutation testing | Weekly | The app's client logic | An issue is opened for me if the run fails |
 
 Per-class coverage is the one I'd defend hardest. An 80% average lets a well-tested utility package hide an
 untested service; per class, a new class can't lean on the rest of the codebase for its number. The app goes further: every file has its own floor, and the lines a change touches must be
@@ -220,7 +221,7 @@ None of this is a substitute for a professional penetration test, and I don't cl
 Coverage says what the tests ran, not whether they'd notice a bug. So:
 
 - **Mutation testing.** PIT runs weekly over the service and utility layers, planting small faults and checking
-  the tests fail. The threshold is 60% of mutants killed.
+  the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.
 - **Testing the model, not just the code.** A weekly evaluation re-rates a fixed set of past sunrises and
   sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a
   model changes, and it decides which model runs which job: a newer model was taken off a production job after
@@ -259,7 +260,7 @@ English.
 
 ### Where it falls short
 - The app's tests run in a simulated browser. A few real-browser tests exist, but they run by hand.
-- Mutation testing covers the server only, and runs weekly rather than on every change.
+- Mutation testing covers the server and the app's client logic, but not the app's screens, and runs weekly rather than on every change.
 - The prompt regression suite runs by hand, because every run spends real money; the weekly evaluation fills the
   gap in between.
 - PhotoCast runs as Docker containers on a single Linux host, with no separate staging copy of the live
