@@ -164,6 +164,9 @@ instead.
   programmatic open without a gesture can make a later Back skip the base entry (accepted, noted).
 - **Scroll restoration jumps:** measure first.
 - **One dead press** after a reload or Forward: accepted.
+- **A Back racing a close of our own** (x, Escape, a data close): the shrinking `go` is deferred one task and the depth
+  re-read, which narrows the window. Once our `go` is out, a Back the reader had already queued is indistinguishable
+  from it and can step one entry further (to whatever is below the app). The History API cannot close this; accepted.
 - **Review push-back on `Modal` pinning tests:** expected, because desktop behaviour changes.
 
 ---
@@ -401,3 +404,26 @@ and tests and rollout.
    - This also respects the shell's existing `set-state-in-effect` lint decision (`:1318-1325`).
 7. **The `!guideModal` guard covers both doors:** `onOpenSearch` (`:2574`) and the beyond line's `onSearchRegion` (`:3006`).
 8. **The session id** comes from `crypto.getRandomValues`, not `crypto.randomUUID()`, which is undefined outside a secure context, e.g. a phone testing `vite --host` over a LAN IP.
+
+---
+
+## PR 1 build notes (2026-11-07)
+
+What the engine does where the plan was silent or its formula needed a correction.
+
+- **The residual Back + close race.** A shrinking `go` is deferred by one task (`setTimeout(0)`) and `readDepth()` is
+  re-checked against `committedDepth` before it is issued, so a Back that landed first means no `go` at all. Where
+  `window.navigation.currentEntry.index` exists it also tells our landing from the reader's. Once our `go` is out, a Back
+  queued before it is indistinguishable: the reader can end one entry lower. Accepted; see Risks.
+- **A hash push while an Included dialog is open closes it.** `location.hash = ...` fires `popstate` with a null state,
+  which reads as depth 0, so every open layer closes (as `selectTab` does). Accepted for v1: only admin Operations
+  writes the hash, and rarely while a dialog is up. A hash write racing a close can revert the hash navigation.
+- **Re-push count.** After a blocking layer stops a Back, the entries pushed are `entried layers remaining - arrivedDepth`,
+  not `committedDepth - arrivedDepth` (identical with a blocker on top, correct for a blocker beneath a closed layer).
+  Likewise Back closes `entriedCount() - arrivedDepth` layers, so a Back that consumed the entry of a layer already
+  closed by the app does not close the layer beneath.
+- **Scroll.** `'auto'` is restored on every arrival at depth 0 with an empty stack and nothing outstanding whenever the
+  property reads `'manual'` (a hash entry pushed while a layer was open inherits it), and at boot.
+- **Timeout.** A `go` that has not landed re-arms once; the store degrades to entry-less only on the second expiry.
+- **Lazy boot.** `bootDialogHistory()` (strip a stale marker, heal `scrollRestoration`) runs on the first registration.
+  **PR 2a must call it once at app mount**, so a reload onto a `'manual'` entry is healed before any dialog opens.

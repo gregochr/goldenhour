@@ -70,12 +70,12 @@ describe('a real stacked Modal and BottomSheet', () => {
 
     b.userBack();
     await settle();
-    expect(screen.queryByTestId('bottom-sheet')).toBeNull();
-    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Sheet' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Modal' })).toBeInTheDocument();
 
     b.userBack();
     await settle();
-    expect(screen.queryByTestId('modal')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Modal' })).toBeNull();
     expect(b.history.go).not.toHaveBeenCalled();
     expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
     expect(document.body.style.overflow).toBe('');
@@ -107,7 +107,7 @@ describe('a real stacked Modal and BottomSheet', () => {
     await settle();
     b.userBack();
     await settle();
-    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Modal' })).toBeInTheDocument();
     expect(__inspectForTests().committedDepth).toBe(1);
   });
 
@@ -123,7 +123,7 @@ describe('a real stacked Modal and BottomSheet', () => {
     b.userBack();
     await settle();
     expect(log).toEqual(['sheet']);
-    expect(screen.getByTestId('modal')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Modal' })).toBeInTheDocument();
   });
 
   it('runs onClose for back="cancel"', async () => {
@@ -156,6 +156,7 @@ describe('a real stacked Modal and BottomSheet', () => {
 
 describe('an absent back prop', () => {
   it('makes zero history calls and registers nothing, for Modal and BottomSheet', async () => {
+    Object.defineProperty(navigator, 'userActivation', { value: { isActive: true }, configurable: true });
     __resetForTests();
     const spies = ['pushState', 'replaceState', 'go', 'back', 'forward'].map((m) => vi.spyOn(window.history, m));
     const { unmount } = render(
@@ -164,11 +165,16 @@ describe('an absent back prop', () => {
     fireEvent.click(screen.getByTestId('open-modal'));
     fireEvent.click(screen.getByTestId('open-sheet'));
     await tick();
+    // Both dialogs are open, and neither has registered anything.
+    expect(screen.getByRole('dialog', { name: 'Modal' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Sheet' })).toBeInTheDocument();
+    expect(__inspectForTests().layers).toBe(0);
     fireEvent.click(screen.getByTestId('modal-close'));
     fireEvent.click(screen.getByTestId('bottom-sheet-close'));
     await tick();
     unmount();
     await tick();
+    delete navigator.userActivation;
     spies.forEach((spy) => expect(spy).not.toHaveBeenCalled());
     expect(__inspectForTests().layers).toBe(0);
     expect(document.documentElement.hasAttribute('data-back-depth')).toBe(false);
@@ -254,7 +260,9 @@ describe('useBackLayer', () => {
     await settle();
     b.userBack();
     await settle();
-    expect(__inspectForTests().layers).toBe(0);
+    // The popped layer is still mounted (nothing closed it), so it is re-adopted entry-less after a task.
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 5); }); });
+    expect(__inspectForTests()).toMatchObject({ layers: 1, entried: 0, committedDepth: 0 });
   });
 
   it('registers and unregisters as open flips', async () => {
@@ -298,7 +306,7 @@ describe('real jsdom history (wiring only)', () => {
     fireEvent.click(screen.getByTestId('open-modal'));
     await waitFor(() => expect(window.history.state?.phLayer?.depth).toBe(1));
     window.history.back();
-    await waitFor(() => expect(screen.queryByTestId('modal')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Modal' })).toBeNull());
     expect(window.history.state?.phLayer).toBeUndefined();
   });
 });

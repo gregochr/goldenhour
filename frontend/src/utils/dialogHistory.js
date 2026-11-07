@@ -66,6 +66,9 @@ let stack = [];
 let seq = 0;
 let committedDepth = 0;
 let inFlight = null;
+let shrinkTimer = null;
+/** Bumped by every test reset so a timer from an earlier test cannot touch the next one's stack. */
+let epoch = 0;
 let reconcileScheduled = false;
 let scrollManual = false;
 let booted = false;
@@ -121,27 +124,33 @@ function stripMarker() {
 
 const entriedCount = () => stack.filter((l) => l.hasEntry).length;
 
-function setScroll(value) {
+/**
+ * On every arrival at depth 0 with an empty stack and nothing outstanding, heals `'manual'` whatever our
+ * own flag says: an entry we never touched (a hash entry pushed while a layer was open inherits it) can
+ * carry it too.
+ */
+function resetScrollIfIdle() {
+  if (stack.length || committedDepth !== 0 || inFlight || shrinkTimer) return;
   try {
     const h = getHistory();
-    if ('scrollRestoration' in h) h.scrollRestoration = value;
+    if ('scrollRestoration' in h && h.scrollRestoration === 'manual') h.scrollRestoration = 'auto';
   } catch {
     // jsdom and exotic hosts have no such property.
   }
+  scrollManual = false;
 }
 
-function resetScrollIfIdle() {
-  if (scrollManual && !stack.length && committedDepth === 0 && !inFlight) {
-    setScroll('auto');
-    scrollManual = false;
-  }
+/** The Navigation API's entry index, where the browser has one (used only to tell landings apart). */
+function navIndex() {
+  const index = getWindow()?.navigation?.currentEntry?.index;
+  return Number.isInteger(index) ? index : null;
 }
 
 /** Publishes `committedDepth` on `<html>` once nothing is outstanding. */
 function syncSettled() {
   if (!enabled || !booted) return;
   try {
-    const busy = reconcileScheduled || inFlight;
+    const busy = reconcileScheduled || inFlight || shrinkTimer;
     getWindow().document.documentElement.setAttribute(SETTLED_ATTRIBUTE, busy ? BUSY_VALUE : String(committedDepth));
   } catch {
     // No document: nothing to publish to.
@@ -181,8 +190,11 @@ function issueGo(delta, expected) {
   } catch {
     return false;
   }
+  const index = navIndex();
   inFlight = {
     expected,
+    expectedIndex: index === null ? null : index + delta,
+    rearmed: false,
     from: committedDepth,
     timer: setTimeout(onTraversalTimeout, TRAVERSAL_TIMEOUT_MS),
   };
@@ -208,10 +220,14 @@ function shrink(diff) {
   }
 }
 
-/** Brings the history in line with the stack. Safe to call at any time; defers while a `go` is out. */
-function reconcile() {
+/**
+ * Brings the history in line with the stack. Safe to call at any time; defers while a `go` is out.
+ * A shrink is deferred by one task and re-checked (`shrinkNow`), so a user's Back that was already
+ * queued behind a close lands first and the `go` is then not issued at all.
+ */
+function reconcile(shrinkNow = false) {
   if (!enabled) return;
-  if (inFlight) {
+  if (inFlight || shrinkTimer) {
     syncSettled();
     return;
   }
@@ -225,7 +241,14 @@ function reconcile() {
     diff -= 1;
   }
   if (diff > 0) {
-    shrink(diff);
+    if (shrinkNow) {
+      shrink(diff);
+    } else {
+      shrinkTimer = setTimeout(() => {
+        shrinkTimer = null;
+        reconcile(true);
+      }, 0);
+    }
   } else {
     pending.forEach((layer) => {
       layer.placed = true;
@@ -248,13 +271,16 @@ function scheduleReconcile() {
 
 /** Re-adopts popped layers that are still mounted after their `onBack`, as entry-less. */
 function adoptRefused(closed) {
+  const born = epoch;
   setTimeout(() => {
+    if (born !== epoch) return;
     closed.forEach((layer) => {
       if (layer.released || stack.includes(layer)) return;
       layer.hasEntry = false;
       layer.placed = true;
       stack.push(layer);
       stack.sort((a, b) => a.seq - b.seq);
+      warnIfTooDeep();
     });
     syncSettled();
   }, 0);
@@ -265,7 +291,7 @@ function adoptRefused(closed) {
  * from the top, stopping at a blocking one, and push entries back for whoever is left.
  */
 function closeDownTo(arrived) {
-  let toClose = committedDepth - arrived;
+  let toClose = Math.max(0, entriedCount() - arrived);
   const closed = [];
   while (toClose > 0 && stack.length && stack[stack.length - 1].mode !== 'block') {
     const layer = stack.pop();
@@ -313,7 +339,8 @@ function onPop() {
     return;
   }
   if (inFlight) {
-    if (arrived === inFlight.expected) {
+    const landedHere = inFlight.expectedIndex === null || navIndex() === inFlight.expectedIndex;
+    if (arrived === inFlight.expected && landedHere) {
       clearFlight();
       committedDepth = arrived;
       reconcile();
@@ -328,10 +355,16 @@ function onPop() {
 
 function onTraversalTimeout() {
   const flight = inFlight;
-  inFlight = null;
   const position = readDepth();
+  if (position === flight.from && !flight.rearmed) {
+    // A slow device is not a broken one: wait once more, and a late landing is still taken as ours.
+    flight.rearmed = true;
+    flight.timer = setTimeout(onTraversalTimeout, TRAVERSAL_TIMEOUT_MS);
+    return;
+  }
+  inFlight = null;
   if (position === flight.from) {
-    // The traversal never moved us: stop trusting the history altogether.
+    // The traversal never moved us, twice: stop trusting the history altogether.
     stripMarker();
     degradeAll();
   } else {
@@ -353,6 +386,12 @@ export function bootDialogHistory() {
   }
 }
 
+function warnIfTooDeep() {
+  if (import.meta.env.DEV && stack.length > MAX_LAYER_DEPTH) {
+    console.warn(`[dialogHistory] ${stack.length} dialogs are stacked; the app allows at most ${MAX_LAYER_DEPTH}.`);
+  }
+}
+
 const INERT_LAYER = Object.freeze({ update() {}, release() {} });
 
 /**
@@ -367,9 +406,7 @@ export function registerBackLayer({ onBack, mode = 'close' } = {}) {
   bootDialogHistory();
   const layer = { seq: (seq += 1), onBack, mode, hasEntry: false, placed: false, released: false };
   stack.push(layer);
-  if (import.meta.env.DEV && stack.length > MAX_LAYER_DEPTH) {
-    console.warn(`[dialogHistory] ${stack.length} dialogs are stacked; the app allows at most ${MAX_LAYER_DEPTH}.`);
-  }
+  warnIfTooDeep();
   scheduleReconcile();
   return {
     update(next = {}) {
@@ -401,7 +438,10 @@ function listen(win) {
  * @param {{history?: object, win?: object, enabled?: boolean}} [options]
  */
 export function __resetForTests({ history = null, win = null, enabled: on = BACK_CLOSES_DIALOGS_ENABLED } = {}) {
+  epoch += 1;
   clearFlight();
+  clearTimeout(shrinkTimer);
+  shrinkTimer = null;
   seam = { history, win };
   enabled = on;
   sessionId = null;
@@ -426,4 +466,11 @@ export function __inspectForTests() {
   };
 }
 
+/** Removes the module's `popstate` listener (hot module replacement; also lets a test prove it). */
+export function disposeDialogHistory() {
+  listenedWindow?.removeEventListener('popstate', onPop);
+  listenedWindow = null;
+}
+
+import.meta.hot?.dispose(disposeDialogHistory);
 listen(getWindow());

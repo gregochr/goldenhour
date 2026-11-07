@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  registerBackLayer, bootDialogHistory, __resetForTests, __inspectForTests,
+  registerBackLayer, bootDialogHistory, disposeDialogHistory, __resetForTests, __inspectForTests,
   SETTLED_ATTRIBUTE, BUSY_VALUE, TRAVERSAL_TIMEOUT_MS, MAX_LAYER_DEPTH,
 } from '../utils/dialogHistory.js';
 import { createFakeBrowser, tick } from './fakeBrowserHistory.js';
@@ -339,15 +339,92 @@ describe('closing with the dialog itself (x, Escape, a tab switch)', () => {
     expect(b.history.go).not.toHaveBeenCalled();
   });
 
-  it('survives a hash push between the close and its arrival', async () => {
+  it('ends consistent, on the base entry, after a hash push between the close and its arrival', async () => {
+    b = createFakeBrowser({ foreignBelow: true });
+    __resetForTests({ history: b.history, win: b.win });
     const { layer } = await open();
     layer.release();
     await tick();
     b.hashPush('#y');
     b.flush();
     await tick();
+    b.flush();
     expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0, inFlight: false });
-    expect(b.index).toBeGreaterThanOrEqual(0);
+    // The queued go(-1) ran from the hash entry onto our stale entry, which was bounced to the base.
+    // The hash navigation is therefore reverted: an ACCEPTED, rare case (a hash write racing a close).
+    // What matters is that the reader stays in the app (index 1; index 0 is the foreign entry).
+    expect(b.index).toBe(1);
+    expect(b.entries[3].hash).toBe('#y');
+    expect(b.history.go.mock.calls).toEqual([[-1], [-1]]);
+  });
+
+  it('does not take a depth-0 arrival at a different entry index as its own landing (Navigation API)', async () => {
+    b = createFakeBrowser({ navigation: true });
+    __resetForTests({ history: b.history, win: b.win });
+    const { layer } = await open();
+    layer.release();
+    await tick();
+    b.hashPush('#y');
+    expect(__inspectForTests().inFlight).toBe(true);
+  });
+});
+
+describe('a user Back racing a close of our own', () => {
+  const microtasks = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  it('never leaves the app when the Back lands before the deferred go (foreign entry below the base)', async () => {
+    b = createFakeBrowser({ foreignBelow: true });
+    __resetForTests({ history: b.history, win: b.win });
+    const { layer } = await open();
+    expect(b.index).toBe(2);
+    layer.release(); // x, Escape or a data close...
+    await microtasks();
+    b.userBack(); // ...with the reader's Back already queued
+    b.step();
+    expect(b.index).toBe(1);
+    await tick(); // the deferred shrink re-reads the depth and finds nothing to do
+    b.flush();
+    expect(b.history.go).not.toHaveBeenCalled();
+    expect(b.index).toBe(1);
+    expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0, inFlight: false });
+  });
+
+  it('a Back that lands after our go was issued is the reader’s second step (the residual window)', async () => {
+    b = createFakeBrowser({ foreignBelow: true });
+    __resetForTests({ history: b.history, win: b.win });
+    const { layer } = await open();
+    layer.release();
+    await tick();
+    expect(b.history.go).toHaveBeenCalledTimes(1);
+    b.userBack();
+    b.flush();
+    // Documented in the plan's Risks: once our go is out, a queued Back is indistinguishable from it.
+    expect(b.index).toBe(0);
+  });
+
+  it('closes one layer’s worth when a Back follows a close that is already traversing', async () => {
+    const a = await open();
+    const second = await open();
+    second.layer.release();
+    await tick();
+    b.userBack();
+    b.flush();
+    expect(a.onBack).toHaveBeenCalledTimes(1);
+    expect(second.onBack).not.toHaveBeenCalled();
+    expect(b.index).toBe(0);
+  });
+
+  it('leaves the layer beneath open when the Back lands before the deferred go', async () => {
+    const a = await open();
+    const second = await open();
+    second.layer.release();
+    await microtasks();
+    b.userBack();
+    b.step();
+    await tick();
+    expect(a.onBack).not.toHaveBeenCalled();
+    expect(b.history.go).not.toHaveBeenCalled();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, entried: 1, committedDepth: 1 });
   });
 });
 
@@ -417,9 +494,27 @@ describe('the traversal timeout', () => {
     await tick();
     expect(__inspectForTests().inFlight).toBe(true);
     vi.advanceTimersByTime(TRAVERSAL_TIMEOUT_MS);
+    // First expiry: a slow device is not a broken one. Wait once more.
+    expect(__inspectForTests()).toMatchObject({ inFlight: true, committedDepth: 1 });
+    vi.advanceTimersByTime(TRAVERSAL_TIMEOUT_MS);
     expect(b.history.go).toHaveBeenCalledTimes(1);
     expect(__inspectForTests()).toMatchObject({ inFlight: false, committedDepth: 0 });
     expect(b.history.state?.phLayer).toBeUndefined();
+  });
+
+  it('takes a landing that arrives after the first expiry as ours (no degrade, no bounce)', async () => {
+    vi.useFakeTimers();
+    install();
+    const { layer } = await open();
+    layer.release();
+    await tick();
+    vi.advanceTimersByTime(TRAVERSAL_TIMEOUT_MS);
+    expect(__inspectForTests().inFlight).toBe(true);
+    b.flush();
+    expect(__inspectForTests()).toMatchObject({ inFlight: false, committedDepth: 0 });
+    expect(b.history.go).toHaveBeenCalledTimes(1);
+    expect(b.history.replaceState).not.toHaveBeenCalled();
+    expect(b.index).toBe(0);
   });
 
   it('clears the timer when the traversal lands', async () => {
@@ -609,6 +704,29 @@ describe('scrollRestoration', () => {
     expect(b.history.scrollRestoration).toBe('auto');
   });
 
+  it('heals a manual hash entry: a hash push closes the layer, then Back returns to a manual base', async () => {
+    await open();
+    b.hashPush('#x');
+    expect(b.entries[2].scroll).toBe('auto');
+    expect(b.entries[0].scroll).toBe('manual');
+    b.userBack();
+    b.flush();
+    expect(b.index).toBe(0);
+    expect(b.entries[0].scroll).toBe('auto');
+  });
+
+  it('heals a manual entry on any depth-0 arrival even with nothing registered', () => {
+    install({ scrollInitial: 'manual' });
+    b.hashPush('#x');
+    expect(b.history.scrollRestoration).toBe('auto');
+  });
+
+  it('heals a manual entry at boot (a reload onto it) without any registration', () => {
+    install({ scrollInitial: 'manual' });
+    bootDialogHistory();
+    expect(b.history.scrollRestoration).toBe('auto');
+  });
+
   it('survives a history that throws on the property', async () => {
     const { layer } = await open();
     Object.defineProperty(b.history, 'scrollRestoration', {
@@ -711,6 +829,42 @@ describe('the development warning', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     for (let i = 0; i < MAX_LAYER_DEPTH + 1; i += 1) registerBackLayer({ onBack: vi.fn() });
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('teardown', () => {
+  it('disposeDialogHistory removes the popstate listener (hot module replacement)', () => {
+    expect(b.listenerCount).toBe(1);
+    disposeDialogHistory();
+    expect(b.listenerCount).toBe(0);
+    disposeDialogHistory();
+  });
+
+  it('ignores an adopt timer left over from a previous test', async () => {
+    vi.useFakeTimers();
+    install();
+    await open();
+    b.userBack();
+    b.flush();
+    install();
+    vi.advanceTimersByTime(0);
+    expect(__inspectForTests().layers).toBe(0);
+  });
+
+  it('counts a re-adopted layer towards the development depth warning', async () => {
+    vi.useFakeTimers();
+    install();
+    vi.stubEnv('DEV', true);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    registerBackLayer({ onBack: vi.fn() });
+    registerBackLayer({ onBack: vi.fn() });
+    await tick();
+    b.userBack();
+    b.flush();
+    registerBackLayer({ onBack: vi.fn() });
+    expect(warn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 

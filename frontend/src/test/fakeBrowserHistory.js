@@ -19,19 +19,22 @@ import { vi } from 'vitest';
  */
 export function createFakeBrowser({
   activation = true, scroll = true, scrollInitial = 'auto', dropGo = false,
+  foreignBelow = false, navigation = false,
 } = {}) {
-  const entries = [{ state: null }];
-  let index = 0;
+  // `scroll` is per ENTRY and copied onto an entry when it is pushed, as in browsers.
+  const entries = [{ state: null, scroll: scrollInitial }];
+  // A foreign entry (another site) below the base, so that leaving the app is observable: index 0.
+  if (foreignBelow) entries.unshift({ state: null, scroll: 'auto', foreign: true });
+  let index = foreignBelow ? 1 : 0;
   const queue = [];
   const listeners = new Set();
   const log = [];
-  let scrollValue = scrollInitial;
 
   const history = {
     get state() { return entries[index].state; },
     pushState: vi.fn((state) => {
       entries.splice(index + 1);
-      entries.push({ state });
+      entries.push({ state, scroll: entries[index].scroll });
       index += 1;
       log.push('push');
     }),
@@ -45,8 +48,8 @@ export function createFakeBrowser({
   };
   if (scroll) {
     Object.defineProperty(history, 'scrollRestoration', {
-      get: () => scrollValue,
-      set: (v) => { scrollValue = v; log.push(`scroll:${v}`); },
+      get: () => entries[index].scroll,
+      set: (v) => { entries[index].scroll = v; log.push(`scroll:${v}`); },
       enumerable: true,
       configurable: true,
     });
@@ -56,6 +59,7 @@ export function createFakeBrowser({
     history,
     document,
     navigator: { userActivation: { isActive: activation } },
+    ...(navigation ? { navigation: { get currentEntry() { return { index }; } } } : {}),
     addEventListener: (type, fn) => { if (type === 'popstate') listeners.add(fn); },
     removeEventListener: (type, fn) => { if (type === 'popstate') listeners.delete(fn); },
   };
@@ -97,7 +101,7 @@ export function createFakeBrowser({
     /** Navigation to a new hash: a new entry with null state, and (as in browsers) a popstate. */
     hashPush(hash) {
       entries.splice(index + 1);
-      entries.push({ state: null, hash });
+      entries.push({ state: null, hash, scroll: entries[index].scroll });
       index += 1;
       dispatch();
     },
@@ -110,8 +114,11 @@ export function createFakeBrowser({
   return browser;
 }
 
-/** Lets the store's reconcile microtask run. */
+/** Lets the store's reconcile microtask and its one-task deferred shrink run. */
 export async function tick() {
   await Promise.resolve();
   await Promise.resolve();
+  // The store defers a shrinking `go` by one task so a queued Back can land first.
+  if (vi.isFakeTimers()) vi.advanceTimersByTime(0);
+  else await new Promise((resolve) => { setTimeout(resolve, 0); });
 }
