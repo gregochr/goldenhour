@@ -9,6 +9,7 @@ import { rampHex } from '../../utils/scoreRamp.js';
 import { PICK_TEXT } from './WindowControl.jsx';
 import VerdictWord from '../shared/VerdictWord.jsx';
 import { countWord } from '../../utils/pickGeography.js';
+import { verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
 
 /**
  * The Map tab's window panel — one window, region by region (map-landing-plan.md §3 L5,
@@ -145,6 +146,16 @@ export default function MapWindowPanel({
         {isSolar && verdict && (
           <span className="wf-win-panel-verdict" data-tier={verdict.tier} data-testid="wf-win-panel-verdict">
             {VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}
+            {/* A verdict taken from the drive tier's answer says so (reach-scoped-card-plan R3, D6): printed short,
+                spoken long, like the pill's. The rows below are each region as a whole, which the note says. */}
+            {verdictScopeText(verdict.scope) && (
+              <>
+                <span aria-hidden="true" className="wf-win-panel-verdict-scope" data-testid="wf-win-panel-verdict-scope">
+                  {verdictScopeText(verdict.scope)}
+                </span>
+                <span className="sr-only">{`, ${verdictScopeSpoken(verdict.scope)}`}</span>
+              </>
+            )}
           </span>
         )}
         <button
@@ -302,7 +313,10 @@ MapWindowPanel.propTypes = {
     pickKind: PropTypes.oneOf(['best', 'also']),
   }),
   /** From `mapVerdict.windowVerdict` — null on a night window or an unrated one. */
-  verdict: PropTypes.shape({ tier: PropTypes.string.isRequired }),
+  verdict: PropTypes.shape({
+    tier: PropTypes.string.isRequired,
+    scope: PropTypes.shape({ tierMinutes: PropTypes.number }),
+  }),
   /** From `mapDrilldown.windowPanelNote`; for a shaped body `shapedWindowPanelNote`, `''` drawing none. */
   note: PropTypes.string.isRequired,
   /** The lead region's bare name, set in bold inside the note (shaped body only). */

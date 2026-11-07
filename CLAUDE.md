@@ -98,7 +98,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - **No marker clustering, anywhere, at any scale.** If density ever bites, the answer is canvas rendering.
 - **Simulations never reach user surfaces** (aurora and hot-topic simulation are gated by `isSimulated()` / `simulated` columns).
 - Lite ratings outside the reader's sub-region picks are stripped and marked `gated` at the controller edge (`LitePickShaper`); never on the client. See `sub-regions-plan.md`.
-- **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS.
+- **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS. **Back**: a layer Escape closes takes `back="close"`; history entries go only through `utils/dialogHistory.js`; every `replaceState` copies `history.state`; never register a `#manage` panel (see `plan-tab.md`, 'Back').
 - **Phone-only work stays phone-only** (`hooks/useIsMobile.js`, `(max-width: 639px)`); desktop and tablet must be provably unchanged.
 - **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term runs on Sonnet 5.5 and Batch Far-Term on Haiku 4.5 (since 2026-11-02; Haiku 5.5 under-rated a clear-horizon high-canvas morning in the Sky Eval).
 - **Ask PhotoCast is off by default** (`photocast.ask.enabled`). `stub: true` under `prod` fails startup; turning `stub` off locally bills the real Anthropic key.
@@ -171,13 +171,17 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
   -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"
 ```
 
-The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 80% line coverage **per class**, and `spotbugs:check`). Run Maven in the foreground with a timeout, not as a background task.
+The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 95% line and 90% branch coverage **per class**, and `spotbugs:check`); PRs also run a changed-lines check (90% of changed `src/main` lines; see `dev-and-testing.md`). Run Maven in the foreground with a timeout, not as a background task.
 
-Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build; run all four before pushing:
+Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build, plus a PR-only changed-lines check (`diff-cover`, 90% of changed `src` lines; see `dev-and-testing.md`); run the four before pushing:
 
 ```bash
 cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
+
+The **E2E smoke** (`E2E — Playwright smoke`) is also a required CI check: with the backend jar built (`cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package`) and `npm run build` done, run `cd frontend && npm run test:e2e:smoke` (recipe and rules in `dev-and-testing.md`, "The E2E smoke gate").
+
+Changed-lines check locally (repo root, after the coverage run; `pip install diff-cover==10.0.0`; the `SF:` rewrite is required): `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/l.info && diff-cover /tmp/l.info --compare-branch=origin/main --fail-under=90`.
 
 When `npm audit` fires, edit the lockfile surgically rather than `npm audit fix`, check `package.json`'s `overrides` pin first, and prove it with `rm -rf node_modules && npm ci`. Details are in `dev-and-testing.md`.
 

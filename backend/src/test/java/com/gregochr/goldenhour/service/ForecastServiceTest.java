@@ -624,6 +624,81 @@ class ForecastServiceTest {
         assertThat(saved.getValue().getScoredAt()).isNull();
     }
 
+    @Test
+    @DisplayName("markAbandoned() leaves a row that is no longer PENDING alone")
+    void markAbandoned_rowAlreadyScored_isLeftAlone() {
+        ForecastEvaluationEntity scored = ForecastEvaluationEntity.builder().id(56L)
+                .batchState(com.gregochr.goldenhour.entity.BatchState.SCORED).build();
+        when(repository.findById(56L)).thenReturn(Optional.of(scored));
+
+        forecastService.markAbandoned(56L);
+
+        assertThat(scored.getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.SCORED);
+        verify(repository, never()).save(scored);
+    }
+
+    @Test
+    @DisplayName("markAbandoned() ignores a row that no longer exists")
+    void markAbandoned_unknownRow_isIgnored() {
+        when(repository.findById(57L)).thenReturn(Optional.empty());
+
+        forecastService.markAbandoned(57L);
+
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() with null tide types publishes no FETCHING_TIDES event")
+    void fetchWeatherAndTriage_nullTideTypes_publishesNoTidesEvent() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(43L);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(
+                eq(new ForecastRequest(DURHAM_LAT, DURHAM_LON, DURHAM, date, TargetType.SUNSET)),
+                eq(sunset), eq(jobRun))).thenReturn(new WeatherExtractionResult(data, null));
+        passCoastalMist(data, DURHAM_LOCATION, date);
+        when(weatherTriageEvaluator.evaluate(data)).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, null, EvaluationModel.SONNET, jobRun);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        assertThat(eventCaptor.getAllValues()).extracting(LocationTaskEvent::getState)
+                .containsExactly(LocationTaskState.FETCHING_WEATHER, LocationTaskState.FETCHING_CLOUD);
+    }
+
+    @Test
+    @DisplayName("a stood-down row at an inversion-eligible site records an (unscored) inversion block")
+    void triagedRow_atInversionScoredSite_carriesInversionBlock() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        AtmosphericData scored = data.withInversionScore(7.0);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(
+                eq(new ForecastRequest(DURHAM_LAT, DURHAM_LON, DURHAM, date, TargetType.SUNRISE)),
+                eq(sunrise), isNull())).thenReturn(new WeatherExtractionResult(data, null));
+        when(augmentor.augmentWithInversionScore(eq(data), isNull(), eq(false))).thenReturn(scored);
+        passCoastalMist(scored, DURHAM_LOCATION, date);
+        when(weatherTriageEvaluator.evaluate(scored))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        when(repository.save(saved.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, null);
+
+        verify(repository).save(saved.getValue());
+        assertThat(saved.getValue().getInversion()).isNotNull();
+        assertThat(saved.getValue().getInversion().getScore()).isNull();
+    }
+
     // --- persistCannedResult tests ---
 
     // --- Batch prefetch cache integration tests ---

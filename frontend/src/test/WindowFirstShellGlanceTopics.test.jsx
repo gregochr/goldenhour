@@ -202,10 +202,10 @@ afterEach(() => {
 // jsdom applies no Tailwind, so BOTH GlanceLabel spans count: the tab's name is "At a GlanceGlance" here.
 const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /^At a Glance/ : name });
 
-const pillFor = async (type) => (await screen.findAllByTestId('wf-glance-topic'))
+const pillFor = async (type) => (await screen.findAllByTestId('wf-glance-lane'))
   .find((b) => b.getAttribute('data-topic') === type);
 
-describe('WindowFirstShell — a topic pill opens Coming up', () => {
+describe('WindowFirstShell — a days-ahead lane opens Coming up', () => {
   it('a pill with an almanac entry opens Coming up at that entry, ringed and focused', async () => {
     await renderShell();
     // Wait for the feed: until it is ready, no pill names a jump.
@@ -249,15 +249,6 @@ describe('WindowFirstShell — a topic pill opens Coming up', () => {
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0 });
     expect(tab('Coming up')).toHaveFocus();
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-  });
-
-  it('the door opens Coming up the same way', async () => {
-    await renderShell();
-    await act(async () => { fireEvent.click(await screen.findByTestId('wf-glance-topics-door')); });
-    await act(async () => { await Promise.resolve(); });
-
-    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
-    expect(tab('Coming up')).toHaveFocus();
   });
 
   it('names no jump until the feed is ready: while it loads, a tide pill falls through to its window', async () => {

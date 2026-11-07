@@ -612,6 +612,92 @@ class BriefingSlotBuilderTest {
         }
     }
 
+    private LocationEntity inlandLocation() {
+        return LocationEntity.builder()
+                .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                .locationType(Set.of(LocationType.LANDSCAPE))
+                .tideType(Set.of()).solarEventType(Set.of())
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+    }
+
+    @Test
+    @DisplayName("Missing optional hourly arrays read as absent readings and 0% mid and high cloud")
+    void missingOptionalHourlyArrays_readAsAbsent() {
+        LocationEntity loc = inlandLocation();
+        LocalDateTime sunsetTime = LocalDateTime.of(2026, 3, 25, 18, 0);
+        when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(sunsetTime.toLocalDate()))).thenReturn(sunsetTime);
+        when(locationService.isCoastal(loc)).thenReturn(false);
+        OpenMeteoForecastResponse forecast = buildForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = forecast.getHourly();
+        hourly.setCloudCoverMid(null);
+        hourly.setCloudCoverHigh(null);
+        hourly.setTemperature2m(null);
+        hourly.setApparentTemperature(null);
+        hourly.setWeatherCode(null);
+
+        BriefingSlot slot = slotBuilder.buildSlot(new BriefingSlotBuilder.LocationWeather(loc, forecast),
+                sunsetTime.toLocalDate(), TargetType.SUNSET);
+
+        assertThat(slot.weather().midCloudPercent()).isZero();
+        assertThat(slot.weather().highCloudPercent()).isZero();
+        assertThat(slot.weather().temperatureCelsius()).isNull();
+        assertThat(slot.weather().apparentTemperatureCelsius()).isNull();
+        assertThat(slot.weather().weatherCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Hourly arrays shorter than the chosen hour read as absent readings and 0% mid and high cloud")
+    void shortOptionalHourlyArrays_readAsAbsent() {
+        LocationEntity loc = inlandLocation();
+        LocalDateTime sunsetTime = LocalDateTime.of(2026, 3, 25, 18, 0);
+        when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(sunsetTime.toLocalDate()))).thenReturn(sunsetTime);
+        when(locationService.isCoastal(loc)).thenReturn(false);
+        OpenMeteoForecastResponse forecast = buildForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = forecast.getHourly();
+        hourly.setCloudCoverMid(new ArrayList<>());
+        hourly.setCloudCoverHigh(new ArrayList<>());
+        hourly.setTemperature2m(new ArrayList<>());
+        hourly.setApparentTemperature(new ArrayList<>());
+        hourly.setWeatherCode(new ArrayList<>());
+
+        BriefingSlot slot = slotBuilder.buildSlot(new BriefingSlotBuilder.LocationWeather(loc, forecast),
+                sunsetTime.toLocalDate(), TargetType.SUNSET);
+
+        assertThat(slot.weather().midCloudPercent()).isZero();
+        assertThat(slot.weather().highCloudPercent()).isZero();
+        assertThat(slot.weather().temperatureCelsius()).isNull();
+        assertThat(slot.weather().apparentTemperatureCelsius()).isNull();
+        assertThat(slot.weather().weatherCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("Thin low cloud with a moderate mid layer is not a cloudless sky: stays GO with no flag")
+    void midCloudKeepsTheSkyFromBeingCloudless_staysGo() {
+        LocationEntity loc = inlandLocation();
+        LocalDateTime sunsetTime = LocalDateTime.of(2026, 3, 25, 18, 0);
+        when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(sunsetTime.toLocalDate()))).thenReturn(sunsetTime);
+        when(locationService.isCoastal(loc)).thenReturn(false);
+        OpenMeteoForecastResponse forecast = buildForecastResponse();
+        forecast.getHourly().getCloudCoverLow().replaceAll(ignored -> 5);
+        forecast.getHourly().getCloudCoverMid().replaceAll(ignored -> 30);
+        forecast.getHourly().getCloudCoverHigh().replaceAll(ignored -> 0);
+
+        BriefingSlot slot = slotBuilder.buildSlot(new BriefingSlotBuilder.LocationWeather(loc, forecast),
+                sunsetTime.toLocalDate(), TargetType.SUNSET);
+
+        assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+        assertThat(slot.flags()).doesNotContain("Clear all layers");
+    }
+
+    @Test
+    @DisplayName("snapshotFor with no dates asks the repository for nothing and covers nothing")
+    void snapshotFor_noDates_queriesNothing() {
+        TideExtremeSnapshot snapshot = slotBuilder.snapshotFor(List.of(inlandLocation()), List.of());
+
+        assertThat(snapshot.rowCount()).isZero();
+        verifyNoInteractions(tideExtremeRepository);
+    }
+
     @Test
     @DisplayName("Solar service exception returns null slot")
     void solarException_returnsNull() {

@@ -16,6 +16,7 @@ EXCEPTIONS = {
     "backend": [
         {"pluginid": "30001", "level": "warn", "reason": "r-warn"},
         {"pluginid": "100001", "uri_regex": "^http://b/stream", "level": "ignore", "reason": "r-sse"},
+        {"pluginid": "40018", "uri_regex": "^http://b/api/admin/", "level": "ignore", "reason": "r-admin"},
     ],
     "frontend": [
         {"pluginid": "90004", "alertRef": "90004-2", "level": "ignore", "reason": "r-sub"},
@@ -135,6 +136,17 @@ class GateTest(unittest.TestCase):
     def test_uri_regex_full_cover_passes(self):
         code, _ = self.gate(backend=report(alert("100001", 1, uris=("http://b/stream/1", "http://b/stream/2"))))
         self.assertEqual(code, 0)
+
+    def test_admin_scoped_exception_covers_only_admin_paths(self):
+        admin = "http://b/api/admin/scheduler/jobs/k/runs?limit=6%2F2"
+        code, summary = self.gate(backend=report(alert("40018", 3, uris=(admin,))))
+        self.assertEqual(code, 0)
+        self.assertIn("r-admin", summary)
+        code, _ = self.gate(backend=report(alert("40018", 3, uris=("http://b/api/almanac",))))
+        self.assertEqual(code, 1)
+        code, summary = self.gate(backend=report(alert("40018", 3, uris=(admin, "http://b/api/almanac"))))
+        self.assertEqual(code, 1)
+        self.assertIn("1 uncovered", summary)
 
     def test_alert_ref_exception_covers_only_its_sub_alert(self):
         def sub(ref):

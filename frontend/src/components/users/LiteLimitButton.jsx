@@ -64,7 +64,7 @@ export default function LiteLimitButton({ onSaved }) {
         {labelFor(limit)}
       </button>
       {open && (
-        <Modal label="Lite sub-region picks" onClose={() => setOpen(false)} maxWidth="md" data-testid="lite-limit-dialog">
+        <Modal label="Lite sub-region picks" onClose={() => setOpen(false)} back="close" maxWidth="md" data-testid="lite-limit-dialog">
           <h2 className="text-sm font-semibold text-plex-text">Lite sub-region picks</h2>
           <SubRegionPolicyCard bare onSaved={handleSaved} />
           <button

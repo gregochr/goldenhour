@@ -43,6 +43,7 @@ import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
+import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
@@ -445,7 +446,7 @@ export default function WindowFirstShell({
     heatSpots, reachById, regionSeries,
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
-    origin, setOrigin, regions, effectiveReachById,
+    origin, setOrigin, regions, effectiveReachById, reachMeasured,
     comingUpLastSeenDate, setComingUpLastSeenAt, isPro, scoresLocked, picksLocked,
     allowedLocationIds,
   } = useWindowFirstBriefing();
@@ -1419,6 +1420,9 @@ export default function WindowFirstShell({
   const fieldLens = useMemo(() => ({
     limitMinutes: reachLens?.tier?.limitMinutes ?? null,
     tierLabel: reachLens?.tier?.label ?? null,
+    // The reader-level "is a drive measured for this origin" (D2), so the rail's per-region reach gate runs
+    // with the same `measured` the cards' did.
+    measured: reachMeasured === true,
     minRating: ratingLens?.minRating ?? null,
     ratingLabel: ratingLens?.floor?.label ?? null,
     // Optional all the way down, unlike the conditional reads further below. This memo runs on every
@@ -1426,7 +1430,7 @@ export default function WindowFirstShell({
     // unconditionally — and a provider-less or partial context (which several shell suites hand over
     // deliberately, to keep their files about one seam) would otherwise throw here before rendering
     // anything at all.
-  }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor]);
+  }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor, reachMeasured]);
 
   /**
    * The popup's inputs — built for the OPEN window only, and null while none is.
@@ -1672,6 +1676,9 @@ export default function WindowFirstShell({
    * discarding an answer the reader was charged a question for would be a trap.
    */
   const closeAskSheet = () => setAskSheetOpen(false);
+  // Back closes the sheet like the ✕ (the conversation is kept). Registered here, from the open INTENT and outside
+  // the lazy `Suspense`, so a cold chunk neither delays the entry nor turns a swap into a pop and a push.
+  useBackLayer({ open: askSheetShown, onBack: closeAskSheet });
   /**
    * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
    * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
@@ -2267,8 +2274,9 @@ export default function WindowFirstShell({
     limitMinutes: reachLens?.tier?.limitMinutes ?? null,
     floorId: ratingLens?.floorId,
     minRating: ratingLens?.minRating ?? null,
+    reachMeasured,
   }), [windowCards, origin, homePlace, reachLens?.tierId, reachLens?.tier,
-    ratingLens?.floorId, ratingLens?.minRating]);
+    ratingLens?.floorId, ratingLens?.minRating, reachMeasured]);
 
   /**
    * The safety warning a topic on this plan carries, and the window it is about.
@@ -3178,7 +3186,7 @@ export default function WindowFirstShell({
           long as an entry exists, as it always has, so closing restores focus through the same instance.
           Its fallback is null: the sheet is an overlay, so nothing in the page moves while it loads. */}
       {askEntry !== null && (askSheetShown || askSheetLoaded) && (
-        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" open={askSheetShown} onClose={closeAskSheet}>
+        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" open={askSheetShown} onClose={closeAskSheet} backLayer={false}>
         <Suspense fallback={null}>
           <AskSheet
             open={askSheetShown}

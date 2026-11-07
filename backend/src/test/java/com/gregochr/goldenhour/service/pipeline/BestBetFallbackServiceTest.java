@@ -39,6 +39,8 @@ class BestBetFallbackServiceTest {
 
     private static final int MAX_AGE_HOURS = 30;
     private static final Instant NOW = Instant.parse("2026-06-13T09:00:00Z");
+    private static final LocalDate TODAY = LocalDate.of(2026, 6, 13);
+    private static final Instant MIN_RECORDED_AT = NOW.minusSeconds(MAX_AGE_HOURS * 3600L);
 
     @Mock
     private PipelineRunPickRepository pickRepository;
@@ -257,5 +259,142 @@ class BestBetFallbackServiceTest {
         assertThat(picks).extracting(BestBet::rank).containsExactly(1, 2);
         assertThat(picks).extracting(BestBet::region)
                 .containsExactly("Northumberland", "North Yorkshire Coast");
+    }
+
+    // ── guards that leave a stored pick served, and the persisted-field mapping ──
+
+    private void stubSingleRow(PipelineRunPickEntity row) {
+        when(pickRepository.findFreshFallbackCandidates(TODAY, MIN_RECORDED_AT)).thenReturn(List.of(row));
+    }
+
+    @Test
+    @DisplayName("a null current briefing cannot disprove a stored pick, so it is served")
+    void nullCurrentBriefing_servesPick() {
+        stubSingleRow(row(5L, 1, "Northumberland", NOW.minusSeconds(600)));
+
+        List<BestBet> picks = service.findFreshFallback(null);
+
+        assertThat(picks).extracting(BestBet::region).containsExactly("Northumberland");
+    }
+
+    @Test
+    @DisplayName("an ineligible region on a DIFFERENT date does not drop the stored pick")
+    void ineligibleRegionOnOtherDate_servesPick() {
+        stubSingleRow(row(5L, 1, "Northumberland", NOW.minusSeconds(600)));
+        List<BriefingDay> days = List.of(new BriefingDay(LocalDate.of(2026, 6, 15), List.of(
+                new BriefingEventSummary(TargetType.SUNSET,
+                        List.of(region("Northumberland", false)), List.of()))));
+
+        assertThat(service.findFreshFallback(days)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an ineligible region for a DIFFERENT event type does not drop the stored pick")
+    void ineligibleRegionForOtherEvent_servesPick() {
+        stubSingleRow(row(5L, 1, "Northumberland", NOW.minusSeconds(600)));
+        List<BriefingDay> days = List.of(new BriefingDay(LocalDate.of(2026, 6, 14), List.of(
+                new BriefingEventSummary(TargetType.SUNRISE,
+                        List.of(region("Northumberland", false)), List.of()))));
+
+        assertThat(service.findFreshFallback(days)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a stored pick with an unparseable event type is served, never revalidated")
+    void unparseableEventType_servesPick() {
+        PipelineRunPickEntity r = row(5L, 1, "Northumberland", NOW.minusSeconds(600));
+        r.setEventType("twilight");
+        stubSingleRow(r);
+
+        assertThat(service.findFreshFallback(daysWithRegion(region("Northumberland", false))))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a stored pick with a null event type is served, never revalidated")
+    void nullEventType_servesPick() {
+        PipelineRunPickEntity r = row(5L, 1, "Northumberland", NOW.minusSeconds(600));
+        r.setEventType(null);
+        stubSingleRow(r);
+
+        assertThat(service.findFreshFallback(daysWithRegion(region("Northumberland", false))))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a stored pick with no region is served, never revalidated")
+    void nullRegion_servesPick() {
+        stubSingleRow(row(5L, 1, null, NOW.minusSeconds(600)));
+
+        assertThat(service.findFreshFallback(daysWithRegion(region("Northumberland", false))))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a stored pick with no event date is served with a null dayName")
+    void nullEventDate_servesPickWithNullDayName() {
+        PipelineRunPickEntity r = row(5L, 1, "Northumberland", NOW.minusSeconds(600));
+        r.setEventDate(null);
+        stubSingleRow(r);
+
+        List<BestBet> picks = service.findFreshFallback(
+                daysWithRegion(region("Northumberland", false)));
+
+        assertThat(picks).hasSize(1);
+        assertThat(picks.get(0).dayName()).isNull();
+    }
+
+    @Test
+    @DisplayName("dayName is Today for today's date and the full weekday name beyond tomorrow")
+    void dayName_todayAndWeekday() {
+        PipelineRunPickEntity today = row(5L, 1, "Northumberland", NOW.minusSeconds(600));
+        today.setEventDate(LocalDate.of(2026, 6, 13));
+        PipelineRunPickEntity later = row(5L, 2, "North York Moors", NOW.minusSeconds(600));
+        // 2026-06-16 is a Tuesday.
+        later.setEventDate(LocalDate.of(2026, 6, 16));
+        when(pickRepository.findFreshFallbackCandidates(TODAY, MIN_RECORDED_AT))
+                .thenReturn(List.of(today, later));
+
+        List<BestBet> picks = service.findFreshFallback(List.of());
+
+        assertThat(picks).extracting(BestBet::dayName).containsExactly("Today", "Tuesday");
+    }
+
+    @Test
+    @DisplayName("differsBy CSV is parsed case-insensitively, trimmed, and unknown tokens skipped")
+    void differsByCsv_parsed() {
+        PipelineRunPickEntity r = row(5L, 2, "Northumberland", NOW.minusSeconds(600));
+        r.setDiffersBy("region, Date ,bogus");
+        PipelineRunPickEntity first = row(5L, 1, "North York Moors", NOW.minusSeconds(600));
+        when(pickRepository.findFreshFallbackCandidates(TODAY, MIN_RECORDED_AT))
+                .thenReturn(List.of(first, r));
+
+        List<BestBet> picks = service.findFreshFallback(List.of());
+
+        assertThat(picks.get(1).differsBy())
+                .containsExactly(com.gregochr.goldenhour.model.DiffersBy.REGION,
+                        com.gregochr.goldenhour.model.DiffersBy.DATE);
+    }
+
+    @Test
+    @DisplayName("null and blank differsBy columns map to an empty list")
+    void differsByNullOrBlank_empty() {
+        PipelineRunPickEntity nullCol = row(5L, 1, "Northumberland", NOW.minusSeconds(600));
+        nullCol.setDiffersBy(null);
+        PipelineRunPickEntity blank = row(5L, 2, "North York Moors", NOW.minusSeconds(600));
+        blank.setDiffersBy("   ");
+        when(pickRepository.findFreshFallbackCandidates(TODAY, MIN_RECORDED_AT))
+                .thenReturn(List.of(nullCol, blank));
+
+        List<BestBet> picks = service.findFreshFallback(List.of());
+
+        assertThat(picks.get(0).differsBy()).isEmpty();
+        assertThat(picks.get(1).differsBy()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("maxAgeHours exposes the configured ceiling")
+    void maxAgeHours_exposed() {
+        assertThat(service.maxAgeHours()).isEqualTo(MAX_AGE_HOURS);
     }
 }

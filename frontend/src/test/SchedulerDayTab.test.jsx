@@ -106,6 +106,8 @@ describe('the Day\'s jobs tab: the default and the address', () => {
   });
 
   it('shows the viewed day beside the tab: Today, then the chosen day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     expect(await screen.findByTestId('scheduler-day-picture')).toBeInTheDocument();
     expect(screen.getByTestId('scheduler-tab-day-word')).toHaveTextContent('Today');
@@ -255,6 +257,8 @@ describe('the sun and Now lines', () => {
   });
 
   it('draws no Now line on another day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
     mount({ day: otherDay('2026-11-02') });
     expect(await screen.findByTestId('scheduler-day-sunrise')).toBeInTheDocument();
@@ -322,6 +326,8 @@ describe('opening a job from the picture', () => {
 
 describe('the day navigation', () => {
   it('goes back and forward a day, writing ?date= with replaceState and asking for that day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     await screen.findByTestId('scheduler-day-picture');
     const before = window.history.length;
@@ -339,6 +345,8 @@ describe('the day navigation', () => {
   });
 
   it('returns to today with the Today button, which is disabled on today', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-10-30';
     mount({ day: otherDay('2026-10-30') });
     await screen.findByTestId('scheduler-day-picture');
@@ -400,6 +408,8 @@ describe('the day navigation', () => {
   });
 
   it('follows Back and Forward: a changed ?date= in the address moves the day', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     mount();
     await screen.findByTestId('scheduler-day-picture');
     fetchSchedulerDay.mockResolvedValue(otherDay('2026-11-01'));
@@ -673,8 +683,9 @@ describe('the clock (D13)', () => {
     pin(NOON);
     setRewind('2026-01-15T09:00:00Z');
     mount();
-    expect(await screen.findByTestId('scheduler-day-label')).toHaveTextContent('TodayTue 3 Nov');
-    expect(screen.getByTestId('scheduler-day-now')).toHaveTextContent('Now 12:00');
+    // The label is on screen from the first paint, before the served day lands; wait for the Now line first.
+    expect(await screen.findByTestId('scheduler-day-now')).toHaveTextContent('Now 12:00');
+    expect(screen.getByTestId('scheduler-day-label')).toHaveTextContent('TodayTue 3 Nov');
     expect(screen.getByTestId('scheduler-day-prev')).toBeEnabled();
     expect(screen.getByTestId('scheduler-day-today')).toBeDisabled();
     expect(fetchSchedulerDay).toHaveBeenCalledWith(null);
@@ -729,7 +740,7 @@ describe('the picture\'s width', () => {
     observed = [];
     global.ResizeObserver = class {
       constructor(callback) { this.callback = callback; observed.push(this); }
-      observe() {}
+      observe(node) { this.target = node; }
       unobserve() {}
       disconnect() {}
     };
@@ -739,9 +750,19 @@ describe('the picture\'s width', () => {
     global.ResizeObserver = RealObserver;
   });
 
+  /**
+   * Resolves with the SVG once the plot's own observer is watching it. The observer is constructed in a passive
+   * effect, which may land after the SVG is on screen; firing a callback before then would reach nothing.
+   */
+  async function plotObserved() {
+    const svg = await screen.findByTestId('scheduler-day-svg');
+    await waitFor(() => expect(observed.some((o) => o.target === svg.parentElement)).toBe(true));
+    return svg;
+  }
+
   it('is never narrower than the minimum, whatever the container measures', async () => {
     mount();
-    const svg = await screen.findByTestId('scheduler-day-svg');
+    const svg = await plotObserved();
     expect(Number(svg.getAttribute('width'))).toBe(MIN_PLOT_WIDTH);
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 100 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(MIN_PLOT_WIDTH);
@@ -752,7 +773,7 @@ describe('the picture\'s width', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(NOON));
     mount();
-    await screen.findByTestId('scheduler-day-svg');
+    await plotObserved();
     act(() => { observed.forEach((o) => o.callback([{ contentRect: { width: 912.6 } }])); });
     expect(Number(screen.getByTestId('scheduler-day-svg').getAttribute('width'))).toBe(912);
     // The Now line at noon is the middle of the axis.
@@ -864,6 +885,8 @@ describe('the day is re-read after a change to a job', () => {
   });
 
   it('re-reads another date\'s day too, for that date', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     pauseJob.mockResolvedValue({});
     pinClock();
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
@@ -982,6 +1005,8 @@ describe('mark geometry in the picture', () => {
   });
 
   it('draws a running fire on another day as a diamond (Now is not on that axis)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(NOON));
     window.location.hash = '#manage/scheduler?view=day&date=2026-11-02';
     mount({
       day: otherDay('2026-11-02', {

@@ -87,6 +87,28 @@ describe('buildThinCounts — one count per served solar row', () => {
       events, verdicts, windowStates: null, scopePool: pool,
     }).size).toBe(0);
   });
+
+  it('counts a reach-scoped verdict over the pool inside the tier, and any other row over the scope pool (R3)', () => {
+    const scoped = new Map([['solar:2026-10-24:SUNRISE', { tier: 'WORTH_IT', scope: { tierMinutes: 45 } }]]);
+    const inReach = pool.slice(0, 6);
+    const run = (rated, over) => buildThinCounts({
+      events,
+      verdicts: scoped,
+      windowStates: new Map([['2026-10-24:SUNRISE', { states: statesOf(pool, rated) }]]),
+      scopePool: pool,
+      ...over,
+    });
+
+    // 3 rated of the 6 inside the tier is a thin sample: the scoped word is about those 6.
+    expect(run(3, { reachPool: inReach }).get('solar:2026-10-24:SUNRISE')).toBe(3);
+    // 5 of those 6 clears both floors, so it is silent, though 5 of the 83 in scope is thin: the reach pool was used.
+    expect(run(5, { reachPool: inReach }).size).toBe(0);
+    expect(run(5, {}).get('solar:2026-10-24:SUNRISE')).toBe(5);
+    // A verdict with no scope ignores the reach pool entirely.
+    expect(buildThinCounts({
+      events, verdicts, windowStates, scopePool: pool, reachPool: pool.slice(0, 3),
+    }).get('solar:2026-10-24:SUNRISE')).toBe(6);
+  });
 });
 
 describe('buildHeatWindowStates — what each window knows, keyed like the point sets', () => {

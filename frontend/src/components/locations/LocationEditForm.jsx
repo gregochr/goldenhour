@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
+import DrivePointField from './DrivePointField.jsx';
 import LocationEditMore from './LocationEditMore.jsx';
 import { Field, FieldError, RegionSelect, SubRegionSelect, ToggleGroup } from './LocationFormParts.jsx';
 import { inputClass, textButtonClass } from '../users/userFormClasses.js';
@@ -19,7 +20,7 @@ function errorFor(editor, field) {
 }
 
 /**
- * The location edit form, in the panel (data-tabs-redesign-plan.md §6.4): Name; Latitude and Longitude; Type, Light and
+ * The location edit form, in the panel (data-tabs-redesign-plan.md §6.4): Name; Latitude and Longitude; the Drive point; Type, Light and
  * Tides worth shooting (each a multi-select whose last choice is sticky); Region and Sub-region; then a More section
  * with the rest of what an admin can edit. The footer is pinned: Cancel and Save changes.
  *
@@ -119,6 +120,16 @@ export default function LocationEditForm({ location, editor, regions, subRegions
               <FieldError message={errorFor(editor, 'lon')} />
             </Field>
           </div>
+          <DrivePointField
+            value={v.drivePoint}
+            onChange={editor.setDrivePoint}
+            lat={v.lat}
+            lon={v.lon}
+            required={v.drivePointRequired}
+            error={errorFor(editor, 'drivePoint')}
+            testIdPrefix="location-edit-drive-point"
+            errorTestId="location-edit-error"
+          />
         </div>
 
         <div className={BLOCK}>

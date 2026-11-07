@@ -144,7 +144,8 @@ export function spotBadgeStyle(rating) {
  *
  * <p>Both nulls sort <em>last</em>, and for the same reason: an unknown is not a good. An unrated
  * spot is not better than a 1★, and a spot with no drive time is not nearer than one 20 minutes
- * away — plan §2.5's rule that absence means "unknown, never out of reach" cuts both ways. Name is
+ * away — plan §2.5's rule that absence means "unknown, never out of reach" (amended 2026-11-05: an UNROUTABLE
+ * place is dropped by a finite tier before this ranking sees it) cuts both ways. Name is
  * the final tie-break so the order is total and stable; with neither ratings nor drive times — the
  * normal first-run state — it is the *only* key that fires, which is why
  * {@link spotOrderStatement} has a fourth sentence.
@@ -286,6 +287,13 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null,
         ...(gated ? { gated: true } : {}),
         driveMinutes,
         distanceMiles: reach?.distanceMiles ?? null,
+        // MEASURED / PENDING / UNROUTABLE, served for home and derived for an away base
+        // (reach-scoped-card-plan D1); null when the origin has no entry for this place. A spot with no drive
+        // time and no status is unknown and passes every tier, exactly as before; only the gate reads UNROUTABLE.
+        driveStatus: reach?.driveStatus ?? null,
+        // The drive point the minutes are measured to ("Glenridding"), when the place has one (R1c). Only when
+        // present, so a spot with none is shaped exactly as it was.
+        ...(reach?.driveTo ? { driveTo: reach.driveTo } : {}),
         far: isFarSpot(driveMinutes, farOverMinutes),
         // The three tide facts `windowFirstCards.js#buildWindowCards` derives `tideFit` from, and
         // `windowFirstTideRun.js` ranks the run on — copied flat from THIS WINDOW'S served tide facts

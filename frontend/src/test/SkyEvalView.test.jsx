@@ -189,6 +189,17 @@ describe('SkyEvalView: lane cards', () => {
     expect(screen.getByTestId('sky-eval-lane-BATCH_FAR_TERM')).toHaveTextContent('Haiku 4.5');
   });
 
+  it('links each lane to its Model Config tab with an accessible name', async () => {
+    await mountView();
+    const near = screen.getByTestId('sky-eval-lane-change-model-BATCH_NEAR_TERM');
+    expect(near).toHaveAttribute('href', '#manage/models/BATCH_NEAR_TERM');
+    expect(near).toHaveAccessibleName('Change the T and T+1 forecasts model in Model Config');
+    expect(near.className).toContain('max-[639px]:min-h-11');
+    const far = screen.getByTestId('sky-eval-lane-change-model-BATCH_FAR_TERM');
+    expect(far).toHaveAttribute('href', '#manage/models/BATCH_FAR_TERM');
+    expect(far).toHaveAccessibleName(/^Change the .+ model in Model Config$/);
+  });
+
   it('stacks the lanes under 1000 px and the stat strip two by two under 560 px', async () => {
     await mountView();
     expect(screen.getByTestId('sky-eval-lanes').className).toContain('max-[999px]:grid-cols-[minmax(0,1fr)]');
@@ -372,7 +383,65 @@ describe('SkyEvalView: accuracy chart', () => {
     expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'true');
     expect(screen.getByTestId('sky-eval-series-SONNET_55')).toHaveAttribute('data-emphasised', 'false');
     click('sky-eval-chart-chip-HAIKU_55');
+    expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('false');
     expect(screen.getByTestId('sky-eval-series-SONNET_55')).toHaveAttribute('data-emphasised', 'true');
+  });
+
+  it('compares several models: two chips emphasise both series and leave the rest grey', async () => {
+    await mountView();
+    click('sky-eval-chart-chip-HAIKU_55');
+    click('sky-eval-chart-chip-HAIKU');
+    expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('true');
+    expect(pressed('sky-eval-chart-chip-HAIKU')).toBe('true');
+    expect(pressed('sky-eval-chart-chip-SONNET_55')).toBe('false');
+    expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU')).toHaveAttribute('data-emphasised', 'true');
+    expect(screen.getByTestId('sky-eval-series-SONNET_55')).toHaveAttribute('data-emphasised', 'false');
+  });
+
+  it('removes only the pressed model when one of several chips is pressed again', async () => {
+    await mountView();
+    click('sky-eval-chart-chip-HAIKU_55');
+    click('sky-eval-chart-chip-HAIKU');
+    click('sky-eval-chart-chip-HAIKU_55');
+    expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('false');
+    expect(pressed('sky-eval-chart-chip-HAIKU')).toBe('true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'false');
+    expect(screen.getByTestId('sky-eval-series-HAIKU')).toHaveAttribute('data-emphasised', 'true');
+  });
+
+  it('shows a Clear chip only with a selection, and Clear restores the production default', async () => {
+    await mountView();
+    expect(screen.queryByTestId('sky-eval-chart-clear')).not.toBeInTheDocument();
+    click('sky-eval-chart-chip-HAIKU_55');
+    click('sky-eval-chart-chip-HAIKU');
+    expect(screen.getByTestId('sky-eval-chart-clear')).toHaveAccessibleName('Clear model selection');
+    click('sky-eval-chart-clear');
+    expect(screen.queryByTestId('sky-eval-chart-clear')).not.toBeInTheDocument();
+    expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('false');
+    expect(pressed('sky-eval-chart-chip-HAIKU')).toBe('false');
+    expect(screen.getByTestId('sky-eval-series-SONNET_55')).toHaveAttribute('data-emphasised', 'true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'false');
+  });
+
+  it('adds a pressed table row to an existing chip selection', async () => {
+    await mountView();
+    click('sky-eval-chart-chip-HAIKU');
+    click('sky-eval-model-row-HAIKU_55');
+    expect(pressed('sky-eval-chart-chip-HAIKU')).toBe('true');
+    expect(pressed('sky-eval-chart-chip-HAIKU_55')).toBe('true');
+    expect(pressed('sky-eval-model-row-HAIKU')).toBe('true');
+    expect(pressed('sky-eval-model-row-HAIKU_55')).toBe('true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU')).toHaveAttribute('data-emphasised', 'true');
+    expect(screen.getByTestId('sky-eval-series-HAIKU_55')).toHaveAttribute('data-emphasised', 'true');
+  });
+
+  it('moves focus to the first chip when Clear is pressed and unmounts', async () => {
+    await mountView();
+    click('sky-eval-chart-chip-HAIKU_55');
+    click('sky-eval-chart-clear');
+    expect(screen.queryByTestId('sky-eval-chart-clear')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('sky-eval-chart-chip-SONNET_55'));
   });
 });
 

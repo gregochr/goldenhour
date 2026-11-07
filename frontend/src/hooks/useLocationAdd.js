@@ -23,9 +23,28 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   // Identifies the latest lookup: a geocode or enrichment reply for an older one (or for a form since reset) is dropped.
   const lookupToken = useRef(0);
 
-  /** Sets one form field. */
+  /** The fields a drive point belongs to: it was picked for one pin, so a different pin drops it. */
+  const NO_DRIVE_POINT = { drivePoint: null, drivePointRequired: false };
+
+  /** Drops a drive-point refusal's message with the point it was about. */
+  function clearDrivePointError() {
+    if (errorField === 'drivePoint') {
+      setError('');
+      setErrorField(null);
+    }
+  }
+
+  /** Sets one form field. Typing a manual coordinate moves the pin, which drops the drive point picked for the old one. */
   function set(field, value) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    const movesPin = field === 'manualLat' || field === 'manualLon';
+    setForm((prev) => ({ ...prev, [field]: value, ...(movesPin ? NO_DRIVE_POINT : {}) }));
+    if (movesPin) clearDrivePointError();
+  }
+
+  /** Picks (or, with null, clears) the drive point. Picking one ends "required": the refusal it answered is spent. */
+  function setDrivePoint(point) {
+    setForm((prev) => ({ ...prev, drivePoint: point, drivePointRequired: point ? false : prev.drivePointRequired }));
+    if (point) clearDrivePointError();
   }
 
   /** Resets the whole form (opening Add). */
@@ -64,7 +83,10 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
     const token = ++lookupToken.current;
     setGeocoding(true);
     setEnriching(false);
-    setForm((prev) => ({ ...prev, geocodeError: '', geocodeResult: null, enrichmentData: null }));
+    setForm((prev) => ({
+      ...prev, geocodeError: '', geocodeResult: null, enrichmentData: null, ...NO_DRIVE_POINT,
+    }));
+    clearDrivePointError();
     try {
       const result = await geocodePlace(trimmed);
       if (token !== lookupToken.current) return;
@@ -87,11 +109,14 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
 
   /** Switches to manual coordinates, carrying the typed place name over as the name. */
   function enterManually() {
-    setForm((prev) => ({ ...prev, manualEntry: true, manualName: prev.placeName.trim(), geocodeError: '' }));
+    setForm((prev) => ({
+      ...prev, manualEntry: true, manualName: prev.placeName.trim(), geocodeError: '', ...NO_DRIVE_POINT,
+    }));
+    clearDrivePointError();
   }
 
   function backToLookup() {
-    set('manualEntry', false);
+    setForm((prev) => ({ ...prev, manualEntry: false, ...NO_DRIVE_POINT }));
     setError('');
     setErrorField(null);
   }
@@ -124,7 +149,11 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
       return created ?? {};
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save location.');
-      setErrorField(null);
+      // 422 NO_ROAD_ROUTE: no road reaches the new place. The sentence belongs to the drive-point field, which
+      // becomes required (reach-scoped-card-plan R1c).
+      const noRoute = err?.response?.status === 422 && err.response.data?.code === 'NO_ROAD_ROUTE';
+      setErrorField(noRoute ? 'drivePoint' : null);
+      if (noRoute) set('drivePointRequired', true);
       return null;
     } finally {
       setSaving(false);
@@ -132,7 +161,7 @@ export default function useLocationAdd({ refreshLocations, refreshAreas }) {
   }
 
   return {
-    form, set, reset, geocoding, enriching, saving, error, errorField, setError,
+    form, set, setDrivePoint, reset, geocoding, enriching, saving, error, errorField, setError,
     changeTypes, changeRegion, geocode, enterManually, backToLookup, canSubmit, submit,
   };
 }

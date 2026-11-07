@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -95,5 +98,57 @@ class ParallelGlossExecutorTest {
 
         assertThat(result.succeeded()).isEqualTo(0);
         assertThat(result.failed()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("A worker interrupted while waiting for a slot counts as failed and never runs its item")
+    void interruptedWhileWaitingForSlot_countsAsFailed() throws Exception {
+        var executor = new ParallelGlossExecutor<String>(1, "Test");
+        CountDownLatch firstRunning = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        List<String> processed = Collections.synchronizedList(new ArrayList<>());
+
+        CompletableFuture<ParallelGlossExecutor.ExecutionResult> run = new CompletableFuture<>();
+        Thread.startVirtualThread(() -> run.complete(executor.execute(List.of("a", "b"), item -> {
+            processed.add(item);
+            firstRunning.countDown();
+            try {
+                releaseFirst.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        })));
+
+        assertThat(firstRunning.await(10, TimeUnit.SECONDS)).isTrue();
+        // The second item's worker is parked on the single permit; interrupt exactly that thread.
+        Thread waiter = null;
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (waiter == null && System.currentTimeMillis() < deadline) {
+            for (var entry : Thread.getAllStackTraces().entrySet()) {
+                StackTraceElement[] frames = entry.getValue();
+                boolean parkedOnPermit = java.util.Arrays.stream(frames)
+                        .anyMatch(f -> f.getClassName().equals("java.util.concurrent.Semaphore")
+                                && f.getMethodName().startsWith("acquire"))
+                        // Only this executor's own worker: a leftover thread from another test
+                        // parked on some other semaphore must never match.
+                        && java.util.Arrays.stream(frames)
+                        .anyMatch(f -> f.getClassName().equals(ParallelGlossExecutor.class.getName()));
+                if (parkedOnPermit) {
+                    waiter = entry.getKey();
+                }
+            }
+            if (waiter == null) {
+                Thread.sleep(10);
+            }
+        }
+        assertThat(waiter).as("a worker parked waiting for the permit").isNotNull();
+        waiter.interrupt();
+        releaseFirst.countDown();
+
+        var result = run.get(10, TimeUnit.SECONDS);
+
+        assertThat(result.succeeded()).isEqualTo(1);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(processed).as("only the item that held the permit was processed").hasSize(1);
     }
 }

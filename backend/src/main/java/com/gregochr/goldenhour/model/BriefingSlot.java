@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
@@ -97,8 +98,18 @@ import java.util.List;
  *                            field existed. A gated slot is <b>not unrated</b>: it has a rating the reader
  *                            may not see, and no surface may count it as unrated or as an insufficient
  *                            sample. <b>Serve-time only:</b> set by the shaper, never persisted
+ * @param forced              {@code true} when the rating this slot carries was produced by a force-evaluation
+ *                            (provenance stamped by {@code ForecastResultHandler}, read off the resolved
+ *                            {@link BriefingEvaluationResult#forced()}). Stamped onto the enriched slot so the served
+ *                            briefing alone is enough to re-run a region's rollup on a pruned slot list
+ *                            (reach-scoped-card-plan D5). <b>{@code @JsonIgnore}: never on the wire and never
+ *                            persisted</b>; a slot read back from {@code daily_briefing_cache} carries false until
+ *                            the next enrichment stamps it
+ * @param triaged             {@code true} when the pipeline looked at this slot and stood it down on weather this
+ *                            cycle (the batch disposition table united with a resolved triage reason). Same rules as
+ *                            {@link #forced}: a re-run input, {@code @JsonIgnore}, stamped by the rollup
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonIgnoreProperties(value = {"forced", "triaged"}, ignoreUnknown = true)
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
         String locationName,
@@ -117,7 +128,9 @@ public record BriefingSlot(
         boolean canopy,
         @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean neighbourOutlier,
-        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean gated,
+        @JsonIgnore boolean forced,
+        @JsonIgnore boolean triaged) {
 
     /**
      * Canonical constructor: takes an immutable copy of {@code flags}, so a caller's later changes
@@ -126,6 +139,42 @@ public record BriefingSlot(
      */
     public BriefingSlot {
         flags = List.copyOf(flags);
+    }
+
+    /**
+     * Eighteen-component form, defaulting the two reach-scoped stamps ({@link #forced}, {@link #triaged}) to
+     * false. Retained so every call site that predates them compiles unchanged; the withers thread the stamps
+     * through from {@code this}.
+     *
+     * @param locationId          database id of the location, or null
+     * @param locationName        human-readable location name
+     * @param solarEventTime      UTC time of the sunrise or sunset
+     * @param verdict             GO, MARGINAL, or STANDDOWN
+     * @param weather             weather conditions at the observer point
+     * @param tide                tide data for coastal locations
+     * @param flags               human-readable flag strings
+     * @param claudeRating        cached Claude 1-5 star rating, or null
+     * @param skyRating           the sky visitor's own component score, or null
+     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param goldenHourPotential cached Claude golden hour score 0-100, or null
+     * @param claudeSummary       cached Claude prose summary, or null
+     * @param displayVerdict      unified colour/label signal
+     * @param claudeHeadline      4-9 word Claude-authored card header, or null
+     * @param canopy              true when this slot came from the woodland evaluator
+     * @param eclipse             the lunar eclipse sight, or null
+     * @param neighbourOutlier    the neighbour guard's outlier mark, or null
+     * @param gated               the Lite shaper's gated mark, or null
+     */
+    public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
+            Integer claudeRating, Integer skyRating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
+            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
+            EclipseSight eclipse, Boolean neighbourOutlier, Boolean gated) {
+        this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
+                claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeSummary, displayVerdict, claudeHeadline, canopy, eclipse, neighbourOutlier, gated,
+                false, false);
     }
 
     /**
@@ -269,7 +318,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
                 flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier, gated);
+                eclipse, neighbourOutlier, gated, forced, triaged);
     }
 
     /**
@@ -288,7 +337,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier, gated);
+                eclipse, neighbourOutlier, gated, forced, triaged);
     }
 
     /**
@@ -311,7 +360,7 @@ public record BriefingSlot(
         TideInfo liteTide = tide == null ? null : tide.forLite();
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, liteTide,
                 flags, claudeRating, skyRating, null, null, null,
-                displayVerdict, null, canopy, eclipse, neighbourOutlier, gated);
+                displayVerdict, null, canopy, eclipse, neighbourOutlier, gated, forced, triaged);
     }
 
     /**
@@ -326,7 +375,7 @@ public record BriefingSlot(
     public BriefingSlot forGated() {
         return new BriefingSlot(locationId, locationName, solarEventTime, null, weather, tide,
                 List.of(), null, null, null, null, null,
-                null, null, canopy, eclipse, null, Boolean.TRUE);
+                null, null, canopy, eclipse, null, Boolean.TRUE, forced, triaged);
     }
 
     /**
@@ -339,7 +388,22 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 newFlags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier, gated);
+                eclipse, neighbourOutlier, gated, forced, triaged);
+    }
+
+    /**
+     * Returns a copy stamped with the two facts a region's rollup needs to be re-run on a pruned slot list
+     * (reach-scoped-card-plan D5), every other component unchanged.
+     *
+     * @param newForced   whether this slot's rating was force-evaluated
+     * @param newTriaged  whether the pipeline stood this slot down on weather this cycle
+     * @return the stamped copy
+     */
+    public BriefingSlot withReachStamps(boolean newForced, boolean newTriaged) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                flags, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
+                eclipse, neighbourOutlier, gated, newForced, newTriaged);
     }
 
     /**
@@ -354,7 +418,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse, neighbourOutlier, gated);
+                eclipse, neighbourOutlier, gated, forced, triaged);
     }
 
     /**
@@ -522,7 +586,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, rating, skyRating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy,
-                eclipse, neighbourOutlier, gated);
+                eclipse, neighbourOutlier, gated, forced, triaged);
     }
 
     /**

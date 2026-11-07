@@ -127,6 +127,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { reachLensStub } from './reachLensStub.js';
 
 const TODAY = '2026-01-15';
 
@@ -243,31 +244,32 @@ describe('MapView — the drive-time filter for a locked reader', () => {
     expect(screen.getByTestId('drive-time-filter-0')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('a Plan handoff limit does not hide spots, and the badge and breadcrumb read Any', async () => {
+  it('a shared 45-minute tier does not hide spots, and the badge and breadcrumb read Any', async () => {
     await renderTab({
-      driveLocked: true, reachById: REACH, heat: heat(), planHandoff: DOOR,
+      driveLocked: true, reachById: REACH, heat: heat(), planHandoff: DOOR, reachLens: reachLensStub(45),
     });
-    // 100 minutes is beyond the carried 45-minute limit, yet nothing is hidden.
+    // 100 minutes is beyond the shared 45-minute tier, yet nothing is hidden.
     expect(drawnSpotCount()).toBe(2);
     expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent(/^Filters(?! \()/);
     expect(screen.getByTestId('wf-map-breadcrumb-carrying').textContent).not.toMatch(/within/);
   });
 
-  it('an away origin with region-base minutes and a carried limit still hides nothing', async () => {
+  it('an away origin with region-base minutes and a shared tier still hides nothing', async () => {
     const driveOverrideById = new Map([
       [NEAR_ID, { driveMinutes: 20, distanceMiles: null }],
       [FAR_HOME_ONLY_ID, { driveMinutes: 100, distanceMiles: null }],
     ]);
     const away = { id: 'lakes', name: 'Lake District', baseName: 'Keswick' };
     await renderTab({
-      driveLocked: true, origin: away, planHandoff: DOOR, heat: { ...heatProp(driveOverrideById, SPOTS), areaSpots: SPOTS },
+      driveLocked: true, origin: away, planHandoff: DOOR, reachLens: reachLensStub(45),
+      heat: { ...heatProp(driveOverrideById, SPOTS), areaSpots: SPOTS },
     });
     expect(drawnSpotCount()).toBe(2);
   });
 
-  it('PRO (unlocked) is unchanged: the same handoff limit narrows the map and counts as a filter', async () => {
+  it('PRO (unlocked): the shared 45-minute tier narrows the map and counts as a filter', async () => {
     await renderTab({
-      driveLocked: false, reachById: REACH, heat: heat(), planHandoff: DOOR,
+      driveLocked: false, reachById: REACH, heat: heat(), planHandoff: DOOR, reachLens: reachLensStub(45),
     });
     expect(drawnSpotCount()).toBe(1);
     expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');

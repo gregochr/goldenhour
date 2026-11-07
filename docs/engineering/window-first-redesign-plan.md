@@ -312,7 +312,14 @@ state**, not a failure (`CloseToHomeService.java:156` already says so in a comme
 
 1. **A lens is not a gate when it has no data.** A location with no drive time is *unknown, not out of
    reach*: it passes every tier and renders without its drive line. The lens becomes a visible no-op
-   rather than silently emptying the page.
+   rather than silently emptying the page. ⚠️ **Amended 2026-11-05 (`reach-scoped-card-plan.md` D1, R1):
+   absence still means unknown, but a *confirmed* omission no longer does.** A drive is `MEASURED`, `PENDING`
+   (no row, and the origin's last full measurement is null or earlier than the location's
+   `drive_target_changed_at`, so it is still unknown) or `UNROUTABLE` (no row, and the origin was fully
+   measured after the location's routing point last changed, so OpenRouteService had no route). A finite
+   tier keeps `MEASURED <= tier` and `PENDING` and drops `UNROUTABLE`, **for a reader who has at least one
+   `MEASURED` drive** (`reachMeasured`, computed once per origin). Under **Any**, and for a reader with no
+   measured drive at all (no postcode, Lite, a cleared home), nothing changes.
 2. **Counts count spots, not drive times.** With no reach data the header reads "23 spots", not "23
    within reach" — the word *reach* drops when nothing was gated.
 
@@ -967,7 +974,8 @@ beside P6's and P7's.
   is a **threshold**, not a role. Nothing below the shell learns anything about roles.
 - **P8 earns the two counts P5 and P6 both withheld, and only where the words are true.** The header
   gains `N within reach`, non-null only when the tier carried a threshold *and* every drawn spot has
-  a known drive time — §2.5 rule 1 passes an unknown through every tier, so a part-measured set is
+  a known drive time — §2.5 rule 1 (amended 2026-11-05: an UNROUTABLE place is dropped by a finite tier, a
+  PENDING one is still passed) passes an unknown through every tier, so a part-measured set is
   not a set that is within reach. Where the word is unavailable the header stays silent rather than
   printing a bare "N spots" that duplicates the footer one element lower: exactly one count when
   nothing was gated, two complementary ones when something was. The footer's count becomes the

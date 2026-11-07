@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.gregochr.goldenhour.entity.ApiCallLogEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
@@ -140,6 +141,69 @@ class AdvisorReplayControllerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/admin/advisor-replay")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"model\":\"HAIKU\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A blank candidate prompt is treated as none: only the current prompt runs")
+    void blankCandidatePrompt_runsCurrentOnly() throws Exception {
+        when(bestBetAdvisor.currentSystemPrompt()).thenReturn(CURRENT_PROMPT);
+        when(bestBetAdvisor.replayWithPrompt(ROLLUP, CURRENT_PROMPT, EvaluationModel.HAIKU))
+                .thenReturn(BestBetResult.withPicks(List.of(pick("Northumberland"))));
+
+        mockMvc.perform(post("/api/admin/advisor-replay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rollupJson\":" + asJsonString(ROLLUP)
+                                + ",\"candidatePrompt\":\"   \",\"model\":\"HAIKU\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.current.picks[0].region").value("Northumberland"))
+                .andExpect(jsonPath("$.candidate").isEmpty());
+
+        verify(bestBetAdvisor).replayWithPrompt(ROLLUP, CURRENT_PROMPT, EvaluationModel.HAIKU);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A blank rollupJson falls through to the captured api_call_log body")
+    void blankRollupJson_fallsBackToCapturedBody() throws Exception {
+        ApiCallLogEntity row = ApiCallLogEntity.builder().requestBody(ROLLUP).build();
+        when(apiCallLogRepository.findById(11L)).thenReturn(Optional.of(row));
+        when(bestBetAdvisor.currentSystemPrompt()).thenReturn(CURRENT_PROMPT);
+        when(bestBetAdvisor.replayWithPrompt(ROLLUP, CURRENT_PROMPT, EvaluationModel.HAIKU))
+                .thenReturn(BestBetResult.withPicks(List.of(pick("Northumberland"))));
+
+        mockMvc.perform(post("/api/admin/advisor-replay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rollupJson\":\"  \",\"apiCallLogId\":11,\"model\":\"HAIKU\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.current.picks[0].region").value("Northumberland"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A captured row whose request_body is only whitespace returns 400")
+    void blankCapturedBody_returns400() throws Exception {
+        ApiCallLogEntity row = ApiCallLogEntity.builder().requestBody("   ").build();
+        when(apiCallLogRepository.findById(6L)).thenReturn(Optional.of(row));
+
+        mockMvc.perform(post("/api/admin/advisor-replay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"apiCallLogId\":6}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("A rollup the advisor cannot parse returns 400 naming the parse failure")
+    void unparseableRollup_returns400() throws Exception {
+        when(bestBetAdvisor.currentSystemPrompt()).thenReturn(CURRENT_PROMPT);
+        when(bestBetAdvisor.replayWithPrompt(ROLLUP, CURRENT_PROMPT, EvaluationModel.HAIKU))
+                .thenThrow(new JsonProcessingException("unexpected token") { });
+
+        mockMvc.perform(post("/api/admin/advisor-replay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"rollupJson\":" + asJsonString(ROLLUP) + ",\"model\":\"HAIKU\"}"))
                 .andExpect(status().isBadRequest());
     }
 

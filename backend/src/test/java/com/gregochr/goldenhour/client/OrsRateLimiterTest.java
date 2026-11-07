@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.client;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -171,5 +173,88 @@ class OrsRateLimiterTest {
 
         assertThat(failures.get()).as("interrupted acquire threw").isEqualTo(1);
         assertThat(flagRestored.get()).as("interrupt flag restored").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("tryWithPermit returns the call's result when a permit is free, and releases it afterwards")
+    void tryWithPermit_permitFree_returnsResultAndReleases() {
+        OrsRateLimiter limiter = new OrsRateLimiter();
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(limiter.tryWithPermit(Duration.ofMillis(50), () -> "ok")).contains("ok");
+        }
+    }
+
+    @Test
+    @DisplayName("tryWithPermit gives up with an empty result when both permits stay held past the timeout")
+    void tryWithPermit_permitsHeld_timesOutEmpty() throws Exception {
+        OrsRateLimiter limiter = new OrsRateLimiter();
+        CountDownLatch twoInside = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger ran = new AtomicInteger();
+        Runnable holder = () -> limiter.withPermit(() -> {
+            twoInside.countDown();
+            try {
+                release.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return null;
+        });
+        Thread first = new Thread(holder);
+        Thread second = new Thread(holder);
+        first.start();
+        second.start();
+        assertThat(twoInside.await(LATCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
+
+        Optional<String> result = limiter.tryWithPermit(Duration.ofMillis(100), () -> {
+            ran.incrementAndGet();
+            return "ran";
+        });
+
+        assertThat(result).isEmpty();
+        assertThat(ran.get()).as("the call must not run without a permit").isZero();
+        release.countDown();
+        first.join();
+        second.join();
+        assertThat(limiter.tryWithPermit(Duration.ofMillis(100), () -> "free again")).contains("free again");
+    }
+
+    @Test
+    @DisplayName("tryWithPermit reads a null result as empty and still releases the permit")
+    void tryWithPermit_nullResult_isEmpty() {
+        OrsRateLimiter limiter = new OrsRateLimiter();
+
+        for (int i = 0; i < 4; i++) {
+            assertThat(limiter.tryWithPermit(Duration.ofMillis(50), () -> null)).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("tryWithPermit releases the permit when the call throws")
+    void tryWithPermit_callThrows_releasesPermit() {
+        OrsRateLimiter limiter = new OrsRateLimiter();
+
+        for (int i = 0; i < 4; i++) {
+            assertThatThrownBy(() -> limiter.tryWithPermit(Duration.ofMillis(50), () -> {
+                throw new IllegalStateException("boom");
+            })).isInstanceOf(IllegalStateException.class);
+        }
+        assertThat(limiter.tryWithPermit(Duration.ofMillis(50), () -> "ok")).contains("ok");
+    }
+
+    @Test
+    @DisplayName("tryWithPermit on an interrupted thread answers empty and restores the interrupt flag")
+    void tryWithPermit_interrupted_isEmptyAndRestoresFlag() {
+        OrsRateLimiter limiter = new OrsRateLimiter();
+        Thread.currentThread().interrupt();
+        try {
+            Optional<String> result = limiter.tryWithPermit(Duration.ofSeconds(1), () -> "never");
+
+            assertThat(result).isEmpty();
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
     }
 }

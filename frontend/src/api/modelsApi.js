@@ -1,7 +1,7 @@
 import apiClient from './axiosClient.js';
 
 /**
- * Fetch the Run Config data: the selectable models, the active model per run type, the
+ * Fetch the Model Config data: the selectable models, the active model per run type, the
  * extended-thinking flags, and the measured cost of each tab (admin only).
  *
  * `costProfiles` is keyed by run type and is empty when the figures could not be computed;
@@ -19,7 +19,7 @@ import apiClient from './axiosClient.js';
  *   allowedByRunType: Object<string, string[]>,
  *   tokenRates: Object<string, {inputUsdPerMtok: number, outputUsdPerMtok: number}>,
  *   gbpPerUsd: (number|undefined)
- * }>} the Run Config payload
+ * }>} the Model Config payload
  */
 export async function getAvailableModels() {
   try {

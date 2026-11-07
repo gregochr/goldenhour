@@ -1,0 +1,3 @@
+### Changed — cloud inversion alert fires at 8 with softer wording
+
+The Cloud inversion hot topic now fires from an inversion score of 8 instead of 9. Production never reached 9 between 1 October and 6 November, and inversion v2 caps every site under 600 m at 8 by design, so the alert had gone quiet on mornings worth a look. A morning whose best score is 8 says "Inversion possible: valley cloud may sit below elevated viewpoints"; 9 and above keeps "Strong inversion likely at elevated locations". On a date with both, only the strong sites are listed. Scores, the prompt's bands, freshness and the sunrise-only rule are unchanged.

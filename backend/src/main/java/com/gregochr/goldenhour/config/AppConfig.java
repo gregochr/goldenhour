@@ -16,6 +16,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
+import org.springframework.context.annotation.Scope;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.support.RestClientAdapter;
 import org.springframework.web.service.invoker.HttpServiceProxyFactory;
@@ -87,6 +89,20 @@ public class AppConfig {
         return RestClient.builder()
                 .requestFactory(timeoutRequestFactory())
                 .build();
+    }
+
+    /**
+     * A {@link RestClient.Builder} carrying the same connect and read timeouts as {@link #restClient()}, for a
+     * client that wants its own base URL or configuration (the IMO calendar client). Prototype scope: each
+     * injection point gets a fresh builder, so one client's changes never reach another's. Boot 4 does not
+     * auto-configure a builder bean here.
+     *
+     * @return a new builder with the timeouts applied
+     */
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+    public RestClient.Builder restClientBuilder() {
+        return RestClient.builder().requestFactory(timeoutRequestFactory());
     }
 
     /**

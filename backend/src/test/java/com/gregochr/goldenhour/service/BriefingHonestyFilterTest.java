@@ -455,6 +455,37 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
+    @DisplayName("An empty Best Bet list beside a blanked region stays empty with no withdrawn flag")
+    void emptyBestBetList_noWithdrawnFlag() {
+        DailyBriefingResponse out = BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of()), 0.5);
+
+        assertThat(out.bestBets()).isEmpty();
+        assertThat(out.bestBetsWithdrawn()).isNull();
+    }
+
+    @Test
+    @DisplayName("A pick naming a region but no event cannot match a blanked slot and is kept")
+    void pickWithRegionButNoEvent_kept() {
+        DailyBriefingResponse out = BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
+                        List.of(bet(1, "Northumberland", null))),
+                0.5);
+
+        assertThat(out.bestBets()).hasSize(1);
+        assertThat(out.bestBetsWithdrawn()).isNull();
+    }
+
+    @Test
+    @DisplayName("A disposition lookup with no clock cannot fold a reason, so the blanked region reads 'Not scored'")
+    void lookupWithoutClock_readsNotScored() {
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET,
+                zeroCoverageRegion("Northumberland"), List.of());
+
+        assertNotScoredWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5, Map.of(), null)));
+    }
+
+    @Test
     @DisplayName("A thinly covered (non-zero) region does not withdraw its Best Bet")
     void thinlyCoveredRegionKeepsItsBet() {
         // Only the zero-coverage rewrite contradicts a pick. A thinly covered region keeps its

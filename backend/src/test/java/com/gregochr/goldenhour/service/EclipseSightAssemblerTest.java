@@ -562,6 +562,19 @@ class EclipseSightAssemblerTest {
         }
 
         @Test
+        @DisplayName("when 'today' IS the date of a real SUNSET eclipse, the SUNRISE window of that very day "
+                + "still gets no simulated sight — the catalogue's own answer for the date wins")
+        void doesNothingWhenTodayItselfCarriesARealEclipse() {
+            stubActive();
+            Clock onTheEclipseDay = Clock.fixed(
+                    SUNSET_ECLIPSE_DAY.atTime(12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+            EclipseSightAssembler onThatDay = new EclipseSightAssembler(
+                    calculator, solarService, simulationService, onTheEclipseDay);
+
+            assertThat(onThatDay.simulatedSightFor(SUNSET_ECLIPSE_DAY, TargetType.SUNRISE)).isNull();
+        }
+
+        @Test
         @DisplayName("isSimulationActiveForLunarEclipse is the cheap top-level gate BriefingService "
                 + "checks before walking the whole response tree")
         void isSimulationActiveForLunarEclipse_reflectsBothFlags() {

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.DriveStatus;
 import com.gregochr.goldenhour.model.ReachEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -101,6 +102,110 @@ class ReachServiceTest {
             when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
 
             assertThat(service.getReach(auth)).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("the drive point (reach-scoped-card-plan R1c)")
+    class DrivePoint {
+
+        @Test
+        @DisplayName("a place with a drive point names it as driveTo, and miles stay measured to the pin")
+        void namesTheDrivePoint_milesStayOnThePin() {
+            stubHome(HOME_LAT, HOME_LON);
+            LocationEntity helvellyn = LocationEntity.builder().id(ID_BUTTERMERE).name("Helvellyn")
+                    .lat(54.5275).lon(-3.0162)
+                    .drivePointName("Glenridding").drivePointLat(54.5442).drivePointLon(-2.9505).build();
+            stubRoster(simonside(), helvellyn);
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of(ID_BUTTERMERE, 80));
+
+            List<ReachEntry> reach = service.getReach(auth);
+
+            ReachEntry withPoint = reach.get(1);
+            assertThat(withPoint.driveTo()).isEqualTo("Glenridding");
+            assertThat(withPoint.driveMinutes()).isEqualTo(80);
+            // Straight-line miles are to the summit pin, not to Glenridding.
+            assertThat(withPoint.distanceMiles()).isEqualTo((int) Math.round(
+                    com.gregochr.goldenhour.util.GeoUtils.distanceMiles(HOME_LAT, HOME_LON, 54.5275, -3.0162)));
+            assertThat(reach.get(0).driveTo()).isNull();
+        }
+
+        @Test
+        @DisplayName("a half-set drive point (not a state the service writes) names nothing")
+        void partialDrivePoint_namesNothing() {
+            stubHome(HOME_LAT, HOME_LON);
+            stubRoster(LocationEntity.builder().id(ID_BAMBURGH).name("Bamburgh").lat(55.6094).lon(-1.7092)
+                    .drivePointName("Seahouses").build());
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveTo()).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("drive status: measured, pending or unroutable")
+    class Status {
+
+        private static final java.time.Instant STAMP = java.time.Instant.parse("2026-11-05T02:00:00Z");
+
+        private void homeStampedAt(java.time.Instant stamp) {
+            when(userSettingsService.getHomeLocation(auth)).thenReturn(
+                    new UserSettingsService.HomeLocation(USER_ID, HOME_LAT, HOME_LON, 30, "NE66 1NG", stamp));
+        }
+
+        private LocationEntity helvellynChangedAt(java.time.LocalDateTime changedAt) {
+            return LocationEntity.builder().id(ID_BUTTERMERE).name("Helvellyn")
+                    .lat(54.577).lon(-2.931).driveTargetChangedAt(changedAt).build();
+        }
+
+        @Test
+        @DisplayName("a stored row is MEASURED, whatever the stamp says")
+        void aRowIsMeasured() {
+            homeStampedAt(null);
+            stubRoster(bamburgh());
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of(ID_BAMBURGH, 62));
+
+            assertThat(service.getReach(auth).get(0).driveStatus()).isEqualTo(DriveStatus.MEASURED);
+        }
+
+        @Test
+        @DisplayName("no row and a fully measured home after the location last moved is UNROUTABLE")
+        void noRowAfterAFullMeasurementIsUnroutable() {
+            homeStampedAt(STAMP);
+            stubRoster(helvellynChangedAt(java.time.LocalDateTime.of(2026, 3, 1, 12, 0)));
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveStatus()).isEqualTo(DriveStatus.UNROUTABLE);
+        }
+
+        @Test
+        @DisplayName("no row and no stamp is PENDING: nothing has measured this home yet")
+        void noStampIsPending() {
+            homeStampedAt(null);
+            stubRoster(helvellynChangedAt(java.time.LocalDateTime.of(2026, 3, 1, 12, 0)));
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveStatus()).isEqualTo(DriveStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("a location that moved after the stamp is PENDING until it is measured again")
+        void movedAfterTheStampIsPending() {
+            homeStampedAt(STAMP);
+            stubRoster(helvellynChangedAt(java.time.LocalDateTime.of(2026, 11, 5, 9, 0)));
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveStatus()).isEqualTo(DriveStatus.PENDING);
+        }
+
+        @Test
+        @DisplayName("a location that moved just before the stamp is PENDING (the roster-visibility margin)")
+        void movedJustBeforeTheStampIsPending() {
+            homeStampedAt(STAMP);
+            stubRoster(helvellynChangedAt(java.time.LocalDateTime.of(2026, 11, 5, 1, 30)));
+            when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
+
+            assertThat(service.getReach(auth).get(0).driveStatus()).isEqualTo(DriveStatus.PENDING);
         }
     }
 
@@ -234,7 +339,7 @@ class ReachServiceTest {
         // A 30-mile radius must not hide Buttermere at ~85 miles: the lens's widest tier promises
         // everything, and the drill-down's own filters are what narrow it.
         when(userSettingsService.getHomeLocation(auth)).thenReturn(
-                new UserSettingsService.HomeLocation(USER_ID, HOME_LAT, HOME_LON, 30, "NE66 1NG"));
+                new UserSettingsService.HomeLocation(USER_ID, HOME_LAT, HOME_LON, 30, "NE66 1NG", null));
         stubRoster(bamburgh(), simonside(), buttermere());
         when(driveTimeResolver.getAllMinutes(USER_ID)).thenReturn(Map.of());
 
@@ -261,7 +366,7 @@ class ReachServiceTest {
     private void stubHome(Double lat, Double lon) {
         when(userSettingsService.getHomeLocation(auth))
                 .thenReturn(new UserSettingsService.HomeLocation(
-                        USER_ID, lat, lon, null, lat == null ? null : "NE66 1NG"));
+                        USER_ID, lat, lon, null, lat == null ? null : "NE66 1NG", null));
     }
 
     private void stubRoster(LocationEntity... locations) {

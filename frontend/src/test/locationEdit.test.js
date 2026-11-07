@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyEditChange, buildEditValues, emptyAddForm, planAdd, planEditSave, toggleSticky, withSavedBaselines,
+  applyEditChange, buildEditValues, drivePointPayload, emptyAddForm, planAdd, planEditSave, storedDrivePoint,
+  toggleSticky, withSavedBaselines,
 } from '../utils/locationEdit.js';
 
 const LOC = {
@@ -160,5 +161,68 @@ describe('planAdd', () => {
       error: 'Coastal locations require at least one tide preference (High, Mid, or Low).', field: 'tides',
     });
     expect(planAdd({ ...looked, locationTypes: ['LANDSCAPE'], tideTypes: ['HIGH'] }).payload.tideTypes).toEqual([]);
+  });
+});
+
+describe('the drive point (reach-scoped-card-plan R1c)', () => {
+  const GLENRIDDING = { name: 'Glenridding', lat: 54.5442, lon: -2.9505 };
+  const WITH_POINT = {
+    ...LOC, drivePointName: 'Glenridding', drivePointLat: 54.5442, drivePointLon: -2.9505,
+  };
+
+  it('reads a stored drive point whole, and nothing from a half-set one', () => {
+    expect(storedDrivePoint(WITH_POINT)).toEqual(GLENRIDDING);
+    expect(storedDrivePoint(LOC)).toBeNull();
+    expect(storedDrivePoint({ ...LOC, drivePointName: 'Glenridding' })).toBeNull();
+  });
+
+  it('starts the edit form on the stored point, as its own baseline, not yet required', () => {
+    const values = buildEditValues(WITH_POINT, CONTEXT);
+    expect(values.drivePoint).toEqual(GLENRIDDING);
+    expect(values.drivePointBaseline).toEqual(GLENRIDDING);
+    expect(values.drivePointRequired).toBe(false);
+    expect(buildEditValues(LOC, CONTEXT).drivePoint).toBeNull();
+    expect(buildEditValues(LOC, CONTEXT).drivePointBaseline).toBeNull();
+  });
+
+  it('sends the drive-point keys only when they differ from the baseline', () => {
+    expect(drivePointPayload(buildEditValues(WITH_POINT, CONTEXT)).fields).toEqual({});
+    expect(drivePointPayload(buildEditValues(LOC, CONTEXT)).fields).toEqual({});
+
+    const picked = { ...buildEditValues(LOC, CONTEXT), drivePoint: GLENRIDDING };
+    expect(drivePointPayload(picked).fields).toEqual({
+      drivePointName: 'Glenridding', drivePointLat: 54.5442, drivePointLon: -2.9505,
+    });
+    const changed = { ...buildEditValues(WITH_POINT, CONTEXT), drivePoint: { ...GLENRIDDING, name: 'Patterdale' } };
+    expect(drivePointPayload(changed).fields.drivePointName).toBe('Patterdale');
+    const moved = { ...buildEditValues(WITH_POINT, CONTEXT), drivePoint: { ...GLENRIDDING, lat: 54.5 } };
+    expect(drivePointPayload(moved).fields.drivePointLat).toBe(54.5);
+    const movedLon = { ...buildEditValues(WITH_POINT, CONTEXT), drivePoint: { ...GLENRIDDING, lon: -2.9 } };
+    expect(drivePointPayload(movedLon).fields.drivePointLon).toBe(-2.9);
+  });
+
+  it('clears a stored point with clearDrivePoint, and sends nothing for a clear of nothing', () => {
+    const cleared = { ...buildEditValues(WITH_POINT, CONTEXT), drivePoint: null };
+    expect(drivePointPayload(cleared).fields).toEqual({ clearDrivePoint: true });
+    expect(drivePointPayload({ ...buildEditValues(LOC, CONTEXT), drivePoint: null }).fields).toEqual({});
+    expect(drivePointPayload({}).fields).toEqual({});
+  });
+
+  it('puts the drive point into the save payload, and moves the baseline when a save half-succeeds', () => {
+    const picked = { ...buildEditValues(LOC, CONTEXT), drivePoint: GLENRIDDING };
+    expect(planEditSave(picked).payload).toMatchObject({ drivePointName: 'Glenridding' });
+    expect(withSavedBaselines(picked).drivePointBaseline).toEqual(GLENRIDDING);
+    expect(withSavedBaselines({ ...picked, drivePoint: null }).drivePointBaseline).toBeNull();
+    expect(withSavedBaselines({ ...picked, drivePointRequired: true }).drivePointRequired).toBe(false);
+  });
+
+  it('puts the drive point into the add payload only when one is chosen', () => {
+    const manual = { ...emptyAddForm(), manualEntry: true, manualName: 'Striding Edge', manualLat: '54.53', manualLon: '-3.01' };
+    expect(emptyAddForm().drivePoint).toBeNull();
+    expect(emptyAddForm().drivePointRequired).toBe(false);
+    expect(planAdd(manual).payload).not.toHaveProperty('drivePointName');
+    expect(planAdd({ ...manual, drivePoint: GLENRIDDING }).payload).toMatchObject({
+      drivePointName: 'Glenridding', drivePointLat: 54.5442, drivePointLon: -2.9505,
+    });
   });
 });

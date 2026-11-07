@@ -5,12 +5,14 @@ import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.exception.NameClashException;
+import com.gregochr.goldenhour.exception.NoRoadRouteException;
 import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.UpstreamLookupException;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -146,6 +148,22 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Maps {@link NoRoadRouteException} to HTTP 422 {@code {error, code: NO_ROAD_ROUTE, field: drivePoint}}: the
+     * save would leave a location with a point no road route reaches (reach-scoped-card-plan R1c). The form reads
+     * {@code code} to show its drive-point field as required.
+     *
+     * @param ex the exception, whose message is a plain sentence for the admin
+     * @return the 422 response
+     */
+    @ExceptionHandler(NoRoadRouteException.class)
+    public ResponseEntity<Map<String, String>> handleNoRoadRoute(NoRoadRouteException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", ex.getMessage(),
+                "code", NoRoadRouteException.CODE,
+                "field", NoRoadRouteException.FIELD));
+    }
+
+    /**
      * Maps {@link RegistrationClosedException} to HTTP 403 when the early-access cap is reached.
      *
      * @param ex the exception
@@ -263,6 +281,25 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleParameterTypeMismatch(MethodArgumentTypeMismatchException ex) {
         LOG.debug("Rejected malformed request parameter '{}'", ex.getName());
+        return new ErrorResponse("Invalid request parameter");
+    }
+
+    /**
+     * Maps Tomcat's {@link InvalidParameterException} to HTTP 400.
+     *
+     * <p>Tomcat parses the query string lazily and, when a chunk cannot be parsed (an empty parameter
+     * name such as {@code ?=} or {@code ?a=1&=2}, or a bad percent-escape), remembers the failure and
+     * throws this {@link IllegalStateException} from every later {@code getParameter*} call. Spring MVC
+     * makes that call while resolving a {@code @RequestParam} and while matching handlers, so without this
+     * handler the catch-all below turned a malformed query string into a 500 and logged it at ERROR with
+     * a stack trace. The request line is the caller's error. The message is fixed; the offending chunk
+     * (which Tomcat's own message quotes) is neither echoed nor logged.
+     *
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(InvalidParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleInvalidQueryString() {
         return new ErrorResponse("Invalid request parameter");
     }
 

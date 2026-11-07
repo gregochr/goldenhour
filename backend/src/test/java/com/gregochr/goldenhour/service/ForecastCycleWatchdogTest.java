@@ -763,4 +763,106 @@ class ForecastCycleWatchdogTest {
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.PARTIAL);
         assertThat(report.summary()).isEqualTo("1 of 3 cycle checks failed · No alerts");
     }
+
+    // ---------------------------------------------------------------- report wording and edge schedules
+
+    @Test
+    @DisplayName("a pass that sends two alerts reports SUCCEEDED with '2 alerts sent'")
+    void reports_twoAlertsSent() {
+        when(configs.findByJobKey(NIGHTLY)).thenReturn(Optional.of(
+                cronJob(NIGHTLY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE)));
+        when(configs.findByJobKey(INTRADAY)).thenReturn(Optional.of(
+                cronJob(INTRADAY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE)));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(watchdog::check);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        assertThat(report.summary()).isEqualTo("2 alerts sent");
+    }
+
+    @Test
+    @DisplayName("a pass in which every cycle check throws reports FAILED")
+    void reports_failedWhenEveryCycleCheckThrows() {
+        when(configs.findByJobKey(NIGHTLY)).thenThrow(new IllegalStateException("db down"));
+        when(configs.findByJobKey(INTRADAY)).thenThrow(new IllegalStateException("db down"));
+        when(configs.findByJobKey(EVENING)).thenThrow(new IllegalStateException("db down"));
+
+        SchedulerFireOutcome.Report report = SchedulerFireOutcome.capture(watchdog::check);
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
+        assertThat(report.summary()).isEqualTo("3 of 3 cycle checks failed · No alerts");
+    }
+
+    @Test
+    @DisplayName("a solar job whose event does not occur today still gets its did-not-start check, without a "
+            + "served-event line, and no did-not-finish check")
+    void solarEventUnavailable_startCheckOnly() {
+        SolarTriggerFactory noEvent = mock(SolarTriggerFactory.class);
+        when(noEvent.eventInstant(SolarEvent.SUNRISE, DAY)).thenReturn(null);
+        ForecastCycleWatchdog blind = new ForecastCycleWatchdog(configs, runs, batches, noEvent, alerts,
+                scheduler, clock, EVENING_BUDGET);
+        nightly(cronJob(NIGHTLY, "0 0 1 * * *", SchedulerJobStatus.ACTIVE));
+
+        blind.check();
+
+        org.mockito.ArgumentCaptor<String> detail = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(alerts, times(1)).sendForecastCycleWatchdogAlert(eq(NIGHTLY), eq("did not start"), detail.capture());
+        assertThat(detail.getValue()).contains("should have fired at").doesNotContain("It serves");
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(eq(NIGHTLY), eq("did not finish"), anyString());
+    }
+
+    @Test
+    @DisplayName("an evening run failed with no recorded reason is not the watchdog's alert")
+    void evening_failedWithoutReason_noAlert() {
+        evening();
+        PipelineRunEntity failed = run(33, CycleType.EVENING, Instant.parse("2026-10-13T20:00:05Z"),
+                PipelineRunStatus.FAILED);
+        runStarted(failed);
+        clock.set(Instant.parse("2026-10-13T22:10:00Z"));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a SOLAR_OFFSET job missing its solar event or its offset has no fire to judge")
+    void solarJobMissingEventOrOffset_notLate() {
+        SchedulerJobConfigEntity noEvent = solarJob(NIGHTLY, SolarEvent.SUNRISE, 255);
+        noEvent.setSolarEvent(null);
+        nightly(noEvent);
+        clock.set(sunrise.minus(Duration.ofMinutes(255)).plus(Duration.ofMinutes(45)));
+        watchdog.check();
+
+        SchedulerJobConfigEntity noOffset = solarJob(NIGHTLY, SolarEvent.SUNRISE, 255);
+        noOffset.setSolarOffsetMinutes(null);
+        nightly(noOffset);
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("a SOLAR_OFFSET job whose latest fire is older than the six-hour ceiling is ignored")
+    void solarFireOlderThanCeiling_noAlert() {
+        nightly(solarJob(NIGHTLY, SolarEvent.SUNRISE, 255));
+        clock.set(sunrise.minus(Duration.ofMinutes(255)).plus(Duration.ofHours(7)));
+
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(eq(NIGHTLY), eq("did not start"), anyString());
+    }
+
+    @Test
+    @DisplayName("a CRON job with no expression, or one that never fires, has no fire to judge")
+    void cronWithoutExpressionOrNeverFiring_notLate() {
+        nightly(cronJob(NIGHTLY, null, SchedulerJobStatus.ACTIVE));
+        watchdog.check();
+
+        // 30 February never comes: the expression parses but has no next fire.
+        nightly(cronJob(NIGHTLY, "0 0 0 30 2 *", SchedulerJobStatus.ACTIVE));
+        watchdog.check();
+
+        verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
+    }
 }

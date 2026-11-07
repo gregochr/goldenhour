@@ -3,6 +3,7 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
+import useBackLayer from '../hooks/useBackLayer.js';
 import SubRegionSettingsSection from './subregions/SubRegionSettingsSection.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 import { deleteAccount } from '../api/accountApi.js';
@@ -584,6 +585,15 @@ export default function UserSettingsModal({
   };
 
   /**
+   * The Back button. The spinner, the result view and the body are all ONE `Modal` instance, so this is ONE
+   * registration that never unregisters between them: Back closes Settings from the body AND from the result
+   * view (not just the result), and is absorbed (`block`) while the drive-time spinner is up or a delete is
+   * in flight, read live through the layer's in-place update. Registered here rather than through `Modal`'s
+   * `back` because each view hands `Modal` a different `onClose`.
+   */
+  useBackLayer({ open: true, onBack: onClose, mode: refreshing || deleting ? 'block' : 'close' });
+
+  /**
    * Sends the delete. `aria-disabled`, not `disabled`, while it is out (BUSY_BUTTON's reason): the
    * reader has just pressed this button, and a button that becomes `disabled` under focus drops it
    * on `<body>` — where a refused password would leave them. So a second press, or Enter in the
@@ -902,7 +912,7 @@ export default function UserSettingsModal({
                     data-testid="settings-radius-slider"
                   />
                   <span
-                    className="font-mono text-sm text-plex-text w-16 text-right"
+                    className="font-mono text-sm text-plex-text w-16 text-right max-[639px]:w-[5.5rem] max-[639px]:whitespace-nowrap"
                     data-testid="settings-radius-value"
                   >
                     {radius ?? DEFAULT_RADIUS_MILES} miles
@@ -1200,7 +1210,7 @@ export default function UserSettingsModal({
         >
           ?
         </button>
-        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
+        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg max-[639px]:min-w-11 max-[639px]:min-h-11 max-[639px]:-mr-2 max-[639px]:inline-flex max-[639px]:items-center max-[639px]:justify-center" aria-label="Close">&times;</button>
       </div>
 
       <div

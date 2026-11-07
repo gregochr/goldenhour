@@ -117,6 +117,7 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
     <div data-testid="probe-callout">
       <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
       <span data-testid="probe-callout-drive-minutes">{JSON.stringify(props.driveMinutes)}</span>
+      <span data-testid="probe-callout-drive-to">{JSON.stringify(props.driveTo)}</span>
     </div>
   ),
 }));
@@ -255,6 +256,36 @@ describe('MapView — driveMinutesFor under an away origin (heat.driveOverrideBy
     expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
     expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Far-home-only');
     expect(screen.getByTestId('probe-callout-drive-minutes')).toHaveTextContent(/^null$/);
+  });
+});
+
+describe('MapView — driveToFor reads the SAME map as driveMinutesFor (reach-scoped-card-plan R1c)', () => {
+  it('names the drive point from the home reach map at home', async () => {
+    const reachById = new Map([[NEAR_ID, { driveMinutes: 80, distanceMiles: 20, driveTo: 'Glenridding' }]]);
+    await renderTab({ reachById, heat: heatProp(undefined) });
+
+    fireEvent.click(screen.getByTestId('probe-chip-Near'));
+    expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-drive-to')).toHaveTextContent(/^"Glenridding"$/);
+  });
+
+  it('names the override entry\'s drive point away, never the home map\'s', async () => {
+    const reachById = new Map([[NEAR_ID, { driveMinutes: 999, distanceMiles: 300, driveTo: 'Home Village' }]]);
+    const driveOverrideById = new Map([[NEAR_ID, { driveMinutes: 27, distanceMiles: null, driveTo: 'Glenridding' }]]);
+    await renderTab({ reachById, heat: heatProp(driveOverrideById) });
+
+    fireEvent.click(screen.getByTestId('probe-chip-Near'));
+    expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-drive-to')).toHaveTextContent(/^"Glenridding"$/);
+  });
+
+  it('is null for a place with no drive point, at home and away', async () => {
+    const reachById = new Map([[NEAR_ID, { driveMinutes: 20, distanceMiles: 5 }]]);
+    await renderTab({ reachById, heat: heatProp(undefined) });
+
+    fireEvent.click(screen.getByTestId('probe-chip-Near'));
+    expect(await screen.findByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-drive-to')).toHaveTextContent(/^null$/);
   });
 });
 

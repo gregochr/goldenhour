@@ -19,6 +19,12 @@ describe('ConfirmDialog', () => {
     expect(screen.getByText('Delete')).toBeInTheDocument();
   });
 
+  it('gives both buttons a 44px minimum height on a phone only', () => {
+    render(<ConfirmDialog {...defaults} />);
+    expect(screen.getByTestId('confirm-dialog-cancel')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('confirm-dialog-confirm')).toHaveClass('max-[639px]:min-h-11');
+  });
+
   it('renders children between message and buttons', () => {
     render(
       <ConfirmDialog {...defaults}>

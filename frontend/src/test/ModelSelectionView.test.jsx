@@ -73,6 +73,8 @@ const SWITCHED = 'Briefing model switched to Sonnet 4.6';
 describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A sub-tab click now writes the hash, which would open the next test on that tab.
+    window.location.hash = '';
     // clearAllMocks leaves mockResolvedValueOnce queues in place, so a test that fails mid-way
     // would hand its unconsumed responses to the next test's first toggle.
     setExtendedThinking.mockReset();
@@ -294,7 +296,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('text-plex-gold');
@@ -470,7 +472,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
@@ -977,7 +979,7 @@ describe('ModelSelectionView', () => {
     render(<ModelSelectionView />);
 
     await waitFor(() => {
-      expect(screen.getByText('Run Configuration')).toBeInTheDocument();
+      expect(screen.getByText('Model Configuration')).toBeInTheDocument();
     });
 
     expect(screen.queryByTestId('batch-info-panel')).not.toBeInTheDocument();

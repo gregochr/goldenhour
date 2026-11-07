@@ -2,6 +2,8 @@
 # 100043 is new in the digest-pinned image.
 # Updated when the pinned ZAP digest is bumped. A listed rule missing from the scan log
 # fails the gate (it did not run); a rule in the log but not listed is reported as drift only.
+# httpsender script alerts (100000, 100001) report only when they fire and never print a PASS line,
+# so they are deliberately not listed here and the coverage check cannot confirm they ran.
 0
 2
 3
@@ -121,6 +123,4 @@
 90035
 90036
 90037
-100000
-100001
 100043

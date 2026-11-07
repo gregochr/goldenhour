@@ -70,6 +70,8 @@ import {
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
+import { scopePoolWithinReach } from '../utils/mapReach.js';
+import { ANY_TIER_ID, reachIsMeasured, tierById } from '../utils/reachLens.js';
 import { heatSpotKey } from '../utils/heatSpots.js';
 import {
   GATED_STATE, hasRatedState, isGatedIn, isOutsidePicks, splitGround,
@@ -1240,7 +1242,7 @@ CentreOnHomeControl.propTypes = {
  *       draws as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, briefingScores = new Map(), seasonalFeatures = [], homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, shapedLeadIndex = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, tideLocked = false, driveLocked = false, reachLens = null, reachMeasured = null, reachScope = null, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null, bigSeas = NO_BIG_SEAS, hotTopics = NO_HOT_TOPICS }) {
   // `MapView` is `React.memo`'d, and its one long-lived mount (the Map pane) sits hidden rather
   // than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1375,12 +1377,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [showStandDown, setShowStandDown] = useState(() => {
     return readMapFilter('mapFilterShowStandDown') === '1';
   });
-  const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
-  // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9).
-  // The value is forced to Any where it is APPLIED, not at the setters (a click, the Plan handoff's
-  // limit, the reset and the breadcrumb all set it), so a locked reader can never narrow the map by it;
-  // the count badge, the popover and the breadcrumb read this effective value too.
-  const effectiveDriveTimeFilter = driveLocked ? 0 : driveTimeFilter;
   /**
    * How far a location is, from wherever the caller is planning from.
    *
@@ -1413,6 +1409,48 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const driveMinutesFor = useCallback((locId) => {
     if (driveOverride) return driveOverride.get(Number(locId))?.driveMinutes ?? null;
     return reachById?.get(Number(locId))?.driveMinutes ?? null;
+  }, [driveOverride, reachById]);
+  /**
+   * The reach entry for a location from the map in force (home's, or the away origin's override), for the gate that
+   * narrows the scope pool by the drive tier. The SAME precedence {@code driveMinutesFor} applies.
+   */
+  const reachEntryFor = useCallback((locId) => (
+    (driveOverride ?? reachById)?.get(Number(locId)) ?? null
+  ), [driveOverride, reachById]);
+
+  /**
+   * The Map's drive tier IS the Plan bar's (reach-scoped-card-plan R3, D9): one shared {@code useReachLens} state, so
+   * a tier chosen on either tab is the tier on both, and the Map's "All" is the lens's Any. It replaced the Map's own
+   * {@code useState(0)}, which only caught up with the Plan on a door handoff.
+   *
+   * <p>⚠️ <b>Applied only where the reader's drives are measured.</b> The Plan's gate passes every spot for a reader
+   * with no measured drive (nothing to gate on), and a tier that is on by default (a weekday opens on 45 min) must
+   * not empty the Map of a reader whose home has no postcode. {@code reachMeasured} is the provider's once-computed
+   * answer for the active origin; a standalone mount derives it from the reach map in force.
+   *
+   * <p>A mount with no shared lens (a test, or any host without the provider) keeps a local state pinned to Any, so it
+   * draws exactly what the Map drew before. In the app the pane always hands the lens down.
+   */
+  const [localTierId, setLocalTierId] = useState(ANY_TIER_ID);
+  const driveTier = reachLens ? reachLens.tier : tierById(localTierId);
+  const selectDriveTier = reachLens ? reachLens.selectTier : setLocalTierId;
+  const driveTierMeasured = reachMeasured ?? reachIsMeasured(driveOverride ?? reachById);
+  // Filtering by drive time is Pro at every origin (docs/engineering/pro-features-gate-plan.md §9). The value is forced
+  // to Any where it is APPLIED, not at the setters (a click, the reset and the breadcrumb all set it), so a locked
+  // reader can never narrow the map by it; the count badge, the popover and the breadcrumb read this effective value.
+  const effectiveDriveTimeFilter = driveLocked || !driveTierMeasured ? 0 : (driveTier?.limitMinutes ?? 0);
+  /** Sets the shared tier from the popover's minutes (0 is Any). */
+  const setDriveTimeFilter = useCallback((minutes) => {
+    selectDriveTier(minutes > 0 ? String(minutes) : ANY_TIER_ID);
+  }, [selectDriveTier]);
+  /**
+   * The drive point the callout's Drive minutes are measured to ("Glenridding"), when the place has one
+   * (reach-scoped-card-plan R1c) — read from the SAME map `driveMinutesFor` reads, so the name never describes a
+   * different journey from the minutes beside it (home map at home, the override away).
+   */
+  const driveToFor = useCallback((locId) => {
+    const entry = driveOverride ? driveOverride.get(Number(locId)) : reachById?.get(Number(locId));
+    return entry?.driveTo ?? null;
   }, [driveOverride, reachById]);
   /**
    * Straight-line miles, for the selection callout's facts row ONLY (map-tab-v2-plan.md §3 P9) —
@@ -1865,8 +1903,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * results`, so it always describes the night being looked at. {@code auroraScores} is fetched by
    * `getAuroraLocations()` — <b>no date parameter at all</b> — gated only on the live alert level:
    * it is the NOAA-triggered state for the night in progress. Read unconditionally, it answered for
-   * whichever night was on screen: browse to a future night with no stored run, and the chips and the
-   * "🏆 best location" card all carried TONIGHT's
+   * whichever night was on screen: browse to a future night with no stored run, and the chips carried TONIGHT's
    * live stars and narrative as though they were that night's. The same class of defect as #803's
    * stale-window ratings — a rating answering for a window it does not belong to — through a source
    * with no date to check.
@@ -1936,32 +1973,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
   const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   const [flyTarget, setFlyTarget] = useState(null);
-  // The best-aurora card's dismissal (aurora heat A4): `${nightDate}|${best location name}`, so the
-  // card returns for a different night or a different top spot. Session-only, deliberately.
-  const [bestAuroraDismissedKey, setBestAuroraDismissedKey] = useState(null);
-  /**
-   * Hands focus to a surviving control when the best-aurora card's ✕ is about to unmount the card:
-   * the window pill (this tab's return address) or, when no window exists to draw one, the first
-   * control in the pane that is outside the card, enabled, not hidden/inert/aria-hidden and not
-   * `tabindex="-1"`, and that actually accepts focus (the result is read back from
-   * `document.activeElement`, falling through to the next candidate otherwise).
-   */
-  const moveFocusOffCard = (card) => {
-    const pill = winPillRef.current;
-    if (pill) {
-      pill.focus();
-      if (document.activeElement === pill) return;
-    }
-    const candidates = mapPaneRef.current?.querySelectorAll(
-      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])',
-    ) ?? [];
-    Array.from(candidates).some((el) => {
-      if (card?.contains(el) || el.getAttribute('tabindex') === '-1'
-        || el.closest('[aria-hidden="true"], [inert], [hidden]')) return false;
-      el.focus();
-      return document.activeElement === el;
-    });
-  };
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   // Aurora is available when the user is ADMIN/PRO and either the live alert is active or this map's
   // list of stored aurora nights is non-empty. The list names every night that held a real
@@ -2122,7 +2133,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         const nextMinStars = planHandoff.minRating ?? 1;
         setMinStars(nextMinStars);
         writeMapFilter('mapFilterMinStars', String(nextMinStars));
-        setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+        // The drive tier is NOT copied from the door any more (reach-scoped-card-plan R3): the Map and the Plan bar
+        // share one tier, so there is nothing to carry.
         // `focusPoints` is the multi-pin door's camera: it fits those pins through the same
         // `FitBoundsController` (the retired overlay's `focus.points` camera), so a scope reset (which refits
         // to the planning area) would race it for the camera. A standing region jump is dropped
@@ -2280,7 +2292,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // no cancellation every one of those requests could land whenever it liked:
   //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
   //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
-  //     every live reader (the rating's live fallback, the best-location card),
+  //     every live reader (the rating's live fallback),
   //     where they stood until the next poll or focus.
   //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
   //     last replaced the newer answer with its own.
@@ -3476,6 +3488,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       return rating >= minStars;
     });
 
+    // ⚠️ The Map's field filter is still a DELIBERATE exception to the Plan's rule (reach-scoped-card-plan R1): it
+    // drops EVERY place without a drive time, unroutable or merely unmeasured (`mins != null`), where the Plan's
+    // `gateSpotsByReach` keeps a PENDING place and drops only an UNROUTABLE one. R3 shared the TIER with the Plan
+    // bar and the pill's words (which use the Plan's gate, `reachPool`), not this pin filter: what is DRAWN is
+    // unchanged by it, and a place waiting for its first measurement is simply not drawn under a finite tier.
     const driveFiltered = effectiveDriveTimeFilter === 0
       ? ratingFiltered
       : ratingFiltered.filter((loc) => {
@@ -3638,6 +3655,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
   const regionsInScope = useMemo(() => regionNamesOf(verdictScopePool), [verdictScopePool]);
+  /**
+   * The scope pool narrowed to the places inside the active drive tier (reach-scoped-card-plan R3), or the pool itself
+   * when the pill is not reach-scoped. The ONE population the scoped pill's tally, its rated count and its region
+   * names describe: the Plan's own gate over the scope segment's pool, so "WORTH IT · Lakes +1" and "· 3 rated"
+   * are about the same places the tier answer was computed for.
+   */
+  // Away, the server's answer is the ORIGIN region's alone (reach-scoped-card-plan D3: an away card never re-ranks other
+  // regions). It is therefore true of the Map only while the scope is that region (My area); at Everywhere it would say
+  // "Poor · The Peak · within 2h30" over a field that draws and counts the neighbouring regions too. So away at
+  // Everywhere the pill keeps the served verdict, with no scope words. Home is unaffected.
+  const reachActive = reachScope != null && (origin == null || (heatArea && Boolean(heat?.hasHome)));
+  const reachPool = useMemo(() => {
+    if (!reachActive) return verdictScopePool;
+    // Away, narrowed to the origin region itself: the base-to-everywhere drive map reaches into neighbours.
+    const own = origin ? verdictScopePool.filter((spot) => spot?.regionName === origin.name) : verdictScopePool;
+    return scopePoolWithinReach(own, reachEntryFor, reachScope.tierMinutes, driveTierMeasured);
+  }, [reachActive, reachScope, origin, verdictScopePool, reachEntryFor, driveTierMeasured]);
+  /** The regions in scope AND in reach, which the scoped pill's tally counts (its {@code scopedRegionCount}). */
+  const reachRegionsInScope = useMemo(() => regionNamesOf(reachPool), [reachPool]);
+  /** The reach answer {@code buildEvVerdicts} reads, or null when the pill is not reach-scoped. */
+  const reachVerdictSource = useMemo(
+    () => (reachActive ? { ...reachScope, regionsInScope: reachRegionsInScope } : null),
+    [reachActive, reachScope, reachRegionsInScope],
+  );
 
   // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
   // results only (D-14), so a real alert whose scoring run has not stored anything yet had a live field
@@ -3835,7 +3876,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // A shaped body carries no region mean to rank by (the server strips it), so the lead region comes
     // served; `null` for everyone else keeps the pick exactly as it was.
     shapedLeads: shaped ? shapedLeadIndex : null,
-  }), [mapEvents, regionVerdictIndex, regionsInScope, shaped, shapedLeadIndex]);
+    reach: shaped ? null : reachVerdictSource,
+  }), [mapEvents, regionVerdictIndex, regionsInScope, shaped, shapedLeadIndex, reachVerdictSource]);
   /**
    * The picks across each region (S5a-2), for a shaped body only: `pickGeography.regionPickSummaries`, from the
    * served ids and each place's served sub-region. Null for every Pro, Admin and flag-off reader.
@@ -3878,7 +3920,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     verdicts: evVerdicts,
     windowStates: heat?.windowStates,
     scopePool: verdictScopePool,
-  }), [mapEvents, evVerdicts, heat, verdictScopePool]);
+    // A reach-scoped verdict (R3) is about the places inside the tier, so its rated count is over those.
+    reachPool,
+  }), [mapEvents, evVerdicts, heat, verdictScopePool, reachPool]);
 
   /**
    * Your next two solar windows (map-landing-plan.md §3 L4's row selection, kept after the card was
@@ -5174,19 +5218,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const hasHomeCoords = homeGeo?.lat != null && homeGeo?.lon != null;
 
-  // Best aurora location — highest-starred entry from the LIVE aurora scores, so only while the
-  // night on screen is the night in progress. The card names a place and a star count and offers to
-  // centre the map on it: on any other night it was naming tonight's best as that night's.
-  const bestAuroraLocation = useMemo(() => {
-    if (!isAuroraMode || !liveAuroraOnScreen) return null;
-    const entries = Object.values(auroraScores);
-    if (entries.length === 0) return null;
-    const best = entries.reduce((b, curr) => (curr.stars > b.stars ? curr : b), entries[0]);
-    // When every location scored 1 star (all overcast / triage-rejected), don't highlight one
-    if (best.stars <= 1) return null;
-    return best;
-  }, [isAuroraMode, auroraScores, liveAuroraOnScreen]);
-
   if (!date || locations.length === 0) {
     return (
       <p className="text-plex-text-muted text-sm text-center py-8">
@@ -6364,8 +6395,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     subjectChips: MAP_FILTER_CHIPS,
     seasonalFeatures,
     role,
-    driveTimeFilter: effectiveDriveTimeFilter,
+    // The shared tier as the bar shows it (Any when locked), not the gated value: for a reader whose drives are
+    // unmeasured the tier is still the one the Plan bar shows, though it filters nothing (see `driveTierMeasured`).
+    driveTimeFilter: driveLocked ? 0 : (driveTier?.limitMinutes ?? 0),
     driveLocked,
+    driveUnmeasured: !driveLocked && !driveTierMeasured,
     onSelectDriveTime: setDriveTimeFilter,
     darkSkyFilter,
     onToggleDarkSky: toggleDarkSky,
@@ -6622,45 +6656,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // A programmatic-only focus target (never a tab stop): where focus goes when the callout's ✕ unmounts.
       tabIndex={-1}
     >
-      {/* Best aurora location card — visible only in aurora mode */}
-      {isAuroraMode && bestAuroraLocation
-        && bestAuroraDismissedKey !== `${nightDate}|${bestAuroraLocation.location.name}` && (
-        <div
-          className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
-          data-testid="aurora-best-location-card"
-        >
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-indigo-300 shrink-0">🏆</span>
-            <div className="min-w-0">
-              <span className="text-indigo-200 font-medium">{bestAuroraLocation.location.name}</span>
-              <span className="text-indigo-400 ml-2">{'★'.repeat(bestAuroraLocation.stars)}{'☆'.repeat(5 - bestAuroraLocation.stars)}</span>
-              {bestAuroraLocation.summary && (
-                <p className="text-indigo-400 text-xs mt-0.5 truncate">{bestAuroraLocation.summary}</p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setFlyTarget({ lat: bestAuroraLocation.location.lat, lon: bestAuroraLocation.location.lon })}
-            className="shrink-0 px-3 py-1 text-xs font-medium rounded-full border border-indigo-500/40 text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/40 transition-colors"
-          >
-            Centre map
-          </button>
-          {/* ⚠️ The card unmounts on this press, so focus is handed to a surviving control first —
-              otherwise it falls to <body>, where the pane's key handler never fires. */}
-          <button
-            type="button"
-            onClick={(pressEvent) => {
-              moveFocusOffCard(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'));
-              setBestAuroraDismissedKey(`${nightDate}|${bestAuroraLocation.location.name}`);
-            }}
-            aria-label="Dismiss best aurora location"
-            data-testid="aurora-best-location-dismiss"
-            className="shrink-0 flex items-center justify-center w-11 h-11 -mr-2 rounded-full text-indigo-300 hover:text-indigo-100 hover:bg-indigo-800/40 transition-colors"
-          >
-            <span aria-hidden="true">✕</span>
-          </button>
-        </div>
-      )}
       {/* All-overcast message now shown inside AuroraBanner */}
 
       {/* The door landing strip (D2, plan-to-map-doors-plan.md §3 D2 task 3) — ABOVE the map
@@ -6994,6 +6989,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               dayMode={hideDayCard}
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
+              driveTo={driveToFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
               tideAlignmentIndex={mapTideIndex}
               eclipseSight={getEclipseForLocation(selectedLoc)}
@@ -7202,6 +7198,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
                 isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
                 scopeIsArea: heatArea && Boolean(heat?.hasHome),
+                // A window the tier's answer names but with nothing in reach in the scope has no verdict: its own note.
+                emptyScope: reachVerdictSource?.windowKeys.has(`${activeMapEvent?.date}|${activeMapEvent?.eventType}`)
+                  ? { tierMinutes: reachVerdictSource.tierMinutes } : null,
               })}
             rows={panelRows}
             noteStrong={regionPicks && activeMapEvent?.kind === EVENT_KIND.SOLAR
@@ -7514,9 +7513,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         {stoodPoints.length > 0 && (
                           <span data-testid="wf-map-peek-standdown" className="wf-legend-ground-item">
                             <i aria-hidden="true" className="wf-legend-swatch wf-legend-swatch-standdown" />
-                            <b>Stood down</b>
-                            {' '}
-                            ruled out by the weather, cause named on the ground
+                            stood down by the weather
                           </span>
                         )}
                       </span>
@@ -8108,6 +8105,26 @@ MapView.propTypes = {
   /** The Map's tide curve and per-location tide match are Pro (tide-pro-gate-plan.md): true for LITE. */
   tideLocked: PropTypes.bool,
   driveLocked: PropTypes.bool,
+  /**
+   * The Plan bar's shared reach lens (`hooks/useReachLens.js`'s return value), handed down by the pane
+   * (reach-scoped-card-plan R3): the Map's drive tier IS this one. Absent (a standalone mount), the Map keeps a
+   * local tier pinned to Any.
+   */
+  reachLens: PropTypes.shape({
+    tier: PropTypes.shape({ id: PropTypes.string, limitMinutes: PropTypes.number }),
+    selectTier: PropTypes.func,
+  }),
+  /** The provider's reader-level "are this origin's drives measured" answer; absent, derived from the reach map. */
+  reachMeasured: PropTypes.bool,
+  /**
+   * The active drive tier's served per-region verdicts (`mapVerdict.buildReachVerdictIndex` plus `tierMinutes`), or
+   * null when the pill is not reach-scoped (Any, Lite, unmeasured, version mismatch, a shaped body).
+   */
+  reachScope: PropTypes.shape({
+    tierMinutes: PropTypes.number.isRequired,
+    index: PropTypes.instanceOf(Map).isRequired,
+    windowKeys: PropTypes.instanceOf(Set).isRequired,
+  }),
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
   /**

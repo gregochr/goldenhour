@@ -111,6 +111,33 @@ class ComingUpRoleShaperTest {
     }
 
     @Test
+    @DisplayName("a line with no facts label at all stays null for Lite and the entry is not marked")
+    void nullLabelStaysNull() {
+        ComingUpCoincidenceLine bare = new ComingUpCoincidenceLine("coastal", "Spring tide run", null,
+                "spring-tide");
+        ComingUpEntry entry = base().withCoincidence(List.of(bare));
+
+        ComingUpEntry shaped = shaper.forLite(feed(entry)).entries().getFirst();
+
+        assertThat(shaped.coincidence().getFirst().factsLabel()).isNull();
+        assertThat(shaped.lightRowsWithheld()).isFalse();
+        assertThat(shaped).isSameAs(entry);
+    }
+
+    @Test
+    @DisplayName("a line whose label has no ' · ' separator is already span-only: it is kept and not marked")
+    void spanOnlyLabelIsKept() {
+        ComingUpCoincidenceLine spanOnly = new ComingUpCoincidenceLine("coastal", "Spring tide run",
+                "Sun 25 – Fri 30 Oct", "spring-tide");
+        ComingUpEntry entry = base().withCoincidence(List.of(spanOnly));
+
+        ComingUpEntry shaped = shaper.forLite(feed(entry)).entries().getFirst();
+
+        assertThat(shaped.coincidence().getFirst().factsLabel()).isEqualTo("Sun 25 – Fri 30 Oct");
+        assertThat(shaped.lightRowsWithheld()).isFalse();
+    }
+
+    @Test
     @DisplayName("fail closed: a missing fact kind means the row is not a light row, so it is kept "
             + "(nothing is guessed from text)")
     void missingKindKeepsTheRow() {

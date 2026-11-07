@@ -266,6 +266,86 @@ class LocationControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/locations returns 422 NO_ROAD_ROUTE when the guard refuses, and never reaches the service")
+    void addLocation_noRoadRoute_returns422() throws Exception {
+        org.mockito.Mockito.doThrow(new com.gregochr.goldenhour.exception.NoRoadRouteException(
+                        "No road route reaches this point. Add a drive point, e.g. the nearest village or car park."))
+                .when(routabilityGuard).requireRoutableOnAdd(
+                        argThat((AddLocationRequest r) -> r != null && "Helvellyn".equals(r.name())));
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Helvellyn\",\"lat\":54.5275,\"lon\":-3.0162}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("NO_ROAD_ROUTE"))
+                .andExpect(jsonPath("$.field").value("drivePoint"))
+                .andExpect(jsonPath("$.error").value(
+                        "No road route reaches this point. Add a drive point, e.g. the nearest village or car park."));
+
+        verifyNoInteractions(locationService);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/locations carries the drive point to the guard and the service")
+    void addLocation_drivePoint_reachesTheGuardAndService() throws Exception {
+        when(locationService.add(argThat((AddLocationRequest r) -> r != null
+                && "Glenridding".equals(r.drivePointName()) && Double.valueOf(54.5442).equals(r.drivePointLat())
+                && Double.valueOf(-2.9505).equals(r.drivePointLon()))))
+                .thenReturn(buildEntity(5L, "Helvellyn", 54.5275, -3.0162));
+
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Helvellyn\",\"lat\":54.5275,\"lon\":-3.0162,"
+                                + "\"drivePointName\":\"Glenridding\",\"drivePointLat\":54.5442,"
+                                + "\"drivePointLon\":-2.9505}"))
+                .andExpect(status().isOk());
+
+        verify(routabilityGuard).requireRoutableOnAdd(argThat((AddLocationRequest r) -> r != null
+                && "Glenridding".equals(r.drivePointName())));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} returns 422 when the guard refuses a move or a clear, and saves nothing")
+    void updateLocation_noRoadRoute_returns422() throws Exception {
+        org.mockito.Mockito.doThrow(new com.gregochr.goldenhour.exception.NoRoadRouteException("No route."))
+                .when(routabilityGuard).requireRoutableOnUpdate(eq(1L),
+                        argThat((UpdateLocationRequest r) -> r != null && Boolean.TRUE.equals(r.clearDrivePoint())));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"clearDrivePoint\":true}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("NO_ROAD_ROUTE"))
+                .andExpect(jsonPath("$.error").value("No route."));
+
+        verifyNoInteractions(locationService);
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/locations/{id} runs the guard before the service, with the drive point fields")
+    void updateLocation_drivePoint_reachesTheGuardAndService() throws Exception {
+        when(locationService.update(eq(1L), argThat((UpdateLocationRequest r) -> r != null
+                && "Glenridding".equals(r.drivePointName()))))
+                .thenReturn(buildEntity(1L, "Helvellyn", 54.5275, -3.0162));
+
+        mockMvc.perform(put("/api/locations/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"drivePointName\":\"Glenridding\",\"drivePointLat\":54.5442,"
+                                + "\"drivePointLon\":-2.9505}"))
+                .andExpect(status().isOk());
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(routabilityGuard, locationService);
+        order.verify(routabilityGuard).requireRoutableOnUpdate(eq(1L),
+                argThat((UpdateLocationRequest r) -> r != null && Double.valueOf(54.5442).equals(r.drivePointLat())));
+        order.verify(locationService).update(eq(1L),
+                argThat((UpdateLocationRequest r) -> r != null && "Glenridding".equals(r.drivePointName())));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/locations/{id} returns 409 when moving a switched-on location into a switched-off region")
     void updateLocation_moveIntoRegionOff_returns409() throws Exception {
         when(locationService.update(eq(1L), argThat((UpdateLocationRequest r) -> r != null

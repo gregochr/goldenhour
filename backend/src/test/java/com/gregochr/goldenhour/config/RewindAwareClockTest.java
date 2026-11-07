@@ -67,6 +67,12 @@ class RewindAwareClockTest {
     }
 
     @Test
+    @DisplayName("toString names the wrapped system clock")
+    void toString_namesTheSystemClock() {
+        assertThat(clock.toString()).isEqualTo("RewindAwareClock[" + Clock.fixed(SYSTEM, ZoneOffset.UTC) + "]");
+    }
+
+    @Test
     @DisplayName("clearing the rewind returns the clock to the system instant")
     void clear_restoresSystem() {
         Rewind.set(REWOUND);

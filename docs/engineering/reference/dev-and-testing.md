@@ -113,6 +113,208 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 ---
 
+## The E2E smoke gate (Playwright, a required check)
+
+`E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
+and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
+`docs/engineering/engineering-gaps-plan.md`, Phases 2, 3a.1 and 3a.2 (3b adds the production nginx config, 3c an
+advisory accessibility scan).
+
+**What it is.** The real backend (local profile, a fresh H2 file **carrying a seeded fixture**, Ask on its stub, a dead
+outbound proxy) and the built frontend behind `vite preview`, driven by Chromium through
+`frontend/playwright.smoke.config.js`. Specs live in `frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`
+(login, hygiene, the tile counter, the dialog-depth observer and the helpers that read the served forecast);
+`sheet-helpers.js` holds the location-sheet assertions; `global-setup.js` writes the one-time bits of per-user
+state (the admin's postcode prompt dismissal, and the Coming up "seen" mark for all three accounts). The older `src/test/e2e/forecast.spec.js` (run by
+`playwright.config.js`, which ignores `smoke/`) is manual.
+
+**The seeded fixture** (`E2eLocalFixtureSeeder` in `backend/src/local/java`, with its readiness bean
+`e2eFixtureHealthIndicator`). It gives the Map and Plan journeys data with **no network call and no Claude call**: 3
+regions of 6 places (Northumberland Coast with three coastal places, Lake District, Yorkshire Dales), rated for every
+window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reaches its floor), with a BEST pick.
+
+- **Gating, in four independent ways.** `@Profile("local & !prod")`, `photocast.e2e.seed-fixture=true` (only
+  `scripts/e2e-smoke-backend.sh` sets it), a runtime refusal unless the profile is `local` and the database is H2, and a
+  refusal unless the `locations` table is empty. Every refusal throws and stops startup. Any other failure is logged at
+  ERROR and leaves `e2eFixture` DOWN; the seeder never swallows it (unlike `AskLocalFixtureSeeder`).
+- **It never runs a briefing build.** `BriefingService.refreshBriefing*` always fetches live weather and calls two Claude
+  services. The seeder assembles the briefing from the same builder beans with synthetic weather. **The write order is
+  load-bearing:** regions, places and tides; `forecast_evaluation`; `cached_evaluation` through `mergeFromBatch`; slots
+  and days; `BriefingRegionEvaluationRollup.enrich` (persisting without it drops every pick, because the serve path nulls
+  a gloss when the verdict changes); the stamped gloss and headline; the `daily_briefing_cache` row; `loadPersistedBriefing`;
+  an almanac refresh; then the self-check (a BEST pick is served, the rows read back). Only then does it go UP.
+- **Role users and sub-region enforcement (3a.2).** `E2eRoleUsers` (same gating, called only by the seeder, after the
+  places are saved) inserts a `lite` (`LITE_USER`, `E2eLite#Pass1`) and a `pro` (`PRO_USER`, `E2ePro#Pass1`) beside the
+  seeded admin (`admin` / `golden2026`), through the repository, mirroring `LocalAdminSeeder`: an encoded password,
+  `enabled`, `createdAt`, and the insertable-but-`updatable = false` columns set on the builder (`passwordChangeRequired =
+  false`, `postcodePromptDismissedAt`, so the postcode prompt never holds the app inert). Nothing else gates a first sign-in:
+  terms are accepted at registration only. The script also passes `--photocast.sub-regions.enforce=true`, as production
+  does, so `LitePickShaper` strips and marks `gated` the ratings outside a Lite reader's picks. The seeder writes one
+  sub-region per region (`Northumberland Shore`, `Lakeland Fells`, `Dales Limestone`, each holding all six of its region's
+  places, through `SubRegionMembershipService`) and gives `lite` picks for the first two, so it holds **some but not all**
+  (Yorkshire Dales is gated). `lite` has picks, so its standing is `OPEN` (no grace stamp, no change lock) and the
+  first-choice sign-in prompt, which shows only at `FIRST_CHOICE`, never appears. `pro` and `admin` are unrestricted. The
+  self-check fails the seed unless both users exist with their roles and `lite` reads back exactly two of three picks.
+- **The ratings are one pure function** (`E2eLocalFixtureSeeder.rating`): a region's base cycles 4, 3, 2 and rotates every
+  window, and a place adds -1, +1 or 0 (zero over a region). So every place changes star between adjacent windows, and every
+  window has a Worth it, a Maybe and a Stand-down region. Specs do not mirror it: they read the served `/api/forecast` as the
+  **oracle** and compare against that.
+- **Readiness waits for the seed.** Tomcat accepts requests before `ApplicationReadyEvent` listeners finish, so the script
+  adds `e2eFixture` to the `container` health group (`--management.endpoint.health.group.container.include=db,ping,e2eFixture`)
+  and sets `--management.endpoint.health.cache.time-to-live=0s` so a stale DOWN is never served. Only the smoke run changes
+  the group.
+- **Nothing leaves the machine.** The script starts the JVM behind a **dead proxy** (`-Dhttps.proxyHost=127.0.0.1
+  -Dhttps.proxyPort=9`, and the http pair, with `http.nonProxyHosts=localhost|127.0.0.1`): every outbound call, Open-Meteo,
+  NOAA and the Anthropic SDK's OkHttp client alike, fails at once with a refused connection. The external health probes read
+  DOWN, so the status stream shows DEGRADED; no spec asserts on that banner, and it produces no console error. A CI step after
+  the suite fails the job if `backend.log` contains `Daily briefing refresh started`, `Briefing weather fetch`,
+  `Horizon cloud fetch` or `[ASK FIXTURE]`, **or if `[E2E FIXTURE] seeded` is absent** (so the check cannot pass on a log that
+  never seeded).
+- **The seeder's own gate.** `src/local` and `src/local-test` are outside the backend job (no JaCoCo, checkstyle or SpotBugs),
+  so the E2E job runs `./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*'` and `./mvnw -Plocal-dev generate-test-sources
+  checkstyle:check`. ⚠️ The `generate-test-sources` is not optional: `-Plocal-dev` adds the two roots in that phase, and a bare
+  `checkstyle:check` audits neither (it passes with a deliberate violation in `src/local`).
+- **Dates.** Everything is relative to the server's UK "today" at boot. A run that crosses a sunrise or sunset (about 0.2-0.4%
+  of runs) makes the first window past, so **no spec uses the first window**, none asserts a fixed count, and every expected
+  star comes from the served forecast, keyed by the window's `data-ev-id`.
+
+**The specs** (all on the shared fixture, with the hygiene assertion and no sleeps):
+
+| Spec | What it asserts |
+|---|---|
+| `tabs.spec.js` | The tab bar is Plan, Coming up, Map, Operations (waits for the Map tab, which appears only once the forecast has loaded); each tab renders (heat cards, the almanac list, a Leaflet container, Operations). Never the desktop's opening tab: Map is preferred only if `/api/forecast` lands within 1.5 s, so every spec clicks its tab. |
+| `phone.spec.js` | At 390 px the four tabs are there and Plan is selected. |
+| `map.spec.js` | Leaflet draws and tiles are requested (a counter, polled); every visible chip's star equals the served star for the active window; a chip opens the callout whose score agrees; the close button and Escape both close it. Chips are the visible ones **by role** and polled, after `data-placed="true"` on `map-labels` (the placement-settled signal, a one-line frontend seam). |
+| `window-stepping.spec.js` | From the current window forward to the last (`›` disables, no wrap), back through today into the past (`wf-win-past` appears), the keyboard with the pill focused, then `‹` loading the two older days (T-3 with rows, T-4 empty) and stopping at the floor, where `‹` is disabled and the status line explains why. At each step the pill changes and every chip present in both windows changes star. A phone leg uses the peek sheet. |
+| `drilldown-map.spec.js` | Chip, callout, "Four days here", the location sheet (one row opens expanded; its detail response is awaited from a waiter registered before the click), a second row's lazily fetched detail, and the Escape order back out (sheet, focus to the reason line, selection). |
+| `drilldown-plan.spec.js` | Heat card, window sheet, a place, the location sheet: two dialogs deep, never three (a MutationObserver installed before load records the maximum concurrent `.app-safe-modal` and `aria-modal`). Bamburgh Beach shows the rising-tide fact; an inland place does not. Escape closes the top layer first; the close buttons work. |
+| `door1-obstacles.spec.js` | Moved here from `src/test/e2e/`: no overlay control covers a field chip in any matrix window, at 1280 and at 390 px. |
+| `roles.spec.js` | Read-only role gating, signed in as `lite` and `pro` (not the admin, so the sign-out hazard does not apply). Every non-admin: no Operations tab, and `GET /api/admin/scheduler/jobs` is 403 through `page.request` (the page's hygiene never sees it), with the admin's 200 as the control. LITE: Pro doors (`wf-heat-bestbets-upsell-*` on the Plan, `wf-scores-upsell-*` in a location sheet) open a worded popover with a Pro pill and no link; Ask is locked (`ask-field[data-locked]`, the Pro lens, the upsell) and no `/api/ask*` request is made; "How was it?" is locked (`pro-pill`, "Rating is part of Pro.", no write); chips outside the picks carry `data-gated`, the callout says "Outside your sub-regions" and the sheet shows `location-sheet-outside`; and the served `/api/forecast`, `/api/briefing/evaluate/scores` and `/api/briefing` carry no Fiery/Golden scores, no written why and no picks, with the gated places unrated, against PRO's full bodies as the contrast. PRO: none of the locks. |
+| `roles-write.spec.js` | The Pro reader rates one past window (`outcome-rating-block`): the `PUT /api/outcome/ratings` is 200, the block reads rated, and the row reads back from `GET /api/outcome/ratings`. The only spec that writes shared state, so it is its own serial project, `roles-write` (`dependencies: ['smoke']`, `workers: 1`), before `logout`. |
+| `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
+
+The browser Back button closes the top dialog (`back-closes-dialogs-plan.md`; PR 2a wires Settings, the guide, the Ask sheet,
+confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests it; see "Back (dialog history)" below.
+
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
+
+```bash
+cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
+cd frontend && npm run build
+cd frontend && npx playwright install chromium                       # once
+cd frontend && npm run test:e2e:smoke
+```
+
+The ports are 8083 and 4173 (fixed in CI). ⚠️ Two checkouts running the suite on one machine collide on them, and because a local
+run reuses whatever already answers there, each can silently drive (and later lose) the OTHER's servers: a run that fails
+with `ERR_CONNECTION_REFUSED` halfway, or a backend that exits 143 under a later invocation, is that. `E2E_API_PORT` and
+`E2E_WEB_PORT` move both (the config and the backend script read the same two), and a `--repeat-each` proof that chains
+invocations should wait for the first one's backend to stop answering before starting the next.
+
+Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
+`frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
+database; stop it first when a spec fails oddly. If the machine's preinstalled Chromium does not match the pinned
+Playwright, `E2E_CHROMIUM_PATH=/path/to/chrome` points the run at it (local only; CI never sets it). `E2E_HYGIENE=record`
+prints the hygiene findings below instead of failing on them, which is how to discover a new tab's errors.
+
+**The rules** (each was put in the plan by an adversarial review):
+
+- **Reliability is the requirement.** Chromium only, `@playwright/test` pinned exactly (also in the lockfile's root
+  entry, or `npm ci` fails), `workers: 2`, `retries: 0`, traces `retain-on-failure`, `serviceWorkers: 'block'` (the PWA's
+  worker would otherwise take over mid-test). No fixed sleeps: web-first assertions and `waitForResponse` only. No clock
+  freezing in this phase.
+- **No spend, by construction.** The job has no secrets, the backend script forces a fake `ANTHROPIC_API_KEY`, and the
+  JVM runs behind a dead proxy (see the fixture above). The external health probes therefore read DOWN and show a DEGRADED
+  banner, so **no spec asserts on the health banner**. Readiness is `/actuator/health/container` only (db, ping and
+  `e2eFixture`), never the bare `/actuator/health`.
+- **Third parties are fulfilled, never aborted** (an aborted request logs `net::ERR_FAILED` as a console error): ArcGIS
+  tiles get a real 1x1 PNG and the Turnstile script gets a stub that verifies at once. Any other off-origin request is
+  recorded and fails the test.
+- **Hygiene on every test.** The fixture records console errors, `pageerror`s, responses of 400 or more from the app's
+  own origin, and unexpected off-origin requests, and each test ends by asserting there were none apart from a named
+  allow-list (`ALLOW_LIST` in `fixture.js`; each entry needs a reason and a follow-up). A test that provokes an error on
+  purpose declares it with `hygiene.expect(...)`, scoped to that test.
+- **The CORS gotcha.** The browser's `Origin` is the preview origin and the proxy passes it on. The backend allows
+  `http://localhost:*` but not `127.0.0.1`, so the backend script adds `--cors.extra-origins=http://127.0.0.1:4173`; without
+  it every browser POST, the login form's included, is a 403.
+- **Logging in** posts to `/api/auth/login` through the preview origin (so the proxy is exercised) with the local admin
+  `admin` / `golden2026`. `LocalAdminSeeder` makes it.
+- **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke', 'roles-write']`,
+  `workers: 1`): signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its
+  token. The role specs use `lite` and `pro`, so they carry no such hazard.
+- **Opening the Map after the Plan tab in one session is flaky** (an app quirk found by 3a.2: the map can mount at an extreme
+  zoom with most chips culled, for the admin as well). The role specs open the Map first and the Plan last; a spec that must
+  visit both in that order should not rely on chips being visible.
+- **A re-rating answers with the PREVIOUS star** (a stale re-read in `OutcomeRatingService.rate`, found by 3a.2), so the
+  "How was it?" block shows the old value until a reload. `roles-write.spec.js` asserts the block's value on a first rating
+  only, and the stored row (through `GET`) on every rating.
+- **Never fail the admin's sign-in on purpose.** Ten failed sign-ins lock an account out with a 429, which then
+  rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
+- **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the
+  local profile does not run), so no scheduled job registers. A spec asserts `GET /api/admin/scheduler/jobs` is empty, so a
+  future seeder that adds rows fails loudly (the seeder never writes `scheduler_job_config` or `model_selection`).
+  `photocast.ask.seed-local-fixture` stays off: it triggers a briefing build.
+- **The Map tab appears late.** `App.jsx` offers it only once a forecast (or a real aurora alert) exists, so the tab bar
+  has three tabs for a moment after login. Every spec waits for the Map tab before reading the bar.
+- **Ask** renders its box and the allowance line. A typed question returns 503 `TYPED_UNAVAILABLE` from the stub, which the
+  dock renders gracefully but which is a console error, so the spec sends none.
+- **Time budget:** the suite under 3 minutes on 2 workers; the job's `timeout-minutes` is 20 (it also runs the seeder's
+  tests and the boot).
+- **Reliability proof.** `--repeat-each` repeats only the projects it is asked for, and a project's dependencies run once, so
+  the whole suite repeated is three invocations: `--project=smoke`, `--project=roles-write` and `--project=logout`, each with
+  `--repeat-each=10`.
+
+**After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
+
+---
+
+## Dialog history tests (`utils/dialogHistory.js`)
+
+The store behind "Back closes the top dialog" (`docs/engineering/back-closes-dialogs-plan.md`) is tested against a
+**fake Chromium history**, not jsdom. `src/test/fakeBrowserHistory.js` (`createFakeBrowser()`) models what jsdom does
+not: every queued traversal runs, a push truncates the forward entries, an out-of-range `go` does nothing, a `go` is
+relative to the entry the browser is on when it RUNS, `popstate` fires only when the test steps or flushes the queue,
+and `userActivation` and `scrollRestoration` exist (with an ordered `log`). The store takes the fake through its seam:
+
+```js
+const b = createFakeBrowser();
+__resetForTests({ history: b.history, win: b.win });   // enabled: false exercises the off switch
+```
+
+`__resetForTests()` (no arguments) puts the real globals back; call it in `afterEach`. Assert **spy calls**
+(`go` called once with `-2`), never `popstate` counts. The timeout branch uses `vi.useFakeTimers()` and must call
+`createFakeBrowser()`/`__resetForTests` again afterwards so the store's `setTimeout` is the faked one. `tick()` lets the
+store's reconcile microtask run; in a React test wrap `tick()` and `b.flush()` in `act`.
+
+**jsdom limits** (why the fake exists): two `history.back()` calls merge into one, a traversal followed by `pushState`
+is dropped, and there is no `navigator.userActivation` and no `history.scrollRestoration`. Real jsdom is used only for
+a few wiring tests. **Playwright limits**: `goBack` ignores Chromium's skippable-entry rule and always grants user
+activation, so the activation gate, the first-run guard and the history-manipulation intervention cannot be
+automated; they belong to the manual device pass in the plan (a release blocker). Before any `goBack`/`goForward`/
+reload, wait for the store to settle by polling `data-back-depth` on `<html>` (a number when idle, `busy` while a
+traversal or reconcile is outstanding).
+
+### Back (dialog history), tests of the wired consumers
+
+- **Vitest.** A wired consumer is tested with `src/test/backTestKit.js`: `installBackBrowser()` installs a fresh fake
+  Chromium history behind the store's seam (`b.userBack()` / `b.back()` press Back and settle inside `act`;
+  `uninstallBackBrowser()` in `afterEach`). Assert what the dialog DID (its `onClose` ran, it stayed open, the layer count
+  and `committedDepth`), never real history counts. Suites: `backDialogsConfirm`, `backDialogsSettings`,
+  `backDialogsGuide`, `backDialogsAsk`, plus cases added to `UserManagementView`, `LazyEntrySettings` and
+  `AppSettingsRoutes` (the engine boots at `App` mount). A suite that fakes only `Date` (the Ask shell) cannot use
+  `tick()`'s fake-timer branch: wait a real macrotask instead.
+- **Playwright** (`smoke/back.spec.js`). Rules: (1) before every `goBack` / `goForward` / reload, poll `<html data-back-depth>`
+  to the expected number (it reads `busy` while anything is outstanding); (2) take `navigation.currentEntry.index` before
+  anything opens: after a x, Escape or Back it must return to that baseline with no `history.state.phLayer`, which is the
+  "no dead press" property; (3) never click `confirm-dialog-confirm` (the Operations case would reset the shared admin);
+  (4) the guide iframe is stubbed by `stubGuideFrame(page, hygiene)` in `fixture.js`: route-fulfilled plain pages that load the repo's REAL
+  `landing/guide/guide.js` (served from the stubbed origin), so the real script reports the page and replaces the location on
+  a guide link and the history on a `#section` link; the guide host is an expected off-origin request for that test only; (5) `bottom-sheet` is shared, so sheets are selected by `aria-label`; (6) an Operations
+  panel is closed by Back only when the entry below it is also a `#manage/...` hash (a non-manage hash is ignored by
+  `ManageView`), so the spec clicks the Users tab first; (7) opening Settings runs `selectTab`, which scrolls the page to the
+  top and focus-return scrolls to the cog, so the scroll case uses the fixed Ask bar on a phone, scrolls the page WHILE the sheet is up and asserts that value survives
+  each close (and `history.scrollRestoration` is `'auto'` again), which fails if the engine stops setting `'manual'`.
+
 ## UI Work — Review Cadence
 
 **Every code commit that touches the UI gets an adversarial review before it lands, and the tests go
@@ -203,9 +405,11 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
 grep -E "BUILD (SUCCESS|FAILURE)|Rule violated|Tests run: [0-9]+, Fail" /tmp/v.log | tail -6
 ```
 
-Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/integration/**` path glob rather than a list of class names — a name list rots (`HttpIntegrationTestBaseProbeTest` ends in `ProbeTest` and slips past `!*IntegrationTest`), and `-Dtest='!com.gregochr.goldenhour.integration.*'` does not work at all, as surefire ignores that form. JaCoCo coverage is then computed without those tests, i.e. slightly pessimistic — if it passes locally it passes on CI. **JaCoCo's rule is 80% line coverage per class**, which bites small new records: cover the defensive null branches with real assertions rather than deleting the guards.
+Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/integration/**` path glob rather than a list of class names — a name list rots (`HttpIntegrationTestBaseProbeTest` ends in `ProbeTest` and slips past `!*IntegrationTest`), and `-Dtest='!com.gregochr.goldenhour.integration.*'` does not work at all, as surefire ignores that form. JaCoCo coverage is then computed without those tests, i.e. slightly pessimistic — if it passes locally it passes on CI. **JaCoCo holds every class to 95% of lines and 90% of branches on its own**, plus a bundle floor (99.3% lines, 95.8% branches, measured 2026-11-05 without the integration tests, rounded down). The seven classes that carry an unreachable branch have their own `<rule>` in `backend/pom.xml`, each at its measured figure with the reason in an XML comment; they are excluded from the default rule and nothing is excluded from checking. A new class arrives with its tests, which bites small new records: cover the defensive null branches with real assertions rather than deleting the guards. Never lower the default to fit a class; add an override only for a branch that truly cannot be reached, with the reason, and raise an override when its class improves.
 
-**Frontend coverage floor.** CI's Vitest step is `npm run test:coverage` (`vitest run --coverage`, v8 provider via `@vitest/coverage-v8`, pinned to the exact vitest version). The floor is `test.coverage.thresholds` in `frontend/vite.config.js`: global lines / statements / functions / branches, the figure measured on 2026-11-04 rounded down to a whole percent (97 / 96 / 96 / 93). `include` is `src/**/*.{js,jsx}` so untested files count as 0%. **Ratchet rule: raise the numbers when coverage rises; never lower them without the owner's say-so.** `npm test` stays the plain, no-coverage run. Output goes to the ignored `frontend/coverage/`.
+**Backend changed-lines check.** On `pull_request` runs the backend job also runs `diff-cover` (pinned `10.0.0`) over `backend/target/site/jacoco/jacoco.xml` against the PR's base branch and fails when under 90% of the lines the PR adds or changes under `backend/src/main` are covered; it needs `fetch-depth: 0` on the checkout and a `git fetch` of the base ref, like the frontend step. JaCoCo's `sourcefile` paths are package-relative (`com/gregochr/.../Foo.java`), so `--src-roots backend/src/main/java` is required to map them onto the diff's `backend/src/main/java/...` paths, and it must run from the repo root. ⚠️ Without `--src-roots` nothing matches, diff-cover prints "No lines with coverage information in this diff" and exits 0 (proved locally), so a green run on a PR that changes `src/main` must show real percentages in the job summary. Tests, resources and a PR with no `src/main` change are absent from the report and pass. Line coverage only. Locally, after the `verify` command above (the per-class gate may fail it; the XML is written at the `test` phase either way): `pip install diff-cover==10.0.0` then, from the repo root, `diff-cover backend/target/site/jacoco/jacoco.xml --src-roots backend/src/main/java --compare-branch=origin/main --fail-under=90`. The diff covers committed, staged and unstaged changes.
+
+**Frontend coverage floor.** CI's Vitest step is `npm run test:coverage` (`vitest run --coverage`, v8 provider via `@vitest/coverage-v8`, pinned to the exact vitest version). The floor is `test.coverage.thresholds` in `frontend/vite.config.js`: global lines / statements / functions / branches, the figure measured on 2026-11-04 rounded down to a whole percent (99 / 98 / 98 / 95; raised three times: 97 / 96 / 96 / 93 → 98 / 97 / 97 / 93 by tests for the API wrappers and the simulation UIs → 99 / 98 / 98 / 94 by tests for the auth context, hooks, utils and remaining API wrappers → 99 / 98 / 98 / 95 by the per-file branch tests below). `include` is `src/**/*.{js,jsx}` so untested files count as 0%. **Per-file floor:** every file in `src/**` must also reach **95% lines and 90% branches on its own**, enforced by a glob entry with `perFile` in the same `thresholds` block (the run fails naming the file), so a new file must arrive with its tests. Vitest applies a top-level `perFile` to every file and a glob entry cannot relax it, so the glob excludes by name the two files whose remaining branches truly cannot be reached, and each has its own entry with its measured figure (they still cannot fall further): `TurnstileWidget.jsx` (81% branches: the `typeof document` SSR guard, a null container ref, and a re-render over an existing widget id that the once-only effect can never hold, and the `!cancelled` re-checks after the cleanup has cleared the poll) and `runs/StartRunScope.jsx` (87%: the `if (allRef.current)` null arm in an effect, since React sets the ref first). A guard that protects real behaviour (a double submit, a race, a stale response) is never an exception: it gets a test (`FixedDelayEditor`'s double-click guard is tested with two native clicks in one `act`). Do not add a file to that list to dodge writing a test. **Changed-lines check.** On `pull_request` runs CI also runs `diff-cover` (pinned `10.0.0`, installed with pip) over `coverage/lcov.info` against the PR's base branch and fails when under 90% of the lines the PR adds or changes under `frontend/src` are covered, so a PR cannot hide untested code inside a high global total. Only files present in lcov count (the `include`/`exclude` above), so tests, `src/test/**` and `src/main.jsx` are ignored; a PR with no covered source changes reports "No lines with coverage information in this diff" and passes. It gates line coverage only: diff-cover reads `BRDA` but cannot gate branches separately. Locally, after `npm run test:coverage`: `pip install diff-cover==10.0.0` then, from the repo root, `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/lcov-root.info && diff-cover /tmp/lcov-root.info --compare-branch=origin/main --fail-under=90` (the `SF:` rewrite is needed: lcov paths are relative to `frontend/`, diff-cover resolves them against the repo root, and without it nothing matches and the check passes vacuously). **Ratchet rule: raise the numbers when coverage rises; never lower them without the owner's say-so.** `npm test` stays the plain, no-coverage run. Output goes to the ignored `frontend/coverage/`.
 
 **Don't use background Bash tasks for long Maven builds** — the background task output files are unreliable (often 0 bytes until the process finishes writing). Always run `./mvnw` in the foreground with an explicit `timeout` parameter so results come back immediately.
 
@@ -239,7 +443,86 @@ three-line lockfile edit leaves `npm ci` refusing the tree (`Missing: brace-expa
 per `minimatch`), and an audit run over an EMPTY `node_modules` then reports 0 vulnerabilities,
 which is not evidence of anything.
 
+**Gate values are published.** When a gate value changes (`vite.config.js` coverage thresholds, the JaCoCo minimum, the SpotBugs threshold, `failBuildOnCVSS`, PIT `mutationThreshold`, the ZAP gate's risk level, or the required checks on `main`), update `landing/engineering.html` and its "Last checked" date in the same PR.
+
 The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. ⚠️ Every rung that reaches the full `test` phase must carry `-Dtest='!**/integration/**'`, because there is no local Docker and never will be; without it you get a Testcontainers stack trace instead of a test failure. The integration classes run in CI.
+
+---
+
+## Backend mutation testing (PIT)
+
+`.github/workflows/pitest.yml` runs PIT weekly (Monday 06:00 UTC) over the service and utility layers; configuration is the `pitest-maven` plugin in `backend/pom.xml` (`mutationThreshold` 60). It never blocks a PR.
+
+- **Runner.** `ubuntu-latest` (free, the repo is public), not the self-hosted runner that serves production deploys. PIT excludes the Testcontainers and full-context tests (`PitExclusionDriftTest` enforces the list), so it needs no Docker.
+- **Shards.** One cold run is ~2h07m (10,506 mutations at the last success), so the workflow runs five parallel shards, each with its own report artifact `pitest-report-<n>` and a summary line. `pom.xml` takes the targets from the `pit.targetClasses` property (default: the full list); explicit plugin configuration beats `-D`, so the property is the only override route. Each shard passes `-Dpit.targetClasses=...`. ⚠️ In PIT globs `*` matches dots, so `service.*` already covers every sub-package: shards split the top-level `service` classes by first letter (class names are uppercase, sub-package names lowercase) and list sub-packages explicitly. The `plan` job asserts that every class under `service/` and `util/` that the default targets match is matched by exactly one shard pattern, so a new class or package cannot be missed or mutated twice; add a new sub-package to a shard when it fails. Run one shard locally with `./mvnw test-compile pitest:mutationCoverage -Dpit.targetClasses='com.gregochr.goldenhour.util.*'`.
+- **No incremental analysis.** Open-source PIT 1.30.1 has none: `historyInputFile` and `historyOutputFile` fail with "History has been enabled but no history plugin has been installed" (history is the commercial arcmutate plugin). Sharding is the answer.
+- **Timeouts.** Each shard 350 minutes (GitHub's cap is 360), the PIT step 320, so the summary and report upload still run.
+- **Why it changed.** The last success (2026-10-05) took 2h23m (PIT 2h07m, 10,506 mutations, 77% killed, test strength 80%). The runs of 2026-10-12, 10-19, 10-26 and 11-02 were all `cancelled` by the old 180-minute cap and nobody was told: `notify-failure` used `if: failure()`, and a timed-out job ends as `cancelled`, so the dependent job was skipped. `pitest.yml` and `stryker.yml` now notify on `failure` **or** `cancelled`; `ci-failure-issue.yml` assumes no particular conclusion (its text says only "failed").
+- **Never run the full PIT locally**: it takes hours.
+
+## Frontend mutation testing
+
+Stryker (`@stryker-mutator/core` + `@stryker-mutator/vitest-runner`, pinned to the same exact version
+so Dependabot bumps them together as the `stryker` group) mutates `frontend/src/utils/*.js` and checks
+that some test notices each fault. Config: `frontend/stryker.config.mjs`; workflow:
+`.github/workflows/stryker.yml`; plan and review record: `docs/engineering/frontend-mutation-testing-plan.md`.
+It **runs weekly (Wednesday 03:00 UTC) and never blocks a PR**; a failed run opens a report through
+`ci-failure-issue.yml`, as `pitest.yml` does. Each shard has a mutation-score floor (`thresholds.break`).
+
+- **Per-shard floors.** `thresholds.break` applies to each Stryker process's own score and each CI shard is its own process, so one number would fail the weaker shards. The floors are the scores of the first full forced run after the survivor sweeps (run 42380927482, 2026-11-07), rounded down: overall 96.28% (18,402 killed, 710 live), up from an 87.81% pre-sweep baseline (run 42202344388).
+
+  | shard | score | floor |
+  |---|---|---|
+  | 1 | 96.77% | 96 |
+  | 2 | 95.99% | 95 |
+  | 3 | 94.15% | 94 |
+  | 4 | 97.90% | 97 |
+  | 5 | 95.47% | 95 |
+  | 6 | 96.51% | 96 |
+  | 7 | 96.75% | 96 |
+  | 8 | 97.21% | 97 |
+  | 9 | 96.20% | 96 |
+  | 10 | 96.50% | 96 |
+
+  The floor lives in the `plan` job's matrix (`"break"` per shard, asserted numeric), reaches Stryker as `STRYKER_BREAK` on the run step, and `stryker.config.mjs` reads it (a whole number 0-100, otherwise it throws; unset, as in every local run, it is `null`, so there is no floor). Ratchet rule: raise a floor, never lower one without the owner's say-so.
+
+- **Locally:** `cd frontend && npm run test:mutation` (add `-- --mutate 'src/utils/heatField.js'` to
+  narrow it). The dry run alone is about 18 minutes (15.4k tests, one worker, because the runner forces
+  `maxWorkers: 1`); a full run is 18,902 mutants at roughly 18 per minute (measured 2026-11-06 on a loaded laptop, four
+  runners), about 17 hours, so **always narrow it**. An interrupted run (Ctrl-C) saves a partial
+  incremental file and restores the originals; it may leave `stryker-setup-*.js` files behind (git-ignored). ⚠️ Interrupt only the main `stryker`
+  process (SIGINT) and let it finish restoring: killing its children, or deleting `.stryker-tmp/` first,
+  strands the whole tree with a `// @ts-nocheck` header and the mutants' instrumentation (1,286 files
+  were left modified once). **Run mutation testing only in a separate clean worktree** (`git worktree add`), so nothing of yours is in the tree; then the recovery is to delete that worktree. If you must recover in place, commit or copy your own work out first, then restore (CLAUDE.md forbids restoring with `git checkout --` over uncommitted work).
+  Stryker runs `inPlace: true` (the originals are backed up to `.stryker-tmp/` and restored on exit):
+  `windowFirstTopics.test.js` reads a backend source file by a path that climbs out of `frontend/`,
+  which the default one-level-deeper sandbox copy breaks. Run it on a clean checkout, and if a run is
+  killed, check `git status` for a half-mutated `src/utils` file. The pool is `forks`, not the runner's
+  default `threads`, because the suite pins `process.env.TZ`.
+- **Shape:** ten shards, split by first letters of the file name and balanced by line count (about 5k
+  lines, 1.9k mutants each), because one job would run for most of a day. The `plan` job owns the
+  shard list and fails the run if the globs do not match `src/utils/*.js` exactly once, so a new file
+  whose name starts outside every shard (for example `e…`, `k…`, `n…`) fails that check loudly: add its
+  glob to the lightest shard. **Add shards, never widen one**, if the run time grows; the first full run
+  of a shard must fit in its 350-minute job cap on its own.
+- **Incremental state** (`incremental: true`) is saved only when a shard's run finishes. It travels as an
+  artifact `stryker-incremental-<shard>` (30-day retention, uploaded `if: always()`), fetched at the start
+  from the newest of the last 10 completed `stryker.yml` runs on `main` that has one for the shard, whatever its conclusion; `actions/cache` is not
+  used because GitHub evicts caches unused for 7 days, which is the weekly boundary. With no earlier run,
+  a shard starts from scratch.
+- **Forced runs.** Incremental mode cannot see changes to `setup.js`, `vite.config.js` or dependency
+  bumps, so `stryker run --force` re-tests everything: via the `force` input of a manual dispatch, and
+  automatically on any scheduled run whose UTC day of the month is 7 or less (the first Wednesday).
+- **Deliberate trade-offs, revisit once reports exist:** `ignoreStatic: true` (module-level tables are
+  static mutants that re-run every covering test) and `mutator.excludedMutations: ['StringLiteral']`
+  (strings in `utils` are mostly user-facing labels: low value, high cost). `coverageAnalysis` is not
+  set; the vitest runner always uses per-test coverage.
+- **Reading survivors.** A mutant in code that only runs inside a `React.lazy` import can survive falsely:
+  the first test that triggers the lazy load may time out, and a covering test that runs only after the
+  module is cached sees no difference. Check the report (`reports/mutation/mutation.html`, uploaded as the
+  `stryker-report-<shard>` artifact) before writing a test for a survivor.
+- `.stryker-tmp/` and `reports/` are git-ignored and docker-ignored, and `**/.stryker-tmp/**` is excluded
+  from Vitest so a failed run's leftovers cannot duplicate tests.
 
 ---
 

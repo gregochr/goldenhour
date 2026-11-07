@@ -150,8 +150,19 @@ public class ComingUpScoringProperties {
          */
         private double springTideMeanGapDays = 14.8;
 
-        /** Each named shower peaks once a year, regardless of how many other showers also do. */
+        /**
+         * Each named major shower (Quadrantids, Lyrids, Perseids, Orionids, Leonids, Geminids)
+         * peaks once a year, regardless of how many other showers also do.
+         */
         private double meteorShowerMeanGapDays = 365.25;
+
+        /**
+         * A configured figure, not a measured rate: the six minor showers together peak about every
+         * two months, and this is set (365.25 / 6) so a minor shower sits on the supermoon rung
+         * ({@code log2(60.875) + 1 ≈ 6.93} bits) and lists without badging. The entry's
+         * {@code rarityIsStatable} is false, so no sentence states it.
+         */
+        private double minorMeteorShowerMeanGapDays = 60.875;
 
         /** Two equinoxes and two solstices a year — each turning point recurs twice yearly. */
         private double solarTurningPointMeanGapDays = 182.625;

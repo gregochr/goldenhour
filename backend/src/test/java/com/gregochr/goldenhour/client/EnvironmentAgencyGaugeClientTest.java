@@ -78,6 +78,22 @@ class EnvironmentAgencyGaugeClientTest {
     }
 
     @Test
+    @DisplayName("An empty body, a body without items and a null item all yield no readings")
+    void fetchReadings_missingItems_yieldsEmptyList() {
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET)).andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+        server.expect(method(HttpMethod.GET))
+                .andRespond(withSuccess("{\"items\":[null]}", MediaType.APPLICATION_JSON));
+        LocalDate from = LocalDate.of(2026, 10, 24);
+        LocalDate to = LocalDate.of(2026, 10, 31);
+
+        assertThat(client.fetchReadings(MEASURE, from, to)).isEmpty();
+        assertThat(client.fetchReadings(MEASURE, from, to)).isEmpty();
+        assertThat(client.fetchReadings(MEASURE, from, to)).isEmpty();
+        server.verify();
+    }
+
+    @Test
     @DisplayName("A server error propagates for the caller to log")
     void fetchReadings_serverError_throws() {
         server.expect(method(HttpMethod.GET)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));

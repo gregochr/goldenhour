@@ -351,7 +351,7 @@ describe('MapView stand-down — the keys', () => {
     await renderMap({ heat: heatFor({ stood: { 3: 'HIGH_CLOUD' } }) });
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
     const row = screen.getByTestId('wf-map-peek-ground');
-    expect(within(row).getByTestId('wf-map-peek-standdown')).toHaveTextContent('ruled out by the weather');
+    expect(within(row).getByTestId('wf-map-peek-standdown')).toHaveTextContent(/^stood down by the weather$/);
     expect(row).not.toHaveTextContent('not rated yet');
   });
 
@@ -576,7 +576,9 @@ describe('MapView stand-down — review corrections', () => {
     mockIsMobile = true;
     await renderMap({ heat });
     fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
-    expect(screen.getByTestId('wf-map-peek-standdown')).toHaveTextContent(/Stood down\s+ruled out/);
+    const item = screen.getByTestId('wf-map-peek-standdown');
+    expect(item).toHaveTextContent(/^stood down by the weather$/);
+    expect(item.querySelector('b, strong')).toBeNull();
   });
 
   it('the region label\'s rated side is narrowed too: a rated place dark sky hides cannot block it', async () => {

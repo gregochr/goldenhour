@@ -301,6 +301,15 @@ public class AlmanacService {
     }
 
     /**
+     * Drops the cached feed when the meteor peak dates are reloaded, so the next request shows the new
+     * peaks rather than the ones built before.
+     */
+    @EventListener(MeteorPeakCalendarReloaded.class)
+    public void onMeteorPeakCalendarReloaded() {
+        evict();
+    }
+
+    /**
      * Drops the cached feed so the next request rebuilds.
      *
      * <p>Exists for the admin refresh path and for tests; the feed otherwise turns over on its own

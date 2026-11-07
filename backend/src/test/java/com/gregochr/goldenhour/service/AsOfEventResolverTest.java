@@ -588,6 +588,31 @@ class AsOfEventResolverTest {
         }
 
         @Test
+        @DisplayName("places in two regions share ONE bulk served read: the second region reuses the memoised result")
+        void twoRegionsReuseTheBulkRead() {
+            RegionEntity otherRegion = RegionEntity.builder().id(2L).name("Other").build();
+            LocationEntity a = place(10L, "A", LocationType.LANDSCAPE);
+            LocationEntity b = LocationEntity.builder().id(11L).name("B").lat(54.7).lon(-1.5)
+                    .region(otherRegion).locationType(Set.of(LocationType.LANDSCAPE)).build();
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(DAY, DAY, Set.of(TYPE)))
+                    .thenReturn(Map.of(
+                            REGION + "|" + DAY + "|" + TYPE, Map.of("A", served("A", 4, BEFORE, CYCLE)),
+                            "Other|" + DAY + "|" + TYPE, Map.of("B", served("B", 2, BEFORE, CYCLE))));
+            cycle(CYCLE, 77L);
+
+            Map<Long, AsOfEvent> out = resolver.resolveAll(List.of(a, b), DAY, TYPE, loc -> EVENT);
+
+            assertThat(out.get(10L).forecastRating()).isEqualTo(4);
+            assertThat(out.get(11L).forecastRating()).isEqualTo(2);
+            assertThat(out.get(10L).pipelineRunId()).isEqualTo(77L);
+            assertThat(out.get(11L).pipelineRunId()).isEqualTo(77L);
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(eq(DAY), eq(DAY),
+                    eq(Set.of(TYPE)));
+            verify(evaluationViewService, never()).getLiveScoresForEnrichment(eq(REGION), eq(DAY), eq(TYPE));
+            verify(evaluationViewService, never()).getLiveScoresForEnrichment(eq("Other"), eq(DAY), eq(TYPE));
+        }
+
+        @Test
         @DisplayName("a skip between two places' events retracts only the later place's row, and one "
                 + "canopy cache read serves every canopy place of the region")
         void perSlotSkipsAndTheCanopyRegionRead() {

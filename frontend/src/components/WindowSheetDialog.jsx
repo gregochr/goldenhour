@@ -31,6 +31,7 @@ import {
 } from '../utils/confidenceUtils.js';
 import { movementChip } from '../utils/movement.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { calDow } from '../utils/windowFirstStrip.js';
 import { dayNumber } from '../utils/windowFirstMatrix.js';
@@ -172,6 +173,11 @@ export default function WindowSheetDialog({
   colourMode = null, onOpenSubRegions = null,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
+  // The scope of the verdict word (reach-scoped-card-plan D6, R2 step 10): present only while the card wears the
+  // tier's headline. Printed beside the badge and voiced straight after the word in the live message.
+  const scopeText = verdictScopeText(card.verdictScope);
+  // Printed short, spoken long: the live message voices this one.
+  const scopeSpoken = verdictScopeSpoken(card.verdictScope);
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
   // ⚠️ The channel is gated on the VERDICT, and the gate now governs the WORD as well as the fill.
   // `buildWindowCards` nulls `confidence` for STAND_DOWN and AWAITING on purpose, and
@@ -233,10 +239,11 @@ export default function WindowSheetDialog({
   /**
    * Whether the reach axis COULD act on this window — is there a drive time anywhere to gate on.
    *
-   * <p>⚠️ Measured over {@code allSpots}, not over the drawn set. A reader with no home postcode has
-   * no drive time at all, and an unmeasured spot passes every tier (plan §2.5: absence means
-   * unknown, never out of reach), so the tier gates nothing and naming it describes an act that did
-   * not happen — §6 clause 7's own sentence. Asking the DRAWN set instead would make the claim
+   * <p>⚠️ A claim about the READER (reach-scoped-card-plan D2: one answer for the active origin, computed in
+   * the provider and folded onto the card), not about the drawn set or this window's {@code allSpots}. A reader
+   * with no home postcode has no drive time at all, and an unmeasured spot passes every tier (plan §2.5:
+   * absence means unknown, never out of reach, until a full measurement says otherwise), so the tier gates
+   * nothing and naming it describes an act that did not happen — §6 clause 7's own sentence. Asking the DRAWN set instead would make the claim
    * flicker: a window whose survivors all happen to be measured would print it while its neighbour
    * did not, which is a different and worse claim than one that is simply true of the account.
    *
@@ -387,7 +394,7 @@ export default function WindowSheetDialog({
   const liveMessage = useMemo(() => {
     const where = `${windowLabel}, ${index + 1} of ${total}`;
     const verdict = card.verdictLabel
-      ? `, ${card.verdictLabel}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
+      ? `, ${card.verdictLabel}${scopeSpoken ? `, ${scopeSpoken}` : ''}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
       : '';
     // A Coming up lane's tap-through names the topic it was about — only when this window has that
     // row, so the sentence never points at something the popup does not show.
@@ -399,7 +406,7 @@ export default function WindowSheetDialog({
     if (!field.selectedRegion) return `${where}${verdict}${highlight}`;
     const shown = placesOf(shownSpots).length;
     return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}${highlight}`;
-  }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion,
+  }, [windowLabel, index, total, card.verdictLabel, scopeSpoken, card.verdictBlanked, field.selectedRegion,
     shownSpots, emphasisTopic, topicRows]);
 
   // The reader's own places in the strip (S5b-1). Where there are none, the strip is not drawn: a list of places
@@ -545,6 +552,16 @@ export default function WindowSheetDialog({
                 )}
                 {card.verdictLabel}
               </span>
+              {/* The scope of the word beside it, spelled as the matrix card prints it (reach-scoped-card-plan
+                  D6). Absent unless the card wears the tier's headline. */}
+              {scopeText && (
+                <span
+                  data-testid="window-sheet-verdict-scope"
+                  className="wf-wsh-vnote font-mono"
+                >
+                  {scopeText}
+                </span>
+              )}
               {/* H4: the same quiet qualifier the matrix card prints — "Poor" over a blanked region is
                   the weather's call, not a rating. Secondary ink, no badge chrome. */}
               {card.verdictBlanked === true && (
@@ -587,7 +604,8 @@ export default function WindowSheetDialog({
                 {/* ⚠️ THE SAME `reachMeasured` GUARD THE FOOTER TAKES, added at M5's review after
                     three lenses charged this line independently. `gateSpotsByReach` returns its
                     input untouched when a drive time is unknown (plan §2.5 — absence means unknown,
-                    never out of reach), so for a reader with no home postcode the pool is the whole
+                    never out of reach; only a confirmed UNROUTABLE is dropped, and only for a measured
+                    reader), so for a reader with no home postcode the pool is the whole
                     origin scope and "within reach" names a filter that never ran. That is §6
                     clause 7's own sentence, and it was still true 250px above the footer M5 had
                     just repaired. The FIGURE is unchanged either way — what goes is the claim about
@@ -866,6 +884,8 @@ WindowSheetDialog.propTypes = {
     verdict: PropTypes.string.isRequired,
     verdictLabel: PropTypes.string.isRequired,
     verdictBlanked: PropTypes.bool,
+    /** Present only while the card wears the tier's headline (reach-scoped-card-plan R2). */
+    verdictScope: PropTypes.shape({ tierMinutes: PropTypes.number }),
     bestRating: PropTypes.number,
     confidence: PropTypes.string,
     movement: PropTypes.object,

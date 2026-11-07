@@ -10,6 +10,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
+import useReachVerdicts from '../hooks/useReachVerdicts.js';
 import { useVisiblePoll } from '../hooks/useVisiblePoll.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
@@ -24,6 +25,7 @@ import {
 import { stoodPointSetsOf } from '../utils/mapStandDown.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
+import { reachIsMeasured } from '../utils/reachLens.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { buildGroundSets, isShaped } from '../utils/pickScope.js';
 import { regionPickSummaries } from '../utils/pickGeography.js';
@@ -209,6 +211,8 @@ const WindowFirstBriefingContext = createContext({
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
   effectiveReachById: EMPTY_REACH,
+  // Whether any drive is measured for the active origin (reach-scoped-card-plan D2). False without a provider.
+  reachMeasured: false,
   origin: null,
   setOrigin: () => {},
   regions: EMPTY_REGIONS,
@@ -347,7 +351,7 @@ export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, driveTimesVersion, subRegionsVersion = 0, homePlace, comingUpLastSeenDate,
   setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY, onOpenSubRegions = null,
 }) {
-  const { role } = useAuth();
+  const { role, username } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
   // Drive times from home are Pro (docs/engineering/pro-features-gate-plan.md §9). Declared up here
   // because the reach fetch below needs it. `isPro` is declared here once, for every lock below.
@@ -626,6 +630,12 @@ export function WindowFirstBriefingProvider({
           next.set(entry.locationId, {
             driveMinutes: entry.driveMinutes ?? null,
             distanceMiles: entry.distanceMiles ?? null,
+            // MEASURED / PENDING / UNROUTABLE, served (reach-scoped-card-plan D1). Absent from an older
+            // backend mid-deploy, which reads as unknown: nothing is dropped.
+            driveStatus: entry.driveStatus ?? null,
+            // The drive point the minutes are to ("Glenridding"), when the place has one (R1c). Only when served, so
+            // an ordinary place's entry is shaped exactly as it was.
+            ...(entry.driveTo ? { driveTo: entry.driveTo } : {}),
           });
         }
         setReachById(next);
@@ -728,10 +738,23 @@ export function WindowFirstBriefingProvider({
    *
    * <p>Null origin gives back the per-user map untouched, so the home path is byte-identical.
    */
-  const effectiveReachById = useMemo(
-    () => originReachMap(origin, regionMatrix) ?? reachById,
-    [origin, regionMatrix, reachById],
-  );
+  const effectiveReachById = useMemo(() => {
+    const record = origin ? regions.find((region) => region?.id === origin.id) : null;
+    // Away, a place with no matrix row is PENDING or UNROUTABLE by the base's `drivesMeasuredAt` and the place's
+    // `driveTargetChangedAt` (both served; `originReachMap` derives it). Home arrives with `driveStatus` served.
+    return originReachMap(origin, regionMatrix, {
+      measuredAt: record?.drivesMeasuredAt ?? null,
+      locations,
+    }) ?? reachById;
+  }, [origin, regionMatrix, regions, locations, reachById]);
+
+  /**
+   * Whether any drive is measured for the active origin — computed ONCE here (reach-scoped-card-plan D2) and
+   * handed to every gate and every "within reach" wording. It is a fact about the reader and the origin, so
+   * no surface may re-derive it from a subset of spots: a region with no measured spot is not a reader with no
+   * measured drive. False for a reader with no postcode (and for Lite), which leaves every tier a no-op.
+   */
+  const reachMeasured = useMemo(() => reachIsMeasured(effectiveReachById), [effectiveReachById]);
 
   /**
    * Moves the origin.
@@ -805,12 +828,30 @@ export function WindowFirstBriefingProvider({
     [servedAllowedIds],
   );
 
+  /**
+   * The Plan headline recomputed for each drive tier, from the server (reach-scoped-card-plan R2): while a matching
+   * answer is held, the cards' verdict word, mean, confidence, thin count and pick are the active tier's, with the
+   * scope said beside them. Asked for only when it can be true: a Pro or Admin reader, not drive-locked, not a
+   * body shaped by sub-region picks, and with drives measured for the active origin (D2). Fetched once per
+   * (briefing version, origin); a tier tap is a lookup in what is held and never a request. Null until then, and
+   * the cards wear today's served word without scope words.
+   */
+  const reachVerdicts = useReachVerdicts({
+    enabled: isPro && !driveLocked && allowedIdSet === null && reachMeasured,
+    briefingVersion: briefing?.briefingVersion ?? null,
+    originId: origin?.id ?? null,
+    homeSettingsVersion,
+    driveTimesVersion,
+    userId: username ?? null,
+  });
+
   const windowCards = useMemo(
     () => (briefing
       ? buildWindowCards(
         upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, effectiveReachById,
         {
           limitMinutes: reachLens.tier.limitMinutes,
+          reachMeasured,
           // The lens's own default, which the origin has already moved — so the gate's starting
           // point and the far mark's meaning stay one judgement (`reachLens.js`'s module rule).
           defaultLimitMinutes,
@@ -820,13 +861,15 @@ export function WindowFirstBriefingProvider({
           origin,
           // Outside the reader's sub-regions (S5b-1): null unless the body is shaped.
           allowedIds: allowedIdSet,
+          // The server's headline for each tier (R2), or null until a matching answer is held.
+          reachVerdicts,
         },
         picksLocked,
       )
       : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById, reachMeasured,
       reachLens.tier.limitMinutes, defaultLimitMinutes,
-      ratingLens.minRating, origin, picksLocked, allowedIdSet],
+      ratingLens.minRating, origin, picksLocked, allowedIdSet, reachVerdicts],
   );
 
   /**
@@ -1005,22 +1048,22 @@ export function WindowFirstBriefingProvider({
       heatSpots: heatSpotList,
       heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
-      reachById, todayStr, tomorrowStr, reachLens,
+      reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
       // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
-      origin, setOrigin, regions, effectiveReachById,
+      origin, setOrigin, regions, effectiveReachById, reachMeasured,
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpotList, heatPointSets, heatUnratedSets, heatStoodSets, heatGroundSets, regionPicks,
       regionSeries,
-      reachById, todayStr, tomorrowStr, reachLens,
+      reachById, todayStr, tomorrowStr, reachLens, reachVerdicts,
       ratingLens, homePlace, isPro, tideLocked, scoresLocked, picksLocked, driveLocked,
-      origin, setOrigin, regions, effectiveReachById,
+      origin, setOrigin, regions, effectiveReachById, reachMeasured,
       comingUpLastSeenDate, setComingUpLastSeenAt, allowedLocationIds],
   );
 
@@ -1080,7 +1123,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           paneItems: Array, upcomingEvents: Array,
  *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
- *           reachLens: object, ratingLens: object, homePlace: ?string,
+ *           reachLens: object, reachVerdicts: ?Object<string, Array>, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, tideLocked: boolean, scoresLocked: boolean,
  *           picksLocked: boolean,

@@ -417,6 +417,66 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forForecastRejectsAnIdLongerThan64Characters() {
+        // Long.MIN_VALUE prints with a minus sign (20 chars), one more than the largest id: 65 in all.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.forForecast(
+                        Long.MIN_VALUE, DATE, TargetType.SUNRISE, Long.MAX_VALUE, true))
+                .withMessageContaining("exceeds 64 chars");
+    }
+
+    @Test
+    void parseForceSubmitRejectsAnIdWithNoLocationSeparator() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("force-5-2026-04-16-SUNRISE"))
+                .withMessageContaining("Malformed force-submit custom ID");
+    }
+
+    @Test
+    void parseForceSubmitRejectsAnIdWithAnEmptyRegion() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("force--5-2026-04-16-SUNRISE"))
+                .withMessageContaining("Malformed force-submit custom ID");
+    }
+
+    @Test
+    void parseForceSubmitRejectsAnIdWithAnEmptyLocationId() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("force-Region--2026-04-16-SUNRISE"))
+                .withMessageContaining("Malformed force-submit custom ID");
+    }
+
+    @Test
+    void parseAuroraRejectsABodyTooShortToHoldADate() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("au-2026-04-16"))
+                .withMessageContaining("Malformed aurora custom ID");
+    }
+
+    @Test
+    void parseAuroraRejectsAnIdWithNoHyphenBeforeTheDate() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("au-MODERATEX2026-04-16"))
+                .withMessageContaining("Malformed aurora custom ID");
+    }
+
+    @Test
+    void parseRejectsABodyTooShortToHoldADateBeforeTheTarget() {
+        // The target separator sits at index 11, but only 11 characters precede it: no room for
+        // "-{date}" ahead of the target.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("fc-12345678901-SUNRISE"))
+                .withMessageContaining("Malformed custom ID");
+    }
+
+    @Test
+    void parseRejectsAnIdWithNoHyphenBeforeTheDate() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("fc-42X2026-04-16-SUNRISE"))
+                .withMessageContaining("Malformed custom ID");
+    }
+
+    @Test
     void parseRejectsNullInput() {
         assertThatNullPointerException()
                 .isThrownBy(() -> CustomIdFactory.parse(null));

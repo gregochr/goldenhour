@@ -28,11 +28,11 @@ warm, straightforward, knowledgeable, measured. British English. Third person / 
 ## Accuracy rules (the evidence is in the 2026-11-04 inventory; keep these exact)
 - Branch protection requires Backend, Frontend and CodeQL checks. Codex review is a working rule, not a GitHub
   setting — so say "every change is reviewed", never "GitHub blocks unreviewed changes".
-- Mutation testing (PIT) runs weekly on the core forecasting code; it does not gate each change.
+- Mutation testing runs weekly on the server's core forecasting code and on the app's client logic; it does not gate each change.
 - The prompt-regression suite runs by hand (it calls Claude and costs money). The Sky Eval runs weekly in production.
 - Do NOT publish: security scan results or status, which scans block what, tool versions, header configuration,
   host names, costs, or the self-hosted runner. Security stays high-level.
-- Numbers are rounded and dated-proof: "more than 25,000 automated tests" (≈13.9k frontend + ≈12.5k backend),
+- Numbers are rounded and dated-proof: "more than 33,000 automated tests" (≈18.5k frontend + ≈14.9k backend, 2026-11-07),
   "more than 200 database migrations", "over 120 written plans". Don't add others.
 
 ## Copy (use as written; light edits for flow are fine, facts are not)
@@ -46,7 +46,7 @@ reviewed, tested and checked against real skies before it reaches you. This page
 ### The short version
 - Every change starts as a written plan, and the plan is challenged before any code is written.
 - The code is written by one AI model and reviewed by others. No model approves its own work.
-- More than 25,000 automated tests run on every change, and nothing is released until they pass.
+- More than 33,000 automated tests run on every change, and nothing is released until they pass.
 - The forecasts themselves are tested against real sunrises and sunsets, every week.
 - A person decides what ships, and when.
 
@@ -81,14 +81,19 @@ should have warned you off, and where it is consistently too hopeful or too caut
    Each release is recorded in a changelog, and a backup is taken first.
 
 ### The automated checks
-- **Tests.** More than 25,000 automated tests cover the server and the app: the forecasting rules, the
+- **Tests.** More than 33,000 automated tests cover the server and the app: the forecasting rules, the
   maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is
   in the UK when the server runs on a different clock.
 - **Tests that are tested.** It's possible to write tests that pass whatever the code does. The server's code is
   held to a minimum of 80% test coverage, and once a week mutation testing deliberately
-  plants small bugs in the core forecasting code and checks that the tests catch them.
+  plants small bugs in the core forecasting code and checks that the tests catch them. The app's client logic
+  is mutation-tested weekly too (about 96% of planted faults caught). Neither run blocks changes; a failure
+  report is opened if any part falls below its minimum.
 - **Real data, recorded.** The weather, space-weather, postcode and light-pollution services PhotoCast relies on
   are tested against recorded real responses, so a change in their format is caught before it reaches you.
+- **In a real browser.** A short set of tests opens the app in a real browser, signs in and opens the main tabs, and
+  fails if anything goes wrong on the page. It runs whenever a code change is proposed and before every release,
+  and a change can't be merged until it passes.
 - **A real database.** Every change to how data is stored (more than 200 so far) is tested against a real copy of
   the production database software before it can be merged.
 - **Code standards.** Automatic checks enforce documentation, formatting and common bug patterns, and look for
@@ -115,8 +120,11 @@ See the [Privacy notice](privacy.html) for what PhotoCast stores and why.
 
 ### Where it's still improving
 Being honest about the gaps is part of the same standard.
-- The app's tests run in a simulated browser. A few tests in real browsers exist, but they're run by hand rather than on every change.
-- The server's tests are checked by mutation testing and a coverage minimum. The app's tests have a coverage minimum too, but not mutation testing yet.
+- Most of the app's tests run in a simulated browser: a program that imitates a web page, so the tests run quickly
+  without opening one. A shorter set now runs in a real browser on every change, and a change can't be merged
+  unless it passes. It checks signing in and the main tabs, but without real forecast data, so the map and planning
+  screens are still checked by hand in a real browser.
+- The server's tests are checked by mutation testing and a coverage minimum. The app's tests have a coverage minimum too, and its client logic now has mutation testing. The remaining gap is that the app's screens are not mutation-tested yet.
 - The larger forecast regression suite is run by hand rather than on every change, because each run asks the AI
   model real questions and costs real money. The weekly sky check fills that gap in between.
 - PhotoCast runs on a single server, without a separate test copy of the live service. Backups, health checks and

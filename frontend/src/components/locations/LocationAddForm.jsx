@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import PanelShell from '../data/PanelShell.jsx';
+import DrivePointField from './DrivePointField.jsx';
 import KvList from '../data/KvList.jsx';
 import { PANEL_EDIT_FORM_ATTR } from '../../hooks/usePanelEscape.js';
 import {
@@ -77,6 +78,10 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
   // A validation message sits under its field; only a refusal from the server (no field) sits under the form.
   const errorFor = (field) => (add.errorField === field ? add.error : '');
   const unplaced = add.errorField == null ? add.error : '';
+  // The coordinates the drive point's lookup sorts by: the looked-up place, or the manual pair.
+  const pin = form.manualEntry
+    ? { lat: form.manualLat, lon: form.manualLon }
+    : (form.geocodeResult ? { lat: form.geocodeResult.lat, lon: form.geocodeResult.lon } : null);
 
   // The message may be out of sight behind the pinned footer: bring it in, as the edit form does.
   const body = useRef(null);
@@ -222,6 +227,21 @@ export default function LocationAddForm({ add, regions, subRegions, onSubmit, on
             </>
           )}
         </div>
+
+        {(pin || form.drivePointRequired) && (
+          <div className={BLOCK}>
+            <DrivePointField
+              value={form.drivePoint}
+              onChange={add.setDrivePoint}
+              lat={pin?.lat ?? ''}
+              lon={pin?.lon ?? ''}
+              required={form.drivePointRequired}
+              error={errorFor('drivePoint')}
+              testIdPrefix="location-add-drive-point"
+              errorTestId="location-add-error"
+            />
+          </div>
+        )}
 
         <div className={BLOCK}>
           <Field label="Type">

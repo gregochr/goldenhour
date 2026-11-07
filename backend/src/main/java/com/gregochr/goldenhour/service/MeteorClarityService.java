@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * difference is the sampler: this uses {@link OverheadCloudSampler} (total cloud directly above each
  * site), the honest whole-sky signal for meteors, rather than the northern-horizon transect the
  * aurora/NLC counts use. It fetches <b>only on shower-peak nights</b> (see
- * {@link MeteorHotTopicStrategy#peakDatesWithin}), so most briefings do no meteor cloud fetch at all.
+ * {@link MeteorPeakCalendar#peakNightsIn}), so most briefings do no meteor cloud fetch at all.
  */
 @Component
 public class MeteorClarityService {
@@ -36,6 +37,7 @@ public class MeteorClarityService {
 
     private final OverheadCloudSampler overheadCloudSampler;
     private final LocationRepository locationRepository;
+    private final MeteorPeakCalendar peakCalendar;
     private final AtomicReference<MeteorClarity> cache = new AtomicReference<>(MeteorClarity.EMPTY);
 
     /**
@@ -43,11 +45,13 @@ public class MeteorClarityService {
      *
      * @param overheadCloudSampler samples total-column cloud directly above each dark-sky site
      * @param locationRepository   repository for dark-sky (Bortle) location lookups
+     * @param peakCalendar         each year's peak night
      */
     public MeteorClarityService(OverheadCloudSampler overheadCloudSampler,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository, MeteorPeakCalendar peakCalendar) {
         this.overheadCloudSampler = overheadCloudSampler;
         this.locationRepository = locationRepository;
+        this.peakCalendar = peakCalendar;
     }
 
     /**
@@ -58,7 +62,16 @@ public class MeteorClarityService {
      * @param nights the forecast-window nights (evening dates)
      */
     public void refresh(List<LocalDate> nights) {
-        List<LocalDate> peaks = MeteorHotTopicStrategy.peakDatesWithin(nights);
+        if (nights.isEmpty()) {
+            cache.set(MeteorClarity.EMPTY);
+            return;
+        }
+        LocalDate first = nights.stream().min(Comparator.naturalOrder()).orElseThrow();
+        LocalDate last = nights.stream().max(Comparator.naturalOrder()).orElseThrow();
+        List<LocalDate> peaks = peakCalendar.peakNightsIn(first, last, true).stream()
+                .map(MeteorPeakCalendar.ShowerNight::night)
+                .distinct()
+                .toList();
         if (peaks.isEmpty()) {
             cache.set(MeteorClarity.EMPTY);
             return;

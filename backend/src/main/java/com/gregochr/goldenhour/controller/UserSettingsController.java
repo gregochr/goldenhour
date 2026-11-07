@@ -10,7 +10,9 @@ import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.model.ReachEntry;
+import com.gregochr.goldenhour.model.ReachVerdictResponse;
 import com.gregochr.goldenhour.service.ReachService;
+import com.gregochr.goldenhour.service.ReachVerdictService;
 import com.gregochr.goldenhour.service.TodaysLightService;
 import com.gregochr.goldenhour.service.UserSettingsService;
 import com.gregochr.goldenhour.service.ask.AskService;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -38,6 +41,7 @@ public class UserSettingsController {
 
     private final UserSettingsService settingsService;
     private final ReachService reachService;
+    private final ReachVerdictService reachVerdictService;
     private final TodaysLightService todaysLightService;
     private final AskService askService;
 
@@ -46,15 +50,18 @@ public class UserSettingsController {
      *
      * @param settingsService    the user settings service
      * @param reachService       the caller's reach over the whole roster
+     * @param reachVerdictService the Plan headline recomputed for each drive tier
      * @param todaysLightService today's light at the caller's home, for the masthead
      * @param askService         the caller's Ask allowance
      */
     public UserSettingsController(UserSettingsService settingsService,
             ReachService reachService,
+            ReachVerdictService reachVerdictService,
             TodaysLightService todaysLightService,
             AskService askService) {
         this.settingsService = settingsService;
         this.reachService = reachService;
+        this.reachVerdictService = reachVerdictService;
         this.todaysLightService = todaysLightService;
         this.askService = askService;
     }
@@ -91,7 +98,7 @@ public class UserSettingsController {
      * @return the resolved coordinates and place name
      */
     @PostMapping("/home/lookup")
-    public PostcodeLookupResult lookupPostcode(@RequestBody PostcodeLookupRequest request) {
+    public PostcodeLookupResult lookupPostcode(@Valid @RequestBody PostcodeLookupRequest request) {
         return settingsService.lookupPostcode(request.postcode());
     }
 
@@ -218,6 +225,25 @@ public class UserSettingsController {
     @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
     public List<ReachEntry> getReach(Authentication auth) {
         return reachService.getReach(auth);
+    }
+
+    /**
+     * Returns the Plan headline recomputed for each drive tier (45, 90 and 150 minutes) in one body, so a tier tap
+     * on the client is a lookup and never a request (docs/engineering/reach-scoped-card-plan.md D4, R2).
+     *
+     * <p>Under {@code /api/user/settings} for the same reason as {@link #getReach}: it depends on the caller's
+     * drive times, so it is excluded from ETag caching by construction and stays no-store. Pro and Admin only:
+     * a Lite account gets 403 (its tier is locked to Any, and the client never asks). It makes no Claude call.
+     *
+     * @param origin the away origin's region id, or absent for home. A region with no base is a 400
+     * @param auth   the current authentication context
+     * @return {@code {measured, briefingVersion, tiers}}; see {@link ReachVerdictResponse}
+     */
+    @GetMapping("/reach-verdicts")
+    @PreAuthorize("hasAnyRole('PRO_USER','ADMIN')")
+    public ReachVerdictResponse getReachVerdicts(@RequestParam(name = "origin", required = false) Long origin,
+            Authentication auth) {
+        return reachVerdictService.compute(auth, origin);
     }
 
     /**

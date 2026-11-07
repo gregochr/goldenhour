@@ -75,7 +75,7 @@ class PipelineRunComparisonServiceTest {
     private void stubBaselineFound() {
         when(pipelineRunRepository
                 .findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
-                        eq(CycleType.NIGHTLY), any(), eq(INTRADAY_TRIGGER)))
+                        eq(CycleType.NIGHTLY), eq(Instant.parse("2026-05-25T23:00:00Z")), eq(INTRADAY_TRIGGER)))
                 .thenReturn(Optional.of(nightlyRun()));
     }
 
@@ -90,7 +90,7 @@ class PipelineRunComparisonServiceTest {
     void intradayNoBaseline_noComparison() {
         when(pipelineRunRepository
                 .findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
-                        eq(CycleType.NIGHTLY), any(), eq(INTRADAY_TRIGGER)))
+                        eq(CycleType.NIGHTLY), eq(Instant.parse("2026-05-25T23:00:00Z")), eq(INTRADAY_TRIGGER)))
                 .thenReturn(Optional.empty());
 
         assertThat(service.compareToSameDayNightly(intradayRun())).isNull();
@@ -197,6 +197,158 @@ class PipelineRunComparisonServiceTest {
     void noPicksEitherSide_noComparison() {
         stubBaselineFound();
         lenient().when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(any()))
+                .thenReturn(List.of());
+
+        assertThat(service.compareToSameDayNightly(intradayRun())).isNull();
+    }
+
+    @Test
+    @DisplayName("a null run yields no comparison")
+    void nullRun_noComparison() {
+        assertThat(service.compareToSameDayNightly(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("an INTRADAY run with no trigger time yields no comparison and queries nothing")
+    void intradayWithoutTriggerTime_noComparison() {
+        PipelineRunEntity run = new PipelineRunEntity();
+        run.setCycleType(CycleType.INTRADAY);
+        run.setId(INTRADAY_ID);
+
+        assertThat(service.compareToSameDayNightly(run)).isNull();
+        org.mockito.Mockito.verifyNoInteractions(pipelineRunRepository, pickRepository);
+    }
+
+    @Test
+    @DisplayName("baseline window is the London day start up to the intraday trigger")
+    void baselineWindow_isLondonDayStartToTrigger() {
+        // 2026-05-26 is BST, so London midnight is 2026-05-25T23:00:00Z.
+        stubBaselineFound();
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID)).thenReturn(List.of());
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID)).thenReturn(List.of());
+
+        service.compareToSameDayNightly(intradayRun());
+
+        org.mockito.Mockito.verify(pipelineRunRepository)
+                .findFirstByCycleTypeAndTriggerTimeBetweenOrderByTriggerTimeDesc(
+                        CycleType.NIGHTLY, Instant.parse("2026-05-25T23:00:00Z"), INTRADAY_TRIGGER);
+    }
+
+    @Test
+    @DisplayName("a differing event date is flagged DATE and the event comparison stays clean")
+    void dateChange_flagged() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d.plusDays(1), "sunset", 4.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunset", 4.0)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        assertThat(c.diffs().get(0).changedDimensions()).containsExactly("DATE");
+        assertThat(c.diffs().get(0).changed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a differing event type is flagged EVENT")
+    void eventChange_flagged() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunrise", 4.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunset", 4.0)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        assertThat(c.diffs().get(0).changedDimensions()).containsExactly("EVENT");
+    }
+
+    @Test
+    @DisplayName("a null event type on one side is an EVENT change; null on both sides is not")
+    void nullEventType_handled() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(
+                        pick(1, "Coast", d, null, 4.0),
+                        pick(2, "Lakes", d, null, 3.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(
+                        pick(1, "Coast", d, "sunset", 4.0),
+                        pick(2, "Lakes", d, null, 3.0)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        assertThat(c.diffs().get(0).changedDimensions()).containsExactly("EVENT");
+        assertThat(c.diffs().get(1).changed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a rating appearing or disappearing is RATING; both-null is unchanged")
+    void nullRatings_handled() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(
+                        pick(1, "Coast", d, "sunset", null),
+                        pick(2, "Lakes", d, "sunset", null)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(
+                        pick(1, "Coast", d, "sunset", 4.0),
+                        pick(2, "Lakes", d, "sunset", null)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        assertThat(c.diffs().get(0).changedDimensions()).containsExactly("RATING");
+        assertThat(c.diffs().get(1).changed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a rating present in the intraday pick but absent from the nightly pick is RATING")
+    void ratingDisappearingFromNightly_flagged() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunset", 4.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunset", null)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        assertThat(c.diffs().get(0).changedDimensions()).containsExactly("RATING");
+    }
+
+    @Test
+    @DisplayName("a pick only in the nightly run is PRESENCE with a null intraday view")
+    void nightlyOnlyPick_presence() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(pick(1, "Coast", d, "sunset", 4.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
+                .thenReturn(List.of(
+                        pick(1, "Coast", d, "sunset", 4.0),
+                        pick(2, "Lakes", d, "sunrise", 3.0)));
+
+        PipelineRunPickComparison c = service.compareToSameDayNightly(intradayRun());
+
+        PipelineRunPickComparison.PickDiff planB = c.diffs().get(1);
+        assertThat(planB.changedDimensions()).containsExactly("PRESENCE");
+        assertThat(planB.intraday()).isNull();
+        assertThat(planB.nightly().region()).isEqualTo("Lakes");
+        assertThat(planB.nightly().headline()).isEqualTo("Lakes sunrise");
+    }
+
+    @Test
+    @DisplayName("only ranks 1 and 2 are compared; a rank-3 pick is ignored")
+    void rankThreePick_ignored() {
+        stubBaselineFound();
+        LocalDate d = LocalDate.of(2026, 5, 26);
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(INTRADAY_ID))
+                .thenReturn(List.of(pick(3, "Coast", d, "sunset", 4.0)));
+        when(pickRepository.findByPipelineRunIdOrderByPickRankAsc(NIGHTLY_ID))
                 .thenReturn(List.of());
 
         assertThat(service.compareToSameDayNightly(intradayRun())).isNull();

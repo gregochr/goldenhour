@@ -1,0 +1,10 @@
+{
+  "durations": [[0.0, 5400.0, null]],
+  "destinations": [
+    {"location": [-3.1347, 54.5970], "snapped_distance": 8.1},
+    {"location": [-1.8932, 52.4776], "snapped_distance": 4.2},
+    null
+  ],
+  "sources": [{"location": [-3.1347, 54.5970], "snapped_distance": 8.1}],
+  "metadata": {"service": "matrix", "profile": "driving-car"}
+}

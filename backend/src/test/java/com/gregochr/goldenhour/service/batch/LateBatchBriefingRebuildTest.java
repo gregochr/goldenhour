@@ -210,4 +210,56 @@ class LateBatchBriefingRebuildTest {
         assertThat(queued).isEmpty();
         verify(briefingService, never()).refreshBriefingIfIdle();
     }
+
+    @Test
+    @DisplayName("a stale copy of the ended batch (same id, different instance) is not a sibling")
+    void staleCopyOfEndedBatch_isNotASibling() {
+        runIs(PipelineRunStatus.FAILED);
+        ForecastBatchEntity late = batch(2, BatchType.FORECAST, BatchStatus.COMPLETED, RUN_ID);
+        ForecastBatchEntity staleCopy = batch(2, BatchType.FORECAST, BatchStatus.SUBMITTED, RUN_ID);
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(staleCopy, late));
+
+        rebuild.onBatchEnded(late);
+
+        assertThat(queued).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a SUBMITTED sibling with no id yet still blocks the rebuild")
+    void siblingWithoutId_stillBlocks() {
+        runIs(PipelineRunStatus.FAILED);
+        ForecastBatchEntity late = batch(2, BatchType.FORECAST, BatchStatus.COMPLETED, RUN_ID);
+        ForecastBatchEntity unsaved = new ForecastBatchEntity("msgbatch_new", BatchType.FORECAST, 5,
+                Instant.parse("2026-10-13T12:00:00Z"));
+        unsaved.setPipelineRunId(RUN_ID);
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(unsaved, late));
+
+        rebuild.onBatchEnded(late);
+
+        assertThat(queued).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the production constructor runs the rebuild on a background thread")
+    void productionConstructor_rebuildsOnVirtualThread() throws InterruptedException {
+        LateBatchBriefingRebuild production = new LateBatchBriefingRebuild(
+                pipelineRunRepository, forecastBatchRepository, briefingService);
+        runIs(PipelineRunStatus.FAILED);
+        ForecastBatchEntity late = batch(2, BatchType.FORECAST, BatchStatus.COMPLETED, RUN_ID);
+        when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(late));
+        java.util.concurrent.CountDownLatch ran = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Thread> worker =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        when(briefingService.refreshBriefingIfIdle()).thenAnswer(inv -> {
+            worker.set(Thread.currentThread());
+            ran.countDown();
+            return true;
+        });
+
+        production.onBatchEnded(late);
+
+        assertThat(ran.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        assertThat(worker.get()).isNotSameAs(Thread.currentThread());
+        assertThat(worker.get().isVirtual()).isTrue();
+    }
 }

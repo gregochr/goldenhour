@@ -5,6 +5,553 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.3] - 2026-11-07
+
+### Tests — kill Stryker survivors in scoreRamp, schedulerEdit, scrollToEntry, askCamera and auroraBannerScores
+
+Five new `*Edges.test.js` suites pin the colour ramp's tables and parsing (read from a freshly evaluated module so the load-time constants are exercised), the scheduler cron parser's shape, range and day-boundary rules, the Coming up jump's focus and scroll guards, the Ask camera's padding clamps, inset and chrome-height reads, and the aurora banner's star, coordinate, name, drive and tie-break rules.
+
+Mutation scores, before then after: `scoreRamp.js` 75.2% (97/129) to 93.8% (121/129), `schedulerEdit.js` 90.1% (228/253) to 99.6% (252/253), `scrollToEntry.js` 69.4% (25/36) to 91.7% (33/36), `askCamera.js` 73.5% (72/98) to 95.9% (94/98), `auroraBannerScores.js` 89.0% (130/146) to 95.2% (139/146). The survivors left are equivalent mutants: boundary comparisons whose two sides give the same value (a ratio of exactly 1, a continuous interpolation at a stop), loop guards that a clamp makes unreachable, optional-chaining or `catch` guards whose failure path is already caught and returns the same falsy value, a redundant `typeof` ahead of `Number.isFinite`, and a sort that is a no-op because the hours are already ordered. No source changed.
+
+### Tests — kill Stryker survivors in the runs utils, regionsJump, jobRunPanel and locationAdmin
+
+Seven new `*Edges.test.js` files pin the boundaries Stryker found unpinned (survivors plus no-coverage mutants,
+before to after): `runsCost.js` 20 to 1, `runsView.js` 17 to 2, `runsTiming.js` 15 to 1, `runsQuery.js` 15 to 4,
+`regionsJump.js` 22 to 9, `jobRunPanel.js` 16 to 0, `locationAdmin.js` 22 to 5 (plus one mutant that crashes the
+runner, which counts as detected). Every remaining survivor is an equivalent mutant (empty-array fallbacks,
+redundant guards). No source file changed.
+
+### Tests — kill Stryker survivors in the plan utils, swrCache, the window-first strip and topics, and four more
+
+Ten new `*Edges.test.js` files in `frontend/src/test/` pin the behaviour behind the baseline mutation survivors in `planSearch`, `planOrigin`, `planningArea`, `subRegionCopy`, `swrCache`, `windowFirstTopics`, `windowFirstStrip`, `windowSpotBrowse`, `confidenceUtils` and `briefingDisplay`. No source changed: tests only.
+
+Survivors plus no-coverage mutants, before to after (the remainder are equivalent mutants):
+
+| File | Before | After |
+|---|---|---|
+| planSearch | 19 | 11 |
+| planOrigin | 14 | 7 |
+| planningArea | 10 | 4 |
+| subRegionCopy | 13 | 1 |
+| swrCache | 18 | 3 |
+| windowFirstTopics | 12 | 6 |
+| windowFirstStrip | 10 | 3 |
+| windowSpotBrowse | 10 | 2 |
+| confidenceUtils | 10 | 1 |
+| briefingDisplay | 10 | 6 |
+
+### Tests — kill Stryker survivors in mapDrilldown, mapLabels, mapCallout, mapLanding, mapTopicDays and mapScopedTime
+
+Batch 9 of the frontend mutation clean-up. Six new behaviour suites, `mapDrilldownEdges.test.js`, `mapLabelsEdges.test.js`, `mapCalloutEdges.test.js`, `mapLandingEdges.test.js`, `mapTopicDaysEdges.test.js` and `mapScopedTimeEdges.test.js`, pin the drilldown's malformed-input and partial-picks rows, the shaped note's article handling, the region panel's day word, tide state and drive-less rows, the hottest-region mean and tie rules, the ring-label frame margins, the chip ordering tie-breaks and the selected-pick and stood-place budgets, the callout band's bar-size and card-span tests and the anchor's exact-fit and flip boundaries, the landing header's missing-row fallbacks, the topic-day dots' targets and sunset wording, and the scoped time's same-array answers and equal-instant rule. Mutation results (detected over detected plus survived plus uncovered):
+
+- `mapDrilldown.js`: 86.6% (214/247) → 95.1% (235/247)
+- `mapLabels.js`: 89.5% (263/294) → 99.0% (291/294)
+- `mapCallout.js`: 89.9% (124/138) → 99.3% (137/138)
+- `mapLanding.js`: 87.8% (72/82) → 96.3% (79/82)
+- `mapTopicDays.js`: 88.5% (108/122) → 97.5% (119/122)
+- `mapScopedTime.js`: 86.7% (72/83) → 94.0% (78/83)
+
+No source changed. Every remaining mutant is equivalent: `[]` fallbacks whose string stand-in has no fields, `typeof` and `!= null` guards implied by `Number.isFinite` or by a later lookup guard, skips whose only effect is an entry in a map that is only read for in-scope names, `formatDriveDuration(null)` already answering null, and a comparison made unobservable by a loop bound or stable sort.
+
+### Tests — kill Stryker survivors in comingUpFeed, windowFirstSpots, windowFirstRegions and windowFirstSpread
+
+Four new test files (`comingUpFeedEdges`, `windowFirstSpotsEdges`, `windowFirstRegionsEdges`, `windowFirstSpreadEdges`) pin behaviour the existing suites left unchecked: the day-chip walk across shoulder days, the default action and passthrough fields, the badge-ink contrast boundary, the tide-fact join order, the shaped region order and comparator, and the spread module's tables and defensive paths. Mutation score per file, before to after (survivors plus no-coverage): `comingUpFeed.js` 34 to 15, 95.6%; `windowFirstSpots.js` 33 to 8, 96.2%; `windowFirstRegions.js` 32 to 9, 96.1%; `windowFirstSpread.js` 16 to 6, 97.8%. Every remaining survivor is an equivalent mutant. No source file changed.
+
+### Tests — kill Stryker survivors in bigSeas, bigSeasChips, guide, hourlyComfort, firstClause, heatGeometry and topicPalette
+
+Seven new `*Edges.test.js` suites pin the behaviour the mutation run found unguarded: the big-seas line's day ordering, same-date tie order, aligned and high-water jump rows and the wave-fact guards on the lead copy; the chips' ring, empty-result identity, selected-first ordering and fallback slotting; the guide's page, tab and section tables, hash and `.html` handling; the comfort rows' `NaN`/string rejection, empty and malformed day entries and "never Today" labels; every `firstClause` boundary and trailing-junk case; the heat field's default frame; and the full style of all nineteen topic types. The module-level tables load through `vi.resetModules()` and a dynamic import so Stryker's mutants are live when they are read.
+
+Mutation scores (killed + timeout / total, before then after): `bigSeas.js` 84.3% (134/159) to 95.6% (152/159); `bigSeasChips.js` 91.4% (148/162) to 97.5% (158/162); `guide.js` 44.2% (19/43) to 97.7% (42/43); `hourlyComfort.js` 89.5% (197/220) to 97.7% (215/220); `firstClause.js` 63.6% (21/33) to 100% (33/33); `heatGeometry.js` 86.8% (66/76) to 100% (76/76); `topicPalette.js` 46.2% (18/39) to 100% (39/39). No source changed. The survivors left are equivalent mutants: a `[]` fallback no outcome can tell from the mutated array, comparator branches whose 0-versus-1 result `Array.prototype.sort` treats alike, optional chains on rows that throw either way, and guards another check already makes redundant.
+
+### Changed — Sky Eval gives the extended-thinking models their own colours
+
+Sonnet 4.6 (ET) and Opus (ET) no longer share the grey fallback in the Sky Eval accuracy chart; they are now green and light orange, so both can be selected and told apart.
+
+### Tests — pin the clock in the Scheduler Day tab tests
+
+Seven Scheduler Day tab tests used hard-coded dates without pinning the clock, so they began failing once the real date left the seven-day window. They now pin the date like their neighbours.
+
+### Fixed — the Leonids and six more meteor showers now appear
+
+The Leonids (peak night 17 November) were missing from Coming up and At a Glance because the shower table held only
+five showers. It now holds twelve, in calendar order: the Eta and S. Delta Aquariids, Draconids, both Taurids, the
+Leonids and the Ursids are added, the Lyrids' radiant is corrected from north-east to south-east, and the Quadrantids' rate from 120 to the IMO's 80. Only showers
+that give a UK observer about ten or more meteors an hour at peak (now including the Leonids) can raise an At a Glance
+pill; the six smaller ones list in Coming up without a badge, and never take the first-of-type explanation from a major
+shower in the same window. The Eta and S. Delta Aquariids, whose radiants stay low from the UK, show the rate you can
+realistically expect here (about 5 and 8 an hour) with the catalogue rate beside it. The landing site credits the
+International Meteor Organization for the calendar.
+
+### Fixed — a meteor shower is judged by whether the moon is up while it is best
+
+A meteor shower was dropped from the Plan tab, and caveated in Coming up, whenever the moon was half lit at noon, whether or not it was in the sky while the shower was worth watching. The Leonids of 17 November 2026 were lost that way: the moon is 50% lit but sets about 23:35, and they are best from 03:00 to dawn. A shower is now washed out only when a half-lit-or-brighter moon is up for most of its best hours. The pill and the Coming up row report the moon's average lit share over those hours, and say when the moon is down ("down in the best hours") or when it sets or rises inside them.
+
+### Tests — kill Stryker survivors in skyEval, windowFirstCards and planConflicts
+
+Batch 4 of the frontend mutation clean-up (first full run, GitHub run 42202344388). Three new behaviour suites, `skyEvalEdges.test.js`, `windowFirstCardsEdges.test.js` and `planConflictsEdges.test.js`, pin formatter thresholds, inclusive chart-window edges, sort tie rules, the rating-history geometry, the region argmax and its name tie-break, the reach counts a card carries when a tier removes places, the away-origin figures with unusable means, and the plan-conflict message's scope, nearest-location and ceiling rules. Mutation results (survivors plus no-coverage mutants before, survivors after):
+
+- `skyEval.js`: 70 before, 11 after (killed 600, 155 ignored). Raw score 98.2%.
+- `windowFirstCards.js`: 66 before, 45 after (killed 478). Raw score 91.4%.
+- `planConflicts.js`: 52 before, 15 after (killed 217). Raw score 93.5%.
+
+Every remaining survivor is an equivalent mutant: optional chaining on values the caller already filtered, `[]` fallbacks whose string stand-in has no fields, `typeof` guards implied by `Number.isFinite`, comparisons made unobservable by an earlier guard or a stable sort, and branches reachable only with a record shape `buildWindowSpots` or the tier ladder cannot produce. No source changed.
+
+### Tests — kill Stryker survivors in schedulerDay, schedulerDayOverlays and schedulerView
+
+Three Scheduler view-model utils had surviving mutants in Stryker shard 9. New edge-case tests
+(`schedulerDayEdges`, `schedulerDayOverlaysEdges`, `schedulerViewEdges`) pin the boundaries, tie-breaks,
+fallbacks and degenerate inputs those mutants relied on. No source changed.
+
+| File | Survived + no coverage before | After | Score before | Score after |
+|---|---|---|---|---|
+| `schedulerDay.js` | 46 + 5 | 11 | 414/465 (89.0%) | 454/465 (97.6%) |
+| `schedulerDayOverlays.js` | 43 | 9 | 362/405 (89.4%) | 396/405 (97.8%) |
+| `schedulerView.js` | 34 + 1 | 6 | 350/385 (90.9%) | 379/385 (98.4%) |
+
+Scores count killed plus timed-out mutants over all non-ignored mutants. Every survivor left is an equivalent
+mutant: `?? []` fallbacks that are filtered or iterated away before anything returns them, `Array.find` on a
+type that always exists, and comparison or arithmetic changes that cannot alter a result.
+
+### Tests — Stryker survivors killed in locationSheet, travelDays and mapVerdict
+
+Three new edge suites (`locationSheetEdges.test.js`, `travelDaysEdges.test.js`,
+`mapVerdictEdges.test.js`) pin answers the happy-path tests never asked for: malformed members of
+the served trees, first-wins and sort tie-breaks, the location sheet's handoff and lead-line rules,
+the Travel days cell class cascade and server-error placement, and the Map verdict's shaped and
+served-order picks. Tests only; nothing under `src/utils` changed.
+
+Mutation score (killed ÷ killed + survived + no coverage), baseline from the first full weekly run:
+
+- `locationSheet.js`: 89.5% (418/467) → 97.2% (454/467)
+- `travelDays.js`: 85.9% (262/305) → 99.0% (302/305)
+- `mapVerdict.js`: 82.0% (191/233) → 94.4% (220/233)
+
+Every mutant left is equivalent. Most are `[]` fallbacks whose replacement element is skipped by
+the loop's first guard and never returned, or optional chains on a value an earlier check has
+already proven non-null. mapVerdict stays just under 95% because its 13 remaining mutants are all
+of that kind.
+
+### Tests — kill Stryker survivors in createEventSource, fourDayTiles and mapTideFit
+
+Three new edge suites (`createEventSourceEdges.test.js`, `fourDayTilesEdges.test.js`,
+`mapTideFitEdges.test.js`) pin answers the happy-path tests never asked for: the event stream's
+closeOn guards, CR/LF line splitting across chunks, late responses after cleanup and the exact
+listener removals; the four-day tiles' topic-to-almanac table, relative-day labels, tide spans and
+earliest-start jump; and the tide strip's cache key, default arguments and earliest-fit search across
+several spots. Tests only; no source changed.
+
+Mutation score (detected ÷ detected + survived + no coverage), baseline from the first full weekly run:
+
+- `createEventSource.js`: 80.4% (168/209) → 90.4% (189/209)
+- `fourDayTiles.js`: 83.2% (198/238) → 93.7% (223/238)
+- `mapTideFit.js`: 87.0% (247/284) → 93.7% (266/284)
+
+Every mutant left is equivalent, which is why each file stays under 95%. In createEventSource most
+are generation guards a stale connection can never reach, because a new connection only starts
+after the previous one has failed and returned. The rest are `[]` fallbacks whose placeholder
+element is skipped and never returned, optional chains on values an earlier check has proven
+non-null, and sort-comparator results V8 never acts on.
+
+### Tests — kill Stryker survivors in askModel, conversions and dawnRace
+
+Three new edge suites (`askModelEdges.test.js`, `conversionsEdges.test.js`, `dawnRaceEdges.test.js`)
+pin answers the happy-path tests never asked for: night cards with out-of-scale stars, blank text and
+a half-served window; holes in the briefing tree; suggestion and run-label lookups over malformed
+lists; the exact bands and boundaries of the relative and elapsed time formatters and of the map's
+auto-selection (30 minutes after the earliest sunset, to the millisecond); first-wins and sort order
+in the forecast grouping; the zone-suffix pattern; the compass tables; and the dawn/dusk race's exact
+hour floor, 15-minute run-on, stop-key check, tick wording and gradient. Tests only; nothing under
+`src/utils` changed.
+
+`conversionsEdges` and `dawnRaceEdges` load their module inside each test (`vi.resetModules()` plus a
+dynamic import in `beforeEach`). Module-level constants are evaluated at load, and a load that happens
+before any test starts is "static" to Stryker, so its mutants never ran against these files.
+
+Mutation score (killed ÷ killed + survived + no coverage), baseline from the first full weekly run:
+
+- `askModel.js`: 87.1% (236/271) → 97.0% (263/271)
+- `conversions.js`: 86.8% (230/265) → 97.1% (268/276; 11 module-constant mutants that used to be
+  ignored as static now run, and are killed)
+- `dawnRace.js`: 85.5% (206/241) → 93.8% (226/241)
+
+Every mutant left is equivalent: `[]` fallbacks whose replacement element is skipped or never returned,
+optional chains on values an earlier check has proven non-null, guards that repeat a check the caller
+or the formatter already made, and comparisons whose two branches return the same value. dawnRace
+stays just under 95% because its 15 remaining mutants are all of that kind.
+
+### Fixed — Aurora banner buttons stay put when you open and close it
+
+On desktop, the aurora banner's Open/Close, guide "?" and dismiss buttons now line up and keep the same spacing and position whether the banner is collapsed or expanded, and the toggle reads "Close ▴" when open at the same width as "Open ▾".
+
+## [v2.39.2] - 2026-11-06
+
+### Changed — weekly ZAP gate after v2.39.1
+
+The weekly scan of v2.39.1 no longer raises the server-error alert (rule 100000), so its temporary
+exception is removed. Rules 100000 and 100001 are script alerts that appear in the scan log only
+when they fire, so they are no longer in the backend known-rules list; leaving them there made a
+clean result read as a rule that did not run. CI configuration only.
+
+### Tests — kill Stryker survivors in mapDoor.js and mapEvents.js
+
+Added `mapDoorEdges.test.js` and `mapEventsEdges.test.js`: behaviour tests for the Plan-to-Map door's
+clock, day and event wording, roster filter, best-spot and neighbour-outlier arithmetic, trigger
+normalisation, and for the Map event list's past-window ordering, malformed inputs, defaults, night and
+High-water rows, row shapes and clock boundaries. `mapDoor.js` went from 75.2% (361 of 480 scored mutants killed, 119 survived or uncovered) to 95.6%
+(459 killed, 21 left); `mapEvents.js` from 80.2% (438 of 546, 108 left) to 92.3% (504 killed, 42 left).
+Every mutant left is equivalent: array defaults and fallbacks whose replacement no input can tell apart,
+optional chains on values already known non-null, and `<`/`<=` swaps on values that are never equal.
+
+### Tests — kill Stryker survivors in locationEdit and mapTopics
+
+Batch 2 of the frontend mutation-score work (first full run 87.81%). Two new behaviour test files,
+`locationEditEdges.test.js` and `mapTopicsEdges.test.js`, pin the boundaries and gaps the existing tests
+left open: coordinate, height and tide-point limits; which parts of a stored floor, tide point or drive
+point make it "stored"; the field-change rules; the strip's column, High-water tick and tide-at-the-light
+words; and `barTarget` / `labelTarget` on grids with fewer columns than the bar. No source change.
+
+Mutation score (killed plus timeout, of all scored mutants), measured locally with Stryker 10.1.1:
+
+- `utils/locationEdit.js`: 80.4% (452 killed, 104 survived, 6 no coverage) to 99.3% (558 killed, 4 survived).
+- `utils/mapTopics.js`: 87.0% (543 killed or timed out, 79 survived, 2 no coverage) to 95.8% (598 killed or timed out, 25 survived, 1 no coverage).
+
+Every survivor left is an equivalent mutant (no input can tell it from the original).
+
+### Tests — kill Stryker survivors in heatField and heatSpots
+
+Batch 1 of the frontend mutation clean-up (first full run, GitHub run 42202344388). New suites `heatFieldEdges.test.js` and `heatSpotsEdges.test.js` pin the cut-off distance, canvas call order, hatch and veil geometry, marching-squares edge ids, id-first lookup and malformed-input handling. Mutation results, survivors plus no-coverage mutants:
+
+- `heatField.js`: 139 survived and 19 no coverage before, 58 survived and 0 no coverage after (killed 862 to 947, timeouts 15). Raw score 94.3%.
+- `heatSpots.js`: 57 survived and 1 no coverage before, 18 survived after (killed 234 to 274). Raw score 93.8%.
+
+Every remaining survivor is an equivalent mutant (unreachable bucket bounds guards, loops running one iteration past an ignored write, `typeof` guards implied by `Number.isFinite`/`Number.isInteger`, empty-array fallbacks whose string stand-in has no fields, defensive filters). No source changed.
+
+### Removed — the Map's separate best-aurora-location card
+
+On an aurora night the Map no longer shows its own 🏆 best-location card. It ranked every site by stars with no tie-break, so it could name a different place from the aurora banner. The banner's best site, which uses the planning area and the shorter drive from home to break a tie, is now the only recommendation, and each location's summary stays in its callout.
+
+### Fixed — weekly PIT mutation testing timed out silently for four weeks; now sharded on ubuntu-latest
+
+The weekly PIT run was cancelled by its 180-minute cap on 2026-10-12, 10-19, 10-26 and 11-02, and no issue was raised because `notify-failure` only fired on `failure`, not `cancelled`. PIT now runs on `ubuntu-latest` instead of the shared self-hosted runner, split into five parallel package shards (`pit.targetClasses` in `pom.xml`, with a plan job asserting every class is in exactly one shard), with a 350-minute job cap, a 320-minute PIT step and a score line per shard in the run summary. `pitest.yml` and `stryker.yml` now open a failure issue on `cancelled` as well as `failure`.
+
+### Added — weekly frontend mutation testing (Stryker) on src/utils
+
+A new weekly workflow, `stryker.yml`, runs Stryker mutation testing over the client logic in
+`frontend/src/utils/`, the way `pitest.yml` does for the backend. It never blocks a pull request, and
+it opens a failure report through `ci-failure-issue.yml` if the run fails. The incremental state is
+carried between weeks as an artifact (not a cache, which GitHub would evict at the weekly boundary),
+and a run is forced on the first scheduled run of each month and on request. No score floor is set
+yet (`thresholds.break` is null): it comes from the first real measurement. `npm run test:mutation`
+runs it locally.
+
+### Docs — the aurora guide shows the real banner strip and an aurora night on the Map
+
+The Aurora and night sky guide now describes the banner as it is: every reader sees the strength,
+where to look and a link to the guide, and Pro's banner starts as a strip with Kp, the best
+dark-sky location, Map → and a glow along its edge that shows the strength, opening to the full
+banner on a computer or tablet (a Strong alert opens in full). Two placeholders are replaced with
+screenshots from the live aurora forecast of 6 November 2026: the Pro strip, and the Map on an
+aurora night.
+
+### Changed — the aurora banner's expand control reads "Open"
+
+On a computer or tablet, the collapsed aurora strip's bare chevron is now a bordered "Open ▾" button in the style of the Map's Hot topics panel, and the open banner closes with "▴". Phones and the Lite banner are unchanged.
+
+## [v2.39.1] - 2026-11-06
+
+### Added — Plan headline follows the drive tier
+
+The At a Glance card's verdict word, its mean, the pick (BEST BET / ALSO GOOD), the confidence haze and the `· N rated`
+count now describe the places inside the drive tier you chose, not the whole roster. Change the tier from 45 minutes to
+an hour and a half and the headline moves with the Spread row beside it. The scope is printed under the word (`within
+45m`) and read out in the card's spoken sentence. Under Any nothing changes, and neither does the Map (its pill follows
+the tier in the next change).
+
+The server does the arithmetic: `GET /api/user/settings/reach-verdicts` (Pro and Admin) prunes the served briefing to the
+places in reach and re-runs the same verdict, ranking and pick code, returning all three tiers in one response, so a tier
+tap is instant. `/api/briefing` gains `briefingVersion`, a content hash that lets the page tell its answer was computed
+from the briefing it holds. A place with no road route (unroutable) is out of every finite tier, a still-unmeasured one is
+kept. When every rated place of the leading region lies beyond the tier, the card says so by naming the region-wide verdict
+("Northumberland is Worth it; its rated places are beyond 45 min").
+
+### Changed — The Map follows the drive tier
+
+The Map and the Plan bar now share one drive tier. Pick 45 minutes on either tab and the other follows, and the Map's
+"All" is the Plan's "Any". **This is a visible change: the Map now opens on the same tier the Plan bar shows (a weekday
+default of 45 min, a weekend default of 2h 30) instead of always opening on All.** Readers with no measured drive times
+(no postcode) are unaffected, and Lite readers stay on Any.
+
+The window pill's verdict word, its region line (`Northumberland +1`, `everywhere`) and its `· N rated` count now describe
+the places inside the tier, intersected with the My area / Everywhere scope you chose. The words come from the same
+server answer as the Plan card, so at Everywhere the pill and the card agree at every tier. The scope is printed beside
+the word (`within 45m`) and read out in full (`within 45 min`); on a phone, where the region line is hidden, the scope
+takes its place. The window list and the phone's Windows section say which tier their verdict words are for, and the
+window panel's header and note do the same while its region rows stay each region as a whole. Under Any, or when the
+server's answer is not held, nothing changes. Opening the Map from a Plan door no longer copies a drive limit across
+(the tier is already shared).
+
+### Added — a named drive point for places no road reaches
+
+A location can now carry a drive point: the village or car park a driver actually reaches, such as Glenridding for
+Helvellyn. Drive times to that place are measured to the drive point instead of the summit pin, and the Map callout, the
+Plan strip's peek and the four-day location sheet say where the minutes are to ("1h 20min to Glenridding", with the miles
+to the pin left off that line). Straight-line distance and Ask's home radius still use the place itself.
+
+The admin location form has a Drive point field: type a village name or a postcode, pick from the nearest matches (within
+25 km), or clear it. The location page shows "Drive to: Glenridding" with an Edit control. Creating a place, moving its pin,
+or clearing its drive point is now refused with a 422 when no road route reaches the point it would be measured to, and the
+form then shows the drive point as required. The check is one OpenRouteService call made before the save; if ORS is busy,
+unconfigured or failing, or no region base can be routed from, the save goes ahead. Every other edit is never refused, and
+places that already have no route are only flagged, as before. Migration V221 adds the three nullable columns.
+
+### Added — admins can see which places have no drive route
+
+A new admin-only read, `GET /api/admin/drive-times/unroutable`, lists the enabled locations that
+OpenRouteService could not route to from at least one measured Pro/Admin home or region base, with
+how many said so out of how many could judge (for example "no route from 3 of 3 homes, 2 of 4
+bases"). It uses the same unroutable rule the Plan card uses. The drive-time job's panel in
+Operations shows the list with a count badge, and the admin Locations list and location page flag
+each such place "Needs a drive point". Pro and Lite readers never see it.
+
+### Fixed — the "Needs a drive point" flag refreshes, and a re-enabled place is no longer falsely flagged
+
+The admin Locations screen now re-reads the flag after every save, add, toggle and failure reset, so
+a place whose pin was fixed stops being flagged. The location page no longer says "none could be
+routed" when only some origins could not. Re-enabling a place now bumps its drive-target time (without
+deleting its drive times), so a place switched off during the nightly sweep reads as pending rather
+than unroutable until it is measured again.
+
+### Changed — ZAP gate ignores a SQL-injection false positive on admin paths
+
+The weekly ZAP gate now carries a narrow `ignore` exception for rule 40018 (SQL injection) on
+backend URLs under `/api/admin/`. The scan runs as a non-admin, so the security filter answers every
+request there with the same 403 before any parameter is read, which ZAP's expression check misreads
+as a hit. The exception is scoped by URI: a 40018 alert on any other path, or an alert that mixes
+admin and non-admin instances, still fails the gate.
+
+### Fixed — saving a home postcode with a control character now gets 400 instead of 500
+
+`PUT /api/user/settings/home` accepted a postcode containing a control character, such as a NUL byte.
+PostgreSQL refuses to store a NUL in a text column, so on production the save failed in the database and
+answered 500. `SaveHomeRequest` now rejects control characters in the postcode when the body is bound, so
+the caller gets the generic 400 `{"error":"Invalid request"}` and nothing is written or echoed.
+
+`POST /api/user/settings/home/lookup` had the matching gap: a body with no postcode reached the lookup
+client as null and answered 500. `PostcodeLookupRequest` is now validated the same way (present, not blank,
+no control characters), so these answer 400 as well.
+
+### Fixed — the Scheduler Day tab tests no longer fail intermittently in CI
+
+Two tests in `SchedulerDayTab.test.jsx` were racing the screen. "follows the container when it is wider"
+sometimes failed with `expected 360 to be 912`: the Day picture sizes its SVG with a `ResizeObserver` that
+`useElementWidth` constructs in a passive effect, and the test fired its fake resize as soon as the SVG was
+on screen, which can be before that effect has run, so the resize reached nothing. Both width tests now wait
+until the plot's own observer is watching the plot before they resize it; "is never narrower than the minimum" could previously
+pass without testing anything. "is not moved by Rewind" waited for the day label, which is on screen from
+the first paint, and then looked for the Now line before the served day had landed; it now waits for the
+Now line first. Test-only change.
+
+### Fixed — a place with no road route no longer counts as within your drive
+
+A place OpenRouteService cannot route to (a summit such as Helvellyn) has no drive time, and a missing drive
+time used to pass every reach tier, so the 45-minute window card could name it as the best place "within
+reach". The drive from your home, and from an away base, is now one of three kinds: measured, pending (nothing
+has measured it yet, still shown) or unroutable (your home or the base was fully measured after the place last
+moved, and there is no route). A finite drive tier now drops the unroutable places, for the spread, the Best
+line, the tide fit, the region rail, the "See all spots" sheet and the plan messages alike; "Any" and a reader
+with no postcode are unchanged. The Best line's "beyond 45 min" never calls an unroutable place far (it says
+"no route from home", or from the base town when planning away), and the spread tooltip says how many places
+have no route.
+
+Moving a location's coordinates now discards the drive times to its old point and re-measures them that night
+(it used to leave them, and only the admin "Run now" refreshed them); until then it reads as pending. New
+column `locations.drive_target_changed_at` (migration V220) records when a place's routing point last changed,
+and `regions.drives_measured_at` when a base was last measured in full; both are served (`/api/locations`,
+`/api/regions`) and `/api/user/settings/reach` now carries a `driveStatus` per place. A measurement that
+returns fewer durations than places is no longer stamped as complete, and a region base measurement that
+finishes after the base moved is discarded.
+
+### Changed — phone legend shows the stand-down item as a plain label
+
+The phone Map tab's Layers sheet, in its Ground row, now shows the stand-down item as a plain
+"stood down by the weather" label that matches "not rated yet" and "no places", instead of a bold term
+followed by a long explanation that wrapped badly. The desktop and tablet legend is unchanged.
+
+### Changed — patched glob and minimatch for frontend build and lint tooling
+
+The frontend `package.json` `overrides` now pin `glob` 14.0.3 under `workbox-build` (used by
+`vite-plugin-pwa`) and `minimatch` 11.0.4 under `eslint` and `@eslint/config-array`. This clears
+GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249 in dev and build tooling, which is never shipped to the
+browser. The other `minimatch` copies (3.x, 5.x) are outside the affected range and are unchanged.
+
+### CI — Hold every backend class to 95% of lines and 90% of branches
+
+`jacoco:check` now fails the build when any backend class covers under 95% of its lines or 90% of its branches
+(it was 80% of lines, with 32 classes excluded). The exclusions are gone. Seven classes with a branch that cannot
+be reached have their own floor in `backend/pom.xml`, each with its reason, and a whole-codebase floor of 99.3% of
+lines and 95.8% of branches sits behind them. No production code changed.
+
+### Testing — Cover service-package branches, part 2 (backend B6)
+
+The second half of the flat `service` package (Inversion to Woodland) now has behaviour tests for its missing-data and failure paths:
+the hot-topic strategies, Open-Meteo parsing and failure logging, tide size and run builders, the surge curve and its facts, the
+sky-rating eval batch reconciler, the run progress stream, the solar trigger fallbacks and the account link writers. No production code changed.
+
+### Testing — Cover service-package branches, part 1 (backend B5)
+
+The first half of the flat `service` package (`AstroConditionsService` through `HotTopicGlanceDecorator`, 34 classes) now sits at 95% lines and 90% branches or better. The new tests cover the briefing's optional-sink failures, the served-briefing overlays and single-flight joins, the scheduler's unfireable schedules and fire-log summaries, the cloud-verification archive gaps, the aurora summary caches, the hot-topic strategies' missing-data paths and the git-info fallbacks. No production code changed.
+
+### Testing — Cover client, controller, config, model and utility branches (backend B4)
+
+The `client`, `controller`, `config`, `entity`, `model`, `model.comingup`, `repository`, `util` and `eval` classes in the B4 list now sit at
+95% lines and 90% branches or better, with behaviour tests for the NOAA, NLCNET, Environment Agency and OpenRouteService clients (cache windows,
+retained values after a failed fetch, malformed rows), the controllers' missing-input and refused-issue paths, the status stream's lifecycle, the
+CORS and caching configuration, the model records' null handling, the entity accessors and the dormant-account state records. No production code
+changed.
+
+### Testing — Cover batch, pipeline and aurora service branches (backend B3)
+
+The `service.batch`, `service.pipeline` and `service.aurora` classes now have behaviour tests for their retry, orphan, partial-failure and fallback paths, reaching 95% lines and 90% branches.
+Tests only: no production code changed.
+
+### Testing — Cover Ask, runs, Coming up and notification branches (backend B2)
+
+Behaviour tests now cover the `service.ask`, `service.runs`, `service.comingup` and `service.notification` classes that sat below 95% of lines or 90% of branches: the Ask spend guard, engine edge cases, thread context and snapshot builder, the Runs loaders and cost view, the Lite Coming up shaper and the user emails.
+No production code changed; the branches that cannot be reached are listed in the pull request as override candidates for the coverage floor.
+
+### Testing — Cover the evaluation services' branches (backend B1)
+
+The `service.evaluation` and `service.evaluation.visitor` classes now sit at 95% lines and 90% branches or better, with behaviour tests for the
+batch result handlers, the best-bet ranker, validator, parser and enricher, the superseding-disposition rules, custom-id parsing and the
+call gate on the Ask client. No production code changed.
+
+### CI — Check coverage of the backend lines each change touches
+
+Pull requests now also fail when under 90% of the `backend/src/main` lines they add or change are covered by tests,
+the same check the frontend has had since #1697. The per-class and whole-codebase floors cannot see a change that
+adds untested code to an already well-covered class; this one can. The step runs `diff-cover` over the JaCoCo report
+and writes its table to the job summary. No production code changed.
+
+## [v2.39.0] - 2026-11-05
+
+### Docs — "How it's built" describes the app's coverage minimums
+
+The landing page's "Tests that are tested" and "Where it's still improving" now say the app's code must keep 95% of each file's lines and 90% of its branches covered, with two files on a stated lower branch minimum, and that 90% of a change's added or altered lines must be covered before it merges.
+
+### CI — Fail a PR whose changed frontend lines are under 90% covered
+
+The frontend CI job now runs `diff-cover` (pinned 10.0.0) over Vitest's new `lcov` report on pull requests and fails when less than 90% of the lines a PR adds or changes under `frontend/src` are covered. Test files, `src/test/**` and `src/main.jsx` are not counted, and a PR with no covered source changes passes. Line coverage only; the global coverage floor is unchanged.
+
+### Added — "The engineering behind PhotoCast" page
+
+A new public page, `landing/engineering.html`, for engineers and hiring managers: the stack, the CI pipeline,
+the quality gates enforced on every change (with their thresholds), security checks mapped to the OWASP Top 10
+(2025), continuous delivery, testing beyond coverage, the AI engineering and a candid list of gaps. It is linked
+from every landing footer and from the end of the "How PhotoCast is built" hero, and added to the landing
+Dockerfile. `docs/engineering/engineering-page-plan.md` holds the plan and copy.
+
+### Fixed — Engineering page shows the current app coverage gates
+
+The engineering page's gates table now matches the frontend build: branches 95% overall, at least 95% of lines and 90% of branches in every file (two files on documented lower branch figures), and a new row for the changed-lines check that requires 90% of the app lines a change adds or alters to be covered.
+
+### Changed — ZAP gate exceptions trimmed
+
+The weekly ZAP gate no longer tolerates three alerts that stopped firing in the latest scan: backend
+`30001` and `30002`, and frontend `10055`. Their entries are removed from `.zap/exceptions.json`, so
+any recurrence now fails the gate. The remaining entries are unchanged.
+
+### Fixed — flaky SkyRatingEvalControllerTest from un-awaited async executeRun
+
+`SkyRatingEvalController` hands `executeRun` to its own virtual-thread executor after answering 202.
+Tests that hit `/run` or `/check` without waiting let that call land on the shared `@MockitoBean`
+during a later test, which then failed its `verifyNoMoreInteractions`. Every such test now waits for
+its `executeRun` call before ending. Test-only change.
+
+### Changed — Sky Eval accuracy chart compares several models at once
+
+The model chips under "Accuracy over time" are now a multi-select: press several chips (or rows in the All models table) to draw those models side by side, each in its own colour. A Clear chip appears with a selection and restores the production-model default.
+
+### Changed — Operations menu: Tuning group removed
+
+The Operations menu's Tuning group is gone. Run Config is now Model Config and sits last under Runs
+(the page heading reads "Model Configuration" to match), and Sky Eval moved under Testing. Existing
+`#manage/models` and `#manage/skyeval` links still work unchanged.
+
+### Docs — How PhotoCast is built: security section brought up to date
+
+The public "How PhotoCast is built" page now describes the daily server-library check, the review step for
+vulnerable libraries, the weekly signed-in scanner and what it reports, the Content Security Policy and the
+admin-only access rules, each with what it does not cover. Copy only; no behaviour changed.
+
+### Testing — Cover the auth context, hooks, utils and remaining API wrappers
+
+Adds Vitest coverage for the sign-in, refresh and session-expiry logic in `AuthContext`, the location add and edit hooks,
+the Runs live poll, job-detail, roving-focus and viewport hooks, the cycle and region view-model helpers, and the API
+wrappers that had no direct test. Tests only; no product code changes. The CI coverage floor is raised to 99 / 98 / 98 / 94
+(lines / statements / functions / branches).
+
+### Testing — Cover the remaining components; add a per-file coverage floor
+
+Added Vitest tests (new `*Branches` files plus extensions) for the components, hooks and utils that sat under 95% lines or 90% branches, including TurnstileWidget, DaySummary, SlowerScatter, UserAddPanel, SchedulerTabs, AllModelsTable, VersionCompare, RunsLiveStrip and RegisterPage. No product source changed.
+The Vitest floor now also requires every file in `src/**` to reach 95% lines and 90% branches on its own (two files with unreachable branches, TurnstileWidget at 81% and StartRunScope at 87%, carry their measured figure), and the global floor rises to 99 / 98 / 98 / 95.
+
+### Fixed — a query string with an empty parameter name now gets 400 instead of 500
+
+A request whose query string has a parameter with no name (`?=`, `?days=3&=`) was answered with a 500. Tomcat
+fails to parse such a chunk and throws `InvalidParameterException` from every later `getParameter*` call, which
+Spring MVC makes when it binds a `@RequestParam` or matches a handler, and `GlobalExceptionHandler`'s catch-all
+turned it into a 500 with a stack trace in the log. `GlobalExceptionHandler` now maps it to 400 with the fixed
+body `{"error":"Invalid request parameter"}`; the offending chunk is neither echoed nor logged. A bad
+percent-escape in a query string is the same exception and gets the same answer. A unit and a filter-chain test
+cover it.
+
+## [v2.38.2] - 2026-11-04
+
+### Changed — ZAP exceptions trimmed after v2.38.1
+
+The weekly ZAP gate no longer tolerates the backend error-disclosure (`90022`) and backend
+cross-origin-resource-policy (`90004`) alerts, which stopped firing in v2.38.1. The frontend `90004`
+exception is now keyed to its `90004-2` sub-alert (Cross-Origin-Embedder-Policy, deliberately not
+set) and is permanent, so any other `90004` sub-alert fails the gate again. A unit test covers the
+sub-alert matching.
+
+### Fixed — malformed or unknown input now gets 4xx instead of 500
+
+Three kinds of request that the API used to answer with a 500 now get a 4xx with a fixed, generic body that
+never echoes the supplied value. A verb a path is not mapped for (a GET to a PUT-only path such as
+`/api/areas/{id}`) is 405 with an `Allow` header. A body sent with a content type the endpoint does not read is
+415. A request that fails bean validation is 400 (`MethodArgumentNotValidException` and
+`HandlerMethodValidationException` are mapped in `GlobalExceptionHandler`). `PUT /api/user/settings/home` now
+validates its body: a postcode longer than its 10-character column or a latitude or longitude outside the WGS84
+range is 400 before it reaches the database, where an over-long postcode used to surface as a database error.
+
+### Testing — Cover the API wrappers and admin simulation UIs; raise the coverage floor
+
+Added Vitest tests for the axios wrapper modules that had none (user, models, metrics, batch, tide,
+light) or little (forecast, scheduler, settings, area, region, runs, aurora, auth), and for the Aurora
+simulate modal, the Hot Topic simulation panel, `useSortAndFilter` and `startRunOptions`. The CI
+coverage floor rises to 98% lines, 97% statements, 97% functions and 93% branches.
+
+### Added — frontend unit-test coverage floor in CI
+
+The frontend CI job now runs Vitest with v8 coverage (`npm run test:coverage`) and fails a PR that
+drops global coverage below the level measured on 2026-11-04: 97% lines, 96% statements, 96%
+functions, 93% branches. The floor lives in `test.coverage.thresholds` in `frontend/vite.config.js`
+and is only ever raised. `npm test` is unchanged. Dependabot now bumps `vitest` and `@vitest/*`
+together, and the landing page's "how it's built" copy says the app's tests have a coverage minimum.
+
+### Changed — the Content-Security-Policy no longer allows inline styles
+
+The enforced `style-src` is now `'self'`: `'unsafe-inline'` is dropped, and the report-only
+candidate policy and its header are removed. The candidate shipped report-only in the previous
+release and a console check of production on 2026-11-04 showed no violations. React `style={}`
+props and Leaflet's `el.style` go through the CSSOM, which CSP does not block. The noctilucent-cloud
+sighting banner used to inject a `<style>` element, which the stricter policy would have blocked, so
+its rules moved unchanged into a co-located `NlcSightingBanner.css` that the build bundles into a
+normal stylesheet. A new test forbids any `<style>` element in app source. The legacy-browser
+"Browser Not Supported" notice keeps its `style=""` attributes; only browsers without module support
+see it, and its message still shows, unstyled.
+
 ## [v2.38.1] - 2026-11-04
 
 ### Changed — the weekly ZAP scan can now fail

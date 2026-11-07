@@ -232,6 +232,81 @@ describe('WindowTopicRows — the scope note', () => {
   });
 });
 
+describe('WindowTopicRows — the scope tooltip', () => {
+  it('lists the intersected regions, not the served roster, on the scope note', () => {
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge()],
+      topics: [topic({ regions: ['Northumberland & Tyneside', 'N. York Moors & Coast', 'Elsewhere'] })],
+      scope: ['Northumberland & Tyneside', 'N. York Moors & Coast', 'The Lake District'],
+    });
+    expect(screen.getByTestId('wf-topic-row-scope')).toHaveAttribute(
+      'title', 'Northumberland & Tyneside · N. York Moors & Coast',
+    );
+  });
+
+  it('puts no title on the scope note when no regions are named', () => {
+    render(
+      <WindowTopicRows rows={[{ badge: badge(), topic: topic(), wholeSky: false, regionsInScope: 3 }]} />,
+    );
+    expect(screen.getByTestId('wf-topic-row-scope')).toHaveTextContent('3 regions');
+    expect(screen.getByTestId('wf-topic-row-scope')).not.toHaveAttribute('title');
+  });
+});
+
+describe('WindowTopicRows — measured facts', () => {
+  const snow = (facts) => badge({ type: 'SNOW', label: 'Snow', detail: null, facts });
+
+  it('renders each fact as its key and value segments, flagging optional ones', () => {
+    render(
+      <WindowTopicRows
+        rows={[{
+          badge: snow([
+            { key: 'snow line', value: '~600 m', emphasis: true },
+            { value: 'fresh overnight', optional: true },
+          ]),
+          topic: null,
+          wholeSky: true,
+          regionsInScope: null,
+        }]}
+      />,
+    );
+    const [first, second] = screen.getAllByTestId('wf-topic-row-fact');
+    expect(first).toHaveTextContent('snow line~600 m');
+    expect(first.children).toHaveLength(2);
+    expect(first.className).toBe('');
+    expect(second).toHaveTextContent('fresh overnight');
+    expect(second.children).toHaveLength(1);
+    expect(second).toHaveClass('opt');
+  });
+
+  it('draws no facts block when the badge serves none', () => {
+    render(
+      <WindowTopicRows rows={[{ badge: snow([]), topic: null, wholeSky: true, regionsInScope: null }]} />,
+    );
+    expect(screen.getByTestId('wf-topic-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-topic-row-facts')).toBeNull();
+  });
+
+  it('tolerates a badge with no facts field and no type', () => {
+    render(
+      <WindowTopicRows rows={[{ badge: { label: 'Mystery' }, topic: null, wholeSky: true, regionsInScope: null }]} />,
+    );
+    expect(screen.getByTestId('wf-topic-row-name')).toHaveTextContent('Mystery');
+    expect(screen.queryByTestId('wf-topic-row-facts')).toBeNull();
+  });
+
+  it('does not emphasise a typeless badge', () => {
+    render(
+      <WindowTopicRows
+        emphasisTopic="aurora"
+        rows={[{ badge: { label: 'Mystery' }, topic: null, wholeSky: true, regionsInScope: null }]}
+      />,
+    );
+    expect(screen.getByTestId('wf-topic-row')).not.toHaveAttribute('data-emphasis');
+  });
+});
+
 describe('WindowTopicRows — the safety note', () => {
   it('⚠️ renders it in full, on the badge that carries it', () => {
     // The "do not look at the sun without a filter" class of warning. It rides the BADGE, so it

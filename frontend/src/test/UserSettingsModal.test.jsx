@@ -211,6 +211,15 @@ describe('UserSettingsModal', () => {
       expect(slider).toHaveAccessibleDescription('How far counts as close to home.');
     });
 
+    it('keeps the radius value on one line in a wider phone column', async () => {
+      getSettings.mockResolvedValue(PRO_SETTINGS);
+      renderModal();
+
+      await screen.findByRole('slider', { name: 'Local radius' });
+
+      expect(screen.getByTestId('settings-radius-value')).toHaveClass('max-[639px]:w-[5.5rem]', 'max-[639px]:whitespace-nowrap');
+    });
+
     it('separates the radius label\'s words in its own text, not only in the slider\'s name', async () => {
       // Reading mode, copy and `innerText` take the label's text, not the slider's name — and read
       // "Local radiusHow far…" while the only gap between the two was the hint's margin.

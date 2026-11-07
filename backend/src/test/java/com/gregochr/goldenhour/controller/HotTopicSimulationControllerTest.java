@@ -76,6 +76,20 @@ class HotTopicSimulationControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /toggle flips enabled→disabled when simulation is currently on")
+    void toggleEnabled_whenOn_switchesOff() throws Exception {
+        when(hotTopicSimulationService.isEnabled()).thenReturn(true);
+        when(hotTopicSimulationService.getAllTypes()).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/admin/hot-topics/simulation/toggle"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(true)); // mock still returns true
+
+        verify(hotTopicSimulationService).setEnabled(false);
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /type/{type}/toggle activates an inactive type")
     void toggleType_inactiveType_activates() throws Exception {
         when(hotTopicSimulationService.getActiveTypes()).thenReturn(Set.of());

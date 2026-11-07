@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.client.contract;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
+import com.gregochr.goldenhour.model.PlaceResult;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -16,6 +17,7 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -268,6 +270,42 @@ class PostcodesIoClientContractTest {
 
         client.reverseLookup(0.00002, 0.00001);
 
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("searchPlaces GETs /places?q=… with the name percent-encoded, and maps the wire's snake_case fields")
+    void searchPlacesUsesThePlacesEndpointAndMapsTheWireFields() {
+        server.expect(requestTo("https://api.postcodes.io/places?q=Glen%20ridding&limit=100"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(readFixture("places-response.json"), MediaType.APPLICATION_JSON));
+
+        List<PlaceResult> places = client.searchPlaces("Glen ridding");
+
+        assertThat(places).hasSize(2);
+        PlaceResult first = places.get(0);
+        assertThat(first.name()).isEqualTo("Glenridding");
+        assertThat(first.localType()).isEqualTo("Village");
+        assertThat(first.countyUnitary()).isEqualTo("Cumberland");
+        assertThat(first.region()).isEqualTo("North West");
+        // Signed and asymmetric on purpose: a lat/lon swap cannot satisfy both.
+        assertThat(first.latitude()).isEqualTo(54.5442);
+        assertThat(first.longitude()).isEqualTo(-2.9505);
+        assertThat(places.get(1).countyUnitary()).isNull();
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("A name postcodes.io does not know answers 200 with null or empty, which is an empty list")
+    void searchPlacesUnknownNameIsAnEmptyList() {
+        String url = "https://api.postcodes.io/places?q=Nowhereville&limit=100";
+        server.expect(requestTo(url)).andRespond(
+                withSuccess("{\"status\":200,\"result\":null}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url)).andRespond(
+                withSuccess("{\"status\":200,\"result\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.searchPlaces("Nowhereville")).isEmpty();
+        assertThat(client.searchPlaces("Nowhereville")).isEmpty();
         server.verify();
     }
 

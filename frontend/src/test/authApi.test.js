@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import apiClient from '../api/axiosClient.js';
 import {
   setPasswordForNewUser, register, requestPasswordReset, resetPassword, verifyEmail, logout, submitWaitlist,
+  login, refreshAccessToken, changePassword, updateMarketingEmailOptIn, resendVerification,
 } from '../api/authApi.js';
 
-vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn() }, SKIP_AUTH_REFRESH: 'skipAuthRefresh' }));
+vi.mock('../api/axiosClient.js', () => ({ default: { post: vi.fn(), put: vi.fn() }, SKIP_AUTH_REFRESH: 'skipAuthRefresh' }));
 
 const SKIP = { skipAuthRefresh: true };
 
@@ -100,6 +101,39 @@ describe('authApi request bodies', () => {
       password: 'Abcdef1!',
     }, SKIP);
     expect(Object.keys(apiClient.post.mock.calls[0][1])).toEqual(['token', 'password']);
+    expect(data).toEqual({ ok: true });
+  });
+
+  it('login posts credentials with the Turnstile token and opts out of the refresh cycle', async () => {
+    const data = await login('ann', 'pw', 'ts-1');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/login',
+      { username: 'ann', password: 'pw', turnstileToken: 'ts-1' }, SKIP);
+    expect(data).toEqual({ ok: true });
+  });
+
+  it('refreshAccessToken posts only the refresh token and opts out of the refresh cycle', async () => {
+    const data = await refreshAccessToken('r-1');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/refresh', { refreshToken: 'r-1' }, SKIP);
+    expect(data).toEqual({ ok: true });
+  });
+
+  it('changePassword posts both passwords and Turnstile WITHOUT the skip flag (it needs the bearer token)', async () => {
+    const data = await changePassword('old', 'new', 'ts-2');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/change-password',
+      { currentPassword: 'old', newPassword: 'new', turnstileToken: 'ts-2' });
+    expect(apiClient.post.mock.calls[0]).toHaveLength(2);
+    expect(data).toEqual({ ok: true });
+  });
+
+  it('updateMarketingEmailOptIn PUTs the boolean as given, false included', async () => {
+    apiClient.put.mockResolvedValue({ data: { optIn: false } });
+    expect(await updateMarketingEmailOptIn(false)).toEqual({ optIn: false });
+    expect(apiClient.put).toHaveBeenCalledWith('/api/auth/marketing-emails', { optIn: false });
+  });
+
+  it('resendVerification posts the email and opts out of the refresh cycle', async () => {
+    const data = await resendVerification('a@b.c');
+    expect(apiClient.post).toHaveBeenCalledWith('/api/auth/resend-verification', { email: 'a@b.c' }, SKIP);
     expect(data).toEqual({ ok: true });
   });
 });

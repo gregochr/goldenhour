@@ -168,6 +168,7 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 | `sky_rating_eval` | `SUCCEEDED` "Batch submitted for 3 models" (batched) or "3 of 3 model runs completed" (sync); `SKIPPED` "Every model is switched off"; `FAILED` "Batch submission failed: …"; sync `PARTIAL`/`FAILED` per model run |
 | `sky_rating_eval_batch_poll` | `SUCCEEDED` "No evaluations in flight" / "1 batch checked"; `PARTIAL`/`FAILED` "2 batches checked · 1 failed"; `FAILED` "Could not load running evaluations: …" |
 | `tide_refresh` | Reads `TideFetchResult` (STORED / UNCHANGED / FAILED / NOT_CONFIGURED) from `fetchAndStoreTideExtremesWithOutcome`: `SUCCEEDED` "12 refreshed · 3 unchanged"; `PARTIAL`/`FAILED` "… · 1 failed" (a quiet API failure or a throw); `SKIPPED` "WorldTides key not configured" once for the job, or already running |
+| `imo_calendar_refresh` | `ImoCalendarRefreshService`: one status for the two years it handles. `SUCCEEDED` "2026 unchanged · 2027 stored (first fill)" / "2026 stored · 2027 not published"; `PARTIAL` when a year is `failed` or `invalid` and another is not; `FAILED` when no year succeeded; `SKIPPED` "Already running — skipped". Seeded V223: CRON `0 17 3 * * MON`, `time_zone = Europe/London`, ACTIVE. See *Meteor calendar refresh* in `conditions.md`. |
 | `aurora_polling` | `SUCCEEDED` "Alert MODERATE · night poll · alert unchanged"; `FAILED` "NOAA space-weather read failed"; `SKIPPED` aurora off or cycle already running |
 | `nlc_sighting_scrape` | `SUCCEEDED` "N sighting reports parsed"; `SKIPPED` feature off or "Outside the NLC season"; `FAILED` "NLCNET scrape failed: …" / "NLCNET page not found …" |
 | `forecast_cycle_watchdog` | `SUCCEEDED` "All cycles on time" / "1 alert sent"; `PARTIAL`/`FAILED` "1 of 3 cycle checks failed · No alerts" |
@@ -183,10 +184,67 @@ Status rules: `SUCCEEDED` = did its job (including "nothing to do"); `SKIPPED` =
 | `topic_daily_log` | `SUCCEEDED` "7 of 7 topic groups logged for 2027-03-05"; `PARTIAL`/`FAILED` "· N failed" |
 | `cloud_verification_backfill` | `SUCCEEDED` "100 verified · 0 remaining"; `PARTIAL`/`FAILED` "100 verified · stopped: …"; `SKIPPED` already running |
 
-## Operations → Run Config: measured costs (run-config-accuracy-plan.md)
+## Operations → Runs → Model Config (formerly Run Config): measured costs (run-config-accuracy-plan.md)
 
 `components/ModelSelectionView.jsx` holds no price. `GET /api/models` serves `costProfiles` (per tab: runs per day, calls per run, a `measured` figure for each model that ran and an `estimates` figure for each selectable model that did not), `tokenRates` (from `CostProperties`) and `gbpPerUsd` (the newest `job_run.exchange_rate_gbp_per_usd`; absent means the screen shows dollars). `service/RunCostProfileService` builds them from `api_call_log` over the last 30 UK civil days, with a 10-minute memo bypassed under Rewind, and never throws to the controller (a failure serves an empty `costProfiles`, shown as "Cost figures unavailable").
+
+The selected sub-tab is mirrored in the hash (`#manage/models/{RUN_TYPE}`, read through `useHashSelection('models')`, written with `replace` so tab clicks add no history; a key the reader cannot see falls back to Briefing), and Sky Eval's lane cards link to it ("Change model").
 
 - **Which rows**: Briefing = `BRIEFING` runs' `briefing-best-bet` rows (not the gloss rows); Aurora = `AURORA_EVALUATION` runs plus `au-` batch rows; the batch tabs = `fc-`/`bb-`/`wd-` batch rows whose `forecast_batch.pipeline_run_id` is set (the admin force-submit route is excluded), bucketed by `days_ahead` (0-1 near, 2+ far) in Java. Batch "runs" are pipeline cycles. Per-call figures use succeeded calls only; per-day spend includes every row.
 - **Estimates** price the tab's average token mix through `CostCalculator` (batch cache writes at the 1-hour rate); they ignore tokeniser and thinking differences.
 - **Not included**: the cache-priming call (`pw-`) logs nothing; a refused or truncated synchronous aurora call is logged at zero cost; admin aurora runs for a chosen night and the aurora gloss log nothing; `BRIEFING_GLOSS` has no tab.
+
+**Drive status: unroutable vs pending (reach-scoped-card-plan R1).** A place OpenRouteService has no route to used
+to read as "unknown" and pass every reach tier. Each (origin, location) drive is now MEASURED / PENDING /
+UNROUTABLE (`model/DriveStatus`), decided from the origin's stamp (`app_user.drive_times_calculated_at` for a
+home, `regions.drives_measured_at` for a base) against `locations.drive_target_changed_at`. A stamp means "fully
+measured from this point, as of this instant": it is taken **before** the roster read, written only when ORS
+returned a duration slot for every destination (`DriveDurationService` treats a short answer as no answer;
+`RegionDriveDurationService` stores a short answer's rows without stamping), and for a region only while the base
+is still the one routed from (`RegionDriveTimeWriter.storeIfBaseUnchanged`, a compare-and-set). A coordinate
+move in `LocationService.update` bumps `drive_target_changed_at` and deletes the location's drive-time rows, so a
+moved location reads PENDING until re-measured and `DriveTimeRefreshJob` (which now reads
+`findMaxDriveTargetChangedAt`, not the newest `created_at`) re-measures every home that night. A region base
+move (`RegionService.setBase`) also nulls the base's stamp. The admin "Run now" is no longer needed for a
+coordinate correction. A **re-enable** (`LocationService.setEnabled` false to true, and `resetFailures` re-enabling an auto-disabled place) also bumps `drive_target_changed_at`, without deleting rows: the nightly roster reads only enabled places, so a place switched off during a sweep must read PENDING, not UNROUTABLE, until it is measured again.
+
+**A named drive point, enforced where there is no route (reach-scoped-card-plan R1c).** A summit is not on a road, so
+ORS has no route to its pin. A location may carry a **drive point**: `locations.drive_point_name/lat/lon` (V221, all
+three or none, `DrivePoint.parse` enforces it; `updatable = false`, written only by `LocationRepository.updateDrivePoint`
+and the insert), the nearest place a driver can reach (a village or car park, e.g. Glenridding for Helvellyn). **Only ORS
+uses it**: `DriveDurationService` and `RegionDriveDurationService` send `LocationEntity.routingLat/routingLon` (the drive
+point when set, else the pin); straight-line miles (`ReachService`) and Ask's home radius stay on the pin. Setting,
+changing or clearing it changes the routing target, so `LocationService.update` applies D1a (bump
+`drive_target_changed_at`, delete the location's `user_drive_time` and `region_drive_time` rows, via
+`invalidateDriveTimes`); a pin move behind a drive point, or a rename over the same coordinates, changes no target and
+invalidates nothing. The reach payload carries `driveTo` (the name) and the Plan/Map drive line reads
+`1h 20min to Glenridding` (callout, the Plan strip's peek chip, the four-day sheet's meta line), with miles dropped on
+that line; list rows, leave times and popup verdicts do not name it.
+**The 422** (`DriveRoutabilityGuard`, called by `LocationController` *before* the service's transaction opens): a create,
+a coordinate move on a place with no drive point, and clearing a drive point are refused with `422
+{error, code: NO_ROAD_ROUTE, field: drivePoint}` ("No road route reaches this point. Add a drive point, e.g. the nearest
+village or car park.") when the point drive times would be routed to has none; setting or changing a drive point
+checks that point too. Every other edit is never refused, and an existing unroutable place is only flagged (R1b). The
+check is one ORS matrix call (`OpenRouteServiceClient.probe`): source is the location's region base, else the nearest
+base; destinations are a known-routable **control** (central Birmingham) then the target. A null `destinations[]` snap entry (the target
+could not be placed on a road), or a 404 whose parsed `error.code` is 6010 naming the target's coordinate index in
+`error.message`, is UNROUTABLE; a target snapped to a road with no duration (a ferry-only island) is UNAVAILABLE, because a
+drive point would not help; the server also rejects (400) a drive point more than 25 km from the pin; an
+all-null row (the control fails too: the source is bad) is UNAVAILABLE. **Never blocked by an outage**: no permit within
+5 s (`OrsRateLimiter.tryWithPermit`), no base, ORS unconfigured, any ORS error, or a short answer is UNAVAILABLE and the
+save goes ahead. ORS's unsnappable-point answer is handled in both documented forms; the fixtures under
+`contract/ors/probe-*.json` are hand-written from ORS's documentation, not recorded (no key, no live calls in tests).
+The admin form's lookup is `GET /api/admin/drive-times/places?q=&lat=&lon=` (postcodes.io `/places` sorted by distance and
+cut at 25 km; a postcode goes through the postcode lookup). The admin location page shows `Drive to: Glenridding` with
+an Edit control, and the form's Drive point field becomes required after a 422.
+
+**Admin view of unroutable places (reach-scoped-card-plan R1b).** `GET /api/admin/drive-times/unroutable` (ADMIN, read-only,
+no-store; `UnroutableLocationService`) counts, per enabled location, how many measured Pro/Admin homes and region bases
+read it `UNROUTABLE`, out of how many could judge it (a `PENDING` pair, an origin not yet late enough to judge, is in
+neither count), using `DriveStatus.of` and the same `ROSTER_VISIBILITY_MARGIN`. Only locations with at least one
+`UNROUTABLE` are listed. The frontend shows it in three admin-only places: a **Needs a drive point** section (count
+badge, a link `#manage/locations/{id}` per place) on the Scheduler job panel for `drive_time_refresh`
+(`components/scheduler/UnroutableLocationsSection.jsx`), a flag line under the name on the admin Locations list, and a
+Drive point section on the location panel above Shooting ("Needs a drive point · no route from 3 of 3 homes, 2 of 4
+bases"). All three read `useUnroutableLocations` once on mount; a failed read flags nothing. Pro and Lite never fetch
+it (the Operations pane and the Manage tab are withheld from them, and the endpoint answers 403).

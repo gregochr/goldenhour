@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 /**
@@ -128,6 +130,8 @@ public class UserDriveTimeWriter {
         if (!driveTimes.isEmpty()) {
             userDriveTimeRepository.saveAll(driveTimes);
         }
+        // A location moved after the roster was read was routed to its OLD point; drop that row so it reads PENDING.
+        userDriveTimeRepository.deleteMovedSince(userId, LocalDateTime.ofInstant(calculatedAt, ZoneOffset.UTC));
         return true;
     }
 
@@ -190,5 +194,17 @@ public class UserDriveTimeWriter {
     @Transactional
     public void clearForUser(Long userId) {
         userDriveTimeRepository.deleteAllByUserId(userId);
+    }
+
+    /**
+     * Discards every user's drive time to one location, because the location's coordinates moved and each row
+     * describes a journey to the old point. Other rows and every user's stamp are untouched: the location's
+     * {@code drive_target_changed_at} bump is what makes it read PENDING until a refresh measures it again.
+     *
+     * @param locationId the location's primary key
+     */
+    @Transactional
+    public void clearForLocation(Long locationId) {
+        userDriveTimeRepository.deleteAllByLocationId(locationId);
     }
 }

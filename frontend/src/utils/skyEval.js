@@ -44,7 +44,9 @@ export const MODEL_COLOURS = {
   HAIKU: 'oklch(.72 .11 250)',
   HAIKU_55: 'oklch(.8 .1 200)',
   SONNET: 'oklch(.72 .12 300)',
+  SONNET_ET: 'oklch(.78 .13 150)',
   OPUS: 'oklch(.82 .12 85)',
+  OPUS_ET: 'oklch(.8 .12 55)',
 };
 
 /** The colour of a model with no entry in {@link MODEL_COLOURS}. */
@@ -56,7 +58,9 @@ export const SWATCH_CLASS = {
   HAIKU: 'bg-[oklch(.72_.11_250)]',
   HAIKU_55: 'bg-[oklch(.8_.1_200)]',
   SONNET: 'bg-[oklch(.72_.12_300)]',
+  SONNET_ET: 'bg-[oklch(.78_.13_150)]',
   OPUS: 'bg-[oklch(.82_.12_85)]',
+  OPUS_ET: 'bg-[oklch(.8_.12_55)]',
 };
 
 /** See {@link SWATCH_CLASS}. */
@@ -373,17 +377,19 @@ export function versionMarkers(versions, startMs, endMs) {
 
 /**
  * One line per model for the accuracy chart: one point per session in which the model has a pass rate.
- * A line is emphasised when it is the highlighted model, or, with no highlight, when it serves a production lane.
+ * A line is emphasised when it is one of the highlighted models, or, with none highlighted, when it serves a
+ * production lane.
  * Emphasised lines come last so they draw on top.
  *
  * @param {Array<object>} sessions the served sessions
  * @param {Array<{model: string, lanes: string[]}>} models the served model rows
- * @param {string|null} highlight the highlighted model, or null
+ * @param {string[]|null} highlighted the highlighted models (null or empty means the production default)
  * @param {number} startMs the left edge
  * @param {number} endMs the right edge
  * @returns {Array<{model: string, emphasised: boolean, points: Array<object>, polyline: string}>} the series
  */
-export function buildAccuracySeries(sessions, models, highlight, startMs, endMs) {
+export function buildAccuracySeries(sessions, models, highlighted, startMs, endMs) {
+  const chosen = highlighted ?? [];
   const timed = sessions
     .map((s) => ({ s, ms: parseUtcInstant(s.startedAt)?.getTime() }))
     .filter(({ ms }) => ms != null && ms >= startMs && ms <= endMs)
@@ -404,7 +410,7 @@ export function buildAccuracySeries(sessions, models, highlight, startMs, endMs)
         version: s.version,
       });
     });
-    const emphasised = highlight ? highlight === m.model : (m.lanes ?? []).length > 0;
+    const emphasised = chosen.length > 0 ? chosen.includes(m.model) : (m.lanes ?? []).length > 0;
     return {
       model: m.model,
       emphasised,

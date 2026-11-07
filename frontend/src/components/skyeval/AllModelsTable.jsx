@@ -16,23 +16,23 @@ function barFill(pct) {
 
 /**
  * All models: fresh models first then by accuracy (the served order), stale rows dimmed. A row is a button that
- * highlights the model in the accuracy chart.
+ * toggles the model in the accuracy chart's multi-select.
  *
  * @param {object} props
  * @param {Array<object>} props.models the served model rows, in served order
  * @param {Array<object>} props.lanes the served lanes, to name each production model's lane
  * @param {object|null} props.head the running build
- * @param {string|null} props.highlight the highlighted model
- * @param {(model: string|null) => void} props.onHighlight sets the highlight (null clears)
+ * @param {string[]} props.highlighted the models chosen for comparison in the chart
+ * @param {(model: string) => void} props.onToggle adds the model to the selection, or removes it
  * @param {Date} props.now the moment ages are measured to
  */
-export default function AllModelsTable({ models, lanes, head, highlight, onHighlight, now }) {
+export default function AllModelsTable({ models, lanes, head, highlighted, onToggle, now }) {
   const laneLabel = (runType) => laneShortLabel(lanes.find((l) => l.runType === runType)?.label ?? runType);
   return (
     <section className={CARD_CLASS} data-testid="sky-eval-all-models">
       <div className="flex flex-wrap items-baseline gap-2.5">
         <h3 className="text-sm font-semibold">All models</h3>
-        <span className="font-mono text-[11px] text-plex-text-muted">click a model to highlight it in the chart</span>
+        <span className="font-mono text-[11px] text-plex-text-muted">click models to compare them in the chart</span>
       </div>
       <div className="overflow-x-auto">
         <div className="flex min-w-[420px] flex-col">
@@ -49,10 +49,10 @@ export default function AllModelsTable({ models, lanes, head, highlight, onHighl
             <button
               key={m.model}
               type="button"
-              aria-pressed={highlight === m.model}
-              onClick={() => onHighlight(highlight === m.model ? null : m.model)}
+              aria-pressed={highlighted.includes(m.model)}
+              onClick={() => onToggle(m.model)}
               className={`${ROW_GRID} w-full cursor-pointer border-t border-plex-border px-1 py-[9px] text-left text-[13px] hover:bg-[rgba(242,231,211,0.03)] focus-visible:outline-2 focus-visible:outline-plex-gold ${
-                highlight === m.model ? 'bg-[rgba(242,231,211,0.05)]' : ''
+                highlighted.includes(m.model) ? 'bg-[rgba(242,231,211,0.05)]' : ''
               } ${m.fresh ? '' : 'text-plex-text-muted opacity-70'}`}
               data-testid={`sky-eval-model-row-${m.model}`}
               data-fresh={m.fresh}
@@ -98,7 +98,7 @@ AllModelsTable.propTypes = {
   models: PropTypes.array.isRequired,
   lanes: PropTypes.array.isRequired,
   head: PropTypes.object,
-  highlight: PropTypes.string,
-  onHighlight: PropTypes.func.isRequired,
+  highlighted: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onToggle: PropTypes.func.isRequired,
   now: PropTypes.instanceOf(Date).isRequired,
 };

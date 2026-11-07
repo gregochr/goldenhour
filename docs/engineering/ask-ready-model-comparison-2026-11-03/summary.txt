@@ -1,0 +1,4 @@
+Ask Ready model comparison (not capped: 23 tasks offered)
+HAIKU: tasks 23, discarded 0, errors 0, mean turns 2.70, total cost $0.2576, per task $0.0112
+HAIKU_55: tasks 23, discarded 0, errors 0, mean turns 2.30, total cost $0.0109, per task $0.0005
+Tasks whose first pick differs: 3

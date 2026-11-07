@@ -246,4 +246,43 @@ class CostCalculatorTest {
         long sonnetEtCost = calculator().calculateCostMicroDollars(EvaluationModel.SONNET_ET, usage);
         assertThat(sonnetEtCost).isGreaterThan(haikuCost);
     }
+
+    @Test
+    @DisplayName("the free WILDLIFE model costs nothing whatever tokens it uses, batch or not")
+    void calculateCostMicroDollars_freeModel_costsNothing() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200, 300);
+
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.WILDLIFE, usage)).isZero();
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.WILDLIFE, usage, true)).isZero();
+    }
+
+    @Test
+    @DisplayName("every Open-Meteo service costs the configured flat figure; Anthropic is not flat-priced")
+    void calculateFlatCostMicroDollars_allOpenMeteoServicesAndAnthropic() {
+        CostProperties properties = new CostProperties();
+        properties.setOpenMeteoMicroDollars(7);
+        CostCalculator priced = new CostCalculator(properties);
+
+        assertThat(priced.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_FORECAST)).isEqualTo(7);
+        assertThat(priced.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_AIR_QUALITY)).isEqualTo(7);
+        assertThat(priced.calculateFlatCostMicroDollars(ServiceName.OPEN_METEO_MARINE)).isEqualTo(7);
+        assertThat(priced.calculateFlatCostMicroDollars(ServiceName.ANTHROPIC)).isZero();
+    }
+
+    @Test
+    @DisplayName("a 1-hour cache-write figure larger than the total is clamped to the total")
+    void calculateCostMicroDollars_oneHourLargerThanTotal_isClamped() {
+        // 1000 written, 5000 claimed as 1-hour: priced as 1000 at the 1-hour Haiku rate ($2.00) = 2000
+        TokenUsage usage = new TokenUsage(0, 0, 1000, 0, 5000);
+
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage)).isEqualTo(2000);
+    }
+
+    @Test
+    @DisplayName("negative cache-write figures price as zero rather than crediting the caller")
+    void calculateCostMicroDollars_negativeCacheWrites_priceAsZero() {
+        TokenUsage usage = new TokenUsage(0, 0, -500, 0, -100);
+
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.HAIKU, usage)).isZero();
+    }
 }

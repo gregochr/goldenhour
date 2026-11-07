@@ -9,6 +9,7 @@ import {
 import { DataSearch, DataTools } from '../data/DataTools.jsx';
 import { textButtonClass } from '../users/userFormClasses.js';
 import usePagination from '../../hooks/usePagination.js';
+import { driveFlagText } from '../../utils/unroutableLocations.js';
 import useSortAndFilter from '../../hooks/useSortAndFilter.js';
 import { DISPLAY_TYPES, locationTypeLabel } from '../../utils/locationTypes.js';
 import {
@@ -24,6 +25,9 @@ const SORT_OPTIONS = [
 ];
 
 const DEFAULT_LIGHT = ['SUNRISE', 'SUNSET'];
+
+/** No place is flagged: the default until the admin read lands, and when it fails. */
+const NO_UNROUTABLE = new Map();
 
 /** A row's id; module-level so the grid's props stay stable. */
 const locationId = (loc) => loc.id;
@@ -87,6 +91,15 @@ const COLUMNS = [
         </span>
         {loc.subRegionName && (
           <span className="block truncate text-xs text-plex-text-secondary @max-[540px]:hidden">{loc.subRegionName}</span>
+        )}
+        {loc.driveFlag && (
+          <span
+            className="block truncate text-xs text-verdict-marginal"
+            title={driveFlagText(loc.driveFlag)}
+            data-testid={`location-drive-flag-${loc.id}`}
+          >
+            {driveFlagText(loc.driveFlag)}
+          </span>
         )}
       </>
     ),
@@ -205,11 +218,20 @@ AttentionAlert.propTypes = {
  * @param {number|null} props.selectedId the location whose panel is open
  * @param {(location: object) => void} props.onSelect called when a row is activated
  * @param {() => void} props.onAdd called by Add location
+ * @param {Map<number, object>} [props.unroutable] admin-only: location id to its served "no route" row; a flagged place
+ *   shows "Needs a drive point" under its name
  */
-export default function LocationListPane({ locations, regions, filters, selectedId, onSelect, onAdd }) {
+export default function LocationListPane({
+  locations, regions, filters, selectedId, onSelect, onAdd, unroutable = NO_UNROUTABLE,
+}) {
   const sort = useSortAndFilter('name', 'asc', LOCATION_SORT_ACCESSORS);
   const sorted = useMemo(() => sort.apply(filters.filtered), [sort, filters.filtered]);
   const { pageItems, ...pagination } = usePagination(sorted);
+  // The admin-only "Needs a drive point" flag rides on the row the grid draws, so no cell needs the map.
+  const rows = useMemo(
+    () => pageItems.map((loc) => (unroutable.has(loc.id) ? { ...loc, driveFlag: unroutable.get(loc.id) } : loc)),
+    [pageItems, unroutable],
+  );
   const summary = useMemo(() => attentionSummary(locations), [locations]);
   const regionOptions = useMemo(() => [
     { value: ALL_REGIONS, label: 'All regions' },
@@ -235,7 +257,7 @@ export default function LocationListPane({ locations, regions, filters, selected
       <div>
         <DataGrid
           columns={COLUMNS}
-          rows={pageItems}
+          rows={rows}
           getRowId={locationId}
           getRowLabel={locationRowLabel}
           selectedId={selectedId}
@@ -356,4 +378,5 @@ LocationListPane.propTypes = {
   selectedId: PropTypes.number,
   onSelect: PropTypes.func.isRequired,
   onAdd: PropTypes.func.isRequired,
+  unroutable: PropTypes.instanceOf(Map),
 };

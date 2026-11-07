@@ -14,7 +14,9 @@ import {
   BLANKED_STAND_DOWN_VISIBLE,
   formatRegionMean,
   shortVerdictLabel,
+  VERDICT_LABEL,
 } from '../utils/windowFirstCards.js';
+import { verdictScopeSpoken, verdictScopeText } from '../utils/reachLens.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -23,9 +25,9 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
-import { buildFourDayTiles, glanceTopicsByColumn } from '../utils/fourDayTiles.js';
+import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 import {
-  buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
+  buildSpread, formatSpreadCount, noRouteClause, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, stoodSpreadTitle,
   unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
@@ -37,7 +39,7 @@ import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
 import { stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
-import WindowGlanceDayTopics, { GlanceTopicDoor, GlanceTopicKey } from './WindowGlanceDayTopics.jsx';
+import WindowGlanceLanes from './WindowGlanceLanes.jsx';
 import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
@@ -114,10 +116,6 @@ const PICKS_QUALIFIER = Object.freeze({ text: 'your sub-regions', spoken: 'in yo
 
 /** The dashed outline's width on a thumbnail, in CSS px (handoff task 6: 1px where the Map's is heavier). */
 const THUMB_OUTLINE_WIDTH = 1;
-
-/** An unhandled door press: the strip is mounted without a Coming up route (tests, a lone render). */
-const noop = () => {};
-
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
 const GLANCE_HOURS = GLANCE_MINUTES / 60;
@@ -212,6 +210,14 @@ function starsSpoken(rating) {
  * that gate. Away (an origin set) the scope is the origin's region, whose own mean is the word:
  * "beyond 45 min" is then measured from the origin, and is just as true.
  *
+ * <p><b>The tier removes two different things, and only one of them is far</b> (reach-scoped-card-plan D1).
+ * A rated place may be gone because its drive is longer than the tier, or because OpenRouteService has no
+ * route to it at all ({@code card.reachUnroutableRemoved}, the rated places dropped as UNROUTABLE;
+ * {@code card.reachFarRemoved}, those dropped for distance). Calling a place with no road "further than 45
+ * min" is the very lie the unroutable status exists to end, so the line says "beyond" only of the far ones:
+ * far only reads as it always did; mixed says "beyond 45 min or no route"; none far says "no route from
+ * home" (or from the base), and never "beyond".
+ *
  * <p><b>Not muted, and labelled "Region".</b> The muted ink and 400 weight of "nothing in reach"
  * mark a state with nothing to report; this is a fact about the window, so it keeps the primary
  * ink. The label is "Region" rather than "Best" because the line no longer names a best place —
@@ -224,32 +230,90 @@ function starsSpoken(rating) {
  *          or null when the card is not in this state
  */
 function verdictBeyondReach(card) {
-  const region = card?.hotRegionName;
+  // The region the SERVED word is about: on a scoped card `hotRegionName` is the in-reach top region (the highlight
+  // follows the word), so the region-wide one rides beside it.
+  const region = card?.verdictScope != null ? card?.regionHotRegionName : card?.hotRegionName;
   const limit = card?.reachLimitMinutes;
-  if (card?.away || !region || card?.verdictMean == null) return null;
+  // A card wearing the tier's headline (reach-scoped-card-plan R2) has no region-wide mean of its own: its
+  // `verdictMean` is the IN-REACH one, null exactly when nothing rated is within reach, which is the state this line
+  // exists to explain. The region-wide word and mean it is about are the served ones the card carries beside it.
+  const scopedWord = card?.verdictScope != null;
+  const regionMean = scopedWord ? card?.regionVerdictMean : card?.verdictMean;
+  if (card?.away || !region || regionMean == null) return null;
   // A shaped (Lite) body has no reach tier to be beyond; its pool is emptied by the picks, which this line never says.
   if (card.picksScoped === true) return null;
   if (!card.reachMeasured || limit == null) return null;
   const pool = card.pool ?? [];
   if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
   const tier = formatDriveDuration(limit);
+  const unroutable = card.reachUnroutableRemoved ?? 0;
+  const far = card.reachFarRemoved ?? 0;
+  const from = card.reachOriginName ?? 'home';
+  // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
+  // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
+  // title is unchanged.
+  const regionWord = scopedWord ? card.regionVerdict : card.verdict;
+  const lead = regionWord === 'UNRATED'
+    ? `Too few rated in ${region} to call it, and`
+    : `The verdict is ${region}'s, and`;
+  // The scoped title names the region-wide verdict outright ("Northumberland is Worth it; its rated places are
+  // beyond 45 min"): the word printed above this line is the IN-REACH one, so "the verdict is" would claim it.
+  const scopedLead = regionWord === 'UNRATED'
+    ? `Too few rated in ${region} to call it; its rated places`
+    : `${region} is ${VERDICT_LABEL[regionWord] ?? VERDICT_LABEL.AWAITING}; its rated places`;
+  // Nothing was dropped as unroutable: the line is exactly what it was.
+  if (unroutable === 0) {
+    return {
+      rating: null,
+      label: 'Region',
+      value: `${region} · beyond ${tier}`,
+      muted: false,
+      beyond: true,
+      title: scopedWord
+        ? `${scopedLead} are beyond ${tier}`
+        : `${lead} its rated places are all further than ${tier} away`,
+      tideAligned: false,
+      tideState: null,
+      // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
+      spoken: `region ${region}, beyond ${tier}`,
+    };
+  }
+  // Some rated places have no route, and some may also be far. "Beyond" is said of the far ones only.
+  const mixed = far > 0;
   return {
     rating: null,
     label: 'Region',
-    value: `${region} · beyond ${tier}`,
+    // Short on purpose: the value column is ~70px at 320px. The origin rides the title and the spoken form.
+    value: mixed ? `${region} · beyond ${tier} / no route` : `${region} · no route`,
     muted: false,
     beyond: true,
-    // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
-    // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
-    // title is unchanged.
-    title: card.verdict === 'UNRATED'
-      ? `Too few rated in ${region} to call it, and its rated places are all further than ${tier} away`
-      : `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    title: scopedWord
+      ? (mixed
+        ? `${scopedLead} are beyond ${tier} or have no route from ${from}`
+        : `${scopedLead} have no route from ${from}`)
+      : (mixed
+        ? `${lead} its rated places are all further than ${tier} away or have no route from ${from}`
+        : `${lead} its rated places have no route from ${from}`),
     tideAligned: false,
     tideState: null,
-    // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
-    spoken: `region ${region}, beyond ${tier}`,
+    spoken: mixed
+      ? `region ${region}, beyond ${tier} / no route from ${from}`
+      : `region ${region}, no route from ${from}`,
   };
+}
+
+/**
+ * Whether the reach tier could have acted on this window, and so whether an EMPTY pool may be blamed on it.
+ *
+ * <p>{@code reachMeasured} is reader-level now (reach-scoped-card-plan D2), so it is true on a window with no
+ * spots at all, and even under "Any". "Nothing in reach" is only true where a finite tier was over some places:
+ * a measured reader, a threshold, and at least one place to gate. Otherwise the window is simply empty.
+ *
+ * @param {object} card the thumbnail descriptor
+ * @returns {boolean} true when "in reach" wording may describe an empty pool
+ */
+function reachActed(card) {
+  return Boolean(card?.reachMeasured) && card?.reachLimitMinutes != null && (card?.reachTotal ?? 0) > 0;
 }
 
 /**
@@ -372,7 +436,7 @@ export function bestReachLine(card) {
   // §2.5), so for a reader with no home postcode the pool was never gated and an empty one means
   // this window has no sky-gated slots at all; blaming a control that did nothing is §6 clause 7's
   // own sentence.
-  const emptyWord = card?.reachMeasured ? 'nothing in reach' : 'nothing to show';
+  const emptyWord = reachActed(card) ? 'nothing in reach' : 'nothing to show';
   return {
     rating: null,
     label: 'Best',
@@ -615,6 +679,12 @@ function areaLabel(regionName, tiny) {
  * The picks are the served {@code BriefingWindow.pick}, so an away plan whose pick names a
  * scoped-out region legitimately shows no legend at all (D-5).
  *
+ * <p><b>The word follows the tier, and is still a lookup</b> (reach-scoped-card-plan R2). Under a finite tier the
+ * server serves each window's headline recomputed over the places in reach, and a card that wears it carries
+ * {@code verdictScope}; the scope is printed under the verdict row and voiced straight after the word. The headline
+ * used to ignore the tier by design, which left it describing the roster beside a Spread row that counted only what
+ * was in reach. Nothing here compares a number to decide the word, before or after.
+ *
  * <h2>The two client derivations, and why they are client-side</h2>
  *
  * <p>The spread histogram and the best-reachable line are measured over the card's <b>pool</b> —
@@ -762,15 +832,19 @@ export default function WindowFirstHeatStrip({
   const movers = useMemo(() => topMovers(cards), [cards]);
   // The grid itself. Days, their holes and the column count all fall out of the rendered windows.
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
+  // Whether any card wears a tier's headline: then every card reserves the scope row (hidden where it has no scope of
+  // its own) so Spread and Best keep one baseline across the grid. False under Any, or while nothing is held.
+  const reserveScope = useMemo(() => cards.some((card) => card.verdictScope != null), [cards]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
-  // The day header's topic pills (glance-topic-strip-plan.md): the licensed `buildFourDayTiles` model over the
-  // SAME `hotTopics`, then re-keyed to this matrix's columns. UNSCOPED, as the Coming up block it replaces was,
-  // while the cards' own topic rows are scope-filtered — the design's stated source, and intended. No `onShowOnMap`
-  // means no Map door and no window route without `onGoToPlanWindow`, so a pill's spoken destination and its tap
-  // cannot disagree (the model builds only the routes the caller can honour).
+  // "The days ahead" lanes (days-ahead-lanes-plan.md): the licensed `buildFourDayTiles` model over the SAME
+  // `hotTopics`, re-bucketed by `buildGlanceLanes` into one lane per run of a topic on this matrix's columns.
+  // UNSCOPED, as the Coming up block it replaced was, while the cards' own topic rows are scope-filtered — the
+  // design's stated source, and intended. No `onShowOnMap` means no Map door and no window route without
+  // `onGoToPlanWindow`, so a lane's spoken destination and its tap cannot disagree (the model builds only the
+  // routes the caller can honour).
   const hasMapDoor = typeof onShowOnMap === 'function';
-  const glanceTopics = useMemo(() => {
+  const glanceLanes = useMemo(() => {
     const { days } = buildFourDayTiles({
       todayStr,
       hotTopics,
@@ -780,31 +854,29 @@ export default function WindowFirstHeatStrip({
       forecastDates,
       hasMapDoor,
     });
-    // A column whose every card is a travel day draws no topics (the cards drop theirs when `away`, and the header
-    // must agree), and counts as not rendered, so R2's forced-solid rule treats it like any other missing day.
-    const liveDates = matrix.days
-      .filter((day) => [day.am, day.pm].some((card) => card && !card.away))
-      .map((day) => day.date);
-    const byDate = glanceTopicsByColumn(days, liveDates);
-    const lastTopicDate = liveDates
-      .filter((date) => (byDate.get(date)?.length ?? 0) > 0).pop() ?? null;
-    return { byDate, lastTopicDate };
+    // A column whose every card is a travel day is not live (the cards drop their topics when `away`, and the
+    // lanes must agree): it breaks a run but keeps its grid track, so a lane's columns are the matrix index + 1.
+    const columns = matrix.days.map((day) => ({
+      date: day.date,
+      live: [day.am, day.pm].some((card) => card && !card.away),
+    }));
+    return buildGlanceLanes(days, columns, hotTopics);
   }, [
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
     onGoToPlanWindow, matrix,
   ]);
   /**
-   * What a pill's press does, first match wins — the old "Next four days" block's four routes (a topic with no
+   * What a lane's press does, first match wins — the old "Next four days" block's four routes (a topic with no
    * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
    * "click opens Coming up" holds only where Coming up lists it): the Coming up entry; the Map door; this
    * strip's own window popup with the topic emphasised; else Coming up itself.
    */
-  const tapTopic = (chip) => {
-    if (chip.jump) onOpenComingUp?.(chip.jump.entryId);
-    else if (chip.mapDoor) onShowOnMap({
-      kind: 'event', date: chip.mapDoor.date, eventType: chip.mapDoor.eventType, topicType: chip.type,
+  const tapTopic = (lane) => {
+    if (lane.jump) onOpenComingUp?.(lane.jump.entryId);
+    else if (lane.mapDoor) onShowOnMap({
+      kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
     });
-    else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
+    else if (lane.target && onGoToPlanWindow) onGoToPlanWindow(lane.target, lane.type);
     else onOpenComingUp?.(null);
   };
   // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
@@ -830,7 +902,7 @@ export default function WindowFirstHeatStrip({
       // word on a card where nothing was gated by distance. `card.reachMeasured` is what actually
       // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
       // own empty word, so the tooltip and the visible line agree by construction.
-      const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
+      const withinReach = pool.length === 0 ? reachActed(card) : poolWithinReach(pool);
       // The ONE decision behind bars-vs-text (plan-matrix §4 row, minimum-sample rule) — the visible
       // row and the spoken sentence's suppression rules both read `state` rather than testing the
       // thresholds themselves, so they cannot disagree about which of a card's states this is. An
@@ -863,7 +935,9 @@ export default function WindowFirstHeatStrip({
         // minimum-sample gate. The render is what ANDs this with `state.bars` before drawing
         // anything; do not read a non-null value here as "the bar is drawn".
         unratedBar: unrated,
-        title: spreadTitle(spread, withinReach),
+        // The "N places have no route from home" clause rides after the count it explains, when the tier
+        // dropped any (reach-scoped-card-plan D1); `noRouteClause` is '' otherwise.
+        title: `${spreadTitle(spread, withinReach)}${noRouteClause(card.reachUnroutableCount, card.reachOriginName)}`,
         withinReach,
         // The Spread row's second label line and the spoken pool clause both read this ONE answer
         // (spread-row-plan.md §2 #5), so the label and the sentence cannot name different pools.
@@ -978,20 +1052,6 @@ export default function WindowFirstHeatStrip({
   const stoodShown = useMemo(
     () => cards.some((card) => !card.away && stoodInFrame(card.key).length > 0),
     [cards, stoodInFrame],
-  );
-
-  /**
-   * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
-   * footer's own note for it (below) shows only while that mark is actually on screen, matching the
-   * unscored-map-plate note's own rule one line above it (independently: the two conditions are
-   * never OR'd into one, so a fixture that fires only one of them never brings up the other's note).
-   * `facts.unratedBar` alone does NOT answer "is the bar drawn" — it is non-null for a below-gate
-   * pool with a real remainder too — so this ANDs it with `facts.state.bars`, the same test the row
-   * itself makes, rather than reading `unratedBar` as sufficient on its own.
-   */
-  const hatchedSpread = useMemo(
-    () => Array.from(derived.values()).some((facts) => facts.state.bars && facts.unratedBar),
-    [derived],
   );
 
   /**
@@ -1234,11 +1294,14 @@ export default function WindowFirstHeatStrip({
    * spend its thirty-frame budget and leave <em>every</em> canvas blank while every word on every
    * card rendered correctly. Unreachable while {@code TargetType} has two constants; the point is
    * that the gate's key and the grid's placement are now two decisions and must not be two answers.
+   *
+   * <p>⚠️ And never an AWAY card: it mounts no canvas (see {@code renderCard}), so a key that named one would
+   * wait on a ref that never arrives, spend the thirty-frame budget and leave <em>every</em> heat map blank.
    */
   const measureKey = useMemo(() => {
     for (const day of matrix.days) {
-      if (day.am) return day.am.key;
-      if (day.pm) return day.pm.key;
+      if (day.am && !day.am.away) return day.am.key;
+      if (day.pm && !day.pm.away) return day.pm.key;
     }
     return null;
   }, [matrix]);
@@ -1246,7 +1309,7 @@ export default function WindowFirstHeatStrip({
   const {
     attachFrame, canvasRef, geoFailed, repaintNow,
   } = useHeatCanvas({
-    enabled: cards.length > 0,
+    enabled: cards.some((card) => !card.away),
     // The first PLACED card's well is the GATE's measured box — see `paint` for why it is no longer
     // the width every canvas is drawn at.
     measureKey,
@@ -1436,9 +1499,19 @@ export default function WindowFirstHeatStrip({
     const blankedNote = !card.away && card.verdictBlanked === true && !regionMean;
     // thin-sample plan F3: `· N rated` on a rated verdict over a thin reach pool. Read off the SAME
     // `facts.spread` the Spread row draws, so "6/83 rated" and "· 6 rated" are one figure.
-    const thinCount = thinVerdictCount({
-      verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
-    });
+    // The scope the verdict word is printed with (reach-scoped-card-plan D6): present only while the card wears the
+    // tier's headline, never on an away-day cell. ONE string, printed on its own line under the verdict row and
+    // spelled exactly so in the hidden sentence (WCAG 2.5.3).
+    const scopeText = card.away ? null : verdictScopeText(card.verdictScope);
+    // Printed short, spoken long (the Spread qualifier's own precedent): "45m" is voiced as a letter.
+    const scopeSpoken = card.away ? null : verdictScopeSpoken(card.verdictScope);
+    // A scoped word's `· N rated` is the server's: the rated count behind a verdict that stands on a forced sample,
+    // in the region the word is about. Unscoped, it is the pool's, read off the Spread row's own figures.
+    const thinCount = card.verdictScope != null
+      ? (card.away || notScored ? null : (card.scopedThinCount ?? null))
+      : thinVerdictCount({
+        verdict: card.verdict, away: card.away, notScored, spread: facts.spread,
+      });
     // A stood-down window is not "not scored": it was looked at (the Map's wording).
     const stoodHere = card.away ? [] : stoodInFrame(card.key);
     const stoodUnrated = ((shaped ? groundSets?.get?.(card.key)?.unrated : unratedSets?.get?.(card.key))?.length
@@ -1458,8 +1531,13 @@ export default function WindowFirstHeatStrip({
     const spreadStood = stoodWords && !stoodUnrated && facts.spread.rated === 0 && !facts.state.bars;
     const bestStood = stoodWords && facts.best && facts.best.rating == null && !facts.best.beyond;
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      // The scope follows the verdict word directly, in the long form the qualifier speaks.
+      .concat(scopeSpoken ? [scopeSpoken] : [])
       .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
+      // A scoped `· N rated` has no pool clause to say it for it (the pool may be sound while the region is not),
+      // so it is voiced here, as printed.
+      .concat(scopeText && thinCount != null ? [`${thinCount} rated`] : [])
       // The verdict line's `· N rated` is not voiced separately: below the gate the pool clause
       // below already says "N of M rated" in words, the same fact with its denominator.
       .filter(Boolean)
@@ -1540,7 +1618,9 @@ export default function WindowFirstHeatStrip({
             <span className="wf-hc-ask" data-testid="wf-heat-ask-rank">{askRank}</span>
           )}
         </span>
-        {!geoFailed && (
+        {/* ⚠️ No canvas for an AWAY card, in either layout: it has no ratings to paint, and a canvas merely hidden
+            would still be in the measuring pass (a hidden one measures 0). */}
+        {!geoFailed && !card.away && (
           <span data-testid="wf-heat-well" className="wf-hc-cv">
             <canvas
               aria-hidden="true"
@@ -1633,6 +1713,27 @@ export default function WindowFirstHeatStrip({
               </span>
             )}
           </span>
+          {/* The scope of the word above, on its OWN short line: the verdict row is one line with no wrap and an
+              83-89px value column, so a scope inside it would clip the word or the figure. The compact spelling the
+              Spread row's qualifier uses; absent (no element) unless the card wears the tier's headline, so under
+              "Any" the card is exactly what it was. The sentence above voices the same string. */}
+          {scopeText && (
+            <span data-testid="wf-heat-scope" className="wf-hc-scope">
+              <span className="wf-hc-scope-t">{scopeText}</span>
+            </span>
+          )}
+          {/* While a finite tier is active and the tiers are held, a card with no scoped entry of its own keeps the
+              row anyway, hidden, so every card's Spread and Best rows sit on one baseline. Absent under Any and when
+              nothing is held, so those cards are exactly what they were. */}
+          {!scopeText && reserveScope && !card.away && (
+            <span
+              data-testid="wf-heat-scope-reserved"
+              className="wf-hc-scope reserved"
+              aria-hidden="true"
+            >
+              <span className="wf-hc-scope-t">{'\u00a0'}</span>
+            </span>
+          )}
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be
               three claims about a night nobody forecast. */}
@@ -1666,7 +1767,9 @@ export default function WindowFirstHeatStrip({
                       ? `wf-hc-hist${facts.countLayout.small ? ' sm' : ''}`
                       : 'wf-hc-hist-note'}
                     style={facts.state.bars ? { '--cw': `${facts.countLayout.widthPx}px` } : undefined}
-                    title={spreadStood ? stoodSpreadTitle(facts.spread, facts.withinReach) : facts.title}
+                    title={spreadStood
+                      ? `${stoodSpreadTitle(facts.spread, facts.withinReach)}${noRouteClause(card.reachUnroutableCount, card.reachOriginName)}`
+                      : facts.title}
                   >
                     {facts.state.bars ? (
                       <>
@@ -1962,25 +2065,6 @@ export default function WindowFirstHeatStrip({
     </div>
   );
 
-  /**
-   * One day's topic pills, in the column of that day's header.
-   *
-   * @param {object} day the matrix's day descriptor
-   * @param {number} column the grid column, 1-based
-   * @param {boolean} phone the phone's flowing grid, where a topic-free day draws nothing
-   */
-  const renderTopics = (day, column, phone) => (
-    <WindowGlanceDayTopics
-      key={`${day.date}:topics`}
-      date={day.date}
-      column={column}
-      row={MATRIX_ROW.topics}
-      chips={glanceTopics.byDate.get(day.date) ?? []}
-      todayStr={todayStr}
-      phone={phone}
-      onTap={tapTopic}
-    />
-  );
 
   /**
    * One sun-word rail — the full-width `SUNRISE`/`SUNSET` band above each row (matrix-axis plan D7).
@@ -2012,7 +2096,6 @@ export default function WindowFirstHeatStrip({
             Tailwind's preflight resets heading size and weight to inherited, so nothing moves. */}
         <h2 className="wf-hstrip-k">The days ahead</h2>
         <span className="wf-hstrip-rule" aria-hidden="true" />
-        {glanceTopics.lastTopicDate && <GlanceTopicKey />}
         <GuideLink section="fixed" label="What fixed and could still move mean" />
       </div>
 
@@ -2035,17 +2118,21 @@ export default function WindowFirstHeatStrip({
             return (
               <React.Fragment key={day.date}>
                 {renderDayHeader(day, column)}
-                {/* The topic stack flows straight after its own day's header, spanning the row (the phone grid
-                    has no sticky header to protect, so this is the cleanest place; the stack is NEVER inside
+                {/* That day's lanes flow straight after its own day's header, spanning the row (the phone grid
+                    has no sticky header to protect, so this is the cleanest place; they are NEVER inside
                     `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
-                {renderTopics(day, column, true)}
+                <WindowGlanceLanes
+                  key={`${day.date}:lanes`}
+                  lanes={glanceLanes}
+                  date={day.date}
+                  onTap={tapTopic}
+                />
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
                 {day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
-                {day.date === glanceTopics.lastTopicDate && <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />}
               </React.Fragment>
             );
           })}
@@ -2060,16 +2147,9 @@ export default function WindowFirstHeatStrip({
           <div ref={setDhrowNode} data-testid="wf-heat-dhrow" className="wf-dhrow">
             {matrix.days.map((day, index) => renderDayHeader(day, index + 1))}
           </div>
-          {/* A NON-sticky row between the pinned date chips and the cards: inside `.wf-dhrow` the taller pills
-              would pin a taller band over the cards (see `.wf-dtrow`). Every column keeps its cell. */}
-          {glanceTopics.lastTopicDate && (
-            <>
-              <div data-testid="wf-heat-dtrow" className="wf-dtrow">
-                {matrix.days.map((day, index) => renderTopics(day, index + 1, false))}
-              </div>
-              <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />
-            </>
-          )}
+          {/* A NON-sticky grid between the pinned date chips and the cards: inside `.wf-dhrow` the lanes would
+              pin a taller band over the cards (see `.wf-lanes`). One track per matrix column, away ones included. */}
+          <WindowGlanceLanes lanes={glanceLanes} onTap={tapTopic} />
           <div className="wf-hrow">
             {renderRail(true)}
             <div data-testid="wf-heat-cards" className="wf-hcards">
@@ -2130,7 +2210,7 @@ export default function WindowFirstHeatStrip({
               data-testid="wf-heat-key-standdown-swatch"
               aria-hidden="true"
             />
-            Stood down — ruled out by the weather
+            stood down — ruled out by the weather
           </span>
         )}
         <span className="wf-hstrip-key" data-testid="wf-heat-key-plain">
@@ -2163,19 +2243,6 @@ export default function WindowFirstHeatStrip({
               <SubRegionActionButton className="wf-subregion-btn" testId="wf-heat-picks-action" />
             )}
           </span>
-        )}
-        {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
-            the map plate's note above, for the same reason: a texture is not vocabulary and a
-            card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
-            sparsely-rated windows shows this on most loads, closer to permanent than occasional —
-            it is still conditional (absent whenever every card on screen either clears the gate
-            with nothing unrated or draws no bars at all) and it renders at EVERY width, not just
-            the phone, for the same reason the map's note above it does. Worded
-            differently from the map's note on purpose — "unshaded" names the map's mark and
-            "hatched bar" names the histogram's, so the two conditional clauses can never be
-            mistaken for restating each other when both happen to be on screen at once. */}
-        {hatchedSpread && (
-          <span data-testid="wf-heat-spread-unrated-note">hatched bar — not yet rated</span>
         )}
       </div>
 
@@ -2368,8 +2435,25 @@ WindowFirstHeatStrip.propTypes = {
      */
     verdictMean: PropTypes.number,
     verdictBlanked: PropTypes.bool,
+    /**
+     * Present only while the card wears the tier's headline (reach-scoped-card-plan R2): the tier the word, mean,
+     * confidence and pick are about. Printed as {@link verdictScopeText} under the verdict row and voiced in the
+     * sentence.
+     */
+    verdictScope: PropTypes.shape({ tierMinutes: PropTypes.number }),
+    /** With `verdictScope`: the served region-wide word, which H2's "beyond the tier" title names. */
+    regionVerdict: PropTypes.string,
+    /** With `verdictScope`: the served region-wide printable mean; non-null exactly when H2 may fire. */
+    regionVerdictMean: PropTypes.number,
+    /** With `verdictScope`: the server's `· N rated` for the in-reach region, or null. */
+    scopedThinCount: PropTypes.number,
     /** The active reach tier's threshold in minutes; null under "Any" (H2). */
     reachLimitMinutes: PropTypes.number,
+    reachUnroutableCount: PropTypes.number,
+    reachUnroutableRemoved: PropTypes.number,
+    reachFarRemoved: PropTypes.number,
+    reachTotal: PropTypes.number,
+    reachOriginName: PropTypes.string,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
     reachMeasured: PropTypes.bool,
     /** Present (true) only on a body the server shaped by the reader's sub-regions (S5b-1): the pool holds their places only. */

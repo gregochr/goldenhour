@@ -366,6 +366,69 @@ class UserEmailServiceTest {
         verify(templateEngine, never()).process(any(String.class), any(IContext.class));
     }
 
+    @Test
+    @DisplayName("sendPasswordResetEmail skips silently when the address is blank")
+    void sendPasswordResetEmail_blankEmail_skips() {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
+
+        service.sendPasswordResetEmail(" ", "alice", "TempPass1!");
+
+        verifyNoInteractions(templateEngine);
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendPasswordResetEmail swallows a send failure and sends nothing")
+    void sendPasswordResetEmail_sendFails_doesNotPropagate() {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
+        when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+        when(templateEngine.process(eq("password-reset-email"), credentialsCtx())).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/password-reset-email"), credentialsCtx())).thenReturn("plain text");
+
+        service.sendPasswordResetEmail("alice@example.com", "alice", "TempPass1!");
+
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendVerificationEmail skips silently when the address is blank")
+    void sendVerificationEmail_blankEmail_skips() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+
+        service.sendVerificationEmail(" ", "alice", "tok");
+
+        verifyNoInteractions(templateEngine);
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendVerificationEmail swallows a send failure and sends nothing")
+    void sendVerificationEmail_sendFails_doesNotPropagate() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        when(templateEngine.process(eq("verification-email"), verifyCtx("tok"))).thenReturn("<html></html>");
+        when(templateEngine.process(eq("text/verification-email"), verifyCtx("tok"))).thenReturn("plain text");
+        when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+
+        service.sendVerificationEmail("alice@example.com", "alice", "tok");
+
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendAccountDeletedEmail swallows a send failure and sends nothing")
+    void sendAccountDeletedEmail_sendFails_doesNotPropagate() {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine, new RegistrationProperties());
+        when(templateEngine.process(eq("account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("<html>Deleted</html>");
+        when(templateEngine.process(eq("text/account-deleted-email"), ctx("username", "alice")))
+                .thenReturn("plain text");
+        when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+
+        service.sendAccountDeletedEmail("alice@example.com", "alice");
+
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
     /** The context both temporary-password mails are rendered with. */
     private static IContext credentialsCtx() {
         return ctx("username", "alice", "temporaryPassword", "TempPass1!");

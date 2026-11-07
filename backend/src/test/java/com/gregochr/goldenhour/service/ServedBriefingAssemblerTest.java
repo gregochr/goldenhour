@@ -151,6 +151,28 @@ class ServedBriefingAssemblerTest {
                 .containsExactly("LOW");
     }
 
+    private DailyBriefingResponse servedWith(Integer rating, boolean extraWindow) {
+        BriefingSlot hawes = inland(1L, "Hawes");
+        BriefingSlot slot = rating == null ? hawes : hawes.withClaudeScores(rating, rating, 70, 60, "why", "h");
+        BriefingEventSummary sunrise = summary(TargetType.SUNRISE, List.of(region("Dales", 1, slot)), List.of());
+        BriefingEventSummary sunset = summary(TargetType.SUNSET, List.of(region("Dales", 1, slot)), List.of());
+        return assembler.assembleForPlan(snapshot(extraWindow ? new BriefingEventSummary[] {sunrise, sunset}
+                : new BriefingEventSummary[] {sunrise}), 0.5);
+    }
+
+    @Test
+    @DisplayName("the briefing version moves with the ratings and with the render horizon, and with nothing else")
+    void servedBriefingVersionFollowsItsInputs() {
+        DailyBriefingResponse four = servedWith(4, false);
+
+        assertThat(four.briefingVersion()).hasSize(16);
+        assertThat(servedWith(4, false).briefingVersion()).isEqualTo(four.briefingVersion());
+        assertThat(servedWith(2, false).briefingVersion()).isNotEqualTo(four.briefingVersion());
+        // Identical ratings, but a second window is rendered: the horizon bounds where a pick may land.
+        assertThat(servedWith(4, true).briefingVersion()).isNotEqualTo(four.briefingVersion());
+        assertThat(servedWith(4, true).renderedEvents()).hasSize(2);
+    }
+
     @Test
     @DisplayName("a null snapshot still assembles to null")
     void nullSnapshot() {
@@ -295,7 +317,9 @@ class ServedBriefingAssemblerTest {
                 }
             }
         }
-        assertThat(served).isEqualTo(unstripped.withDays(served.days()));
+        // The one thing serving adds besides the window projection is the briefing version.
+        assertThat(served).isEqualTo(unstripped.withDays(served.days())
+                .withBriefingVersion(served.briefingVersion()));
     }
 
     @Test

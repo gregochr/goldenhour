@@ -108,6 +108,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.docs_only != 'true'
+        with:
+          # diff-cover needs the base branch's history to compute the PR diff.
+          fetch-depth: 0
 
       - name: Set up JDK 25
         if: needs.changes.outputs.docs_only != 'true'
@@ -127,6 +130,40 @@ jobs:
         run: |
           chmod +x backend/mvnw
           cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress
+
+      # Changed-lines coverage: at least 90% of the lines a PR adds or changes under backend/src/main
+      # must be covered (the per-class and bundle floors cannot see a PR that adds untested code to an
+      # already-high class). diff-cover reads the JaCoCo XML, whose sourcefile paths are package-relative
+      # (com/gregochr/.../Foo.java), so `--src-roots` maps them onto backend/src/main/java; tests and
+      # resources are absent from the report and never count. Run from the repo root so the diff paths
+      # (backend/src/main/java/...) line up. A wrong mapping reports "No lines with coverage
+      # information" and passes, so the local proof in dev-and-testing.md must show real percentages.
+      # Line coverage only. Pull requests only: a push to main has no PR diff.
+      - name: Set up Python (diff-cover)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Changed-lines coverage (diff-cover, 90%)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          pip install diff-cover==10.0.0
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          set +e
+          diff-cover backend/target/site/jacoco/jacoco.xml \
+            --src-roots backend/src/main/java \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=90 \
+            --format markdown:"$RUNNER_TEMP/diff-cover.md"
+          STATUS=$?
+          set -e
+          {
+            echo "### Changed-lines coverage (backend, minimum 90%)"
+            cat "$RUNNER_TEMP/diff-cover.md" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
 
       # NOTE: there is deliberately NO separate FindSecBugs step here.
       # `clean verify` above already runs the identical security analysis: backend/pom.xml
@@ -179,6 +216,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.docs_only != 'true'
+        with:
+          # diff-cover needs the base branch's history to compute the PR diff.
+          fetch-depth: 0
 
       - name: Set up Node 22
         if: needs.changes.outputs.docs_only != 'true'
@@ -199,6 +239,42 @@ jobs:
       - name: Unit tests + coverage floor (Vitest)
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run test:coverage
+
+      # Changed-lines coverage: at least 90% of the lines a PR adds or changes under frontend/src
+      # must be covered (the global floor above cannot see a PR that adds untested code to an
+      # already-high total). diff-cover reads coverage/lcov.info and ignores diff lines in files
+      # absent from lcov, so tests, src/test/** and src/main.jsx never count. A PR that touches no
+      # covered source reports "No lines with coverage information in this diff" and exits 0.
+      # ⚠️ lcov `SF:` paths are relative to frontend/ but diff-cover resolves them against the repo
+      # root, and run from frontend/ it silently matches NOTHING and passes (proved locally). So the
+      # step prefixes `SF:` with `frontend/` and runs from the repo root.
+      # Line coverage only: diff-cover folds BRDA into line status but cannot gate branches.
+      # Pull requests only: a push to main has no PR diff.
+      - name: Set up Python (diff-cover)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Changed-lines coverage (diff-cover, 90%)
+        if: needs.changes.outputs.docs_only != 'true' && github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          pip install diff-cover==10.0.0
+          git fetch --no-tags origin "${{ github.base_ref }}"
+          sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > "$RUNNER_TEMP/lcov-root.info"
+          set +e
+          diff-cover "$RUNNER_TEMP/lcov-root.info" \
+            --compare-branch="origin/${{ github.base_ref }}" \
+            --fail-under=90 \
+            --format markdown:"$RUNNER_TEMP/diff-cover.md"
+          STATUS=$?
+          set -e
+          {
+            echo "### Changed-lines coverage (frontend, minimum 90%)"
+            cat "$RUNNER_TEMP/diff-cover.md" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
 
       # ⚠️ NOT a bare `npm audit`, and the reason is not the obvious one. This job went red on
       # 2026-09-04 on a PR touching no dependency file, with a 400 from
@@ -328,7 +404,128 @@ jobs:
           echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
           echo "This check reports success so branch protection is satisfied."
 
-  # ── Playwright E2E ───────────────────────────────────────────────────────────
-  # E2E tests require a live Spring Boot backend (Open-Meteo + Claude + DB).
-  # They run against a real environment rather than in the standard CI pipeline.
-  # To run locally: cd frontend && npm run test:e2e
+  # ── Playwright E2E smoke ─────────────────────────────────────────────────────
+  # A REQUIRED check (docs/engineering/engineering-gaps-plan.md, Phase 2): the real backend (local profile,
+  # fresh H2, a FAKE Anthropic key, Ask on its stub) and the built frontend behind `vite preview`, driven by
+  # Chromium. The job name below is the branch-protection string; do not rename it.
+  #
+  # Step-level `if:` guards and a "skipped" echo step, exactly like the jobs above, and NO job-level `if:`:
+  # a skipped required check blocks a merge instead of passing it, and the job needs no secrets, so it also
+  # reports on Dependabot PRs.
+  #
+  # ubuntu-24.04, pinned, never `ubuntu-latest` and never the self-hosted runner (shared with production).
+  # Readiness is /actuator/health/container only (db + ping): the bare /actuator/health aggregates the
+  # Open-Meteo, tide and Anthropic probes and would tie this gate to third-party uptime. Playwright starts
+  # both servers (frontend/playwright.smoke.config.js), so the recipe is the same locally and here.
+  e2e:
+    needs: changes
+    name: E2E — Playwright smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
+
+      - name: Set up JDK 25
+        if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Node 22
+        if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd frontend && npm ci
+
+      # src/local and src/local-test are outside the backend job (no JaCoCo, checkstyle or SpotBugs there), so the
+      # fixture seeder's own gate runs here, before it is packaged into the jar the suite boots. The checkstyle
+      # call names generate-test-sources first: -Plocal-dev adds the two source roots in that phase, and a bare
+      # `checkstyle:check` would audit neither (it passes with a deliberate violation in src/local).
+      - name: Fixture seeder unit tests (local-dev profile)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          chmod +x backend/mvnw
+          cd backend && ./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*' -DfailIfNoSpecifiedTests=false --batch-mode --no-transfer-progress
+
+      - name: Checkstyle for the local-only source roots
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd backend && ./mvnw -Plocal-dev generate-test-sources checkstyle:check --batch-mode --no-transfer-progress
+
+      # -Plocal-dev adds H2 and src/local/java to the jar; the local profile has no Flyway and makes its own
+      # schema. The smoke script starts it with photocast.e2e.seed-fixture=true, so the database is not empty:
+      # E2eLocalFixtureSeeder writes 3 regions x 6 places and their ratings (but no scheduler_job_config rows:
+      # a spec asserts it).
+      - name: Build the backend jar (local-dev profile)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          chmod +x backend/mvnw
+          cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package --batch-mode --no-transfer-progress
+
+      - name: Build the frontend
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd frontend && npm run build
+
+      # Keyed on the exact pinned version (package.json pins @playwright/test with no caret). The cache holds
+      # the browser only; the apt packages it needs are NOT cached, so install-deps always runs.
+      - name: Cache Playwright browsers
+        if: needs.changes.outputs.docs_only != 'true'
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-1.64.1
+
+      - name: Install Chromium
+        if: needs.changes.outputs.docs_only != 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: cd frontend && npx playwright install chromium
+
+      - name: Install Chromium system dependencies
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd frontend && npx playwright install-deps chromium
+
+      - name: Run the smoke suite
+        if: needs.changes.outputs.docs_only != 'true'
+        run: cd frontend && npm run test:e2e:smoke
+
+      # Browser hygiene cannot see what the BACKEND does, and the backend runs behind a dead outbound proxy, so
+      # nothing can leave the machine anyway; this is the belt to that braces. The seeded fixture must never have
+      # run a briefing build (live Open-Meteo weather and two Claude calls) or the Ask fixture seeder. The marker
+      # must be PRESENT, or the check could pass on a log from a run that never seeded.
+      - name: Assert the backend never built a briefing and did seed the fixture
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          log=frontend/test-results/e2e-logs/backend.log
+          test -f "$log" || { echo "::error::$log is missing"; exit 1; }
+          grep -aq '\[E2E FIXTURE\] seeded' "$log" || { echo "::error::backend.log has no '[E2E FIXTURE] seeded' line"; exit 1; }
+          if grep -anE 'Daily briefing refresh started|Briefing weather fetch|Horizon cloud fetch|\[ASK FIXTURE\]' "$log"; then
+            echo "::error::the smoke backend ran a briefing build or the Ask fixture seeder (lines above)"
+            exit 1
+          fi
+
+      # The report, the traces and both servers' logs, so a red run can be diagnosed without a re-run.
+      - name: Upload Playwright report, traces and server logs
+        if: failure() && needs.changes.outputs.docs_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-smoke
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
+      - name: Documentation-only change — suite skipped
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Every changed path is documentation (*.md or docs/**)."
+          echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
+          echo "This check reports success so branch protection is satisfied."

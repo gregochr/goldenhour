@@ -115,12 +115,39 @@ export async function markComingUpSeen() {
  * `locationId`.
  *
  * <p>Every enabled location is present, with null figures for a caller who has saved no home
- * postcode — the normal first-run state. An absent figure means "unknown", never "out of reach".
+ * postcode — the normal first-run state. An absent figure means "unknown", never "out of reach", unless
+ * `driveStatus` says `UNROUTABLE`: the home was fully measured after the place last moved and there is no
+ * route (reach-scoped-card-plan D1), which a finite reach tier drops. `PENDING` is still unknown.
  *
- * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number}>>}
+ * <p>`driveTo` names the place's drive point ("Glenridding") when its minutes are measured to one rather than to the
+ * pin (R1c); it is absent otherwise, and the miles are always to the pin.
+ *
+ * @returns {Promise<Array<{locationId: number, driveMinutes?: number, distanceMiles?: number,
+ *   driveStatus: 'MEASURED'|'PENDING'|'UNROUTABLE', driveTo?: string}>>}
  */
 export async function getReach() {
   const response = await apiClient.get(`${BASE_URL}/reach`);
+  return response.data;
+}
+
+/**
+ * Fetches the Plan headline recomputed for each drive tier (reach-scoped-card-plan R2): every window's verdict,
+ * mean, confidence, pick and per-region verdicts when only the places inside 45, 90 and 150 minutes count.
+ *
+ * <p>Personal (it follows the caller's drive times or the chosen base's), so it lives under
+ * `/api/user/settings` and is never ETag-cached. All three tiers arrive in one body so a tier tap is a lookup and
+ * never a request. Pro and Admin only: a Lite account is 403, and the caller must not ask for one.
+ *
+ * <p>The body names the `briefingVersion` it was computed from. The caller discards an answer whose version is
+ * not the briefing it holds, and refetches once.
+ *
+ * @param {?number} [originId] the away origin's region id, or null/undefined for home. A region with no base is 400
+ * @returns {Promise<{measured: boolean, briefingVersion?: string, tiers: Object<string, Array<Object>>}>}
+ */
+export async function getReachVerdicts(originId) {
+  const response = await apiClient.get(`${BASE_URL}/reach-verdicts`, {
+    params: originId == null ? undefined : { origin: originId },
+  });
   return response.data;
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
+import useBackLayer from '../../hooks/useBackLayer.js';
 
 const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
 
@@ -97,6 +98,13 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  *                                          the element that opened this dialog can no longer take it
  *                                          back — see {@link useDialogFocus}'s `restoreFallback`.
  *                                          Opt-in: omitted, the close behaves exactly as before.
+ * @param {boolean}  [props.closeOnBackdrop] default true; false makes a press on the scrim close nothing, for a
+ *                                          dialog whose content a stray press would lose (the temporary password)
+ * @param {'close'|'cancel'|'block'} [props.back] - Opt in to the Back button (see
+ *                                          `utils/dialogHistory.js`): `close` and `cancel` run `onClose`
+ *                                          on Back, `block` absorbs it. A dialog with no `onClose` is
+ *                                          `block` whatever is passed. Omitted: no history call and no
+ *                                          registration, byte-identical to before.
  */
 export default function Modal({
   label,
@@ -106,11 +114,14 @@ export default function Modal({
   closeOnEscape = false,
   stacked = false,
   restoreFocusFallback = null,
+  back,
+  closeOnBackdrop = true,
   className = '',
   'data-testid': testId,
   children,
 }) {
   const dialogRef = useDialogFocus(true, { restoreFallback: restoreFocusFallback });
+  useBackLayer({ open: back !== undefined, onBack: onClose, mode: onClose ? back : 'block' });
   /**
    * The last element focused INSIDE this dialog, recorded from real focus events.
    *
@@ -313,7 +324,7 @@ export default function Modal({
       <div
         className="app-scrim absolute inset-0"
         role="presentation"
-        onClick={onClose}
+        onClick={closeOnBackdrop ? onClose : undefined}
         data-testid={testId ? `${testId}-backdrop` : undefined}
       />
       {bare ? (
@@ -337,6 +348,8 @@ Modal.propTypes = {
   closeOnEscape: PropTypes.bool,
   stacked: PropTypes.bool,
   restoreFocusFallback: PropTypes.func,
+  back: PropTypes.oneOf(['close', 'cancel', 'block']),
+  closeOnBackdrop: PropTypes.bool,
   className: PropTypes.string,
   'data-testid': PropTypes.string,
   children: PropTypes.node.isRequired,

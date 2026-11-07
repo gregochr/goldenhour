@@ -43,6 +43,13 @@ import java.util.Set;
  * @param tideLng          longitude of the tide point (null = don't change)
  * @param clearTidePoint   {@code true} to null both tide-point columns (the pin is used again); rejected
  *                         alongside either value (null or false = don't clear)
+ * @param drivePointName   name of the drive point drive times are routed to instead of the pin (e.g.
+ *                         "Glenridding"); set with {@code drivePointLat} and {@code drivePointLon} or not at all
+ *                         (null = don't change)
+ * @param drivePointLat    latitude of the drive point (null = don't change)
+ * @param drivePointLon    longitude of the drive point (null = don't change)
+ * @param clearDrivePoint  {@code true} to null all three drive-point columns (the pin is routed to again); rejected
+ *                         alongside any of the three values (null or false = don't clear)
  */
 public record UpdateLocationRequest(
         String name,
@@ -61,8 +68,44 @@ public record UpdateLocationRequest(
         Boolean clearValleyFloor,
         Double tideLat,
         Double tideLng,
-        Boolean clearTidePoint
+        Boolean clearTidePoint,
+        String drivePointName,
+        Double drivePointLat,
+        Double drivePointLon,
+        Boolean clearDrivePoint
 ) {
+    /**
+     * Constructor for callers that predate the drive point: all four drive-point fields read as "don't change".
+     *
+     * @param name              optional new name
+     * @param lat               optional new latitude
+     * @param lon               optional new longitude
+     * @param solarEventTypes   which solar events to evaluate (null = don't change)
+     * @param locationTypes     photography types (null = don't change)
+     * @param tideTypes         tide preferences (null = don't change)
+     * @param regionId          optional region ID
+     * @param mistProne         whether mist forms around this location (null = don't change)
+     * @param subRegionId       the sub-region to move into (null = don't change)
+     * @param elevationMetres   viewpoint height (null = don't change)
+     * @param valleyFloorMetres valley-floor height (null = don't change)
+     * @param valleyFloorLat    valley-floor latitude (null = don't change)
+     * @param valleyFloorLng    valley-floor longitude (null = don't change)
+     * @param clearValleyFloor  true to clear the valley floor
+     * @param tideLat           tide point latitude (null = don't change)
+     * @param tideLng           tide point longitude (null = don't change)
+     * @param clearTidePoint    true to clear the tide point
+     */
+    public UpdateLocationRequest(String name, Double lat, Double lon,
+            Set<SolarEventType> solarEventTypes, Set<LocationType> locationTypes,
+            Set<TideType> tideTypes, Long regionId, Boolean mistProne, Long subRegionId,
+            Integer elevationMetres, Integer valleyFloorMetres, Double valleyFloorLat,
+            Double valleyFloorLng, Boolean clearValleyFloor, Double tideLat, Double tideLng,
+            Boolean clearTidePoint) {
+        this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, subRegionId,
+                elevationMetres, valleyFloorMetres, valleyFloorLat, valleyFloorLng, clearValleyFloor,
+                tideLat, tideLng, clearTidePoint, null, null, null, null);
+    }
+
     /**
      * Constructor for callers that predate the tide point: all three tide-point fields read as
      * "don't change".
@@ -89,7 +132,7 @@ public record UpdateLocationRequest(
             Double valleyFloorLng, Boolean clearValleyFloor) {
         this(name, lat, lon, solarEventTypes, locationTypes, tideTypes, regionId, mistProne, subRegionId,
                 elevationMetres, valleyFloorMetres, valleyFloorLat, valleyFloorLng, clearValleyFloor,
-                null, null, null);
+                null, null, null, null, null, null, null);
     }
 
     /**

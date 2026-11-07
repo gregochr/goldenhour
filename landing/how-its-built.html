@@ -28,7 +28,7 @@
 </div>
 </header>
 <main>
-<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>How PhotoCast<br>is built.</h1><p>I build PhotoCast with help from AI tools, drawing on more than 25 years of software engineering experience. Those tools help with planning, writing code and reviewing changes. Automated tests, checks against observed conditions and my own release decisions help assess the results.</p><p>This page explains that process, and where it still falls short.</p></div></div>
+<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>How PhotoCast<br>is built.</h1><p>I build PhotoCast with help from AI tools, drawing on more than 25 years of software engineering experience. Those tools help with planning, writing code and reviewing changes. Automated tests, checks against observed conditions and my own release decisions help assess the results.</p><p>This page explains that process, and where it still falls short.</p><p>If you're an engineer and want the detail, see <a href="engineering.html">the engineering behind PhotoCast</a>.</p></div></div>
 <div class="doc"><div class="wrap">
 <nav aria-label="Sections">
 <ul>
@@ -70,7 +70,7 @@
 <li><b>A plan.</b> Larger features start as a written plan that sets out what will change and why; smaller fixes start from a shorter brief. Before any code is written, reviewers are asked to challenge the assumptions, look for missing cases and identify what could go wrong.</li>
 <li><b>The code is written separately.</b> A different AI model writes the code from the plan, in its own isolated copy of the project, and has to get the checks passing before the change is put forward.</li>
 <li><b>Separate reviews.</b> The AI that planned the change reviews the result, and every proposed change is then reviewed by an AI reviewer from a different company. Different models can still miss the same problem, so these reviews add to the automated checks rather than replace them. Anything they find is fixed and checked again.</li>
-<li><b>Automated checks.</b> GitHub Actions runs the required checks whenever a code change is proposed: the server's build and tests, the app's tests and build, and a security scan of the code. This is continuous integration: checking that changes work together before they are merged. A change can't be merged while a required check is failing.</li>
+<li><b>Automated checks.</b> GitHub Actions runs the required checks whenever a code change is proposed: the server's build and tests, the app's tests and build, a security scan of the code and, when a change touches the server's libraries, a check of those libraries for known vulnerabilities. This is continuous integration: checking that changes work together before they are merged. A change can't be merged while a required check is failing.</li>
 <li><b>I decide what is released.</b> I decide what gets built, judge the results in use, and choose when a version is released, usually after the changes have been used for real.</li>
 </ol>
 <div class="qa">
@@ -85,18 +85,21 @@
 </div>
 <h2 id="checks">The automated checks</h2>
 <ul>
-<li><b>Tests.</b> More than 25,000 automated tests cover the server and the app: the forecasting rules, the maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is in the UK when the server runs on a different clock. They run whenever a code change is proposed; changes to documentation and this website skip them.</li>
-<li><b>Tests that are tested.</b> It's possible to write tests that pass whatever the code does. Every class in the server's code must keep at least 80% line coverage (the share of lines the tests run), with a few small exemptions. Coverage shows what the tests run, not whether they check the right thing, so once a week mutation testing deliberately introduces small faults into the core forecasting code and checks that the tests notice. That weekly result doesn't block changes: if it falls below its threshold, a failure report is opened for me to investigate.</li>
+<li><b>Tests.</b> More than 33,000 automated tests cover the server and the app: the forecasting rules, the maps and planning screens, the tide and aurora logic, and the small details such as which day "today" is in the UK when the server runs on a different clock. They run whenever a code change is proposed; changes to documentation and this website skip them.</li>
+<li><b>Tests that are tested.</b> It's possible to write tests that pass whatever the code does. Every class in the server's code must have at least 95% of its lines (the share of lines the tests run) and 90% of its branches (the different paths code can take at a decision) run by the tests, and at least 90% of the lines a change adds or alters must be covered before it can be merged. A few classes sit below these figures because their remaining paths can't happen in practice; each has its own lower minimum, with the reason written beside it. The app's code is held to the same minimum, file by file: at least 95% of its lines and 90% of its branches, and at least 90% of the lines a change adds or alters. Two app files sit a little below the branch figure for the same reason, each with its own lower minimum and the reason written beside it. Coverage shows what the tests run, not whether they check the right thing, so once a week mutation testing deliberately introduces small faults into the core forecasting code and checks that the tests notice. The app's client logic is mutation-tested weekly too, and about 96% of the faults planted there are caught. Neither weekly result blocks changes: if any part falls below its minimum, a failure report is opened for me to investigate.</li>
 <li><b>Recorded responses.</b> Saved responses from the weather, space-weather, postcode, routing and light-pollution services check that PhotoCast handles known responses correctly. They can't detect a provider changing its live service. For the AI step, a daily check sends a small real request through the forecast process to confirm it still completes.</li>
+<li><b>In a real browser.</b> A short set of tests opens the app in a real browser, signs in and opens the main tabs, and fails if anything goes wrong on the page. It runs whenever a code change is proposed and before every release, and a change can't be merged until it passes.</li>
 <li><b>A test database.</b> Changes to how data is stored are tested against a test database running the same database software as production, before they can be merged.</li>
 <li><b>Code standards.</b> Automated checks require written documentation on the server's public code, keep the formatting consistent, and look for common bug patterns and security mistakes. The app's code is checked for some common accessibility problems; that helps, but it doesn't establish that the app is fully accessible.</li>
 </ul>
 <h2 id="security">Security and your data</h2>
 <ul>
 <li>A security scan of the code runs on every proposed code change, and again every week so that new detection rules also look at code that hasn't changed.</li>
-<li>The app's third-party libraries are checked for known serious vulnerabilities on every code change, and the server's libraries are checked every week.</li>
+<li>The app's third-party libraries are checked for known serious vulnerabilities on every code change. The server's are checked whenever a change affects them, and again every day. A change that would bring in a library with a known serious vulnerability can't be merged, unless the problem has been looked into and doesn't apply to PhotoCast.</li>
 <li>Automated tools propose library updates every week. Minor updates are merged once the required checks pass; larger ones are reviewed first. Either way, they reach the live service only with the next release.</li>
-<li>Once a week, an automated scanner probes a temporary copy of the service for common web vulnerabilities.</li>
+<li>Once a week, an automated scanner signs in as an ordinary user and probes a temporary copy of the service for common web vulnerabilities, working through the full list of requests the app can make to the server. Anything it finds that hasn't already been looked at opens a report for me, and so does a scan that didn't run properly or covered less than it should. Because it runs weekly, it doesn't hold up changes.</li>
+<li>The app tells your browser where it may load its scripts, styles and images from (this is called a Content Security Policy), and doesn't allow styles written directly into the page. That limits what any code slipped into a page could do, though it's one safeguard among several rather than a complete defence.</li>
+<li>The parts of the service only I can use are refused to everyone else before a request is dealt with, and checked again in the code behind them.</li>
 <li>Personal information, such as your home postcode and settings, is never stored in the shared caches that speed up forecasts for everyone, and a test checks that it stays out.</li>
 <li>Links that carry one-time codes, such as email verification links, are kept out of the web server's logs, and an automated check confirms it.</li>
 </ul>
@@ -114,8 +117,8 @@
 <h2 id="improving">Where it's still improving</h2>
 <p>Being honest about the gaps is part of the same standard.</p>
 <ul>
-<li>The app's tests run in a simulated browser: a program that imitates a web page, so the tests run quickly without opening one. A few tests in real browsers exist, but they're run by hand rather than on every change.</li>
-<li>The server's tests are checked by mutation testing and a coverage minimum. The app's tests have a coverage minimum too, but not mutation testing yet.</li>
+<li>Most of the app's tests run in a simulated browser: a program that imitates a web page, so the tests run quickly without opening one. A shorter set now runs in a real browser on every change, and a change can't be merged unless it passes. It checks signing in and the main tabs, but without real forecast data, so the map and planning screens are still checked by hand in a real browser.</li>
+<li>The server's tests are checked by mutation testing and a strict coverage minimum, class by class and for every change. The app's tests have the same strict coverage minimum, file by file and for every change, and its client logic is now mutation-tested as well. The remaining gap is that the app's screens are not mutation-tested yet.</li>
 <li>The larger forecast regression suite is run by hand rather than on every change, because each run uses paid AI requests. The weekly sky check provides an additional regular check in between.</li>
 <li>PhotoCast runs on a single server, without a separate test copy of the live service. Backups, health checks and rollback help reduce the risk, but a single-server failure can still interrupt the service.</li>
 </ul>
@@ -135,6 +138,7 @@
 <a href="guide/index.html">Guide</a>
 <a href="faq.html">FAQ</a>
 <a href="how-its-built.html">How it's built</a>
+<a href="engineering.html">Engineering</a>
 </div>
 <div class="foot-right">
 <div class="social">

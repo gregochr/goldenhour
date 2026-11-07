@@ -368,6 +368,7 @@ export default function WindowSpotStrip({
         <WindowSpotPeek
           rating={peek.rating}
           driveMinutes={peek.driveMinutes}
+          driveTo={peek.driveTo}
           leaveBy={peek.leaveBy}
           fierySky={peek.fierySky}
           goldenHour={peek.goldenHour}

@@ -294,6 +294,23 @@ describe('calloutFacts', () => {
     expect(drive.value).toBe('1h 35min · 42 mi');
   });
 
+  it('names the drive point the minutes are to, and drops the miles measured to the pin', () => {
+    const facts = calloutFacts({ driveMinutes: 80, distanceMiles: 20, driveTo: 'Glenridding' });
+    expect(facts.find((f) => f.key === 'drive').value).toBe('1h 20min to Glenridding');
+  });
+
+  it('names the drive point under an away origin too (no miles there anyway)', () => {
+    const facts = calloutFacts({ driveMinutes: 45, distanceMiles: null, driveTo: 'Glenridding' });
+    expect(facts.find((f) => f.key === 'drive').value).toBe('45 min to Glenridding');
+  });
+
+  it('keeps the Leave-by fact beside a drive point, and says nothing of it when the drive is unmeasured', () => {
+    const named = calloutFacts({ driveMinutes: 60, driveTo: 'Glenridding', eventTimeIso: '2026-06-15T04:30:00Z' });
+    expect(named.map((f) => f.key)).toEqual(['drive', 'leave']);
+    expect(calloutFacts({ driveMinutes: null, driveTo: 'Glenridding' })).toEqual([]);
+    expect(calloutFacts({ driveMinutes: 60, driveTo: 'Glenridding', past: true })).toEqual([]);
+  });
+
   it('adds a Leave-by fact only when BOTH the drive and the event time are known', () => {
     const withTime = calloutFacts({ driveMinutes: 60, eventTimeIso: '2026-06-15T04:30:00Z' });
     expect(withTime.some((f) => f.key === 'leave')).toBe(true);
