@@ -66,9 +66,9 @@ describe('the four-day strip stylesheet: the strip', () => {
     expect(body).not.toContain('absolute');
   });
 
-  it('lays the grid out as a 104px label column and eight equal columns, topic rows 24px', () => {
+  it('lays the grid out as a 112px label column and eight equal columns, topic rows 24px', () => {
     const body = ruleBody('.wf-tl-grid');
-    expect(body).toContain('grid-template-columns: 104px repeat(8, minmax(0, 1fr));');
+    expect(body).toContain('grid-template-columns: 112px repeat(8, minmax(0, 1fr));');
     expect(body).toContain('grid-auto-rows: 24px;');
   });
 
@@ -114,13 +114,13 @@ describe('the four-day strip stylesheet: forced colours', () => {
 });
 
 describe('the four-day strip stylesheet: the phone sheet variant (M4)', () => {
-  it('declares every .wf-topic-strip-sheet rule inside a max-width: 639px query, with the 70px label column', () => {
+  it('declares every .wf-topic-strip-sheet rule inside a max-width: 639px query, with the 78px label column', () => {
     const outside = css.replace(/@media \(max-width: 639px\) \{[\s\S]*?\n\}\n/g, '');
     expect(outside).not.toContain('wf-topic-strip-sheet');
     const start = css.indexOf('.wf-topic-strip.wf-topic-strip-sheet {');
     expect(start).toBeGreaterThan(-1);
     expect(css.slice(css.lastIndexOf('@media', start), start)).toContain('(max-width: 639px)');
-    expect(css).toContain('grid-template-columns: 70px repeat(8, minmax(0, 1fr));');
+    expect(css).toContain('grid-template-columns: 78px repeat(8, minmax(0, 1fr));');
   });
 });
 
@@ -132,7 +132,7 @@ describe('the four-day strip stylesheet: the sheet variant touch metrics (M4)', 
     return phone.slice(at, phone.indexOf('}', at));
   };
 
-  it('uses 32px rows, 24px bars (4px margins) and 32px labels, with a clipped, ellipsised name', () => {
+  it('uses 32px rows, 24px bars (4px margins) and 32px labels, with a clipped name that wraps to at most two lines', () => {
     expect(rule('.wf-topic-strip-sheet .wf-tl-grid')).toContain('grid-auto-rows: 32px');
     expect(rule('.wf-topic-strip-sheet .wf-tl-grid')).toContain('row-gap: 4px');
     expect(rule('.wf-topic-strip-sheet .wf-tl-b')).toContain('margin: 4px 2px');
@@ -140,7 +140,12 @@ describe('the four-day strip stylesheet: the sheet variant touch metrics (M4)', 
     expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('height: 32px');
     expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('overflow: hidden');
     expect(rule('.wf-topic-strip-sheet .wf-tl-n')).toContain('min-width: 0');
-    expect(rule('.wf-topic-strip-sheet .wf-tl-n > span:last-child')).toContain('text-overflow: ellipsis');
+    const name = rule('.wf-topic-strip-sheet .wf-tl-n > span:last-child:not(.wf-tl-nt)');
+    expect(name).toContain('white-space: normal');
+    expect(name).toContain('line-height: 1.15');
+    expect(name).toContain('-webkit-line-clamp: 2');
+    expect(name).toContain('display: -webkit-box');
+    expect(name).toContain('-webkit-box-orient: vertical');
   });
 
   it('makes the HW tick a 44x16 label band above the bar row, clamped inside the day columns', () => {

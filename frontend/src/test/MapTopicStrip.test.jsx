@@ -822,3 +822,20 @@ describe('MapTopicStrip: the guide door (G3)', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
 });
+
+describe('MapTopicStrip: full topic names', () => {
+  it.each([
+    ['SPRING_TIDE', 'Spring tide', null],
+    ['STORM_SURGE', 'Storm surge', 'SUNRISE'],
+    ['LUNAR_ECLIPSE', 'Lunar eclipse', 'NIGHT'],
+  ])('draws %s as "%s" and names the label and bar with the full name', (type, name, eventType) => {
+    const hot = [topic({
+      type, label: name, date: SAT, eventType, locationNames: ['A'],
+    })];
+    renderStrip({ grid: gridFor(EVENTS[1], hot, []) });
+
+    expect(label(type)).toHaveTextContent(name);
+    expect(label(type).getAttribute('aria-label')).toMatch(new RegExp(`^${name}: `));
+    expect(screen.getAllByTestId(new RegExp(`^wf-topic-bar-${type}-`))[0].getAttribute('aria-label')).toMatch(new RegExp(`^${name}, `));
+  });
+});

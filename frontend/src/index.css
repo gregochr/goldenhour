@@ -4745,11 +4745,11 @@ button.wf-tl-day:focus-visible .wf-tl-tip { display: block; }
   border-style: dashed;
 }
 /* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
-   row after them is 24px. 104 + 8 x 39.25 = the 418px the 440px panel leaves inside its borders and padding
-   (the name column is 104px since collapse-and-topic-pips-plan.md §2, with an ellipsis). */
+   row after them is 24px. 112 + 8 x 38.25 = the 418px the 440px panel leaves inside its borders and padding
+   (the name column is 112px so the longest full name, "Snow on the tops", fits on one line beside its glyph). */
 .wf-tl-grid {
   display: grid;
-  grid-template-columns: 104px repeat(8, minmax(0, 1fr));
+  grid-template-columns: 112px repeat(8, minmax(0, 1fr));
   grid-template-rows: auto auto;
   grid-auto-rows: 24px;
   row-gap: 4px;
@@ -4999,7 +4999,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 
 /* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
-   the body, the design's 70px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
+   the body, a 78px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
    seas track 44px (32 + the 12px label band) while a tick is drawn, bars 24px tall. The inline
    `gridTemplateRows` the component writes for a tick uses the same 32/44. Phone only. */
 @media (max-width: 639px) {
@@ -5016,7 +5016,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     font-size: 10px;
   }
   .wf-topic-strip-sheet .wf-tl-grid {
-    grid-template-columns: 70px repeat(8, minmax(0, 1fr));
+    grid-template-columns: 78px repeat(8, minmax(0, 1fr));
     grid-auto-rows: 32px;
     row-gap: 4px;
     padding: 0 8px 10px;
@@ -5028,13 +5028,20 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     font-size: 11px;
     gap: 4px;
   }
-  .wf-topic-strip-sheet .wf-tl-n > span:last-child {
+  /* A plain (no sub-line) name is the full topic name and may wrap onto at most two lines inside the 32px row
+     (a safety net: the clamp, not an ellipsis on one line, is what bounds it). The button itself is
+     nowrap; the name span opts back in. */
+  .wf-topic-strip-sheet .wf-tl-n > span:last-child:not(.wf-tl-nt) {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    line-height: 1.15;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
-  /* The ellipsis above is for the plain one-line name; a label with a sub-line is a column whose own lines
-     (.wf-tl-n1, .wf-tl-sub) carry the ellipsis. */
+  /* A label with a sub-line (.wf-tl-nt) is a column whose own lines (.wf-tl-n1, .wf-tl-sub) stay one line
+     each and carry the ellipsis. */
   .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
   .wf-topic-strip-sheet .wf-tl-det { font-size: 10.5px; }
   .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }

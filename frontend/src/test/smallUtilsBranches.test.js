@@ -230,7 +230,7 @@ describe('topicPalette', () => {
 
   it('names an unknown type by its label, then its type, then a default', () => {
     expect(topicStyle('WEIRD', 'Weird thing')).toEqual({
-      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Weird thing', shortName: 'Weird thing',
+      colour: DEFAULT_SWATCH_COLOR, glyph: '•', name: 'Weird thing',
     });
     expect(topicStyle('WEIRD').name).toBe('WEIRD');
     expect(topicStyle(null).name).toBe('Topic');

@@ -43,31 +43,31 @@ export const SWATCH_COLOR = {
 };
 
 /**
- * Glyph, full name and short (phone) name for each of the backend's nineteen types
+ * Glyph and full name for each of the backend's nineteen types
  * ({@code TopicRarity.RANK_BY_TYPE}). {@code placeNoun} marks the types that live on the coast.
  */
 const TOPIC_META = {
-  KING_TIDE: { glyph: '🌊', name: 'King tide', shortName: 'King tide', placeNoun: 'coastal' },
-  SPRING_TIDE: { glyph: '🌊', name: 'Spring tide', shortName: 'Tide', placeNoun: 'coastal' },
-  STORM_SURGE: { glyph: '🌊', name: 'Storm surge', shortName: 'Surge', placeNoun: 'coastal' },
-  INVERSION: { glyph: '☁️', name: 'Inversion', shortName: 'Inversion' },
-  MIST: { glyph: '🌫️', name: 'Mist', shortName: 'Mist' },
+  KING_TIDE: { glyph: '🌊', name: 'King tide', placeNoun: 'coastal' },
+  SPRING_TIDE: { glyph: '🌊', name: 'Spring tide', placeNoun: 'coastal' },
+  STORM_SURGE: { glyph: '🌊', name: 'Storm surge', placeNoun: 'coastal' },
+  INVERSION: { glyph: '☁️', name: 'Inversion' },
+  MIST: { glyph: '🌫️', name: 'Mist' },
   // Sea mist (coastal-mist-plan Phase 2). No placeNoun: 'coastal' is reserved for the tide types (a test pins
   // it), and the topic's own copy already says "sea".
-  SEA_MIST: { glyph: '🌁', name: 'Sea mist', shortName: 'Sea mist' },
-  DUST: { glyph: '🏜️', name: 'Dust', shortName: 'Dust' },
-  SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops', shortName: 'Snow tops' },
-  SNOW_MIST: { glyph: '❄️', name: 'Snow and mist', shortName: 'Snow mist' },
-  SNOW_FRESH: { glyph: '❄️', name: 'Fresh snow', shortName: 'Fresh snow' },
-  CLEARANCE: { glyph: '🌤️', name: 'Clearance', shortName: 'Clearing' },
-  BLUEBELL: { glyph: '🌸', name: 'Bluebells', shortName: 'Bluebells' },
-  AURORA: { glyph: '🌌', name: 'Aurora', shortName: 'Aurora' },
-  NLC: { glyph: '✦', name: 'NLC', shortName: 'NLC' },
-  METEOR: { glyph: '☄️', name: 'Meteors', shortName: 'Meteors' },
-  SUPERMOON: { glyph: '🌙', name: 'Supermoon', shortName: 'Supermoon' },
-  EQUINOX: { glyph: '☀️', name: 'Equinox', shortName: 'Equinox' },
-  ECLIPSE: { glyph: '◐', name: 'Eclipse', shortName: 'Eclipse' },
-  LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse', shortName: 'Lunar ecl.' },
+  SEA_MIST: { glyph: '🌁', name: 'Sea mist' },
+  DUST: { glyph: '🏜️', name: 'Dust' },
+  SNOW_TOPS: { glyph: '🏔️', name: 'Snow on the tops' },
+  SNOW_MIST: { glyph: '❄️', name: 'Snow and mist' },
+  SNOW_FRESH: { glyph: '❄️', name: 'Fresh snow' },
+  CLEARANCE: { glyph: '🌤️', name: 'Clearance' },
+  BLUEBELL: { glyph: '🌸', name: 'Bluebells' },
+  AURORA: { glyph: '🌌', name: 'Aurora' },
+  NLC: { glyph: '✦', name: 'NLC' },
+  METEOR: { glyph: '☄️', name: 'Meteors' },
+  SUPERMOON: { glyph: '🌙', name: 'Supermoon' },
+  EQUINOX: { glyph: '☀️', name: 'Equinox' },
+  ECLIPSE: { glyph: '◐', name: 'Eclipse' },
+  LUNAR_ECLIPSE: { glyph: '🌘', name: 'Lunar eclipse' },
 };
 
 /**
@@ -75,7 +75,7 @@ const TOPIC_META = {
  *
  * @param {?string} type  the served {@code HotTopic.type}
  * @param {?string} label the served {@code label}, used as the name of an unknown type
- * @returns {{colour: string, glyph: string, name: string, shortName: string, placeNoun?: string}}
+ * @returns {{colour: string, glyph: string, name: string, placeNoun?: string}}
  *          the topic's style; never null
  */
 export function topicStyle(type, label) {
@@ -83,7 +83,7 @@ export function topicStyle(type, label) {
   const meta = TOPIC_META[key];
   if (!meta) {
     const name = label || type || 'Topic';
-    return { colour: DEFAULT_SWATCH_COLOR, glyph: '•', name, shortName: name };
+    return { colour: DEFAULT_SWATCH_COLOR, glyph: '•', name };
   }
   return {
     colour: SWATCH_COLOR[key] ?? DEFAULT_SWATCH_COLOR,
