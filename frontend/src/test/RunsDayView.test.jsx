@@ -1260,10 +1260,26 @@ describe('Day view: the strip', () => {
     expect(screen.getByTestId('runs-strip-svg').getAttribute('class')).toContain('min-w-[720px]');
   });
 
+  it('makes the phone strip a labelled, focusable region so a keyboard can scroll it', async () => {
+    useIsMobile.mockReturnValue(true);
+    renderView();
+    await loaded();
+    const strip = screen.getByTestId('runs-strip-scroll');
+    expect(strip).toHaveAttribute('tabindex', '0');
+    expect(strip).toHaveAttribute('role', 'region');
+    expect(strip).toHaveAttribute('aria-label', 'Runs timeline, scrolls sideways');
+    expect(strip.className).toContain('focus-visible:outline-plex-gold');
+  });
+
   it('does not scroll on a wide screen', async () => {
     renderView();
     await loaded();
     expect(screen.getByTestId('runs-strip-scroll').className).not.toContain('overflow-x-auto');
+    const strip = screen.getByTestId('runs-strip-scroll');
+    expect(strip).not.toHaveAttribute('tabindex');
+    expect(strip).not.toHaveAttribute('role');
+    expect(strip).not.toHaveAttribute('aria-label');
+    expect(strip.className).toBe('');
   });
 });
 

@@ -121,7 +121,12 @@ export default function DayStrip({ day, selectedId = null, onSelect }) {
           sunrise {day.sunrise} {'·'} sunset {day.sunset}
         </span>
       </div>
-      <div ref={scrollRef} className={isMobile ? 'overflow-x-auto' : ''} data-testid="runs-strip-scroll">
+      <div
+        ref={scrollRef}
+        className={isMobile ? 'overflow-x-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold' : ''}
+        {...(isMobile ? { tabIndex: 0, role: 'region', 'aria-label': 'Runs timeline, scrolls sideways' } : {})}
+        data-testid="runs-strip-scroll"
+      >
         <svg
           viewBox={`0 0 ${viewW} ${VIEW_H}`}
           className={`h-auto ${isMobile ? 'min-w-[720px]' : 'w-full'}`}
