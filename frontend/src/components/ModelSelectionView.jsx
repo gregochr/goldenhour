@@ -494,7 +494,7 @@ export default function ModelSelectionView() {
               <button
                 onClick={() => handleModelSwitch(activeTab, model)}
                 disabled={isActive || switching}
-                className={`w-full py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                className={`w-full py-2 px-3 rounded-lg text-sm font-medium transition-colors max-[639px]:min-h-11 ${
                   isActive
                     ? 'bg-plex-border text-plex-text-muted cursor-default'
                     : 'bg-plex-gold hover:bg-plex-gold-light text-gray-900 disabled:opacity-50'

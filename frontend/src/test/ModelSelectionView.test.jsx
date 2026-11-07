@@ -303,6 +303,7 @@ describe('ModelSelectionView', () => {
     // The tab buttons and the extended-thinking toggle are 44px tap targets on a phone.
     expect(screen.getByTestId('config-tab-BRIEFING_BEST_BET')).toHaveClass('max-[639px]:min-h-11');
     expect(await screen.findByTestId('toggle-extended-thinking')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('switch-BRIEFING_BEST_BET-SONNET')).toHaveClass('max-[639px]:min-h-11');
     expect(screen.getByTestId('cost-table')).toBeInTheDocument();
     expect(screen.getByTestId('cost-table-summary')).toHaveTextContent(
       '2.3 runs a day, 1 call per run, last 30 days',

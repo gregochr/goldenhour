@@ -8,6 +8,12 @@ describe('InfoTip', () => {
     expect(screen.getByTestId('infotip-trigger')).toBeInTheDocument();
   });
 
+  it('stretches its hit area to 44px tall on a phone without resizing the glyph', () => {
+    render(<InfoTip text="Some help text" />);
+    const trigger = screen.getByTestId('infotip-trigger');
+    expect(trigger).toHaveClass('w-4', 'h-4', 'relative', 'max-[639px]:before:-inset-y-[15px]');
+  });
+
   it('does not show popover initially', () => {
     render(<InfoTip text="Some help text" />);
     expect(screen.queryByTestId('infotip-popover')).not.toBeInTheDocument();
