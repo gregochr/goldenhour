@@ -369,3 +369,35 @@ and tests and rollout.
   > (see `plan-tab.md`, 'Back')."
 - **The detail** goes in `plan-tab.md`, `map-tab.md` (the exclusions) and `dev-and-testing.md` (the jsdom and
   Playwright limits).
+
+---
+
+## Refuter amendments (2026-11-07). Binding, and the last word where they conflict with the amendments above.
+
+1. **The marker and the depth arithmetic.**
+   - The marker is `{session, depth}`, and **`depth` is the entry ordinal**: the count of our entries up to this one, not the stack index.
+   - **Drop `href`, `seq` and the URL-restore step (2.1).** No writer in the app both pushes and copies state, and a `location.hash` push gets `state = null`, so `href` guarded nothing. The restore could misread a programmatic hash push as a rewrite, eat the reader's Back, and strip markers after legitimate `{replace:true}` rewrites. Data-driven hash rewrites under a modal heal themselves.
+   - **Back** closes `n = committedDepth − arrivedDepth` entried layers from the top, together with any entry-less layers above them.
+   - A blocking layer re-pushes `committedDepth − arrivedDepth` entries. Survivors without an entry stay entry-less.
+   - The Forward bounce is `go(committedDepth − arrivedDepth)`.
+   - **Vitest** covers mixed stacks: entried L1 with entry-less L2, and the reverse.
+2. **At most one `go` in flight.**
+   - Record the depth it is expected to land at. An arrival anywhere else is the user's and is classified normally.
+   - The next corrective `go` is issued from the actual arrived depth, and only when nothing is in flight.
+   - This fixes the fast double Forward that would otherwise step past B0 and leave the app.
+   - **Vitest:** double Forward and double Back.
+3. **Scroll reset.** Set `scrollRestoration='auto'` on **any** arrival at depth 0 with an empty stack, and at boot when the stack is empty. Otherwise `'manual'` spreads to later `#manage` panel entries, and Operations stops restoring list scroll on Back.
+4. **Drop the refused-close re-push (old item 4).**
+   - The Settings "drive times updated" result is a *view*, not a layer, so Back on it closes Settings (`onBack = onClose`). Deleting in flight is `mode = block`, read live.
+   - **Defensive fallback:** if a layer is still registered after its `onBack`, make it entry-less. **Never re-push from `popstate` without activation.**
+5. **`back="cancel"` respects in-flight guards.** While a confirm's own Cancel is disabled, its mode switches to `block` through the in-place update:
+   - `AuroraForecastModal` while `running`;
+   - `AuroraSimulateModal` while `submitting || clearing`;
+   - `ScheduleSwitchDialog` while `sending`.
+6. **Drop `openWindow(null)` / `openOverPopup(null)` on vanish.** Register the shell's layers from the **derived** open state instead: `open: openCard != null` (`WindowFirstShell.jsx:1362`) and `sheetCard != null` (`:1038`).
+   - That is still intent plus data rather than the lazy render, so the cold-chunk concern is met.
+   - A vanish unregisters and traverses, and `go` needs no activation.
+   - A returning card registers entry-less, which is today's behaviour.
+   - This also respects the shell's existing `set-state-in-effect` lint decision (`:1318-1325`).
+7. **The `!guideModal` guard covers both doors:** `onOpenSearch` (`:2574`) and the beyond line's `onSearchRegion` (`:3006`).
+8. **The session id** comes from `crypto.getRandomValues`, not `crypto.randomUUID()`, which is undefined outside a secure context, e.g. a phone testing `vite --host` over a LAN IP.
