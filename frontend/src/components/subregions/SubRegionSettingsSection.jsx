@@ -361,6 +361,7 @@ export default function SubRegionSettingsSection({
           // sheet sized to its content, at the bottom.
           size={confirming ? 'default' : 'tall'}
           closeOnEscape
+          back="close"
           header={confirming ? null : (
             <div className="flex flex-col gap-1" data-testid="sub-regions-sheet-header">
               <h2 className="text-base font-semibold text-plex-text">Your sub-regions</h2>
@@ -416,6 +417,7 @@ export default function SubRegionSettingsSection({
           label="Save and lock"
           onClose={() => setConfirming(false)}
           closeOnEscape
+          back="close"
           maxWidth="md"
           data-testid="sub-regions-confirm-modal"
         >

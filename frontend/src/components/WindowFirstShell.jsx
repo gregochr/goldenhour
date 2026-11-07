@@ -43,6 +43,7 @@ import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useAskSurface from '../hooks/useAskSurface.js';
+import useBackLayer from '../hooks/useBackLayer.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
@@ -1675,6 +1676,9 @@ export default function WindowFirstShell({
    * discarding an answer the reader was charged a question for would be a trap.
    */
   const closeAskSheet = () => setAskSheetOpen(false);
+  // Back closes the sheet like the ✕ (the conversation is kept). Registered here, from the open INTENT and outside
+  // the lazy `Suspense`, so a cold chunk neither delays the entry nor turns a swap into a pop and a push.
+  useBackLayer({ open: askSheetShown, onBack: closeAskSheet });
   /**
    * "Show on map ›" on a pick: select that pick, leave the sheet, land on the Map tab, keep the
    * answer. {@code selectTab} is the route (it closes the sheet with the rest of the layers); the
@@ -3182,7 +3186,7 @@ export default function WindowFirstShell({
           long as an entry exists, as it always has, so closing restores focus through the same instance.
           Its fallback is null: the sheet is an overlay, so nothing in the page moves while it loads. */}
       {askEntry !== null && (askSheetShown || askSheetLoaded) && (
-        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" open={askSheetShown} onClose={closeAskSheet}>
+        <ChunkErrorBoundary variant="overlay" label="Ask PhotoCast" open={askSheetShown} onClose={closeAskSheet} backLayer={false}>
         <Suspense fallback={null}>
           <AskSheet
             open={askSheetShown}

@@ -4,6 +4,9 @@ import Modal from './Modal.jsx';
 
 /**
  * Shared confirmation dialog with title, message, and confirm/cancel buttons.
+ *
+ * <p>The Back button cancels it (`back="cancel"`, running `onCancel`), as it has no Escape. While `busy` its own
+ * work is in flight and Back is absorbed instead, so it cannot cancel what is already going out.
  */
 export default function ConfirmDialog({
   title,
@@ -13,10 +16,17 @@ export default function ConfirmDialog({
   onCancel,
   destructive = false,
   maxWidth = 'md',
+  busy = false,
   children,
 }) {
   return (
-    <Modal label={title} onClose={onCancel} maxWidth={maxWidth} data-testid="confirm-dialog">
+    <Modal
+      label={title}
+      onClose={onCancel}
+      maxWidth={maxWidth}
+      back={busy ? 'block' : 'cancel'}
+      data-testid="confirm-dialog"
+    >
       <p className="text-sm font-semibold text-plex-text">{title}</p>
       <p className="text-sm text-plex-text-secondary">{message}</p>
       {children}
@@ -52,5 +62,6 @@ ConfirmDialog.propTypes = {
   onCancel: PropTypes.func.isRequired,
   destructive: PropTypes.bool,
   maxWidth: PropTypes.oneOf(['sm', 'md', 'lg']),
+  busy: PropTypes.bool,
   children: PropTypes.node,
 };

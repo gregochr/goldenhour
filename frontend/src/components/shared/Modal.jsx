@@ -98,6 +98,8 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  *                                          the element that opened this dialog can no longer take it
  *                                          back — see {@link useDialogFocus}'s `restoreFallback`.
  *                                          Opt-in: omitted, the close behaves exactly as before.
+ * @param {boolean}  [props.closeOnBackdrop] default true; false makes a press on the scrim close nothing, for a
+ *                                          dialog whose content a stray press would lose (the temporary password)
  * @param {'close'|'cancel'|'block'} [props.back] - Opt in to the Back button (see
  *                                          `utils/dialogHistory.js`): `close` and `cancel` run `onClose`
  *                                          on Back, `block` absorbs it. A dialog with no `onClose` is
@@ -113,6 +115,7 @@ export default function Modal({
   stacked = false,
   restoreFocusFallback = null,
   back,
+  closeOnBackdrop = true,
   className = '',
   'data-testid': testId,
   children,
@@ -321,7 +324,7 @@ export default function Modal({
       <div
         className="app-scrim absolute inset-0"
         role="presentation"
-        onClick={onClose}
+        onClick={closeOnBackdrop ? onClose : undefined}
         data-testid={testId ? `${testId}-backdrop` : undefined}
       />
       {bare ? (
@@ -346,6 +349,7 @@ Modal.propTypes = {
   stacked: PropTypes.bool,
   restoreFocusFallback: PropTypes.func,
   back: PropTypes.oneOf(['close', 'cancel', 'block']),
+  closeOnBackdrop: PropTypes.bool,
   className: PropTypes.string,
   'data-testid': PropTypes.string,
   children: PropTypes.node.isRequired,

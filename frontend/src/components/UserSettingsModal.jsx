@@ -3,6 +3,7 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
+import useBackLayer from '../hooks/useBackLayer.js';
 import SubRegionSettingsSection from './subregions/SubRegionSettingsSection.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 import { deleteAccount } from '../api/accountApi.js';
@@ -582,6 +583,15 @@ export default function UserSettingsModal({
   const closeUnlessDeleting = () => {
     if (!deleting) onClose();
   };
+
+  /**
+   * The Back button. The spinner, the result view and the body are all ONE `Modal` instance, so this is ONE
+   * registration that never unregisters between them: Back closes Settings from the body AND from the result
+   * view (not just the result), and is absorbed (`block`) while the drive-time spinner is up or a delete is
+   * in flight, read live through the layer's in-place update. Registered here rather than through `Modal`'s
+   * `back` because each view hands `Modal` a different `onClose`.
+   */
+  useBackLayer({ open: true, onBack: onClose, mode: refreshing || deleting ? 'block' : 'close' });
 
   /**
    * Sends the delete. `aria-disabled`, not `disabled`, while it is out (BUSY_BUTTON's reason): the

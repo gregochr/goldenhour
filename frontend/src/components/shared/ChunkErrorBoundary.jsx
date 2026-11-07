@@ -1,6 +1,23 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
+import useBackLayer from '../../hooks/useBackLayer.js';
+
+/**
+ * Registers the overlay with the Back-closes-dialogs engine while it is on screen (the boundary is a class,
+ * so it cannot call a hook). Back runs the same close as the Close control; with no `onClose` the overlay
+ * has no way out, so Back is absorbed.
+ *
+ * @param {object} props
+ * @param {?function} props.onBack
+ * @returns {null}
+ */
+function OverlayBackLayer({ onBack }) {
+  useBackLayer({ open: true, onBack, mode: onBack ? 'close' : 'block' });
+  return null;
+}
+
+OverlayBackLayer.propTypes = { onBack: PropTypes.func };
 
 /**
  * Catches a failed lazy chunk (a rejected {@code import()}: a stale tab after a deploy, a flaky or
@@ -22,6 +39,8 @@ import PropTypes from 'prop-types';
  * @param {function} [props.reload] defaults to reloading the page (overridable for tests: jsdom
  *        cannot stub {@code window.location.reload})
  * @param {boolean} [props.open] when false, a failure renders nothing (default true)
+ * @param {boolean} [props.backLayer] whether a failed overlay registers its own Back layer (default true; false
+ *        where the owner already registers one from its open state, as the shell does for Ask's sheet)
  * @param {string} [props.id] DOM id for the inline variant (the Ask dock's, for {@code aria-controls})
  */
 export default class ChunkErrorBoundary extends React.Component {
@@ -61,7 +80,7 @@ export default class ChunkErrorBoundary extends React.Component {
   render() {
     const {
       children, label = 'This part of the app', variant = 'inline', onClose = undefined, id = undefined,
-      open = true,
+      open = true, backLayer = true,
     } = this.props;
     const { failed } = this.state;
     if (!failed) return children;
@@ -107,6 +126,7 @@ export default class ChunkErrorBoundary extends React.Component {
           aria-label={label}
           className="fixed inset-0 z-50 flex items-center justify-center"
         >
+          {backLayer && <OverlayBackLayer onBack={onClose ? this.handleClose : undefined} />}
           <div className="app-scrim absolute inset-0" />
           <div className="relative bg-plex-surface border border-plex-border rounded-lg">{body}</div>
         </div>,
@@ -125,4 +145,5 @@ ChunkErrorBoundary.propTypes = {
   reload: PropTypes.func,
   id: PropTypes.string,
   open: PropTypes.bool,
+  backLayer: PropTypes.bool,
 };

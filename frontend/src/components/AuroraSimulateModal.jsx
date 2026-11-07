@@ -68,7 +68,14 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
   }
 
   return (
-    <Modal label="Aurora simulation controls" onClose={onClose} bare data-testid="aurora-simulate-modal">
+    <Modal
+      label="Aurora simulation controls"
+      onClose={onClose}
+      // Back cancels, as Cancel does; absorbed while its own Cancel is disabled.
+      back={submitting || clearing ? 'block' : 'cancel'}
+      bare
+      data-testid="aurora-simulate-modal"
+    >
       {/* Modal panel */}
       <div className="relative w-full max-w-md bg-plex-surface border border-plex-border rounded-xl shadow-2xl z-10">
         {/* Header */}

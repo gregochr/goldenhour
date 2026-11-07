@@ -8,6 +8,8 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
+import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
+import { __inspectForTests } from '../utils/dialogHistory.js';
 
 /**
  * P2d: the settings dialog is a lazy chunk. While it is held pending the page must still read as one
@@ -308,13 +310,35 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  uninstallBackBrowser();
   delete window.requestIdleCallback;
   delete window.cancelIdleCallback;
 });
 
 
 describe('the settings dialog while its chunk is pending', () => {
+  // First on purpose: the chunk gate is spent once per file, and this test leaves it pending.
+  it('Back on the stand-in closes Settings before the chunk has arrived', async () => {
+    const b = installBackBrowser();
+    try {
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+      await press(screen.getByRole('button', { name: 'Settings' }));
+      await screen.findByTestId('settings-fallback');
+      await b.settle();
+      expect(b.history.pushState).toHaveBeenCalledTimes(1);
+
+      await b.back();
+
+      await waitFor(() => expect(screen.queryByTestId('settings-fallback')).toBeNull());
+      expect(__inspectForTests()).toMatchObject({ layers: 0, committedDepth: 0 });
+    } finally {
+      uninstallBackBrowser();
+    }
+  });
+
   it('stands in as the one modal, is what the shell refusals read, silences the Map, and returns focus to the cog', async () => {
+    const b = installBackBrowser();
     renderApp();
     await screen.findByTestId('wf-heat-strip');
     const cog = screen.getByRole('button', { name: 'Settings' });
@@ -339,9 +363,15 @@ describe('the settings dialog while its chunk is pending', () => {
     expect(screen.queryByTestId('settings-fallback')).toBeNull();
     await tookFocus(dialog);
     expect(modals()).toEqual([dialog]);
+    // The real dialog took over the stand-in's history entry (a same-depth swap): one push, no traversal.
+    await b.settle();
+    expect(b.history.pushState).toHaveBeenCalledTimes(1);
+    expect(b.history.go).not.toHaveBeenCalled();
+    expect(__inspectForTests()).toMatchObject({ layers: 1, committedDepth: 1 });
 
     await closeSettings(dialog);
     await waitFor(() => expect(cog).toHaveFocus());
     expect(foreignModalOver(null)).toBe(false);
+    uninstallBackBrowser();
   });
 });

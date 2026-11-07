@@ -340,7 +340,7 @@ Two adversarial reviews (one on the seeder, one on the specs) read the plan agai
      - On the Plan route, the sheet closes, then the popup.
      - On the Map route, the sheet closes, then focus returns to `map-callout-reason`, then the selection clears.
    - **Don't click** guide links (they open a new tab off-origin), `location-sheet-plan` or `location-sheet-map`.
-   - **The browser Back button closes no dialog** (there is no `pushState` for dialogs), so it is **not** tested. That is a UX question for the owner, not a smoke assertion.
+   - **The browser Back button closes the top dialog** (amended by `back-closes-dialogs-plan.md`, PR 2a onwards: dialogs push a history entry through `utils/dialogHistory.js`). It is tested in `smoke/back.spec.js`, which waits for `<html data-back-depth>` to settle before every `goBack`; the first 3a.1 draft said it was not tested.
 7. **`door1-obstacles.spec.js`**
    - Use the fixture login. Desktop viewport only in the gate; the 390×844 variant is added only if the discovery run proves it stable.
    - Wait for `document.fonts.ready` after each sheet opens, and use `expect.poll` stability twice instead of the bounded RAF loop.

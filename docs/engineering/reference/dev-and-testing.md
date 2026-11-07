@@ -193,8 +193,8 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
 | `roles-write.spec.js` | The Pro reader rates one past window (`outcome-rating-block`): the `PUT /api/outcome/ratings` is 200, the block reads rated, and the row reads back from `GET /api/outcome/ratings`. The only spec that writes shared state, so it is its own serial project, `roles-write` (`dependencies: ['smoke']`, `workers: 1`), before `logout`. |
 | `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
 
-The browser Back button closes no dialog (there is no `pushState` for dialogs), so it is not tested: that is a product question,
-not a smoke assertion.
+The browser Back button closes the top dialog (`back-closes-dialogs-plan.md`; PR 2a wires Settings, the guide, the Ask sheet,
+confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests it; see "Back (dialog history)" below.
 
 **Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
 
@@ -293,6 +293,27 @@ activation, so the activation gate, the first-run guard and the history-manipula
 automated; they belong to the manual device pass in the plan (a release blocker). Before any `goBack`/`goForward`/
 reload, wait for the store to settle by polling `data-back-depth` on `<html>` (a number when idle, `busy` while a
 traversal or reconcile is outstanding).
+
+### Back (dialog history), tests of the wired consumers
+
+- **Vitest.** A wired consumer is tested with `src/test/backTestKit.js`: `installBackBrowser()` installs a fresh fake
+  Chromium history behind the store's seam (`b.userBack()` / `b.back()` press Back and settle inside `act`;
+  `uninstallBackBrowser()` in `afterEach`). Assert what the dialog DID (its `onClose` ran, it stayed open, the layer count
+  and `committedDepth`), never real history counts. Suites: `backDialogsConfirm`, `backDialogsSettings`,
+  `backDialogsGuide`, `backDialogsAsk`, plus cases added to `UserManagementView`, `LazyEntrySettings` and
+  `AppSettingsRoutes` (the engine boots at `App` mount). A suite that fakes only `Date` (the Ask shell) cannot use
+  `tick()`'s fake-timer branch: wait a real macrotask instead.
+- **Playwright** (`smoke/back.spec.js`). Rules: (1) before every `goBack` / `goForward` / reload, poll `<html data-back-depth>`
+  to the expected number (it reads `busy` while anything is outstanding); (2) take `navigation.currentEntry.index` before
+  anything opens: after a x, Escape or Back it must return to that baseline with no `history.state.phLayer`, which is the
+  "no dead press" property; (3) never click `confirm-dialog-confirm` (the Operations case would reset the shared admin);
+  (4) the guide iframe is stubbed by `stubGuideFrame(page, hygiene)` in `fixture.js`: route-fulfilled plain pages that load the repo's REAL
+  `landing/guide/guide.js` (served from the stubbed origin), so the real script reports the page and replaces the location on
+  a guide link and the history on a `#section` link; the guide host is an expected off-origin request for that test only; (5) `bottom-sheet` is shared, so sheets are selected by `aria-label`; (6) an Operations
+  panel is closed by Back only when the entry below it is also a `#manage/...` hash (a non-manage hash is ignored by
+  `ManageView`), so the spec clicks the Users tab first; (7) opening Settings runs `selectTab`, which scrolls the page to the
+  top and focus-return scrolls to the cog, so the scroll case uses the fixed Ask bar on a phone, scrolls the page WHILE the sheet is up and asserts that value survives
+  each close (and `history.scrollRestoration` is `'auto'` again), which fails if the engine stops setting `'manual'`.
 
 ## UI Work — Review Cadence
 

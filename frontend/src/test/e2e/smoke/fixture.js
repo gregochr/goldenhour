@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { test as base, expect } from '@playwright/test';
 
 /**
@@ -279,6 +281,48 @@ export async function loginAndWaitForForecast(page, role = 'admin') {
   await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
   await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
+}
+
+/** The guide site's origin, which the app frames. Stubbed by {@link stubGuideFrame}: the suite never reaches it. */
+const GUIDE_ORIGIN = 'https://photocast.online';
+
+/** The REAL embed-mode script the landing site ships, so the suite tests what the guide does, not a copy of it. */
+const GUIDE_SCRIPT = fs.readFileSync(
+  fileURLToPath(new URL('../../../../../landing/guide/guide.js', import.meta.url)),
+  'utf8',
+);
+
+/**
+ * Replaces the in-app guide's iframe with local pages, so a spec can drive the guide with no network call.
+ *
+ * <p>The pages are plain HTML (a guide-to-guide link, a `#section` link and a section to scroll to) that load
+ * the repo's real `landing/guide/guide.js`, served from the stubbed origin: the real script rewrites the link,
+ * reports itself with the `photocast-guide` message and navigates with `location.replace` / `replaceState`, as the
+ * embed-mode guide does (a plain navigation would add an entry to the joint session history, which the Back store
+ * cannot see). The guide's host is registered as an expected off-origin request for this test only, with the
+ * reason: the frame IS the one third party this test means to load.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {Array<object>} hygiene the test's hygiene findings (the `hygiene` fixture)
+ */
+export async function stubGuideFrame(page, hygiene) {
+  hygiene.expect({ kind: 'offorigin', match: /^GET https:\/\/photocast\.online\/guide\// });
+  await page.route(`${GUIDE_ORIGIN}/guide/**`, (route) => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname.endsWith('/guide.js')) {
+      return route.fulfill({ status: 200, contentType: 'application/javascript', body: GUIDE_SCRIPT });
+    }
+    const name = pathname.split('/').pop() || 'index.html';
+    const body = `<!doctype html><html><head><title>Guide stub ${name}</title></head><body>
+<h1>Guide stub ${name}</h1>
+<a id="next" href="map.html">Go to the Map page</a>
+<a id="sect" href="#sec">Jump to the section</a>
+<div style="height:1500px"></div>
+<h2 id="sec">The section</h2>
+<script src="guide.js"></script>
+</body></html>`;
+    return route.fulfill({ status: 200, contentType: 'text/html', body });
+  });
 }
 
 /** The chips a reader can see now (hidden and culled chips stay in the DOM but not in the role tree). */
