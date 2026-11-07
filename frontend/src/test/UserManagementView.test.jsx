@@ -586,6 +586,9 @@ describe('UserManagementView', () => {
 
       await waitFor(() => expect(resetUserPassword).toHaveBeenCalledWith(1));
       expect(await screen.findByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
+      // Copy and Close are 44px tap targets on a phone.
+      expect(screen.getByTestId('copy-temp-password')).toHaveClass('max-[639px]:min-h-11');
+      expect(screen.getByTestId('close-temp-password-modal')).toHaveClass('max-[639px]:min-h-11');
       fireEvent.click(screen.getByTestId('close-temp-password-modal'));
       expect(screen.queryByTestId('temp-password-modal')).not.toBeInTheDocument();
     });

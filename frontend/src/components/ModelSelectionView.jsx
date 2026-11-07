@@ -409,7 +409,7 @@ export default function ModelSelectionView() {
           <span key={tab.key} className="inline-flex items-center gap-1">
             <button
               onClick={() => selectHashTab(tab.key, { replace: true })}
-              className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
+              className={`pb-2 text-sm font-medium transition-colors border-b-2 max-[639px]:min-h-11 ${
                 activeTab === tab.key
                   ? 'text-plex-gold border-plex-gold'
                   : 'text-plex-text-secondary hover:text-plex-text border-transparent'
@@ -537,7 +537,7 @@ export default function ModelSelectionView() {
             </div>
             <button
               onClick={() => handleExtendedThinkingToggle('BRIEFING_BEST_BET')}
-              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+              className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors max-[639px]:min-h-11 ${
                 etOn
                   ? 'bg-violet-600/30 text-violet-300 hover:bg-violet-600/50'
                   : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'

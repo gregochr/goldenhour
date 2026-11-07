@@ -219,7 +219,7 @@ export default function UserManagementView() {
               {tempPassword.password}
             </code>
             <button
-              className="btn-secondary text-xs shrink-0"
+              className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11"
               onClick={() => navigator.clipboard.writeText(tempPassword.password)}
               data-testid="copy-temp-password"
             >
@@ -230,7 +230,7 @@ export default function UserManagementView() {
             The user will be required to change this password on next login.
           </p>
           <button
-            className="btn-primary text-sm self-end"
+            className="btn-primary text-sm self-end max-[639px]:min-h-11"
             onClick={() => setTempPassword(null)}
             data-testid="close-temp-password-modal"
           >

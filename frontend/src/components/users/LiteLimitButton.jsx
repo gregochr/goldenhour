@@ -56,7 +56,7 @@ export default function LiteLimitButton({ onSaved }) {
     <>
       <button
         type="button"
-        className="btn-secondary text-xs shrink-0"
+        className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         data-testid="lite-limit-btn"
@@ -69,7 +69,7 @@ export default function LiteLimitButton({ onSaved }) {
           <SubRegionPolicyCard bare onSaved={handleSaved} />
           <button
             type="button"
-            className="btn-secondary text-sm self-end"
+            className="btn-secondary text-sm self-end max-[639px]:min-h-11"
             onClick={() => setOpen(false)}
             data-testid="lite-limit-close"
           >

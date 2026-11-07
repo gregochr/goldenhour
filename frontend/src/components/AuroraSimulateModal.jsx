@@ -96,7 +96,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                 <button
                   key={p.label}
                   onClick={() => applyPreset(p)}
-                  className="px-2.5 py-1 text-xs border border-indigo-500/50 bg-indigo-900/20 text-indigo-300 rounded hover:bg-indigo-800/40 transition-colors"
+                  className="px-2.5 py-1 text-xs border border-indigo-500/50 bg-indigo-900/20 text-indigo-300 rounded hover:bg-indigo-800/40 transition-colors max-[639px]:min-h-11"
                   data-testid={`simulate-preset-${p.gScale}`}
                 >
                   {p.label}
@@ -117,7 +117,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="0.5"
                   value={form.kp}
                   onChange={(e) => handleChange('kp', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500 max-[639px]:min-h-11"
                   data-testid="simulate-kp"
                 />
               </label>
@@ -132,7 +132,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="1"
                   value={form.ovationProbability}
                   onChange={(e) => handleChange('ovationProbability', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500 max-[639px]:min-h-11"
                   data-testid="simulate-ovation"
                 />
               </label>
@@ -145,7 +145,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="0.5"
                   value={form.bzNanoTesla}
                   onChange={(e) => handleChange('bzNanoTesla', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500 max-[639px]:min-h-11"
                   data-testid="simulate-bz"
                 />
               </label>
@@ -156,7 +156,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                 <select
                   value={form.gScale}
                   onChange={(e) => handleChange('gScale', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500 max-[639px]:min-h-11"
                   data-testid="simulate-gscale"
                 >
                   {G_SCALE_OPTIONS.map((g) => (
@@ -185,7 +185,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
               <button
                 onClick={handleClear}
                 disabled={clearing || submitting}
-                className="px-3 py-1.5 text-xs border border-amber-600/50 bg-amber-900/20 text-amber-300 rounded-lg hover:bg-amber-800/30 transition-colors disabled:opacity-50"
+                className="px-3 py-1.5 text-xs border border-amber-600/50 bg-amber-900/20 text-amber-300 rounded-lg hover:bg-amber-800/30 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
                 data-testid="simulate-clear-btn"
               >
                 {clearing ? 'Clearing…' : 'Clear Simulation'}
@@ -196,7 +196,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
             <button
               onClick={onClose}
               disabled={submitting || clearing}
-              className="px-4 py-1.5 text-sm border border-plex-border text-plex-text-secondary rounded-lg hover:bg-plex-border/30 transition-colors disabled:opacity-50"
+              className="px-4 py-1.5 text-sm border border-plex-border text-plex-text-secondary rounded-lg hover:bg-plex-border/30 transition-colors disabled:opacity-50 max-[639px]:min-h-11"
               data-testid="simulate-cancel-btn"
             >
               Cancel
@@ -204,7 +204,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
             <button
               onClick={handleSimulate}
               disabled={submitting || clearing}
-              className="px-4 py-1.5 text-sm font-medium bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-1.5 text-sm font-medium bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-[639px]:min-h-11"
               data-testid="simulate-submit-btn"
             >
               {submitting ? 'Activating…' : 'Simulate'}

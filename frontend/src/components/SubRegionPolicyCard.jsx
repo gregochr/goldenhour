@@ -131,12 +131,12 @@ export default function SubRegionPolicyCard({ onSaved, bare = false }) {
             value={draft}
             onChange={handleChange}
             disabled={saving}
-            className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
+            className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text focus:outline-hidden focus:ring-1 focus:ring-plex-gold max-[639px]:min-h-11"
           />
         </div>
         <button
           type="button"
-          className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed max-[639px]:min-h-11"
           onClick={handleSave}
           disabled={!changed || saving || preview.state !== 'ready'}
         >
