@@ -79,7 +79,14 @@ function AuroraForecastModal({ onClose, onComplete }) {
     : null;
 
   return (
-    <Modal label="Aurora forecast night selector" onClose={onClose} bare data-testid="aurora-forecast-modal">
+    <Modal
+      label="Aurora forecast night selector"
+      onClose={onClose}
+      // Back cancels, as Cancel does; while a run is in flight Cancel is disabled, so Back is absorbed too.
+      back={running ? 'block' : 'cancel'}
+      bare
+      data-testid="aurora-forecast-modal"
+    >
       <div className="relative w-full max-w-md bg-plex-surface border border-plex-border rounded-xl shadow-2xl z-10">
         {/* Header */}
         <div className="px-5 py-4 border-b border-plex-border">

@@ -6,6 +6,8 @@ import {
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ukDateStrOffset } from '../utils/mapDates.js';
+import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
+import { __resetForTests } from '../utils/dialogHistory.js';
 
 /**
  * Every route into the settings dialog takes down the dialog it would otherwise open over.
@@ -755,5 +757,43 @@ describe('App — deleting the account from the real settings dialog (R5b)', () 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Password is incorrect');
     expect(localStorage.getItem('goldenhour_token')).toBe('test-token');
     expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+  });
+});
+
+describe('App — the Back button and the settings dialog', () => {
+  afterEach(() => uninstallBackBrowser());
+
+  it('boots the dialog-history engine at mount: a marker a previous page load left on this entry is stripped', async () => {
+    __resetForTests();
+    window.history.replaceState({ phLayer: { session: 'an-earlier-page-load', depth: 2 }, keep: 1 }, '');
+
+    renderApp();
+    await screen.findByTestId('wf-heat-strip');
+
+    expect(window.history.state?.phLayer).toBeUndefined();
+    expect(window.history.state?.keep).toBe(1);
+    window.history.replaceState(null, '');
+  });
+
+  it('Back closes Settings, and Settings closed with its own × leaves no entry behind', async () => {
+    const b = installBackBrowser();
+    renderApp();
+    await screen.findByTestId('wf-heat-strip');
+
+    await press(screen.getByRole('button', { name: 'Settings' }));
+    await settingsSettled();
+    await b.settle();
+    expect(b.history.pushState).toHaveBeenCalledTimes(1);
+    await b.back();
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    expect(b.index).toBe(0);
+
+    await press(screen.getByRole('button', { name: 'Settings' }));
+    const dialog = await settingsSettled();
+    await b.settle();
+    await closeSettings(dialog);
+    await b.settle();
+    expect(b.index).toBe(0);
+    expect(b.history.state?.phLayer).toBeUndefined();
   });
 });

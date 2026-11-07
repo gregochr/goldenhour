@@ -1,0 +1,298 @@
+import {
+  test, expect, loginAndWaitForForecast, openTab, tokenOf, stubGuideFrame,
+} from './fixture.js';
+
+/**
+ * The browser Back button closes the top dialog (docs/engineering/back-closes-dialogs-plan.md, PR 2a: Settings,
+ * the guide, the Ask sheet, a confirm dialog over an Operations panel). The Plan-shell dialogs are PR 2b.
+ *
+ * <p>The rules every test here follows:
+ *  - **Settle first.** Playwright's `goBack` is index-based, so a Back issued while the store still has a
+ *    traversal or a reconcile outstanding double-steps. Before every `goBack` / `goForward` / reload the spec
+ *    waits for `<html data-back-depth>` to read the number it expects (it reads `busy` while anything is
+ *    outstanding).
+ *  - **The property is "no dead press", not "stays in the app".** A baseline `navigation.currentEntry.index` is
+ *    taken before anything opens; closing by the x, Escape or Back must return exactly to it, with no marker
+ *    left on the entry. `goBack` from the baseline would leave the origin, and that is correct.
+ *  - **Nothing here writes server state** and no spec presses a confirm: the Operations case only cancels.
+ *
+ * <p>Chromium's `goBack` ignores skippable-entry rules and always grants user activation, so the activation
+ * gate and the history-manipulation intervention are the manual device pass in the plan (a release blocker).
+ */
+
+/** Waits for the store to settle at `depth` (a closed page is 0), the signal that a traversal is safe. */
+async function settled(page, depth) {
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-back-depth')), {
+      message: `data-back-depth settles at ${depth}`,
+    })
+    .toBe(String(depth));
+}
+
+/** The Navigation API's index of the entry the page is on: the baseline for "no dead press". */
+function entryIndex(page) {
+  return page.evaluate(() => window.navigation.currentEntry.index);
+}
+
+/** Our marker on the current history entry, or null. */
+function marker(page) {
+  return page.evaluate(() => window.history.state?.phLayer ?? null);
+}
+
+/** Asserts the page sits on `index` with no marker, once the store has settled at depth 0. */
+async function expectBaseline(page, index) {
+  await settled(page, 0);
+  expect(await entryIndex(page), 'back on the baseline entry').toBe(index);
+  expect(await marker(page), 'no marker left behind').toBeNull();
+}
+
+const settingsDialog = (page) => page.getByTestId('settings-modal');
+const cog = (page) => page.getByTestId('window-first-settings');
+
+/** Opens Settings from the cog and waits for the dialog and the store. */
+async function openSettings(page, depth = 1) {
+  await cog(page).click();
+  await expect(settingsDialog(page)).toBeVisible();
+  await expect(page.getByTestId('settings-body')).toBeVisible();
+  await settled(page, depth);
+}
+
+test.describe('Back closes the top dialog: Settings', () => {
+  test('goBack closes Settings and focus returns to the cog', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    const base = await entryIndex(page);
+    const url = page.url();
+    await openSettings(page);
+    expect(await entryIndex(page)).toBe(base + 1);
+    expect((await marker(page))?.depth).toBe(1);
+    expect(page.url(), 'the URL never changes').toBe(url);
+
+    await page.goBack();
+
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await expect(cog(page)).toBeFocused();
+    await expectBaseline(page, base);
+    expect(page.url()).toBe(url);
+  });
+
+  test('closing with the x or Escape leaves no dead press: the entry and the marker go with it', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    const base = await entryIndex(page);
+
+    await openSettings(page);
+    await settingsDialog(page).getByRole('button', { name: 'Close' }).click();
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    await openSettings(page);
+    await page.keyboard.press('Escape');
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+  });
+
+  test('goForward after a Back reopens nothing', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    const base = await entryIndex(page);
+    await openSettings(page);
+    await page.goBack();
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await settled(page, 0);
+
+    await page.goForward();
+
+    // The stale entry is bounced straight back: nothing reopens and the page ends on the baseline.
+    await expectBaseline(page, base);
+    await expect(settingsDialog(page)).toHaveCount(0);
+  });
+
+  test('reload with Settings open: nothing reopens, the marker is stripped, and there is no page error', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    await openSettings(page);
+
+    await page.reload();
+
+    await expect(page.getByTestId('window-first-shell')).toBeVisible();
+    await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await expect.poll(() => marker(page)).toBeNull();
+    // A Back from here is a harmless dead press (the entry the reload sits on); the page stays usable.
+    await expect(cog(page)).toBeVisible();
+  });
+});
+
+test.describe('Back closes the top dialog: a confirm over an Operations panel', () => {
+  test('goBack cancels the confirm and the panel stays; the next goBack closes the panel', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    const users = await page.request.get('/api/users', { headers: { Authorization: `Bearer ${await tokenOf(page)}` } });
+    expect(users.status()).toBe(200);
+    const admin = (await users.json()).find((user) => user.username === 'admin');
+    expect(admin, 'the seeded admin').toBeTruthy();
+
+    await openTab(page, 'operations');
+    // The Users list, then the panel: each hash write is its own history entry (useHashSelection), so Back
+    // already steps out of the panel to the list. (From a non-manage hash it would not: that is ignored.)
+    await page.getByTestId('manage-tab-users').click();
+    await expect(page.getByTestId('user-list')).toBeVisible();
+    await page.evaluate((id) => { window.location.hash = `manage/users/${id}`; }, admin.id);
+    const panel = page.getByTestId('user-panel');
+    await expect(panel).toBeVisible();
+    const base = await entryIndex(page);
+
+    await page.getByTestId(`reset-password-${admin.id}`).click();
+    const confirm = page.getByTestId('confirm-dialog');
+    await expect(confirm).toBeVisible();
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    await page.goBack();
+
+    // Back cancelled the confirm (and never confirmed it: that would reset the shared admin's password).
+    await expect(confirm).toHaveCount(0);
+    await expect(panel).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`#manage/users/${admin.id}$`));
+    await expectBaseline(page, base);
+
+    await page.goBack();
+
+    await expect(panel).toHaveCount(0);
+    await expect(page).not.toHaveURL(new RegExp(`#manage/users/${admin.id}`));
+  });
+});
+
+test.describe('Back closes the top dialog: the guide', () => {
+  test('goBack closes the guide over Settings after an in-guide link; the x leaves no dead press', async ({ page, hygiene }) => {
+    await stubGuideFrame(page, hygiene);
+    await loginAndWaitForForecast(page);
+    const base = await entryIndex(page);
+    await openSettings(page);
+
+    /** Opens the guide over Settings and follows a link inside it (which replaces, never adds, an entry). */
+    const openGuideAndFollowALink = async () => {
+      await page.getByTestId('settings-guide').click();
+      const guide = page.getByTestId('guide-dialog');
+      await expect(guide).toBeVisible();
+      await settled(page, 2);
+      await expect(page.getByTestId('guide-title')).toHaveText('Settings');
+      const frame = page.frameLocator('[data-testid="guide-frame"]');
+      await frame.locator('#next').click();
+      await expect(page.getByTestId('guide-title')).toHaveText('Map');
+      await settled(page, 2);
+      expect(await entryIndex(page), 'an in-guide link adds no history entry').toBe(base + 2);
+      return guide;
+    };
+
+    const guide = await openGuideAndFollowALink();
+    await page.goBack();
+    await expect(guide).toHaveCount(0);
+    await expect(settingsDialog(page)).toBeVisible();
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    // Close with the x instead: the guide's entry goes with it, so the next Back closes Settings and nothing else.
+    await openGuideAndFollowALink();
+    await page.getByTestId('guide-close').click();
+    await expect(page.getByTestId('guide-dialog')).toHaveCount(0);
+    await settled(page, 1);
+    expect(await entryIndex(page), 'no dead press after the x').toBe(base + 1);
+    expect((await marker(page))?.depth).toBe(1);
+
+    await page.goBack();
+    await expect(settingsDialog(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+  });
+});
+
+test.describe('Back closes the top dialog: phone sheets', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  const askSheet = (page) => page.getByRole('dialog', { name: 'Ask PhotoCast' });
+  const guideSheet = (page) => page.getByRole('dialog', { name: 'PhotoCast guide' });
+
+  test('goBack closes the Ask sheet, and the guide sheet over it first', async ({ page, hygiene }) => {
+    await stubGuideFrame(page, hygiene);
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    const base = await entryIndex(page);
+
+    await page.getByTestId('ask-bar').click();
+    await expect(askSheet(page)).toBeVisible();
+    await settled(page, 1);
+    await page.goBack();
+    await expect(askSheet(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    await page.getByTestId('ask-bar').click();
+    await expect(askSheet(page)).toBeVisible();
+    await settled(page, 1);
+    await page.getByTestId('ask-sheet-guide').click();
+    await expect(guideSheet(page)).toBeVisible();
+    await settled(page, 2);
+
+    await page.goBack();
+    await expect(guideSheet(page)).toHaveCount(0);
+    await expect(askSheet(page)).toBeVisible();
+    await settled(page, 1);
+
+    await page.goBack();
+    await expect(askSheet(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+  });
+
+  test('closing the Ask sheet with its x or Escape leaves no dead press', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    const base = await entryIndex(page);
+
+    await page.getByTestId('ask-bar').click();
+    await expect(askSheet(page)).toBeVisible();
+    await settled(page, 1);
+    await askSheet(page).getByTestId('bottom-sheet-close').click();
+    await expect(askSheet(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    await page.getByTestId('ask-bar').click();
+    await expect(askSheet(page)).toBeVisible();
+    await settled(page, 1);
+    await page.keyboard.press('Escape');
+    await expect(askSheet(page)).toHaveCount(0);
+    await expectBaseline(page, base);
+  });
+
+  test('the page behind keeps its scroll position after closing the Ask sheet with the x, Escape and goBack', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+    const room = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(room, 'the Plan page scrolls at 390 px').toBeGreaterThan(120);
+    const target = Math.min(240, room);
+    await page.evaluate((y) => window.scrollTo(0, y), target);
+    const scrollY = () => page.evaluate(() => Math.round(window.scrollY));
+    await expect.poll(scrollY).toBe(target);
+
+    // The bar is fixed to the viewport, so opening the sheet scrolls nothing; every close below traverses
+    // history, and the browser must not restore the base entry's scroll over the reader's.
+    const open = async () => {
+      await page.getByTestId('ask-bar').click();
+      await expect(askSheet(page)).toBeVisible();
+      await settled(page, 1);
+      expect(await scrollY(), 'on opening').toBe(target);
+    };
+    await open();
+    await askSheet(page).getByTestId('bottom-sheet-close').click();
+    await expect(askSheet(page)).toHaveCount(0);
+    await settled(page, 0);
+    expect(await scrollY(), 'after the x').toBe(target);
+
+    await open();
+    await page.keyboard.press('Escape');
+    await expect(askSheet(page)).toHaveCount(0);
+    await settled(page, 0);
+    expect(await scrollY(), 'after Escape').toBe(target);
+
+    await open();
+    await page.goBack();
+    await expect(askSheet(page)).toHaveCount(0);
+    await settled(page, 0);
+    expect(await scrollY(), 'after goBack').toBe(target);
+  });
+});

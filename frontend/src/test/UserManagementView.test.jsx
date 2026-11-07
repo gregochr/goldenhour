@@ -8,6 +8,7 @@ import { getSubRegionPolicy, saveSubRegionPolicy } from '../api/subRegionPolicyA
 import UserManagementView from '../components/UserManagementView.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { useIsSplitLayout } from '../hooks/useIsSplitLayout.js';
+import { installBackBrowser, uninstallBackBrowser } from './backTestKit.js';
 
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn() }));
 vi.mock('../hooks/useIsSplitLayout.js', () => ({ useIsSplitLayout: vi.fn() }));
@@ -586,6 +587,35 @@ describe('UserManagementView', () => {
       expect(await screen.findByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
       fireEvent.click(screen.getByTestId('close-temp-password-modal'));
       expect(screen.queryByTestId('temp-password-modal')).not.toBeInTheDocument();
+    });
+
+    it('Back cancels the reset confirmation and absorbs Back on the temporary password', async () => {
+      const browser = installBackBrowser();
+      try {
+        resetUserPassword.mockResolvedValue({ temporaryPassword: 'Temp-1234' });
+        await renderList();
+        await openReader('anna_r');
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Reset' }));
+        await confirmDialog("Reset anna_r's password?");
+        await browser.settle();
+        await browser.back();
+        expect(screen.queryByRole('dialog', { name: "Reset anna_r's password?" })).not.toBeInTheDocument();
+        expect(resetUserPassword).not.toHaveBeenCalled();
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Reset' }));
+        const dialog = await confirmDialog("Reset anna_r's password?");
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Reset password' }));
+        expect(await screen.findByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
+        await browser.settle();
+
+        await browser.back();
+        // Closing would lose a password that cannot be shown again: Back is absorbed, the entry re-pushed.
+        expect(screen.getByTestId('temp-password-modal')).toBeInTheDocument();
+        expect(screen.getByTestId('temp-password-value')).toHaveTextContent('Temp-1234');
+      } finally {
+        uninstallBackBrowser();
+      }
     });
 
     it('Disable: asks with the handoff copy, then disables and refetches', async () => {

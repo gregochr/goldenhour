@@ -98,7 +98,7 @@ Search them with `grep -rn '<ClassName or term>' docs/engineering/reference/` ra
 - **No marker clustering, anywhere, at any scale.** If density ever bites, the answer is canvas rendering.
 - **Simulations never reach user surfaces** (aurora and hot-topic simulation are gated by `isSimulated()` / `simulated` columns).
 - Lite ratings outside the reader's sub-region picks are stripped and marked `gated` at the controller edge (`LitePickShaper`); never on the client. See `sub-regions-plan.md`.
-- **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS.
+- **Dialogs**: at most two stacked; every route out of the Plan tab closes its dialogs via `selectTab`; all Map Escape/outside-press rules read `utils/mapForeignModal.js`; `.wf-map-tab` is a selector (`MAP_PANE_SELECTOR`), not just CSS. **Back**: a layer Escape closes takes `back="close"`; history entries go only through `utils/dialogHistory.js`; every `replaceState` copies `history.state`; never register a `#manage` panel (see `plan-tab.md`, 'Back').
 - **Phone-only work stays phone-only** (`hooks/useIsMobile.js`, `(max-width: 639px)`); desktop and tablet must be provably unchanged.
 - **Which model runs a run type is the database `model_selection` row**, not the code. Production's Batch Near-Term runs on Sonnet 5.5 and Batch Far-Term on Haiku 4.5 (since 2026-11-02; Haiku 5.5 under-rated a clear-horizon high-canvas morning in the Sky Eval).
 - **Ask PhotoCast is off by default** (`photocast.ask.enabled`). `stub: true` under `prod` fails startup; turning `stub` off locally bills the real Anthropic key.

@@ -37,6 +37,8 @@ import { takeLinkToken } from './utils/oneTimeLinkToken.js';
 import { takeInviteToken } from './utils/inviteLinkToken.js';
 import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
 import { loadSettingsModal, warmSettingsModal } from './utils/settingsModalChunk.js';
+import SettingsFallback from './components/SettingsFallback.jsx';
+import { bootDialogHistory } from './utils/dialogHistory.js';
 
 // Code-split the heavy subtrees so they stay out of the initial bundle: the Leaflet map stack and
 // the admin-only Manage view. They load on demand behind the
@@ -65,26 +67,6 @@ const ResetPasswordPage = lazy(() => authPages().then((m) => ({ default: m.Reset
 // `settingsOpen` has already told the shell to take its own dialogs down, so the dialog rules hold
 // whether or not the chunk has arrived.
 const UserSettingsModal = lazy(loadSettingsModal);
-
-/**
- * Stand-in for the settings dialog while its chunk loads. It is a dialog on purpose: the shell's
- * foreign-dialog checks and the Map's Escape and outside-press rules all look for
- * `[role="dialog"][aria-modal="true"]`, so a bare null fallback would leave a window in which a Plan
- * popup or search could open over settings (a third stacked modal), Ask would not refuse, and the Map
- * would close its callout. It must NOT take focus: the real dialog's `useDialogFocus` records the
- * opener when it mounts.
- */
-function SettingsFallback() {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Settings"
-      data-testid="settings-fallback"
-      className="fixed inset-0 z-50 app-scrim"
-    />
-  );
-}
 
 /** Page-sized stand-in for an auth page while its chunk loads: same full-height box, no content. */
 function AuthFallback() {
@@ -858,6 +840,11 @@ function AppInner() {
    * dialogs down in the same commit.
    */
   const settingsOpen = Boolean(showSettings || settingsFocus);
+  const closeSettings = () => {
+    setShowSettings(false);
+    setSettingsFocus(null);
+    setSettingsReturnFocus(null);
+  };
   return (
     // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
     // rebuilt after the `calc(100dvh - …)` chain above proved to be chasing terms rather than
@@ -1128,21 +1115,13 @@ function AppInner() {
         <ChunkErrorBoundary
           variant="overlay"
           label="Settings"
-          onClose={() => {
-            setShowSettings(false);
-            setSettingsFocus(null);
-            setSettingsReturnFocus(null);
-          }}
+          onClose={closeSettings}
         >
-        <Suspense fallback={<SettingsFallback />}>
+        <Suspense fallback={<SettingsFallback onBack={closeSettings} />}>
         <UserSettingsModal
           focusField={settingsFocus}
           restoreFocusFallback={settingsReturnFocus}
-          onClose={() => {
-            setShowSettings(false);
-            setSettingsFocus(null);
-            setSettingsReturnFocus(null);
-          }}
+          onClose={closeSettings}
           // After mount the page hears of changes to the reader's home and colour only from the
           // dialog's answers — its own read on opening, a saved home, a recalculation, a saved
           // colour — and nothing moves on a close. Each save reports from its own continuation,
@@ -1179,6 +1158,9 @@ function AppInner() {
  * Root application component. Wraps the app in the authentication provider.
  */
 export default function App() {
+  // Strips a Back marker a previous page load left on this entry and heals `scrollRestoration`, before
+  // any dialog can open (see `utils/dialogHistory.js`; the registration boots it lazily too).
+  useEffect(() => { bootDialogHistory(); }, []);
   return (
     <AuthProvider>
       <AuthGate />

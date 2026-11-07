@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import BottomSheet from '../BottomSheet.jsx';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
+import useBackLayer from '../../hooks/useBackLayer.js';
 import useStickyViewportFill from '../../hooks/useStickyViewportFill.js';
 import {
   GUIDE_LABEL, GUIDE_ORIGIN, GUIDE_PAGES, guideUrl, pageIdFromMessage,
@@ -208,6 +209,8 @@ function DialogGuide({
   const closeRef = useRef(null);
   const dialogRef = useDialogFocus(true, { restoreFallback: returnFocus });
   useFocusClose(closeRef, focusKey);
+  // Raw markup, so the layer is registered here rather than through `Modal`'s `back`.
+  useBackLayer({ open: true, onBack: onClose });
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
@@ -324,6 +327,7 @@ export default function GuidePanel({
       onClose={onClose}
       size="tall"
       closeOnEscape
+      back="close"
       flush
       label={GUIDE_LABEL}
       restoreFallback={returnFocus ?? null}

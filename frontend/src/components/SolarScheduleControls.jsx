@@ -116,6 +116,8 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
   const [offset, setOffset] = useState(String(previewJob?.offsetMinutes ?? ''));
   const [error, setError] = useState(null);
   const sending = useRef(false);
+  // The ref is the double-press guard; this mirror lets the dialog's Back mode follow it (a render reads it).
+  const [busy, setBusy] = useState(false);
   // "Now" is read once, when the dialog opens: the after-time is quoted against that moment.
   const [openedAt] = useState(() => Date.now());
 
@@ -151,6 +153,7 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
     if (sending.current) return;
     if (!check.ok) return;
     sending.current = true;
+    setBusy(true);
     setError(null);
     try {
       await switchScheduleType(
@@ -163,6 +166,7 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
     } catch (err) {
       setError(errorMessage(err, `Failed to switch ${job.jobKey}.`));
       sending.current = false;
+      setBusy(false);
     }
   };
 
@@ -174,6 +178,7 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
       confirmLabel={toCron ? 'Switch to fixed time' : 'Switch to sun-relative'}
       onConfirm={handleConfirm}
       onCancel={onCancel}
+      busy={busy}
     >
       {!toCron && (
         <RuleFields

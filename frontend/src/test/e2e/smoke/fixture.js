@@ -256,6 +256,38 @@ export async function loginAndWaitForForecast(page) {
   await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
 }
 
+/** The guide site's origin, which the app frames. Stubbed by {@link stubGuideFrame}: the suite never reaches it. */
+const GUIDE_ORIGIN = 'https://photocast.online';
+
+/**
+ * Replaces the in-app guide's iframe with a local stub, so a spec can drive the guide with no network call.
+ *
+ * <p>The stub page announces itself with the same `photocast-guide` message the real `landing/guide/guide.js`
+ * posts, so the panel tracks it (the header names the page), and carries one link that navigates with
+ * `location.replace`, as the embed-mode guide's links do (a plain navigation would add an entry to the joint
+ * session history, which the Back store cannot see). The guide's host is registered as an expected off-origin
+ * request for this test only, with the reason: the frame IS the one third party this test means to load.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {Array<object>} hygiene the test's hygiene findings (the `hygiene` fixture)
+ */
+export async function stubGuideFrame(page, hygiene) {
+  hygiene.expect({ kind: 'offorigin', match: /^GET https:\/\/photocast\.online\/guide\// });
+  await page.route(`${GUIDE_ORIGIN}/guide/**`, (route) => {
+    const body = `<!doctype html><html><head><title>Guide stub</title></head><body>
+<h1>Guide stub</h1><a id="next" href="#">Go to the Map page</a>
+<script>
+  var last = location.pathname.split('/').pop();
+  parent.postMessage({ type: 'photocast-guide', page: last, hash: '' }, '*');
+  document.getElementById('next').addEventListener('click', function (e) {
+    e.preventDefault();
+    location.replace('/guide/map.html?embed=1');
+  });
+</script></body></html>`;
+    return route.fulfill({ status: 200, contentType: 'text/html', body });
+  });
+}
+
 /** The chips a reader can see now (hidden and culled chips stay in the DOM but not in the role tree). */
 export function visibleChips(page) {
   return page.getByRole('button', { name: CHIP_NAME });

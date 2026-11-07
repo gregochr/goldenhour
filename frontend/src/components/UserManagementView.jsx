@@ -199,7 +199,13 @@ export default function UserManagementView() {
       )}
 
       {tempPassword && (
-        <Modal label="Temporary password" onClose={() => setTempPassword(null)} data-testid="temp-password-modal">
+        <Modal
+          label="Temporary password"
+          onClose={() => setTempPassword(null)}
+          // Back is absorbed: closing would lose a password that cannot be shown again.
+          back="block"
+          data-testid="temp-password-modal"
+        >
           <p className="text-sm font-semibold text-plex-text">
             Temporary password for <span className="text-plex-gold">{tempPassword.username}</span>
           </p>
