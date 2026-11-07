@@ -176,7 +176,10 @@ function buildChip(type, date, allRecords, ctx) {
   // spill onto the next morning never lends its glance or routes to another night's topic merged beside it.
   const covering = allRecords.filter(({ topic }) => laneCoveredDates(topic).includes(date));
   const coversDay = covering.length > 0;
-  const records = coversDay ? covering : allRecords;
+  // An event that BEGAN before this date (a night topic read on its next morning) has no covering record: it is
+  // built from the records whose topic covers the PREVIOUS date, so the strip can still show it (`buildGlanceLanes`).
+  const began = coversDay ? [] : allRecords.filter(({ topic }) => laneCoveredDates(topic).includes(shiftDateStr(date, -1)));
+  const records = coversDay ? covering : (began.length > 0 ? began : allRecords);
   const first = records[0].topic;
   const style = topicStyle(type, first.label);
   const glanceRecord = records.find((r) => r.topic?.glance) ?? null;
@@ -326,10 +329,16 @@ export function buildGlanceLanes(days, columns, hotTopics) {
   }
 
   const runs = [];
+  const liveDates = new Set(columns.filter((column) => column.live).map((column) => column.date));
   let open = new Map();
   columns.forEach((column, index) => {
     const next = new Map();
-    const chips = column.live ? (chipsByDate.get(column.date) ?? []).filter((chip) => chip.coversDay) : [];
+    // A chip that does not cover its day (a night topic on its next morning) is kept ONLY when the previous date is
+    // not a live column: the event began before what is shown, and tonight is still a live opportunity.
+    const beganOffScreen = !liveDates.has(shiftDateStr(column.date, -1));
+    const chips = column.live
+      ? (chipsByDate.get(column.date) ?? []).filter((chip) => chip.coversDay || beganOffScreen)
+      : [];
     for (const chip of chips) {
       const item = { chip, date: column.date };
       const run = open.get(chip.eventId);

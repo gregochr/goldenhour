@@ -583,6 +583,31 @@ describe('buildGlanceLanes — the four days as lanes (days-ahead-lanes-plan.md 
     expect(lanes[0]).toMatchObject({ type: 'AURORA', startCol: 1, endCol: 1, dates: [TODAY], endsAfter: false });
   });
 
+  it('keeps tonight\'s aurora as a lane under tomorrow\'s column when the strip starts tomorrow', () => {
+    const [lane, ...rest] = lanesOf([wx('AURORA', TODAY, 'NIGHT')], cols([SUN, MON, TUE]));
+    expect(rest).toEqual([]);
+    expect(lane).toMatchObject({
+      type: 'AURORA', startCol: 1, endCol: 1, startsBefore: true, endsAfter: false, detail: 'dawn · 9/10',
+    });
+  });
+
+  it('builds that kept lane from the night topic, not a different same-type topic', () => {
+    const tonight = wx('AURORA', TODAY, 'NIGHT', { glance: glance({ weather: true, value: 'tonight' }) });
+    const next = wx('AURORA', SUN, 'NIGHT', { glance: glance({ weather: true, value: 'next' }) });
+    const lanes = lanesOf([tonight, next], cols([SUN, MON, TUE]));
+    // Sunday's column holds the covering chip (next night's); the morning half of tonight's is dropped there.
+    expect(lanes.map((l) => [l.startCol, l.detail])).toEqual([[1, 'next']]);
+  });
+
+  it('keeps a night topic\'s morning after a mid-strip away gap, and drops it in a normal strip', () => {
+    // Sunday (the dusk) is an away column: Monday's morning is where the night shows up, as a lane that began earlier.
+    const gap = lanesOf([wx('AURORA', SUN, 'NIGHT')], cols(ALL, [SUN]));
+    expect(gap.map((l) => [l.startCol, l.endCol, l.startsBefore])).toEqual([[3, 3, true]]);
+    // With a normal strip the same aurora is one column under its own night and nothing under the morning.
+    const normal = lanesOf([wx('AURORA', SUN, 'NIGHT')]);
+    expect(normal.map((l) => [l.startCol, l.endCol, l.startsBefore])).toEqual([[2, 2, false]]);
+  });
+
   it('does not say an NLC dated on the last day continues after', () => {
     const [lane] = lanesOf([wx('NLC', TUE, 'NIGHT')]);
     expect(lane).toMatchObject({ startCol: 4, endCol: 4, endsAfter: false });

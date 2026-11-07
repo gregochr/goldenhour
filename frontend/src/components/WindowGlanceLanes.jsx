@@ -160,7 +160,7 @@ export default function WindowGlanceLanes({ lanes, date = null, onTap }) {
           <li
             key={lane.key}
             className="wf-lane-item"
-            style={phone ? undefined : { gridColumn: `${lane.startCol} / ${lane.endCol + 1}`, gridRow: lane.row }}
+            style={phone ? undefined : { '--ls': lane.startCol, '--le': lane.endCol + 1, '--lr': lane.row }}
           >
             <button
               type="button"

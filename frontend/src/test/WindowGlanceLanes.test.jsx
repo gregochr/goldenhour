@@ -62,8 +62,8 @@ describe('WindowGlanceLanes — the grid (desktop and tablet)', () => {
     expect(list.tagName).toBe('UL');
     const items = within(list).getAllByRole('listitem');
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveStyle({ gridColumn: '2 / 5', gridRow: '1' });
-    expect(items[1]).toHaveStyle({ gridColumn: '2 / 3', gridRow: '2' });
+    expect(items[0]).toHaveStyle({ '--ls': '2', '--le': '5', '--lr': '1' });
+    expect(items[1]).toHaveStyle({ '--ls': '2', '--le': '3', '--lr': '2' });
     items.forEach((item) => expect(within(item).getAllByRole('button')).toHaveLength(1));
   });
 

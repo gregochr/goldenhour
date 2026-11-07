@@ -1527,9 +1527,9 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       .toEqual(['KING_TIDE', 'AURORA']);
   });
 
-  it('puts a NIGHT topic under the night it falls and NOT under the next morning (the lanes\' rule)', async () => {
-    // The aurora is dated today and runs through the night, but a lane covers only the dusk date(s): the pills
-    // showed it on tomorrow's column too, the lanes do not. This matrix starts tomorrow, so nothing is drawn.
+  it('keeps tonight\'s aurora as a lane under tomorrow\'s column when the strip starts tomorrow', async () => {
+    // The aurora is dated today; a lane covers only the dusk date, but with no live column for today the night is
+    // still a live opportunity, so it shows under tomorrow's column and says it began earlier.
     await renderStrip({
       cards: [stripCard({
         key: '2026-08-05:SUNRISE',
@@ -1544,8 +1544,9 @@ describe('WindowFirstHeatStrip — topics on the card', () => {
       hotTopics: [AURORA_TOPIC],
     });
     expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
-    expect(screen.queryByTestId('wf-glance-lane')).toBeNull();
-    expect(screen.queryByTestId('wf-glance-lanes')).toBeNull();
+    const lane = screen.getByTestId('wf-glance-lane');
+    expect(lane).toHaveAttribute('data-topic', 'AURORA');
+    expect(lane).toHaveAttribute('data-starts-before', 'true');
   });
 
   it('reserves the topics row even on a card with no topics', async () => {
@@ -4638,8 +4639,8 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     });
     const items = within(screen.getByTestId('wf-glance-lanes')).getAllByRole('listitem');
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveStyle({ gridColumn: '1 / 4', gridRow: '1' });
-    expect(items[1]).toHaveStyle({ gridColumn: '2 / 3', gridRow: '2' });
+    expect(items[0]).toHaveStyle({ '--ls': '1', '--le': '4', '--lr': '1' });
+    expect(items[1]).toHaveStyle({ '--ls': '2', '--le': '3', '--lr': '2' });
     const lane = within(items[0]).getByTestId('wf-glance-lane');
     expect(lane.style.getPropertyValue('--c')).toBe('#6FA8B0');
     expect(items[0].style.getPropertyValue('--c')).toBe('');
@@ -4713,7 +4714,7 @@ describe('WindowFirstHeatStrip — the days-ahead lanes (days-ahead-lanes-plan.m
     });
     const lanes = screen.getAllByTestId('wf-glance-lane');
     expect(lanes).toHaveLength(1);
-    expect(lanes[0].closest('li')).toHaveStyle({ gridColumn: '3 / 4' });
+    expect(lanes[0].closest('li')).toHaveStyle({ '--ls': '3', '--le': '4' });
     // Wednesday's day of the run is served but not drawn, so the Thursday lane says it began earlier.
     expect(lanes[0]).toHaveAttribute('data-starts-before', 'true');
   });

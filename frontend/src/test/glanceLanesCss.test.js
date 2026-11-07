@@ -121,6 +121,13 @@ describe('the days-ahead lanes stylesheet', () => {
     expect(body).toContain('border-bottom-left-radius: 0;');
   });
 
+  it('places a lane from its own --ls / --le / --lr custom properties, in the desktop rows mode only', () => {
+    const body = ruleBody('.wf-hstrip.wf-hstrip-rows .wf-lanes > .wf-lane-item');
+    expect(body).toContain('grid-column: var(--ls) / var(--le);');
+    expect(body).toContain('grid-row: var(--lr);');
+    expect(outsidePhone).not.toContain('.wf-lanecell .wf-lane-item');
+  });
+
   it('keeps the hover and focus border on the muted ink and the focus ring gold, on the button itself', () => {
     expect(ruleBody('.wf-lane:hover::before,\n.wf-lane:focus-visible::before'))
       .toContain('border-color: var(--color-plex-text-muted);');

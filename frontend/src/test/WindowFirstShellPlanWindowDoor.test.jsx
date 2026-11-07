@@ -313,7 +313,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
       ],
     });
     const pill = await screen.findByTestId('wf-glance-lane');
-    expect(pill.closest('li')).toHaveStyle({ gridColumn: '1 / 2' });
+    expect(pill.closest('li')).toHaveStyle({ '--ls': '1', '--le': '2' });
     const days = screen.getAllByTestId('wf-heat-day');
     expect(days[0]).toHaveTextContent('Today31');
     expect(days[1]).toHaveTextContent('Fri1');

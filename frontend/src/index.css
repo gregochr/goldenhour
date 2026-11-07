@@ -1782,6 +1782,12 @@
 .wf-lane-item {
   min-width: 0;
 }
+/* Desktop / tablet placement from the item's own custom properties (`--ls` start track, `--le` end line, `--lr` row),
+   set inline by `WindowGlanceLanes`; the phone's items set none and flow in their cell. */
+.wf-hstrip.wf-hstrip-rows .wf-lanes > .wf-lane-item {
+  grid-column: var(--ls) / var(--le);
+  grid-row: var(--lr);
+}
 .wf-lane {
   /* ⚠️ The fill, the border and the ends-after fade live on `::before` (below), never on the button: a `mask-image`
      on the button would also fade the name, the detail and the focus ring. `isolation` keeps that layer's
