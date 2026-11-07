@@ -284,8 +284,11 @@ describe('the aurora banner stylesheet', () => {
       const actions = ruleBody('.wf-aurora-actions');
       expect(actions).not.toBeNull();
       expect(declares(actions, 'align-self', 'flex-start')).toBe(true);
-      // The wrapper takes the dismiss's old corner offset; the two buttons inside carry none of their own.
-      expect(declares(actions, 'margin', '-4px -8px 0 0')).toBe(true);
+      // The wrapper puts the dismiss 8px from the card's right edge (as on the strip) and 28px down; the two
+      // buttons inside carry no margin of their own. The three controls centre on one line, 14px apart.
+      expect(declares(actions, 'margin', '-5px -6px 0 0')).toBe(true);
+      expect(declares(actions, 'align-items', 'center')).toBe(true);
+      expect(declares(actions, 'gap', '14px')).toBe(true);
       expect(declares(ruleBody('.wf-aurora-actions .wf-aurora-x'), 'margin', '0')).toBe(true);
       expect(declares(ruleBody('.wf-aurora-actions .wf-aurora-tog'), 'margin', '0')).toBe(true);
     });

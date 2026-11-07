@@ -86,7 +86,7 @@ describe('AuroraBanner collapse (640px and up)', () => {
       expect(toggle()).toHaveAttribute('aria-expanded', 'false');
     });
 
-    it('reads "Open" with an aria-hidden ▾ when collapsed, and just ▴ when expanded', () => {
+    it('reads "Open ▾" when collapsed and "Close ▴" when expanded, each arrow aria-hidden', () => {
       mountBanner(MODERATE);
       expect(toggle()).toHaveTextContent('Open ▾');
       expect(within(toggle()).getByText('Open')).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe('AuroraBanner collapse (640px and up)', () => {
       expect(toggle()).toHaveAccessibleName('Show aurora details');
 
       fireEvent.click(toggle());
-      expect(toggle()).toHaveTextContent(/^▴$/);
+      expect(toggle()).toHaveTextContent('Close ▴');
       expect(within(toggle()).getByText('▴')).toHaveAttribute('aria-hidden', 'true');
       expect(within(toggle()).queryByText('Open')).not.toBeInTheDocument();
       expect(toggle()).toHaveAccessibleName('Hide aurora details');
