@@ -1159,7 +1159,7 @@ export default function MapCallout({
                 drops a whitespace-only line between two tags, so it has to be an explicit
                 expression. (A flex `gap` would not reach the name; a `::before` WOULD — generated
                 content is in the accessible name, a bare-space `content` included. This comment
-                used to say neither could. See `WindowGlanceDayTopics`'s class doc.) */}
+                used to say neither could. See `WindowGlanceLanes`'s class doc.) */}
             {' '}
             <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>

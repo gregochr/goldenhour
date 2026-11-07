@@ -25,7 +25,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
-import { buildFourDayTiles, glanceTopicsByColumn } from '../utils/fourDayTiles.js';
+import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
 import {
   buildSpread, formatSpreadCount, noRouteClause, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
   spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, stoodSpreadTitle,
@@ -39,7 +39,7 @@ import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
 import { stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
-import WindowGlanceDayTopics, { GlanceTopicDoor, GlanceTopicKey } from './WindowGlanceDayTopics.jsx';
+import WindowGlanceLanes from './WindowGlanceLanes.jsx';
 import ProUpsellDoor, {
   BEST_BETS_UPSELL_BODY, BEST_BETS_UPSELL_HEADING, BEST_BETS_UPSELL_LABEL,
 } from './shared/ProUpsell.jsx';
@@ -116,10 +116,6 @@ const PICKS_QUALIFIER = Object.freeze({ text: 'your sub-regions', spoken: 'in yo
 
 /** The dashed outline's width on a thumbnail, in CSS px (handoff task 6: 1px where the Map's is heavier). */
 const THUMB_OUTLINE_WIDTH = 1;
-
-/** An unhandled door press: the strip is mounted without a Coming up route (tests, a lone render). */
-const noop = () => {};
-
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
 const GLANCE_HOURS = GLANCE_MINUTES / 60;
@@ -841,13 +837,14 @@ export default function WindowFirstHeatStrip({
   const reserveScope = useMemo(() => cards.some((card) => card.verdictScope != null), [cards]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
-  // The day header's topic pills (glance-topic-strip-plan.md): the licensed `buildFourDayTiles` model over the
-  // SAME `hotTopics`, then re-keyed to this matrix's columns. UNSCOPED, as the Coming up block it replaces was,
-  // while the cards' own topic rows are scope-filtered — the design's stated source, and intended. No `onShowOnMap`
-  // means no Map door and no window route without `onGoToPlanWindow`, so a pill's spoken destination and its tap
-  // cannot disagree (the model builds only the routes the caller can honour).
+  // "The days ahead" lanes (days-ahead-lanes-plan.md): the licensed `buildFourDayTiles` model over the SAME
+  // `hotTopics`, re-bucketed by `buildGlanceLanes` into one lane per run of a topic on this matrix's columns.
+  // UNSCOPED, as the Coming up block it replaced was, while the cards' own topic rows are scope-filtered — the
+  // design's stated source, and intended. No `onShowOnMap` means no Map door and no window route without
+  // `onGoToPlanWindow`, so a lane's spoken destination and its tap cannot disagree (the model builds only the
+  // routes the caller can honour).
   const hasMapDoor = typeof onShowOnMap === 'function';
-  const glanceTopics = useMemo(() => {
+  const glanceLanes = useMemo(() => {
     const { days } = buildFourDayTiles({
       todayStr,
       hotTopics,
@@ -857,31 +854,29 @@ export default function WindowFirstHeatStrip({
       forecastDates,
       hasMapDoor,
     });
-    // A column whose every card is a travel day draws no topics (the cards drop theirs when `away`, and the header
-    // must agree), and counts as not rendered, so R2's forced-solid rule treats it like any other missing day.
-    const liveDates = matrix.days
-      .filter((day) => [day.am, day.pm].some((card) => card && !card.away))
-      .map((day) => day.date);
-    const byDate = glanceTopicsByColumn(days, liveDates);
-    const lastTopicDate = liveDates
-      .filter((date) => (byDate.get(date)?.length ?? 0) > 0).pop() ?? null;
-    return { byDate, lastTopicDate };
+    // A column whose every card is a travel day is not live (the cards drop their topics when `away`, and the
+    // lanes must agree): it breaks a run but keeps its grid track, so a lane's columns are the matrix index + 1.
+    const columns = matrix.days.map((day) => ({
+      date: day.date,
+      live: [day.am, day.pm].some((card) => card && !card.away),
+    }));
+    return buildGlanceLanes(days, columns, hotTopics);
   }, [
     todayStr, hotTopics, comingUpEntries, renderedEntryIds, openableKeys, forecastDates, hasMapDoor,
     onGoToPlanWindow, matrix,
   ]);
   /**
-   * What a pill's press does, first match wins — the old "Next four days" block's four routes (a topic with no
+   * What a lane's press does, first match wins — the old "Next four days" block's four routes (a topic with no
    * almanac counterpart, such as aurora or any weather topic, has no Coming up row to open, so the handoff's
    * "click opens Coming up" holds only where Coming up lists it): the Coming up entry; the Map door; this
    * strip's own window popup with the topic emphasised; else Coming up itself.
    */
-  const tapTopic = (chip) => {
-    if (chip.jump) onOpenComingUp?.(chip.jump.entryId);
-    else if (chip.mapDoor) onShowOnMap({
-      kind: 'event', date: chip.mapDoor.date, eventType: chip.mapDoor.eventType, topicType: chip.type,
+  const tapTopic = (lane) => {
+    if (lane.jump) onOpenComingUp?.(lane.jump.entryId);
+    else if (lane.mapDoor) onShowOnMap({
+      kind: 'event', date: lane.mapDoor.date, eventType: lane.mapDoor.eventType, topicType: lane.type,
     });
-    else if (chip.target && onGoToPlanWindow) onGoToPlanWindow(chip.target, chip.type);
+    else if (lane.target && onGoToPlanWindow) onGoToPlanWindow(lane.target, lane.type);
     else onOpenComingUp?.(null);
   };
   // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
@@ -1057,20 +1052,6 @@ export default function WindowFirstHeatStrip({
   const stoodShown = useMemo(
     () => cards.some((card) => !card.away && stoodInFrame(card.key).length > 0),
     [cards, stoodInFrame],
-  );
-
-  /**
-   * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
-   * footer's own note for it (below) shows only while that mark is actually on screen, matching the
-   * unscored-map-plate note's own rule one line above it (independently: the two conditions are
-   * never OR'd into one, so a fixture that fires only one of them never brings up the other's note).
-   * `facts.unratedBar` alone does NOT answer "is the bar drawn" — it is non-null for a below-gate
-   * pool with a real remainder too — so this ANDs it with `facts.state.bars`, the same test the row
-   * itself makes, rather than reading `unratedBar` as sufficient on its own.
-   */
-  const hatchedSpread = useMemo(
-    () => Array.from(derived.values()).some((facts) => facts.state.bars && facts.unratedBar),
-    [derived],
   );
 
   /**
@@ -1313,11 +1294,14 @@ export default function WindowFirstHeatStrip({
    * spend its thirty-frame budget and leave <em>every</em> canvas blank while every word on every
    * card rendered correctly. Unreachable while {@code TargetType} has two constants; the point is
    * that the gate's key and the grid's placement are now two decisions and must not be two answers.
+   *
+   * <p>⚠️ And never an AWAY card: it mounts no canvas (see {@code renderCard}), so a key that named one would
+   * wait on a ref that never arrives, spend the thirty-frame budget and leave <em>every</em> heat map blank.
    */
   const measureKey = useMemo(() => {
     for (const day of matrix.days) {
-      if (day.am) return day.am.key;
-      if (day.pm) return day.pm.key;
+      if (day.am && !day.am.away) return day.am.key;
+      if (day.pm && !day.pm.away) return day.pm.key;
     }
     return null;
   }, [matrix]);
@@ -1325,7 +1309,7 @@ export default function WindowFirstHeatStrip({
   const {
     attachFrame, canvasRef, geoFailed, repaintNow,
   } = useHeatCanvas({
-    enabled: cards.length > 0,
+    enabled: cards.some((card) => !card.away),
     // The first PLACED card's well is the GATE's measured box — see `paint` for why it is no longer
     // the width every canvas is drawn at.
     measureKey,
@@ -1634,7 +1618,9 @@ export default function WindowFirstHeatStrip({
             <span className="wf-hc-ask" data-testid="wf-heat-ask-rank">{askRank}</span>
           )}
         </span>
-        {!geoFailed && (
+        {/* ⚠️ No canvas for an AWAY card, in either layout: it has no ratings to paint, and a canvas merely hidden
+            would still be in the measuring pass (a hidden one measures 0). */}
+        {!geoFailed && !card.away && (
           <span data-testid="wf-heat-well" className="wf-hc-cv">
             <canvas
               aria-hidden="true"
@@ -2079,25 +2065,6 @@ export default function WindowFirstHeatStrip({
     </div>
   );
 
-  /**
-   * One day's topic pills, in the column of that day's header.
-   *
-   * @param {object} day the matrix's day descriptor
-   * @param {number} column the grid column, 1-based
-   * @param {boolean} phone the phone's flowing grid, where a topic-free day draws nothing
-   */
-  const renderTopics = (day, column, phone) => (
-    <WindowGlanceDayTopics
-      key={`${day.date}:topics`}
-      date={day.date}
-      column={column}
-      row={MATRIX_ROW.topics}
-      chips={glanceTopics.byDate.get(day.date) ?? []}
-      todayStr={todayStr}
-      phone={phone}
-      onTap={tapTopic}
-    />
-  );
 
   /**
    * One sun-word rail — the full-width `SUNRISE`/`SUNSET` band above each row (matrix-axis plan D7).
@@ -2129,7 +2096,6 @@ export default function WindowFirstHeatStrip({
             Tailwind's preflight resets heading size and weight to inherited, so nothing moves. */}
         <h2 className="wf-hstrip-k">The days ahead</h2>
         <span className="wf-hstrip-rule" aria-hidden="true" />
-        {glanceTopics.lastTopicDate && <GlanceTopicKey />}
         <GuideLink section="fixed" label="What fixed and could still move mean" />
       </div>
 
@@ -2152,17 +2118,21 @@ export default function WindowFirstHeatStrip({
             return (
               <React.Fragment key={day.date}>
                 {renderDayHeader(day, column)}
-                {/* The topic stack flows straight after its own day's header, spanning the row (the phone grid
-                    has no sticky header to protect, so this is the cleanest place; the stack is NEVER inside
+                {/* That day's lanes flow straight after its own day's header, spanning the row (the phone grid
+                    has no sticky header to protect, so this is the cleanest place; they are NEVER inside
                     `renderDayHeader`, which the sticky, measured desktop `.wf-dhrow` shares). */}
-                {renderTopics(day, column, true)}
+                <WindowGlanceLanes
+                  key={`${day.date}:lanes`}
+                  lanes={glanceLanes}
+                  date={day.date}
+                  onTap={tapTopic}
+                />
                 {day.am
                   ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
                   : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
                 {day.pm
                   ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
                   : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
-                {day.date === glanceTopics.lastTopicDate && <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />}
               </React.Fragment>
             );
           })}
@@ -2177,16 +2147,9 @@ export default function WindowFirstHeatStrip({
           <div ref={setDhrowNode} data-testid="wf-heat-dhrow" className="wf-dhrow">
             {matrix.days.map((day, index) => renderDayHeader(day, index + 1))}
           </div>
-          {/* A NON-sticky row between the pinned date chips and the cards: inside `.wf-dhrow` the taller pills
-              would pin a taller band over the cards (see `.wf-dtrow`). Every column keeps its cell. */}
-          {glanceTopics.lastTopicDate && (
-            <>
-              <div data-testid="wf-heat-dtrow" className="wf-dtrow">
-                {matrix.days.map((day, index) => renderTopics(day, index + 1, false))}
-              </div>
-              <GlanceTopicDoor onOpen={onOpenComingUp ?? noop} />
-            </>
-          )}
+          {/* A NON-sticky grid between the pinned date chips and the cards: inside `.wf-dhrow` the lanes would
+              pin a taller band over the cards (see `.wf-lanes`). One track per matrix column, away ones included. */}
+          <WindowGlanceLanes lanes={glanceLanes} onTap={tapTopic} />
           <div className="wf-hrow">
             {renderRail(true)}
             <div data-testid="wf-heat-cards" className="wf-hcards">
@@ -2247,7 +2210,7 @@ export default function WindowFirstHeatStrip({
               data-testid="wf-heat-key-standdown-swatch"
               aria-hidden="true"
             />
-            Stood down — ruled out by the weather
+            stood down — ruled out by the weather
           </span>
         )}
         <span className="wf-hstrip-key" data-testid="wf-heat-key-plain">
@@ -2280,19 +2243,6 @@ export default function WindowFirstHeatStrip({
               <SubRegionActionButton className="wf-subregion-btn" testId="wf-heat-picks-action" />
             )}
           </span>
-        )}
-        {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
-            the map plate's note above, for the same reason: a texture is not vocabulary and a
-            card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
-            sparsely-rated windows shows this on most loads, closer to permanent than occasional —
-            it is still conditional (absent whenever every card on screen either clears the gate
-            with nothing unrated or draws no bars at all) and it renders at EVERY width, not just
-            the phone, for the same reason the map's note above it does. Worded
-            differently from the map's note on purpose — "unshaded" names the map's mark and
-            "hatched bar" names the histogram's, so the two conditional clauses can never be
-            mistaken for restating each other when both happen to be on screen at once. */}
-        {hatchedSpread && (
-          <span data-testid="wf-heat-spread-unrated-note">hatched bar — not yet rated</span>
         )}
       </div>
 

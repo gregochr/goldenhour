@@ -1582,12 +1582,14 @@
    relying on natural flow, which would place correctly today, so columns stay honest if a future
    change ever skips a cell (D5). */
 .wf-hstrip.wf-hstrip-rows .wf-dhrow > *,
-.wf-hstrip.wf-hstrip-rows .wf-dtrow > *,
 .wf-hstrip.wf-hstrip-rows .wf-hcards > * {
   grid-column: var(--c);
 }
+/* `.wf-lanes` shares the grid below (same `--dc` tracks and the same column gap as the date chips and the cards, so a
+   lane sits under its day) but NOT the `grid-column: var(--c)` rule above: on a lane `--c` is the topic's colour, and
+   each lane places itself inline from its own `startCol` / `endCol` / `row`. */
 .wf-hstrip.wf-hstrip-rows .wf-dhrow,
-.wf-hstrip.wf-hstrip-rows .wf-dtrow,
+.wf-hstrip.wf-hstrip-rows .wf-lanes,
 .wf-hstrip.wf-hstrip-rows .wf-hcards {
   display: grid;
   /* ⚠️ `minmax(0, 1fr)`, load-bearing here for the same reason as the base grid above (D6) — a bare
@@ -1755,176 +1757,166 @@
 .wf-hday.today .wf-hday-dn {
   color: var(--color-close-to-home);
 }
-/* The day header's topic pills (glance-topic-strip-plan.md; design handoff "Glance Topic Strip", option A):
-   each day's hot topics as full-column-width pills directly under its date chip. Desktop and tablet draw
-   them in `.wf-dtrow`, a NON-sticky row of the same grid as `.wf-dhrow` and `.wf-hcards` (same gap, so a
-   day stays one column) between the two. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky and its
-   height is measured into `--wf-dh-h` for the rails' pin, so taller pills inside it would pin a much taller
-   band over the cards. The topics scroll away under the pinned date chips, which is intended. The phone
-   flows a full-width `.wf-dtcell` after each day's header instead (phone rules below).
-   `--c` on a PILL is the topic's colour, set from `utils/topicPalette.js` — never a literal here; on a
-   `.wf-dtcell` it is the grid column. Ink steps are the app's own tokens (`--color-plex-text-secondary` is the
-   handoff's `--ink-2`; its `--ink-3` is not used, the key takes secondary, as the strip's other labels do). */
-.wf-dtrow {
-  padding-top: 2px;
-}
-.wf-dtcell {
-  min-width: 0;
-}
-.wf-dt-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "At a Glance — The days ahead as lanes"): one
+   compact row per RUN of a topic, under its day and spanning the columns it covers. Desktop and tablet draw them in
+   `.wf-lanes`, a NON-sticky grid between `.wf-dhrow` and the first card row, with the same `--dc` tracks and column gap as
+   both (see the shared rule above), so a day stays one column. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky
+   and its height is measured into `--wf-dh-h` for the rails' pin, so taller lanes inside it would pin a much taller band
+   over the cards. The lanes scroll away under the pinned date chips, which is intended. The phone flows each day's own
+   lanes in a full-width `.wf-lanecell` after its header instead (phone rules below).
+   Rows are assigned by `buildGlanceLanes` (first fit) and placed inline with `grid-row`, NOT left to
+   `grid-auto-flow: row dense`: dense packing would draw a later DOM lane to the left of an earlier one, and Tab would
+   run right-then-left (WCAG 2.4.3). `--c` on a LANE is the topic's colour, set from `utils/topicPalette.js` — never a
+   literal here. Ink steps are the app's own tokens (`--color-plex-text-secondary` is the handoff's `--ink-2`; its
+   `--ink-3`, `--color-plex-text-muted`, fails AA as text and is used only for the hover border). `.wf-hstrip-rows` is a
+   flex column with a 7px gap, so the 3px top margin lands the lanes 10px under the date chips. */
+.wf-lanes {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.wf-dt-pill {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  width: 100%;
+.wf-hstrip.wf-hstrip-rows .wf-lanes {
+  row-gap: 5px;
+  margin-top: 3px;
+}
+.wf-lane-item {
   min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in oklch, var(--c) 22%, transparent);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--c) 8%, transparent);
-  font: inherit;
+}
+/* Desktop / tablet placement from the item's own custom properties (`--ls` start track, `--le` end line, `--lr` row),
+   set inline by `WindowGlanceLanes`; the phone's items set none and flow in their cell. */
+.wf-hstrip.wf-hstrip-rows .wf-lanes > .wf-lane-item {
+  grid-column: var(--ls) / var(--le);
+  grid-row: var(--lr);
+}
+.wf-lane {
+  /* ⚠️ The fill, the border and the ends-after fade live on `::before` (below), never on the button: a `mask-image`
+     on the button would also fade the name, the detail and the focus ring. `isolation` keeps that layer's
+     `z-index: -1` inside the button. */
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.35;
   text-align: left;
   color: var(--color-plex-text);
   cursor: pointer;
 }
-.wf-dt-pill:hover,
-.wf-dt-pill:focus-visible {
-  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+.wf-lane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  background: #1f1a17;
+  pointer-events: none;
 }
-/* A topic carried on from the day before: transparent, dashed, lighter name. */
-.wf-dt-pill[data-continuation='true'] {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--color-plex-text) 28%, transparent);
-  background: transparent;
+/* A lane over more than one day: the topic's own colour, fading across (a tide is the handoff's #6FA8B0). */
+.wf-lane[data-span='multi']::before {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--c) 14%, transparent),
+    color-mix(in srgb, var(--c) 5%, transparent)
+  );
 }
-.wf-dt-pill[data-continuation='true']:hover,
-.wf-dt-pill[data-continuation='true']:focus-visible {
-  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+.wf-lane[data-topic='AURORA']::before {
+  background: #241f33;
+  border-color: #4a3f6e;
 }
-.wf-dt-pill[data-continuation='true'] .wf-dt-name {
-  font-weight: 500;
-  color: var(--color-plex-text-secondary);
+.wf-lane:hover::before,
+.wf-lane:focus-visible::before {
+  border-color: var(--color-plex-text-muted);
 }
-.wf-dt-pill:focus-visible,
-.wf-dt-door:focus-visible {
+.wf-lane:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
 }
-.wf-dt-sw {
+/* Began before the first day shown: a dotted left edge, square corners. */
+.wf-lane[data-starts-before='true']::before {
+  border-left: 2px dotted var(--color-plex-text-secondary);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+/* Runs on past the last day shown: no right edge, square corners, the layer fades out. */
+.wf-lane[data-ends-after='true']::before {
+  border-right-color: transparent;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0, 0, 0, 0.25));
+  mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0, 0, 0, 0.25));
+}
+.wf-lane-sw {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 2px;
   background: var(--c);
 }
-.wf-dt-name {
-  min-width: 0;
-  overflow: hidden;
+.wf-lane-name {
+  flex: none;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--color-plex-text);
 }
-.wf-dt-tags {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.wf-dt-badge,
-.wf-dt-wx {
+.wf-lane-peak {
+  flex: none;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-.wf-dt-badge {
   /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1 as text,
      while still reading as the topic's colour. */
   color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
 }
-.wf-dt-wx {
-  padding: 0 4px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 3px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-dt-val {
-  grid-column: 2 / -1;
-  overflow: hidden;
+/* The detail wraps onto a second line when the lane is narrow. It is never truncated. */
+.wf-lane-val {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  text-overflow: ellipsis;
+  font-weight: 400;
+  overflow-wrap: anywhere;
   color: var(--color-plex-text-secondary);
-  white-space: nowrap;
 }
-/* The key at the right end of the section head, and the door under the topic row. */
-.wf-dt-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
+/* A focused lane is never left under the sticky date row (the cards' own reservation, `.wf-hc`). */
+.wf-hstrip.wf-hstrip-rows .wf-lane {
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px + var(--safe-t));
 }
-.wf-dt-key-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wf-dt-key-solid {
-  width: 2px;
-  height: 12px;
-  background: var(--color-plex-text-secondary);
-}
-.wf-dt-key-dashed {
-  height: 12px;
-  border-left: 2px dotted var(--color-plex-text-secondary);
-}
-.wf-dt-door-row {
-  display: flex;
-  justify-content: flex-end;
-}
-.wf-hstrip > .wf-dt-door-row {
-  grid-column: 1 / -1;
-  grid-row: auto;
-}
-.wf-dt-door {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-tide);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-dt-door:hover { text-decoration: underline; }
-/* Forced colours drop background colours: a pill gets a real edge (a continuation stays dashed), the swatch a
-   border, and hover its own cue since the border colour is flattened. */
+/* Forced colours drop background colours: a lane gets a real edge (the dotted left edge and the faded right edge stated
+   explicitly), the swatch a border, and hover its own cue since the border colour is flattened. */
 @media (forced-colors: active) {
-  .wf-dt-pill { border-color: CanvasText; }
-  .wf-dt-pill[data-continuation='true'] { border-style: dashed; border-color: CanvasText; }
-  .wf-dt-sw { border: 1px solid CanvasText; }
-  .wf-dt-pill:focus-visible,
-  .wf-dt-door:focus-visible { outline: 2px solid Highlight; }
-  .wf-dt-pill:hover { outline: 1px solid Highlight; }
+  .wf-lane::before { border-color: CanvasText; }
+  .wf-lane[data-starts-before='true']::before { border-left-color: CanvasText; }
+  .wf-lane[data-ends-after='true']::before { border-right-color: CanvasText; }
+  .wf-lane-sw { border: 1px solid CanvasText; }
+  .wf-lane:focus-visible { outline: 2px solid Highlight; }
+  .wf-lane:hover { outline: 1px solid Highlight; }
 }
-/* Phone only: the stack is a full-width cell of the flowing grid directly under its day's header, with 24px
-   targets. Names, values and tags print exactly as on desktop. Desktop and tablet are untouched. */
+/* Phone only: each day's lanes are a full-width cell of the flowing grid directly under its day's header, one lane per
+   row (no spanning). Desktop and tablet are untouched. */
 @media (max-width: 639px) {
-  .wf-hstrip > .wf-dtcell { grid-column: 1 / -1; }
-  .wf-dt-pill { min-height: 24px; }
-  .wf-dt-door { min-height: 24px; padding: 4px 0; }
+  .wf-hstrip > .wf-lanecell { grid-column: 1 / -1; }
+  .wf-lanecell { min-width: 0; }
+  .wf-lanecell .wf-lanes {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
 }
 /* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
    by definition on an ordinary week (this morning has gone; the last evening is past the end of
@@ -1946,6 +1938,19 @@
   color: var(--color-plex-text-secondary);
   text-align: center;
   text-wrap: pretty;
+}
+/* Slim empty slots (days-ahead-lanes-plan.md §1.4): in the desktop / tablet card rows only — every rule scoped to
+   `.wf-hstrip-rows .wf-hcards > …`, so the phone keeps today's look — an empty slot no longer stretches to the
+   row's height. A row only gets shorter when EVERY slot in it is empty; otherwise the rated cards set its height
+   (that falls out of `align-self: start`). ⚠️ The ink stays SECONDARY, not the handoff's `--ink-3`
+   (`--color-plex-text-muted`): muted measures 3.2–3.5:1 here and fails AA. */
+.wf-hstrip-rows .wf-hcards > .wf-hgap {
+  min-height: 0;
+  align-self: start;
+  padding: 12px 10px;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hgap span {
+  font-size: 11px;
 }
 /* ── The window card (plan-matrix §6 M1, bundle README "Window card") ──────────────────────────
    A button carrying: the sun word, the field, four value rows on shared baselines, the verdict as
@@ -2082,6 +2087,23 @@ button.wf-hc.on:hover {
    its `.ev.weak{opacity:.62}` is a different element. */
 .wf-hc-away {
   opacity: 0.87;
+}
+/* The slim "Not forecast" card (days-ahead-lanes-plan.md §1.4), desktop / tablet only: it sits at the top of its
+   cell and takes its own height instead of the rated cards'. It stays a column; its sun chip is hidden here (the
+   row's rail already says SUNRISE / SUNSET) but NOT on the phone, which has no rails and needs it; its time /
+   verdict row (`.wf-hc-pls`, an `auto 1fr` grid) is left alone, so the verdict stays right-aligned, at its own
+   11px (12px "Not forecast" overflows the measured 79–85px value column at 640 and a docked 1024). The card draws
+   no heat-map canvas in either layout (`renderCard`). */
+.wf-hstrip-rows .wf-hcards > .wf-hc-away {
+  align-self: start;
+  min-height: 0;
+  padding: 9px 10px;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-top {
+  display: none;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-pls {
+  column-gap: 8px;
 }
 .wf-hc-top {
   display: flex;
@@ -2784,12 +2806,14 @@ button.wf-hc.on:hover {
   display: block;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 400;
   line-height: 1.3;
   text-align: right;
   text-wrap: pretty;
-  color: var(--color-plex-text);
+  /* The place name sits back to the surrounding labels' voice (days-ahead-lanes-plan.md §1.3): mono 10.5px, 400,
+     SECONDARY ink — the handoff's `--ink-2`; the star badge beside it carries the emphasis. */
+  color: var(--color-plex-text-secondary);
 }
 /* "nothing in reach" / "not scored yet" — a state rather than a place, so it drops the weight.
    ⚠️ It keeps SECONDARY ink rather than the design's `--ink-3`: at 11px on these six grounds muted
@@ -2800,9 +2824,10 @@ button.wf-hc.on:hover {
 }
 /* "Northumberland & Tyneside · beyond 45 min" — the Best row's line when the window's verdict
    belongs to a region every rated place of which the reach tier gated out
-   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence, so
-   it keeps the PRIMARY ink (`.none`'s muted ink is for "nothing to report") and the 400 weight that
-   marks it as a statement rather than a place name.
+   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence. It
+   used to keep the PRIMARY ink and the 400 weight to mark it as a statement rather than a place name;
+   the base `.wf-hc-best` is now secondary ink at 400 too (a place name no longer shouts), so this rule
+   follows the base for both and sets only its own size.
 
    ⚠️ 10px, not 11px, and `overflow-wrap: anywhere`. The value column is ~88px at a 320px viewport
    (A27's figure; the key column stays "Spread"-wide because the label is the six-character
