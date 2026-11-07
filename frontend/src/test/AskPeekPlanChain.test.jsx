@@ -298,6 +298,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  openHandoff = null;
   restoreLayout();
   global.ResizeObserver = originalRO;
   briefingValue = null;

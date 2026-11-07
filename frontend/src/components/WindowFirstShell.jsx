@@ -1281,8 +1281,10 @@ export default function WindowFirstShell({
    * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
    * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
    */
-  // Declared before the handoff effect that sets them; the account is on `askSheetFallback` below.
+  // Declared before the handoff effect that sets them (`react-hooks/immutability`).
+  // True while the location sheet up was opened from Ask's SHEET (set by `askOpenInPlan`).
   const askSheetReturnRef = useRef(false);
+  // True while the sheet up came from an `inPlan` handoff (set by the handoff effect).
   const sheetTabReturnRef = useRef(false);
   const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
   const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
@@ -1846,12 +1848,10 @@ export default function WindowFirstShell({
    */
   const askOpenerRef = useRef(null);
   /**
-   * Whether the location sheet now up was opened from Ask's SHEET. Pressed there, the Ask sheet's own
-   * close runs in the same commit as the location sheet's mount, with the Ask trigger already
-   * {@code disabled} (a dialog is open) and a modal standing — so its restore declines, nothing holds
-   * focus, and the location sheet captures {@code <body>} as its opener: closing it would leave the
-   * reader nowhere. This is what makes the close land on the trigger (or the tab) instead, read at
-   * CLOSE time by the sheet's {@code restoreFocusFallback} and put away when it is gone.
+   * The location sheet's focus-return address when its opener cannot take focus back: the Ask trigger (or the
+   * tab) for a sheet opened from Ask's sheet, whose own close leaves nothing holding focus; the tab in force for
+   * an {@code inPlan} handoff, whose opener goes hidden with the Map pane; otherwise null, so
+   * {@code useDialogFocus}'s own restore stands. Read at CLOSE time and reset when the sheet is gone.
    */
   const askSheetFallback = useCallback(
     () => {
