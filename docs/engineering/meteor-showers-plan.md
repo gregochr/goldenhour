@@ -108,3 +108,51 @@ Replace "illumination ≥ 50% at noon on the peak date" with "a moon ≥ 50% lit
 for most of the shower's `bestHours`", sampled hourly with `LunarCalculator.calculate(time, lat,
 lon).altitude()` at a UK reference point; `bestHours` becomes structured (start hour, end hour or
 dawn). The almanac `washedOut` caveat uses the same predicate. Detailed when Phase 2 has merged.
+
+## Phase 4 — weekly IMO calendar watch (owner request, 2026-11-07)
+
+The per-year table (Phase 2) runs out. Nobody will remember to look for the 2029 calendar, so a
+weekly job looks for it and alerts the admins. **It alerts; it never edits the table.** The shower
+table is code reviewed in a PR, the IMO calendar is a typeset PDF whose layout changes, and a
+parser that silently wrote wrong peak dates would be worse than the gap it closes.
+
+- Job `imo_calendar_check`, registered with `DynamicSchedulerService.registerJobTarget` and seeded
+  by a migration in the `V81__refresh_token_cleanup_scheduler.sql` shape: `CRON`, weekly
+  (Monday 06:17 UK, off the hour), `ACTIVE`. No Claude spend.
+- **Coverage check (needs no network).** Read the last year in the per-year peak table. When today
+  is within 13 months of that year's end and the following year has no row, send one admin alert
+  ("the meteor peak table ends with 2028; add 2029 from the IMO calendar"). This is the safety net
+  that works even if imo.net changes its URLs.
+- **Publication check.** For each year from this year to this year + 2 that the table does not
+  cover, `GET https://www.imo.net/files/meteor-shower/cal{year}.pdf` (5 s connect / 20 s read
+  timeout, `Content-Type` must be `application/pdf`). A 200 is "published": one admin alert
+  naming the year and the URL. For a year the table does cover, store the PDF's SHA-256 the first
+  time it is seen and alert once when it changes (IMO revises a calendar mid-year when an outburst
+  is predicted).
+- State in a small table `imo_calendar_check (year PK, first_seen_at, sha256, alerted_at)` so each
+  finding alerts **once**, not every Monday. A failed fetch is logged and retried next week; it
+  never alerts on its own (three consecutive failures do, so a moved URL is noticed).
+- Client: an `@HttpExchange` interface like the others in `client/`, with tests on a mock server;
+  the job's tests mock the client and the clock. The cloud build container cannot reach imo.net;
+  production must (add it to any egress allowlist there).
+- `docs/engineering/reference/platform.md` (scheduler/admin) and `configuration.md` gain a line.
+- Lands after Phase 2, since it reads Phase 2's table.
+
+## Landing site copy (lands with Phase 1)
+
+Plain, first-person-where-needed, short sentences, matching `landing/faq.html` and
+`landing/guide/*.html` as they read today:
+
+- `landing/faq.html`, data-sources table, after the NOAA SWPC row:
+  `International Meteor Organization (IMO)` · `Meteor Shower Calendar: peak dates, peak rates (ZHR) and radiants` ·
+  `Meteor shower dates in Coming up and on At a Glance, with a realistic UK rate for showers whose radiant stays low`.
+- `landing/acknowledgements.html`, data providers table, after NLCNET:
+  `International Meteor Organization (IMO)` · `The annual Meteor Shower Calendar: peak dates and rates for every shower PhotoCast lists` ·
+  `Credited with thanks to the IMO (imo.net) and the observers who contribute to it`.
+- `landing/guide/coming-up.html`: the Meteors `<dd>` becomes "The peak of a meteor shower, with
+  dates from the International Meteor Organization's calendar. The date is fixed, but you need a
+  clear, dark sky to see it." The key-figure paragraph (line 78) adds, after the catalogue-rate
+  clause: "For showers whose radiant stays low from the UK, such as the Eta Aquariids, the figure
+  is the rate you can realistically expect here instead."
+- `landing/guide/night-sky.html`, the Meteor showers bullet: add "The smaller showers, such as the
+  Taurids and the Draconids, are listed in Coming up but don't appear on At a Glance."
