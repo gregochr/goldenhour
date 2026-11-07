@@ -208,7 +208,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
         int reported = (int) Math.round(top.effectiveInversionScore());
         String value = reported + "/10 · " + bandLabel(reported);
         GlanceLine glance = new GlanceLine(
-                GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, reported + GLANCE_DENOMINATOR, null,
+                GLANCE_PREFIX + reported + GLANCE_DENOMINATOR, null,
                 HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         return topic.withScience(
                 List.of(HotTopicFact.metric("inversion", value)), INVERSION_NOTE)

@@ -4587,7 +4587,7 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     date,
     eventType: null,
     regions: [],
-    glance: { weather: false, value: '4.8 m · run starts', shortValue: '4.8m', badge: 'PEAK' },
+    glance: { weather: false, value: '4.8 m · run starts', badge: 'PEAK' },
   });
   const inversion = (date) => ({
     type: 'INVERSION',
@@ -4595,7 +4595,7 @@ describe('WindowFirstHeatStrip — the day header\'s topic pills (glance-topic-s
     date,
     eventType: 'SUNRISE',
     regions: [],
-    glance: { weather: true, value: 'dawn · 9/10', shortValue: '9/10' },
+    glance: { weather: true, value: 'dawn · 9/10' },
   });
 
   afterEach(() => {

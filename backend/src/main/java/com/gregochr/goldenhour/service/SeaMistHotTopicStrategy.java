@@ -166,7 +166,7 @@ public class SeaMistHotTopicStrategy implements HotTopicStrategy {
                 .distinct()
                 .count();
         String siteCount = sites + (sites == 1 ? " site" : " sites");
-        GlanceLine glance = new GlanceLine("dawn · light mist, " + siteCount, "likely", null,
+        GlanceLine glance = new GlanceLine("dawn · light mist, " + siteCount, null,
                 HotTopicGlanceDecorator.WEATHER_TYPES.contains(TYPE));
         // The clock time is left to HotTopicEventEnricher, which completes a detector-stamped event.
         return topic.withEvent(TargetType.SUNRISE.name(), null)

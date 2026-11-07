@@ -334,7 +334,7 @@ public class LitePickShaper {
         shaped = shaped.withDetail(dayLabelOnly(topic.detail()));
         GlanceLine glance = topic.glance();
         if (glance != null) {
-            shaped = shaped.withGlance(new GlanceLine(null, null, glance.badge(), glance.weather()));
+            shaped = shaped.withGlance(new GlanceLine(null, glance.badge(), glance.weather()));
         }
         return shaped;
     }

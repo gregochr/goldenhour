@@ -21,7 +21,7 @@ const tide = (date, over = {}) => topic('SPRING_TIDE', date, null, {
   tideRun: { dayNumber: 1, dayCount: 4, peak: false }, ...over,
 });
 const wx = (type, date, eventType = 'SUNRISE', over = {}) => topic(type, date, eventType, {
-  glance: glance({ weather: true, value: 'dawn · 9/10', shortValue: '9/10' }), ...over,
+  glance: glance({ weather: true, value: 'dawn · 9/10' }), ...over,
 });
 
 const tiles = (over = {}) => buildFourDayTiles({ todayStr: TODAY, hotTopics: [], ...over });
@@ -108,13 +108,12 @@ describe('buildFourDayTiles — one chip per type per day', () => {
       hotTopics: [
         topic('STORM_SURGE', SUN, null),
         topic('STORM_SURGE', SUN, null, {
-          glance: glance({ value: 'HW 16:02 · +0.4 m', shortValue: '+0.4 m pk', badge: 'PEAK' }),
+          glance: glance({ value: 'HW 16:02 · +0.4 m', badge: 'PEAK' }),
         }),
       ],
     });
     const [chip] = chipsOf(result, SUN);
     expect(chip.value).toBe('HW 16:02 · +0.4 m');
-    expect(chip.shortValue).toBe('+0.4 m pk');
     expect(chip.badge).toBe('PEAK');
     expect(chip.weather).toBe(false);
   });
@@ -134,7 +133,7 @@ describe('buildFourDayTiles — one chip per type per day', () => {
   it('makes a topic with no glance a name-only chip that is not weather', () => {
     const [chip] = chipsOf(tiles({ hotTopics: [topic('DUST', SUN, 'SUNSET')] }), SUN);
     expect(chip).toMatchObject({
-      type: 'DUST', name: 'Dust', chipName: 'Dust', value: null, shortValue: null, badge: null,
+      type: 'DUST', name: 'Dust', value: null, badge: null,
       weather: false, mapDoor: null, jump: null,
     });
   });
@@ -142,10 +141,10 @@ describe('buildFourDayTiles — one chip per type per day', () => {
   it('copies the served glance without deriving anything', () => {
     const [chip] = chipsOf(tiles({
       hotTopics: [topic('SUPERMOON', SUN, 'SUNSET', {
-        glance: glance({ value: 'rise 16:34', shortValue: 'super', badge: 'FULL' }),
+        glance: glance({ value: 'rise 16:34', badge: 'FULL' }),
       })],
     }), SUN);
-    expect(chip).toMatchObject({ value: 'rise 16:34', shortValue: 'super', badge: 'FULL' });
+    expect(chip).toMatchObject({ value: 'rise 16:34', badge: 'FULL' });
   });
 
   it('puts non-weather chips first, then weather chips, each group in served order', () => {
@@ -171,9 +170,11 @@ describe('buildFourDayTiles — one chip per type per day', () => {
     expect(chipsOf(result, MON)[0].isContinuation).toBe(false);
   });
 
-  it('names the chip from the palette: the full name and the phone name', () => {
+  it('names the chip from the palette, with no phone short forms', () => {
     const [chip] = chipsOf(tiles({ hotTopics: [tide(SUN)] }), SUN);
-    expect(chip).toMatchObject({ name: 'Spring tide', chipName: 'Spring', colour: '#6FA8B0' });
+    expect(chip).toMatchObject({ name: 'Spring tide', colour: '#6FA8B0' });
+    expect(chip).not.toHaveProperty('chipName');
+    expect(chip).not.toHaveProperty('shortValue');
   });
 });
 
