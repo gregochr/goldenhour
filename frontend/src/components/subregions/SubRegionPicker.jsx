@@ -166,7 +166,7 @@ export default function SubRegionPicker({
               {!read && !locked.has(id) && (
                 <button
                   type="button"
-                  className="inline-flex items-center justify-center w-6 h-6 pointer-coarse:w-8 pointer-coarse:h-8 rounded-full text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
+                  className="relative inline-flex items-center justify-center w-6 h-6 pointer-coarse:w-8 pointer-coarse:h-8 max-[639px]:before:absolute max-[639px]:before:-inset-1.5 max-[639px]:before:content-[''] rounded-full text-plex-text-secondary hover:text-plex-text focus-visible:outline-2 focus-visible:outline-plex-gold"
                   aria-label={`Remove ${byId.get(id).name}`}
                   onClick={() => removeFromChip(id)}
                 >
