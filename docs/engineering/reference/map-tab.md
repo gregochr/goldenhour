@@ -135,3 +135,16 @@ measured to the pin). `MapView.driveToFor` reads the same map as `driveMinutesFo
 describes a different journey from the minutes beside it. The same name rides the Plan strip's peek chip
 (`WindowSpotPeek`) and the four-day location sheet's meta line (`1h 20min to Glenridding from Keswick`); it is not printed
 on list rows, leave-by times or popup verdicts. The Map's drive filter is unchanged.
+
+## A Map built inside a hidden tab (map-zoom-hidden-mount, 2026-11-07)
+
+On desktop and tablet the shell opens on the Map tab and keeps the pane mounted once opened, so a reader who clicks Plan
+before the lazy Map chunk lands gets a `MapContainer` constructed inside a `display:none` panel. Leaflet measures 0x0 and
+`MapContainer`'s own opening `fitBounds` clamps to maxZoom 16. `HeatBoundsController` therefore never adopts the opening fit
+as its baseline when `map.getSize()` is 0x0 (it records `OPENED_UNSIZED`, so the current key replays once the pane is
+shown), and holds a fit (without recording it) while the container is still 0x0 even when `active` is true. Rules:
+never make a view move (fit, `flyTo`, zoom) on a 0x0 container (an animated or zoomed move computes NaN and throws
+`Invalid LatLng (NaN, NaN)`; `invalidateSize` itself returns early at 0x0 but the guard stays). A held fit does not wait
+on the pane's ResizeObserver flipping `panelShown`, which a browser may skip: it also listens once for Leaflet's own
+`resize` and re-runs when the box is real. With no heat bounds the replay refits to the catalogue box at `[60, 60]`. A map that opened sized (every phone, every Map-first
+opening) behaves as before, so the fix needs no phone or desktop split. Proved by `map-hidden-mount.spec.js`.
