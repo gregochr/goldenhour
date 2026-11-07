@@ -113,7 +113,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      *                             decided whether the earlier tag is kept
      * @return 1 when the row was updated; 0 when there is no such row
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("UPDATE OutcomeRatingEntity r SET r.rating = :rating, r.eventTime = :eventTime, "
             + "r.pipelineRunId = :pipelineRunId, r.forecastRunAt = :forecastRunAt, "
@@ -152,7 +152,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param now                  the new {@code updated_at}
      * @return 1 when the row was updated; 0 when there is no such row
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("UPDATE OutcomeRatingEntity r SET r.rating = :rating, r.eventTime = :eventTime, "
             + "r.pipelineRunId = :pipelineRunId, r.forecastRunAt = :forecastRunAt, "
@@ -187,7 +187,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param now        the new {@code updated_at}
      * @return 1 when the row was updated; 0 when there is no such row
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
     @Query("UPDATE OutcomeRatingEntity r SET r.seen = :seen, r.updatedAt = :now "
             + "WHERE r.userId = :userId AND r.locationId = :locationId "
