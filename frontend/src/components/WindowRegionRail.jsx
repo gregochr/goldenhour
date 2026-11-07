@@ -101,9 +101,11 @@ export default function WindowRegionRail({
               allMeta].filter(Boolean).join(', ')}
           </span>
           <span className="wf-rr-n" aria-hidden="true">{`All ${rows.length} regions`}</span>
+          {' '}
           <span className="wf-rr-v" aria-hidden="true">
             {selected ? 'Show everything' : 'Showing everything'}
           </span>
+          {' '}
           <span className="wf-rr-m" aria-hidden="true">
             {allMeta}
           </span>
@@ -131,7 +133,9 @@ export default function WindowRegionRail({
                 {[row.name, row.verdictLabel, meta].filter(Boolean).join(', ')}
               </span>
               <span className="wf-rr-n" aria-hidden="true">{row.name}</span>
+              {' '}
               <span className="wf-rr-v" aria-hidden="true">{row.verdictLabel}</span>
+              {' '}
               <span className="wf-rr-m" aria-hidden="true">{meta}</span>
             </button>
           );

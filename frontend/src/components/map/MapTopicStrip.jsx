@@ -359,7 +359,9 @@ export default function MapTopicStrip({
           key={d.date}
           type="button"
           {...common}
-          aria-label={d.tooltip.lead}
+          // The current day's lead ("On this window · ...") does not say the visible day label, so
+          // lead with it (WCAG 2.5.3); other days' leads already name their day ("Show Sat ...").
+          aria-label={d.current ? `${d.label}, ${d.tooltip.lead}` : d.tooltip.lead}
           aria-current={d.current ? 'true' : undefined}
           aria-disabled={d.current ? 'true' : undefined}
           onClick={() => pressDay(d)}
