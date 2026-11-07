@@ -455,7 +455,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           chmod +x backend/mvnw
-          cd backend && ./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*' -DfailIfNoSpecifiedTests=false --batch-mode --no-transfer-progress
+          cd backend && ./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*' -DfailIfNoSpecifiedTests=false --batch-mode --no-transfer-progress
 
       - name: Checkstyle for the local-only source roots
         if: needs.changes.outputs.docs_only != 'true'

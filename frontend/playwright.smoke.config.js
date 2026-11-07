@@ -50,7 +50,19 @@ export default defineConfig({
   projects: [
     {
       name: 'smoke',
-      testIgnore: '**/logout.spec.js',
+      testIgnore: ['**/logout.spec.js', '**/roles-write.spec.js'],
+      use: { ...devices['Desktop Chrome'], ...localChromium },
+    },
+    // Why roles-write is its own project: it is the only spec that WRITES shared server state (the Pro reader rates
+    // one past window; the write invalidates the served-briefing memo for everyone). So it starts only after the
+    // whole `smoke` project has finished and runs on one worker. It signs in as the `pro` account, never the
+    // admin, so it has no sign-out hazard and logout need not wait for it, but it still runs before logout so
+    // that "sign-out runs last" stays one rule. (The read-only role specs, roles.spec.js, run in `smoke`.)
+    {
+      name: 'roles-write',
+      testMatch: '**/roles-write.spec.js',
+      dependencies: ['smoke'],
+      workers: 1,
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },
     // Why logout is its own project: signing out calls bumpCredentialsVersion, which is ACCOUNT-WIDE, and
@@ -61,7 +73,7 @@ export default defineConfig({
     {
       name: 'logout',
       testMatch: '**/logout.spec.js',
-      dependencies: ['smoke'],
+      dependencies: ['smoke', 'roles-write'],
       workers: 1,
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },

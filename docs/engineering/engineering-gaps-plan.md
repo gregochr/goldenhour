@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 built on `test/e2e-seeded-smoke` (PR pending; the 5x reliability proof is a separate, temporary tip commit that is reverted before merge). 3a.2, 3b and 3c next.
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 built on `test/e2e-role-gating` (PR pending; the 5x reliability proof is a separate, temporary tip commit that is reverted before merge). 3b and 3c next.
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -384,6 +384,17 @@ Built as planned and amended. Where the build differed, and why:
   - **PRO:**
     - None of those locks appear.
     - It can rate one past window through `outcome-rating-block`. This is the only spec that writes shared state, so it runs in the serial project with the logout spec.
+
+### 3a.2 build notes (2026-11-07)
+
+Built as planned, with these differences:
+
+- **The role users live in `E2eRoleUsers`**, a second local-only bean (same gating) that the seeder calls after the places are saved and again from its self-check, rather than more constructor arguments on a 750-line class. Its tests are `E2eRoleUsersTest` (run by the E2E job with the seeder's: `-Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*'`) and the seeder's own test, which pins when it is called and with what.
+- **Sub-regions:** one per region, each holding that region's six places; `lite` picks Northumberland and Lake District (limit 3, the policy default), so Yorkshire Dales is gated. `lite` has picks and no grace stamp or change lock, so its standing is `OPEN` and the first-choice prompt never appears. The seeded `lite` and `pro` have `postcodePromptDismissedAt` set at insert, so `global-setup.js` writes only the Coming up "seen" mark for them.
+- **Two spec files, not one.** `roles.spec.js` is read-only and runs in `smoke` in parallel (it uses `lite` and `pro`, so the shared-admin logout hazard does not apply); `roles-write.spec.js` (the Pro rating) is the serial `roles-write` project, after `smoke` and before `logout`, which now depends on both.
+- **Test ids.** The Ask trigger's Pro lens is the `.wf-lens-pro` pill inside `ask-field[data-locked="true"]` (`ask-field-upsell`), and Ask's upsell popover is the bare `wf-ask-upsell`. The LITE doors asserted are `wf-heat-bestbets-upsell-*` (the Plan) and `wf-scores-upsell-*` (a location sheet inside the picks); the outside place has `wf-subregions-place-upsell-*`. "No `/api/ask*` request" means a pathname starting `/api/ask`: `/api/user/settings/ask` is 200 for every role by design and is not Ask. The LITE rating taps need `click({ force: true })` because the controls are `aria-disabled` (Playwright reads that as not enabled; the tap is accepted by design).
+- **Discovery found no hygiene finding and the allow-list is still empty.** The LITE upsell flows make no 403.
+- **Two product defects found, neither pinned by a spec.** (1) Opening the Map after the Plan tab in one session sometimes mounts it at an extreme zoom with most chips culled (admin too; roughly half the runs of a two-tab spec), so the role specs open the Map first. (2) `PUT /api/outcome/ratings` on an EXISTING rating answers with the previous star (a stale re-read in `OutcomeRatingService.rate`, probably open-in-view), and the client commits that response over its optimistic value, so "How was it?" shows the old rating after a change until a reload. `roles-write.spec.js` asserts the block's value on a first rating only, and the stored row through `GET` on every rating, so it survives `--repeat-each`.
 
 ### 3b: the production nginx config in CI
 
