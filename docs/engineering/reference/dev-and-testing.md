@@ -117,12 +117,12 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 `E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
 and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
-`docs/engineering/engineering-gaps-plan.md`, Phases 2, 3a.1 and 3a.2 (3b adds the production nginx config, 3c an
-advisory accessibility scan).
+`docs/engineering/engineering-gaps-plan.md`, Phases 2, 3a.1, 3a.2 and 3b (3c adds an advisory accessibility scan).
 
 **What it is.** The real backend (local profile, a fresh H2 file **carrying a seeded fixture**, Ask on its stub, a dead
-outbound proxy) and the built frontend behind `vite preview`, driven by Chromium through
-`frontend/playwright.smoke.config.js`. Specs live in `frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`
+outbound proxy) and the built frontend, driven by Chromium through
+`frontend/playwright.smoke.config.js`. The frontend is served in one of **two modes** (see "Two web modes" below): CI
+runs it through the production `nginx.conf` in an `nginx:alpine` container; a local run defaults to `vite preview`. Specs live in `frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`
 (login, hygiene, the tile counter, the dialog-depth observer and the helpers that read the served forecast);
 `sheet-helpers.js` holds the location-sheet assertions; `global-setup.js` writes the one-time bits of per-user
 state (the admin's postcode prompt dismissal, and the Coming up "seen" mark for all three accounts). The older `src/test/e2e/forecast.spec.js` (run by
@@ -191,12 +191,37 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
 | `door1-obstacles.spec.js` | Moved here from `src/test/e2e/`: no overlay control covers a field chip in any matrix window, at 1280 and at 390 px. |
 | `roles.spec.js` | Read-only role gating, signed in as `lite` and `pro` (not the admin, so the sign-out hazard does not apply). Every non-admin: no Operations tab, and `GET /api/admin/scheduler/jobs` is 403 through `page.request` (the page's hygiene never sees it), with the admin's 200 as the control. LITE: Pro doors (`wf-heat-bestbets-upsell-*` on the Plan, `wf-scores-upsell-*` in a location sheet) open a worded popover with a Pro pill and no link; Ask is locked (`ask-field[data-locked]`, the Pro lens, the upsell) and no `/api/ask*` request is made; "How was it?" is locked (`pro-pill`, "Rating is part of Pro.", no write); chips outside the picks carry `data-gated`, the callout says "Outside your sub-regions" and the sheet shows `location-sheet-outside`; and the served `/api/forecast`, `/api/briefing/evaluate/scores` and `/api/briefing` carry no Fiery/Golden scores, no written why and no picks, with the gated places unrated, against PRO's full bodies as the contrast. PRO: none of the locks. |
 | `roles-write.spec.js` | The Pro reader rates one past window (`outcome-rating-block`): the `PUT /api/outcome/ratings` is 200, the block reads rated, and the row reads back from `GET /api/outcome/ratings`. The only spec that writes shared state, so it is its own serial project, `roles-write` (`dependencies: ['smoke']`, `workers: 1`), before `logout`. |
+| `nginx.spec.js` | The production nginx config, read FROM the mounted file (`E2E_NGINX_CONF`; each parse asserts it matched). **Skips unless `E2E_WEB=nginx`.** The document's CSP equals the config's `$csp` (the mode guard: a silent fall back to `vite preview` fails here); the seven `add_header ... always` names of `location /`, each once with the configured value, on the shell, a hashed asset and a deep link (`page.request` and `headersArray()`); caching (`no-cache` on the shell and a deep link, `public` and `immutable` plus a far `Expires` on assets); the SPA fallback (`try_files` only: the app has no client router); `/assets/missing.js` is a 404 that still carries the headers; the sha256 of the `<script nomodule>` body is in the CSP (Chromium skips that script before CSP, so a stale hash logs nothing); the first `/api/status/stream` event arrives within 8 s through the proxy (measured at about 20 ms; a buffering nginx would hold it to the 30 s heartbeat); no inline `<style>` on any tab or in the window sheet. Not covered: `worker-src` (service workers are blocked). |
 | `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
 
 The browser Back button closes the top dialog (`back-closes-dialogs-plan.md`; PR 2a wires Settings, the guide, the Ask sheet,
 confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests it; see "Back (dialog history)" below.
 
-**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
+**Two web modes** (`E2E_WEB`, read by `playwright.smoke.config.js`):
+
+- **`preview`** (unset; the local default): `vite preview` on 4173, the API on 8083. No Docker needed.
+- **`nginx`** (CI sets `E2E_WEB: nginx` and `E2E_API_PORT: '8082'`): `scripts/e2e-smoke-nginx.sh` runs `nginx:alpine` as
+  `goldenhour-e2e-nginx`, publishing `127.0.0.1:4173:80`, with `frontend/dist` and the repo-root `nginx.conf` mounted
+  **read-only and unedited**, exactly as `docker-compose.yml` mounts it, and `--add-host=goldenhour-backend:host-gateway`.
+  Every journey is then also a CSP test (a blocked script or style logs a console error, which hygiene fails on), and
+  `nginx.spec.js` asserts the headers, caching, fallback and SSE. **The backend must listen on 8082**, because the
+  config's upstream is `goldenhour-backend:8082`: any other `E2E_API_PORT` is refused at once, in the config and in the
+  script. A missing `frontend/dist` and an unreachable Docker daemon also fail fast with a message.
+- **Lifecycle.** The script runs `docker run ... &` then `wait` (never `exec`) and a trap on EXIT, INT and TERM runs
+  `docker rm -f`. The web server entry sets `gracefulShutdown` (SIGTERM, 10 s): Playwright otherwise SIGKILLs a webServer, the
+  trap never runs and the container outlives the run. `reuseExistingServer` is **off** in nginx mode, even locally (a stale
+  container would be reused silently). Ctrl-C (SIGINT) tears everything down cleanly (checked). ⚠️ A SIGTERM to the Playwright
+  process itself (or SIGKILL) is not handled by Playwright for ANY web server: the backend JVM and the container are
+  orphaned. The next run then stops at Playwright's own "http://127.0.0.1:4173 is already used" check, before the script runs
+  (the script's own `docker rm -f` covers a container that exists but is not answering); the fix is
+  `docker rm -f goldenhour-e2e-nginx` (and stopping the orphaned backend).
+  nginx's access and error logs (stdout and stderr in this image) go to `frontend/test-results/e2e-logs/nginx.log`.
+- **Locally with Docker:** `docker pull nginx:alpine`, build the jar and `npm run build` as below, then
+  `cd frontend && E2E_WEB=nginx npm run test:e2e:smoke` (port 8082 must be free; the cloud session's container can start
+  `dockerd`, the owner's laptop has none and does not need it). CI pulls the image in its own step, so pull time is not
+  charged to Playwright's 60 s server timeout.
+
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free, or 8082 and 4173 in nginx mode):
 
 ```bash
 cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
@@ -211,7 +236,7 @@ with `ERR_CONNECTION_REFUSED` halfway, or a backend that exits 143 under a later
 `E2E_WEB_PORT` move both (the config and the backend script read the same two), and a `--repeat-each` proof that chains
 invocations should wait for the first one's backend to stop answering before starting the next.
 
-Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
+Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview` or `scripts/e2e-smoke-nginx.sh`), whose logs go to
 `frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
 database; stop it first when a spec fails oddly. If the machine's preinstalled Chromium does not match the pinned
 Playwright, `E2E_CHROMIUM_PATH=/path/to/chrome` points the run at it (local only; CI never sets it). `E2E_HYGIENE=record`
