@@ -500,6 +500,23 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/briefing as PRO serves the run's runStart and runEnd as ISO date strings")
+    void getBriefing_proServesRunExtentAsIsoDates() throws Exception {
+        DailyBriefingResponse base = tideLightBriefing();
+        HotTopic king = base.hotTopics().get(0);
+        HotTopic stamped = king.withTideRun(king.tideRun()
+                .withRunExtent(LocalDate.of(2026, 10, 10), LocalDate.of(2026, 10, 14)));
+        when(briefingService.getCachedBriefingForApi())
+                .thenReturn(base.withPickScope(List.of(stamped), List.of()));
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hotTopics[0].tideRun.runStart").value("2026-10-10"))
+                .andExpect(jsonPath("$.hotTopics[0].tideRun.runEnd").value("2026-10-14"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
     @DisplayName("GET /api/briefing as PRO keeps the alignment sentence, run row, event, counts, badge and gap")
     void getBriefing_proKeepsTideLight() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(tideLightBriefing());

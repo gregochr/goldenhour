@@ -127,8 +127,8 @@ final class ReviewedTypes {
         entry("TideRunDay", Set.of(
                 "aligned", "alignedEvent", "dayCount", "dayLabel",
                 "dayNumber", "highWater", "locationName", "peak",
-                "phrase", "range", "rangeAnomaly", "roster", "runLabel", "seas", "sunrise", "sunset", "tides",
-                "verdict")),
+                "phrase", "range", "rangeAnomaly", "roster", "runEnd", "runLabel", "runStart", "seas", "sunrise",
+                "sunset", "tides", "verdict")),
         entry("TideRunDay$Extreme", Set.of(
                 "time", "type")),
         entry("TideRunDay$RosterAlignment", Set.of(

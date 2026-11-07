@@ -83,8 +83,8 @@ entry's wording. It re-buckets served chips, derives no fact.
     today … the last plan date (`BriefingService` → `getHotTopics(today, lastPlanDate)`, and the tide
     strategies clip to it), so for tides these edges fire only at a gap or when the matrix starts tomorrow;
     a run that really began yesterday or runs past Tuesday is not visible to the client. That is accepted
-    for this PR and stated in the PR body; serving a tide run's real extent is a separate backend
-    follow-up. Never fall back to the almanac for this (D14).
+    for this PR and stated in the PR body; serving a tide run's real extent was the follow-up, which
+    **shipped in `tide-run-extent-plan.md`** (`tideRun.runStart`/`runEnd`). Never fall back to the almanac for this (D14).
 - **Rows are assigned here, not by CSS** (layout review 7: `row dense` would draw a later DOM lane to the
   left of an earlier one, so Tab would run right-then-left, WCAG 2.4.3). Take the lanes longest span first,
   then earliest `startCol`, then the existing chip order (non-weather before weather, served order); give
