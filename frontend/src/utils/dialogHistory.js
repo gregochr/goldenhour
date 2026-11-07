@@ -472,5 +472,7 @@ export function disposeDialogHistory() {
   listenedWindow = null;
 }
 
-import.meta.hot?.dispose(disposeDialogHistory);
+if (import.meta.hot) {
+  import.meta.hot.dispose(disposeDialogHistory);
+}
 listen(getWindow());
