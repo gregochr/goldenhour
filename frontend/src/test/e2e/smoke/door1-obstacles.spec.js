@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, loginAndWaitForForecast, openTab } from './fixture.js';
 
 /**
  * The increment's own check 5, scripted (`plan-to-map-doors-plan.md` §3 D4 task 5, §7 check 5) —
@@ -12,29 +12,11 @@ import { test, expect } from '@playwright/test';
  * nothing" is the plan's own words — so this sweeps every window the matrix serves, not just the
  * first popup a reader happens to open.
  *
- * <p>Needs a seeded local stack: ratings on ≥ 6 windows (`docs/engineering/heat-field-plan.md`
- * §7.3), a backend restart after inserting (the briefing enrichment reads an in-memory map
- * populated only at startup) and a fresh `POST /api/briefing/run`. `BACKEND`/`baseURL` are both
- * env-overridable so this can run against the local verification recipe's own ports rather than
- * the app's defaults (8083/5173), which the pane supervisor's own launch.json instance already
- * occupies during a review session.
+ * <p>It runs in the smoke gate on the SEEDED fixture (`E2eLocalFixtureSeeder`), which rates every place in
+ * every window, so no window falls into the "Not scored" branch and the sweep has chips in all of them. The
+ * old "restart the backend and POST /api/briefing/run" setup is gone: the seed replaces it. A sample point
+ * that lands outside the viewport reads as an overlap (`elementFromPoint` returns null there), so it fails.
  */
-
-const BACKEND = process.env.PLAYWRIGHT_BACKEND_URL || 'http://127.0.0.1:8083';
-
-async function loginAsAdmin(page) {
-  const response = await page.request.post(`${BACKEND}/api/auth/login`, {
-    data: { username: 'admin', password: 'golden2026' },
-  });
-  const { accessToken, refreshToken, refreshExpiresAt, username } = await response.json();
-  await page.evaluate(({ token, refresh, refreshExpires, user }) => {
-    localStorage.setItem('goldenhour_token', token);
-    localStorage.setItem('goldenhour_refresh', refresh);
-    localStorage.setItem('goldenhour_role', 'ADMIN');
-    localStorage.setItem('goldenhour_username', user);
-    localStorage.setItem('goldenhour_refresh_expires', refreshExpires);
-  }, { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt, user: username });
-}
 
 /**
  * Samples `document.elementFromPoint` every 2px across one chip's width at its own vertical
@@ -72,7 +54,7 @@ async function sweepChip(page, chipHandle) {
 }
 
 /** Whether the door button's and every chip's rects are unchanged across two animation frames. */
-async function isFieldStable(page) {
+function isFieldStable(page) {
   return page.evaluate(() => new Promise((resolve) => {
     const snapshot = () => {
       const rectOf = (el) => {
@@ -89,23 +71,17 @@ async function isFieldStable(page) {
 }
 
 /**
- * Waits for `WindowRowFieldMap`'s two-pass chip placement to finish moving before anything reads
- * a position. Every candidate chip first renders off-screen at `left: -9999px`
- * (`visibility: hidden`) to be measured, then the greedy placer commits final positions in a
- * layout effect — reading positions mid-measurement is a RACE, not a product defect (confirmed by
- * hand: the same window, once settled, sweeps clean). Polls for two consecutive stable reads
- * rather than one, because a single settle check can still land between two nudge attempts on a
- * narrow (phone) frame.
+ * Waits for `WindowRowFieldMap`'s two-pass chip placement to finish moving before anything reads a position.
+ * Every candidate chip first renders off-screen at `left: -9999px` (`visibility: hidden`) to be measured, then
+ * the greedy placer commits final positions in a layout effect — reading positions mid-measurement is a RACE,
+ * not a product defect. The fonts are awaited first (a chip's width is its name in a font the browser may still
+ * be swapping in), then the field must read stable TWICE in a row; both are retrying `expect.poll`s, never a
+ * bounded loop.
  */
 async function waitForFieldToSettle(page) {
-  for (let attempt = 0; attempt < 15; attempt += 1) {
-    const stableOnce = await isFieldStable(page);
-    if (stableOnce) {
-      const stableTwice = await isFieldStable(page);
-      if (stableTwice) return;
-    }
-  }
-  throw new Error('field placement never settled');
+  await page.evaluate(() => document.fonts.ready);
+  await expect.poll(() => isFieldStable(page), { message: 'field placement settling' }).toBe(true);
+  await expect.poll(() => isFieldStable(page), { message: 'field placement settled' }).toBe(true);
 }
 
 /**
@@ -131,21 +107,15 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
     { name: '390x844', width: 390, height: 844 },
   ]) {
     test(`sweeps every matrix window at ${viewport.name}`, async ({ page }) => {
-      test.setTimeout(120000);
+      test.setTimeout(120_000);
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await page.goto('/');
-      await loginAsAdmin(page);
-      await page.goto('/');
+      await loginAndWaitForForecast(page);
+      await openTab(page, 'plan');
 
-      await page.waitForSelector('[data-testid="wf-heat-card"]', { timeout: 15000 });
-      // A chip's width is its location's name in a font the browser may still be swapping in —
-      // `WindowRowFieldMap`'s own doc comment on the two-pass measurement. `waitForFieldToSettle`
-      // catches the LAYOUT race; it cannot catch a font finishing its swap after two stable RAF
-      // reads, which is a font race, not a layout one — this is the one popup most likely to hit
-      // it, since it is the first paint of any text in this font at all.
+      await expect(page.getByTestId('wf-heat-card').first()).toBeVisible();
       await page.evaluate(() => document.fonts.ready);
+      await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
       const cardCount = await page.getByTestId('wf-heat-card').count();
-      expect(cardCount).toBeGreaterThanOrEqual(6);
 
       const rows = [];
 
@@ -154,26 +124,20 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
         const cardLabel = (await card.getAttribute('aria-label')) || `card ${i}`;
         await card.click();
         const sheet = page.getByTestId('window-sheet');
-        await expect(sheet).toBeVisible({ timeout: 10000 });
+        await expect(sheet).toBeVisible();
 
+        // The seeded fixture rates every place in every window the matrix serves, except the ones the
+        // briefing has already let pass: a window with no field draws no door button and has nothing to sweep.
         const openButton = sheet.getByTestId('wf-row-map-open');
-        const hasButton = await openButton.count() > 0;
-        if (!hasButton) {
-          // A window whose payload rates nothing draws the "Not scored" plate instead of the
-          // field's chips — no button, and nothing to sweep. Recorded, not asserted against: the
-          // plan's own seeding recipe targets "ratings on ≥ 6 windows" precisely so this branch is
-          // rare, but an honest sweep does not manufacture chips a real payload withheld.
+        if (await openButton.count() === 0) {
           rows.push({
             window: cardLabel, chipsSampled: 0, chipsHit: 0, overlapFound: false, note: 'no button (unscored window)',
           });
           await page.getByTestId('window-sheet-close').click();
-          await expect(sheet).toBeHidden({ timeout: 5000 });
+          await expect(sheet).toBeHidden();
           continue;
         }
         await expect(openButton).toBeVisible();
-
-        // See `waitForFieldToSettle`'s own doc comment: reading positions mid-measurement is a
-        // race that reads as "the button overlaps everything", never a real defect.
         await waitForFieldToSettle(page);
 
         const chips = sheet.getByTestId('wf-row-map-chip');
@@ -205,9 +169,13 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
         expect(overlapFound, `window "${cardLabel}" — the door button overlaps a chip`).toBe(false);
 
         await page.getByTestId('window-sheet-close').click();
-        await expect(sheet).toBeHidden({ timeout: 5000 });
+        await expect(sheet).toBeHidden();
       }
 
+      // The sweep must have looked at something: a run in which every window fell into the "no button"
+      // branch would pass vacuously.
+      const swept = rows.filter((row) => row.chipsSampled > 0);
+      expect(swept.length, `windows with chips swept: ${JSON.stringify(rows)}`).toBeGreaterThanOrEqual(5);
       console.log(`[door1-obstacles ${viewport.name}]`, JSON.stringify(rows, null, 2));
     });
   }

@@ -117,13 +117,70 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 `E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
 and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
-`docs/engineering/engineering-gaps-plan.md`, Phase 2. Phase 3 adds seeded data so the Map and Plan specs run too.
+`docs/engineering/engineering-gaps-plan.md`, Phases 2 and 3a.1 (3a.2 adds LITE and PRO users, 3b the production nginx
+config, 3c an advisory accessibility scan).
 
-**What it is.** The real backend (local profile, a fresh H2 file, Ask on its stub) and the built frontend behind
-`vite preview`, driven by Chromium through `frontend/playwright.smoke.config.js`. Specs live in
-`frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`; `global-setup.js` dismisses the one-time postcode
-prompt for the local admin. The older `src/test/e2e/*.spec.js` (run by `playwright.config.js`, which now ignores
-`smoke/`) are manual and move to Phase 3.
+**What it is.** The real backend (local profile, a fresh H2 file **carrying a seeded fixture**, Ask on its stub, a dead
+outbound proxy) and the built frontend behind `vite preview`, driven by Chromium through
+`frontend/playwright.smoke.config.js`. Specs live in `frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`
+(login, hygiene, the tile counter, the dialog-depth observer and the helpers that read the served forecast);
+`sheet-helpers.js` holds the location-sheet assertions; `global-setup.js` writes the two one-time bits of per-user
+state (the postcode prompt dismissal and the Coming up "seen" mark). The older `src/test/e2e/forecast.spec.js` (run by
+`playwright.config.js`, which ignores `smoke/`) is manual.
+
+**The seeded fixture** (`E2eLocalFixtureSeeder` in `backend/src/local/java`, with its readiness bean
+`e2eFixtureHealthIndicator`). It gives the Map and Plan journeys data with **no network call and no Claude call**: 3
+regions of 6 places (Northumberland Coast with three coastal places, Lake District, Yorkshire Dales), rated for every
+window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reaches its floor), with a BEST pick.
+
+- **Gating, in four independent ways.** `@Profile("local & !prod")`, `photocast.e2e.seed-fixture=true` (only
+  `scripts/e2e-smoke-backend.sh` sets it), a runtime refusal unless the profile is `local` and the database is H2, and a
+  refusal unless the `locations` table is empty. Every refusal throws and stops startup. Any other failure is logged at
+  ERROR and leaves `e2eFixture` DOWN; the seeder never swallows it (unlike `AskLocalFixtureSeeder`).
+- **It never runs a briefing build.** `BriefingService.refreshBriefing*` always fetches live weather and calls two Claude
+  services. The seeder assembles the briefing from the same builder beans with synthetic weather. **The write order is
+  load-bearing:** regions, places and tides; `forecast_evaluation`; `cached_evaluation` through `mergeFromBatch`; slots
+  and days; `BriefingRegionEvaluationRollup.enrich` (persisting without it drops every pick, because the serve path nulls
+  a gloss when the verdict changes); the stamped gloss and headline; the `daily_briefing_cache` row; `loadPersistedBriefing`;
+  an almanac refresh; then the self-check (a BEST pick is served, the rows read back). Only then does it go UP.
+- **The ratings are one pure function** (`E2eLocalFixtureSeeder.rating`): a region's base cycles 4, 3, 2 and rotates every
+  window, and a place adds -1, +1 or 0 (zero over a region). So every place changes star between adjacent windows, and every
+  window has a Worth it, a Maybe and a Stand-down region. Specs do not mirror it: they read the served `/api/forecast` as the
+  **oracle** and compare against that.
+- **Readiness waits for the seed.** Tomcat accepts requests before `ApplicationReadyEvent` listeners finish, so the script
+  adds `e2eFixture` to the `container` health group (`--management.endpoint.health.group.container.include=db,ping,e2eFixture`)
+  and sets `--management.endpoint.health.cache.time-to-live=0s` so a stale DOWN is never served. Only the smoke run changes
+  the group.
+- **Nothing leaves the machine.** The script starts the JVM behind a **dead proxy** (`-Dhttps.proxyHost=127.0.0.1
+  -Dhttps.proxyPort=9`, and the http pair, with `http.nonProxyHosts=localhost|127.0.0.1`): every outbound call, Open-Meteo,
+  NOAA and the Anthropic SDK's OkHttp client alike, fails at once with a refused connection. The external health probes read
+  DOWN, so the status stream shows DEGRADED; no spec asserts on that banner, and it produces no console error. A CI step after
+  the suite fails the job if `backend.log` contains `Daily briefing refresh started`, `Briefing weather fetch`,
+  `Horizon cloud fetch` or `[ASK FIXTURE]`, **or if `[E2E FIXTURE] seeded` is absent** (so the check cannot pass on a log that
+  never seeded).
+- **The seeder's own gate.** `src/local` and `src/local-test` are outside the backend job (no JaCoCo, checkstyle or SpotBugs),
+  so the E2E job runs `./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*'` and `./mvnw -Plocal-dev generate-test-sources
+  checkstyle:check`. ⚠️ The `generate-test-sources` is not optional: `-Plocal-dev` adds the two roots in that phase, and a bare
+  `checkstyle:check` audits neither (it passes with a deliberate violation in `src/local`).
+- **Dates.** Everything is relative to the server's UK "today" at boot. A run that crosses a sunrise or sunset (about 0.2-0.4%
+  of runs) makes the first window past, so **no spec uses the first window**, none asserts a fixed count, and every expected
+  star comes from the served forecast, keyed by the window's `data-ev-id`.
+
+**The specs** (all on the shared fixture, with the hygiene assertion and no sleeps):
+
+| Spec | What it asserts |
+|---|---|
+| `tabs.spec.js` | The tab bar is Plan, Coming up, Map, Operations (waits for the Map tab, which appears only once the forecast has loaded); each tab renders (heat cards, the almanac list, a Leaflet container, Operations). Never the desktop's opening tab: Map is preferred only if `/api/forecast` lands within 1.5 s, so every spec clicks its tab. |
+| `phone.spec.js` | At 390 px the four tabs are there and Plan is selected. |
+| `map.spec.js` | Leaflet draws and tiles are requested (a counter, polled); every visible chip's star equals the served star for the active window; a chip opens the callout whose score agrees; the close button and Escape both close it. Chips are the visible ones **by role** and polled, after `data-placed="true"` on `map-labels` (the placement-settled signal, a one-line frontend seam). |
+| `window-stepping.spec.js` | From the current window forward to the last (`›` disables, no wrap), back through today into the past (`wf-win-past` appears), the keyboard with the pill focused, then `‹` loading the two older days (T-3 with rows, T-4 empty) and stopping at the floor, where `‹` is disabled and the status line explains why. At each step the pill changes and every chip present in both windows changes star. A phone leg uses the peek sheet. |
+| `drilldown-map.spec.js` | Chip, callout, "Four days here", the location sheet (one row opens expanded; its detail response is awaited from a waiter registered before the click), a second row's lazily fetched detail, and the Escape order back out (sheet, focus to the reason line, selection). |
+| `drilldown-plan.spec.js` | Heat card, window sheet, a place, the location sheet: two dialogs deep, never three (a MutationObserver installed before load records the maximum concurrent `.app-safe-modal` and `aria-modal`). Bamburgh Beach shows the rising-tide fact; an inland place does not. Escape closes the top layer first; the close buttons work. |
+| `door1-obstacles.spec.js` | Moved here from `src/test/e2e/`: no overlay control covers a field chip in any matrix window, at 1280 and at 390 px. |
+| `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
+
+The browser Back button closes no dialog (there is no `pushState` for dialogs), so it is not tested: that is a product question,
+not a smoke assertion.
 
 **Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
 
@@ -146,10 +203,10 @@ prints the hygiene findings below instead of failing on them, which is how to di
   entry, or `npm ci` fails), `workers: 2`, `retries: 0`, traces `retain-on-failure`, `serviceWorkers: 'block'` (the PWA's
   worker would otherwise take over mid-test). No fixed sleeps: web-first assertions and `waitForResponse` only. No clock
   freezing in this phase.
-- **No spend, by construction.** The job has no secrets and the backend script forces a fake `ANTHROPIC_API_KEY`. The
-  backend still makes outbound health probes (Anthropic 401, Open-Meteo), which are soft and show a DEGRADED banner, so
-  **no spec asserts on the absence of the health banner**. Readiness is `/actuator/health/container` only (db and ping),
-  never the bare `/actuator/health`.
+- **No spend, by construction.** The job has no secrets, the backend script forces a fake `ANTHROPIC_API_KEY`, and the
+  JVM runs behind a dead proxy (see the fixture above). The external health probes therefore read DOWN and show a DEGRADED
+  banner, so **no spec asserts on the health banner**. Readiness is `/actuator/health/container` only (db, ping and
+  `e2eFixture`), never the bare `/actuator/health`.
 - **Third parties are fulfilled, never aborted** (an aborted request logs `net::ERR_FAILED` as a console error): ArcGIS
   tiles get a real 1x1 PNG and the Turnstile script gets a stub that verifies at once. Any other off-origin request is
   recorded and fails the test.
@@ -168,12 +225,16 @@ prints the hygiene findings below instead of failing on them, which is how to di
   rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
 - **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the
   local profile does not run), so no scheduled job registers. A spec asserts `GET /api/admin/scheduler/jobs` is empty, so a
-  future seeder that adds rows fails loudly. `photocast.ask.seed-local-fixture` stays off: it triggers a briefing build.
-- **An empty database has no Map tab.** `App.jsx` offers it only with a forecast or a real aurora alert. The spec asserts
-  the three-tab bar; Leaflet and tile assertions arrive with Phase 3's seeded data.
-- **Ask on an empty database** renders its box and the allowance line. A typed question returns 503
-  `TYPED_UNAVAILABLE`, which the dock renders gracefully but which is a console error, so the spec sends none.
-- **Time budget:** the job under 10 minutes, the specs under 2.
+  future seeder that adds rows fails loudly (the seeder never writes `scheduler_job_config` or `model_selection`).
+  `photocast.ask.seed-local-fixture` stays off: it triggers a briefing build.
+- **The Map tab appears late.** `App.jsx` offers it only once a forecast (or a real aurora alert) exists, so the tab bar
+  has three tabs for a moment after login. Every spec waits for the Map tab before reading the bar.
+- **Ask** renders its box and the allowance line. A typed question returns 503 `TYPED_UNAVAILABLE` from the stub, which the
+  dock renders gracefully but which is a console error, so the spec sends none.
+- **Time budget:** the suite under 3 minutes on 2 workers; the job's `timeout-minutes` is 20 (it also runs the seeder's
+  tests and the boot).
+- **Reliability proof.** `--repeat-each` repeats only the projects it is asked for, and a project's dependencies run once, so
+  the whole suite repeated is two invocations: `--project=smoke --repeat-each=10` and `--project=logout --repeat-each=10`.
 
 **After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
 

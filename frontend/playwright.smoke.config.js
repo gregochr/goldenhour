@@ -3,9 +3,10 @@ import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * The E2E smoke gate (docs/engineering/engineering-gaps-plan.md, Phase 2): a small Playwright suite
- * that boots the real backend (local profile, fresh H2, fake Anthropic key) and the built frontend
- * (`vite preview`), and is a REQUIRED CI check ("E2E — Playwright smoke").
+ * The E2E smoke gate (docs/engineering/engineering-gaps-plan.md, Phases 2 and 3a.1): a small Playwright
+ * suite that boots the real backend (local profile, fresh H2 carrying the SEEDED FIXTURE, fake Anthropic key,
+ * a dead outbound proxy) and the built frontend (`vite preview`), and is a REQUIRED CI check
+ * ("E2E — Playwright smoke").
  *
  * Both servers start from here, so the recipe is the same locally and in CI:
  *   1. cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package
@@ -68,13 +69,14 @@ export default defineConfig({
   webServer: [
     {
       command: 'bash scripts/e2e-smoke-backend.sh',
-      // The container group only: db and ping. The bare /actuator/health aggregates the Open-Meteo,
-      // tide and Anthropic probes, which make real outbound calls and would tie the gate to
+      // The container group only: db, ping and (smoke script only) e2eFixture, which stays DOWN until the
+      // seeder has written and self-checked the fixture. The bare /actuator/health aggregates the
+      // Open-Meteo, tide and Anthropic probes, which make real outbound calls and would tie the gate to
       // third-party uptime.
       url: `http://127.0.0.1:${API_PORT}/actuator/health/container`,
       timeout: 180_000,
       // Never reuse a backend in CI. Locally it is the developer's choice, but a reused backend
-      // is not a fresh database: the empty-database specs assume one.
+      // is not a fresh database, and the seeder refuses any database that already holds locations.
       reuseExistingServer: !process.env.CI,
       env: { E2E_LOG_DIR: LOG_DIR },
     },

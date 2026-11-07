@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3 next.
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 built on `test/e2e-seeded-smoke` (PR pending; the 5x reliability proof is a separate, temporary tip commit that is reverted before merge). 3a.2, 3b and 3c next.
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -10,7 +10,7 @@ English, without overclaiming.
 | # | Gap as published | Plan |
 |---|---|---|
 | 1 | Mutation testing covers the server only | **Out of date.** Stryker now tests `frontend/src/utils` weekly (`frontend-mutation-testing-plan.md`). Phase 1 corrects `engineering.html`. |
-| 2 | The real-browser tests run by hand | **Partly closed.** Phase 2 (merged, #1764): a Playwright smoke suite in CI, **a required check**. The rest is Phase 3: seeded data, so the Map and Plan specs run too. |
+| 2 | The real-browser tests run by hand | **Partly closed.** Phase 2 (merged, #1764): a Playwright smoke suite in CI, **a required check**. Phase 3a.1 (built, PR pending): seeded data, so the Map and Plan specs run too. The rest of Phase 3: roles, nginx, accessibility. |
 | 3 | The prompt regression suite runs by hand | Phase 5: run it on PRs that change prompts or evaluation code, behind an approval environment. |
 | 4 | One host, no staging copy | Phase 4: a smoke check straight after deploy and an automatic rollback. A staging host is an owner decision (below). |
 | 5 | Not a professional penetration test | `security.txt` (Phase 6). Whether to pay for a test is an owner decision. |
@@ -356,6 +356,18 @@ Two adversarial reviews (one on the seeder, one on the specs) read the plan agai
     - The suite budget becomes **under 3 minutes on 2 workers**.
     - The temporary proof uses `--repeat-each=10` over the whole suite, with its own `timeout-minutes: 45`, and the job timeout raised **for the proof commit only**. It must pass every time across the 5-run matrix.
     - The job's permanent timeout becomes 20 minutes, to cover the seeder tests and the boot.
+
+### 3a.1 build notes (2026-11-07)
+
+Built as planned and amended. Where the build differed, and why:
+
+- **`-Plocal-dev checkstyle:check` is vacuous.** The source roots are added by build-helper in `generate-test-sources`, which a bare goal never runs; it passed with a deliberate violation in `src/local`. CI and the docs use `./mvnw -Plocal-dev generate-test-sources checkstyle:check`. It also audits the local tests (four long lines were found in the first draft).
+- **`--repeat-each` repeats only the projects it is asked for, and runs dependencies once.** The proof is therefore two invocations: `--project=smoke --repeat-each=10` and `--project=logout --repeat-each=10`.
+- **The Map tab appears late** (only once the forecast has loaded), so every spec waits for it before reading the tab bar. `map-labels` is a zero-size pane host, so Playwright calls it hidden: specs wait for `[data-placed="true"]` with a count, not visibility.
+- **Rising-tide is asserted on the Plan route** (Bamburgh Beach through the window sheet), because the Map opens at a zoom that culls that chip.
+- **A peek-sheet row click on a phone keeps the sheet open**; the phone leg closes it with the same button.
+- **The dead proxy is port 9** (nothing listens; the connection is refused at once). The Anthropic SDK's OkHttp client honours it (proved: with the flags the call fails `Connection refused`, without them it reaches Anthropic and gets a 401 for the fake key).
+- **Added `sheet-helpers.js`** for the location-sheet assertions shared by both drill-down specs.
 
 ### 3a.2: role gating
 
