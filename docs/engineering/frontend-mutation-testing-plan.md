@@ -170,6 +170,14 @@ overall) and the list of survivors.
      config.
 3. **Docs.** Add the floor numbers to `dev-and-testing.md`, and add a changelog entry.
 
+### Phase 2 result
+
+Done (branch `chore/stryker-shard-floors`). The owner chose per-shard floors, not one number: Stryker's
+`thresholds.break` applies to each shard's own process, so a single floor would fail the weaker shards.
+The floors (94 to 97) are the first full forced run's scores (run 42380927482, 2026-11-07, overall
+96.28%, pre-sweep baseline 87.81%) rounded down; the table, the `STRYKER_BREAK` plumbing and the ratchet
+rule are in `reference/dev-and-testing.md` ("Frontend mutation testing").
+
 ## Not in scope
 - Mutating components or hooks. That is a later widening, once `utils` is stable and its run time is known.
 - Making mutation testing a PR gate.

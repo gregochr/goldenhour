@@ -2,6 +2,9 @@ name: Stryker Mutation Testing
 
 # Weekly mutation testing of the client logic in frontend/src/utils, the frontend counterpart of
 # pitest.yml. It never blocks a PR; a failed run raises a failure report through ci-failure-issue.yml.
+# Each shard has its own mutation-score floor (`break` in the matrix below, passed to Stryker as
+# STRYKER_BREAK): a shard that scores under its floor fails. Raise a floor, never lower one without the
+# owner's say-so.
 # Plan and measurements: docs/engineering/frontend-mutation-testing-plan.md and
 # docs/engineering/reference/dev-and-testing.md ("Frontend mutation testing").
 #
@@ -51,17 +54,21 @@ jobs:
           # Balanced by line count (about 5k lines, ~1.9k mutants each). Globs are comma-separated, as
           # Stryker's --mutate takes them; the Map files are split by the capital after "map".
           matrix='{"include":[
-            {"shard":"1","mutate":"src/utils/[ab]*.js"},
-            {"shard":"2","mutate":"src/utils/c*.js,src/utils/[dg]*.js"},
-            {"shard":"3","mutate":"src/utils/[fh]*.js"},
-            {"shard":"4","mutate":"src/utils/l*.js,src/utils/[ij]*.js,src/utils/o*.js,src/utils/m[^a]*.js"},
-            {"shard":"5","mutate":"src/utils/map[A-O]*.js"},
-            {"shard":"6","mutate":"src/utils/map[P-Z]*.js,src/utils/[tuv]*.js"},
-            {"shard":"7","mutate":"src/utils/p*.js,src/utils/s[e-z]*.js"},
-            {"shard":"8","mutate":"src/utils/r*.js,src/utils/wa*.js,src/utils/windowK*.js,src/utils/windowS*.js"},
-            {"shard":"9","mutate":"src/utils/sc*.js,src/utils/windowFirst[A-C]*.js"},
-            {"shard":"10","mutate":"src/utils/windowFirst[M-Z]*.js"}
+            {"shard":"1","break":"96","mutate":"src/utils/[ab]*.js"},
+            {"shard":"2","break":"95","mutate":"src/utils/c*.js,src/utils/[dg]*.js"},
+            {"shard":"3","break":"94","mutate":"src/utils/[fh]*.js"},
+            {"shard":"4","break":"97","mutate":"src/utils/l*.js,src/utils/[ij]*.js,src/utils/o*.js,src/utils/m[^a]*.js"},
+            {"shard":"5","break":"95","mutate":"src/utils/map[A-O]*.js"},
+            {"shard":"6","break":"96","mutate":"src/utils/map[P-Z]*.js,src/utils/[tuv]*.js"},
+            {"shard":"7","break":"96","mutate":"src/utils/p*.js,src/utils/s[e-z]*.js"},
+            {"shard":"8","break":"97","mutate":"src/utils/r*.js,src/utils/wa*.js,src/utils/windowK*.js,src/utils/windowS*.js"},
+            {"shard":"9","break":"96","mutate":"src/utils/sc*.js,src/utils/windowFirst[A-C]*.js"},
+            {"shard":"10","break":"96","mutate":"src/utils/windowFirst[M-Z]*.js"}
           ]}'
+          if ! echo "$matrix" | jq -e '[.include[].break | test("^[0-9]+$")] | all' > /dev/null; then
+            echo "::error::Every shard needs a numeric \"break\" (its mutation-score floor)."
+            exit 1
+          fi
           export LC_ALL=C
           shopt -s nullglob
           covered=$(mktemp)
@@ -147,6 +154,7 @@ jobs:
         env:
           MUTATE: ${{ matrix.mutate }}
           FORCE: ${{ steps.force.outputs.force }}
+          STRYKER_BREAK: ${{ matrix.break }}
         run: |
           args=(--mutate "$MUTATE")
           if [ "$FORCE" = "true" ]; then args+=(--force); fi
@@ -157,6 +165,7 @@ jobs:
         env:
           SHARD: ${{ matrix.shard }}
           MUTATE: ${{ matrix.mutate }}
+          FLOOR: ${{ matrix.break }}
         run: |
           node -e '
             const fs = require("node:fs");
@@ -174,7 +183,7 @@ jobs:
               const valid = detected + c("Survived") + c("NoCoverage");
               const score = valid ? ((100 * detected) / valid).toFixed(2) : "n/a";
               body = `Score **${score}%**: ${c("Killed")} killed, ${c("Survived")} survived, ` +
-                `${c("Timeout")} timed out, ${c("NoCoverage")} no coverage, ${c("Ignored")} ignored.\n`;
+                `${c("Timeout")} timed out, ${c("NoCoverage")} no coverage, ${c("Ignored")} ignored. Floor ${process.env.FLOOR}%.\n`;
             } catch (e) { /* keep the default body */ }
             fs.appendFileSync(out, head + body);
           '
