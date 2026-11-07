@@ -68,6 +68,13 @@ describe('SubRegionPolicyCard', () => {
       .toHaveTextContent('1 Lite reader holds more than 1 pick.');
   });
 
+  it('makes the limit input and Save 44px tap targets on a phone', async () => {
+    render(<SubRegionPolicyCard />);
+
+    expect(await screen.findByLabelText('Picks per Lite reader')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveClass('max-[639px]:min-h-11');
+  });
+
   it('shows Checking… and keeps Save disabled until the check for the current draft has answered', async () => {
     const pending = deferred();
     getSubRegionPolicy.mockResolvedValueOnce(SAVED).mockReturnValueOnce(pending.promise);

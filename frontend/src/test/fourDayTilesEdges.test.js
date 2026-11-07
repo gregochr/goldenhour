@@ -290,3 +290,173 @@ describe('the earliest-starting entry wins', () => {
     }
   });
 });
+
+describe('a tide entry with no coincidence or dayRanges field at all', () => {
+  it('is an unmerged tide: its own start..end is the span', async () => {
+    const { buildFourDayTiles } = await load();
+    const bare = { id: 'bare', type: 'spring-tide', startDate: SUN, endDate: MON };
+    const result = buildFourDayTiles({
+      todayStr: TODAY, hotTopics: [TODAY, SUN, MON, TUE].map((d) => topic('SPRING_TIDE', d, null)),
+      entries: [bare], renderedEntryIds: ['bare'],
+    });
+    expect(jumpOf(result, TODAY)).toBeNull();
+    expect(jumpOf(result, SUN)).toEqual({ entryId: 'bare' });
+    expect(jumpOf(result, MON)).toEqual({ entryId: 'bare' });
+    expect(jumpOf(result, TUE)).toBeNull();
+  });
+
+  it('is no evidence at all when it is merged and carries no dayRanges', async () => {
+    const { buildFourDayTiles } = await load();
+    const merged = {
+      id: 'm', type: 'supermoon', coincidence: [{ type: 'spring-tide' }], startDate: TODAY, endDate: TUE,
+    };
+    const result = buildFourDayTiles({
+      todayStr: TODAY, hotTopics: [topic('SPRING_TIDE', SUN, null)], entries: [merged], renderedEntryIds: ['m'],
+    });
+    expect(jumpOf(result, SUN)).toBeNull();
+  });
+});
+
+describe('topics that cannot be placed', () => {
+  it('skips a topic with no type, a topic with no date, and a null member, counting none of them', async () => {
+    const { buildFourDayTiles } = await load();
+    const result = buildFourDayTiles({
+      todayStr: TODAY,
+      hotTopics: [
+        { date: SUN, eventType: 'SUNSET', label: 'typeless' },
+        { type: 'DUST', eventType: 'SUNSET', label: 'dateless' },
+        null,
+      ],
+    });
+    expect(result.days.flatMap((d) => d.chips)).toEqual([]);
+    expect(result.topicCount).toBe(0);
+  });
+});
+
+describe('the identity of a tide event (eventId)', () => {
+  const idOf = async (tideRun) => {
+    const { buildFourDayTiles } = await load();
+    const result = buildFourDayTiles({
+      todayStr: TODAY, hotTopics: [topic('SPRING_TIDE', MON, null, { tideRun })],
+    });
+    return result.days.find((d) => d.date === MON).chips[0].eventId;
+  };
+
+  it('keys a one-day run on its windowed count: the run began on the day itself', async () => {
+    expect(await idOf({ runLabel: 'R', dayNumber: 1, dayCount: 1 })).toBe(`TIDE:R:1:${MON}`);
+  });
+
+  it('keys day 2 of a 3-day run back to the run\'s first day', async () => {
+    expect(await idOf({ runLabel: 'R', dayNumber: 2, dayCount: 3 })).toBe(`TIDE:R:3:${SUN}`);
+  });
+
+  it('keys on the served runStart when it is a string, whatever the counts', async () => {
+    expect(await idOf({ runLabel: 'R', dayNumber: 2, dayCount: 3, runStart: TODAY })).toBe(`TIDE:R:${TODAY}`);
+  });
+
+  it('falls back to the plain topic identity without a dayCount, or with a zero one', async () => {
+    expect(await idOf({ runLabel: 'R', dayNumber: 2 })).toBe(`SPRING_TIDE:${MON}`);
+    expect(await idOf({ runLabel: 'R', dayNumber: 2, dayCount: 0 })).toBe(`SPRING_TIDE:${MON}`);
+  });
+
+  it('falls back to the plain topic identity without a dayNumber, or with a zero one', async () => {
+    expect(await idOf({ runLabel: 'R', dayCount: 3 })).toBe(`SPRING_TIDE:${MON}`);
+    expect(await idOf({ runLabel: 'R', dayNumber: 0, dayCount: 3 })).toBe(`SPRING_TIDE:${MON}`);
+  });
+
+  it('falls back to the plain topic identity with no tideRun at all', async () => {
+    expect(await idOf(null)).toBe(`SPRING_TIDE:${MON}`);
+  });
+});
+
+describe('a night topic read on its next morning (the began fallback)', () => {
+  const night = (over = {}) => topic('AURORA', SUN, 'NIGHT', over);
+  const glance = (value) => ({ weather: false, value });
+  const monChip = async (hotTopics) => {
+    const { buildFourDayTiles } = await load();
+    const result = buildFourDayTiles({ todayStr: TODAY, hotTopics });
+    return result.days.find((d) => d.date === MON).chips[0];
+  };
+
+  it('speaks with the topics that covered the day before, not every record landing on the date', async () => {
+    // X is dated Sunday but ends before it begins, so it covers no night at all; A covers Sunday night only.
+    // On Monday morning only A "began" yesterday, so only A's glance may speak, though X is listed first.
+    const x = night({ endDate: TODAY, glance: glance('x-value') });
+    const a = night({ glance: glance('a-value') });
+    const chip = await monChip([x, a]);
+    expect(chip.coversDay).toBe(false);
+    expect(chip.value).toBe('a-value');
+  });
+
+  it('falls back to every record when none of them covered the day before either', async () => {
+    const x = night({ endDate: TODAY, glance: glance('x-value') });
+    const chip = await monChip([x]);
+    expect(chip.coversDay).toBe(false);
+    expect(chip.value).toBe('x-value');
+  });
+
+  it('does not use the began fallback for a day the topic covers', async () => {
+    const covering = night({ endDate: MON, glance: glance('covers') });
+    const chip = await monChip([covering]);
+    expect(chip.coversDay).toBe(true);
+    expect(chip.value).toBe('covers');
+  });
+});
+
+describe('buildGlanceLanes — row assignment and output order', () => {
+  const DATES = ['2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'];
+  const chip = (id) => ({
+    key: id, type: id, name: id, colour: '#000', eventId: id, coversDay: true, runStart: null, runEnd: null,
+    value: null, badge: null, weather: false, events: [], jump: null, mapDoor: null, target: null,
+  });
+  /** One day per date; {@code perDay[i]} are the event ids that day holds, in chip order. */
+  const lanes = async (perDay) => {
+    const { buildGlanceLanes } = await load();
+    const days = perDay.map((ids, i) => ({ date: DATES[i], chips: ids.map(chip) }));
+    const columns = perDay.map((_, i) => ({ date: DATES[i], live: true }));
+    return buildGlanceLanes(days, columns, []);
+  };
+  const summary = (out) => out.map((l) => `${l.type}:${l.row}:${l.startCol}-${l.endCol}`);
+
+  it('gives the longest span the top row, and orders the output by row then column, not by creation', async () => {
+    // short (1-2) is created first, long (2-5) second, tail (6) third. long beats short for row 1.
+    const out = await lanes([['short'], ['short', 'long'], ['long'], ['long'], ['long'], ['tail']]);
+    expect(summary(out)).toEqual(['long:1:2-5', 'tail:1:6-6', 'short:2:1-2']);
+  });
+
+  it('breaks a span tie by the earlier column, then by chip order', async () => {
+    // x (1-2) and y (2-3) are the same length and overlap: x, starting first, takes row 1.
+    const out = await lanes([['x'], ['x', 'y'], ['y']]);
+    expect(summary(out)).toEqual(['x:1:1-2', 'y:2:2-3']);
+    // p and q start in the same column and are the same length: the first chip takes row 1.
+    const same = await lanes([['q', 'p']]);
+    expect(summary(same)).toEqual(['q:1:1-1', 'p:2:1-1']);
+  });
+
+  it('draws nothing for a live column that is not one of the four days', async () => {
+    const { buildGlanceLanes } = await load();
+    const days = [{ date: DATES[1], chips: [chip('a')] }];
+    const columns = [{ date: DATES[0], live: true }];
+    expect(buildGlanceLanes(days, columns, [])).toEqual([]);
+  });
+
+  it('reads a daytime topic\'s served extent as its own date only, whatever endDate it carries', async () => {
+    const { buildFourDayTiles, buildGlanceLanes } = await load();
+    const hotTopics = [topic('DUST', SUN, 'SUNSET', { endDate: TUE })];
+    const { days } = buildFourDayTiles({ todayStr: TODAY, hotTopics });
+    const columns = days.map((d) => ({ date: d.date, live: true }));
+    const [lane] = buildGlanceLanes(days, columns, hotTopics);
+    expect(lane).toMatchObject({ dates: [SUN], startsBefore: false, endsAfter: false });
+  });
+
+  it('puts a lane that fits beside an earlier one on the same row, ordered by column', async () => {
+    const out = await lanes([['a'], [], ['b'], [], ['c']]);
+    expect(summary(out)).toEqual(['a:1:1-1', 'b:1:3-3', 'c:1:5-5']);
+  });
+
+  it('ranks three lanes of different lengths by span even when created shortest first', async () => {
+    // one (1), two (1-2), three (1-3): all overlap column 1, so each takes its own row, longest on top.
+    const out = await lanes([['one', 'two', 'three'], ['two', 'three'], ['three']]);
+    expect(summary(out)).toEqual(['three:1:1-3', 'two:2:1-2', 'one:3:1-1']);
+  });
+});

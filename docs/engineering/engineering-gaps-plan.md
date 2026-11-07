@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b built on `test/e2e-nginx` (PR pending; the reliability proof is a separate, temporary tip commit that is reverted before merge). 3c built on `test/e2e-a11y`, PR after 3b merges (the job is its own `.github/workflows/a11y.yml`, not a `ci.yml` job, so a red advisory run cannot block a release).
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b merged (#1786). Phase 3c built on `test/e2e-a11y` (advisory workflow `a11y.yml`; it lands red on three serious rules, each fixed in its own PR).
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is

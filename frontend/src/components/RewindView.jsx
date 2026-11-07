@@ -141,7 +141,7 @@ export default function RewindView() {
                   disabled={!offerable(event)}
                   aria-label={`Rewind to ${formatEventTimeUk(event.rewindTo)}, before the ${(EVENT_WORD[event.eventType] ?? event.eventType).toLowerCase()} of ${dayLabel(event.date)}`}
                   onClick={() => rewindToEvent(event)}
-                  className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40 max-[639px]:min-h-11"
                 >
                   Rewind to {formatEventTimeUk(event.rewindTo)}
                 </button>
@@ -164,7 +164,7 @@ export default function RewindView() {
             min={toLocalInputValue(new Date(wallNow.getTime() - maxAgeDays * DAY_MS))}
             max={toLocalInputValue(wallNow)}
             onChange={(e) => setCustom(e.target.value)}
-            className="rounded border border-plex-border bg-plex-surface px-2 py-1 text-sm text-plex-text"
+            className="rounded border border-plex-border bg-plex-surface px-2 py-1 text-sm text-plex-text max-[639px]:min-h-11"
             data-testid="rewind-custom"
           />
           <button
@@ -172,7 +172,7 @@ export default function RewindView() {
             data-testid="rewind-custom-go"
             disabled={!customInRange(custom, wallNow, maxAgeDays)}
             onClick={rewindToCustom}
-            className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-plex-surface border border-plex-border px-3 py-1 text-xs font-semibold text-plex-text hover:border-plex-gold disabled:cursor-not-allowed disabled:opacity-40 max-[639px]:min-h-11"
           >
             Rewind
           </button>

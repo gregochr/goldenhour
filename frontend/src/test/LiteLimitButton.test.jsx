@@ -26,6 +26,14 @@ describe('LiteLimitButton', () => {
     expect(screen.getByTestId('lite-limit-btn')).toHaveAttribute('aria-haspopup', 'dialog');
   });
 
+  it('keeps the trigger and the Close button at 44px on a phone', async () => {
+    render(<LiteLimitButton />);
+    const trigger = await screen.findByTestId('lite-limit-btn');
+    expect(trigger).toHaveClass('max-[639px]:min-h-11');
+    fireEvent.click(trigger);
+    expect(await screen.findByTestId('lite-limit-close')).toHaveClass('max-[639px]:min-h-11');
+  });
+
   it('shows an ellipsis while loading', async () => {
     let resolve;
     getSubRegionPolicy.mockReturnValue(new Promise((res) => { resolve = res; }));

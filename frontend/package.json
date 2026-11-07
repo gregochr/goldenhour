@@ -50,6 +50,12 @@
     },
     "@eslint/config-array": {
       "minimatch": "11.0.4"
+    },
+    "@stryker-mutator/core": {
+      "minimatch": "11.0.4"
+    },
+    "typed-rest-client": {
+      "qs": "6.16.1"
     }
   },
   "devDependencies": {
@@ -69,7 +75,7 @@
     "eslint-plugin-react": "^7.37.4",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.14.0",
-    "jsdom": "^30.1.1",
+    "jsdom": "^30.1.3",
     "postcss": "^8.5.32",
     "prettier": "^3.9.10",
     "tailwindcss": "^4.3.4",

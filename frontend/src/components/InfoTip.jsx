@@ -109,7 +109,7 @@ export default function InfoTip({
         type="button"
         onClick={(e) => { e.stopPropagation(); setOpen((prev) => !prev); }}
         style={accentColor ? { color: accentColor } : undefined}
-        className={`relative inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current transition-opacity cursor-pointer before:content-[''] before:absolute before:-inset-1 ${accentColor ? 'opacity-80 hover:opacity-100' : 'opacity-50 hover:opacity-80'}`}
+        className={`relative inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] leading-none font-bold border border-current transition-opacity cursor-pointer before:content-[''] before:absolute before:-inset-1 max-[639px]:before:-inset-y-[15px] ${accentColor ? 'opacity-80 hover:opacity-100' : 'opacity-50 hover:opacity-80'}`}
         aria-label="More info"
         data-testid="infotip-trigger"
       >

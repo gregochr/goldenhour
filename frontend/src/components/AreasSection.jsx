@@ -8,7 +8,7 @@ import { parseAliases, formatAliases, errorText } from '../utils/aliasText.js';
 /** The most uncovered locations the coverage line names before it says "and N more". */
 const UNCOVERED_NAMES_SHOWN = 12;
 
-const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold';
+const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-2 py-1 text-xs text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold max-[639px]:min-h-11';
 
 /**
  * The Areas sub-tab (Operations → Places → Areas, admin only): the named areas Ask understands, such as
@@ -214,7 +214,7 @@ export default function AreasSection({ locations }) {
         {!loadError && (
         <button
           type="button"
-          className="btn-secondary text-xs shrink-0"
+          className="btn-secondary text-xs shrink-0 max-[639px]:min-h-11"
           onClick={startCreate}
           disabled={busy}
           data-testid="add-area-btn"
@@ -245,12 +245,12 @@ export default function AreasSection({ locations }) {
           {renderNameFields('area-new')}
           {failure?.key === 'new' && <p className="text-xs text-red-400" data-testid="area-error">{failure.message}</p>}
           <div className="flex gap-2 justify-end">
-            <button type="button" className="btn-secondary text-xs" onClick={closeForms} disabled={busy}>
+            <button type="button" className="btn-secondary text-xs max-[639px]:min-h-11" onClick={closeForms} disabled={busy}>
               Cancel
             </button>
             <button
               type="button"
-              className="btn-primary text-xs"
+              className="btn-primary text-xs max-[639px]:min-h-11"
               onClick={handleCreate}
               disabled={busy}
               data-testid="area-create-btn"
@@ -290,7 +290,7 @@ export default function AreasSection({ locations }) {
                 <div className="flex gap-2 shrink-0">
                   <button
                     type="button"
-                    className="btn-secondary text-xs"
+                    className="btn-secondary text-xs max-[639px]:min-h-11"
                     onClick={() => (editing ? closeForms() : startEdit(area))}
                     disabled={busy}
                     data-testid={`area-edit-${area.id}`}
@@ -299,7 +299,7 @@ export default function AreasSection({ locations }) {
                   </button>
                   <button
                     type="button"
-                    className="btn-secondary text-xs"
+                    className="btn-secondary text-xs max-[639px]:min-h-11"
                     onClick={() => { setFailure(null); setConfirmDeleteId(area.id); }}
                     disabled={busy}
                     data-testid={`area-delete-${area.id}`}
@@ -318,7 +318,7 @@ export default function AreasSection({ locations }) {
                   </span>
                   <button
                     type="button"
-                    className="btn-secondary text-xs"
+                    className="btn-secondary text-xs max-[639px]:min-h-11"
                     onClick={() => setConfirmDeleteId(null)}
                     disabled={busy}
                   >
@@ -326,7 +326,7 @@ export default function AreasSection({ locations }) {
                   </button>
                   <button
                     type="button"
-                    className="btn-primary text-xs"
+                    className="btn-primary text-xs max-[639px]:min-h-11"
                     onClick={() => handleDelete(area.id)}
                     disabled={busy}
                     data-testid={`area-delete-yes-${area.id}`}
@@ -345,7 +345,7 @@ export default function AreasSection({ locations }) {
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      className="btn-primary text-xs"
+                      className="btn-primary text-xs max-[639px]:min-h-11"
                       onClick={handleSaveNames}
                       disabled={busy}
                       data-testid="area-save-names"
@@ -397,9 +397,10 @@ export default function AreasSection({ locations }) {
                         <ul className="max-h-48 overflow-y-auto border border-plex-border rounded p-1" data-testid="area-member-list">
                           {shownLocations.map((loc) => (
                             <li key={loc.id}>
-                              <label className="flex items-center gap-2 text-xs text-plex-text cursor-pointer py-0.5">
+                              <label className="flex items-center gap-2 text-xs text-plex-text cursor-pointer py-0.5 max-[639px]:min-h-11 max-[639px]:py-0">
                                 <input
                                   type="checkbox"
+                                  className="max-[639px]:size-5"
                                   checked={members.has(loc.id)}
                                   onChange={() => toggleMember(loc.id)}
                                   data-testid={`area-member-${loc.id}`}
@@ -416,7 +417,7 @@ export default function AreasSection({ locations }) {
                       <div className="flex justify-end">
                         <button
                           type="button"
-                          className="btn-primary text-xs"
+                          className="btn-primary text-xs max-[639px]:min-h-11"
                           onClick={handleSaveMembers}
                           disabled={busy}
                           data-testid="area-save-members"

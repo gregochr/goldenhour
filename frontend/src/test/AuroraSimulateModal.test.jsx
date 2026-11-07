@@ -24,6 +24,14 @@ describe('AuroraSimulateModal', () => {
     expect(screen.getByTestId('simulate-gscale')).toHaveValue('G3');
   });
 
+  it('makes the presets, inputs and footer buttons 44px tap targets on a phone', () => {
+    setup({ isActive: true });
+    ['simulate-preset-G3', 'simulate-kp', 'simulate-ovation', 'simulate-bz', 'simulate-gscale',
+      'simulate-clear-btn', 'simulate-cancel-btn', 'simulate-submit-btn'].forEach((id) => {
+      expect(screen.getByTestId(id)).toHaveClass('max-[639px]:min-h-11');
+    });
+  });
+
   it.each([
     ['G2', 6, 30, -8],
     ['G3', 7, 45, -12],

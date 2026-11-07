@@ -46,6 +46,13 @@ describe('RewindView', () => {
     expect(screen.getByRole('button', { name: 'Rewind to 17:37, before the sunset of Sat 3 Oct' })).toBeInTheDocument();
   });
 
+  it('makes the event buttons, the date input and Rewind 44px tap targets on a phone', async () => {
+    render(<RewindView />);
+    expect(await screen.findByTestId('rewind-to-2026-10-04-SUNRISE')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('rewind-custom')).toHaveClass('max-[639px]:min-h-11');
+    expect(screen.getByTestId('rewind-custom-go')).toHaveClass('max-[639px]:min-h-11');
+  });
+
   it('one location is "1 location"', async () => {
     getRewindEvents.mockResolvedValue({
       ...EVENTS, events: [{ ...EVENTS.events[1], locationCount: 1 }],
