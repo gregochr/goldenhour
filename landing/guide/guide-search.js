@@ -57,5 +57,5 @@
   }
   input.addEventListener('focus',load,{once:true});
   input.addEventListener('input',search);
-  input.addEventListener('keydown',function(e){if(e.key==='Enter'){var a=out.querySelector('a');if(a){e.preventDefault();location.href=a.getAttribute('href');}}});
+  input.addEventListener('keydown',function(e){if(e.key==='Enter'){var a=out.querySelector('a');if(a){e.preventDefault();if(embed)location.replace(a.href);else location.href=a.getAttribute('href');}}});
 })();
