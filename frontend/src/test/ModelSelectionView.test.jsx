@@ -73,6 +73,8 @@ const SWITCHED = 'Briefing model switched to Sonnet 4.6';
 describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // A sub-tab click now writes the hash, which would open the next test on that tab.
+    window.location.hash = '';
     // clearAllMocks leaves mockResolvedValueOnce queues in place, so a test that fails mid-way
     // would hand its unconsumed responses to the next test's first toggle.
     setExtendedThinking.mockReset();

@@ -109,6 +109,14 @@ describe('ManageView — grouping', () => {
     expect(screen.getByTestId('stub-view')).toHaveTextContent(label);
   });
 
+  it('a run-type deep link #manage/models/BATCH_NEAR_TERM lands in Runs / Model Config', () => {
+    window.location.hash = '#manage/models/BATCH_NEAR_TERM';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(isSelectedGroup('runs')).toBe(true);
+    expect(screen.getByTestId('manage-tab-models')).toHaveTextContent('Model Config');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Model Config');
+  });
+
   it('the old Tuning deep links still work: #manage/models is Runs / Model Config, #manage/skyeval is Testing / Sky Eval', () => {
     window.location.hash = '#manage/models';
     const first = render(<ManageView onComplete={vi.fn()} />);
