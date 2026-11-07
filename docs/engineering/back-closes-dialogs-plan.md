@@ -465,7 +465,7 @@ What the engine does where the plan was silent or its formula needed a correctio
   `openPick?.pick != null`, search `searchSeed != null`. Each `onBack` is the close Escape runs. No `openWindow(null)` on
   vanish (refuter amendment 6): a vanished card unregisters and the engine traverses.
 - **The `!guideModal` guard** is on both doors (`onOpenSearch`, the beyond line's `onSearchRegion`). Proved by mutation: with
-  the masthead guard removed the Vitest case fails. The beyond-line door has the same one-line guard but no separate test.
+  the masthead guard removed the Vitest case fails.
 - **Plan ambiguity: "Two layers, then click the Map tab".** The tab bar sits under the modal scrim, so a real click cannot
   reach it. The spec uses the location sheet's own "show on map" door (`location-sheet-map`), which closes both layers and
   calls `selectTab`; the Vitest case clicks the tab directly and asserts one `go(-2)`.
@@ -476,3 +476,14 @@ What the engine does where the plan was silent or its formula needed a correctio
   `go` and no second `pushState`.
 - **Discovery.** `E2E_HYGIENE=record` over the whole smoke suite (smoke, roles-write, logout): no hygiene findings from the new
   specs.
+- **Review round (2b).** The `location-sheet-map` door closes the two layers in its OWN handler (`openOverPopup(null)` and
+  `openWindow(null)`, then the tab move), so the Playwright case proves the entries are consumed and a stale Forward is
+  bounced (`navigation.canGoForward` is asserted true first), not that `selectTab` coalesced to one `go(-2)`. That claim
+  rests on the Vitest case ("makes one go(-2) and takes both layers") in `backDialogsPlan.test.jsx`.
+- **Cold chunks.** `backDialogsPlanCold.test.jsx` mocks `PlanSearch` and `LocationFourDaySheet` with components that suspend
+  forever; only the shell's registration can put a layer in the store. Mutation: deleting the shell's two registrations
+  (equivalent to moving them into the chunk) fails both tests.
+- **Real swap.** Search alone, then a window picked from it, ends with the popup at the same depth: no `go`, one `pushState`.
+- **Third layer.** Popup, then masthead search, then the masthead guide door is already refused by `GuideContext.openGuide`
+  (two standing dialogs, one inert: the full page opens in a new tab). Pinned by a Vitest case. The beyond-line door's
+  `!guideModal` guard is tested, and fails when removed.

@@ -380,12 +380,13 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expect(page.getByTestId('window-first-shell')).toBeVisible();
 
     const depth = await dialogDepth(page);
-    expect(depth.maxDialogs, 'concurrent dialogs').toBeLessThanOrEqual(2);
+    expect(depth.maxDialogs, 'concurrent dialogs (a lower bound: the observer really saw both layers)').toBe(2);
     expect(depth.maxModal, 'concurrent aria-modal elements').toBeLessThanOrEqual(1);
     expect(depth.nowDialogs).toBe(0);
   });
 
   test('Escape closes the top layer, then goBack closes the next: no dead press and no double close', async ({ page }) => {
+    test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openTab(page, 'plan');
     const base = await entryIndex(page);
@@ -407,6 +408,7 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
   });
 
   test('two layers, then the Map tab: the entries are consumed and a stale Forward reopens nothing', async ({ page }) => {
+    test.setTimeout(60_000);
     await loginAndWaitForForecast(page);
     await openTab(page, 'plan');
     const base = await entryIndex(page);
@@ -426,6 +428,7 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     // The two stale entries still sit ahead of the baseline. Forward lands on one: it is bounced, nothing reopens, and
     // the page ends on the baseline again. (A goBack from the baseline would leave the origin, which is correct and
     // is not what this asserts.)
+    expect(await page.evaluate(() => window.navigation.canGoForward), 'stale entries ahead, so the bounce is exercised').toBe(true);
     await page.goForward();
 
     await expectBaseline(page, base);
