@@ -805,7 +805,7 @@ describe('the phone attribution is ONE tappable line, below the sheet (C2)', () 
       const style = computedStyleFor('leaflet-control-attribution wf-attr-full', ['wf-map-tab']);
       expect(style.whiteSpace).toBe('normal');
       expect(style.maxWidth).toBe('370px');
-      expect(style.background).toBe('rgb(20, 16, 13)');
+      expect(style.backgroundColor).toBe('rgb(20, 16, 13)');
     } finally {
       cleanup();
     }

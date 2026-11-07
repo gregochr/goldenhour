@@ -218,6 +218,7 @@ function context() {
 }
 
 let ask$;
+let openHandoff;
 function Capture() {
   const value = useAsk();
   useEffect(() => { ask$ = value; });
@@ -228,6 +229,9 @@ function Capture() {
 function Host({ onOpenSettings }) {
   const [handoff, setHandoff] = useState(null);
   const nonce = useRef(0);
+  useEffect(() => {
+    openHandoff = (spot) => { nonce.current += 1; setHandoff({ ...spot, nonce: nonce.current }); };
+  }, []);
   return (
     <AskProvider>
       <Capture />
@@ -294,6 +298,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  openHandoff = null;
   restoreLayout();
   global.ResizeObserver = originalRO;
   briefingValue = null;
@@ -392,5 +397,21 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
       expect(document.activeElement).not.toBe(document.body);
       expect(screen.getByTestId('window-first-shell').contains(document.activeElement)).toBe(true);
     });
+  });
+
+  it('a plain Map-callout "Open in Plan" (no Ask answer) returns focus to the Plan tab on close', async () => {
+    render(<Host onOpenSettings={vi.fn()} />);
+    await waitFor(() => expect(ask$?.availability).toBe('on'));
+    fireEvent.click(tab('Map'));
+    await screen.findByTestId('wf-map-peek');
+    act(() => openHandoff({
+      id: SALTBURN, name: 'Saltburn', regionName: null, inPlan: true,
+    }));
+    await screen.findByTestId('location-sheet');
+
+    fireEvent.click(screen.getByTestId('location-sheet-close'));
+
+    await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(tab('At a Glance')));
   });
 });
