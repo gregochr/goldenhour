@@ -1,7 +1,7 @@
 # Back closes the top dialog
 
 Status: planned 2026-11-07. Owner request, raised while planning Phase 3a.1 of `engineering-gaps-plan.md`.
-Research was done at `origin/main` 404d8392. **Not yet reviewed.**
+Research was done at `origin/main` 404d8392. Reviewed by five adversarial lenses on 2026-11-07; the **amendments section at the end is binding and wins over the earlier sections where they conflict**.
 
 ## The problem
 
@@ -165,3 +165,207 @@ instead.
 - **Scroll restoration jumps:** measure first.
 - **One dead press** after a reload or Forward: accepted.
 - **Review push-back on `Modal` pinning tests:** expected, because desktop behaviour changes.
+
+---
+
+## Review amendments (2026-11-07). These are binding.
+
+Five lenses reviewed the plan: history mechanics, inventory and wiring, focus and accessibility, real devices,
+and tests and rollout.
+
+### Owner decisions, revised after review
+- **The guide stays in, and its links are fixed first.** In embed mode, `landing/guide/guide.js` makes in-guide
+  navigation **replace** the current entry: `location.replace(href)` for guide-to-guide links, and
+  `history.replaceState` plus `scrollIntoView` for `#section` links. Otherwise every in-frame navigation adds
+  an entry to the page's joint history, which the store cannot see. Back would then page through the guide,
+  and closing with × would leave a dead press.
+  - This ships on its own as a **landing PR, published with `./release-landing.sh` before PR 2b.**
+- **Back cancels** confirm dialogs (`confirm-dialog`) and the aurora forecast and simulate modals. Back runs
+  their Cancel path. Chromium's history-manipulation intervention makes any "absorb Back" only good for the
+  first press, so a second Back with no tap in between can leave the app.
+  - **The one exception is `temp-password-modal`**, which stays blocking because cancelling would lose the
+    password. Absorbing Back there is **best-effort**: the first Back is absorbed, and a quick second one may
+    still leave on Chrome. This is documented, and the owner may later add a `beforeunload` for it.
+- **`lite-limit-dialog` is Included, not Blocking.** It does close on Escape (`LiteLimitButton.jsx:39-48`, a
+  capture-phase keydown), so under the owner's rule Back closes it.
+- **Settings while deleting, and the drive-times spinner,** are the remaining blocking states. They share one
+  `Modal` instance with the Settings and result views (see the engine, item 7).
+
+### The engine (replaces design items 5–9 and 11)
+1. **Source of truth.** The depth comes from the entry the browser actually lands on, never from a flag or a
+   counter:
+   - `arrivedDepth = history.state?.phLayer` when `session` matches and `href === location.href`, else 0.
+   - The marker carries `{session, seq, depth, href}`. The session is `crypto.randomUUID()` per page load,
+     never `sessionStorage`, which a duplicated tab copies.
+2. **On `popstate`,** handled by a listener registered at **module evaluation** so it runs before
+   `RunsView`'s:
+   1. **Restore the URL:** if a hash or query writer rewrote our top entry while a layer was up, call
+      `replaceState(history.state, '', recordedTopUrl)` synchronously. Queued `hashchange` and `RunsView`
+      listeners then read the right URL.
+   2. **Classify the arrival:**
+      - **Our own pending traversal:** never close and never bounce; reconcile from `arrivedDepth`.
+      - **Same session with depth > stack (Forward):** bounce with `history.go(stack.length - depth)`, close
+        nothing, and mark the bounce as a pending traversal.
+      - **Foreign session or no marker:** treat as depth 0.
+   3. **Close from the top down** to `arrivedDepth`. **Pop the store's entries synchronously before calling
+      `onBack`**, so the unmount that follows never triggers a second traversal.
+   4. **Blocking layers:** stop at the first blocking layer (read live). Re-push `stack.length − arrivedDepth`
+      entries so that every still-open layer has its entry again; best-effort, see above.
+3. **Reconcile (on commit)** compares the stack with `committedDepth`, the depth we last placed or arrived at,
+   **never with the previous stack length**:
+   - **Grow:** push, but only under user activation (`navigator.userActivation.isActive`). Otherwise register
+     the layer **entry-less**: Back behaves as today, and it never marks the base entry skippable.
+   - **Shrink:** `go(-n)`, but only when the top entry is ours: same session, the expected depth, and
+     `href === location.href`. Otherwise strip the marker with `replaceState` and do not navigate.
+   - **Pending traversals:** closes and pushes are deferred while a traversal is pending. When the traversal
+     lands, or at a timeout, re-read `history.state` and reconcile from it. **The timeout only re-reads; it
+     never pushes blind.**
+4. **A layer that refused the close re-pushes.** If a layer is still registered on the commit after its
+   popstate-driven `onBack` (`closeUnlessDeleting`, the result view's `dismissRefreshResult`), push its marker
+   again.
+5. **Registration follows intent state, not render.**
+   - Lazy dialogs (`LocationFourDaySheet`, `PlanSearch`, `WindowSheetDialog` behind `fallback={null}`)
+     register from the owner's open state, e.g. `useBackLayer({open: sheetSpot != null})` in the shell,
+     outside `Suspense`. Otherwise a swap to a cold chunk becomes a pop followed by a push with no gesture.
+   - When "the card vanished" on a data refresh, clear the key (`openWindow(null)` / `openOverPopup(null)`),
+     so a vanished layer is closed, not hidden. That way a refresh can never reopen a dialog without a push.
+6. **Stacked layers stay registered.** `closeOnBack` is always on for Plan search and Settings, and is never
+   mirrored from `stacked`. Stack order picks the top layer. The one three-deep keyboard route (popup → guide
+   → masthead search) is closed off by adding `!guideModal` to search's opening guards.
+7. **The API** (all of it lands in PR 1):
+   - `Modal` and `BottomSheet` get `back="close" | "cancel" | "block"`. Absent means no registration and no
+     history call: byte-identical to today.
+   - A registration **updates `blocking` and `onBack` in place** (callback in a ref) when props change, so the
+     Settings instance's spinner → result → Settings views never unregister mid-way.
+   - A `Modal` with no `onClose` implies block.
+   - `useBackLayer({open, onBack, mode})` for raw markup (the guide dialog, `SettingsFallback`) and a function
+     wrapper for the `ChunkErrorBoundary` class.
+8. **Robustness:**
+   - every `pushState`, `replaceState` and `go` is wrapped in try/catch, degrading to entry-less (WebKit
+     throws above about 100 calls in 10–30 s);
+   - `history.state?.` is read defensively everywhere;
+   - no import-time side effects beyond the listener;
+   - StrictMode's double mount nets to one push.
+9. **Off switch:** a single constant in `dialogHistory.js` turns every registration into a no-op, proven by a
+   test that makes zero history calls. Rollback is a one-line PR.
+10. **The first-run guard (PR 3):**
+    - defer to `click` or `keyup`, not `pointerdown`, which is not activation-triggering on touch;
+    - push only when `userActivation.isActive`.
+11. **Corrections to earlier claims:**
+    - Not every `replaceState` copies `history.state`: `App.jsx:158`, `App.jsx:209`, `RegisterPage.jsx:276`
+      and `ResetPasswordPage.jsx:64/73` write `{}`. They run in auth flows only, item 1's guard covers them,
+      and they are named as intentional.
+    - Every other `replaceState` writer must keep copying state. The CLAUDE.md rule below says so.
+
+### Scroll (replaces design item 12's scroll line)
+- **The problem:** with `scrollRestoration='auto'`, every close (×, Escape, `selectTab`, Back) now traverses,
+  and the browser restores the base entry's scroll afterwards. That undoes app scrolls: the Ask highlight's
+  smooth scroll, a page scroll made behind a `Modal`, and the opener scroll from focus restore.
+- **The fix:**
+  - set `history.scrollRestoration='manual'` **just before the first push**, so both the base and the layer
+    entry inherit it;
+  - set it back to `'auto'` once at depth 0 with our traversal landed;
+  - guard for jsdom, which lacks the property.
+- **Side effect:** reloading with a dialog open no longer restores scroll. Accepted.
+- **BottomSheet's scroll lock gets a module-level reference count.** With two sheets closing in one commit,
+  `body` was being left `overflow:hidden`.
+
+### Excluded: also name these
+- the spot hover peek (`useSpotPeek.js:184`), `MapPeekAsk` (`:305`) and `DayTooltip`;
+- the in-panel confirm and edit steps in Operations. Their Escape steps back inside the panel; Back leaves the
+  panel through the hash, as today.
+
+### Tests (replace the PR test lists)
+- **Vitest.** The store takes an **injectable history and window seam**. Its logic is tested against a small
+  fake that models Chromium:
+  - every queued traversal runs;
+  - a push truncates the forward entries;
+  - an out-of-range `go` does nothing.
+
+  jsdom itself merges two `back()` calls into one, drops a traversal followed by `pushState`, and has no
+  `userActivation` or `scrollRestoration`. So it is used only for a few wiring tests, and the gaps are listed
+  in `dev-and-testing.md`.
+  - Assert spy calls (`go` called once with `-2`), not `popstate` counts.
+  - Use `__resetForTests()` between tests, and fake timers for the timeout branch.
+  - **Cases to add:**
+    - Back with one layer makes exactly one traversal;
+    - Escape held down over two layers;
+    - a hash push between a close and its arrival;
+    - Forward bounce;
+    - a refused close re-pushes;
+    - a blocking layer over an included layer;
+    - `onBack` throwing;
+    - logout with a dialog open;
+    - the Rewind remount;
+    - StrictMode;
+    - the off switch;
+    - the marker survives each state writer;
+    - an absent prop makes zero history calls (spies), because the attribute pinning alone does not prove it;
+    - a lazy target swap;
+    - a same-depth swap makes no `go(0)`.
+- **Playwright** (`smoke/back.spec.js`, after 3a.1 merges):
+  - **Before every `goBack` / `goForward` / reload,** wait for the store to settle: poll a `data-back-depth`
+    attribute on `<html>` (a seam like 3a.1's `data-placed`). Otherwise Playwright's index-based `goBack`
+    double-steps.
+  - **The baseline:** capture `navigation.currentEntry.index` before opening anything. After a ×,
+    Escape or `selectTab` close, assert the index is back to the baseline and there is no `phLayer`. **"No
+    dead press" is the property**, not "stays in the app"; `goBack` from the baseline leaving the origin is
+    correct.
+  - **The Operations case:** use the seeded `#manage/users/<adminId>`. Open the `reset-password` confirm,
+    `goBack` cancels it and the panel stays, then the next `goBack` closes the panel. **Never click
+    confirm-dialog-confirm**, because it would reset the shared admin.
+  - **The guide case:**
+    - stub the guide iframe with a route-fulfilled HTML page that posts the `photocast-guide` message, and
+      add that host to the fixture's allowed list;
+    - follow a link inside it, then `goBack` closes the guide, and × followed by `goBack` gives no dead press.
+  - **Focus after Back:**
+    - the first `goBack` returns focus inside `window-sheet`, on its spot control;
+    - the second returns it to the Plan card;
+    - over the Map, focus returns to the callout's control.
+  - **Scroll:** assert `scrollY` after closing with ×, Escape and `goBack`, including the Ask-highlight route.
+  - **Reload:** assert `history.state?.phLayer` is absent.
+  - **Selectors:** `bottom-sheet` is shared, so select by `aria-label`. The guide dialog's test id is
+    `guide-dialog`.
+  - **Phone width:** `test.use({ viewport: { width: 390, height: 844 } })`.
+  - **WebKit** is a one-off local run, with its results recorded in the PR. The gate stays Chromium-only.
+  - **Reliability proof:** the same 5× matrix plus `--repeat-each=10`. Budget about 30–40 s more.
+- **The manual device pass is a RELEASE BLOCKER.** Playwright's `goBack` ignores skippable entries and
+  always grants activation, so none of these can be automated:
+  - **Android Chrome, in a tab and as a standalone PWA:**
+    - Back on each included dialog;
+    - a double Back on `temp-password-modal`;
+    - a Back on the result view and then Back again;
+    - a data-refreshed popup;
+    - a cold-chunk swap;
+    - the guide with in-frame navigation;
+    - the first-run guard after a tap and before any tap;
+    - predictive-back previews;
+    - the keyboard-up first Back (it only hides the keyboard, which is expected).
+  - **iOS Safari in a tab:**
+    - swipe-back, including a check for a flash or bounce;
+    - swipe-forward;
+    - VoiceOver's scrub gesture.
+  - **Desktop Chrome and Firefox:** Back, Forward, the mouse back button, and Alt+Left inside a text field.
+
+### PR split (replaces the earlier split)
+- **Landing PR:** the guide's links replace history in embed mode. Published before 2b.
+- **PR 1:** the store, the seam, the `back` prop on `Modal` and `BottomSheet` (all three modes), `useBackLayer`,
+  the scroll handling, the BottomSheet lock reference count, the off switch, and `data-back-depth`. A harness
+  test with a real stacked `Modal` and `BottomSheet` stands in for the missing consumers.
+- **PR 2a:** the cancel and block set (confirms, aurora, temp-password, the Settings spinner, delete and
+  result views), plus Settings, the sub-region sheet and confirm, the guide, the Ask sheet and lite-limit,
+  with their specs. A blocking modal ships with, or before, any included layer it can sit over.
+- **PR 2b:** the Plan-shell dialogs (popup, spots, location sheet, picks, search), the
+  `openWindow(null)`-on-vanish fix and the `!guideModal` guard, with their specs. **No release is cut between
+  2a and 2b.**
+- **PR 3:** the first-run guard.
+- **Each PR** gets the full UI review cadence (about six lenses plus refuters), and amends the 3a.1 line "the
+  browser Back button closes no dialog … not tested".
+
+### Docs
+- **CLAUDE.md:** append to the **Dialogs** bullet as a rule:
+  > "Back: a layer Escape closes takes `back="close"`; history entries go only through
+  > `utils/dialogHistory.js`; every `replaceState` copies `history.state`; never register a `#manage` panel
+  > (see `plan-tab.md`, 'Back')."
+- **The detail** goes in `plan-tab.md`, `map-tab.md` (the exclusions) and `dev-and-testing.md` (the jsdom and
+  Playwright limits).
