@@ -81,12 +81,16 @@ function laneCoveredDates(topic) {
 
 /**
  * The identity of the EVENT a served topic is one day of: the topic itself ({@code type} and {@code date}), or,
- * for a tide, its whole run — the served {@code tideRun} states which day of how many this is, so the run's first
- * date is {@code date - (dayNumber - 1)}. Two separate MIST topics on adjacent days are two events; a four-day
- * spring run is one.
+ * for a tide, its whole run — keyed on the served {@code tideRun.runStart} (the run's real first date, which may
+ * lie before the served window) when it is a string, else (an old cached briefing, or Lite, whose {@code tideRun}
+ * is null and so never reaches here) on the windowed count: the run's first date is {@code date - (dayNumber - 1)}.
+ * Two separate MIST topics on adjacent days are two events; a four-day spring run is one.
  */
 function eventIdOf(topic) {
   const run = topic.tideRun;
+  if (TIDE_TOPICS.has(topic.type) && typeof run?.runStart === 'string') {
+    return `TIDE:${run.runLabel ?? ''}:${run.runStart}`;
+  }
   if (TIDE_TOPICS.has(topic.type) && run?.dayNumber >= 1 && run?.dayCount >= 1) {
     return `TIDE:${run.runLabel ?? ''}:${run.dayCount}:${shiftDateStr(topic.date, 1 - run.dayNumber)}`;
   }
@@ -213,6 +217,8 @@ function buildChip(type, date, allRecords, ctx) {
     badge: glance?.badge ?? null,
     weather,
     eventId: eventIdOf(first),
+    runStart: TIDE_TOPICS.has(first.type) ? (first.tideRun?.runStart ?? null) : null,
+    runEnd: TIDE_TOPICS.has(first.type) ? (first.tideRun?.runEnd ?? null) : null,
     coversDay,
     events,
     jump: jumpFor(type, date, ctx.entries, ctx.rendered),
@@ -303,9 +309,12 @@ export function buildFourDayTiles({
  * <p>{@code detail} is the PEAK day's served value when the run has a peak (else the first day's), with
  * {@code detailDate} the day it came from. The routes ({@code jump}, {@code mapDoor}, {@code target}) are each
  * the first chip's in the run that has one. Only PEAK is a tag ({@code peak} is its date). {@code startsBefore}
- * / {@code endsAfter} say a SERVED topic of the same event covers the day before / after the run — the briefing
- * serves topics clipped to today…the last plan date, so a tide run that really began yesterday or runs past the
- * last day is not visible here (a backend follow-up, not guessed at).
+ * / {@code endsAfter} are decided per edge: for a tide whose first chip carries the served {@code runStart} /
+ * {@code runEnd} (the run's real extent, tide-run-extent-plan.md) the edge is {@code runStart < firstDate} /
+ * {@code runEnd > lastDate} (ISO string compare); otherwise it says a SERVED topic of the same event covers the
+ * day before / after the run. The briefing serves topics clipped to today…the last plan date, so only the served
+ * extent can show that a tide run began yesterday or runs past the last day; an old cached briefing and Lite
+ * (no {@code tideRun}) fall back to the served-dates rule.
  *
  * <p><b>Rows are assigned here</b>, first-fit, longest span first then earliest column then chip order, and the
  * output is sorted by (row, startCol) — the DOM order — so Tab follows the visual order (WCAG 2.4.3).
@@ -373,8 +382,12 @@ export function buildGlanceLanes(days, columns, hotTopics) {
       detail: source.chip.value ?? null,
       detailDate: source.chip.value ? source.date : null,
       peak: peakItem ? peakItem.date : null,
-      startsBefore: served?.has(shiftDateStr(first.date, -1)) ?? false,
-      endsAfter: served?.has(shiftDateStr(dates[dates.length - 1], 1)) ?? false,
+      startsBefore: typeof first.chip.runStart === 'string'
+        ? first.chip.runStart < first.date
+        : served?.has(shiftDateStr(first.date, -1)) === true,
+      endsAfter: typeof first.chip.runEnd === 'string'
+        ? first.chip.runEnd > dates[dates.length - 1]
+        : served?.has(shiftDateStr(dates[dates.length - 1], 1)) === true,
       dates,
       jump: firstWith('jump'),
       mapDoor: firstWith('mapDoor'),

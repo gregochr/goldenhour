@@ -196,7 +196,7 @@ class TideLightLiteShapingTest {
         Set<String> strippedWhole = Set.of("runLabel", "dayNumber", "dayCount", "dayLabel", "locationName",
                 "range", "rangeAnomaly", "highWater", "sunrise", "sunset",
                 "seas", "tides", "verdict", "aligned", "alignedEvent",
-                "roster", "peak", "phrase");
+                "roster", "peak", "phrase", "runStart", "runEnd");
 
         assertThat(names(TideRunDay.class))
                 .as("a new TideRunDay component is stripped with the whole run row; classify it here")

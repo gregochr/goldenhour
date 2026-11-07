@@ -26,6 +26,13 @@ const tideRun = (date, n, count = 3, over = {}) => topic('SPRING_TIDE', date, nu
   glance: glance({ value: `day ${n}` }),
   ...over,
 });
+/** A run day carrying the server's real extent ({@code runStart}/{@code runEnd}), which may lie outside the window. */
+const extRun = (date, n, runStart, runEnd, over = {}) => tideRun(date, n, 9, {
+  tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 9, runStart, runEnd },
+  ...over,
+});
+const YESTERDAY = '2026-10-23';
+const LATER = '2026-10-30';
 const wx = (type, date, eventType = 'SUNRISE', over = {}) => topic(type, date, eventType, {
   glance: glance({ weather: true, value: 'dawn · 9/10' }), ...over,
 });
@@ -172,6 +179,21 @@ describe('buildFourDayTiles — one chip per type per day', () => {
     const runs = [chipsOf(result, SUN), chipsOf(result, MON)].map((chips) => chips.find((c) => c.type === 'SPRING_TIDE'));
     expect(runs[0].eventId).toBe(`TIDE:SPRING RUN:3:${SUN}`);
     expect(runs[1].eventId).toBe(runs[0].eventId);
+  });
+
+  it('keys a run on its served runStart when present, and carries runStart/runEnd on the chip', () => {
+    const result = tiles({ hotTopics: [extRun(SUN, 2, YESTERDAY, LATER), extRun(MON, 3, YESTERDAY, LATER)] });
+    const [sun, mon] = [chipsOf(result, SUN), chipsOf(result, MON)].map((chips) => chips.find((c) => c.type === 'SPRING_TIDE'));
+    expect(sun.eventId).toBe(`TIDE:SPRING RUN:${YESTERDAY}`);
+    expect(mon.eventId).toBe(sun.eventId);
+    expect(sun).toMatchObject({ runStart: YESTERDAY, runEnd: LATER });
+  });
+
+  it('leaves runStart/runEnd null on a tide chip without them and on a non-tide chip', () => {
+    const result = tiles({ hotTopics: [tideRun(SUN, 1), wx('MIST', SUN)] });
+    const chips = chipsOf(result, SUN);
+    expect(chips.find((c) => c.type === 'SPRING_TIDE')).toMatchObject({ runStart: null, runEnd: null });
+    expect(chips.find((c) => c.type === 'MIST')).toMatchObject({ runStart: null, runEnd: null });
   });
 
   it('identifies a tide with no served run row by its own date, and does not call two such days one event', () => {
@@ -658,6 +680,68 @@ describe('buildGlanceLanes — the four days as lanes (days-ahead-lanes-plan.md 
   it('copies the topic\'s palette colour and name onto the lane', () => {
     const [lane] = lanesOf([tideRun(SUN, 1)]);
     expect(lane).toMatchObject({ name: 'Spring tide', colour: '#6FA8B0' });
+  });
+
+  describe('the served run extent (tide-run-extent-plan.md)', () => {
+    it('says a run began earlier when runStart is before the first column, though no topic was served for it', () => {
+      const [lane] = lanesOf([extRun(TODAY, 2, YESTERDAY, SUN), extRun(SUN, 3, YESTERDAY, SUN)]);
+      expect(lane).toMatchObject({ startsBefore: true, endsAfter: false, dates: [TODAY, SUN] });
+    });
+
+    it('says a run continues when runEnd is past the last column', () => {
+      const [lane] = lanesOf([extRun(MON, 1, MON, LATER), extRun(TUE, 2, MON, LATER)]);
+      expect(lane).toMatchObject({ startsBefore: false, endsAfter: true });
+    });
+
+    it('draws no edge for a run wholly inside the window', () => {
+      const [lane] = lanesOf([extRun(SUN, 1, SUN, MON), extRun(MON, 2, SUN, MON)]);
+      expect(lane).toMatchObject({ startsBefore: false, endsAfter: false });
+    });
+
+    it('says began earlier when today\'s topic was dropped by freshness (lane starts column 2, runStart today)', () => {
+      const [lane] = lanesOf([extRun(SUN, 2, TODAY, MON), extRun(MON, 3, TODAY, MON)]);
+      expect(lane).toMatchObject({ startCol: 2, endCol: 3, startsBefore: true, endsAfter: false });
+    });
+
+    it('keeps two days whose windowed dayNumber would differ in one lane', () => {
+      const lanes = lanesOf([
+        extRun(SUN, 1, SUN, LATER, { tideRun: { runLabel: 'SPRING RUN', dayNumber: 1, dayCount: 2, runStart: SUN, runEnd: LATER } }),
+        extRun(MON, 1, SUN, LATER, { tideRun: { runLabel: 'SPRING RUN', dayNumber: 1, dayCount: 5, runStart: SUN, runEnd: LATER } }),
+      ]);
+      expect(lanes).toHaveLength(1);
+      expect(lanes[0]).toMatchObject({ dates: [SUN, MON], endsAfter: true });
+    });
+
+    it('gives two lanes across a gap, Mon began earlier and Sat continuing', () => {
+      const lanes = lanesOf([extRun(TODAY, 1, TODAY, MON), extRun(MON, 3, TODAY, MON)]);
+      expect(lanes).toHaveLength(2);
+      const [sat, mon] = [...lanes].sort((a, b) => a.startCol - b.startCol);
+      expect(sat).toMatchObject({ dates: [TODAY], startsBefore: false, endsAfter: true });
+      expect(mon).toMatchObject({ dates: [MON], startsBefore: true, endsAfter: false });
+    });
+
+    it('falls back to the served dates when tideRun is null (the Lite shape)', () => {
+      const lanes = lanesOf([tideRun(SUN, 1, 2, { tideRun: null }), tideRun(MON, 2, 2, { tideRun: null })]);
+      expect(lanes.map((l) => [l.startsBefore, l.endsAfter])).toEqual([[false, false], [false, false]]);
+    });
+
+    it('takes only the edge it was served: runStart set, runEnd absent falls back to served dates for the end', () => {
+      const withStart = (date, n) => tideRun(date, n, 9, {
+        tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 9, runStart: YESTERDAY },
+      });
+      const lanes = lanesOf([withStart(TODAY, 2), withStart(SUN, 3), withStart(MON, 4)], cols([TODAY, SUN]));
+      expect(lanes[0]).toMatchObject({ startsBefore: true, endsAfter: true });
+      const [clipped] = lanesOf([withStart(TODAY, 2), withStart(SUN, 3)], cols([TODAY, SUN]));
+      expect(clipped).toMatchObject({ startsBefore: true, endsAfter: false });
+    });
+
+    it('takes only the edge it was served: runEnd set, runStart absent falls back to served dates for the start', () => {
+      const withEnd = (date, n) => tideRun(date, n, 3, {
+        tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 3, runEnd: LATER },
+      });
+      const lanes = lanesOf([withEnd(TODAY, 1), withEnd(SUN, 2)], cols([SUN, MON, TUE]));
+      expect(lanes[0]).toMatchObject({ startsBefore: true, endsAfter: true });
+    });
   });
 
   it('ignores a malformed topic', () => {

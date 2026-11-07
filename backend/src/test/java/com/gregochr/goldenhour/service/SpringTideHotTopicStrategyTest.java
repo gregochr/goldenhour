@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -60,6 +61,9 @@ class SpringTideHotTopicStrategyTest {
     private TideRunBuilder tideRunBuilder;
 
     @Mock
+    private TideRunExtent tideRunExtent;
+
+    @Mock
     private LunarPhaseService lunarPhaseService;
 
     private SpringTideHotTopicStrategy strategy;
@@ -72,7 +76,7 @@ class SpringTideHotTopicStrategyTest {
         lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any()))
                 .thenAnswer(inv -> fixtureSaysPerigean(inv.getArgument(0)));
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository,
-                freshness, coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+                freshness, coastalTideFactsBuilder, tideRunBuilder, tideRunExtent, lunarPhaseService);
     }
 
     /**
@@ -938,6 +942,72 @@ class SpringTideHotTopicStrategyTest {
         when(locationRepository.findCoastalLocations()).thenReturn(locations);
     }
 
+    @Test
+    @DisplayName("every run day carries the extent the component returned, computed from all candidates")
+    void detect_runDays_carryRunExtentFromAllCandidates() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.SPRING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        List<LocationEntity> coastal = List.of(LocationEntity.builder().id(1L).name("Coastal 1")
+                .lat(55.0).lon(-1.5).tideType(Set.of(TideType.HIGH)).region(namedRegion())
+                .enabled(true).build());
+        when(locationRepository.findCoastalLocations()).thenReturn(coastal);
+        List<LocalDate> dates = List.of(TODAY, TODAY.plusDays(1));
+        stubRun(Map.of(TODAY, runDay("sunrise"), TODAY.plusDays(1), runDay(null)));
+        when(tideRunExtent.extentOf(eq(dates), eq(false), eq(TODAY), eq(TO_DATE), eq(coastal)))
+                .thenReturn(new TideRunExtent.Extent(TODAY.minusDays(1), TODAY.plusDays(5)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(2);
+        assertThat(topics).extracting(t -> t.tideRun().runStart())
+                .containsOnly(TODAY.minusDays(1));
+        assertThat(topics).extracting(t -> t.tideRun().runEnd())
+                .containsOnly(TODAY.plusDays(5));
+        assertThat(topics).extracting(t -> t.tideRun().dayNumber()).containsExactly(1, 1);
+    }
+
+    @Test
+    @DisplayName("the extent is computed before the freshness drop, so expired days still count")
+    void detect_allDaysExpired_extentStillAskedForAllCandidates() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.SPRING_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        List<LocationEntity> coastal = List.of(LocationEntity.builder().id(1L).name("Coastal 1")
+                .lat(55.0).lon(-1.5).tideType(Set.of(TideType.HIGH)).region(namedRegion())
+                .enabled(true).build());
+        when(locationRepository.findCoastalLocations()).thenReturn(coastal);
+        for (LocalDate date : List.of(TODAY, TODAY.plusDays(1))) {
+            for (TargetType event : List.of(TargetType.SUNRISE, TargetType.SUNSET)) {
+                when(freshness.isAhead(eq(coastal.get(0)), eq(date), eq(event)))
+                        .thenReturn(false);
+            }
+        }
+        stubRun(Map.of(TODAY, runDay("sunrise"), TODAY.plusDays(1), runDay(null)));
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).isEmpty();
+        verify(tideRunExtent).extentOf(eq(List.of(TODAY, TODAY.plusDays(1))), eq(false),
+                eq(TODAY), eq(TO_DATE), eq(coastal));
+    }
+
+    @Test
+    @DisplayName("a null extent leaves the run days without runStart or runEnd")
+    void detect_nullExtent_runDaysUnstamped() {
+        when(briefingService.getCachedDays()).thenReturn(buildDays(
+                LunarTideType.SPRING_TIDE, LunarTideType.REGULAR_TIDE,
+                LunarTideType.REGULAR_TIDE, LunarTideType.REGULAR_TIDE));
+        stubRun(Map.of(TODAY, runDay("sunrise")));
+        stubCoastalLocations(TODAY, "Northumberland");
+
+        List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).tideRun().runStart()).isNull();
+        assertThat(topics.get(0).tideRun().runEnd()).isNull();
+    }
+
     /**
      * Stubs the run builder so each named date carries a run row. The detail line's alignment
      * segment is read from these rows — the same source as the chart beneath it.
@@ -970,4 +1040,10 @@ class SpringTideHotTopicStrategyTest {
                         61),
                 false, null);
     }
+    private static RegionEntity namedRegion() {
+        RegionEntity region = new RegionEntity();
+        region.setName("Northumberland");
+        return region;
+    }
+
 }

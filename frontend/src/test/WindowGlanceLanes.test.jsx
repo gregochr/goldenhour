@@ -133,6 +133,19 @@ describe('WindowGlanceLanes — the accessible name is built from content', () =
     );
   });
 
+  it('names the lane\'s last day after "continues after", never the served runEnd', () => {
+    const ext = (date, n) => ({
+      ...run(date, n, 9),
+      tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: 9, runStart: MON, runEnd: '2026-11-02' },
+    });
+    renderLanes([ext(MON, 1), ext(TUE, 2)]);
+    expect(lane('SPRING_TIDE')).toHaveAccessibleName(
+      'Spring tide day 1, on Monday, Monday to Tuesday, continues after Tuesday, opens Coming up',
+    );
+    expect(lane('SPRING_TIDE')).toHaveAttribute('data-ends-after', 'true');
+    expect(lane('SPRING_TIDE')).not.toHaveAttribute('data-starts-before');
+  });
+
   it('reads a single-day lane without a day for its detail', () => {
     renderLanes([dust, { ...dust, type: 'MIST', glance: { value: 'dawn · 8/10', weather: true } }]);
     expect(lane('DUST')).toHaveAccessibleName('Dust, Monday, opens Coming up');
