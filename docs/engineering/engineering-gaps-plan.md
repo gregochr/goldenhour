@@ -163,19 +163,127 @@ numbered review items are folded in below.
 Add **"E2E — Playwright smoke"** to the branch-protection required checks. The landing copy changes only once
 the check is required.
 
-## Phase 3: seeded data, so the Map and Plan specs run in CI
+## Phase 3: seeded data, real-browser journeys, nginx and accessibility
 
-- Add a local-only seeder (`src/local/java`), switched on by a property such as
-  `photocast.e2e.seed-fixture`, with the same pattern as `AskLocalFixtureSeeder`.
-- **What it writes:**
-  - a handful of locations;
-  - rated windows across six or more days (the stores the UI reads, per `ratings-stores.md`);
-  - a served briefing built **from the stub**, with no Anthropic call.
-- **What then joins the required suite:** a Plan popup opens and closes, the location sheet opens, the Map
-  callout shows a rating, dialogs stack at most two deep, and Escape closes them. `door1-obstacles.spec.js`
-  joins too, now that it has real layout to hit-test.
+Planned 2026-11-07 from a research pass over `origin/main` (`3ac0bb8a`). Four PRs, in this order:
 
-The details are planned when Phase 2 has merged.
+| PR | Scope | Required? |
+|---|---|---|
+| **3a.1** | The seeder, plus Map, window stepping, forecast drill-down, Plan dialogs and `door1-obstacles` specs | Inside the existing required smoke job |
+| **3a.2** | LITE and PRO users, and the role-gating specs | Inside the existing required smoke job |
+| **3b** | The smoke job serves the built app through the **production nginx config** instead of `vite preview` | Inside the existing required smoke job |
+| **3c** | An axe accessibility scan of each tab and dialog | **Advisory** job; becomes required only once clean, on the owner's say-so |
+
+### 3a.1: the seeder and the journeys
+
+**Why a seeder, not the real build.**
+- `BriefingService.doRefreshBriefing` always fetches live Open-Meteo weather and calls two Claude services (the gloss and the best bet), and no property switches them off. `AskLocalFixtureSeeder` triggers that build, which is why `application-local.yml` warns about it.
+- So the e2e seeder must **never** call `refreshBriefing*`. It assembles the briefing itself from the same builder beans, using synthetic weather.
+
+**The seeder.** `src/local/java/com/gregochr/goldenhour/service/E2eLocalFixtureSeeder`.
+- **Gating:** `@Profile("local & !prod")` and `@ConditionalOnProperty(name = "photocast.e2e.seed-fixture", havingValue = "true")`, with the same runtime refusals as `AskLocalFixtureSeeder` (local profile, H2 URL). Only `scripts/e2e-smoke-backend.sh` sets the property. `photocast.ask.seed-local-fixture` stays off.
+- **When it runs:** after `LocalAdminSeeder`, never at `@PostConstruct`. The admin seeder only runs on an empty user table.
+- **What it writes, in order:**
+  1. About 3 regions and about 12 locations, a few of them coastal with tide preferences. They are saved through the **repositories**, never `LocationService` or the controller, which can call `LocationEnrichmentService` and fetch elevation from Open-Meteo.
+  2. Synthetic tide extremes for the coastal locations, as the Ask seeder does.
+  3. **`cached_evaluation`, through `BriefingEvaluationService.mergeFromBatch`**, for every location and every window from today to T+4. Keys come from `CacheKeyFactory`.
+     - Every location is rated in every window, so the sample gate and honesty filter never blank a region.
+     - The rating is deterministic and differs between adjacent windows: `1 + ((epochDay*2 + typeIndex + locIndex) % 5)`.
+     - `mergeFromBatch` writes the in-memory map and the database, so no restart is needed.
+  4. **`forecast_evaluation`, through its repository**, for T-4 to T+4, with the same star for each slot as `cached_evaluation`.
+     - Fields: `rating`, `fierySkyPotential`, `goldenHourPotential`, `summary`, `solarEventTime`, temperature, wind, precipitation probability, and tide where relevant.
+     - `forecastRunAt` and `scoredAt` are set before each event for past slots, so `AsOfEventResolver` serves them.
+     - Never `PENDING`.
+     - These rows have an `id`, so the forecast detail works.
+  5. **The briefing:**
+     - Build a synthetic `OpenMeteoForecastResponse` per location.
+     - Run `BriefingSlotBuilder.snapshotFor` and `buildSlot`, then `BriefingHierarchyBuilder.buildDays`, then `BriefingHeadlineGenerator`.
+     - Stamp a fixed `glossHeadline` and `glossDetail` on each region, so Best picks exist with no Claude call.
+     - Persist it to `daily_briefing_cache` id 1, and call the package-private `BriefingService.loadPersistedBriefing()` from the same package. That needs no main-code seam.
+     - Ratings and verdicts are applied at serve time by `ServedBriefingAssembler.reEnrichVerdicts`.
+     - Verify during the build that the serve path keeps the stamped gloss; the research could not confirm it.
+- **Never written:** `scheduler_job_config` and `model_selection`. The scheduler spec keeps asserting `[]`.
+- **Dates:** relative to the server's UK "today" at boot (the injected `Clock` / `ForecastHorizon`). No fixed clock; see "Dates" below.
+
+**Readiness waits for the seed.** Tomcat accepts requests before `ApplicationReadyEvent` listeners finish, so `/actuator/health/container` can be UP before the seed is done.
+- The seeder exposes an `e2eFixture` `HealthIndicator` that is DOWN until seeding completes.
+- The script adds it to the group with `--management.endpoint.health.group.container.include=db,ping,e2eFixture`, and only there. The production group is unchanged.
+
+**No third-party calls from the backend.** Browser hygiene cannot see these, so a CI step after the suite greps `backend.log` for the hosts the seeder must never touch. The health probes' calls to `api.open-meteo.com` and `api.anthropic.com` are known and expected, so the check must tell them apart.
+- If it can't do that reliably, record the outbound hosts and assert there is no briefing-build call, e.g. no `BriefingService` refresh log line.
+- The exact signal is settled during the build, and the PR says what it is.
+
+**Dates.**
+- **Rollover:** the seed covers T-4 to T+4, so a UK-midnight rollover mid-run still leaves at least 6 future windows.
+- **The real risk:** a run that crosses a sunrise or sunset, roughly 0.2–0.4% per run. The first window becomes past, and counts shift by one. Specs absorb it:
+  - **never use the first window;**
+  - assert relationships, not fixed counts;
+  - wait on served responses.
+- **No clock freezing**, as in Phase 2. If the gate ever flakes on this, the follow-up is a local-only `Clock.offset` bean plus a matching `page.clock`. That needs the owner's sign-off, because it changes the Phase 2 rule.
+
+**Specs** (all on the shared fixture, with the hygiene assertion and no sleeps):
+- **Phase 2 specs:** `tabs.spec.js` and `phone.spec.js` are rewritten for seeded data: the Map tab now exists, and the tab bar has four tabs. The empty states stay covered by Vitest; there's no second empty-database backend.
+- **The Map:**
+  - the Leaflet container draws;
+  - a tile request is made (fulfilled by the stub);
+  - `map-label-chip`s carry `"{name}, {n} star"` labels that match the served ratings;
+  - a chip opens `map-callout`, whose `map-callout-score` matches the served slot;
+  - `map-callout-close` and Escape close it.
+- **Stepping through the windows** (owner request), with `wf-win-next` / `wf-win-prev` and ArrowRight / ArrowLeft:
+  - From the current window, step **forward** to the end. At each step the pill text changes, and at least one seeded chip's star changes, which the seed formula guarantees.
+  - At the last window `wf-win-next` is `disabled`, with no wrap.
+  - Step **back** past today into the past windows: `wf-win-past` appears.
+  - At the oldest loaded day, `‹` loads the next older day; wait on `waitForResponse(/\/api\/forecast\?date=/)`.
+  - It stops at the T-4 floor, where the button is disabled and the status line explains why.
+- **Drilling into one forecast** (owner request):
+  - **From the Map:** `map-label-chip` → `map-callout` → `map-callout-four-days` → `location-sheet`. Expanding a row with `location-sheet-row-toggle` waits on `waitForResponse(/\/api\/forecast\/\d+$/)`, then checks that `location-sheet-facts` and its fact rows show the seeded values (rating, comfort, tide).
+  - **From the Plan:** `wf-heat-card` → `window-sheet` → `window-spot` or `wf-row-map-chip` → `location-sheet`, two dialogs deep.
+  - **Closing:** Escape closes the top layer first, then the next. The close buttons work. **A third dialog never opens.**
+- **`door1-obstacles.spec.js`** moves into `smoke/` on the shared fixture, with its "restart + `POST /api/briefing/run`" setup removed, because the seed replaces it.
+- **Ask:** `ask.spec.js` is re-checked on seeded data, because Ready answers may now exist. It stays non-spending.
+
+### 3a.2: role gating
+
+- **Users:** the seeder also inserts `lite` and `pro` users after the admin, with an encoded password, `enabled`, `passwordChangeRequired=false` and `postcodePromptDismissedAt=now`. These are insertable columns, set on the builder at insert time.
+- **Sign-in:** a `loginAs(role)` helper in `fixture.js`. The specs use these users, which also avoids the shared-admin logout hazard.
+- **Sub-regions match production:** the script passes `--photocast.sub-regions.enforce=true`, and the seeder gives `lite` sub-region picks that cover some regions but not all.
+- **What each role checks:**
+  - **Every non-admin:** no Operations tab, and a 403 from an admin endpoint, called with `page.request` so the page's hygiene never sees the 403.
+  - **LITE:**
+    - Pro pills and `ProUpsellDoor` doors (`wf-scores-upsell` and others) are present.
+    - The Ask trigger shows the Pro lens, and no `/api/ask*` request is made.
+    - "How was it?" is locked (`pro-pill`, "Rating is part of Pro.").
+    - Chips outside its picks carry `data-gated="true"`, the callout says "Outside your sub-regions", and the location sheet shows `location-sheet-outside`.
+  - **PRO:**
+    - None of those locks appear.
+    - It can rate one past window through `outcome-rating-block`. This is the only spec that writes shared state, so it runs in the serial project with the logout spec.
+
+### 3b: the production nginx config in CI
+
+- **No image build is needed.** The frontend image is plain `nginx:alpine` serving `dist`. Production mounts the repo-root `nginx.conf` at runtime (`docker-compose.yml`). CI does the same: `docker run nginx:alpine` with `frontend/dist` and `nginx.conf` mounted, `-p 127.0.0.1:4173:80`, and `--add-host=goldenhour-backend:host-gateway`. The backend then runs on 8082 in this mode, so the prod upstream name resolves with no edit to the config.
+- **Switching modes:** `E2E_WEB=nginx` swaps `webServer[1]` for `scripts/e2e-smoke-nginx.sh`. CI sets it; local runs keep `vite preview`, since there's no Docker locally.
+- **What it adds:** a real-browser test of the strict CSP (`style-src 'self'`), the security headers, the SPA fallback, the caching headers and the SSE proxying. A CSP block logs a console error, which the hygiene assertion already fails on.
+- **To prove in the discovery run:**
+  - `upgrade-insecure-requests` does not upgrade `http://127.0.0.1`. If it does, use a CI-only copy without that directive, and record why.
+  - The SSE status stream works through the proxy.
+  - Nothing in the app injects a `<style>` element.
+- Same reliability proof as Phase 2.
+
+### 3c: the accessibility scan (advisory)
+
+- **The job:** a separate job, `E2E — accessibility (advisory)`, on the 3b stack (seeded, nginx), and **not** a required check. `@axe-core/playwright` scans each main tab and the open dialogs (window sheet, location sheet, callout) at desktop and phone widths.
+- **What fails it:** serious and critical violations fail the job. Minor and moderate ones are reported only.
+- **The report:** an HTML or JSON report is uploaded every run.
+- **Fixing:** existing violations are fixed in their own PRs, **never** suppressed by disabling rules. The owner makes the check required once it's clean.
+- **Landing copy is unchanged** until then, and even after it the copy never claims full accessibility.
+
+### Order and gates
+
+- **Order:** each PR follows the Phase 2 recipe. The planner reviews it, Sonnet builds it in a worktree, and the full local gates must pass:
+  - backend: checkstyle and `clean verify`, with the seeder's own unit tests;
+  - frontend: the four commands.
+- **Proof for 3a.1 and 3b:** the temporary 5× job matrix plus `--repeat-each=20`, removed before merge.
+- **Copy:** once 3a.1 and 3a.2 are merged, the landing pages drop "the map and planning screens are still checked by hand".
 
 ## Phase 4: post-deploy smoke and automatic rollback
 
