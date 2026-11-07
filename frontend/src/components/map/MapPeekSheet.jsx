@@ -5,6 +5,8 @@ import { auroraRampHex } from '../../utils/auroraRamp.js';
 import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 import VerdictWord from '../shared/VerdictWord.jsx';
 import { isNightRow } from '../../utils/mapPeek.js';
+import { verdictsScope } from '../../utils/mapVerdict.js';
+import { verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip, RatedCell } from './WindowControl.jsx';
@@ -347,6 +349,9 @@ export function OtherWindowValue({ row, verdict = null }) {
           // needs and crushed it to 12px at 320px. The full word is spoken (`VerdictWord`).
           <b className="wf-map-peek-v-verdict" data-tier={verdict.tier} data-testid="wf-map-peek-other-verdict">
             <VerdictWord tier={verdict.tier} />
+            {/* The drive tier the word is true within, spoken only: this cell never cuts, and the sheet's
+                Windows section and the pill carry the visible words (reach-scoped-card-plan R3, D6). */}
+            {verdictScopeSpoken(verdict.scope) && <span className="sr-only">{`, ${verdictScopeSpoken(verdict.scope)}`}</span>}
           </b>
         )
       )}
@@ -423,6 +428,13 @@ export function MapPeekWindowsSection({
   return (
     <div data-testid="wf-map-peek-windows" className="wf-map-peek-pane">
       <h3 className="wf-map-peek-h3">{heading}</h3>
+      {verdictScopeText(verdictsScope(verdicts)) && (
+        // The verdict words below are for the active drive tier (reach-scoped-card-plan R3, D6): printed short, spoken long.
+        <div className="wf-map-peek-scope" data-testid="wf-map-peek-scope">
+          <span aria-hidden="true">{`Verdicts ${verdictScopeText(verdictsScope(verdicts))}`}</span>
+          <span className="sr-only">{`Verdicts ${verdictScopeSpoken(verdictsScope(verdicts))}`}</span>
+        </div>
+      )}
       {(pastRows.length > 0 || loadable || noStoredLine) && (
         <div data-testid="wf-map-peek-earlier" className="wf-map-peek-earlier">
           EARLIER
@@ -562,6 +574,7 @@ export function MapPeekWindowsSection({
             className="wf-pro-upsell-door--inline"
             // Focus must fall to <body> when the section closes: `PeekBody`'s fallback acts only there.
             skipUnmountHandoff
+            guide={{ section: 'auroraMap' }}
           />
         </div>
       )}

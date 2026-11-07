@@ -175,8 +175,8 @@ public class SlotAtmosphereWriter {
             row.setHumidity(data.weather().humidityPercent());
         }
         if (data.comfort() != null) {
-            // 2 m air temperature lives on comfort, not weather; gates the freezing-fog / hoar-frost
-            // SNOW_MIST facts (sub-zero mist over lying snow).
+            // 2 m air temperature lives on comfort, not weather; gates the sub-zero frost wording of
+            // the SNOW_MIST topic (the mist itself is the valley mist band, not humidity).
             row.setTemperatureCelsius(data.comfort().temperatureCelsius());
         }
         // Cloud inversion likelihood (V158, Phase 2 of "record conditions for every place"):

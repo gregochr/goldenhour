@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.client;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.gregochr.goldenhour.model.PlaceResult;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
@@ -33,6 +34,9 @@ public class PostcodesIoClient {
     private static final int REVERSE_RADIUS_METRES = 2000;
     private static final String INVALID_POSTCODE = "Invalid postcode";
     private static final String NOT_FOUND_NEAR_POINT = "No UK postcode found for that location";
+    private static final String NO_PLACE_FOUND = "No place found for that name";
+    /** postcodes.io's maximum page for {@code /places}; the caller filters by distance, so ask for all it will give. */
+    private static final int PLACES_LIMIT = 100;
 
     private final RestClient restClient;
 
@@ -109,6 +113,36 @@ public class PostcodesIoClient {
     }
 
     /**
+     * Searches postcodes.io's named places (settlements, hamlets) by name.
+     *
+     * <p>postcodes.io answers a name it does not know with 200 and an empty (or null) {@code result}, never a 404, and
+     * does not sort by anything useful: both are the caller's to handle, so an unknown name is an empty list here and
+     * the order is whatever came back. A 400 or 404 (a query it will not take) is "not found"; any other failure is
+     * "unavailable".
+     *
+     * @param query the place name to search for
+     * @return the matches, possibly none, unsorted
+     * @throws PostcodeLookupException            if postcodes.io rejects the query
+     * @throws PostcodeLookupUnavailableException if the service could not be reached or failed
+     */
+    public List<PlaceResult> searchPlaces(String query) {
+        PostcodesIoPlacesResponse response;
+        try {
+            response = restClient.get()
+                    .uri(BASE_URL + "/places?q={q}&limit=" + PLACES_LIMIT, query)
+                    .retrieve()
+                    .body(PostcodesIoPlacesResponse.class);
+        } catch (Exception e) {
+            LOG.warn("Place search failed: {}", LogSanitizer.sanitize(e.getMessage()));
+            throw failureFor(e, NO_PLACE_FOUND);
+        }
+        if (response == null || response.result() == null) {
+            return List.of();
+        }
+        return response.result().stream().filter(r -> r != null && r.name() != null).toList();
+    }
+
+    /**
      * Classifies an upstream failure. Only a 400 or 404 from postcodes.io says the lookup worked and
      * the answer is "no such postcode"; a transport error, a 5xx, a 429 or anything unreadable says
      * nothing about the postcode, so it is "unavailable". The caller logs the upstream message; it
@@ -143,6 +177,15 @@ public class PostcodesIoClient {
             return locality + ", " + r.adminDistrict();
         }
         return r.adminDistrict() != null ? r.adminDistrict() : r.postcode();
+    }
+
+    /**
+     * Internal record mapping the postcodes.io {@code /places} response.
+     *
+     * @param status HTTP status code
+     * @param result the matching places; null or empty when none match (still a 200)
+     */
+    record PostcodesIoPlacesResponse(int status, List<PlaceResult> result) {
     }
 
     /**

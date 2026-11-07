@@ -83,8 +83,9 @@ class ClaudeAskEngineLatchTest {
                 });
         MutableClock clock = new MutableClock(Instant.parse("2026-10-05T12:00:00Z"));
         accounting = new AskJobRunService(jobRunService, jobRunRepository, apiCalls, costCalculator,
-                new AskProperties(), clock);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(shared), new AskProperties(), accounting,
+                AskModelFixtures.haiku(), clock);
+        engine = new ClaudeAskEngine(new AnthropicApiClient(shared), new AskProperties(),
+                AskModelFixtures.haiku(), accounting,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(),
                 new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
     }

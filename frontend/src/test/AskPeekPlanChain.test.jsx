@@ -387,7 +387,10 @@ describe('Open in Plan, from the phone Map’s Ask section, through the real she
     fireEvent.click(screen.getByTestId('location-sheet-close'));
 
     await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
-    expect(document.activeElement).not.toBe(document.body);
-    expect(screen.getByTestId('window-first-shell').contains(document.activeElement)).toBe(true);
+    // Focus is handed back in an effect, a task after the sheet unmounts: wait for it.
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(screen.getByTestId('window-first-shell').contains(document.activeElement)).toBe(true);
+    });
   });
 });

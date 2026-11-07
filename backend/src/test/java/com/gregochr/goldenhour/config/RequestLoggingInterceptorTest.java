@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -319,5 +320,32 @@ class RequestLoggingInterceptorTest {
         filter.doFilter(request, response, chain);
 
         verify(response).getStatus();
+    }
+
+    /**
+     * Verifies that a status below 200 (an informational 1xx) is logged with the error cross, the label every
+     * status outside 2xx-4xx falls through to.
+     */
+    @Test
+    @DisplayName("an informational status below 200 falls through to the cross label in the logged line")
+    void doFilter_status199_loggedWithCrossLabel() throws IOException, ServletException {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(RequestLoggingInterceptor.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            when(request.getRequestURI()).thenReturn("/api/forecast");
+            when(request.getMethod()).thenReturn("GET");
+            when(response.getStatus()).thenReturn(199);
+
+            filter.doFilter(request, response, chain);
+
+            assertThat(appender.list).extracting(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .anyMatch(m -> m.startsWith("\u2190 \u2717 199 /api/forecast ("));
+        } finally {
+            logger.detachAppender(appender);
+        }
     }
 }

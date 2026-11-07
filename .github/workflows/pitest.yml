@@ -1,19 +1,105 @@
 name: PIT Mutation Testing
 
+# Weekly mutation testing of the backend service and utility layers (backend/pom.xml, pitest plugin).
+# Docs: docs/engineering/reference/dev-and-testing.md ("Backend mutation testing (PIT)").
+#
+# RUNNER. ubuntu-latest (free, the repo is public), not the self-hosted runner shared with production
+# deploys. PIT excludes the Testcontainers and full-context tests, so it needs no Docker.
+#
+# SHARDS. A single cold run is ~2h07m of PIT alone (10,506 mutations), and on 2026-10-12 to 2026-11-02
+# the weekly run was cancelled by a 180-minute cap. Open-source PIT has no incremental history (that is
+# the commercial arcmutate plugin), so the run is split by package into five parallel shards, each
+# well under the limit. pom.xml takes the targets from the pit.targetClasses property and each shard
+# passes its own list with -Dpit.targetClasses. The `plan` job owns the shard list and asserts that
+# every class PIT targets by default is in exactly one shard, so a new class or package cannot fall
+# outside every shard or be mutated twice.
+#
+# TIMEOUTS. Each shard is capped at 350 min (GitHub's hard limit is 360) and its PIT step at 320 min,
+# so the summary and report uploads still run when PIT is cut off. A timed-out job ends as `cancelled`,
+# not `failure`, so notify-failure fires on either result.
+
 on:
   schedule:
     - cron: '0 6 * * MON'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  plan:
+    name: Plan shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.shards.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Define shards and check they cover the default targets exactly once
+        id: shards
+        run: |
+          set -euo pipefail
+          # Balanced by mutation count from the 2026-10-05 report (10,506 mutants, ~2.1k each).
+          # In PIT globs `*` matches dots too, so `service.*` is the WHOLE service tree; the shards
+          # therefore split the top-level service classes by their first letter (class names start
+          # uppercase, sub-package names lowercase) and list the sub-packages explicitly.
+          B=com.gregochr.goldenhour
+          S=$B.service
+          matrix=$(jq -nc --arg s "$S" --arg b "$B" '{include:[
+            {shard:"1", name:"service A-D + util",
+             targets:([range(65;69)|[$s+"."+([.]|implode)+"*"]|.[0]] + [$b+".util.*"] | join(","))},
+            {shard:"2", name:"service E-L + ask + aurora",
+             targets:([range(69;77)|[$s+"."+([.]|implode)+"*"]|.[0]] + [$s+".ask.*", $s+".aurora.*"] | join(","))},
+            {shard:"3", name:"service M-R + batch",
+             targets:([range(77;83)|[$s+"."+([.]|implode)+"*"]|.[0]] + [$s+".batch.*"] | join(","))},
+            {shard:"4", name:"service S-Z + comingup",
+             targets:([range(83;91)|[$s+"."+([.]|implode)+"*"]|.[0]] + [$s+".comingup.*"] | join(","))},
+            {shard:"5", name:"evaluation + notification + pipeline + runs",
+             targets:([$s+".evaluation.*", $s+".notification.*", $s+".pipeline.*", $s+".runs.*"] | join(","))}
+          ]}')
+          echo "$matrix" | jq -r '.include[] | "shard \(.shard): \(.targets)"'
+
+          # The default targets, read from pom.xml (the property pitest.yml overrides per shard).
+          default=$(sed -n 's#.*<pit.targetClasses>\(.*\)</pit.targetClasses>.*#\1#p' backend/pom.xml)
+          [ -n "$default" ] || { echo "::error::pit.targetClasses not found in backend/pom.xml"; exit 1; }
+          IFS=, read -ra defaults <<< "$default"
+
+          # Every main class under service/ and util/ must be matched by the default targets exactly
+          # when it is matched by exactly one shard pattern (and by no more than one).
+          bad=0
+          while read -r file; do
+            fqcn=${file#backend/src/main/java/}; fqcn=${fqcn%.java}; fqcn=${fqcn//\//.}
+            in_default=0
+            for p in "${defaults[@]}"; do
+              # shellcheck disable=SC2053
+              if [[ $fqcn == $p ]]; then in_default=1; break; fi
+            done
+            hits=0
+            while read -r targets; do
+              IFS=, read -ra pats <<< "$targets"
+              for p in "${pats[@]}"; do
+                # shellcheck disable=SC2053
+                if [[ $fqcn == $p ]]; then hits=$((hits + 1)); fi
+              done
+            done < <(echo "$matrix" | jq -r '.include[].targets')
+            if [ "$hits" -ne "$in_default" ]; then
+              echo "::error::$fqcn is targeted by $hits shard pattern(s) but in_default=$in_default (want equal, max 1)."
+              bad=1
+            fi
+          done < <(find backend/src/main/java/com/gregochr/goldenhour/service \
+                        backend/src/main/java/com/gregochr/goldenhour/util -name '*.java' | sort)
+          if [ "$bad" -ne 0 ]; then exit 1; fi
+          echo "All service/util classes are covered by exactly one shard."
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   pitest:
-    name: PIT Mutation Testing
-    runs-on: self-hosted
-    # Shares the single self-hosted runner with Deploy to Production; the slowest
-    # successful run took ~2h23m, so cap well below GitHub's 6-hour default. The cap is
-    # 180 min; PIT excludes the context-booting and Testcontainers tests (see backend/pom.xml)
-    # so the run stays bounded. It compiles only: surefire already runs per PR in CI.
-    timeout-minutes: 180
+    name: PIT shard ${{ matrix.shard }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 25
@@ -22,26 +108,46 @@ jobs:
           java-version: '25'
           distribution: 'temurin'
           cache: maven
+
       - name: Run PIT mutation testing
         id: pitest
+        # Shorter than the job's timeout so the summary and upload steps below always get to run.
+        timeout-minutes: 320
+        env:
+          TARGETS: ${{ matrix.targets }}
         run: |
           set -o pipefail
           chmod +x backend/mvnw
-          cd backend && ./mvnw test-compile pitest:mutationCoverage --batch-mode --no-transfer-progress 2>&1 | tee pitest-output.log
+          cd backend && ./mvnw test-compile pitest:mutationCoverage -Dpit.targetClasses="$TARGETS" --batch-mode --no-transfer-progress 2>&1 | tee pitest-output.log
           # Extract summary stats from PIT output
           MUTATIONS=$(grep 'Generated .* mutations Killed' pitest-output.log | grep -oE 'Generated [0-9]+ mutations Killed [0-9]+' || echo 'No summary found')
           STRENGTH=$(grep 'Test strength' pitest-output.log | grep -oE '[0-9]+%' || echo 'N/A')
           echo "summary=${MUTATIONS} — Test strength ${STRENGTH}" >> "$GITHUB_OUTPUT"
+
+      - name: Write the score to the summary
+        if: steps.pitest.outputs.summary != ''
+        env:
+          SUMMARY: ${{ steps.pitest.outputs.summary }}
+          SHARD: ${{ matrix.shard }}
+          NAME: ${{ matrix.name }}
+        run: |
+          {
+            echo "### PIT shard ${SHARD}: ${NAME}"
+            echo
+            echo "$SUMMARY"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload PIT report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pitest-report
+          name: pitest-report-${{ matrix.shard }}
           path: backend/target/pit-reports/
+          if-no-files-found: ignore
 
   notify-failure:
-    needs: pitest
-    if: failure()
+    needs: [plan, pitest]
+    if: ${{ always() && (needs.plan.result == 'failure' || needs.plan.result == 'cancelled' || needs.pitest.result == 'failure' || needs.pitest.result == 'cancelled') }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-failure-issue.yml

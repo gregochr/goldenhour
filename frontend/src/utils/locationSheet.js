@@ -851,6 +851,8 @@ export function buildLocationSheet(spot, windows, {
   const name = spot?.name ?? '';
   const locationId = spot?.id ?? null;
   const driveMinutes = (locationId == null ? null : reachById?.get(locationId)?.driveMinutes) ?? null;
+  // The drive point the minutes are measured to ("Glenridding"), when the place has one (reach-scoped-card-plan R1c).
+  const driveTo = (locationId == null ? null : reachById?.get(locationId)?.driveTo) ?? null;
   const rows = (Array.isArray(windows) ? windows : []).filter(Boolean).map((card) => {
     const slot = lookupForWindow(slotIndex, locationId, name, card.date, card.targetType);
     // Not looked up at all on an away day: a travel day's slots are collected and never evaluated,
@@ -956,6 +958,7 @@ export function buildLocationSheet(spot, windows, {
     name,
     regionName: spot?.regionName || null,
     driveMinutes,
+    driveTo,
     // ⚠️ An EMPTY scope array is unknown, not "outside everything". At home `scopeRegions` folds to
     // `areaRegions`, which is empty whenever the catalogue is — a state the sheet can be open
     // across. The badge claims a place is out of the plan; an unmeasured or unloaded planning area

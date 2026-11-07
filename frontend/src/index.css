@@ -824,6 +824,13 @@
      way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
      band's wrapper is wholly above the viewport.
 
+     THE LADDER, for whoever adds the next rung: the masthead band 45, `Modal` (Tailwind `z-50`),
+     `.wf-peek` 60, the guide's stacked dialog `.wf-guide-layer` 70 (G2, `docs/engineering/
+     user-guide-plan.md`: above both so it can sit over a Modal or the peek, and below the
+     health panel, `BottomSheet`'s scrim and sheet at 9999 / 10000, which the guide's phone and
+     tablet presentation IS). The docked guide column is in normal flow beside the shell and
+     takes no rung.
+
      The bottom padding is still ZERO. The tick line inside supplies it, and it always renders —
      the blank height-holding placeholder the time row used before M3 is gone with it, because a row
      that is present in all three light states holds its own height. */
@@ -1575,12 +1582,14 @@
    relying on natural flow, which would place correctly today, so columns stay honest if a future
    change ever skips a cell (D5). */
 .wf-hstrip.wf-hstrip-rows .wf-dhrow > *,
-.wf-hstrip.wf-hstrip-rows .wf-dtrow > *,
 .wf-hstrip.wf-hstrip-rows .wf-hcards > * {
   grid-column: var(--c);
 }
+/* `.wf-lanes` shares the grid below (same `--dc` tracks and the same column gap as the date chips and the cards, so a
+   lane sits under its day) but NOT the `grid-column: var(--c)` rule above: on a lane `--c` is the topic's colour, and
+   each lane places itself inline from its own `startCol` / `endCol` / `row`. */
 .wf-hstrip.wf-hstrip-rows .wf-dhrow,
-.wf-hstrip.wf-hstrip-rows .wf-dtrow,
+.wf-hstrip.wf-hstrip-rows .wf-lanes,
 .wf-hstrip.wf-hstrip-rows .wf-hcards {
   display: grid;
   /* ⚠️ `minmax(0, 1fr)`, load-bearing here for the same reason as the base grid above (D6) — a bare
@@ -1748,176 +1757,166 @@
 .wf-hday.today .wf-hday-dn {
   color: var(--color-close-to-home);
 }
-/* The day header's topic pills (glance-topic-strip-plan.md; design handoff "Glance Topic Strip", option A):
-   each day's hot topics as full-column-width pills directly under its date chip. Desktop and tablet draw
-   them in `.wf-dtrow`, a NON-sticky row of the same grid as `.wf-dhrow` and `.wf-hcards` (same gap, so a
-   day stays one column) between the two. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky and its
-   height is measured into `--wf-dh-h` for the rails' pin, so taller pills inside it would pin a much taller
-   band over the cards. The topics scroll away under the pinned date chips, which is intended. The phone
-   flows a full-width `.wf-dtcell` after each day's header instead (phone rules below).
-   `--c` on a PILL is the topic's colour, set from `utils/topicPalette.js` — never a literal here; on a
-   `.wf-dtcell` it is the grid column. Ink steps are the app's own tokens (`--color-plex-text-secondary` is the
-   handoff's `--ink-2`; its `--ink-3` is not used, the key takes secondary, as the strip's other labels do). */
-.wf-dtrow {
-  padding-top: 2px;
-}
-.wf-dtcell {
-  min-width: 0;
-}
-.wf-dt-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* "The days ahead" lanes (days-ahead-lanes-plan.md; design handoff "At a Glance — The days ahead as lanes"): one
+   compact row per RUN of a topic, under its day and spanning the columns it covers. Desktop and tablet draw them in
+   `.wf-lanes`, a NON-sticky grid between `.wf-dhrow` and the first card row, with the same `--dc` tracks and column gap as
+   both (see the shared rule above), so a day stays one column. ⚠️ It must stay outside `.wf-dhrow`: that row is sticky
+   and its height is measured into `--wf-dh-h` for the rails' pin, so taller lanes inside it would pin a much taller band
+   over the cards. The lanes scroll away under the pinned date chips, which is intended. The phone flows each day's own
+   lanes in a full-width `.wf-lanecell` after its header instead (phone rules below).
+   Rows are assigned by `buildGlanceLanes` (first fit) and placed inline with `grid-row`, NOT left to
+   `grid-auto-flow: row dense`: dense packing would draw a later DOM lane to the left of an earlier one, and Tab would
+   run right-then-left (WCAG 2.4.3). `--c` on a LANE is the topic's colour, set from `utils/topicPalette.js` — never a
+   literal here. Ink steps are the app's own tokens (`--color-plex-text-secondary` is the handoff's `--ink-2`; its
+   `--ink-3`, `--color-plex-text-muted`, fails AA as text and is used only for the hover border). `.wf-hstrip-rows` is a
+   flex column with a 7px gap, so the 3px top margin lands the lanes 10px under the date chips. */
+.wf-lanes {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.wf-dt-pill {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  width: 100%;
+.wf-hstrip.wf-hstrip-rows .wf-lanes {
+  row-gap: 5px;
+  margin-top: 3px;
+}
+.wf-lane-item {
   min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in oklch, var(--c) 22%, transparent);
-  border-radius: 8px;
-  background: color-mix(in oklch, var(--c) 8%, transparent);
-  font: inherit;
+}
+/* Desktop / tablet placement from the item's own custom properties (`--ls` start track, `--le` end line, `--lr` row),
+   set inline by `WindowGlanceLanes`; the phone's items set none and flow in their cell. */
+.wf-hstrip.wf-hstrip-rows .wf-lanes > .wf-lane-item {
+  grid-column: var(--ls) / var(--le);
+  grid-row: var(--lr);
+}
+.wf-lane {
+  /* ⚠️ The fill, the border and the ends-after fade live on `::before` (below), never on the button: a `mask-image`
+     on the button would also fade the name, the detail and the focus ring. `isolation` keeps that layer's
+     `z-index: -1` inside the button. */
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.35;
   text-align: left;
   color: var(--color-plex-text);
   cursor: pointer;
 }
-.wf-dt-pill:hover,
-.wf-dt-pill:focus-visible {
-  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+.wf-lane::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  background: #1f1a17;
+  pointer-events: none;
 }
-/* A topic carried on from the day before: transparent, dashed, lighter name. */
-.wf-dt-pill[data-continuation='true'] {
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--color-plex-text) 28%, transparent);
-  background: transparent;
+/* A lane over more than one day: the topic's own colour, fading across (a tide is the handoff's #6FA8B0). */
+.wf-lane[data-span='multi']::before {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--c) 14%, transparent),
+    color-mix(in srgb, var(--c) 5%, transparent)
+  );
 }
-.wf-dt-pill[data-continuation='true']:hover,
-.wf-dt-pill[data-continuation='true']:focus-visible {
-  border-color: color-mix(in oklch, var(--c) 50%, transparent);
+.wf-lane[data-topic='AURORA']::before {
+  background: #241f33;
+  border-color: #4a3f6e;
 }
-.wf-dt-pill[data-continuation='true'] .wf-dt-name {
-  font-weight: 500;
-  color: var(--color-plex-text-secondary);
+.wf-lane:hover::before,
+.wf-lane:focus-visible::before {
+  border-color: var(--color-plex-text-muted);
 }
-.wf-dt-pill:focus-visible,
-.wf-dt-door:focus-visible {
+.wf-lane:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 2px;
 }
-.wf-dt-sw {
+/* Began before the first day shown: a dotted left edge, square corners. */
+.wf-lane[data-starts-before='true']::before {
+  border-left: 2px dotted var(--color-plex-text-secondary);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+/* Runs on past the last day shown: no right edge, square corners, the layer fades out. */
+.wf-lane[data-ends-after='true']::before {
+  border-right-color: transparent;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0, 0, 0, 0.25));
+  mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0, 0, 0, 0.25));
+}
+.wf-lane-sw {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 2px;
   background: var(--c);
 }
-.wf-dt-name {
-  min-width: 0;
-  overflow: hidden;
+.wf-lane-name {
+  flex: none;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--color-plex-text);
 }
-.wf-dt-tags {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.wf-dt-badge,
-.wf-dt-wx {
+.wf-lane-peak {
+  flex: none;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-}
-.wf-dt-badge {
   /* Pulled toward the ink so every palette colour (BLUEBELL violet is ~3.95:1 raw) reaches 4.5:1 as text,
      while still reading as the topic's colour. */
   color: color-mix(in oklch, var(--c) 70%, var(--color-plex-text));
 }
-.wf-dt-wx {
-  padding: 0 4px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 3px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-dt-val {
-  grid-column: 2 / -1;
-  overflow: hidden;
+/* The detail wraps onto a second line when the lane is narrow. It is never truncated. */
+.wf-lane-val {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 10.5px;
-  text-overflow: ellipsis;
+  font-weight: 400;
+  overflow-wrap: anywhere;
   color: var(--color-plex-text-secondary);
-  white-space: nowrap;
 }
-/* The key at the right end of the section head, and the door under the topic row. */
-.wf-dt-key {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
+/* A focused lane is never left under the sticky date row (the cards' own reservation, `.wf-hc`). */
+.wf-hstrip.wf-hstrip-rows .wf-lane {
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px + var(--safe-t));
 }
-.wf-dt-key-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.wf-dt-key-solid {
-  width: 2px;
-  height: 12px;
-  background: var(--color-plex-text-secondary);
-}
-.wf-dt-key-dashed {
-  height: 12px;
-  border-left: 2px dotted var(--color-plex-text-secondary);
-}
-.wf-dt-door-row {
-  display: flex;
-  justify-content: flex-end;
-}
-.wf-hstrip > .wf-dt-door-row {
-  grid-column: 1 / -1;
-  grid-row: auto;
-}
-.wf-dt-door {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-tide);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-dt-door:hover { text-decoration: underline; }
-/* Forced colours drop background colours: a pill gets a real edge (a continuation stays dashed), the swatch a
-   border, and hover its own cue since the border colour is flattened. */
+/* Forced colours drop background colours: a lane gets a real edge (the dotted left edge and the faded right edge stated
+   explicitly), the swatch a border, and hover its own cue since the border colour is flattened. */
 @media (forced-colors: active) {
-  .wf-dt-pill { border-color: CanvasText; }
-  .wf-dt-pill[data-continuation='true'] { border-style: dashed; border-color: CanvasText; }
-  .wf-dt-sw { border: 1px solid CanvasText; }
-  .wf-dt-pill:focus-visible,
-  .wf-dt-door:focus-visible { outline: 2px solid Highlight; }
-  .wf-dt-pill:hover { outline: 1px solid Highlight; }
+  .wf-lane::before { border-color: CanvasText; }
+  .wf-lane[data-starts-before='true']::before { border-left-color: CanvasText; }
+  .wf-lane[data-ends-after='true']::before { border-right-color: CanvasText; }
+  .wf-lane-sw { border: 1px solid CanvasText; }
+  .wf-lane:focus-visible { outline: 2px solid Highlight; }
+  .wf-lane:hover { outline: 1px solid Highlight; }
 }
-/* Phone only: the stack is a full-width cell of the flowing grid directly under its day's header, with 24px
-   targets. Names, values and tags print exactly as on desktop. Desktop and tablet are untouched. */
+/* Phone only: each day's lanes are a full-width cell of the flowing grid directly under its day's header, one lane per
+   row (no spanning). Desktop and tablet are untouched. */
 @media (max-width: 639px) {
-  .wf-hstrip > .wf-dtcell { grid-column: 1 / -1; }
-  .wf-dt-pill { min-height: 24px; }
-  .wf-dt-door { min-height: 24px; padding: 4px 0; }
+  .wf-hstrip > .wf-lanecell { grid-column: 1 / -1; }
+  .wf-lanecell { min-width: 0; }
+  .wf-lanecell .wf-lanes {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
 }
 /* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
    by definition on an ordinary week (this morning has gone; the last evening is past the end of
@@ -1939,6 +1938,19 @@
   color: var(--color-plex-text-secondary);
   text-align: center;
   text-wrap: pretty;
+}
+/* Slim empty slots (days-ahead-lanes-plan.md §1.4): in the desktop / tablet card rows only — every rule scoped to
+   `.wf-hstrip-rows .wf-hcards > …`, so the phone keeps today's look — an empty slot no longer stretches to the
+   row's height. A row only gets shorter when EVERY slot in it is empty; otherwise the rated cards set its height
+   (that falls out of `align-self: start`). ⚠️ The ink stays SECONDARY, not the handoff's `--ink-3`
+   (`--color-plex-text-muted`): muted measures 3.2–3.5:1 here and fails AA. */
+.wf-hstrip-rows .wf-hcards > .wf-hgap {
+  min-height: 0;
+  align-self: start;
+  padding: 12px 10px;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hgap span {
+  font-size: 11px;
 }
 /* ── The window card (plan-matrix §6 M1, bundle README "Window card") ──────────────────────────
    A button carrying: the sun word, the field, four value rows on shared baselines, the verdict as
@@ -2075,6 +2087,23 @@ button.wf-hc.on:hover {
    its `.ev.weak{opacity:.62}` is a different element. */
 .wf-hc-away {
   opacity: 0.87;
+}
+/* The slim "Not forecast" card (days-ahead-lanes-plan.md §1.4), desktop / tablet only: it sits at the top of its
+   cell and takes its own height instead of the rated cards'. It stays a column; its sun chip is hidden here (the
+   row's rail already says SUNRISE / SUNSET) but NOT on the phone, which has no rails and needs it; its time /
+   verdict row (`.wf-hc-pls`, an `auto 1fr` grid) is left alone, so the verdict stays right-aligned, at its own
+   11px (12px "Not forecast" overflows the measured 79–85px value column at 640 and a docked 1024). The card draws
+   no heat-map canvas in either layout (`renderCard`). */
+.wf-hstrip-rows .wf-hcards > .wf-hc-away {
+  align-self: start;
+  min-height: 0;
+  padding: 9px 10px;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-top {
+  display: none;
+}
+.wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-pls {
+  column-gap: 8px;
 }
 .wf-hc-top {
   display: flex;
@@ -2388,6 +2417,38 @@ button.wf-hc.on:hover {
    Spread row's own `N/M rated` directly below carry it, and the spread clause speaks it. */
 @container wf-card (min-width: 190px) {
   .wf-hc-thin { display: inline; }
+}
+/* The scope of a tier-scoped verdict word ("within 45m"), on its OWN line under the verdict row
+   (reach-scoped-card-plan R2 step 9). Not inside the row: that row is one line with no wrap in a value column of
+   70-175px, and "Too few 3.6★" already fills 74px of it. In the value column, right-aligned under the word it
+   qualifies; 9px mono, so the longest spelling ("within 2h30", 11 characters, about 59px) fits the narrowest
+   column (70.3px at 320). Quiet ink like the Spread row's qualifier: the word above is the claim, this is its
+   frame. It exists only while the card wears the tier's headline, so under "Any" the card has no extra row. */
+.wf-hc-pls > .wf-hc-scope {
+  grid-column: 2;
+  justify-content: flex-end;
+  min-height: 0;
+  margin-top: -4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text-secondary);
+}
+/* The ellipsis lives on the inner span, not the flex container: `text-overflow` does not apply to a flex container's
+   own text, only to a block-level box that clips it. */
+.wf-hc-scope-t {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A card with no scope of its own, in a grid whose other cards have one: the row is kept so every card's Spread and
+   Best rows share a baseline, and drawn as nothing. */
+.wf-hc-pls > .wf-hc-scope.reserved {
+  visibility: hidden;
 }
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
@@ -2745,12 +2806,14 @@ button.wf-hc.on:hover {
   display: block;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 400;
   line-height: 1.3;
   text-align: right;
   text-wrap: pretty;
-  color: var(--color-plex-text);
+  /* The place name sits back to the surrounding labels' voice (days-ahead-lanes-plan.md §1.3): mono 10.5px, 400,
+     SECONDARY ink — the handoff's `--ink-2`; the star badge beside it carries the emphasis. */
+  color: var(--color-plex-text-secondary);
 }
 /* "nothing in reach" / "not scored yet" — a state rather than a place, so it drops the weight.
    ⚠️ It keeps SECONDARY ink rather than the design's `--ink-3`: at 11px on these six grounds muted
@@ -2761,9 +2824,10 @@ button.wf-hc.on:hover {
 }
 /* "Northumberland & Tyneside · beyond 45 min" — the Best row's line when the window's verdict
    belongs to a region every rated place of which the reach tier gated out
-   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence, so
-   it keeps the PRIMARY ink (`.none`'s muted ink is for "nothing to report") and the 400 weight that
-   marks it as a statement rather than a place name.
+   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence. It
+   used to keep the PRIMARY ink and the 400 weight to mark it as a statement rather than a place name;
+   the base `.wf-hc-best` is now secondary ink at 400 too (a place name no longer shouts), so this rule
+   follows the base for both and sets only its own size.
 
    ⚠️ 10px, not 11px, and `overflow-wrap: anywhere`. The value column is ~88px at a 320px viewport
    (A27's figure; the key column stays "Spread"-wide because the label is the six-character
@@ -2775,7 +2839,12 @@ button.wf-hc.on:hover {
    case at 320px is three lines ("Northumberland &" / "Tyneside · beyond" / "45 min"), ~39px
    against the slot's 32px minimum: the card grows ~7px at the narrowest width and the grid rows
    stretch to match, which is the wrap `.wf-hc-best` already budgets for ("Newcastle and Gateshead
-   Quayside"). Wider cards fit it in two. */
+   Quayside"). Wider cards fit it in two.
+   Reach-scoped-card-plan R1 adds two shorter variants: "<region> · no route" (the origin rides the
+   title and the spoken form) and the mixed "<region> · beyond 45 min / no route". The mixed one is the
+   longest: with the value column at ~70px at 320px it can reach four lines (~52px) for the longest
+   region name, so that is the budget for this row, three more px than the slot's minimum per extra
+   line; the "or" is a "/" and the origin is left out of the visible text to hold it there. */
 .wf-hc-best.beyond {
   font-size: 10px;
   font-weight: 400;
@@ -2806,8 +2875,8 @@ button.wf-hc.on:hover {
    misreading it corrects ("unrecognised, so give supermoon a hue of its own") is the one a future
    editor would act on. */
 /* ⚠️ IT MUST CLIP ITSELF, because the card no longer clips it. `.wf-hc` is `overflow: visible` so
-   the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow mist &
-   hoar frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
+   the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow, mist &
+   frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
    card on a 390px phone, straight across its neighbour. The row wraps BETWEEN chips already; this is
    the single-chip case, and an ellipsis is the honest truncation because the popup's topic rows
    (M2) carry the full name and the detail. */
@@ -4479,6 +4548,20 @@ button.wf-hc.also.on:hover {
   font-size: 9.5px;
   color: var(--color-plex-text-muted);
   flex-wrap: wrap;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+/* The aligned count (collapse-and-topic-pips-plan.md §4): its own `flex: none` span so it never truncates. */
+.wf-tide-strip-count {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-badge-tide);
+  white-space: nowrap;
+}
+.wf-tide-strip-count[data-kind='none'] {
+  font-weight: 400;
+  color: var(--color-plex-text-muted);
 }
 /* The strip used to publish `--tsh` (its own `offsetHeight`) and a `wf-tide-strip-on` class on
    `.wf-map-tab` for a CSS lift of the bottom-CENTRE counts footer (T6 #6, §7 check 4). No CSS reads
@@ -4537,6 +4620,13 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
   cursor: pointer;
 }
+.wf-tl-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 11px;
+}
+.wf-tl-head-row > .wf-tl-head { flex: 1; width: auto; min-width: 0; }
 .wf-tl-head:focus-visible,
 .wf-tl-n:focus-visible,
 .wf-tl-b:focus-visible {
@@ -4544,11 +4634,147 @@ button.wf-hc.also.on:hover {
   outline-offset: 1px;
 }
 .wf-tl-cv { margin-left: auto; }
+
+/* ── The panel's collapsed row and day dots (collapse-and-topic-pips-plan.md §1, §2) ──
+   The collapsed panel is the tide strip's collapsed row: label (`.wf-tide-strip-kicker`), day groups, and the
+   shared `.wf-tide-strip-toggle` button pinned right. The tooltip rides above a day group, so a collapsed
+   panel does not clip its overflow (the rounded corners need no clip: the row has no background of its own). */
+.wf-topic-strip[data-open='false']:not([data-variant]) { overflow: visible; }
+.wf-tl-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  min-height: 38px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.wf-tl-collapsed-open { cursor: pointer; }
+.wf-tl-days { display: flex; gap: 4px; min-width: 0; }
+.wf-tl-none {
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.wf-tl-day {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: var(--color-plex-text-muted);
+}
+button.wf-tl-day { cursor: pointer; }
+button.wf-tl-day:hover,
+button.wf-tl-day:focus-visible {
+  border-color: var(--color-plex-border-light);
+  background: rgba(242, 231, 211, 0.07);
+  color: var(--color-plex-text);
+  outline: none;
+}
+.wf-tl-day[data-current='true'] {
+  background: rgba(242, 231, 211, 0.1);
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+.wf-tl-day[data-current='true']::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+}
+.wf-tl-dots { display: flex; gap: 2px; padding: 2px 3px; }
+.wf-tl-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--wf-tc);
+}
+.wf-tl-dot[data-state='on'] {
+  box-shadow: 0 0 0 1.5px rgba(20, 15, 12, 0.95), 0 0 8px var(--wf-tc);
+}
+.wf-tl-dot[data-state='other'] {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--wf-tc);
+  opacity: 0.8;
+}
+.wf-tl-dot-empty {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
+}
+.wf-tl-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 4px 8px;
+  background: var(--color-plex-bg);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* The first group sits at the panel's left edge: anchor its tooltip there so it is not pushed off the map. */
+.wf-tl-day[data-edge='left'] .wf-tl-tip { left: 0; transform: none; }
+.wf-tl-tip span { color: var(--color-plex-text-muted); }
+button.wf-tl-day:hover .wf-tl-tip,
+button.wf-tl-day:focus-visible .wf-tl-tip { display: block; }
+/* The open grid, panel only: the current day's header and the active window's bar (the sheet is unchanged). */
+.wf-topic-strip:not([data-variant]) .wf-tl-d {
+  padding: 3px 0 5px;
+  margin-bottom: 5px;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] {
+  background: rgba(242, 231, 211, 0.1);
+  border-radius: 5px;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] i,
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true'] b {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+.wf-topic-strip:not([data-variant]) .wf-tl-d[data-current-day='true']::after {
+  content: '';
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-plex-text);
+}
+.wf-tl-b[data-light='window'] {
+  background: color-mix(in srgb, var(--wf-tc) 42%, transparent);
+  border-color: var(--wf-tc);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--wf-tc) 60%, transparent);
+}
+.wf-tl-b[data-light='other'] {
+  background: none;
+  border-style: dashed;
+}
 /* Every item is placed with an inline `grid-area`; the two header rows size to content and every topic
-   row after them is 24px. 92 + 8 x 41 = the 420px the 440px panel leaves inside its padding. */
+   row after them is 24px. 112 + 8 x 38.25 = the 418px the 440px panel leaves inside its borders and padding
+   (the name column is 112px so the longest full name, "Snow on the tops", fits on one line beside its glyph). */
 .wf-tl-grid {
   display: grid;
-  grid-template-columns: 92px repeat(8, minmax(0, 1fr));
+  grid-template-columns: 112px repeat(8, minmax(0, 1fr));
   grid-template-rows: auto auto;
   grid-auto-rows: 24px;
   row-gap: 4px;
@@ -4617,6 +4843,7 @@ button.wf-hc.also.on:hover {
   white-space: nowrap;
   cursor: pointer;
 }
+.wf-tl-n > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wf-tl-n[aria-disabled='true'] { cursor: default; opacity: 0.6; }
 .wf-tl-n[data-selected='true'] { color: var(--wf-tc); }
 .wf-tl-g { font-size: 11px; }
@@ -4797,7 +5024,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 }
 
 /* The phone's strip (hot-topics-by-day M4): the same grid inside the peek sheet's Windows body. Full width of
-   the body, the design's 70px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
+   the body, a 78px label column, no footer (the strip has none). Touch metrics: 32px rows, the Big
    seas track 44px (32 + the 12px label band) while a tick is drawn, bars 24px tall. The inline
    `gridTemplateRows` the component writes for a tick uses the same 32/44. Phone only. */
 @media (max-width: 639px) {
@@ -4814,7 +5041,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     font-size: 10px;
   }
   .wf-topic-strip-sheet .wf-tl-grid {
-    grid-template-columns: 70px repeat(8, minmax(0, 1fr));
+    grid-template-columns: 78px repeat(8, minmax(0, 1fr));
     grid-auto-rows: 32px;
     row-gap: 4px;
     padding: 0 8px 10px;
@@ -4826,13 +5053,20 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     font-size: 11px;
     gap: 4px;
   }
-  .wf-topic-strip-sheet .wf-tl-n > span:last-child {
+  /* A plain (no sub-line) name is the full topic name and may wrap onto at most two lines inside the 32px row
+     (a safety net: the clamp, not an ellipsis on one line, is what bounds it). The button itself is
+     nowrap; the name span opts back in. */
+  .wf-topic-strip-sheet .wf-tl-n > span:last-child:not(.wf-tl-nt) {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    line-height: 1.15;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
   }
-  /* The ellipsis above is for the plain one-line name; a label with a sub-line is a column whose own lines
-     (.wf-tl-n1, .wf-tl-sub) carry the ellipsis. */
+  /* A label with a sub-line (.wf-tl-nt) is a column whose own lines (.wf-tl-n1, .wf-tl-sub) stay one line
+     each and carry the ellipsis. */
   .wf-topic-strip-sheet .wf-tl-b { margin: 4px 2px; }
   .wf-topic-strip-sheet .wf-tl-det { font-size: 10.5px; }
   .wf-topic-strip-sheet .wf-tl-n.wf-tl-tall { height: 32px; }
@@ -5096,6 +5330,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      rule above it as a different block. */
   .wf-map-tab .wf-win-verdict-region { display: none; }
   .wf-map-tab .wf-win-verdict-count { display: none; }
+  /* The drive-tier scope words (reach-scoped-card-plan R3) take the hidden region line's slot: the region and its
+     separator go, the scope stays (printed short, spoken long; the long form is in the accessible name). */
+  .wf-map-tab .wf-win-verdict-scope-sep { display: none; }
   .wf-map-tab .wf-win-pick { padding: 3px 5px; }
   .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
   /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
@@ -5882,6 +6119,17 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   min-width: 0;
   overflow: hidden;
 }
+/* A day-dot jump on the collapsed Hot topics row (collapse-and-topic-pips-plan.md §2): the control flashes
+   for 700ms (the class is added on the change and removed by a timer) and fades with a .5s transition. */
+/* The transition and the ring exist ONLY while `data-flash` is set, which only a desktop or tablet day-dot jump
+   does, so no rule here applies on the phone (its pill tier cross-fades are untouched). `data-flash='true'` is
+   the highlight and `'fading'` the .5s fade back. The ring is an OUTLINE, not a box-shadow, so the tier's inset
+   verdict stripe (`.wf-win-pill[data-tier]`) stays visible. */
+.wf-win-control[data-flash] .wf-win-pill { transition: border-color 0.5s; }
+.wf-win-control[data-flash='true'] .wf-win-pill {
+  border-color: rgba(242, 231, 211, 0.5);
+  outline: 3px solid rgba(242, 231, 211, 0.12);
+}
 .wf-win-pill:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
@@ -6218,6 +6466,43 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   letter-spacing: 0.02em;
   color: var(--color-plex-text-secondary);
 }
+/* The second line of a reach-scoped verdict (reach-scoped-card-plan R3): the region and the drive-tier scope share
+   it. The region yields first (ellipsis at a 72px cap, against 112px unscoped, so the scope has room); the scope
+   never cuts. The line is ADDED width on desktop and tablet (72px + gap + separator + the ~47px "within 45m" is about
+   130px against the unscoped 112px cap), and a scoped "everywhere in your area" is shortened to "everywhere" in
+   `verdictRegionLabel` because the longer form could never fit here. The line clips inside its cell
+   (`overflow: hidden`), so nothing can paint into the caret. An unscoped verdict has no `.wf-win-verdict-sub` and is
+   unchanged. */
+.wf-win-verdict-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.wf-win-verdict-sub .wf-win-verdict-region {
+  max-width: 72px;
+  min-width: 0;
+}
+.wf-win-verdict-scope-sep {
+  flex: none;
+  font-size: 9px;
+  color: #857c70;
+}
+.wf-win-verdict-scope {
+  flex: none;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+/* The two printed spellings of the scope (the `VerdictWord mode="swap"` pattern): the full `within 45m` by default,
+   `≤45m` at 811px and below, where the verdict cell is squeezed (a phone's pill, and the 640-811px band where the
+   control is `max-width: calc(100% - 308px)`). Both are aria-hidden; the long form is in the accessible name. */
+.wf-scope-short { display: none; }
+/* (The ≤811px swap rules live inside the existing ≤811px block further down, with the verdict word's own swap.) */
 
 /* The pick medallion — OUTLINE ONLY, never filled. A filled chip became the loudest thing on a
    control whose job is the verdict; it was built and cut, and the rejection is part of the spec.
@@ -6336,6 +6621,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
     white-space: nowrap;
     border: 0;
   }
+  /* The drive-tier scope's two spellings (reach-scoped-card-plan R3), swapped at the same breakpoint and for the same
+     reason as the verdict word: the cell is squeezed here. These are scoped-state rules only (an unscoped verdict has no
+     scope element), so unscoped output is unchanged. */
+  .wf-map-tab .wf-win-verdict-scope .wf-scope-full { display: none; }
+  .wf-map-tab .wf-win-verdict-scope .wf-scope-short { display: inline; }
+  /* A scoped cell never shrinks below its own content, so the short scope is never clipped by the pill squeezing the
+     cell under its word (measured at 320px: a Poor cell was 22px for a 26px word and cut "≤45m"). Its content is the
+     word or the short scope, whichever is wider, so the cell grows by a few px at most and the day label absorbs it. */
+  .wf-map-tab .wf-win-verdict--scoped { min-width: max-content; }
 }
 
 
@@ -6556,6 +6850,15 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    (unrated-verdict-plan.md U2): a verdict hue here would put "Worth it"'s green back on a window no
    rating has called. */
 .wf-win-panel-verdict[data-tier="UNRATED"] { color: rgba(242, 231, 211, 0.52); }
+/* The drive-tier scope beside the header word (reach-scoped-card-plan R3): smaller and calmer than the word. */
+.wf-win-panel-verdict-scope {
+  margin-left: 6px;
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--color-plex-text-secondary);
+}
 .wf-win-panel-note {
   margin: 0;
   padding: 9px 12px;
@@ -7070,6 +7373,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
 /* The Lite aurora door's footer wrappers (the window menu's and the phone sheet's). */
 .wf-win-aurora-door,
 .wf-map-peek-aurora-door { padding: 8px 10px 4px; }
+/* The window menu's guide door: a footer of its own, right-aligned under the last row. */
+.wf-win-guide { display: flex; justify-content: flex-end; padding: 10px; }
 /* The single grid item — see the markup's own note for why the glyph and the text cannot be
    siblings here. */
 .wf-win-landing-txt {
@@ -10871,6 +11176,24 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   min-width: 0;
   transition: background 0.14s, border-color 0.14s;
 }
+/* Closable entries (collapse-and-topic-pips-plan.md §5). The shared `.wf-tide-strip-toggle` button sits over the
+   card's top right corner (a sibling of the card, which may itself be a button); the title row reserves room for
+   it. A closed entry is its header line alone: tighter padding, the plain title size, and a date box that
+   keeps the day only (the month and the countdown are not drawn). */
+.wf-cu-ent { position: relative; }
+.wf-cu-toggle,
+.wf-cu-toggle-all { min-height: 24px; }
+.wf-cu-toggle {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+}
+.wf-cu-ent:has(> .wf-cu-toggle) .wf-cu-ttl { padding-right: 64px; }
+.wf-cu-card-closed { padding-top: 7px; padding-bottom: 7px; }
+.wf-cu-card.wf-cu-card-closed .wf-cu-nm { font-size: 13.5px; font-weight: 600; }
+.wf-cu-card.wf-cu-card-closed .wf-cu-gi { font-size: 12.5px; }
+.wf-cu-ent[data-open='false'] .wf-cu-dbox { padding: 3px 0 4px; }
 .wf-cu-card:hover {
   background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 10%, transparent);
   border-color: var(--color-plex-border-light);
@@ -13746,9 +14069,37 @@ button.wf-mchip:hover {
   cursor: pointer;
   color: var(--color-plex-text-secondary);
 }
-.wf-aurora-x:hover,
-.wf-aurora-tog:hover {
+.wf-aurora-x:hover {
   background: rgba(255, 255, 255, 0.06);
+  color: var(--color-plex-text);
+}
+/* The expand toggle: the button stays the 44px transparent hit area (wide enough for "Open ▾"); the
+   bordered mono pill drawn inside it follows the Map's Hot topics toggle, and the hover restyles the pill.
+   The pill has one fixed width so "Open ▾" and "Close ▴" take the same room: the toggle, guide and dismiss
+   must sit in the same place on the strip and the card, so nothing shifts when the reader flips between them. */
+.wf-aurora-tog {
+  width: auto;
+  min-width: 44px;
+}
+.wf-aurora-tog-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  /* 7ch of mono text plus the 2 x 8px padding and 2 x 1px border; "Close ▴" is 6ch + gap, "Open ▾" 5ch + gap. */
+  min-width: calc(7ch + 18px);
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-tog:hover .wf-aurora-tog-pill {
+  border-color: var(--color-plex-border-light);
   color: var(--color-plex-text);
 }
 .wf-aurora-x.wf-aurora-x-strip,
@@ -13757,12 +14108,18 @@ button.wf-mchip:hover {
   margin: 0;
 }
 /* The desktop expand/collapse toggle (640px and up only; a phone renders none). In the card it shares
-   a wrapper with the dismiss, which takes the dismiss's corner placement. */
+   a wrapper with the dismiss, which takes the dismiss's corner placement. The three controls (toggle, guide
+   "?", dismiss) must sit in the same place on the strip and the card: centred on one line, 14px apart (the
+   strip's gap; the guide link adds its own 10px each side), the dismiss 8px from the right edge (the card's
+   14px padding less this -6px margin), and 28px down from the top as on the 56px strip (the card's 1px border
+   + 10px top padding, less this -5px margin, plus half the 44px button, is 28px). */
 .wf-aurora-actions {
   flex: none;
   align-self: flex-start;
   display: flex;
-  margin: -4px -8px 0 0;
+  align-items: center;
+  gap: 14px;
+  margin: -5px -6px 0 0;
 }
 .wf-aurora-actions .wf-aurora-x,
 .wf-aurora-actions .wf-aurora-tog {
@@ -14915,6 +15272,161 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
 }
+/* The guide's `?` sits before the ✕ (G2): the first of the pair takes the auto margin, the ✕ none. */
+.wf-ask-dock-help { font-family: var(--font-mono); font-size: 13px; }
+.wf-ask-dock-close { margin-left: 0; }
+
+/* ══ The in-app guide (docs/engineering/user-guide-plan.md, G2) ═══════════════════════════════════════
+   Three presentations of one panel: the DOCKED column (the Ask dock's slot in the shell's docked row,
+   below), the STACKED dialog (a right-hand panel over a scrim, portalled to <body> on z 70) and the
+   SHEET (a tall BottomSheet, so its z-index is BottomSheet's). The frame is the landing site's
+   `/guide/` page with `?embed=1`; the panel only draws chrome around it. */
+
+/* The docked column: 440px from 1180px, 380px from 1024 — the Ask dock's slot and animation, a little wider
+   because the guide's pages are prose. `data-band` is `useAskSurface`'s, as the dock's. */
+.wf-guide-dock {
+  --wf-dock-w: 440px;
+  flex: none;
+  width: var(--wf-dock-w);
+  overflow: hidden;
+  background: var(--color-plex-bg);
+  display: flex;
+  flex-direction: column;
+  animation: wf-guide-dock-in .28s cubic-bezier(.3, .7, .2, 1);
+}
+.wf-guide-dock[data-band="desktop"] { --wf-dock-w: 380px; }
+@keyframes wf-guide-dock-in {
+  from { width: 0; }
+  to { width: var(--wf-dock-w); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-guide-dock { animation: none; }
+}
+/* Sticky exactly as the dock is (see `.wf-ask-dock[data-sticky]`, and `useStickyViewportFill`, which
+   publishes `--wf-dock-top` on this node too). */
+.wf-guide-dock[data-sticky] {
+  position: sticky;
+  top: var(--safe-t);
+  align-self: flex-start;
+  height: calc(100dvh - var(--safe-b) - var(--wf-dock-top, 0px));
+}
+.wf-guide-dock:not([data-sticky]) { align-self: stretch; min-height: 0; }
+.wf-guide-dock-inner {
+  width: var(--wf-dock-w);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-plex-border-light);
+}
+
+/* The stacked dialog. z 70: above `Modal` (50) and the peek (60), below BottomSheet (9999/10000) and
+   the health panel (9999). The scrim is the app's one dialog scrim. */
+.wf-guide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.wf-guide-scrim { position: absolute; inset: 0; }
+.wf-guide-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-t);
+  padding-bottom: var(--safe-b);
+  background: var(--color-plex-bg);
+  border-left: 1px solid var(--color-plex-border-light);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, .35);
+}
+.wf-guide-panel:focus { outline: none; }
+
+.wf-guide-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px 10px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-guide-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--color-plex-text);
+}
+.wf-guide-newtab {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  text-decoration: none;
+}
+.wf-guide-newtab:hover { color: var(--color-plex-text); text-decoration: underline; }
+.wf-guide-newtab:focus-visible,
+.wf-guide-x:focus-visible,
+.wf-ask-sheet-help:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-guide-x {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-guide-x:hover { color: var(--color-plex-text); }
+.wf-guide-frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background: var(--color-plex-bg);
+}
+/* The sheet: the tall BottomSheet's scroller holds only the frame, which scrolls itself. */
+.app-safe-sheet [data-testid="bottom-sheet-scroller"][data-flush] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+/* The sheet's header is the title alone, clear of the ✕ (BottomSheet pads the right). */
+.app-safe-sheet [data-testid="bottom-sheet-header"] > .wf-guide-title { display: block; }
+
+/* The Ask sheet's header row (G2): the "Ask" label and the guide's `?`, which sits clear of the ✕. */
+.wf-ask-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wf-ask-sheet-help {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: none;
+  border: 0;
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-ask-sheet-help:hover { color: var(--color-plex-text); }
+
 /* The conversation's own scroller; the input row after it is `flex: none` and so stays at the foot. */
 .wf-ask-dock-scroll {
   flex: 1 1 auto;
@@ -15309,4 +15821,94 @@ button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
+}
+
+/* The in-context guide doors (docs/engineering/user-guide-plan.md, G3). `.wf-guide-link` is a 24px round "?"
+   whose 44px hit area is a pseudo-element, so the row it sits in does not grow. `.wf-guide-why` is the text
+   twin beside a Lite lock: the same bone colour, underline on hover only. */
+.wf-guide-link {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-plex-text);
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.wf-guide-link::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+}
+.wf-guide-link:hover { background: rgba(255, 255, 255, 0.06); }
+.wf-guide-link:focus-visible,
+.wf-guide-why:focus-visible {
+  outline: 2px solid var(--color-plex-text);
+  outline-offset: 2px;
+}
+.wf-guide-why {
+  align-self: flex-start;
+  white-space: nowrap;
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--color-plex-text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wf-guide-why:hover { text-decoration: underline; }
+
+/* The map legend's guide door: a footer line under the notes, right-aligned. */
+.wf-legend-guide { display: flex; justify-content: flex-end; padding-top: 6px; }
+
+/* The aurora banners' guide door sits between the toggle and the dismiss, with a little air each side. */
+.wf-aurora-actions .wf-guide-link,
+.wf-aurora-strip .wf-guide-link,
+.wf-aurora-lite-door + .wf-guide-link { margin: 0 10px; }
+
+/* Ask's empty state: the allowance line with the guide door at the end of the row. */
+.wf-ask-guide-row { display: flex; align-items: center; gap: 8px; }
+.wf-ask-guide-row > .wf-guide-link { margin-left: auto; }
+
+/* The 44px hit area of the ? is a pseudo-element 10px proud of the 24px circle on every side, so a neighbour must
+   sit at least 10px away or the two boxes overlap. These hosts' gaps are smaller, so the ? adds the difference. */
+.wf-cu-chips .wf-guide-link { margin-left: 4px; }
+.wf-tl-collapsed .wf-guide-link,
+.wf-tide-strip-header .wf-guide-link,
+.wf-hstrip-h .wf-guide-link { margin: 0 4px; }
+.wf-tl-head-row,
+.wf-ask-guide-row { gap: 12px; }
+/* On a phone the lens bar's ? ends the count line. */
+.wf-lens-count .wf-guide-link { display: inline-flex; vertical-align: middle; margin-left: 12px; }
+/* The drive-time lock: segments (and the Pro pill) on one line, the guide link on its own beneath. */
+.wf-filters-drive-lock { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+
+/* The drive-tier scope caption over a list of verdict words (reach-scoped-card-plan R3, D6): the pill's dropdown and the
+   phone's Windows section. Quiet, one line, never wider than the list. */
+.wf-win-scope-note,
+.wf-map-peek-scope {
+  padding: 4px 12px 2px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The Filters popover's hint under a disabled drive-time segment (reach-scoped-card-plan R3): the reader has no measured drive. */
+.wf-filters-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
 }

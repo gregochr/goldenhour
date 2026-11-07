@@ -121,7 +121,7 @@ class SchedulerRunsServiceTest {
         List<RunListItem> eveningRuns = service.recentRuns(ForecastCycleJobs.EVENING_JOB, 3);
         assertThat(ids(eveningRuns)).containsExactly(evening.getId());
         assertThat(eveningRuns.get(0).kind()).isEqualTo(RunKind.CYCLE);
-        assertThat(eveningRuns.get(0).name()).isEqualTo("Evening sunrise refresh");
+        assertThat(eveningRuns.get(0).name()).isEqualTo("Evening refresh");
         assertThat(eveningRuns.get(0).status()).isEqualTo(RunListStatus.DEGRADED);
     }
 

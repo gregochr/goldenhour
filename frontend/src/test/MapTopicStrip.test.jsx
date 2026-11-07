@@ -5,10 +5,13 @@ import {
 import {
   act, fireEvent, render, screen,
 } from '@testing-library/react';
-import MapTopicStrip, { TOPIC_STRIP_OPEN_KEY, TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
+import MapTopicStrip, { TOPIC_STRIP_OPEN_SHEET_KEY } from '../components/map/MapTopicStrip.jsx';
 import { fourDayGrid } from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { SATURDAY } from './bigSeasFixtures.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * The four-day strip component (hot-topics-by-day-plan §3 M2), with the REAL `fourDayGrid` model.
@@ -48,13 +51,13 @@ const HOT = [
   topic({ type: 'INVERSION', label: 'Inversion', date: MON, eventType: 'SUNRISE' }),
 ];
 
-function gridFor(activeRow = EVENTS[1], hotTopics = HOT) {
+function gridFor(activeRow = EVENTS[1], hotTopics = HOT, bigSeas = [SATURDAY]) {
   return fourDayGrid({
     events: EVENTS,
     topicIndex: buildTopicIndex(hotTopics),
     hotTopics,
     scopeNames: [],
-    bigSeas: [SATURDAY],
+    bigSeas,
     todayStr: FRI,
     activeRow,
     now: NOW,
@@ -71,6 +74,7 @@ function renderStrip(props = {}) {
       currentTypes={['AURORA']}
       onToggleType={onToggleType}
       onPick={onPick}
+      open
       {...props}
     />,
   );
@@ -90,7 +94,7 @@ describe('MapTopicStrip: the grid', () => {
   it('is a labelled group with the header, four day headers and one arrow cell per column', () => {
     renderStrip();
     expect(screen.getByRole('group', { name: 'Hot topics, next four days' })).toBe(screen.getByTestId('wf-topic-strip'));
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveTextContent('Hot topics · next four days');
+    expect(screen.getByTestId('wf-topic-strip-head')).toHaveTextContent('Hot topics · next four days');
     expect(screen.getByTestId(`wf-topic-strip-day-${FRI}`)).toHaveTextContent('Fri23');
     expect(screen.getByTestId(`wf-topic-strip-day-${MON}`)).toHaveTextContent('Mon26');
     const grid = screen.getByTestId('wf-topic-strip-grid');
@@ -174,7 +178,7 @@ describe('MapTopicStrip: names', () => {
     expect(label('AURORA')).toHaveAccessibleName('Aurora: show on the map');
     expect(label('AURORA')).toHaveAttribute('aria-pressed', 'false');
     rerender(
-      <MapTopicStrip
+      <MapTopicStrip open
         grid={gridFor()} selectedType="AURORA" currentTypes={['AURORA']} onToggleType={onToggleType} onPick={onPick}
       />,
     );
@@ -311,7 +315,7 @@ describe('MapTopicStrip: focus when the grid or the strip goes away', () => {
     bar('KING_TIDE', 2).focus();
     outside.focus();
     rerender(
-      <MapTopicStrip
+      <MapTopicStrip open
         grid={gridFor()} selectedType={null} currentTypes={[]} held heldReason="the tide strip"
         onToggleType={onToggleType} onPick={onPick}
       />,
@@ -336,158 +340,224 @@ describe('MapTopicStrip: focus when the grid or the strip goes away', () => {
   });
 });
 
+/**
+ * The panel's open state is the owner's (MapView): a stand-in owner holding it in state, session-only, the
+ * way MapView does (collapse-and-topic-pips-plan.md §1).
+ */
+function Owned({ initial = false, onOpenChange = undefined, ...props }) {
+  const [open, setOpen] = React.useState(initial);
+  return (
+    <MapTopicStrip
+      grid={gridFor()}
+      selectedType={null}
+      currentTypes={[]}
+      onToggleType={vi.fn()}
+      onPick={vi.fn()}
+      {...props}
+      open={open}
+      onOpenChange={(next) => { setOpen(next); onOpenChange?.(next); }}
+    />
+  );
+}
+
 describe('MapTopicStrip: collapse', () => {
-  it('is open by default, with aria-expanded true', () => {
-    renderStrip();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+  it('starts collapsed when rendered bare (no open prop): the panel default', () => {
+    renderStrip({ open: undefined });
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(screen.getByTestId('wf-topic-strip')).toHaveAttribute('data-open', 'false');
+  });
+
+  it('opens and closes on its own state when rendered bare, and writes nothing to storage', () => {
+    renderStrip({ open: undefined });
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('draws the open state the owner passes and reports a press as onOpenChange(next)', () => {
+    const onOpenChange = vi.fn();
+    renderStrip({ onOpenChange });
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // Controlled: the owner has not changed the prop, so the grid is still there.
     expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
   });
 
-  it('collapses on the header, keeps the group mounted, and stores the choice', () => {
-    renderStrip();
+  it('collapses and reopens with a stand-in owner, keeping the group mounted', () => {
+    render(<Owned initial />);
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
     expect(screen.getByTestId('wf-topic-strip')).toBeInTheDocument();
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
     expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
   });
 
-  it('starts collapsed when the stored preference says so', () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
-    renderStrip();
+  it('no longer reads or writes the old panel preference or a frame height default', () => {
+    localStorage.setItem('mapTopicStripOpen', '1');
+    render(<Owned />);
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(localStorage.getItem('mapTopicStripOpen')).toBe('1');
   });
 
-  it('tolerates storage that throws on read and on write', () => {
+  it('works when storage throws (nothing is read or written)', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
-    renderStrip();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+    render(<Owned />);
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    // The in-memory state still holds the choice for the session.
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('an open strip offers its chevron and controls its grid', () => {
+  it('collapsed: the shared header row, label Hot topics and the "Open ▴" button', () => {
+    renderStrip({ open: false });
+    expect(document.querySelector('.wf-tide-strip-kicker')).toHaveTextContent('Hot topics');
+    expect(document.querySelector('.wf-tide-strip-kicker')).not.toHaveTextContent('next four days');
+    const button = screen.getByTestId('wf-topic-strip-toggle');
+    expect(button).toHaveClass('wf-tide-strip-toggle');
+    expect(button).toHaveTextContent('Open ▴');
+    expect(button).not.toHaveAttribute('aria-controls');
+  });
+
+  it('open: the label reads "Hot topics · next four days" and the button is ▾ named Collapse, controlling its grid', () => {
     renderStrip();
-    const header = screen.getByTestId('wf-topic-strip-toggle');
-    expect(header.querySelector('.wf-tl-cv')).not.toBeNull();
-    expect(header).toHaveAttribute('aria-controls', screen.getByTestId('wf-topic-strip-grid').id);
+    expect(document.querySelector('.wf-tide-strip-kicker')).toHaveTextContent('Hot topics · next four days');
+    const button = screen.getByTestId('wf-topic-strip-toggle');
+    expect(button).toHaveAccessibleName('Collapse');
+    expect(button).toHaveTextContent('▾');
+    expect(button).toHaveAttribute('aria-controls', screen.getByTestId('wf-topic-strip-grid').id);
+  });
+
+  it('opens on a press anywhere on the row, but not twice for a press on the button itself', () => {
+    const onOpenChange = vi.fn();
+    renderStrip({ open: false, onOpenChange });
+    fireEvent.click(screen.getByTestId('wf-topic-strip-head'));
+    expect(onOpenChange).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
   });
 });
 
-/** A stand-in for the frame: `offsetHeight` read by test id, a ResizeObserver the test can fire. */
-function frameHarness(initial) {
-  const state = { frame: initial, strip: 150, observers: [] };
-  globalThis.ResizeObserver = class {
-    constructor(cb) { this.cb = cb; state.observers.push(this); }
-
-    observe() {}
-
-    disconnect() { this.disconnected = true; }
-  };
-  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
-  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
-    configurable: true,
-    get() {
-      if (this.dataset?.testid === 'frame') return state.frame;
-      if (this.dataset?.testid === 'wf-topic-strip') return state.strip;
-      return 0;
-    },
-  });
-  state.cleanup = () => {
-    if (original) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', original);
-    else delete HTMLElement.prototype.offsetHeight;
-  };
-  return state;
-}
-
-function renderInFrame(props = {}) {
-  return render(
-    <div data-testid="frame">
-      <div className="wf-map-chrome-bl">
-        <MapTopicStrip
-          grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={vi.fn()} onPick={vi.fn()}
-          {...props}
-        />
-      </div>
-    </div>,
-  );
-}
-
-describe('MapTopicStrip: the default on a short frame (the stored preference is three-way)', () => {
-  const OriginalRO = globalThis.ResizeObserver;
-  let frame;
-  afterEach(() => { frame?.cleanup(); globalThis.ResizeObserver = OriginalRO; });
-
-  it('starts OPEN on a frame at least 720px tall when nothing is stored', () => {
-    frame = frameHarness(800);
-    renderInFrame();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+describe('MapTopicStrip: the collapsed row\'s day dots (collapse-and-topic-pips-plan.md §2)', () => {
+  // Today is Friday 23 Oct; the window on screen is Friday's sunset (the current day is FRI).
+  it('draws one group per forecast day, labelled', () => {
+    renderStrip({ open: false });
+    expect(['0', '1', '2', '3'].map((i) => screen.getByTestId(`wf-topic-day-${i}`).textContent.slice(0, 3)))
+      .toEqual(['FRI', 'SAT', 'SUN', 'MON']);
   });
 
-  it('starts COLLAPSED below 720px when nothing is stored, without forcing it or storing anything', () => {
-    frame = frameHarness(700);
-    renderInFrame();
-    const header = screen.getByTestId('wf-topic-strip-toggle');
-    expect(header).toHaveAttribute('aria-expanded', 'false');
-    // Not a forced collapse: the header is a live control with a chevron and no reason text.
-    expect(header).not.toHaveAttribute('aria-disabled');
-    expect(header.querySelector('.wf-tl-cv')).not.toBeNull();
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBeNull();
+  it('marks the day of the window on screen as current', () => {
+    renderStrip({ open: false });
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('data-current', 'true');
+    expect(screen.getByTestId('wf-topic-day-1')).not.toHaveAttribute('data-current');
   });
 
-  it('lets the reader open it on a short frame, and that writes "1"', () => {
-    frame = frameHarness(700);
-    renderInFrame();
-    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+  it('moves the current-day marker with the window', () => {
+    renderStrip({ open: false, grid: gridFor(EVENTS[4]) });
+    expect(screen.getByTestId('wf-topic-day-2')).toHaveAttribute('data-current', 'true');
+    expect(screen.getByTestId('wf-topic-day-0')).not.toHaveAttribute('data-current');
   });
 
-  it('a stored choice beats the frame height both ways', () => {
-    frame = frameHarness(700);
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
-    const { unmount } = renderInFrame();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
-    unmount();
-    frame.frame = 900;
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
-    renderInFrame();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+  it('draws a button only on a day that has a topic to show (Monday\'s has no EV row, so it is a span)', () => {
+    renderStrip({ open: false });
+    // Fri: Aurora on the window (current, a button that does nothing); Sat/Sun: king tide; Mon: inversion, no EV row.
+    expect(screen.getByTestId('wf-topic-day-0').tagName).toBe('BUTTON');
+    expect(screen.getByTestId('wf-topic-day-1').tagName).toBe('BUTTON');
+    expect(screen.getByTestId('wf-topic-day-2').tagName).toBe('BUTTON');
+    expect(screen.getByTestId('wf-topic-day-3').tagName).toBe('SPAN');
   });
 
-  it('re-checks when the frame is resized while nothing is stored', () => {
-    frame = frameHarness(800);
-    renderInFrame();
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
-    frame.frame = 600;
-    act(() => { frame.observers.forEach((o) => o.cb()); });
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
-    frame.frame = 760;
-    act(() => { frame.observers.forEach((o) => o.cb()); });
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
+  it('draws a plain span and a hollow ring for a day with no topic at all', () => {
+    const only = [topic({ date: SAT })];
+    renderStrip({ open: false, grid: gridFor(EVENTS[1], only) });
+    expect(screen.getByTestId('wf-topic-day-0').tagName).toBe('SPAN');
+    expect(screen.getByTestId('wf-topic-day-empty-0')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-topic-day-3').tagName).toBe('SPAN');
   });
 
-  it('does NOT re-check once the reader has chosen', () => {
-    frame = frameHarness(800);
-    renderInFrame();
-    fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    frame.frame = 600;
-    act(() => { frame.observers.forEach((o) => o.cb()); });
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
-    frame.frame = 900;
-    act(() => { frame.observers.forEach((o) => o.cb()); });
-    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+  it('jumps on a press: onJumpToDay gets the day\'s first openable topic row, sunrise first, and the words', () => {
+    const onJumpToDay = vi.fn();
+    const onOpenChange = vi.fn();
+    renderStrip({ open: false, onJumpToDay, onOpenChange });
+    fireEvent.click(screen.getByTestId('wf-topic-day-1'));
+    expect(onJumpToDay).toHaveBeenCalledTimes(1);
+    expect(onJumpToDay.mock.calls[0][0].id).toBe('solar:2026-10-24:SUNRISE');
+    expect(onJumpToDay.mock.calls[0][1]).toBe('Window moved to Sat sunrise');
+    // The panel stays collapsed: the press on a dot is not a press on the row.
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
-  it('watches the frame with the SAME observer that reports the strip\'s height (no second observer)', () => {
-    frame = frameHarness(800);
-    renderInFrame();
-    expect(frame.observers).toHaveLength(1);
+  it('parks focus on the strip root before it moves the window', () => {
+    const calls = [];
+    const onJumpToDay = vi.fn(() => calls.push(document.activeElement));
+    renderStrip({ open: false, onJumpToDay });
+    const button = screen.getByTestId('wf-topic-day-1');
+    button.focus();
+    fireEvent.click(button);
+    expect(calls[0]).toBe(screen.getByTestId('wf-topic-strip'));
+  });
+
+  it('marks the current day aria-disabled (still focusable, still aria-current) and other days not', () => {
+    renderStrip({ open: false });
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByTestId('wf-topic-day-0')).not.toBeDisabled();
+    expect(screen.getByTestId('wf-topic-day-1')).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('does nothing on the current day', () => {
+    const onJumpToDay = vi.fn();
+    const onOpenChange = vi.fn();
+    renderStrip({ open: false, onJumpToDay, onOpenChange });
+    fireEvent.click(screen.getByTestId('wf-topic-day-0'));
+    expect(onJumpToDay).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('names the destination for a screen reader and carries the tooltip copy', () => {
+    renderStrip({ open: false });
+    expect(screen.getByTestId('wf-topic-day-1')).toHaveAccessibleName('Show Sat sunrise');
+    expect(screen.getByTestId('wf-topic-day-tip-1')).toHaveTextContent(/^Show Sat sunrise · .*King tide/);
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAccessibleName('On this window · Aurora');
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('shows none ahead in place of the day groups when nothing is in the four days, keeping the button', () => {
+    renderStrip({ open: false, grid: gridFor(EVENTS[1], [], []) });
+    expect(screen.getByTestId('wf-topic-strip-none')).toHaveTextContent('none ahead');
+    expect(screen.queryByTestId('wf-topic-strip-days')).toBeNull();
+    expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveTextContent('Open ▴');
+  });
+
+  it('draws no day groups while open', () => {
+    renderStrip();
+    expect(screen.queryByTestId('wf-topic-strip-days')).toBeNull();
+  });
+
+  it('marks the open grid\'s current-day header and the bar on the selected window', () => {
+    renderStrip({ grid: gridFor(EVENTS[3]) });
+    expect(screen.getByTestId(`wf-topic-strip-day-${SAT}`)).toHaveAttribute('data-current-day', 'true');
+    expect(screen.getByTestId(`wf-topic-strip-day-${SUN}`)).not.toHaveAttribute('data-current-day');
+    // King tide runs Sat sunrise to Sun sunset: one bar over the current column, so it glows.
+    expect(bar('KING_TIDE', 2)).toHaveAttribute('data-light', 'window');
+  });
+
+  it('dashes a bar on the current day that covers only the other light', () => {
+    // Inversion is Monday sunrise only; select Monday's sunset (the only Monday EV row).
+    renderStrip({ grid: gridFor(EVENTS[6]) });
+    expect(bar('INVERSION', 6)).toHaveAttribute('data-light', 'other');
+  });
+
+  it('the sheet variant never carries the current-day or bar-light marks', () => {
+    renderStrip({ variant: 'sheet', openByDefault: true, grid: gridFor(EVENTS[3]) });
+    expect(document.querySelector('[data-current-day]')).toBeNull();
+    expect(document.querySelector('[data-light]')).toBeNull();
+    expect(screen.queryByTestId('wf-topic-strip-days')).toBeNull();
   });
 });
 
@@ -545,23 +615,20 @@ describe('MapTopicStrip: the sheet variant (M4)', () => {
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('reads and writes only its own key; the panel reads only the panel key', () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+  it('reads and writes only its own key; the panel writes no key at all', () => {
+    localStorage.setItem('mapTopicStripOpen', '1');
     const { unmount } = renderStrip({ variant: 'sheet' });
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    expect(localStorage.getItem('mapTopicStripOpen')).toBe('1');
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('0');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
     unmount();
     localStorage.clear();
-    localStorage.setItem(TOPIC_STRIP_OPEN_SHEET_KEY, '1');
-    renderStrip();
+    render(<Owned initial />);
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('1');
+    expect(localStorage.length).toBe(0);
   });
 
   it('draws the same labels and bars as the panel once opened, with no HW tick (this fixture has none), and presses the same', () => {
@@ -599,8 +666,7 @@ describe('MapTopicStrip: the sheet variant (M4)', () => {
       expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' });
       unmount();
       scroll.mockClear();
-      localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
-      renderStrip();
+      render(<Owned />);
       fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
       expect(scroll).not.toHaveBeenCalled();
     } finally {
@@ -629,52 +695,59 @@ describe('MapTopicStrip: the sheet variant (M4)', () => {
 describe('MapTopicStrip: held (an open tide strip holds the grid; a press yields it)', () => {
   const HELD = { held: true, heldReason: 'the tide strip' };
 
-  it('draws closed with an enabled header, the up chevron and its reason as a description', () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+  it('draws closed with an enabled header, the open button and its reason as a description', () => {
     renderStrip(HELD);
     const header = screen.getByTestId('wf-topic-strip-toggle');
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
     expect(header).toHaveAttribute('aria-expanded', 'false');
     expect(header).not.toHaveAttribute('aria-disabled');
     expect(header).not.toHaveAttribute('aria-controls');
-    expect(header.querySelector('.wf-tl-cv')).toHaveTextContent('▴');
+    expect(header).toHaveTextContent('Open ▴');
     expect(header).toHaveAccessibleDescription('Opening it collapses the tide strip');
-    expect(header).toHaveAccessibleName('Hot topics · next four days');
     expect(screen.getByTestId('wf-topic-strip')).toHaveAttribute('data-open', 'false');
   });
 
-  it('a press stores 1 and calls onOpenHeld once, but opens only when the owner stops holding it', () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '1');
+  it('a press records the open state and calls onOpenHeld once, but opens only when the owner stops holding it', () => {
     const onOpenHeld = vi.fn();
-    const { rerender, onToggleType, onPick } = renderStrip({ ...HELD, onOpenHeld });
+    const onOpenChange = vi.fn();
+    const { rerender, onToggleType, onPick } = renderStrip({
+      ...HELD, onOpenHeld, onOpenChange, open: false,
+    });
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
     expect(onOpenHeld).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    expect(onOpenChange).toHaveBeenCalledWith(true);
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
     rerender(
       <MapTopicStrip
         grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={onToggleType} onPick={onPick}
-        held={false} heldReason="the tide strip" onOpenHeld={onOpenHeld}
+        open held={false} heldReason="the tide strip" onOpenHeld={onOpenHeld}
       />,
     );
     expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
     expect(screen.getByTestId('wf-topic-strip-toggle')).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('a press with a stored 0 stores 1 and calls onOpenHeld', () => {
-    localStorage.setItem(TOPIC_STRIP_OPEN_KEY, '0');
+  it('a held press on a bare panel opens it once it stops being held', () => {
     const onOpenHeld = vi.fn();
-    renderStrip({ ...HELD, onOpenHeld });
+    const { rerender, onToggleType, onPick } = renderStrip({ ...HELD, onOpenHeld, open: undefined });
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
     expect(onOpenHeld).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('1');
+    expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
+    rerender(
+      <MapTopicStrip
+        grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={onToggleType} onPick={onPick}
+        held={false} onOpenHeld={onOpenHeld}
+      />,
+    );
+    expect(screen.getByTestId('wf-topic-strip-grid')).toBeInTheDocument();
   });
 
-  it('closing an open strip stores 0 and calls onCloseYielded', () => {
+  it('closing an open strip reports onOpenChange(false) and calls onCloseYielded', () => {
     const onCloseYielded = vi.fn();
-    renderStrip({ onCloseYielded });
+    const onOpenChange = vi.fn();
+    render(<Owned initial onCloseYielded={onCloseYielded} onOpenChange={onOpenChange} />);
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
-    expect(localStorage.getItem(TOPIC_STRIP_OPEN_KEY)).toBe('0');
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
     expect(onCloseYielded).toHaveBeenCalledTimes(1);
     // Opening it again is not a close.
     fireEvent.click(screen.getByTestId('wf-topic-strip-toggle'));
@@ -688,7 +761,7 @@ describe('MapTopicStrip: held (an open tide strip holds the grid; a press yields
     rerender(
       <MapTopicStrip
         grid={gridFor()} selectedType={null} currentTypes={[]} onToggleType={onToggleType} onPick={onPick}
-        held heldReason="the tide strip"
+        open held heldReason="the tide strip"
       />,
     );
     expect(screen.queryByTestId('wf-topic-strip-grid')).toBeNull();
@@ -717,5 +790,52 @@ describe('MapTopicStrip: held (an open tide strip holds the grid; a press yields
     expect(onOpenHeld).not.toHaveBeenCalled();
     expect(onCloseYielded).not.toHaveBeenCalled();
     expect(localStorage.getItem(TOPIC_STRIP_OPEN_SHEET_KEY)).toBe('0');
+  });
+});
+
+describe('MapTopicStrip: the guide door (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('desktop: a ? in the header row opens map#hot-topics and does not toggle the panel', () => {
+    const onOpenChange = vi.fn();
+    const { container } = renderStrip({ open: true, onOpenChange });
+    const head = screen.getByTestId('wf-topic-strip-head');
+    const link = head.querySelector('[data-testid="guide-link"]');
+    expect(link).toHaveAccessibleName('How the hot topics panel works');
+    const toggle = screen.getByTestId('wf-topic-strip-toggle');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'hot-topics', expect.any(Object));
+    // The row's own click would have asked the owner to close the panel.
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelectorAll('[data-testid="guide-link"]')).toHaveLength(1);
+  });
+
+  it('phone sheet: the ? sits BESIDE the header button, never inside it', () => {
+    renderStrip({ variant: 'sheet', openByDefault: true });
+    const link = screen.getByTestId('guide-link');
+    const toggle = screen.getByTestId('wf-topic-strip-toggle');
+    expect(toggle).not.toContainElement(link);
+    expect(toggle.parentElement).toBe(link.parentElement);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'hot-topics', expect.any(Object));
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+describe('MapTopicStrip: full topic names', () => {
+  it.each([
+    ['SPRING_TIDE', 'Spring tide', null],
+    ['STORM_SURGE', 'Storm surge', 'SUNRISE'],
+    ['LUNAR_ECLIPSE', 'Lunar eclipse', 'NIGHT'],
+  ])('draws %s as "%s" and names the label and bar with the full name', (type, name, eventType) => {
+    const hot = [topic({
+      type, label: name, date: SAT, eventType, locationNames: ['A'],
+    })];
+    renderStrip({ grid: gridFor(EVENTS[1], hot, []) });
+
+    expect(label(type)).toHaveTextContent(name);
+    expect(label(type).getAttribute('aria-label')).toMatch(new RegExp(`^${name}: `));
+    expect(screen.getAllByTestId(new RegExp(`^wf-topic-bar-${type}-`))[0].getAttribute('aria-label')).toMatch(new RegExp(`^${name}, `));
   });
 });

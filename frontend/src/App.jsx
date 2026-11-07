@@ -32,6 +32,7 @@ import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 import { AskProvider } from './context/AskContext.jsx';
+import { GuideProvider } from './context/GuideContext.jsx';
 import { takeLinkToken } from './utils/oneTimeLinkToken.js';
 import { takeInviteToken } from './utils/inviteLinkToken.js';
 import ChunkErrorBoundary from './components/shared/ChunkErrorBoundary.jsx';
@@ -604,6 +605,8 @@ function AppInner() {
    */
   const closeShellDialogs = useRef(null);
   const registerCloseDialogs = useCallback((closer) => { closeShellDialogs.current = closer; }, []);
+  /** The same closer as a function, for the guide's two-deep rule (it takes the shell's dialogs down). */
+  const closeAllShellDialogs = useCallback(() => closeShellDialogs.current?.(), []);
 
   /**
    * Aurora banner "View on map" (overlay convergence C4, `docs/engineering/overlay-convergence-plan.md`
@@ -869,6 +872,7 @@ function AppInner() {
     // it also does the right thing to `h-[100dvh]`: Tailwind's preflight makes every box
     // `border-box`, so the padding comes OUT of the screen height and the `flex-1` map pane
     // shrinks to fit, rather than the page growing past one screen.
+    <GuideProvider closeShellDialogs={closeAllShellDialogs} activeTab={activePlanTab}>
     <div className={`app-safe ${isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}`}>
       {/* The boundary and the provider wrap BOTH the banner block and <main>, in that order
           (aurora-banner-plan.md §4 D1). The aurora banner frames its field to the reader's
@@ -1167,6 +1171,7 @@ function AppInner() {
       )}
 
     </div>
+    </GuideProvider>
   );
 }
 

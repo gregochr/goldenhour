@@ -267,7 +267,7 @@ class RunsDayServiceTest {
 
         assertThat(day.runs()).hasSize(1);
         assertThat(row(day, "job-" + briefing.getId()).subline())
-                .isEqualTo("Runs at the end of Evening sunrise refresh");
+                .isEqualTo("Runs at the end of Evening refresh");
     }
 
     // ── Days and boundaries ───────────────────────────────────────────────────
@@ -621,7 +621,7 @@ class RunsDayServiceTest {
         assertThat(row.durationSeconds()).isNull();
         assertThat(row.costMicroDollars()).isNull();
         assertThat(row.facts().expectedFinish()).isNull();
-        assertThat(day.summary().nextUp().name()).isEqualTo("Evening sunrise refresh");
+        assertThat(day.summary().nextUp().name()).isEqualTo("Evening refresh");
         assertThat(day.summary().finished()).isZero();
         assertThat(day.summary().spendGbp()).isEqualByComparingTo(BigDecimal.ZERO);
     }
@@ -701,5 +701,136 @@ class RunsDayServiceTest {
         assertThat(day.summary().runs()).isEqualTo(1);
         Map<String, Integer> counts = day.filterCounts();
         assertThat(counts.get("ALL")).isEqualTo(1);
+    }
+
+    // ── Loader edge cases ─────────────────────────────────────────────────────
+
+    private JobRunEntity unfinished(RunType type, String startUtc, Long cost, Long cycleId) {
+        JobRunEntity run = JobRunEntity.builder().runType(type).startedAt(LocalDateTime.parse(startUtc))
+                .succeeded(0).failed(0).locationsProcessed(0).triggeredManually(false)
+                .totalCostMicroDollars(cost).exchangeRateGbpPerUsd(0.8).pipelineRunId(cycleId).build();
+        return em.persist(run);
+    }
+
+    @Test
+    @DisplayName("a cycle with only an unfinished ask-ready child has no answers-ready time, and the running "
+            + "child's cost is not complete")
+    void cycleWithUnfinishedAskChild() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, "2026-11-02T08:00:00Z", 600,
+                PipelineRunStatus.COMPLETED);
+        JobRunEntity ask = unfinished(RunType.ASK_READY, "2026-11-02T08:11:00", 250_000L, nightly.getId());
+        commit();
+
+        RunDayResponse day = service.day(null);
+
+        assertThat(row(day, "cycle-" + nightly.getId()).facts().answersReadyAt()).isNull();
+        RunDayRow child = row(day, "job-" + ask.getId());
+        assertThat(child.parentCycleId()).isEqualTo(nightly.getId());
+        assertThat(child.status()).isEqualTo(RunDeepStatus.RUNNING);
+        assertThat(child.costComplete()).isFalse();
+        assertThat(child.durationSeconds()).isNull();
+    }
+
+    @Test
+    @DisplayName("a cycle with a member run of unknown cost sums the known costs and is not cost-complete")
+    void cycleWithAMemberOfUnknownCost() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, "2026-11-01T01:00:00Z", 3000,
+                PipelineRunStatus.COMPLETED);
+        JobRunEntity known = job(RunType.SCHEDULED_BATCH, "2026-11-01T01:05:00", 2400, 500_000L, 5, 0);
+        JobRunEntity unknown = job(RunType.SCHEDULED_BATCH, "2026-11-01T01:06:00", 2400, null, 5, 0);
+        batch("msgbatch_known", nightly.getId(), known.getId(), 10);
+        batch("msgbatch_unknown", nightly.getId(), unknown.getId(), 10);
+        commit();
+
+        RunDayRow c = row(service.day(d("2026-11-01")), "cycle-" + nightly.getId());
+
+        assertThat(c.costMicroDollars()).isEqualTo(500_000L);
+        assertThat(c.costComplete()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a cycle that is still running is not cost-complete even when every member's cost is known")
+    void runningCycleIsNotCostComplete() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, "2026-11-02T08:00:00Z", null,
+                PipelineRunStatus.RUNNING);
+        JobRunEntity batchRun = job(RunType.SCHEDULED_BATCH, "2026-11-02T08:05:00", 60, 500_000L, 5, 0);
+        batch("msgbatch_live", nightly.getId(), batchRun.getId(), 10);
+        commit();
+
+        RunDayRow c = row(service.day(null), "cycle-" + nightly.getId());
+
+        assertThat(c.status()).isEqualTo(RunDeepStatus.RUNNING);
+        assertThat(c.costMicroDollars()).isEqualTo(500_000L);
+        assertThat(c.costComplete()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a run without a stored duration is timed from its start and finish")
+    void durationFromTimestamps() {
+        JobRunEntity run = JobRunEntity.builder().runType(RunType.TIDE)
+                .startedAt(LocalDateTime.parse("2026-11-01T04:00:00"))
+                .completedAt(LocalDateTime.parse("2026-11-01T04:01:30")).succeeded(5).failed(0)
+                .locationsProcessed(5).triggeredManually(false).totalCostMicroDollars(0L)
+                .exchangeRateGbpPerUsd(0.8).build();
+        em.persist(run);
+        SkyRatingEvalRunEntity eval = em.persist(SkyRatingEvalRunEntity.builder()
+                .runTimestamp(LocalDateTime.parse("2026-11-01T08:00:00"))
+                .startedAt(LocalDateTime.parse("2026-11-01T08:00:00"))
+                .completedAt(LocalDateTime.parse("2026-11-01T08:02:00"))
+                .model(EvaluationModel.HAIKU).runsPerFixture(3).costMicroDollars(1_000_000L)
+                .triggerSource(SkyRatingEvalTrigger.MANUAL).status(SkyRatingEvalStatus.COMPLETED).build());
+        commit();
+
+        RunDayResponse day = service.day(d("2026-11-01"));
+
+        assertThat(row(day, "job-" + run.getId()).durationSeconds()).isEqualTo(90L);
+        assertThat(row(day, "eval-" + eval.getId()).durationSeconds()).isEqualTo(120L);
+    }
+
+    @Test
+    @DisplayName("a run linked to a cycle that is not a briefing or ask-ready child still shows that cycle as parent")
+    void linkedWeatherRunHasItsCycleAsParent() {
+        PipelineRunEntity nightly = cycle(CycleType.NIGHTLY, "2026-11-01T01:00:00Z", 3000,
+                PipelineRunStatus.COMPLETED);
+        JobRunEntity weather = linked(RunType.WEATHER, "2026-11-01T01:20:00", 60, 0L, nightly.getId());
+        commit();
+
+        RunDayRow w = row(service.day(d("2026-11-01")), "job-" + weather.getId());
+
+        assertThat(w.parentCycleId()).isEqualTo(nightly.getId());
+        assertThat(w.subline()).isEqualTo("Runs after Overnight cycle");
+    }
+
+    @Test
+    @DisplayName("an ask-ready run says it follows astro only when astro finished in the two minutes before it")
+    void askFollowsAstroOnlyWhenJustAfter() {
+        // Finished too early, finished after the ask began, and never finished: none of these precede the ask.
+        JobRunEntity early = done(RunType.WEATHER, "2026-11-01T10:00:00", 60, 0L);
+        JobRunEntity late = done(RunType.WEATHER, "2026-11-01T10:30:00", 600, 0L);
+        unfinished(RunType.WEATHER, "2026-11-01T10:20:00", 0L, null);
+        JobRunEntity ask = done(RunType.ASK_READY, "2026-11-01T10:35:00", 60, 0L);
+        commit();
+
+        RunDayResponse day = service.day(d("2026-11-01"));
+
+        assertThat(early.getCompletedAt()).isEqualTo(LocalDateTime.parse("2026-11-01T10:01:00"));
+        assertThat(late.getCompletedAt()).isEqualTo(LocalDateTime.parse("2026-11-01T10:40:00"));
+        assertThat(row(day, "job-" + ask.getId()).subline()).isNull();
+    }
+
+    @Test
+    @DisplayName("a failed sky eval with no error message says 'Failed'; a long message is cut to 120 characters")
+    void failedSkyEvalNotes() {
+        SkyRatingEvalRunEntity blank = em.persist(evalRun("2026-11-01T01:00:00", SkyRatingEvalStatus.FAILED, "  "));
+        SkyRatingEvalRunEntity none = em.persist(evalRun("2026-11-01T02:00:00", SkyRatingEvalStatus.FAILED, null));
+        SkyRatingEvalRunEntity longMessage = em.persist(evalRun("2026-11-01T03:00:00", SkyRatingEvalStatus.FAILED,
+                "x".repeat(200)));
+        commit();
+
+        RunDayResponse day = service.day(d("2026-11-01"));
+
+        assertThat(row(day, "eval-" + blank.getId()).note()).isEqualTo("Failed");
+        assertThat(row(day, "eval-" + none.getId()).note()).isEqualTo("Failed");
+        assertThat(row(day, "eval-" + longMessage.getId()).note()).isEqualTo("x".repeat(119) + "\u2026");
     }
 }

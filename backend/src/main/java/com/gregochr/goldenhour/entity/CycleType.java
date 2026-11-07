@@ -9,7 +9,7 @@ package com.gregochr.goldenhour.entity;
  * same {@code pipeline_run} table, with its own phase set defined in code.
  *
  * <p>{@link #EVENING} is a third, dormant-until-resumed cycle
- * ({@code evening_sunrise_refresh}, seeded PAUSED) that re-evaluates tomorrow's sunrise alone.
+ * ({@code evening_sunrise_refresh}, seeded PAUSED) that re-evaluates tomorrow's sunrise and sunset.
  *
  * <p>The first two cycles are live. INTRADAY is wired at
  * {@code PipelineOrchestrator.runIntradayCycle()}, registered against the
@@ -27,8 +27,8 @@ public enum CycleType {
     INTRADAY,
 
     /**
-     * Evening refresh — tomorrow's sunrise alone, at 21:00 UK time, so the bedtime decision rests on a
-     * fresh look. Gives no failure evidence ({@code LocationFailureService} claims and ignores it).
+     * Evening refresh — tomorrow's sunrise and sunset, at 21:00 UK time, so the bedtime decisions rest on
+     * a fresh look. Gives no failure evidence ({@code LocationFailureService} claims and ignores it).
      */
     EVENING;
 

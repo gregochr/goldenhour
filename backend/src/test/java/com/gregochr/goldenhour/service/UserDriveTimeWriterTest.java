@@ -34,6 +34,7 @@ class UserDriveTimeWriterTest {
     private static final double LAT = 54.7761;
     private static final double LON = -1.5733;
     private static final Instant CALCULATED_AT = Instant.parse("2026-09-02T08:15:00Z");
+    private static final java.time.LocalDateTime MOVED_CUTOFF = java.time.LocalDateTime.of(2026, 9, 2, 8, 15);
 
     @Mock
     private UserDriveTimeRepository userDriveTimeRepository;
@@ -72,6 +73,8 @@ class UserDriveTimeWriterTest {
             order.verify(userRepository).stampDriveTimesIfHomeIs(USER_ID, LAT, LON, CALCULATED_AT);
             order.verify(userDriveTimeRepository).deleteAllByUserId(USER_ID);
             order.verify(userDriveTimeRepository).saveAll(List.of(driveTime));
+            // A location moved after the roster was read was routed to its old point: its row goes (reads PENDING).
+            order.verify(userDriveTimeRepository).deleteMovedSince(USER_ID, MOVED_CUTOFF);
             verifyNoMoreInteractions(userRepository, userDriveTimeRepository);
         }
 
@@ -150,6 +153,18 @@ class UserDriveTimeWriterTest {
         // A discard, not a replace: nothing goes back.
         verify(userDriveTimeRepository, never()).saveAll(anyList());
         // And the stamp is the caller's to clear, under the lock it already holds.
+        verifyNoInteractions(userRepository);
+    }
+
+    @Test
+    @DisplayName("clearForLocation discards every user's rows for one moved location, and no stamp")
+    void clearForLocation_deletesThatLocationForEveryUser() {
+        // The moved location's drive_target_changed_at bump is what makes it read PENDING; the users' stamps
+        // must NOT move, or every other location would read as unmeasured too.
+        writer.clearForLocation(11L);
+
+        verify(userDriveTimeRepository).deleteAllByLocationId(11L);
+        verify(userDriveTimeRepository, never()).saveAll(anyList());
         verifyNoInteractions(userRepository);
     }
 }

@@ -511,6 +511,13 @@ describe('MapCallout — facts row (reachMeasured discipline)', () => {
     expect(screen.getByTestId('map-callout-facts')).toHaveTextContent('1h 5min · 12 mi');
   });
 
+  it('names the drive point and drops the miles measured to the pin (reach-scoped-card-plan R1c)', async () => {
+    await mount({ driveMinutes: 80, distanceMiles: 20, driveTo: 'Glenridding' });
+    const facts = screen.getByTestId('map-callout-facts');
+    expect(facts).toHaveTextContent('Drive1h 20min to Glenridding');
+    expect(facts).not.toHaveTextContent('20 mi');
+  });
+
   it('shows Drive with NO miles under an away origin (distanceMiles null)', async () => {
     await mount({ driveMinutes: 65, distanceMiles: null });
     const facts = screen.getByTestId('map-callout-facts');

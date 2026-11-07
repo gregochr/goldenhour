@@ -15,7 +15,9 @@ import {
 import {
   act, render, screen, fireEvent, within,
 } from '@testing-library/react';
+import { mockOpenGuide } from './guideContextMock.js';
 
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 vi.mock('leaflet', () => {
   const icon = () => ({});
   const divIcon = (options) => ({ options });
@@ -531,6 +533,17 @@ describe('MapView, shaped chrome — the key on the phone, where the desktop leg
     expect(within(row).getByTestId('wf-map-peek-picks-yours')).toHaveTextContent('your sub-regions');
     expect(screen.getByTestId('wf-map-peek-picks-note'))
       .toHaveTextContent(`Colour shows the 2 places in your sub-regions. Pro rates all ${SPOTS.length}.`);
+  });
+
+  it('offers "What does this do?" beside the grey row in the Layers section (G3), opening settings#sub-regions', async () => {
+    mockIsMobile = true;
+    mockOpenGuide.mockClear();
+    await renderMap({ heat: shapedHeat() });
+    openLayers();
+
+    const why = within(screen.getByTestId('wf-map-peek-picks-outside')).getByTestId('guide-why-outside');
+    fireEvent.click(why);
+    expect(mockOpenGuide).toHaveBeenCalledWith('settings', 'sub-regions', expect.any(Object));
   });
 
   it('draws the note and the grey row, but no dashed row, for a reader with no pick', async () => {

@@ -1,7 +1,10 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstHeatStrip from '../components/WindowFirstHeatStrip.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 vi.mock('../utils/heatField.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -129,5 +132,35 @@ describe('WindowFirstHeatStrip — the Best bets door', () => {
     fireEvent.click(trigger);
     fireEvent.click(screen.getByTestId('wf-heat-bestbets-upsell-dismiss'));
     expect(screen.queryByTestId('wf-heat-bestbets-upsell-popover')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — guide doors (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('draws a ? at the end of the days-ahead heading that opens reading-the-forecast#fixed', async () => {
+    await renderStrip();
+    const head = screen.getByTestId('wf-heat-head');
+    const link = within(head).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('What fixed and could still move mean');
+    expect(head.lastElementChild).toBe(link);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fixed', expect.any(Object));
+  });
+
+  it('puts "What does this do?" in the Best bets popover only for a locked reader, opening at-a-glance#bestbet', async () => {
+    await renderStrip({ picksLocked: true });
+    const trigger = screen.getByTestId('wf-heat-bestbets-upsell-trigger');
+    fireEvent.click(trigger);
+    const why = within(screen.getByTestId('wf-heat-bestbets-upsell-popover')).getByTestId('wf-heat-bestbets-upsell-guide');
+    fireEvent.click(why);
+    expect(mockOpenGuide).toHaveBeenCalledWith('at-a-glance', 'bestbet', expect.any(Object));
+    expect(mockOpenGuide.mock.calls[0][2].returnFocus()).toBe(trigger);
+  });
+
+  it('draws no Best bets door, so no guide link, for a reader with best bets', async () => {
+    await renderStrip();
+    expect(screen.queryByTestId('wf-heat-bestbets-upsell-guide')).toBeNull();
+    expect(screen.queryByTestId('guide-why')).toBeNull();
   });
 });

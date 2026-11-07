@@ -27,6 +27,10 @@ import java.util.Set;
  * @param region                     the geographic region this location belongs to, or {@code null}
  * @param enabled                    whether this location is enabled for forecast runs
  * @param createdAt                  UTC timestamp when this location was created
+ * @param driveTargetChangedAt       UTC timestamp the point drive times are routed to last changed (creation, or a
+ *                                   coordinate move); with a region's {@code drivesMeasuredAt} it lets the Plan
+ *                                   tab tell an unroutable place from one not measured yet. A role-free fact
+ *                                   (ETag-safe)
  * @param consecutiveFailures        number of consecutive forecast failures
  * @param lastFailureAt              UTC timestamp of the most recent forecast failure, or {@code null}
  * @param disabledReason             reason this location was disabled, or {@code null}
@@ -57,6 +61,11 @@ import java.util.Set;
  * @param valleyFloorLng            longitude of the chosen valley-floor point, or {@code null}
  * @param tideLat                   latitude WorldTides is asked about in place of the pin, or {@code null}
  * @param tideLng                   longitude WorldTides is asked about in place of the pin, or {@code null}
+ * @param drivePointName            name of the drive point drive times are routed to in place of the pin (e.g.
+ *                                  "Glenridding"), or {@code null}; a role-free fact (ETag-safe), also served per
+ *                                  reader as {@code driveTo} on the reach payload
+ * @param drivePointLat             latitude of the drive point, or {@code null}
+ * @param drivePointLon             longitude of the drive point, or {@code null}
  */
 public record LocationDto(
         Long id,
@@ -69,6 +78,7 @@ public record LocationDto(
         LocationRegionDto region,
         boolean enabled,
         LocalDateTime createdAt,
+        LocalDateTime driveTargetChangedAt,
         Integer consecutiveFailures,
         LocalDateTime lastFailureAt,
         String disabledReason,
@@ -94,5 +104,8 @@ public record LocationDto(
         Double valleyFloorLat,
         Double valleyFloorLng,
         Double tideLat,
-        Double tideLng) {
+        Double tideLng,
+        String drivePointName,
+        Double drivePointLat,
+        Double drivePointLon) {
 }

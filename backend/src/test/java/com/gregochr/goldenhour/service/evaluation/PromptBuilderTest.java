@@ -751,6 +751,98 @@ public class PromptBuilderTest {
     }
 
     @Test
+    @DisplayName("a cloudy near horizon with a clear-ish far corridor and a small drop carries neither structure label")
+    void buildUserMessage_nearCloudyFarBelowThreshold_noStructureLabel() {
+        // near 60, far 40: drop 20pp (< 30, so not a thin strip) and far < 50 (not a cloudy corridor)
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(60, 20, 10, 5, 45, 30, 40))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Beyond horizon")
+                .doesNotContain("THIN STRIP")
+                .doesNotContain("FAR CORRIDOR");
+    }
+
+    @Test
+    @DisplayName("a clear near horizon with a cloudy far corridor carries neither structure label")
+    void buildUserMessage_nearBelowThresholdFarCloudy_noStructureLabel() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .directionalCloud(new DirectionalCloudData(30, 20, 10, 5, 45, 30, 70))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Beyond horizon")
+                .doesNotContain("THIN STRIP")
+                .doesNotContain("FAR CORRIDOR");
+    }
+
+    @Test
+    @DisplayName("a cloud trend whose slots carry mid but not high cloud prints the low-only trend")
+    void buildUserMessage_trendWithMidButNoHigh_printsLowOnlyTrend() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of(
+                                new SolarCloudTrend.SolarCloudSlot(1, 20, 30, null),
+                                new SolarCloudTrend.SolarCloudSlot(0, 10, 30, null))),
+                        null))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("Solar horizon low cloud trend (113km): T-1h=20% event=10%")
+                .doesNotContain("low blocker / mid+high canvas");
+    }
+
+    @Test
+    @DisplayName("a cloud approach block with an upwind sample but an empty trend prints only the upwind line")
+    void buildUserMessage_emptyTrendWithUpwind_printsOnlyUpwind() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .cloudApproach(new CloudApproachData(
+                        new SolarCloudTrend(List.of()),
+                        new UpwindCloudSample(87, 228, 70, 15)))
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("CLOUD APPROACH RISK:")
+                .contains("Upwind sample (87km along 228° SW): current=70%, at-event=15%")
+                .doesNotContain("cloud trend");
+    }
+
+    @Test
+    @DisplayName("a mist trend with no slots adds no MIST/VISIBILITY TREND block")
+    void buildUserMessage_emptyMistTrend_omitsBlock() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .mistTrend(new MistTrend(List.of()))
+                .build();
+
+        assertThat(promptBuilder.buildUserMessage(data)).doesNotContain("MIST/VISIBILITY TREND");
+    }
+
+    @Test
+    @DisplayName("TRANSITIONAL stability with no reason prints the stability line and note but no Reason line")
+    void buildUserMessage_stabilityWithoutReason_omitsReasonLine() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .stability(ForecastStability.TRANSITIONAL)
+                .build();
+
+        String message = promptBuilder.buildUserMessage(data);
+
+        assertThat(message)
+                .contains("FORECAST RELIABILITY:")
+                .contains("Stability: TRANSITIONAL")
+                .contains("Front timing uncertain")
+                .doesNotContain("Reason:");
+    }
+
+    @Test
     @DisplayName("buildUserMessage without cloud approach data omits CLOUD APPROACH RISK block")
     void buildUserMessage_withoutCloudApproach_omitsBlock() {
         AtmosphericData data = TestAtmosphericData.defaults();

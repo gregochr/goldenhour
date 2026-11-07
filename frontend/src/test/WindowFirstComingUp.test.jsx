@@ -2,8 +2,16 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
+import { COMING_UP_OPEN_KEY } from '../utils/comingUpOpen.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const TODAY = '2026-08-09';
+
+// An entry starting more than 30 days out starts CLOSED (collapse-and-topic-pips-plan.md §5); a session's
+// presses would leak between tests, so each starts clean.
+beforeEach(() => { sessionStorage.clear(); });
 
 /** A `ComingUpEntry` as P2 actually serves one. */
 const wireEntry = (over = {}) => ({
@@ -576,6 +584,10 @@ describe('WindowFirstComingUp — map doors follow the reader’s forecast dates
   // can make the chronology recompute — a fresh `events` literal would recompute it regardless.
   const SPLIT_EVENTS = { entries: SPLIT_ENTRIES, counts: COUNTS };
   const renderSplit = (props = {}) => renderPane({ events: SPLIT_EVENTS, ...props });
+  // The October entry is past the 30-day default, so these tests open it as a reader would.
+  beforeEach(() => {
+    sessionStorage.setItem(COMING_UP_OPEN_KEY, JSON.stringify({ 'spring-tide:2026-10-11:2026-12-31': true }));
+  });
 
   it('makes a button of the entry whose date is listed and a plain card of the one that is not', () => {
     const { onShowOnMap } = renderSplit({ forecastDates: ['2026-08-12'] });
@@ -799,3 +811,29 @@ describe('WindowFirstComingUp — a single-day plan entry draws a one-box All sp
   });
 });
 
+
+describe('WindowFirstComingUp — guide doors (G3)', () => {
+  beforeEach(() => mockOpenGuide.mockClear());
+
+  it('draws a ? after the fixed / could-still-move legend that opens reading-the-forecast#fixed', () => {
+    renderPane();
+    const head = document.querySelector('.wf-cu-head');
+    const link = within(head).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('What fixed and could still move mean');
+    expect(screen.getByTestId('coming-up-legend').nextElementSibling).toBe(link);
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'fixed', expect.any(Object));
+  });
+
+  it('ends the filter chips with a ? that opens coming-up#topics and does not change the filter', () => {
+    renderPane();
+    const chips = screen.getByTestId('coming-up-chips');
+    const link = within(chips).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('Every topic explained');
+    expect(chips.lastElementChild).toBe(link);
+    const before = within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'));
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'topics', expect.any(Object));
+    expect(within(chips).getAllByTestId('coming-up-chip').map((c) => c.getAttribute('aria-pressed'))).toEqual(before);
+  });
+});

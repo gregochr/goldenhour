@@ -435,4 +435,51 @@ class EclipseHotTopicStrategyTest {
             assertThat(EclipseCatalog.on(ECLIPSE_DAY.plusDays(1))).isEmpty();
         }
     }
+
+    @Nested
+    @DisplayName("Other catalogued eclipses and depths")
+    class OtherEclipsesAndDepths {
+
+        private HotTopic detectOn(LocalDate day, LocationEntity place) {
+            stubRoster(place);
+            LocalDateTime lastContact = com.gregochr.goldenhour.util.EclipseCalculator.circumstances(
+                    EclipseCatalog.on(day).orElseThrow().elements(), place.getLat(), place.getLon())
+                    .orElseThrow().lastContactUtc();
+            when(freshness.isAhead(lastContact)).thenReturn(true);
+            when(solarService.sunsetUtc(place.getLat(), place.getLon(), day)).thenReturn(day.atTime(20, 0));
+            List<HotTopic> topics = strategy.detect(day, day);
+            assertThat(topics).hasSize(1);
+            return topics.get(0);
+        }
+
+        @Test
+        @DisplayName("a mid-morning eclipse sits in the SUNRISE window, with no rarity line, 'slight' when shallow")
+        void morningEclipse_isAnchoredToSunriseWindow() {
+            HotTopic topic = detectOn(LocalDate.of(2027, 8, 2),
+                    location("Sumburgh", 60.4, -1.2, "Shetland"));
+
+            assertThat(topic.eventType()).isEqualTo("SUNRISE");
+            assertThat(topic.eventTime()).isEqualTo("10:05");
+            assertThat(topic.label()).isEqualTo("Slight partial eclipse");
+            assertThat(topic.rarityNote()).isNull();
+        }
+
+        @Test
+        @DisplayName("a 57%-magnitude view is a plain 'Partial eclipse'")
+        void midDepth_isPartial() {
+            HotTopic topic = detectOn(LocalDate.of(2027, 8, 2),
+                    location("St Mary's", 49.9160, -6.3220, "Scilly"));
+
+            assertThat(topic.label()).isEqualTo("Partial eclipse");
+        }
+
+        @Test
+        @DisplayName("a location inside totality makes it 'Total solar eclipse', anchored to the sunset window")
+        void totality_isLabelledTotal() {
+            HotTopic topic = detectOn(ECLIPSE_DAY, location("Oviedo", 43.3619, -5.8494, "Asturias"));
+
+            assertThat(topic.label()).isEqualTo("Total solar eclipse");
+            assertThat(topic.eventType()).isEqualTo("SUNSET");
+        }
+    }
 }

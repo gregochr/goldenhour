@@ -78,7 +78,7 @@ class RunClassifierTest {
                 .isEqualTo("Aurora batch");
         assertThat(RunClassifier.cycleName(CycleType.NIGHTLY)).isEqualTo("Overnight cycle");
         assertThat(RunClassifier.cycleName(CycleType.INTRADAY)).isEqualTo("Afternoon refresh");
-        assertThat(RunClassifier.cycleName(CycleType.EVENING)).isEqualTo("Evening sunrise refresh");
+        assertThat(RunClassifier.cycleName(CycleType.EVENING)).isEqualTo("Evening refresh");
     }
 
     @Test

@@ -262,7 +262,7 @@ class StubAskEngineTest {
         assertThat(picks.getFirst().regionName()).isEqualTo("Coast");
         assertThat(picks.getFirst().why()).contains("Rated 5").contains("today sunset").contains("tide suits");
         // The framing comes from the served spread, then the stub's own sentence about the picks.
-        assertThat(run.outcome().answer().summary()).startsWith("Broadly game on across every region")
+        assertThat(run.outcome().answer().summary()).startsWith("Broadly worth going across every region")
                 .contains("Whitby at today sunset looks strongest at 5★")
                 .contains("followed by Inland Edge and High Crag");
         assertThat(run.trace()).extracting(AskTools.ToolCall::tool)
@@ -370,7 +370,7 @@ class StubAskEngineTest {
         AskRun run = engine.run(question("best"), snapshot, USER, AskRunOptions.none());
 
         assertThat(run.outcome().answer().summary()).isEqualTo(
-                "Broadly game on across every region: 1 of 1 rated place is 4★ or better. "
+                "Broadly worth going across every region: 1 of 1 rated place is 4★ or better. "
                         + "Only Spot at today sunset looks strongest at 4★.");
     }
 
@@ -550,6 +550,20 @@ class StubAskEngineTest {
         AskRun run = run("Is there snow on the tops?");
 
         assertThat(run.outcome().answer().events()).extracting(AskEvent::type).containsExactly("SNOW");
+    }
+
+    @Test
+    @DisplayName("a topical keyword is also matched in an event's detail; an event with no detail that does not "
+            + "match is left out")
+    void keywordMatchedInTheDetailOnly() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("WEATHER", "Cold snap", "Fresh snow above 600 m", TODAY, List.of()),
+                AskFixtures.topic("DUST", "Dust haze", null, TODAY, List.of()))));
+
+        AskRun run = engine.run(question("Is there snow about?"), snapshot, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().answer().events()).extracting(AskEvent::type).containsExactly("WEATHER");
+        assertThat(run.outcome().answer().events().getFirst().why()).isEqualTo("Fresh snow above 600 m");
     }
 
     @Test

@@ -187,7 +187,7 @@ describe('P14 responsive hooks — shell chrome', () => {
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
     expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
-      .toEqual(['window-first-settings', 'window-first-signout',
+      .toEqual(['window-first-settings', 'window-first-guide', 'window-first-signout',
         'window-first-origin-chip', 'window-first-search']);
   });
 

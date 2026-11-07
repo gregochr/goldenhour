@@ -145,7 +145,9 @@ coming-up:
       spring-tide-mean-gap-days: 14.8         # half the mean synodic month. King runs share this
                                                # rate: a king tide is a big spring, not a rarer
                                                # event of its own (plan D4)
-      meteor-shower-mean-gap-days: 365.25     # each named shower peaks once a year
+      meteor-shower-mean-gap-days: 365.25     # each named major shower peaks once a year
+      minor-meteor-shower-mean-gap-days: 60.875  # configured: six minor showers a year (365.25 / 6);
+                                               # sits on the supermoon rung, lists without badging
       solar-turning-point-mean-gap-days: 182.625  # two equinoxes and two solstices a year
       nlc-season-mean-gap-days: 365.25        # one season, once a year
       supermoon-mean-gap-days: 60.0           # a full moon within the perigee window, empirically
@@ -184,6 +186,12 @@ photocast:
   #   coastal-mist:
   #     enabled: true               # false = the band is never computed, stored (null band, scored false) or
   #                                 # put in the prompt (PHOTOCAST_COASTAL_MIST_ENABLED)
+  # Meteor calendar refresh (docs/engineering/meteor-showers-plan.md, Phase 4). The folder the IMO's yearly
+  # cal{year}.pdf calendars are fetched from by the weekly imo_calendar_refresh job. Optional: the default is
+  # shown. https only. Production must be able to reach www.imo.net.
+  #   meteor:
+  #     imo:
+  #       base-url: https://www.imo.net/files/meteor-shower/
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.
   #   ask:
@@ -194,7 +202,7 @@ photocast:
   #                                 # false (the default) bills the real key
   #     seed-local-fixture: false   # local profile only, H2 only: writes "Fixture ..." regions,
   #                                 # rated entries and a briefing build into the local database
-  #     model: HAIKU                # HAIKU or SONNET only; Sonnet 5.5 is refused (it cannot disable thinking)
+  #                                 # (the model is not a key: Operations > Run Config, ASK and ASK_READY)
   #     max-turns: 4                # model turns per conversation, 1-6
   #     max-tokens: 600             # per model turn, 200-2000
   #     call-timeout-seconds: 20    # per model call, 1-60; must not exceed deadline-seconds
@@ -348,7 +356,7 @@ photocast:
                              # in minutes, but afternoon (peak load) batches were observed taking
                              # up to ~3h (slowest of 49 cycles: 181 min). 3h30 clears that while
                              # staying under the shortest gap between two cycles (6.4 h).
-    evening-safety-timeout: PT2H  # the same budget for the evening sunrise refresh cycle only
+    evening-safety-timeout: PT2H  # the same budget for the evening refresh cycle only
                                   # (evening_sunrise_refresh, seeded PAUSED). Range PT30M..PT3H30M;
                                   # a value outside it fails startup. After about two hours the
                                   # bedtime decision has passed, and later results still go live

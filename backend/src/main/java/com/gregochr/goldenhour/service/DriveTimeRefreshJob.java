@@ -80,10 +80,12 @@ import java.util.stream.Collectors;
  * postcode leaves behind, see {@code UserSettingsService.saveHome} — or when the location roster
  * has grown since that stamp (so a location added after everyone's last refresh does not stay
  * unmeasured forever; see {@link #rosterGrewSince}). Every other user is skipped with no ORS call
- * at all, decided from one query for the roster's newest {@code created_at} rather than one query
+ * at all, decided from one query for the roster's newest {@code drive_target_changed_at} (a location's creation or
+ * coordinate move) rather than one query
  * per user. {@link DynamicSchedulerService#triggerNow} — the admin "Run now" button — measures
- * every enabled user with a home regardless, because it is the deliberate tool for the one thing
- * the stamp cannot detect on its own: a location's coordinates being corrected in place.
+ * every enabled user with a home regardless. Since 2026-11-05 a coordinate correction no longer needs it:
+ * {@code LocationService.update} bumps the location's {@code drive_target_changed_at} and deletes its drive
+ * times, so the next scheduled fire measures every home again.
  *
  * <p><strong>A home can move under the run.</strong> The roster is read once, and each user is
  * then routed for seconds from the home as it was read, so a user who saves a new postcode tonight
@@ -127,7 +129,7 @@ public class DriveTimeRefreshJob {
      * How far a location's {@code created_at} may sit BEFORE a user's stamp and still count as
      * "added after" it — covers the gap from the application assigning that field (the builder in
      * {@code LocationService.add}, before {@code save()}) to the row becoming visible to
-     * {@link LocationRepository#findMaxCreatedAt} and {@link AppUserRepository#findAll} on another
+     * {@link LocationRepository#findMaxDriveTargetChangedAt} and {@link AppUserRepository#findAll} on another
      * connection.
      *
      * <p><strong>The real window is nowhere near an hour.</strong> {@code LocationService.add} is
@@ -172,7 +174,7 @@ public class DriveTimeRefreshJob {
      * Creates the job.
      *
      * @param userRepository          source of users with a saved home location
-     * @param locationRepository      supplies the roster's newest {@code created_at}, to decide
+     * @param locationRepository      supplies the roster's newest {@code drive_target_changed_at}, to decide
      *                                which users a scheduled fire needs to re-measure
      * @param driveDurationService    measures a user's drive times via ORS
      * @param driveTimeWriter         stores them, only while the home is still the one measured from
@@ -280,7 +282,7 @@ public class DriveTimeRefreshJob {
                         // query and the WARN it can produce below are scoped to the scheduled
                         // fire, matching the manual/scheduled asymmetry this class's own javadoc
                         // already documents elsewhere. Manual keeps its existing, narrower
-                        // locationRepository footprint (findMaxCreatedAt alone, and only on the
+                        // locationRepository footprint (findMaxDriveTargetChangedAt alone, and only on the
                         // scheduled route at that).
                         if (allLocationsForOmissionCheck == null) {
                             allLocationsForOmissionCheck = locationRepository.findAll();
@@ -331,14 +333,14 @@ public class DriveTimeRefreshJob {
     /**
      * Narrows the roster to users a scheduled fire actually needs to re-measure.
      *
-     * <p>Reads the roster's newest {@code created_at} once — never per user — so a quiet night,
+     * <p>Reads the roster's newest {@code drive_target_changed_at} once — never per user — so a quiet night,
      * where nobody's postcode moved and nothing was added, costs one query and zero ORS calls.
      *
      * @param users enabled users with a saved home
      * @return the subset {@link #needsRefresh} accepts
      */
     private List<AppUserEntity> usersNeedingRefresh(List<AppUserEntity> users) {
-        LocalDateTime newestCreatedAtUtc = locationRepository.findMaxCreatedAt();
+        LocalDateTime newestCreatedAtUtc = locationRepository.findMaxDriveTargetChangedAt();
         Instant newestLocationCreatedAt = newestCreatedAtUtc != null
                 ? newestCreatedAtUtc.toInstant(ZoneOffset.UTC)
                 : null;
@@ -381,8 +383,12 @@ public class DriveTimeRefreshJob {
      * placing it in the sea) until this date, undetected. A location like that is a data problem an
      * admin corrects by fixing its coordinates, and the admin's "Run now" (which bypasses this
      * predicate entirely) re-measures everyone the moment it is — nightly retries cannot fix
-     * coordinates. In the meantime the location renders honestly: no drive time is "unknown", which
-     * passes every reach tier and shows no leave-by time, never a wrong or stale one. On the
+     * coordinates. In the meantime the location renders honestly: no drive time shows no leave-by time,
+     * never a wrong or stale one. <em>Amended 2026-11-05 (reach-scoped-card-plan R1):</em> a location with no
+     * row from a user whose stamp is newer than the location's {@code drive_target_changed_at} (by more than
+     * {@link #ROSTER_VISIBILITY_MARGIN}) is now UNROUTABLE, not unknown ({@link
+     * com.gregochr.goldenhour.model.DriveStatus}), and a finite reach tier drops it; before a measurement that
+     * covers it, it is PENDING and still passes every tier. On the
      * SCHEDULED route only, {@link #run} logs one aggregated WARN per run (not per user) naming
      * every location a successful measurement omitted this run, so an unroutable location is
      * visible to an operator the first night it appears rather than discovered by a reader's silent
@@ -390,7 +396,7 @@ public class DriveTimeRefreshJob {
      * pressed it, so it skips this query and carries no WARN of its own.
      *
      * @param user                      a candidate user
-     * @param newestLocationCreatedAt   the roster's newest {@code created_at}, or {@code null} if
+     * @param newestLocationCreatedAt   the roster's newest {@code drive_target_changed_at}, or {@code null} if
      *                                  the roster is empty
      * @return {@code true} if this user should be re-measured tonight
      */
@@ -401,9 +407,9 @@ public class DriveTimeRefreshJob {
 
     /**
      * A location added to the roster since a user's last refresh must be measured for them too —
-     * owner-approved, 2026-09-29. A location with no drive time passes every reach tier, so without
-     * this rule a location added after everyone's last refresh would stay unmeasured, and therefore
-     * unfiltered, forever. Kept as its own predicate, deliberately separate from
+     * owner-approved, 2026-09-29. A location with no drive time passes every reach tier until it is
+     * measured, so without this rule a location added after everyone's last refresh would stay
+     * unmeasured, and therefore unfiltered, forever. Kept as its own predicate, deliberately separate from
      * {@link #needsRefresh}'s postcode-change rule, so this one can be narrowed or dropped on its
      * own without touching that one.
      *
@@ -415,7 +421,7 @@ public class DriveTimeRefreshJob {
      * stamp also counts as grown, not just strictly later. Two things make "later" alone the wrong
      * test. First, {@code LocationEntity.createdAt} is set by the application when the entity is
      * built, which can read a hair before the {@code INSERT} that makes the row visible to
-     * {@link LocationRepository#findMaxCreatedAt} — so a location whose clock reading happens to tie
+     * {@link LocationRepository#findMaxDriveTargetChangedAt} — so a location whose clock reading happens to tie
      * the stamp is at least as plausibly "created after" as "created before". Second, {@code stamp}
      * itself is the roster-READ instant (see the class javadoc), taken from the same kind of clock
      * read as {@code created_at} — so an exact tie is the one case with no way to know which side of
@@ -435,7 +441,7 @@ public class DriveTimeRefreshJob {
      * cost of choosing too wide a margin rather than too narrow one.
      *
      * @param stamp                    the user's own {@code driveTimesCalculatedAt}, never null here
-     * @param newestLocationCreatedAt  the roster's newest {@code created_at}, or {@code null} if the
+     * @param newestLocationCreatedAt  the roster's newest {@code drive_target_changed_at}, or {@code null} if the
      *                                 roster is empty
      * @return {@code true} if a location was added to (or ties, or falls within the margin before)
      *         the roster's state at the stamp

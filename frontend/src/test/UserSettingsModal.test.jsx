@@ -8,6 +8,9 @@ import {
 import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import { createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 vi.mock('../api/settingsApi', () => ({
   getSettings: vi.fn(),
@@ -2478,5 +2481,35 @@ describe('UserSettingsModal — danger zone', () => {
     } finally {
       process.off('unhandledRejection', unhandled);
     }
+  });
+});
+
+describe('UserSettingsModal — guide doors for the Pro locks (G3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOpenGuide.mockClear();
+  });
+
+  it('a LITE reader gets "What does this do?" for the greyed Drive times and Local radius, outside the greyed wrappers', async () => {
+    getSettings.mockResolvedValue(LITE_WITH_HOME);
+    renderModal();
+    const radius = await screen.findByTestId('guide-why-radius');
+    const drive = screen.getByTestId('guide-why-drive');
+    // pointer-events-none on the wrapper would make the door unpressable if it sat inside.
+    expect(screen.getByTestId('settings-local-radius')).not.toContainElement(radius);
+    expect(drive.closest('.pointer-events-none')).toBeNull();
+    expect(radius.closest('.pointer-events-none')).toBeNull();
+    fireEvent.click(drive);
+    expect(mockOpenGuide).toHaveBeenLastCalledWith('settings', 'drive', expect.any(Object));
+    fireEvent.click(radius);
+    expect(mockOpenGuide).toHaveBeenLastCalledWith('settings', 'radius', expect.any(Object));
+  });
+
+  it.each([['PRO', PRO_SETTINGS], ['ADMIN', ADMIN_SETTINGS]])('a %s reader gets neither', async (_r, settings) => {
+    getSettings.mockResolvedValue(settings);
+    renderModal();
+    await screen.findByTestId('settings-local-radius');
+    expect(screen.queryByTestId('guide-why-radius')).toBeNull();
+    expect(screen.queryByTestId('guide-why-drive')).toBeNull();
   });
 });

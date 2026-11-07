@@ -9,6 +9,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import MapLegendPanel, { handoverPhase } from '../components/map/MapLegendPanel.jsx';
 import { rampGradientCss, setMode } from '../utils/scoreRamp.js';
 import { AURORA_RAMP } from '../utils/auroraRamp.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 const { rampGradientCss: realRampGradientCss } = await vi.importActual('../utils/scoreRamp.js');
 
@@ -295,11 +298,17 @@ describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
   it('renders the default variant byte-identically to the pre-A3 markup, with and without the explicit prop', () => {
     setMode('temp');
     const props = baseProps({ open: true, handoverFraction: 0.5 });
+    // G3 appended one footer (`.wf-legend-guide`, the guide door); everything before it must be the baseline.
+    const withoutGuide = (container) => {
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll('.wf-legend-guide').forEach((node) => node.remove());
+      return clone.innerHTML;
+    };
     const implicit = render(<MapLegendPanel {...props} />);
-    expect(implicit.container.innerHTML).toBe(SOLAR_BASELINE_HTML);
+    expect(withoutGuide(implicit.container)).toBe(SOLAR_BASELINE_HTML);
     implicit.unmount();
     const explicit = render(<MapLegendPanel {...props} variant="solar" viewlineShown />);
-    expect(explicit.container.innerHTML).toBe(SOLAR_BASELINE_HTML);
+    expect(withoutGuide(explicit.container)).toBe(SOLAR_BASELINE_HTML);
   });
 
   it('words the label, ends and note for an aurora night', () => {
@@ -396,10 +405,12 @@ describe('MapLegendPanel — the sub-regions key (sub-regions-plan S5a-1)', () =
     const outside = screen.getByTestId('wf-legend-outside');
     expect(outside).toHaveTextContent('outside your sub-regions');
     expect(outside.querySelector('.wf-legend-swatch-outside')).not.toBeNull();
-    // A label, not a door: a pill inside plain text, no button, no link.
+    // A label, not a door: a pill inside plain text, no link. G3 adds one button, the guide's
+    // "What does this do?" (was: no button at all).
     const pill = outside.querySelector('.wf-lens-pro');
     expect(pill).toHaveTextContent('Pro');
-    expect(outside.querySelector('button, a')).toBeNull();
+    expect(Array.from(outside.querySelectorAll('button')).map((b) => b.dataset.testid)).toEqual(['guide-why-outside']);
+    expect(outside.querySelector('a')).toBeNull();
     expect(screen.getByTestId('wf-legend-yours')).toHaveTextContent('your sub-regions');
     expect(screen.getByTestId('wf-legend-yours').querySelector('.wf-legend-swatch-picks')).not.toBeNull();
   });
@@ -453,5 +464,30 @@ describe('MapLegendPanel — the sub-regions key (sub-regions-plan S5a-1)', () =
 
     const rows = screen.getByTestId('wf-legend-picks');
     expect(rows.querySelectorAll('[style]')).toHaveLength(0);
+  });
+});
+
+describe('MapLegendPanel — guide doors (G3)', () => {
+  it('ends the panel with a ? that opens reading-the-forecast#colour, and a press on it leaves the panel open', () => {
+    mockOpenGuide.mockClear();
+    const onOpenChange = vi.fn();
+    render(<MapLegendPanel {...baseProps({ open: true, onOpenChange })} />);
+    const panel = screen.getByTestId('wf-legend-panel');
+    const link = screen.getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('What the map colours mean');
+    expect(panel.lastElementChild).toContainElement(link);
+    fireEvent.mouseDown(link);
+    fireEvent.click(link);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(mockOpenGuide).toHaveBeenCalledWith('reading-the-forecast', 'colour', expect.any(Object));
+  });
+
+  it('opens settings#sub-regions from the outside-your-sub-regions row, which exists only for a shaped body', () => {
+    mockOpenGuide.mockClear();
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} picks={{ allowed: 40, total: 260 }} />);
+    fireEvent.click(screen.getByTestId('guide-why-outside'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('settings', 'sub-regions', expect.any(Object));
+    rerender(<MapLegendPanel {...baseProps({ open: true })} />);
+    expect(screen.queryByTestId('guide-why-outside')).toBeNull();
   });
 });

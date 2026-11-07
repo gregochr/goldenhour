@@ -198,7 +198,7 @@ describe('the Map tab has no landing card (desktop)', () => {
     expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
   });
 
-  it('opens the pill menu on the windows, with no reopen row, and ends it with the drilldown row', async () => {
+  it('opens the pill menu on the windows, with no reopen row, and ends it with the drilldown row and the guide footer', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-win-pill'));
 
@@ -209,7 +209,9 @@ describe('the Map tab has no landing card (desktop)', () => {
     const rows = menu.querySelectorAll('[data-ev-id]');
     expect(rows.length).toBeGreaterThanOrEqual(2);
     expect(rows[0].getAttribute('data-ev-id')).toContain('SUNRISE');
-    expect(menu.lastElementChild).toBe(screen.getByTestId('wf-win-more'));
+    // G3 ends the menu with the guide's footer, so the drilldown row is the last before it (was: the last child).
+    expect(menu.lastElementChild).toBe(screen.getByTestId('wf-win-guide'));
+    expect(menu.lastElementChild.previousElementSibling).toBe(screen.getByTestId('wf-win-more'));
   });
 
   it('Escape, fired at the focused element in the pane, still closes the window panel', async () => {

@@ -5,24 +5,32 @@ import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.AreaConflictException;
 import com.gregochr.goldenhour.exception.JobDisabledByConfigException;
 import com.gregochr.goldenhour.exception.NameClashException;
+import com.gregochr.goldenhour.exception.NoRoadRouteException;
 import com.gregochr.goldenhour.exception.RegionStateConflictException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.UpstreamLookupException;
 import com.gregochr.goldenhour.exception.SubRegionsLockedException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
+import org.apache.tomcat.util.http.InvalidParameterException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -140,6 +148,22 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Maps {@link NoRoadRouteException} to HTTP 422 {@code {error, code: NO_ROAD_ROUTE, field: drivePoint}}: the
+     * save would leave a location with a point no road route reaches (reach-scoped-card-plan R1c). The form reads
+     * {@code code} to show its drive-point field as required.
+     *
+     * @param ex the exception, whose message is a plain sentence for the admin
+     * @return the 422 response
+     */
+    @ExceptionHandler(NoRoadRouteException.class)
+    public ResponseEntity<Map<String, String>> handleNoRoadRoute(NoRoadRouteException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", ex.getMessage(),
+                "code", NoRoadRouteException.CODE,
+                "field", NoRoadRouteException.FIELD));
+    }
+
+    /**
      * Maps {@link RegistrationClosedException} to HTTP 403 when the early-access cap is reached.
      *
      * @param ex the exception
@@ -238,6 +262,97 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleMissingParam(MissingServletRequestParameterException ex) {
         return new ErrorResponse("Missing required parameter: " + ex.getParameterName());
+    }
+
+    /**
+     * Maps {@link MethodArgumentTypeMismatchException} to HTTP 400.
+     *
+     * <p>A query or path parameter that cannot be converted to its declared type (a non-date for a
+     * {@code LocalDate}, text for a number, an unknown enum constant, an over-long string) is the caller's
+     * error. Without this handler the catch-all below turns it into a 500 and logs it at ERROR.
+     *
+     * <p>The message is generic on purpose: the supplied value and the target type are never echoed or
+     * logged. Only the parameter's name, which is declared by the server, is logged at DEBUG.
+     *
+     * @param ex the exception
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleParameterTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        LOG.debug("Rejected malformed request parameter '{}'", ex.getName());
+        return new ErrorResponse("Invalid request parameter");
+    }
+
+    /**
+     * Maps Tomcat's {@link InvalidParameterException} to HTTP 400.
+     *
+     * <p>Tomcat parses the query string lazily and, when a chunk cannot be parsed (an empty parameter
+     * name such as {@code ?=} or {@code ?a=1&=2}, or a bad percent-escape), remembers the failure and
+     * throws this {@link IllegalStateException} from every later {@code getParameter*} call. Spring MVC
+     * makes that call while resolving a {@code @RequestParam} and while matching handlers, so without this
+     * handler the catch-all below turned a malformed query string into a 500 and logged it at ERROR with
+     * a stack trace. The request line is the caller's error. The message is fixed; the offending chunk
+     * (which Tomcat's own message quotes) is neither echoed nor logged.
+     *
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(InvalidParameterException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleInvalidQueryString() {
+        return new ErrorResponse("Invalid request parameter");
+    }
+
+    /**
+     * Maps {@link HttpRequestMethodNotSupportedException} to HTTP 405 with an {@code Allow} header.
+     *
+     * <p>A path that exists but is not mapped for the verb used (a GET to a PUT-only path) is the
+     * caller's error. Without this handler the catch-all below turned it into a 500. The message is
+     * fixed; the supplied method is not echoed.
+     *
+     * @param ex the exception, which carries the verbs the path does accept
+     * @return a 405 response with a fixed message
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        LOG.debug("Rejected unsupported request method");
+        ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+        HttpHeaders headers = new HttpHeaders();
+        if (ex.getSupportedHttpMethods() != null && !ex.getSupportedHttpMethods().isEmpty()) {
+            headers.setAllow(ex.getSupportedHttpMethods());
+        }
+        return response.headers(headers).body(new ErrorResponse("Request method not supported"));
+    }
+
+    /**
+     * Maps {@link HttpMediaTypeNotSupportedException} to HTTP 415.
+     *
+     * <p>A request body sent with a content type the endpoint does not read is the caller's error.
+     * The message is fixed; the supplied content type is not echoed.
+     *
+     * @return a 415 response with a fixed message
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorResponse handleMediaTypeNotSupported() {
+        LOG.debug("Rejected unsupported request content type");
+        return new ErrorResponse("Unsupported content type");
+    }
+
+    /**
+     * Maps {@link MethodArgumentNotValidException} and {@link HandlerMethodValidationException} to HTTP 400.
+     *
+     * <p>A request body or parameter that fails its bean-validation constraints (for example a value
+     * longer than the column that stores it) is the caller's error. The message is generic on purpose:
+     * the rejected value is never echoed or logged.
+     *
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler({MethodArgumentNotValidException.class, HandlerMethodValidationException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleValidationFailure() {
+        LOG.debug("Rejected request that failed validation");
+        return new ErrorResponse("Invalid request");
     }
 
     /**

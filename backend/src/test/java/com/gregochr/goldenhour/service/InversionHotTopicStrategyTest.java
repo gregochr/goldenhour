@@ -169,7 +169,7 @@ class InversionHotTopicStrategyTest {
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
         assertThat(factWithKey(topic, "inversion").value()).isEqualTo("9/10 · strong");
-        assertThat(topic.glance()).isEqualTo(new GlanceLine("dawn · 9/10", "9/10", null, true));
+        assertThat(topic.glance()).isEqualTo(new GlanceLine("dawn · 9/10", null, true));
         assertThat(topic.facts()).noneMatch(f -> f.value() != null && f.value().contains(" m"));
         assertThat(topic.note())
                 .isEqualTo("climb above it — the valleys fill with cloud, burning off after sunrise");
@@ -187,7 +187,6 @@ class InversionHotTopicStrategyTest {
 
         assertThat(factWithKey(topic, "inversion").value()).isEqualTo("10/10 · strong");
         assertThat(topic.glance().value()).isEqualTo("dawn · 10/10");
-        assertThat(topic.glance().shortValue()).isEqualTo("10/10");
     }
 
     @Test

@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import GuideLink from '../guide/GuideLink.jsx';
 import { STATE_WORD, DIRECTION_WORD } from '../../utils/windowFirstRows.js';
 import { eventWord } from '../../utils/windowFirstCards.js';
+import { alignedCount } from '../../utils/mapTideFit.js';
 
 /**
  * The Map tab's tide strip (`docs/engineering/tide-window-plan.md` T6,
@@ -225,6 +227,7 @@ export function TideStripHeader({ tide, onToggleCollapse = undefined }) {
         {statePhrase(tide)}
       </span>
       {headerMeta(tide) && <span className="wf-tide-strip-meta">{headerMeta(tide)}</span>}
+      <GuideLink section="mapTide" label="How the tide panel works" />
       <button
         type="button"
         className="wf-tide-strip-toggle"
@@ -633,7 +636,7 @@ export default function MapTideStrip({
 
   if (collapsed) {
     const phrase = statePhrase(tide);
-    const dimmedClause = model.dimmed.length > 0 ? ` · ${model.dimmed.length} dimmed` : '';
+    const aligned = alignedCount(model);
     return (
       <div
         className="wf-map-tide-strip" ref={setNode} tabIndex={-1}
@@ -642,10 +645,16 @@ export default function MapTideStrip({
         <div className="wf-tide-strip-collapsed" data-testid="wf-tide-strip-collapsed">
           <span className="wf-tide-strip-kicker">Tide</span>
           <span className="wf-tide-strip-state" data-testid="wf-tide-strip-state">{phrase}</span>
-          <span className="wf-tide-strip-meta">
-            {[tide.heightAtWindow, activeRow?.time && `at ${activeRow.time}`].filter(Boolean).join(' ')}
-            {dimmedClause}
-          </span>
+          <span className="wf-tide-strip-meta">{tide.heightAtWindow}</span>
+          {aligned && (
+            <span
+              className="wf-tide-strip-count"
+              data-kind={aligned.kind}
+              data-testid="wf-tide-strip-aligned"
+            >
+              {aligned.text}
+            </span>
+          )}
           <button
             type="button"
             className="wf-tide-strip-toggle"

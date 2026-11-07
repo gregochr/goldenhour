@@ -126,6 +126,34 @@ class OpenRouteServiceClientTest {
     }
 
     @Test
+    @DisplayName("returns empty list when ORS answers with no durations matrix at all")
+    void fetchDurations_nullDurations_returnsEmptyList() {
+        when(properties.isConfigured()).thenReturn(true);
+        when(properties.getApiKey()).thenReturn("test-key");
+        RestClientMocks.stubPost(restClient, OpenRouteServiceClient.OrsMatrixResponse.class,
+                new OpenRouteServiceClient.OrsMatrixResponse(null));
+
+        List<Double> result = client.fetchDurations(54.77, -1.60,
+                List.of(new double[]{54.78, -1.58}));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("returns empty list when ORS answers with an empty durations matrix")
+    void fetchDurations_emptyDurations_returnsEmptyList() {
+        when(properties.isConfigured()).thenReturn(true);
+        when(properties.getApiKey()).thenReturn("test-key");
+        RestClientMocks.stubPost(restClient, OpenRouteServiceClient.OrsMatrixResponse.class,
+                new OpenRouteServiceClient.OrsMatrixResponse(List.of()));
+
+        List<Double> result = client.fetchDurations(54.77, -1.60,
+                List.of(new double[]{54.78, -1.58}));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     @DisplayName("returns empty list when ORS row is shorter than expected")
     void fetchDurations_rowTooShort_returnsEmptyList() {
         when(properties.isConfigured()).thenReturn(true);

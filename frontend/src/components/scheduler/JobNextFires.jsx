@@ -280,7 +280,7 @@ export function SunTimingNotes({ jobKey }) {
           <li>
             Safety budget: waiting for batches and retrying failures share one budget, which runs
             from the cycle&apos;s first batch submit: 3 h 30 min for the overnight and afternoon
-            cycles, 2 h for the evening sunrise refresh. From late May to late July the afternoon
+            cycles, 2 h for the evening refresh. From late May to late July the afternoon
             cycle can still be finishing when the evening one starts; their briefing builds then run
             one after the other. These are the plan&apos;s figures; the live settings are{' '}
             <span className="break-all font-mono">photocast.pipeline.safety-timeout</span> and{' '}

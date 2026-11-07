@@ -2,7 +2,10 @@ package com.gregochr.goldenhour.client;
 
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -55,6 +58,36 @@ public class OrsRateLimiter {
         }
         try {
             return call.get();
+        } finally {
+            permits.release();
+        }
+    }
+
+    /**
+     * Runs the supplied call while holding one of the permits, but gives up waiting after {@code timeout}.
+     *
+     * <p>For a caller that must never be held up by a busy or stuck limiter: {@link #withPermit} waits for as long as
+     * it takes, which is right for a nightly sweep and wrong for the check made while an admin saves a form
+     * (reach-scoped-card-plan R1c). A timeout, an interrupt while waiting (the flag is restored) and a call that
+     * returned nothing all read as an empty {@code Optional}: "no answer", which that caller treats as unavailable.
+     *
+     * @param timeout the longest to wait for a permit
+     * @param call    the ORS call to make
+     * @param <T>     the call's result type
+     * @return what {@code call} returned, or empty when no permit came in time, the wait was interrupted, or the
+     *         call returned null
+     */
+    public <T> Optional<T> tryWithPermit(Duration timeout, Supplier<T> call) {
+        try {
+            if (!permits.tryAcquire(timeout.toNanos(), TimeUnit.NANOSECONDS)) {
+                return Optional.empty();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+        try {
+            return Optional.ofNullable(call.get());
         } finally {
             permits.release();
         }

@@ -171,13 +171,17 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
   -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"
 ```
 
-The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 80% line coverage **per class**, and `spotbugs:check`). Run Maven in the foreground with a timeout, not as a background task.
+The last command is the local equivalent of CI's backend job (it reaches `jacoco:check`, 95% line and 90% branch coverage **per class**, and `spotbugs:check`); PRs also run a changed-lines check (90% of changed `src/main` lines; see `dev-and-testing.md`). Run Maven in the foreground with a timeout, not as a background task.
 
-Frontend CI is lint → Vitest → `npm audit --audit-level=high` → build; run all four before pushing:
+Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.coverage.thresholds`; raise, never lower) → `npm audit --audit-level=high` → build, plus a PR-only changed-lines check (`diff-cover`, 90% of changed `src` lines; see `dev-and-testing.md`); run the four before pushing:
 
 ```bash
-cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
+
+The **E2E smoke** (`E2E — Playwright smoke`) is also a required CI check: with the backend jar built (`cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package`) and `npm run build` done, run `cd frontend && npm run test:e2e:smoke` (recipe and rules in `dev-and-testing.md`, "The E2E smoke gate").
+
+Changed-lines check locally (repo root, after the coverage run; `pip install diff-cover==10.0.0`; the `SF:` rewrite is required): `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/l.info && diff-cover /tmp/l.info --compare-branch=origin/main --fail-under=90`.
 
 When `npm audit` fires, edit the lockfile surgically rather than `npm audit fix`, check `package.json`'s `overrides` pin first, and prove it with `rm -rf node_modules && npm ci`. Details are in `dev-and-testing.md`.
 

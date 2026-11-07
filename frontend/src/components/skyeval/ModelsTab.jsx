@@ -7,7 +7,8 @@ import VersionCompare from './VersionCompare.jsx';
 
 /**
  * The Models tab: verdict card, the two production lane cards, accuracy over time, "Did a change make ratings
- * worse?" and the All models table. The highlighted model is shared by the chart's chips and the table's rows.
+ * worse?" and the All models table. The highlighted models (a multi-select) are shared by the
+ * chart's chips and the table's rows.
  *
  * @param {object} props
  * @param {object} props.overview the served overview
@@ -16,7 +17,11 @@ import VersionCompare from './VersionCompare.jsx';
  * @param {(model: string) => void} props.onSeeFixtures opens the Fixtures tab on that model
  */
 export default function ModelsTab({ overview, now, onRunCheck, onSeeFixtures }) {
-  const [highlight, setHighlight] = useState(null);
+  const [highlighted, setHighlighted] = useState([]);
+  const onToggle = (model) => setHighlighted((cur) => (
+    cur.includes(model) ? cur.filter((x) => x !== model) : [...cur, model]
+  ));
+  const onClear = () => setHighlighted([]);
   const { head, lanes, models, sessions, versions, verdict, comparisons, fixtures } = overview;
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="sky-eval-models-tab">
@@ -40,8 +45,9 @@ export default function ModelsTab({ overview, now, onRunCheck, onSeeFixtures }) 
         sessions={sessions}
         models={models}
         versions={versions}
-        highlight={highlight}
-        onHighlight={setHighlight}
+        highlighted={highlighted}
+        onToggle={onToggle}
+        onClear={onClear}
         now={now}
       />
       <VersionCompare comparisons={comparisons} now={now} />
@@ -49,8 +55,8 @@ export default function ModelsTab({ overview, now, onRunCheck, onSeeFixtures }) 
         models={models}
         lanes={lanes}
         head={head}
-        highlight={highlight}
-        onHighlight={setHighlight}
+        highlighted={highlighted}
+        onToggle={onToggle}
         now={now}
       />
     </div>

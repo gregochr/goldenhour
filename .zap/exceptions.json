@@ -1,0 +1,14 @@
+{
+  "backend": [
+    {"pluginid": "100001", "uri_regex": "^http://pentest-backend:8082/api/status/stream", "level": "ignore",
+     "reason": "SSE endpoint: text/event-stream is correct"},
+    {"pluginid": "40018", "uri_regex": "^http://pentest-backend:8082/api/admin/", "level": "ignore",
+     "reason": "false positive: the scan runs as a non-admin, and the security filter refuses /api/admin/** with an identical 403 before any parameter is read, which ZAP's SQL-injection expression check misreads"}
+  ],
+  "frontend": [
+    {"pluginid": "90004", "alertRef": "90004-2", "level": "ignore",
+     "reason": "Cross-Origin-Embedder-Policy is deliberately not set: login embeds a third-party challenge iframe and the map loads third-party tiles, and nothing needs cross-origin isolation"},
+    {"pluginid": "10049", "level": "ignore", "reason": "informational"},
+    {"pluginid": "10109", "level": "ignore", "reason": "informational"}
+  ]
+}

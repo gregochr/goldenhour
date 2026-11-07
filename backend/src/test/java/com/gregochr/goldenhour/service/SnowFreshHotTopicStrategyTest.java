@@ -5,11 +5,15 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.MistPotential;
 import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -23,7 +27,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SnowFreshHotTopicStrategy}, including the SNOW_MIST variant and the
- * snow-depth / humidity threshold boundaries. Reads the slot surface.
+ * snow-depth threshold boundary and the valley mist band rule that decides SNOW_MIST. Reads the
+ * slot surface.
  */
 @ExtendWith(MockitoExtension.class)
 class SnowFreshHotTopicStrategyTest {
@@ -58,24 +63,48 @@ class SnowFreshHotTopicStrategyTest {
         return topic.facts().stream().filter(f -> key.equals(f.key())).findFirst().orElseThrow();
     }
 
-    /** A slot composite carrying snow depth and humidity (no freezing level or temperature). */
+    /** A SUNRISE composite carrying snow depth and humidity, with no valley mist band. */
     private static SlotSignals signal(LocalDate date, String regionName,
             Double snowDepthMetres, Integer humidity) {
         return signal(date, regionName, snowDepthMetres, humidity, null, null);
     }
 
-    /** A slot composite carrying snow depth, humidity, freezing level and 2 m temperature. */
+    /** A SUNRISE composite with depth, humidity, freezing level and 2 m temperature, no mist band. */
     private static SlotSignals signal(LocalDate date, String regionName, Double snowDepthMetres,
             Integer humidity, Double freezingLevelMetres, Double temperatureCelsius) {
+        return signal(date, regionName, snowDepthMetres, humidity, freezingLevelMetres,
+                temperatureCelsius, TargetType.SUNRISE, true, null, null);
+    }
+
+    /** A SUNRISE composite whose scored valley mist band is {@code band} (humidity 70, no temperature). */
+    private static SlotSignals misty(LocalDate date, String regionName, Double snowDepthMetres,
+            MistPotential band) {
+        return signal(date, regionName, snowDepthMetres, 70, null, null,
+                TargetType.SUNRISE, true, band, null);
+    }
+
+    /** A SUNRISE LIKELY composite with a 2 m temperature (the sub-zero wording cases). */
+    private static SlotSignals mistyAt(Double snowDepthMetres, Double temperatureCelsius) {
+        return signal(FROM, "The Lake District", snowDepthMetres, 96, 150.0, temperatureCelsius,
+                TargetType.SUNRISE, true, MistPotential.LIKELY, null);
+    }
+
+    /**
+     * The full composite: event type, whether the calculator scored the row ({@code mistScored}),
+     * its stored band, and Claude's echoed band on the score surface.
+     */
+    private static SlotSignals signal(LocalDate date, String regionName, Double snowDepthMetres,
+            Integer humidity, Double freezingLevelMetres, Double temperatureCelsius,
+            TargetType event, boolean mistScored, MistPotential mistPotential, String echoedBand) {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         SlotSignals.Readings readings = new SlotSignals.Readings(
                 null, null, null, null, snowDepthMetres, freezingLevelMetres, humidity,
-                null, null, null, temperatureCelsius, null, false);
-        return new SlotSignals(location, date, TargetType.SUNRISE,
-                SlotSignals.Scores.EMPTY, readings);
+                null, null, null, temperatureCelsius, null, false, null, mistScored, mistPotential);
+        SlotSignals.Scores scores = new SlotSignals.Scores(null, null, null, null, echoedBand);
+        return new SlotSignals(location, date, event, scores, readings);
     }
 
     @Test
@@ -122,12 +151,10 @@ class SnowFreshHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("snow lying with mist upgrades to SNOW_MIST at priority 1")
-    void detect_snowLyingWithMist_firesMistVariant() {
+    @DisplayName("snow on a sunrise whose valley mist band is LIKELY fires one SNOW_MIST at priority 1")
+    void detect_snowWithLikelyBand_firesMistVariant() {
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(
-                        signal(FROM, "The Lake District", 0.05, 70),
-                        signal(FROM, "The North York Moors", 0.10, 95)));
+                .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, MistPotential.LIKELY)));
         stubAhead(FROM);
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
@@ -136,16 +163,153 @@ class SnowFreshHotTopicStrategyTest {
         HotTopic topic = topics.get(0);
         assertThat(topic.type()).isEqualTo("SNOW_MIST");
         assertThat(topic.priority()).isEqualTo(1);
-        assertThat(topic.regions())
-                .containsExactly("The Lake District", "The North York Moors");
+        assertThat(factWithKey(topic, "mist").value()).isEqualTo("mist likely");
+        assertThat(topic.facts()).noneMatch(f -> f.value().contains("humidity"));
+    }
+
+    @ParameterizedTest(name = "band {0} on a snowy sunrise is plain SNOW_FRESH")
+    @NullSource
+    @EnumSource(value = MistPotential.class, names = "LIKELY", mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("any band short of LIKELY (or no band) leaves SNOW_FRESH only")
+    void detect_nonLikelyBand_freshOnly(MistPotential band) {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, band)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_FRESH");
+    }
+
+    @Test
+    @DisplayName("RH 99 % with no band is SNOW_FRESH only — the humidity path is gone")
+    void detect_highHumidityNoBand_freshOnly() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(signal(FROM, "The Lake District", 0.10, 99)));
+        stubAhead(FROM);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_FRESH");
+    }
+
+    @Test
+    @DisplayName("RH 70 % with a LIKELY band is SNOW_MIST — humidity is not consulted")
+    void detect_lowHumidityLikelyBand_mist() {
+        when(slotSignalReader.read(FROM, TO))
+                .thenReturn(List.of(misty(FROM, "The Lake District", 0.10, MistPotential.LIKELY)));
+        stubAhead(FROM);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_MIST");
+    }
+
+    @Test
+    @DisplayName("an unscored row falls back to Claude's LIKELY echo")
+    void detect_unscoredRow_echoHonoured() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
+                0.10, 70, null, null, TargetType.SUNRISE, false, null, "LIKELY")));
+        stubAhead(FROM);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_MIST");
+    }
+
+    @Test
+    @DisplayName("a scored row with a null band beats a LIKELY echo — the scored null wins")
+    void detect_scoredNullBand_echoIgnored() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
+                0.10, 70, null, null, TargetType.SUNRISE, true, null, "LIKELY")));
+        stubAhead(FROM);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_FRESH");
+    }
+
+    @Test
+    @DisplayName("a LIKELY sunset is not SNOW_MIST — the topic is pinned to first light")
+    void detect_likelySunset_freshOnly() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(signal(FROM, "The Lake District",
+                0.10, 70, null, null, TargetType.SUNSET, true, MistPotential.LIKELY, null)));
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNSET)))
+                .thenReturn(true);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_FRESH");
+    }
+
+    @Test
+    @DisplayName("mist in one region and plain snow in another gives two topics, SNOW_MIST first")
+    void detect_split_twoTopicsEachWithOwnRegions() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY),
+                signal(FROM, "The North York Moors", 0.10, 70)));
+        stubAhead(FROM);
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
+        assertThat(topics.get(0).regions()).containsExactly("The Lake District");
+        assertThat(topics.get(1).regions()).containsExactly("The North York Moors");
+        // Each topic's representative is its own deepest row, not the window's.
+        assertThat(factWithKey(topics.get(0), "depth").value()).isEqualTo("5 cm");
+        assertThat(factWithKey(topics.get(1), "depth").value()).isEqualTo("10 cm");
+    }
+
+    @Test
+    @DisplayName("the same place and day, misty sunrise plus snowy sunset, is only SNOW_MIST")
+    void detect_samePlaceAndDay_noRedundantFresh() {
+        SlotSignals sunrise = misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY);
+        SlotSignals sunset = new SlotSignals(sunrise.location(), FROM, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, sunrise.readings());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(sunrise, sunset));
+        stubAhead(FROM);
+        when(freshness.isAhead(any(LocationEntity.class), eq(FROM), eq(TargetType.SUNSET)))
+                .thenReturn(true);
+
+        assertThat(strategy.detect(FROM, TO)).extracting(HotTopic::type)
+                .containsExactly("SNOW_MIST");
+    }
+
+    @Test
+    @DisplayName("the same place misty on day 0 and snowy only on day 1 gives both topics")
+    void detect_samePlaceOtherDay_stillFresh() {
+        SlotSignals day0 = misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY);
+        SlotSignals day1 = new SlotSignals(day0.location(), FROM.plusDays(1), TargetType.SUNRISE,
+                SlotSignals.Scores.EMPTY,
+                signal(FROM.plusDays(1), "The Lake District", 0.05, 70).readings());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(day0, day1));
+        stubAhead(FROM, FROM.plusDays(1));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
+        assertThat(topics.get(0).date()).isEqualTo(FROM);
+        assertThat(topics.get(1).date()).isEqualTo(FROM.plusDays(1));
+    }
+
+    @Test
+    @DisplayName("each topic is dated to its own earliest day")
+    void detect_split_datesPerTopic() {
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
+                signal(FROM, "The Lake District", 0.05, 70),
+                misty(FROM.plusDays(1), "The Lake District", 0.05, MistPotential.LIKELY)));
+        stubAhead(FROM, FROM.plusDays(1));
+
+        List<HotTopic> topics = strategy.detect(FROM, TO);
+
+        assertThat(topics).extracting(HotTopic::type).containsExactly("SNOW_MIST", "SNOW_FRESH");
+        assertThat(topics.get(0).date()).isEqualTo(FROM.plusDays(1));
+        assertThat(topics.get(0).detail()).endsWith("tomorrow");
+        assertThat(topics.get(1).date()).isEqualTo(FROM);
+        assertThat(topics.get(1).detail()).endsWith("today");
     }
 
     @Test
     @DisplayName("misty snow with unknown/above-zero air stays plain 'Fresh snow with mist'")
     void detect_mist_aboveZero_plainMist() {
-        // Representative is the deepest misty row (0.10 m, 95%), air +1 °C → no hoar-frost claim.
+        // Representative is the deepest misty row (0.10 m), air +1 °C → no frost claim.
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The North York Moors", 0.10, 95, 200.0, 1.0)));
+                .thenReturn(List.of(mistyAt(0.10, 1.0)));
         stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
@@ -153,40 +317,39 @@ class SnowFreshHotTopicStrategyTest {
         assertThat(topic.type()).isEqualTo("SNOW_MIST");
         assertThat(topic.label()).isEqualTo("Fresh snow with mist");
         assertThat(factWithKey(topic, "depth").value()).isEqualTo("10 cm");
-        assertThat(factWithKey(topic, "mist").value()).isEqualTo("humidity 95%");
+        assertThat(factWithKey(topic, "mist").value()).isEqualTo("mist likely");
         assertThat(topic.facts()).noneMatch(f -> "air".equals(f.key()));
         assertThat(topic.note()).isEqualTo("mist over lying snow — soft, flat light");
-        // Plain mist keeps the general copy — no hoar-frost explanation is claimed.
-        assertThat(topic.description()).doesNotContain("Hoar frost");
+        // Plain mist keeps the general copy — no frost explanation is claimed.
+        assertThat(topic.description()).doesNotContain("hoar frost");
     }
 
     @Test
-    @DisplayName("sub-zero misty snow becomes 'Snow mist & hoar frost' with the freezing-air fact")
-    void detect_mist_subZero_hoarFrost() {
+    @DisplayName("sub-zero misty snow becomes 'Snow, mist & frost' with the freezing-air fact")
+    void detect_mist_subZero_frost() {
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The Lake District", 0.08, 96, 150.0, -2.0)));
+                .thenReturn(List.of(mistyAt(0.08, -2.0)));
         stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
         assertThat(topic.type()).isEqualTo("SNOW_MIST");
-        assertThat(topic.label()).isEqualTo("Snow mist & hoar frost");
-        assertThat(topic.detail()).startsWith("Freezing fog over lying snow — hoar frost");
+        assertThat(topic.label()).isEqualTo("Snow, mist & frost");
+        assertThat(topic.detail()).startsWith("Freezing mist and frost over lying snow");
         assertThat(factWithKey(topic, "depth").value()).isEqualTo("8 cm");
-        assertThat(factWithKey(topic, "air").value()).isEqualTo("-2 °C · hoar frost likely");
-        assertThat(factWithKey(topic, "mist").value()).isEqualTo("humidity 96%");
-        assertThat(topic.note())
-                .isEqualTo("densest before dawn, lifts mid-morning — rime on every branch");
-        // The (i) "science" tooltip explains what hoar frost is (surfaced in the UI on the pill).
-        assertThat(topic.description())
-                .startsWith("Hoar frost is the feathery white ice");
+        assertThat(factWithKey(topic, "air").value()).isEqualTo("-2 °C · frost likely");
+        assertThat(factWithKey(topic, "mist").value()).isEqualTo("mist likely");
+        assertThat(topic.note()).isEqualTo("densest before dawn — frost on every branch");
+        // The (i) tooltip names hoar frost and rime, and claims no windward rime.
+        assertThat(topic.description()).contains("hoar frost").contains("rime")
+                .doesNotContain("windward");
     }
 
     @Test
     @DisplayName("air exactly 0 °C is not sub-zero — stays plain mist (boundary)")
-    void detect_mist_zeroCelsius_notHoarFrost() {
+    void detect_mist_zeroCelsius_notFrost() {
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The Lake District", 0.08, 96, 150.0, 0.0)));
+                .thenReturn(List.of(mistyAt(0.08, 0.0)));
         stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
@@ -196,17 +359,17 @@ class SnowFreshHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("a barely sub-zero reading shows '-1 °C', never a self-contradictory '0 °C · hoar frost'")
+    @DisplayName("a barely sub-zero reading shows '-1 °C', never a self-contradictory '0 °C · frost'")
     void detect_mist_nearZeroSubZero_neverShowsZero() {
         // -0.3 °C is genuinely sub-zero (gate fires) but rounds to 0 — the chip must not read "0 °C".
         when(slotSignalReader.read(FROM, TO))
-                .thenReturn(List.of(signal(FROM, "The Lake District", 0.08, 96, 150.0, -0.3)));
+                .thenReturn(List.of(mistyAt(0.08, -0.3)));
         stubAhead(FROM);
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
 
-        assertThat(topic.label()).isEqualTo("Snow mist & hoar frost");
-        assertThat(factWithKey(topic, "air").value()).isEqualTo("-1 °C · hoar frost likely");
+        assertThat(topic.label()).isEqualTo("Snow, mist & frost");
+        assertThat(factWithKey(topic, "air").value()).isEqualTo("-1 °C · frost likely");
     }
 
     @Test
@@ -272,25 +435,28 @@ class SnowFreshHotTopicStrategyTest {
         assertThat(SnowFreshHotTopicStrategy.isFreshSnow(null)).isFalse();
     }
 
-    // ── isMisty boundary: humidity > 90 (the briefing's HUMIDITY_MARGINAL) ──
+    // ── isMisty: a SUNRISE row whose valley mist band is LIKELY ──
 
     @Test
-    @DisplayName("humidity exactly at 90 is not misty (boundary)")
-    void isMisty_atThreshold_false() {
-        assertThat(SnowFreshHotTopicStrategy.isMisty(BriefingVerdictEvaluator.HUMIDITY_MARGINAL))
-                .isFalse();
-    }
-
-    @Test
-    @DisplayName("humidity just above 90 is misty (boundary)")
-    void isMisty_justAboveThreshold_true() {
+    @DisplayName("a LIKELY sunrise is misty")
+    void isMisty_likelySunrise_true() {
         assertThat(SnowFreshHotTopicStrategy.isMisty(
-                BriefingVerdictEvaluator.HUMIDITY_MARGINAL + 1)).isTrue();
+                misty(FROM, "The Lake District", 0.05, MistPotential.LIKELY))).isTrue();
+    }
+
+    @ParameterizedTest(name = "band {0} is not misty")
+    @NullSource
+    @EnumSource(value = MistPotential.class, names = "LIKELY", mode = EnumSource.Mode.EXCLUDE)
+    @DisplayName("POSSIBLE, NONE, FOGBOUND and an absent band are not misty")
+    void isMisty_otherBands_false(MistPotential band) {
+        assertThat(SnowFreshHotTopicStrategy.isMisty(
+                misty(FROM, "The Lake District", 0.05, band))).isFalse();
     }
 
     @Test
-    @DisplayName("null humidity is not misty")
-    void isMisty_null_false() {
-        assertThat(SnowFreshHotTopicStrategy.isMisty(null)).isFalse();
+    @DisplayName("a LIKELY sunset is not misty")
+    void isMisty_likelySunset_false() {
+        assertThat(SnowFreshHotTopicStrategy.isMisty(signal(FROM, "The Lake District", 0.05, 70,
+                null, null, TargetType.SUNSET, true, MistPotential.LIKELY, null))).isFalse();
     }
 }

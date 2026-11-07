@@ -5,7 +5,11 @@ COPY faq.html /usr/share/nginx/html/
 COPY privacy.html /usr/share/nginx/html/
 COPY terms.html /usr/share/nginx/html/
 COPY acknowledgements.html /usr/share/nginx/html/
+COPY how-its-built.html /usr/share/nginx/html/
+COPY engineering.html /usr/share/nginx/html/
+COPY guide/ /usr/share/nginx/html/guide/
 COPY photocast.css /usr/share/nginx/html/
+COPY home.css /usr/share/nginx/html/
 COPY viewer.js /usr/share/nginx/html/
 COPY home.js /usr/share/nginx/html/
 COPY shot-map.webp /usr/share/nginx/html/
@@ -28,6 +32,15 @@ COPY security-headers.conf /etc/nginx/security-headers.conf
 # URLs, so local previews are unaffected; the plain paths are still served, bytes unchanged.
 RUN cd /usr/share/nginx/html && \
     for f in *.css *.js *.webp *.png *.svg; do \
+        [ -f "$f" ] || continue; \
+        h=$(md5sum "$f" | cut -c1-10); \
+        e=$(printf '%s' "$f" | sed 's/[.]/\\./g'); \
+        sed -i "s|\"$e\"|\"$f?v=$h\"|g" *.html; \
+    done
+# The guide pages live one level down: fingerprint their own assets (guide.css, guide.js, guide-search.js,
+# shots/*.webp) and the parent assets they reference as "../file". Same exact-quoted-reference rewrite.
+RUN cd /usr/share/nginx/html/guide && \
+    for f in *.css *.js shots/*.webp ../photocast.css ../favicon.png; do \
         [ -f "$f" ] || continue; \
         h=$(md5sum "$f" | cut -c1-10); \
         e=$(printf '%s' "$f" | sed 's/[.]/\\./g'); \

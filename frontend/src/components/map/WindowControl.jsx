@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { auroraChipLevel } from '../../utils/auroraChipLevel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
@@ -7,15 +7,23 @@ import { calDow } from '../../utils/windowFirstStrip.js';
 import BoltIcon from './BoltIcon.jsx';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import VerdictWord from '../shared/VerdictWord.jsx';
-import { verdictRegionLabel } from '../../utils/mapVerdict.js';
+import { verdictRegionLabel, verdictsScope } from '../../utils/mapVerdict.js';
+import { verdictScopeShort, verdictScopeSpoken, verdictScopeText } from '../../utils/reachLens.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { noStoredForecast } from './outcomeRatingCopy.js';
+import GuideLink from '../guide/GuideLink.jsx';
 import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from '../shared/ProUpsell.jsx';
 
 /** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
 const MENU_SCROLL_PAD_PX = 6;
+
+/** How long the control stays highlighted after a day-dot jump (ms); the fade is the CSS transition. */
+export const FLASH_MS = 700;
+
+/** The fade-out after the highlight (matches the CSS transition); `data-flash` reads `fading` meanwhile. */
+export const FADE_MS = 500;
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -58,8 +66,22 @@ export default function WindowControl({
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
   emptyOlderDayLabel = null, ratedCounts = null, thinCounts = null, betterNext = null, auroraDoor = null,
-  shaped = false, auroraAlertNight = null, auroraAlertLevel = null,
+  shaped = false, auroraAlertNight = null, auroraAlertLevel = null, flashKey = 0,
 }) {
+  // A day-dot jump from the collapsed Hot topics row bumps `flashKey`: the control lights up for 700ms
+  // (collapse-and-topic-pips-plan.md §2). Zero (and any bare render) never flashes.
+  // Seeded from the prop: a mount with a flash already spent (a remount) does not flash again.
+  const [flashDoneKey, setFlashDoneKey] = useState(() => flashKey);
+  const [fadeDoneKey, setFadeDoneKey] = useState(() => flashKey);
+  let flashPhase;
+  if (flashKey !== 0 && flashKey !== flashDoneKey) flashPhase = 'true';
+  else if (flashKey !== 0 && flashKey !== fadeDoneKey) flashPhase = 'fading';
+  useEffect(() => {
+    if (!flashKey) return undefined;
+    const flashTimer = setTimeout(() => setFlashDoneKey(flashKey), FLASH_MS);
+    const fadeTimer = setTimeout(() => setFadeDoneKey(flashKey), FLASH_MS + FADE_MS);
+    return () => { clearTimeout(flashTimer); clearTimeout(fadeTimer); };
+  }, [flashKey]);
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
   const open = isControlled ? openProp : openState;
@@ -169,6 +191,8 @@ export default function WindowControl({
     return row && !row.past ? (verdicts?.get(row.id) ?? null) : null;
   }
   const activeVerdict = active && !active.past ? (verdicts?.get(active.id) ?? null) : null;
+  const listScope = verdictsScope(verdicts);
+  const listScopeText = verdictScopeText(listScope);
 
   /**
    * A stepper's accessible name, carrying the neighbour's verdict when there is one.
@@ -182,7 +206,9 @@ export default function WindowControl({
    */
   function stepLabel(base, verdict) {
     const word = verdict ? VERDICT_LABEL[verdict.tier] : null;
-    return word ? `${base}, ${word}` : base;
+    // A scoped word is spoken with its scope, as the pill's name is (reach-scoped-card-plan R3, D6).
+    const scope = word ? verdictScopeSpoken(verdict.scope) : null;
+    return word ? `${base}, ${word}${scope ? `, ${scope}` : ''}` : base;
   }
   /**
    * One stepper's accessible name for the neighbour at {@code index}: the bare base when the
@@ -246,6 +272,7 @@ export default function WindowControl({
   }, [fontsReady]);
   const fitSig = [
     activeVerdict?.tier, activeVerdict ? verdictRegionLabel(activeVerdict, { scopeIsArea }) : '',
+    verdictScopeText(activeVerdict?.scope) ?? '',
     active?.pickKind, thinCounts?.get(active?.id), loading, scopeIsArea,
   ].join('~');
   const fitKey = betterNext
@@ -382,7 +409,9 @@ export default function WindowControl({
     const onBetter = betterRef.current != null && e.target === betterRef.current;
     // ⚠️ The Lite aurora door lives inside the menu, so its keys bubble here. Left/Right there would step
     // the window, close the menu and unmount the door with focus inside it; the door owns its own keys.
-    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target?.closest?.('.wf-win-aurora-door')) return;
+    // The guide door in the menu's footer is the same: it owns its keys (and is no reason to step the window).
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+      && e.target?.closest?.('.wf-win-aurora-door, .wf-win-guide')) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       if (onBetter && !atStart) pillRef.current?.focus();
@@ -415,6 +444,7 @@ export default function WindowControl({
       data-testid="wf-win-control"
       className="wf-win-control"
       data-better={showBetter ? '' : undefined}
+      data-flash={flashPhase}
       onKeyDown={onKeyDown}
     >
       {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a
@@ -511,7 +541,7 @@ export default function WindowControl({
                 `display` or `position` in here (hiding the region at ≤639px and the pick at
                 ≤389px, taking the pick's words out of flow at ≤811px) leave the pill flex.
                 They stay because they state the boundary in the DOM and jsdom's reading needs
-                them. Rule and method: `WindowGlanceDayTopics`'s class doc. */}
+                them. Rule and method: `WindowGlanceLanes`'s class doc. */}
             {' '}
             <Medallion kind={active.pickKind} />
             {' '}
@@ -633,11 +663,20 @@ export default function WindowControl({
               is pre-existing, and it is left alone rather than quietly rolled into an unrelated
               commit; but it is the same class of problem, and this note must not be read as saying
               it was handled. */}
+          {listScopeText && (
+            // Every verdict word below is for the active drive tier (reach-scoped-card-plan R3, D6). Printed short,
+            // spoken long; outside the listbox, which admits only options.
+            <div id="wf-win-scope-note" className="wf-win-scope-note" data-testid="wf-win-scope-note">
+              <span aria-hidden="true">{`Verdicts ${listScopeText}`}</span>
+              <span className="sr-only">{`Verdicts ${verdictScopeSpoken(listScope)}`}</span>
+            </div>
+          )}
           <div
             role="listbox"
             id="wf-win-listbox"
             data-testid="wf-win-listbox"
             aria-label="Choose an event"
+            aria-describedby={listScopeText ? 'wf-win-scope-note' : undefined}
             onFocus={rowFocus.onFocus}
             onBlur={rowFocus.onBlur}
             onPointerDown={rowFocus.onPointerDown}
@@ -740,9 +779,13 @@ export default function WindowControl({
                 testIdPrefix="wf-aurora-upsell"
                 className="wf-pro-upsell-door--inline"
                 unmountFocusRef={pillRef}
+                guide={{ section: 'auroraMap' }}
               />
             </div>
           )}
+          <div data-testid="wf-win-guide" className="wf-win-guide">
+            <GuideLink section="mapWindow" label="How the window control works" />
+          </div>
         </div>
       )}
     </div>
@@ -753,6 +796,8 @@ WindowControl.propTypes = {
   /** The night the aurora alert describes, and its level: that night's aurora chip follows the level. */
   auroraAlertNight: PropTypes.string,
   auroraAlertLevel: PropTypes.string,
+  /** Changes on each day-dot jump from the Hot topics row; the control flashes for {@link FLASH_MS}. */
+  flashKey: PropTypes.number,
   events: PropTypes.arrayOf(PropTypes.shape({
     id: PropTypes.string.isRequired,
     kind: PropTypes.string.isRequired,
@@ -925,8 +970,14 @@ Medallion.propTypes = { kind: PropTypes.oneOf(['best', 'also']) };
 function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
   if (!verdict) return null;
   const region = verdictRegionLabel(verdict, { scopeIsArea });
+  const scopeText = verdictScopeText(verdict.scope);
+  const scopeSpoken = verdictScopeSpoken(verdict.scope);
   return (
-    <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
+    <span
+      className={`wf-win-verdict${scopeText ? ' wf-win-verdict--scoped' : ''}`}
+      data-tier={verdict.tier}
+      data-testid="wf-win-verdict"
+    >
       {/* ⚠️ `mode="swap"`: "TOO FEW RATED" (91px) clipped the day label at 320–430px and itself at
           640–700px (measured), so the pill swaps to the short form at 811px and below on one media
           query (`.wf-vw-short` / `.wf-vw-full` in index.css) and the full word stays in the
@@ -951,11 +1002,31 @@ function VerdictCell({ verdict, scopeIsArea, ratedCount = null }) {
           2026-09-11 by Playwright's accessible-name algorithm over Chromium's, WebKit's and
           Firefox's layout; Chromium's native accessibility tree agreed on 2026-09-14). "Worth
           iteverywhere in your area" is jsdom's reading — it computes no layout, so they read as
-          inline to it (see `WindowGlanceDayTopics`'s class doc). */}
+          inline to it (see `WindowGlanceLanes`'s class doc). */}
       {' '}
       {/* A `<span>`, not an `<em>`: `<em>` means stress emphasis, some AT announces it, and the
           stylesheet immediately sets `font-style: normal` on it — the tell that none is intended. */}
-      {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
+      {scopeText ? (
+        // The second line of a reach-scoped verdict. On desktop and tablet the region and the drive-tier scope share it;
+        // at ≤639px the stylesheet hides the region (and the rated count) and the scope words take that slot
+        // (reach-scoped-card-plan R3, step 4). Printed short, spoken long, as the Plan card's scope line is (R2): the
+        // visible form is aria-hidden and the long form rides sr-only, so the name reads "Worth it, Northumberland +2,
+        // within 45 min". An unscoped verdict renders exactly the region span below, unchanged.
+        <span className="wf-win-verdict-sub" data-testid="wf-win-verdict-sub">
+          {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
+          {region && <span aria-hidden="true" className="wf-win-verdict-scope-sep">&middot;</span>}
+          {/* Two printed spellings swapped by the stylesheet (the pattern of `VerdictWord mode="swap"`): the full
+              `within 45m` where the cell has room, `≤45m` where it does not (≤811px). Both are aria-hidden; the
+              long form is spoken. */}
+          <span aria-hidden="true" className="wf-win-verdict-scope" data-testid="wf-win-verdict-scope">
+            <span className="wf-scope-full" data-testid="wf-win-verdict-scope-full">{scopeText}</span>
+            <span className="wf-scope-short" data-testid="wf-win-verdict-scope-short">{verdictScopeShort(verdict.scope)}</span>
+          </span>
+          <span className="sr-only">{`, ${scopeSpoken}`}</span>
+        </span>
+      ) : (
+        region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>
+      )}
     </span>
   );
 }
@@ -966,6 +1037,7 @@ VerdictCell.propTypes = {
     regionName: PropTypes.string,
     sharingCount: PropTypes.number,
     allInScope: PropTypes.bool,
+    scope: PropTypes.shape({ tierMinutes: PropTypes.number }),
   }),
   scopeIsArea: PropTypes.bool,
   ratedCount: PropTypes.number,

@@ -772,6 +772,8 @@ describe('Day view: review fixes', () => {
     });
     renderView();
     await loaded();
+    // The observer is constructed in an effect, which may land after the day list is on screen.
+    await waitFor(() => expect(notify).toBeTypeOf('function'));
     await act(async () => { notify([{ contentRect: { width: 420 } }]); });
     expect(screen.getByTestId('runs-strip-svg')).toHaveAttribute('viewBox', expect.stringMatching(/^0 0 420 \d+$/));
     vi.unstubAllGlobals();

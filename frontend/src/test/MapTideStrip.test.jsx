@@ -23,6 +23,9 @@ import {
   render, screen, fireEvent, within,
 } from '@testing-library/react';
 import MapTideStrip, { TY, footerModel, nextFitCopy } from '../components/map/MapTideStrip.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * Linear interpolation of a 49-sample curve at a fractional `0..1` position — used ONLY by this
@@ -692,6 +695,41 @@ describe('MapTideStrip — collapse', () => {
     expect(screen.queryByTestId('wf-tide-strip-footer')).not.toBeInTheDocument();
   });
 
+  describe('the collapsed row\'s aligned count (collapse-and-topic-pips-plan.md §4)', () => {
+    const collapsedWith = (model) => render(
+      <MapTideStrip
+        model={model} tide={tideFixture()} activeRow={{ ...activeRow, time: '16:23' }} collapsed mapPaneRef={mapPane()}
+      />,
+    );
+
+    it('says K of N aligned, drops the time and never says dimmed', () => {
+      collapsedWith(baseModel({ dimmed: new Array(10).fill(0) }));
+      const row = screen.getByTestId('wf-tide-strip-collapsed');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('6 of 16 aligned');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveAttribute('data-kind', 'some');
+      expect(row).not.toHaveTextContent('16:23');
+      expect(row).not.toHaveTextContent('dimmed');
+      expect(row).toHaveTextContent('2.6 m');
+    });
+
+    it('says none of N aligned when every spot is dimmed, and all N aligned when none is', () => {
+      const { unmount } = collapsedWith(baseModel({ dimmed: new Array(16).fill(0) }));
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('none of 16 aligned');
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveAttribute('data-kind', 'none');
+      unmount();
+      collapsedWith(baseModel({ dimmed: [] }));
+      expect(screen.getByTestId('wf-tide-strip-aligned')).toHaveTextContent('all 16 aligned');
+    });
+
+    it('draws no count when the fit is unknown or no coastal spot is in view', () => {
+      const { unmount } = collapsedWith(baseModel({ fitKnown: false }));
+      expect(screen.queryByTestId('wf-tide-strip-aligned')).toBeNull();
+      unmount();
+      collapsedWith(baseModel({ namedCoastal: [] }));
+      expect(screen.queryByTestId('wf-tide-strip-aligned')).toBeNull();
+    });
+  });
+
   it('calls onToggleCollapse on the toggle button, in both directions', () => {
     const onToggleCollapse = vi.fn();
     const ref = mapPane();
@@ -783,5 +821,44 @@ describe('MapTideStrip — collapse', () => {
     );
     expect(screen.getByTestId('wf-tide-strip-collapsed')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-tide-strip-header')).not.toBeInTheDocument();
+  });
+});
+
+describe('MapTideStrip — the guide door (G3)', () => {
+  let restoreHeight;
+  let restoreRO;
+  beforeEach(() => {
+    mockOpenGuide.mockClear();
+    restoreHeight = stubOffsetHeight(120);
+    restoreRO = installResizeObserver();
+  });
+  afterEach(() => {
+    restoreHeight();
+    restoreRO();
+  });
+
+  it('puts a ? in the header, before the collapse toggle, that opens map#tide without collapsing the strip', () => {
+    const onToggle = vi.fn();
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={mapPane()} onToggle={onToggle}
+      />,
+    );
+    const header = screen.getByTestId('wf-tide-strip-header');
+    const link = within(header).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('How the tide panel works');
+    expect(link.nextElementSibling).toBe(screen.getByTestId('wf-tide-strip-toggle'));
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('map', 'tide', expect.any(Object));
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it('draws no ? on the locked teaser, which is one button (the upsell popover carries its own door)', () => {
+    render(
+      <MapTideStrip
+        model={baseModel()} tide={tideFixture()} activeRow={activeRow} mapPaneRef={mapPane()} locked
+      />,
+    );
+    expect(screen.queryByTestId('guide-link')).toBeNull();
   });
 });

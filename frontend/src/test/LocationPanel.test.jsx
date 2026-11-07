@@ -25,6 +25,7 @@ vi.mock('../api/areaApi', () => ({
   setLocationAliases: vi.fn(),
 }));
 vi.mock('../api/tideApi', () => ({ fetchTideStats: vi.fn(), fetchAllTideStats: vi.fn() }));
+vi.mock('../api/driveTimesAdminApi', () => ({ fetchUnroutableLocations: vi.fn(() => Promise.resolve([])) }));
 
 import {
   fetchLocations, setLocationEnabled, resetLocationFailures,

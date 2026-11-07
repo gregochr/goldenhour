@@ -793,17 +793,20 @@ describe('RegionManagementView', () => {
       await openPanel(1);
       fireEvent.click(screen.getByTestId('rename-region-1'));
       await screen.findByTestId('region-form-rename');
-      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+      // Focus moves in an effect, a task after the commit the find resolved on.
+      await waitFor(() => expect(screen.getByTestId('region-panel-title')).toHaveFocus());
 
       fireEvent.click(screen.getByTestId('region-form-cancel'));
       await screen.findByTestId('region-reader-panel');
-      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+      // Focus moves in an effect, a task after the commit the find resolved on.
+      await waitFor(() => expect(screen.getByTestId('region-panel-title')).toHaveFocus());
 
       fireEvent.click(screen.getByTestId('rename-region-1'));
       await screen.findByTestId('region-form-rename');
       fireEvent.click(screen.getByTestId('save-region-btn'));
       await screen.findByTestId('region-reader-panel');
-      expect(screen.getByTestId('region-panel-title')).toHaveFocus();
+      // Focus moves in an effect, a task after the commit the find resolved on.
+      await waitFor(() => expect(screen.getByTestId('region-panel-title')).toHaveFocus());
     });
 
     describe('on a phone', () => {

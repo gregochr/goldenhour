@@ -1,8 +1,13 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AuroraBanner from '../components/AuroraBanner.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /**
  * The desktop banner's collapsed strip and expand toggle (docs/engineering/aurora-banner-collapse-plan.md).
@@ -79,6 +84,20 @@ describe('AuroraBanner collapse (640px and up)', () => {
       fireEvent.click(toggle());
       expect(layout()).toBe('strip');
       expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('reads "Open ▾" when collapsed and "Close ▴" when expanded, each arrow aria-hidden', () => {
+      mountBanner(MODERATE);
+      expect(toggle()).toHaveTextContent('Open ▾');
+      expect(within(toggle()).getByText('Open')).toBeInTheDocument();
+      expect(within(toggle()).getByText('▾')).toHaveAttribute('aria-hidden', 'true');
+      expect(toggle()).toHaveAccessibleName('Show aurora details');
+
+      fireEvent.click(toggle());
+      expect(toggle()).toHaveTextContent('Close ▴');
+      expect(within(toggle()).getByText('▴')).toHaveAttribute('aria-hidden', 'true');
+      expect(within(toggle()).queryByText('Open')).not.toBeInTheDocument();
+      expect(toggle()).toHaveAccessibleName('Hide aurora details');
     });
 
     it('is not the door: neither click calls onViewOnMap', () => {
@@ -297,5 +316,39 @@ describe('AuroraBanner collapse (640px and up)', () => {
       expect(screen.queryByTestId('aurora-banner')).not.toBeInTheDocument();
       expect(onViewOnMap).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('AuroraBanner — the guide door (G3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockOpenGuide.mockClear();
+    mockIsMobile = false;
+    useAuroraViewline.mockReturnValue({ viewline: null, source: null });
+    useAuroraScores.mockReturnValue({ ready: true, spots: [] });
+    mockBriefing = { heatSpots: [], reachById: new Map(), effectiveReachById: new Map(), origin: null };
+  });
+
+  it.each([
+    ['strip', MODERATE],
+    ['card', STRONG],
+  ])('the %s has a ? that opens night-sky#alerts and never activates the banner', (layoutName, status) => {
+    const onViewOnMap = vi.fn();
+    mountBanner(status, { onViewOnMap });
+    expect(layout()).toBe(layoutName);
+    const link = screen.getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('About aurora alerts');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'alerts', expect.any(Object));
+    expect(onViewOnMap).not.toHaveBeenCalled();
+  });
+
+  it('the phone strip has it too', () => {
+    mockIsMobile = true;
+    const onViewOnMap = vi.fn();
+    mountBanner(MODERATE, { onViewOnMap });
+    fireEvent.click(screen.getByTestId('guide-link'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('night-sky', 'alerts', expect.any(Object));
+    expect(onViewOnMap).not.toHaveBeenCalled();
   });
 });

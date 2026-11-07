@@ -126,7 +126,7 @@ class LitePickShaperTest {
                 List.of("North East"), "description", detail)
                 .withScience(List.of(HotTopicFact.metric("conditions", "5/5 · excellent"),
                         new HotTopicFact(null, "2 sites scoring 4+/5", null, false, true)), "note")
-                .withGlance(new GlanceLine("5/5 · excellent", "5/5 · excellent", null, false));
+                .withGlance(new GlanceLine("5/5 · excellent", null, false));
     }
 
     private static HotTopic auroraTopic() {
@@ -522,7 +522,6 @@ class LitePickShaperTest {
         assertThat(topic.expandedDetail().bluebellMetrics().scoringLocationCount()).isEqualTo(2);
         assertThat(topic.facts()).isNull();
         assertThat(topic.glance().value()).isNull();
-        assertThat(topic.glance().shortValue()).isNull();
         assertThat(topic.glance().weather()).isFalse();
         assertThat(topic.detail()).as("the best summary goes, the day label stays").isEqualTo("today");
         assertThat(topic.label()).isEqualTo("Bluebell conditions");
@@ -749,7 +748,7 @@ class LitePickShaperTest {
                         "goldenHourPotential", "claudeSummary", "displayVerdict", "claudeHeadline",
                         "neighbourOutlier"),
                 Set.of("locationId", "locationName", "solarEventTime", "weather", "tide", "canopy",
-                        "eclipse"));
+                        "eclipse", "forced", "triaged"));
     }
 
     @Test
@@ -896,7 +895,7 @@ class LitePickShaperTest {
                 Set.of("generatedAt", "headline", "bestBets", "auroraTonight", "auroraTomorrow", "stale",
                         "bestBetModel", "seasonalFeatures",
                         "bestBetStatus", "bestBetsWithdrawn", "renderedEvents", "previousGeneratedAt",
-                        "bigSeas")));
+                        "bigSeas", "briefingVersion")));
         assertThat(names(BriefingDay.class)).containsExactlyInAnyOrderElementsOf(
                 Set.of("eventSummaries", "date", "peak"));
         assertThat(names(BriefingDayPeak.class)).as("the day peak carries a verdict, never a star")
@@ -920,7 +919,7 @@ class LitePickShaperTest {
         assertThat(names(BluebellLocationMetrics.class)).containsExactlyInAnyOrderElementsOf(
                 Set.of("score", "exposure", "summary"));
         assertThat(names(GlanceLine.class)).containsExactlyInAnyOrderElementsOf(
-                Set.of("value", "shortValue", "badge", "weather"));
+                Set.of("value", "badge", "weather"));
     }
 
     @Test

@@ -117,6 +117,78 @@ class SchedulerControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/scheduler/jobs serves every optional field of a fully populated job as stored")
+    void listJobs_servesEveryOptionalField() throws Exception {
+        java.time.Instant fired = java.time.Instant.parse("2026-11-05T05:00:00Z");
+        java.time.Instant completed = java.time.Instant.parse("2026-11-05T05:00:30Z");
+        java.time.Instant next = java.time.Instant.parse("2026-11-06T05:00:00Z");
+        SchedulerJobConfigEntity full = SchedulerJobConfigEntity.builder()
+                .id(9L).jobKey("full_job").displayName("Full job").description("Everything set")
+                .scheduleType(ScheduleType.FIXED_DELAY).fixedDelayMs(60_000L).initialDelayMs(5_000L)
+                .solarOffsetMinutes(-30).solarEventRaw("SUNRISE").cronExpression("0 0 5 * * *")
+                .timeZone("Europe/London").lastFireTime(fired).lastCompletionTime(completed)
+                .configSource("ADMIN").status(SchedulerJobStatus.ACTIVE).build();
+        when(schedulerService.getAll()).thenReturn(List.of(full));
+        when(schedulerService.calculateNextFireTime(full)).thenReturn(next);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].description").value("Everything set"))
+                .andExpect(jsonPath("$[0].scheduleType").value("FIXED_DELAY"))
+                .andExpect(jsonPath("$[0].solarEvent").value("SUNRISE"))
+                .andExpect(jsonPath("$[0].solarOffsetMinutes").value(-30))
+                .andExpect(jsonPath("$[0].fixedDelayMs").value(60000))
+                .andExpect(jsonPath("$[0].initialDelayMs").value(5000))
+                .andExpect(jsonPath("$[0].lastFireTime").value("2026-11-05T05:00:00Z"))
+                .andExpect(jsonPath("$[0].lastCompletionTime").value("2026-11-05T05:00:30Z"))
+                .andExpect(jsonPath("$[0].nextFireTime").value("2026-11-06T05:00:00Z"))
+                .andExpect(jsonPath("$[0].configSource").value("ADMIN"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/scheduler/jobs serves empty strings and zeros, not nulls, for a bare job")
+    void listJobs_bareJobHasDefaults() throws Exception {
+        SchedulerJobConfigEntity bare = SchedulerJobConfigEntity.builder()
+                .id(10L).jobKey("bare_job").displayName("Bare job").status(SchedulerJobStatus.ACTIVE).build();
+        when(schedulerService.getAll()).thenReturn(List.of(bare));
+        when(schedulerService.calculateNextFireTime(bare)).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].description").value(""))
+                .andExpect(jsonPath("$[0].scheduleType").value(""))
+                .andExpect(jsonPath("$[0].timeZone").value("UTC"))
+                .andExpect(jsonPath("$[0].cronExpression").value(""))
+                .andExpect(jsonPath("$[0].solarEvent").value(""))
+                .andExpect(jsonPath("$[0].solarOffsetMinutes").value(0))
+                .andExpect(jsonPath("$[0].fixedDelayMs").value(0))
+                .andExpect(jsonPath("$[0].initialDelayMs").value(0))
+                .andExpect(jsonPath("$[0].lastFireTime").value(""))
+                .andExpect(jsonPath("$[0].lastCompletionTime").value(""))
+                .andExpect(jsonPath("$[0].nextFireTime").value(""))
+                .andExpect(jsonPath("$[0].configSource").value(""));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT /api/admin/scheduler/jobs/{jobKey}/schedule passes a fixedDelayMs through as a long")
+    void updateSchedule_passesFixedDelay() throws Exception {
+        SchedulerJobConfigEntity config = buildConfig("aurora_polling", ScheduleType.FIXED_DELAY,
+                null, 300_000L, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.updateSchedule(eq("aurora_polling"), isNull(), eq(300_000L), isNull()))
+                .thenReturn(config);
+        when(schedulerService.calculateNextFireTime(config)).thenReturn(null);
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/aurora_polling/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fixedDelayMs\": 300000}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fixedDelayMs").value(300000));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/admin/scheduler/jobs/{jobKey}/pause returns 200 for ADMIN")
     void pauseJob_returns200ForAdmin() throws Exception {
         SchedulerJobConfigEntity config = buildConfig("tide_refresh", ScheduleType.CRON,

@@ -210,6 +210,25 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.windows[1].pickKind).toBeNull();
   });
 
+  it('hands the Map the confidence and pick of a card that wears a tier-scoped headline (R3)', () => {
+    // reach-scoped-card-plan R3: the Map follows the same drive tier as the Plan bar, so a card wearing the
+    // 45-minute headline hands over its own (scoped) confidence and pick, and the haze and the medallion describe
+    // the same places as the pill.
+    const scoped = {
+      ...STRIP_CARDS[0],
+      confidence: 'low',
+      pickKind: null,
+      pickRegion: null,
+      verdictScope: { tierMinutes: 45 },
+    };
+    renderPane(context({ heatStripCards: [scoped, STRIP_CARDS[1]] }));
+
+    const [window] = MapStub.lastProps.heat.windows;
+    expect(window.confidenceTier).toBe('low');
+    expect(window.pickKind).toBeNull();
+    expect(window.pickRegion).toBeNull();
+  });
+
   it('forwards each window\'s served tide object, and null when there is none', () => {
     // ⚠️ The identical join, one field over — and the one that actually shipped broken: the pure
     // builder (`windowFirstCards.test.js`) was tested, the EV row (`mapEvents.test.js`) was
@@ -668,6 +687,67 @@ describe('WindowFirstMapPane — the bigSeas prop (big-seas plan F1)', () => {
   it('hands undefined when the briefing serves none, so MapView\'s stable empty default applies', () => {
     renderPane(context({ briefing: { days: [] } }));
     expect(MapStub.lastProps.bigSeas).toBeUndefined();
+  });
+});
+
+describe('WindowFirstMapPane — the reach scope the pill follows (reach-scoped-card-plan R3)', () => {
+  const lens = (minutes) => ({
+    tier: { id: minutes == null ? 'any' : String(minutes), limitMinutes: minutes },
+    selectTier: vi.fn(),
+  });
+  const tierWindow = (verdict) => ({
+    date: TODAY,
+    targetType: 'SUNSET',
+    displayVerdict: verdict,
+    regions: [{ regionName: 'North East', displayVerdict: verdict, meanRating: 3.1 }],
+  });
+  const TIERS = { 45: [tierWindow('STAND_DOWN')], 90: [tierWindow('MAYBE')], 150: [tierWindow('WORTH_IT')] };
+
+  it('hands the Map the shared lens, the reader-level measured answer and the active tier\'s indexed verdicts', () => {
+    const shared = lens(90);
+    renderPane(context({
+      reachLens: shared, reachVerdicts: TIERS, reachMeasured: true, driveLocked: false,
+    }));
+
+    expect(MapStub.lastProps.reachLens).toBe(shared);
+    expect(MapStub.lastProps.reachMeasured).toBe(true);
+    const scope = MapStub.lastProps.reachScope;
+    expect(scope.tierMinutes).toBe(90);
+    expect(scope.windowKeys).toEqual(new Set([`${TODAY}|SUNSET`]));
+    expect(scope.index.get(`${TODAY}|SUNSET|North East`)).toMatchObject({ displayVerdict: 'MAYBE', reachRank: 0 });
+  });
+
+  it('follows the tier without a request: another tier is another lookup in what is held', () => {
+    const { rerender } = renderPane(context({ reachLens: lens(45), reachVerdicts: TIERS, reachMeasured: true }));
+    expect(MapStub.lastProps.reachScope.index.get(`${TODAY}|SUNSET|North East`).displayVerdict).toBe('STAND_DOWN');
+
+    briefingValue = context({ reachLens: lens(150), reachVerdicts: TIERS, reachMeasured: true });
+    rerender(
+      <WindowFirstMapPane locations={[]} dates={[TODAY]} selectedDate={TODAY} onSelectDate={vi.fn()} />,
+    );
+    expect(MapStub.lastProps.reachScope.tierMinutes).toBe(150);
+    expect(MapStub.lastProps.reachScope.index.get(`${TODAY}|SUNSET|North East`).displayVerdict).toBe('WORTH_IT');
+  });
+
+  it.each([
+    ['Any', { reachLens: lens(null), reachVerdicts: TIERS, reachMeasured: true }],
+    ['no answer held (Lite, unmeasured, version mismatch, a shaped body)', { reachLens: lens(45), reachVerdicts: null, reachMeasured: true }],
+    ['a drive-locked reader', {
+      reachLens: lens(45), reachVerdicts: TIERS, reachMeasured: true, driveLocked: true,
+    }],
+    ['a tier the answer does not hold', { reachLens: lens(60), reachVerdicts: TIERS, reachMeasured: true }],
+    ['no lens at all', { reachLens: null, reachVerdicts: TIERS, reachMeasured: true }],
+  ])('leaves the Map\'s verdict as it was: %s', (_label, over) => {
+    renderPane(context(over));
+
+    expect(MapStub.lastProps.reachScope).toBeNull();
+  });
+
+  it('keeps the context\'s absence of every reach field harmless (a pane test that predates R3)', () => {
+    renderPane();
+
+    expect(MapStub.lastProps.reachScope).toBeNull();
+    expect(MapStub.lastProps.reachLens).toBeNull();
   });
 });
 

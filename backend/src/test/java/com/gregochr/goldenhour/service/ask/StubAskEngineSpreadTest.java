@@ -83,7 +83,7 @@ class StubAskEngineSpreadTest {
         AskRun scoped = engine.run(weekendQuestion(TestScopes.of("Northumberland")), snapshot, USER,
                 AskRunOptions.none());
 
-        assertThat(everywhere.outcome().answer().summary()).contains("Every region is stood down")
+        assertThat(everywhere.outcome().answer().summary()).contains("Every region is ruled out by the weather")
                 .contains("poor across every region");
         assertThat(scoped.outcome().answer().summary()).contains("poor in Northumberland");
     }
@@ -95,7 +95,7 @@ class StubAskEngineSpreadTest {
 
         AskRun run = engine.run(weekendQuestion(AskScope.ALL), snapshot, USER, AskRunOptions.none());
 
-        assertThat(run.outcome().answer().summary()).startsWith("Broadly game on across every region");
+        assertThat(run.outcome().answer().summary()).startsWith("Broadly worth going across every region");
         assertThat(run.outcome().answer().picks()).isNotEmpty()
                 .allSatisfy(p -> assertThat(p.ratingAtAnswer()).isGreaterThanOrEqualTo(4));
     }
@@ -148,7 +148,7 @@ class StubAskEngineSpreadTest {
                 AskScope.ALL, "plan"), snapshot, USER, AskRunOptions.none());
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
-        assertThat(run.outcome().answer().summary()).doesNotContain("Every region is stood down")
+        assertThat(run.outcome().answer().summary()).doesNotContain("Every region is ruled out by the weather")
                 .contains("not scored yet");
     }
 }

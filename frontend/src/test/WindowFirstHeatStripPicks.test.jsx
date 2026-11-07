@@ -2,7 +2,7 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WindowFirstHeatStrip from '../components/WindowFirstHeatStrip.jsx';
 import { SubRegionStatusProvider } from '../context/SubRegionStatusContext.jsx';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
@@ -14,6 +14,9 @@ import { picksNoteText } from '../utils/pickGeography.js';
 import { drawGeo } from '../utils/heatField.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { FIRST_CHOICE } from './subRegionFixtures.js';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 vi.mock('../api/subRegionApi.js', () => ({ getSubRegions: vi.fn(), saveSubRegions: vi.fn() }));
 import { getSubRegions } from '../api/subRegionApi.js';
@@ -378,7 +381,9 @@ describe('the legend line under the strip', () => {
     const outside = screen.getByTestId('wf-heat-key-outside');
     expect(outside).toHaveTextContent('outside your sub-regions');
     expect(within(outside).getByText('Pro')).toBeInTheDocument();
-    expect(within(outside).queryByRole('button')).toBeNull();
+    // G3: the pill is still a label; the one button is the guide's "What does this do?" (was: no button).
+    expect(within(outside).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
+      .toEqual(['guide-why-outside']);
     expect(within(outside).queryByRole('link')).toBeNull();
     expect(screen.getByTestId('wf-heat-key-picks')).toHaveTextContent('your sub-regions');
   });
@@ -431,6 +436,15 @@ describe('the legend line under the strip', () => {
     await renderStrip({ ...shapedProps(), picksLocked: true });
 
     expect(screen.getAllByTestId('wf-heat-bestbets-upsell-trigger')).toHaveLength(1);
-    expect(within(screen.getByTestId('wf-heat-picks')).queryByRole('button')).toBeNull();
+    // G3: the group's only button is the guide door, not an upsell door (was: no button).
+    expect(within(screen.getByTestId('wf-heat-picks')).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
+      .toEqual(['guide-why-outside']);
+  });
+
+  it('opens settings#sub-regions from "What does this do?" beside the outside-your-sub-regions key (G3)', async () => {
+    mockOpenGuide.mockClear();
+    await renderStrip(shapedProps());
+    fireEvent.click(screen.getByTestId('guide-why-outside'));
+    expect(mockOpenGuide).toHaveBeenCalledWith('settings', 'sub-regions', expect.any(Object));
   });
 });

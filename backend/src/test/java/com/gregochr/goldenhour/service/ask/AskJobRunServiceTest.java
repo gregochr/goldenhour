@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,14 +50,15 @@ class AskJobRunServiceTest {
     private final JobRunService jobRunService = mock(JobRunService.class);
     private final JobRunRepository jobRuns = mock(JobRunRepository.class);
     private final ApiCallLogRepository apiCalls = mock(ApiCallLogRepository.class);
-    private final AskProperties properties = new AskProperties();
+    private final ModelSelectionService modelSelection = mock(ModelSelectionService.class);
     private MutableClock clock;
     private AskJobRunService service;
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(BST_NOON);
-        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, mock(CostCalculator.class), properties, clock);
+        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, mock(CostCalculator.class),
+                modelSelection, clock);
     }
 
     private static JobRunEntity run(long id) {
@@ -69,13 +71,26 @@ class AskJobRunServiceTest {
                 .thenReturn(Optional.empty());
     }
 
+    @Test
+    @DisplayName("a new daily run is labelled with whatever the ASK row selects, Haiku 5.5 here")
+    void dailyRunTakesTheAskRowsModel() {
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.HAIKU_55);
+        noRunToday();
+        JobRunEntity created = run(43);
+        when(jobRunService.startRun(RunType.ASK, true, EvaluationModel.HAIKU_55)).thenReturn(created);
+
+        assertThat(service.dailyRunId()).isEqualTo(43L);
+
+        verify(jobRunService).startRun(RunType.ASK, true, EvaluationModel.HAIKU_55);
+    }
+
     // -- the daily run ----------------------------------------------------------------------
 
     @Test
-    @DisplayName("the first call of a UK day creates an ASK run (manual, the configured model), completes it "
+    @DisplayName("the first call of a UK day creates an ASK run (manual, the ASK row's model), completes it "
             + "at once, and every later call that day reuses it without another lookup")
     void createsOnceAndCaches() {
-        properties.setModel(EvaluationModel.SONNET);
+        when(modelSelection.getActiveModel(RunType.ASK)).thenReturn(EvaluationModel.SONNET);
         noRunToday();
         JobRunEntity created = run(41);
         when(jobRunService.startRun(RunType.ASK, true, EvaluationModel.SONNET)).thenReturn(created);

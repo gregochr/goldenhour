@@ -119,6 +119,7 @@ function renderStrip(grid, props = {}) {
       currentTypes={[]}
       onToggleType={vi.fn()}
       onPick={vi.fn()}
+      open
       {...props}
     />,
   );
@@ -237,7 +238,7 @@ describe('MapTopicStrip: the tide row', () => {
     renderStrip(gridOf({ hotTopics: springRun() }));
 
     expect(screen.getByTestId('wf-topic-strip-label-SPRING_TIDE').getAttribute('aria-label'))
-      .toContain('Tide, peak Tue · 4.9 m');
+      .toContain('Spring tide, peak Tue · 4.9 m');
   });
 
   it('writes the detail line for an aligned window, in the design\'s words', () => {
@@ -267,6 +268,7 @@ describe('MapTopicStrip: the tide row', () => {
         currentTypes={[]}
         onToggleType={vi.fn()}
         onPick={vi.fn()}
+        open
       />,
     );
 
@@ -343,7 +345,7 @@ describe('MapTopicStrip: the tide row', () => {
     expect(screen.queryByTestId('wf-topic-strip-tide-detail')).toBeNull();
     expect(screen.queryByTestId('wf-topic-strip-mark-SPRING_TIDE-6')).toBeNull();
     expect(screen.getByTestId('wf-topic-strip-label-SPRING_TIDE').getAttribute('aria-label'))
-      .toBe('Tide: jump to Tuesday sunrise');
+      .toBe('Spring tide: jump to Tuesday sunrise');
   });
 
   it('draws the tide row exactly as before for a LITE reader: a locked door, no marks, no sub-line', () => {

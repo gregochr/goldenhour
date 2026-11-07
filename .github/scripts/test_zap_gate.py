@@ -1,0 +1,240 @@
+"""Unit tests for zap_gate.py. Run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'"""
+import json
+import os
+import tempfile
+import unittest
+
+import zap_gate
+
+GOOD_LOG = "2026-11-02T11:45:39Z 2026-11-02 11:45:39,086 Number of Imported URLs: 180\n"
+RULE_LOG = (
+    "2026-11-02T11:47:10Z PASS: Directory Browsing [0]\n"
+    "2026-11-02T11:47:10Z WARN-NEW: Buffer Overflow [30001] x 22 \n"
+    "2026-11-02T11:47:10Z FAIL-NEW: 0\tFAIL-INPROG: 0\tWARN-NEW: 1\tPASS: 1\n"
+)
+EXCEPTIONS = {
+    "backend": [
+        {"pluginid": "30001", "level": "warn", "reason": "r-warn"},
+        {"pluginid": "100001", "uri_regex": "^http://b/stream", "level": "ignore", "reason": "r-sse"},
+        {"pluginid": "40018", "uri_regex": "^http://b/api/admin/", "level": "ignore", "reason": "r-admin"},
+    ],
+    "frontend": [
+        {"pluginid": "90004", "alertRef": "90004-2", "level": "ignore", "reason": "r-sub"},
+    ],
+}
+FRONT_LOG = (
+    "2026-11-02T11:48:20Z PASS: Directory Browsing [0]\n"
+    "2026-11-02T11:48:20Z WARN-NEW: CSP: style-src unsafe-inline [10055] x 1 \n"
+)
+KNOWN_B = "# comment\n0\n30001\n"
+KNOWN_F = "0\n10055\n"
+
+
+def alert(pluginid, risk, uris=("http://b/x",), name="Some alert"):
+    """Build a ZAP-shaped alert."""
+    return {"pluginid": pluginid, "alertRef": pluginid, "name": name, "riskcode": str(risk),
+            "instances": [{"uri": u} for u in uris]}
+
+
+def report(*alerts):
+    """Wrap alerts in a ZAP-shaped report."""
+    return {"site": [{"@name": "http://b", "alerts": list(alerts)}]}
+
+
+class GateTest(unittest.TestCase):
+    """Exercise the gate end to end through run()."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def path(self, name):
+        return os.path.join(self.tmp.name, name)
+
+    def write(self, name, content, as_json=False):
+        with open(self.path(name), "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(content) if as_json else content)
+        return self.path(name)
+
+    def gate(self, backend=None, frontend=None, backend_rc="0", frontend_rc="0", backend_log=GOOD_LOG + RULE_LOG,
+             frontend_log=FRONT_LOG, known_b=KNOWN_B, known_f=KNOWN_F, write_frontend_log=True, minimum=150, write_backend=True, write_frontend=True):
+        """Run the gate with the given reports; returns (exit_code, summary)."""
+        exceptions = self.write("exceptions.json", EXCEPTIONS, True)
+        kb = self.write("known-b.txt", known_b)
+        kf = self.write("known-f.txt", known_f)
+        argv = ["--exceptions", exceptions, "--known-rules", "backend=" + kb, "--known-rules", "frontend=" + kf,
+                "--summary", self.path("summary.md"),
+                "--min-imported-urls", str(minimum),
+                "--rc", "backend=" + backend_rc, "--rc", "frontend=" + frontend_rc]
+        if write_backend:
+            argv += ["--report", "backend=" + self.write("b.json", backend or report(), True)]
+        else:
+            argv += ["--report", "backend=" + self.path("absent.json")]
+        if write_frontend:
+            argv += ["--report", "frontend=" + self.write("f.json", frontend or report(), True)]
+        argv += ["--log", "backend=" + self.write("b.log", backend_log),
+                 ]
+        if write_frontend_log:
+            argv += ["--log", "frontend=" + self.write("f.log", frontend_log)]
+        args = self.parse(argv)
+        return zap_gate.run(args)
+
+    @staticmethod
+    def parse(argv):
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--exceptions")
+        parser.add_argument("--report", action="append", default=[])
+        parser.add_argument("--log", action="append", default=[])
+        parser.add_argument("--rc", action="append", default=[])
+        parser.add_argument("--min-imported-urls", type=int)
+        parser.add_argument("--known-rules", action="append", default=[])
+        parser.add_argument("--summary")
+        return parser.parse_args(argv)
+
+    def test_clean_pass(self):
+        code, summary = self.gate()
+        self.assertEqual(code, 0)
+        self.assertIn("ZAP gate: PASS", summary)
+
+    def test_unexcepted_low_alert_fails(self):
+        code, summary = self.gate(backend=report(alert("99999", 1, name="Brand new")))
+        self.assertEqual(code, 1)
+        self.assertIn("Brand new", summary)
+        self.assertIn("http://b/x", summary)
+
+    def test_failing_alert_shows_its_sub_alert_ref(self):
+        sub = alert("99999", 1, name="Sub alert")
+        sub["alertRef"] = "99999-2"
+        code, summary = self.gate(backend=report(sub))
+        self.assertEqual(code, 1)
+        self.assertIn("[99999 / 99999-2] Sub alert", summary)
+
+    def test_excepted_alert_shows_its_sub_alert_ref(self):
+        sub = alert("30001", 2, name="Excepted sub")
+        sub["alertRef"] = "30001-1"
+        code, summary = self.gate(backend=report(sub))
+        self.assertEqual(code, 0)
+        self.assertIn("[30001 / 30001-1] Excepted sub", summary)
+
+    def test_alert_without_a_distinct_ref_shows_the_plugin_id_alone(self):
+        code, summary = self.gate(backend=report(alert("99999", 1, name="Plain")))
+        self.assertEqual(code, 1)
+        self.assertIn("[99999] Plain", summary)
+
+    def test_warn_exception_passes(self):
+        code, summary = self.gate(backend=report(alert("30001", 2)))
+        self.assertEqual(code, 0)
+        self.assertIn("r-warn", summary)
+
+    def test_uri_regex_partial_cover_fails(self):
+        partial = report(alert("100001", 1, uris=("http://b/stream/1", "http://b/other")))
+        code, summary = self.gate(backend=partial)
+        self.assertEqual(code, 1)
+        self.assertIn("1 uncovered", summary)
+
+    def test_uri_regex_full_cover_passes(self):
+        code, _ = self.gate(backend=report(alert("100001", 1, uris=("http://b/stream/1", "http://b/stream/2"))))
+        self.assertEqual(code, 0)
+
+    def test_admin_scoped_exception_covers_only_admin_paths(self):
+        admin = "http://b/api/admin/scheduler/jobs/k/runs?limit=6%2F2"
+        code, summary = self.gate(backend=report(alert("40018", 3, uris=(admin,))))
+        self.assertEqual(code, 0)
+        self.assertIn("r-admin", summary)
+        code, _ = self.gate(backend=report(alert("40018", 3, uris=("http://b/api/almanac",))))
+        self.assertEqual(code, 1)
+        code, summary = self.gate(backend=report(alert("40018", 3, uris=(admin, "http://b/api/almanac"))))
+        self.assertEqual(code, 1)
+        self.assertIn("1 uncovered", summary)
+
+    def test_alert_ref_exception_covers_only_its_sub_alert(self):
+        def sub(ref):
+            a = alert("90004", 1, uris=("http://f/x",), name="Sub " + ref)
+            a["alertRef"] = ref
+            return a
+        code, _ = self.gate(frontend=report(sub("90004-2")))
+        self.assertEqual(code, 0)
+        for other in ("90004-1", "90004-3"):
+            code, summary = self.gate(frontend=report(sub(other)))
+            self.assertEqual(code, 1, other)
+            self.assertIn("[90004 / %s]" % other, summary)
+        code, _ = self.gate(frontend=report(sub("90004-2"), sub("90004-3")))
+        self.assertEqual(code, 1)
+
+    def test_exception_is_per_target(self):
+        code, _ = self.gate(frontend=report(alert("30001", 1)))
+        self.assertEqual(code, 1)
+
+    def test_scanner_rc_3_fails_as_scanner_failure(self):
+        code, summary = self.gate(backend_rc="3")
+        self.assertEqual(code, 1)
+        self.assertIn("Scanner failures", summary)
+
+    def test_empty_rc_fails(self):
+        code, summary = self.gate(frontend_rc="")
+        self.assertEqual(code, 1)
+        self.assertIn("did not run", summary)
+
+    def test_missing_report_fails(self):
+        code, summary = self.gate(write_backend=False)
+        self.assertEqual(code, 1)
+        self.assertIn("report missing or unparsable", summary)
+
+    def test_unparsable_report_fails(self):
+        exceptions = self.write("exceptions.json", EXCEPTIONS, True)
+        bad = self.write("b.json", "{not json")
+        res = zap_gate.evaluate_target("backend", bad, EXCEPTIONS["backend"])
+        self.assertIsNotNone(res["error"])
+
+    def test_missing_imported_urls_line_fails(self):
+        code, summary = self.gate(backend_log="nothing useful\n")
+        self.assertEqual(code, 1)
+        self.assertIn("no 'Number of Imported URLs' line", summary)
+
+    def test_imported_urls_below_floor_fails(self):
+        code, summary = self.gate(backend_log="Number of Imported URLs: 149\n")
+        self.assertEqual(code, 1)
+        self.assertIn("below the minimum", summary)
+
+    def test_informational_alert_ignored(self):
+        code, _ = self.gate(backend=report(alert("77777", 0)))
+        self.assertEqual(code, 0)
+
+    def test_drift_listed_but_does_not_fail(self):
+        log = GOOD_LOG + RULE_LOG + "2026-11-02T11:47:10Z PASS: A new rule [424242]\n"
+        code, summary = self.gate(backend_log=log)
+        self.assertEqual(code, 0)
+        self.assertIn("424242", summary)
+
+    def test_known_rule_missing_from_log_fails(self):
+        code, summary = self.gate(backend_log=GOOD_LOG + "2026-11-02T11:47:10Z PASS: Directory Browsing [0]\n")
+        self.assertEqual(code, 1)
+        self.assertIn("backend rule 30001 did not run", summary)
+
+    def test_known_lists_are_per_target(self):
+        # 10055 is known for the frontend only; the backend log not having it must pass,
+        # and the frontend log missing it must fail.
+        code, _ = self.gate()
+        self.assertEqual(code, 0)
+        code, summary = self.gate(frontend_log=RULE_LOG)
+        self.assertEqual(code, 1)
+        self.assertIn("frontend rule 10055 did not run", summary)
+        self.assertNotIn("backend rule", summary)
+
+    def test_extra_rule_is_drift_and_passes(self):
+        code, summary = self.gate(frontend_log=FRONT_LOG + "2026-11-02T11:48:20Z PASS: Newcomer [555555]\n")
+        self.assertEqual(code, 0)
+        self.assertIn("frontend: 555555", summary)
+
+    def test_missing_frontend_log_fails(self):
+        code, summary = self.gate(write_frontend_log=False)
+        self.assertEqual(code, 1)
+        self.assertIn("frontend log missing", summary)
+
+    def test_rule_ids_parser_ignores_summary_line(self):
+        self.assertEqual(zap_gate.rule_ids(RULE_LOG), {"0", "30001"})
+
+
+if __name__ == "__main__":
+    unittest.main()

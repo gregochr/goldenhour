@@ -38,10 +38,12 @@ import PropTypes from 'prop-types';
  * @param {Function} props.onChangePostcode the Change home postcode row's handler
  * @param {Function} props.onSignOut the Sign out row's handler
  * @param {Function} [props.onWarmSettings] warms the settings chunk on hover and focus of its row
+ * @param {Function} [props.onGuide] the Guide row's handler (G2); no row when omitted, which the shell
+ *        does on Operations
  */
 export default function MastheadMenu({
   open, onOpenChange, buttonRef, statusLine = null, onSettings, onChangePostcode, onSignOut,
-  onWarmSettings,
+  onWarmSettings, onGuide = undefined,
 }) {
   const wrapRef = useRef(null);
 
@@ -133,6 +135,18 @@ export default function MastheadMenu({
             >
               Change home postcode
             </button>
+            {onGuide && (
+              // The phone's guide door (G2): a row here rather than a fourth control in the 34px right
+              // cluster. Absent when the shell passes none (Operations has no guide page).
+              <button
+                type="button"
+                className="wf-mast-menu-row"
+                data-testid="masthead-menu-guide"
+                onClick={() => press(onGuide)}
+              >
+                Guide
+              </button>
+            )}
             <button
               type="button"
               className="wf-mast-menu-row"
@@ -157,4 +171,5 @@ MastheadMenu.propTypes = {
   onChangePostcode: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
   onWarmSettings: PropTypes.func,
+  onGuide: PropTypes.func,
 };

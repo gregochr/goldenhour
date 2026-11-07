@@ -55,6 +55,7 @@ const SECURITY_HEADERS = [
   PERMISSIONS,
   'add_header Cross-Origin-Opener-Policy "same-origin" always;',
   'add_header Content-Security-Policy $csp always;',
+  'add_header Cross-Origin-Resource-Policy "same-origin" always;',
 ];
 
 describe('nginx.conf permissions policy', () => {
@@ -131,5 +132,59 @@ describe('nginx.conf apple-app-site-association location', () => {
 
   it('keeps the SPA fallback on the root location, untouched', () => {
     expect(directives(block('/'))).toContain('try_files $uri $uri/ /index.html;');
+  });
+});
+
+describe('nginx.conf Content-Security-Policy frame-src', () => {
+  const csp = (code.match(/set \$csp "([^"]*)"/) ?? [])[1] ?? '';
+  const directive = (name) => csp.split(';').map((d) => d.trim()).find((d) => d.startsWith(`${name} `));
+
+  it('allows Turnstile and the in-app guide (G2), and nothing else, to be framed', () => {
+    expect(directive('frame-src')).toBe('frame-src https://challenges.cloudflare.com https://photocast.online');
+  });
+
+  it('still forbids framing the app itself', () => {
+    expect(directive('frame-ancestors')).toBe("frame-ancestors 'none'");
+  });
+});
+
+describe('nginx.conf enforced strict CSP, CORP and cross-origin isolation', () => {
+  const policy = (name) => (code.match(new RegExp(`set \\$${name} "([^"]*)"`)) ?? [])[1] ?? '';
+  const directiveMap = (text) =>
+    Object.fromEntries(
+      text
+        .split(';')
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .map((d) => [d.split(' ')[0], d]),
+    );
+  const enforced = directiveMap(policy('csp'));
+
+  it.each(['/assets/', '/', AASA])('sends CORP and the enforced CSP from location %s', (selector) => {
+    const body = directives(block(selector));
+    expect(body).toContain('add_header Cross-Origin-Resource-Policy "same-origin" always;');
+    expect(body).toContain('add_header Content-Security-Policy $csp always;');
+  });
+
+  it('sets the CSP and CORP exactly once per header-setting location', () => {
+    const count = (prefix) => directives(code).filter((l) => l.startsWith(prefix)).length;
+    expect(count('add_header Content-Security-Policy $csp')).toBe(3);
+    expect(count('add_header Cross-Origin-Resource-Policy')).toBe(3);
+  });
+
+  it("limits the enforced style-src to 'self': no unsafe-inline, no unsafe-eval", () => {
+    expect(enforced['style-src']).toBe("style-src 'self'");
+    expect(enforced['style-src']).not.toContain('unsafe-inline');
+    expect(enforced['style-src']).not.toContain('unsafe-eval');
+  });
+
+  it('has no Report-Only header and no report-only variable left', () => {
+    expect(code.toLowerCase()).not.toContain('content-security-policy-report-only');
+    expect(code).not.toContain('csp_report_only');
+  });
+
+  it('never sets Cross-Origin-Embedder-Policy, in the policy or as a header', () => {
+    expect(code.toLowerCase()).not.toContain('cross-origin-embedder-policy');
+    expect(policy('csp').toLowerCase()).not.toContain('embedder');
   });
 });

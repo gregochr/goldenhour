@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildFourDayTiles, glanceTopicsByColumn, ALMANAC_TYPES_BY_TOPIC } from '../utils/fourDayTiles.js';
+import { buildFourDayTiles, buildGlanceLanes, ALMANAC_TYPES_BY_TOPIC } from '../utils/fourDayTiles.js';
 
 /**
- * The "Next four days" tiles model (coming-up-glance-plan §3 T1), now feeding At a Glance's day-header pills
- * (glance-topic-strip-plan.md). Pure data in, tiles out; the component has its own suite for markup, names and taps.
+ * The "Next four days" tiles model (coming-up-glance-plan §3 T1), now feeding At a Glance's days-ahead lanes
+ * (days-ahead-lanes-plan.md). Pure data in, tiles out; the component has its own suite for markup, names and taps.
  *
  * <p>TODAY is Sat 24 Oct 2026, passed in — no wall clock — so the four days are Sat 24, Sun 25,
  * Mon 26 and Tue 27 (the last Plan day), and "the next run" in a list is a November one.
@@ -20,8 +20,14 @@ const topic = (type, date, eventType, over = {}) => ({
 const tide = (date, over = {}) => topic('SPRING_TIDE', date, null, {
   tideRun: { dayNumber: 1, dayCount: 4, peak: false }, ...over,
 });
+/** Day {@code n} of a {@code count}-day spring run, the way the server serves it (the run row says which day). */
+const tideRun = (date, n, count = 3, over = {}) => topic('SPRING_TIDE', date, null, {
+  tideRun: { runLabel: 'SPRING RUN', dayNumber: n, dayCount: count },
+  glance: glance({ value: `day ${n}` }),
+  ...over,
+});
 const wx = (type, date, eventType = 'SUNRISE', over = {}) => topic(type, date, eventType, {
-  glance: glance({ weather: true, value: 'dawn · 9/10', shortValue: '9/10' }), ...over,
+  glance: glance({ weather: true, value: 'dawn · 9/10' }), ...over,
 });
 
 const tiles = (over = {}) => buildFourDayTiles({ todayStr: TODAY, hotTopics: [], ...over });
@@ -108,13 +114,12 @@ describe('buildFourDayTiles — one chip per type per day', () => {
       hotTopics: [
         topic('STORM_SURGE', SUN, null),
         topic('STORM_SURGE', SUN, null, {
-          glance: glance({ value: 'HW 16:02 · +0.4 m', shortValue: '+0.4 m pk', badge: 'PEAK' }),
+          glance: glance({ value: 'HW 16:02 · +0.4 m', badge: 'PEAK' }),
         }),
       ],
     });
     const [chip] = chipsOf(result, SUN);
     expect(chip.value).toBe('HW 16:02 · +0.4 m');
-    expect(chip.shortValue).toBe('+0.4 m pk');
     expect(chip.badge).toBe('PEAK');
     expect(chip.weather).toBe(false);
   });
@@ -134,7 +139,7 @@ describe('buildFourDayTiles — one chip per type per day', () => {
   it('makes a topic with no glance a name-only chip that is not weather', () => {
     const [chip] = chipsOf(tiles({ hotTopics: [topic('DUST', SUN, 'SUNSET')] }), SUN);
     expect(chip).toMatchObject({
-      type: 'DUST', name: 'Dust', chipName: 'Dust', value: null, shortValue: null, badge: null,
+      type: 'DUST', name: 'Dust', value: null, badge: null,
       weather: false, mapDoor: null, jump: null,
     });
   });
@@ -142,10 +147,10 @@ describe('buildFourDayTiles — one chip per type per day', () => {
   it('copies the served glance without deriving anything', () => {
     const [chip] = chipsOf(tiles({
       hotTopics: [topic('SUPERMOON', SUN, 'SUNSET', {
-        glance: glance({ value: 'rise 16:34', shortValue: 'super', badge: 'FULL' }),
+        glance: glance({ value: 'rise 16:34', badge: 'FULL' }),
       })],
     }), SUN);
-    expect(chip).toMatchObject({ value: 'rise 16:34', shortValue: 'super', badge: 'FULL' });
+    expect(chip).toMatchObject({ value: 'rise 16:34', badge: 'FULL' });
   });
 
   it('puts non-weather chips first, then weather chips, each group in served order', () => {
@@ -158,22 +163,42 @@ describe('buildFourDayTiles — one chip per type per day', () => {
       .toEqual(['SPRING_TIDE', 'DUST', 'MIST', 'INVERSION']);
   });
 
-  it('flags a chip as a continuation when the same type was on the previous tile', () => {
-    const result = tiles({ hotTopics: [tide(SUN), tide(MON), topic('DUST', TUE, 'SUNSET')] });
-    expect(chipsOf(result, SUN)[0].isContinuation).toBe(false);
-    expect(chipsOf(result, MON)[0].isContinuation).toBe(true);
-    // Dust is new on Tuesday, and the tide is not there to continue.
-    expect(chipsOf(result, TUE)[0].isContinuation).toBe(false);
+  it('gives a chip the identity of its event: the topic itself, or the tide run it is a day of', () => {
+    const result = tiles({
+      hotTopics: [wx('MIST', SUN), wx('MIST', MON), tideRun(SUN, 1), tideRun(MON, 2)],
+    });
+    const mist = [chipsOf(result, SUN), chipsOf(result, MON)].map((chips) => chips.find((c) => c.type === 'MIST'));
+    expect(mist.map((c) => c.eventId)).toEqual([`MIST:${SUN}`, `MIST:${MON}`]);
+    const runs = [chipsOf(result, SUN), chipsOf(result, MON)].map((chips) => chips.find((c) => c.type === 'SPRING_TIDE'));
+    expect(runs[0].eventId).toBe(`TIDE:SPRING RUN:3:${SUN}`);
+    expect(runs[1].eventId).toBe(runs[0].eventId);
   });
 
-  it('does not call a run that has a gap a continuation', () => {
-    const result = tiles({ hotTopics: [tide(TODAY), tide(MON)] });
-    expect(chipsOf(result, MON)[0].isContinuation).toBe(false);
+  it('identifies a tide with no served run row by its own date, and does not call two such days one event', () => {
+    const bare = (date) => topic('SPRING_TIDE', date, null);
+    const result = tiles({ hotTopics: [bare(SUN), bare(MON)] });
+    expect(chipsOf(result, SUN)[0].eventId).toBe(`SPRING_TIDE:${SUN}`);
+    expect(chipsOf(result, MON)[0].eventId).toBe(`SPRING_TIDE:${MON}`);
   });
 
-  it('names the chip from the palette: the full name and the phone name', () => {
+  it('marks the next-morning half of a NIGHT topic as not covering that day, and its own night as covering', () => {
+    const result = tiles({ hotTopics: [wx('AURORA', TODAY, 'NIGHT')] });
+    expect(chipsOf(result, TODAY)[0].coversDay).toBe(true);
+    expect(chipsOf(result, SUN)[0].coversDay).toBe(false);
+  });
+
+  it('lets only the covering topic speak for a chip when last night\'s aurora is merged beside tonight\'s', () => {
+    const lastNight = wx('AURORA', '2026-10-23', 'NIGHT', { glance: glance({ weather: true, value: 'last night' }) });
+    const tonight = wx('AURORA', TODAY, 'NIGHT', { glance: glance({ weather: true, value: 'tonight' }) });
+    const [chip] = chipsOf(tiles({ hotTopics: [lastNight, tonight] }), TODAY);
+    expect(chip).toMatchObject({ coversDay: true, value: 'tonight', eventId: `AURORA:${TODAY}` });
+  });
+
+  it('names the chip from the palette, with no phone short forms', () => {
     const [chip] = chipsOf(tiles({ hotTopics: [tide(SUN)] }), SUN);
-    expect(chip).toMatchObject({ name: 'Spring tide', chipName: 'Spring', colour: '#6FA8B0' });
+    expect(chip).toMatchObject({ name: 'Spring tide', colour: '#6FA8B0' });
+    expect(chip).not.toHaveProperty('chipName');
+    expect(chip).not.toHaveProperty('shortValue');
   });
 });
 
@@ -234,7 +259,7 @@ describe('buildFourDayTiles — the jump (§2.3: the entry\'s own span must cove
     });
     for (const date of [SUN, MON]) {
       const chip = chipsOf(result, date)[0];
-      // The Glance target is still computed, but the component prefers `jump` (WindowGlanceDayTopics).
+      // The Glance target is still computed, but the component prefers `jump` (WindowGlanceLanes).
       expect(chip.target, date).toBe(`${date}:SUNSET`);
       expect(chip.jump, date).toEqual({ entryId: near.id });
     }
@@ -441,35 +466,201 @@ describe('buildFourDayTiles — the Map door', () => {
   });
 });
 
-describe('glanceTopicsByColumn — the four days re-keyed to the strip\'s columns (glance-topic-strip-plan.md R2)', () => {
-  const columnsOf = (hotTopics, columnDates) => glanceTopicsByColumn(tiles({ hotTopics }).days, columnDates);
 
-  it('keys the chips by column date, one entry per column that is one of the four', () => {
-    const byDate = columnsOf([tide(TODAY), topic('DUST', MON, 'SUNSET')], [TODAY, SUN, MON]);
-    expect([...byDate.keys()]).toEqual([TODAY, SUN, MON]);
-    expect(byDate.get(TODAY).map((c) => c.type)).toEqual(['SPRING_TIDE']);
-    expect(byDate.get(SUN)).toEqual([]);
-    expect(byDate.get(MON).map((c) => c.type)).toEqual(['DUST']);
+describe('buildGlanceLanes — the four days as lanes (days-ahead-lanes-plan.md §2)', () => {
+  /** The matrix's columns for these dates; an {@code away} date is a column that is not live. */
+  const cols = (dates, away = []) => dates.map((date) => ({ date, live: !away.includes(date) }));
+  const ALL = [TODAY, SUN, MON, TUE];
+  const lanesOf = (hotTopics, columns = cols(ALL), over = {}) => {
+    const { days } = tiles({ hotTopics, ...over });
+    return buildGlanceLanes(days, columns, hotTopics);
+  };
+
+  it('makes a single-day topic a one-column lane under its day', () => {
+    const [lane] = lanesOf([topic('DUST', MON, 'SUNSET')]);
+    expect(lane).toMatchObject({
+      type: 'DUST', name: 'Dust', startCol: 3, endCol: 3, row: 1, dates: [MON],
+      detail: null, detailDate: null, peak: null, startsBefore: false, endsAfter: false,
+      jump: null, mapDoor: null, target: null,
+    });
+    expect(lane.key).toBe(`DUST:${MON}@${MON}`);
   });
 
-  it('has no entry for a column outside the four dates', () => {
-    const byDate = columnsOf([tide(TODAY)], [TODAY, '2026-10-30']);
-    expect(byDate.has('2026-10-30')).toBe(false);
+  it('draws nothing for a quiet week, or for hot topics that have not arrived', () => {
+    expect(lanesOf([])).toEqual([]);
+    expect(lanesOf(undefined)).toEqual([]);
   });
 
-  it('keeps a continuation dashed when the previous calendar date is a rendered column', () => {
-    const byDate = columnsOf([tide(TODAY), tide(SUN)], [TODAY, SUN]);
-    expect(byDate.get(SUN)[0].isContinuation).toBe(true);
+  it('makes a three-day tide run ONE lane, with the PEAK day\'s detail and the peak date', () => {
+    const [lane, ...rest] = lanesOf([
+      tideRun(SUN, 1), tideRun(MON, 2, 3, { glance: glance({ value: '4.6 m', badge: 'PEAK' }) }), tideRun(TUE, 3),
+    ]);
+    expect(rest).toEqual([]);
+    expect(lane).toMatchObject({
+      type: 'SPRING_TIDE', startCol: 2, endCol: 4, dates: [SUN, MON, TUE],
+      detail: '4.6 m', detailDate: MON, peak: MON, startsBefore: false, endsAfter: false,
+    });
   });
 
-  it('forces a continuation solid when the previous date is not a rendered column', () => {
-    const byDate = columnsOf([tide(TODAY), tide(SUN)], [SUN, MON]);
-    expect(byDate.get(SUN)[0].isContinuation).toBe(false);
+  it('falls back to the first day\'s detail when the run has no PEAK', () => {
+    const [lane] = lanesOf([tideRun(SUN, 1), tideRun(MON, 2)]);
+    expect(lane).toMatchObject({ detail: 'day 1', detailDate: SUN, peak: null });
   });
 
-  it('does not mutate the model\'s own chips', () => {
-    const { days } = tiles({ hotTopics: [tide(TODAY), tide(SUN)] });
-    glanceTopicsByColumn(days, [SUN, MON]);
-    expect(chipsOf({ days }, SUN)[0].isContinuation).toBe(true);
+  it('falls back to the first day\'s detail when the PEAK day has none', () => {
+    const [lane] = lanesOf([
+      tideRun(SUN, 1), tideRun(MON, 2, 3, { glance: glance({ badge: 'PEAK', value: null }) }),
+    ]);
+    expect(lane).toMatchObject({ detail: 'day 1', detailDate: SUN, peak: MON });
+  });
+
+  it('puts two types sharing a day on two rows, the non-weather one first', () => {
+    const lanes = lanesOf([wx('MIST', SUN), topic('DUST', SUN, 'SUNSET')]);
+    expect(lanes.map((l) => [l.type, l.row, l.startCol])).toEqual([['DUST', 1, 2], ['MIST', 2, 2]]);
+  });
+
+  it('lets single-day topics on different days share a row', () => {
+    const lanes = lanesOf([topic('DUST', TODAY, 'SUNSET'), wx('MIST', MON)]);
+    expect(lanes.map((l) => [l.type, l.row, l.startCol])).toEqual([['DUST', 1, 1], ['MIST', 1, 3]]);
+  });
+
+  it('breaks a run at a column that is absent from the strip', () => {
+    // Monday is not a column at all: Sunday and Tuesday are not adjacent, so they are two lanes.
+    const lanes = lanesOf([tideRun(SUN, 1), tideRun(MON, 2), tideRun(TUE, 3)], cols([TODAY, SUN, TUE]));
+    expect(lanes.map((l) => [l.startCol, l.endCol, l.dates])).toEqual([[2, 2, [SUN]], [3, 3, [TUE]]]);
+  });
+
+  it('breaks a run at an away column, and says it carries on across it', () => {
+    const lanes = lanesOf(
+      [tideRun(SUN, 1), tideRun(MON, 2), tideRun(TUE, 3)], cols(ALL, [MON]),
+    );
+    expect(lanes.map((l) => [l.startCol, l.endCol, l.startsBefore, l.endsAfter])).toEqual([
+      [2, 2, false, true],
+      [4, 4, true, false],
+    ]);
+  });
+
+  it('keeps a lane under Mon–Tue when an away column sits before it (columns are matrix index + 1)', () => {
+    const lanes = lanesOf([tideRun(MON, 1, 2), tideRun(TUE, 2, 2)], cols(ALL, [SUN]));
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]).toMatchObject({ startCol: 3, endCol: 4, dates: [MON, TUE] });
+  });
+
+  it('draws no lane for an away column\'s topics', () => {
+    expect(lanesOf([topic('DUST', SUN, 'SUNSET')], cols(ALL, [SUN]))).toEqual([]);
+  });
+
+  it('says a run began earlier when a served topic of the same event covers the day before its first column', () => {
+    // The strip starts tomorrow: today's tide day is served but not a column.
+    const lanes = lanesOf([tideRun(TODAY, 1), tideRun(SUN, 2)], cols([SUN, MON, TUE]));
+    expect(lanes[0]).toMatchObject({ startCol: 1, endCol: 1, startsBefore: true, endsAfter: false });
+  });
+
+  it('says a run continues when a served topic covers the day after its last column', () => {
+    const lanes = lanesOf([tideRun(SUN, 1), tideRun(MON, 2)], cols([TODAY, SUN]));
+    expect(lanes[0]).toMatchObject({ startCol: 2, endCol: 2, startsBefore: false, endsAfter: true });
+  });
+
+  it('reads only served dates: a run the server clipped shows no edge', () => {
+    const [lane] = lanesOf([tideRun(MON, 2), tideRun(TUE, 3)]);
+    expect(lane).toMatchObject({ startsBefore: false, endsAfter: false });
+  });
+
+  it('is not fooled by a different event on the neighbouring day', () => {
+    const lanes = lanesOf([wx('MIST', SUN), wx('MIST', MON)]);
+    expect(lanes.map((l) => [l.startCol, l.endCol, l.startsBefore, l.endsAfter]))
+      .toEqual([[2, 2, false, false], [3, 3, false, false]]);
+  });
+
+  it('makes two separate topics of one type on adjacent days two lanes', () => {
+    const lanes = lanesOf([wx('MIST', SUN), wx('MIST', MON)]);
+    expect(lanes).toHaveLength(2);
+    expect(lanes.map((l) => l.dates)).toEqual([[SUN], [MON]]);
+  });
+
+  it('makes a one-night aurora one column under the night it falls, not its next morning', () => {
+    const lanes = lanesOf([wx('AURORA', TODAY, 'NIGHT')]);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]).toMatchObject({ type: 'AURORA', startCol: 1, endCol: 1, dates: [TODAY], endsAfter: false });
+  });
+
+  it('keeps tonight\'s aurora as a lane under tomorrow\'s column when the strip starts tomorrow', () => {
+    const [lane, ...rest] = lanesOf([wx('AURORA', TODAY, 'NIGHT')], cols([SUN, MON, TUE]));
+    expect(rest).toEqual([]);
+    expect(lane).toMatchObject({
+      type: 'AURORA', startCol: 1, endCol: 1, startsBefore: true, endsAfter: false, detail: 'dawn · 9/10',
+    });
+  });
+
+  it('builds that kept lane from the night topic, not a different same-type topic', () => {
+    const tonight = wx('AURORA', TODAY, 'NIGHT', { glance: glance({ weather: true, value: 'tonight' }) });
+    const next = wx('AURORA', SUN, 'NIGHT', { glance: glance({ weather: true, value: 'next' }) });
+    const lanes = lanesOf([tonight, next], cols([SUN, MON, TUE]));
+    // Sunday's column holds the covering chip (next night's); the morning half of tonight's is dropped there.
+    expect(lanes.map((l) => [l.startCol, l.detail])).toEqual([[1, 'next']]);
+  });
+
+  it('keeps a night topic\'s morning after a mid-strip away gap, and drops it in a normal strip', () => {
+    // Sunday (the dusk) is an away column: Monday's morning is where the night shows up, as a lane that began earlier.
+    const gap = lanesOf([wx('AURORA', SUN, 'NIGHT')], cols(ALL, [SUN]));
+    expect(gap.map((l) => [l.startCol, l.endCol, l.startsBefore])).toEqual([[3, 3, true]]);
+    // With a normal strip the same aurora is one column under its own night and nothing under the morning.
+    const normal = lanesOf([wx('AURORA', SUN, 'NIGHT')]);
+    expect(normal.map((l) => [l.startCol, l.endCol, l.startsBefore])).toEqual([[2, 2, false]]);
+  });
+
+  it('does not say an NLC dated on the last day continues after', () => {
+    const [lane] = lanesOf([wx('NLC', TUE, 'NIGHT')]);
+    expect(lane).toMatchObject({ startCol: 4, endCol: 4, endsAfter: false });
+  });
+
+  it('covers every dusk date of a multi-night topic and no morning', () => {
+    const [lane] = lanesOf([wx('AURORA', SUN, 'NIGHT', { endDate: MON })]);
+    expect(lane).toMatchObject({ startCol: 2, endCol: 3, dates: [SUN, MON] });
+  });
+
+  it('makes tonight\'s aurora and last night\'s two lanes', () => {
+    const lanes = lanesOf([wx('AURORA', TODAY, 'NIGHT'), wx('AURORA', SUN, 'NIGHT')]);
+    expect(lanes.map((l) => [l.startCol, l.endCol])).toEqual([[1, 1], [2, 2]]);
+  });
+
+  it('takes each route from the first chip in the run that has one', () => {
+    const jumpEntry = entry({ id: 'run-x', startDate: MON, endDate: MON });
+    const lanes = lanesOf(
+      [tideRun(SUN, 1), tideRun(MON, 2)],
+      cols(ALL),
+      { entries: [jumpEntry], renderedEntryIds: new Set(['run-x']), openableKeys: new Set([`${MON}:SUNRISE`]) },
+    );
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0].jump).toEqual({ entryId: 'run-x' });
+    expect(lanes[0].target).toBe(`${MON}:SUNRISE`);
+    expect(lanes[0].mapDoor).toBeNull();
+  });
+
+  it('takes a weather topic\'s Map door from the run\'s first chip that has one', () => {
+    const [lane] = lanesOf([wx('MIST', SUN, 'SUNSET')], cols(ALL), { forecastDates: [SUN] });
+    expect(lane.mapDoor).toEqual({ date: SUN, eventType: 'SUNSET' });
+  });
+
+  it('assigns rows first-fit, longest span first, and orders the output by (row, startCol)', () => {
+    const lanes = lanesOf([
+      wx('MIST', SUN), wx('INVERSION', MON), topic('DUST', TODAY, 'SUNSET'),
+      tideRun(SUN, 1), tideRun(MON, 2), tideRun(TUE, 3),
+    ]);
+    expect(lanes.map((l) => [l.type, l.row, l.startCol, l.endCol])).toEqual([
+      ['DUST', 1, 1, 1],
+      ['SPRING_TIDE', 1, 2, 4],
+      ['MIST', 2, 2, 2],
+      ['INVERSION', 2, 3, 3],
+    ]);
+  });
+
+  it('copies the topic\'s palette colour and name onto the lane', () => {
+    const [lane] = lanesOf([tideRun(SUN, 1)]);
+    expect(lane).toMatchObject({ name: 'Spring tide', colour: '#6FA8B0' });
+  });
+
+  it('ignores a malformed topic', () => {
+    expect(lanesOf([null, { label: 'x' }, topic('DUST', MON, 'SUNSET')])).toHaveLength(1);
   });
 });

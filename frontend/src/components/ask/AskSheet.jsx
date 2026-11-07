@@ -5,6 +5,7 @@ import AskClearAnswer from './AskClearAnswer.jsx';
 import AskConversation from './AskConversation.jsx';
 import AskInputRow from './AskInputRow.jsx';
 import { useAsk } from '../../context/AskContext.jsx';
+import { useGuide } from '../../context/GuideContext.jsx';
 import { planActionsShape } from './askShapes.js';
 
 import { ASK_SHEET_LABEL } from './askIds.js';
@@ -55,6 +56,7 @@ export default function AskSheet({
   const ask = useAsk();
   const inputRef = useRef(null);
   const { typedDisabled } = ask;
+  const { openGuide } = useGuide();
   useEffect(() => {
     if (open && !typedDisabled) inputRef.current?.focus({ preventScroll: true });
   }, [open, typedDisabled]);
@@ -68,6 +70,20 @@ export default function AskSheet({
       reserveCloseStrip
       label={ASK_SHEET_LABEL}
       restoreFallback={restoreFallback}
+      header={(
+        <div className="wf-ask-sheet-head">
+          <span className="wf-ask-dock-t" aria-hidden="true">Ask</span>
+          <button
+            type="button"
+            className="wf-ask-sheet-help"
+            data-testid="ask-sheet-guide"
+            aria-label="Guide for Ask PhotoCast"
+            onClick={() => openGuide('ask-photocast')}
+          >
+            <span aria-hidden="true">?</span>
+          </button>
+        </div>
+      )}
       footer={<AskInputRow inputRef={inputRef} view={view} viewLabel={viewLabel} />}
     >
       <AskConversation

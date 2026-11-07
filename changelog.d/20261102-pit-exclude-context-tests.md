@@ -1,3 +1,0 @@
-### Fixed — weekly PIT run no longer takes more than six hours
-
-PIT's `<excludedTestClasses>` skipped only controller, `*IntegrationTest`, `*IT` and prompt-regression classes, so about 75 Testcontainers classes and several full `@SpringBootTest` classes ran under mutation testing. Since the async `AlmanacService.warmOnStartup` began building the Coming up feed on every context boot (#1050), each context-booting test covered thousands of mutants, and the run grew from 2h23m to over 6h. These classes are now excluded, the workflow only compiles (surefire runs per PR), and `PitExclusionDriftTest` fails if a new context-booting test is not excluded.

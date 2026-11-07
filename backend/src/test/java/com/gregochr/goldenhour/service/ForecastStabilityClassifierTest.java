@@ -880,6 +880,70 @@ class ForecastStabilityClassifierTest {
 
     // ── Builders ──
 
+    @Test
+    @DisplayName("A response with no time array is treated as insufficient data")
+    void nullTimeArray_isInsufficientData() {
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(null);
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625, hourly);
+
+        assertThat(result.stability()).isEqualTo(ForecastStability.TRANSITIONAL);
+        assertThat(result.reason()).isEqualTo("Insufficient hourly data");
+    }
+
+    @Test
+    @DisplayName("Null precipitation entries read as 0%, so an all-null array is 'low precipitation throughout'")
+    void nullPrecipEntries_readAsZero() {
+        OpenMeteoForecastResponse.Hourly hourly = buildHourly(
+                steadyPressure(1010.0), Collections.nCopies(96, (Integer) null), clearWeatherCodes(), calmGusts());
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625, hourly);
+
+        assertThat(result.reason()).contains("Low precipitation probability throughout");
+    }
+
+    @Test
+    @DisplayName("Null weather codes are skipped; one active code among them still raises the signal")
+    void nullWeatherCodes_areSkipped() {
+        List<Integer> allNull = Collections.nCopies(96, (Integer) null);
+        List<Integer> oneActive = new ArrayList<>(Collections.nCopies(96, (Integer) null));
+        oneActive.set(60, 61);
+
+        assertThat(classifier.classify(GRID_KEY, 54.75, -1.625,
+                buildHourly(steadyPressure(1010.0), moderatePrecipProbs(), allNull, calmGusts())).reason())
+                .doesNotContain("Active weather codes");
+        assertThat(classifier.classify(GRID_KEY, 54.75, -1.625,
+                buildHourly(steadyPressure(1010.0), moderatePrecipProbs(), oneActive, calmGusts())).reason())
+                .contains("Active weather codes");
+    }
+
+    @Test
+    @DisplayName("Null gust entries read as 0, so alternating null and 40 m/s gusts is high variance")
+    void nullGustEntries_readAsZero() {
+        List<Double> gusts = new ArrayList<>();
+        for (int i = 0; i < 72; i++) {
+            gusts.add(i % 2 == 0 ? null : 40.0);
+        }
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625,
+                buildHourly(steadyPressure(1010.0), moderatePrecipProbs(), clearWeatherCodes(), gusts));
+
+        assertThat(result.reason()).contains("High wind gust variance");
+    }
+
+    @Test
+    @DisplayName("A missing pressure reading counts as 0 hPa (as-is behaviour: it scores as a deep low)")
+    void nullPressureReading_countsAsZero() {
+        List<Double> pressures = new ArrayList<>(steadyPressure(1010.0));
+        pressures.set(0, null);
+
+        GridCellStabilityResult result = classifier.classify(GRID_KEY, 54.75, -1.625,
+                buildHourly(pressures, moderatePrecipProbs(), clearWeatherCodes(), calmGusts()));
+
+        assertThat(result.reason()).contains("Deep low overhead (0 hPa)");
+    }
+
     private OpenMeteoForecastResponse.Hourly buildHourly(List<Double> pressures,
             List<Integer> precipProbs, List<Integer> weatherCodes, List<Double> gusts) {
         OpenMeteoForecastResponse.Hourly h = new OpenMeteoForecastResponse.Hourly();

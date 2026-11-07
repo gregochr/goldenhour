@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { TIDE_LIGHT_LOCKED_LABEL, TIDE_LIGHT_LOCKED_BODY } from './shared/ProUpsell.jsx';
 import { TideLightLockedSketch } from './map/TideUpsell.jsx';
 import ComingUpOutsideDoor from './subregions/ComingUpOutsideDoor.jsx';
+import GuideLink, { GuideWhy } from './guide/GuideLink.jsx';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
@@ -345,7 +346,7 @@ DayChips.propTypes = {
  * threshold line, which is why a screen-reader user got a one-line reading of "See the plan for 12
  * Sept →" for a full feature card and nothing else — the richer content ended up reachable only on
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
- * approach the At a Glance day header's topic pills in {@code WindowGlanceDayTopics} use; they are built from content too), which is why the
+ * approach the At a Glance days-ahead lanes in {@code WindowGlanceLanes} use; they are built from content too), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
  * whitespace-only text that contains a line break rather than collapsing it to a space, so they
  * are what keeps the phrases apart in that one computed name.
@@ -361,7 +362,7 @@ DayChips.propTypes = {
  * again 2026-09-11 across every state this component's tests render, by Playwright's
  * accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
  * accessibility tree agreed on 2026-09-05 and again on 2026-09-14. The rule, the method and why
- * the suite reads it differently are in {@code WindowGlanceDayTopics}'s class doc.
+ * the suite reads it differently are in {@code WindowGlanceLanes}'s class doc.
  *
  * <p><b>⚠️ One separator inside the card IS load-bearing, and it is not in this file.</b>
  * {@code ComingUpTideSparkline}'s label sets a {@code <b>} and a {@code <span>} side by side as
@@ -415,17 +416,27 @@ DayChips.propTypes = {
  * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
  * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
+ * @param {boolean}  [props.open]      whether the card shows its body (default true). Closed, only the title
+ *                                     line and the date's day are drawn (collapse-and-topic-pips-plan.md §5)
+ * @param {?function} [props.onToggleOpen] the Open / Close button's press; the pane owns the state. The button
+ *                                     is a sibling of the card, never inside it: the card is itself a button
+ *                                     when it has a single action
  */
 export default function WindowComingUpEntry({
-  entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null,
+  entry, onGoToPlan, onShowOnMap, outsideLine = null, outsideDoor = null, open = true,
+  onToggleOpen = undefined,
 }) {
   const { rail } = entry;
   const glyph = entryGlyph(entry);
   // A tide-run card (hosted by the run, or by a supermoon that absorbed it) carries the sunrise and
   // sunset high-water rows: those facts take a line each and read as running text.
   const isTideRun = isTideRunEntry(entry);
+  // A single-action card is itself a <button>, and a guide door (a button) cannot nest in one. A tide run is a
+  // dated entry of at most ten days, so it carries day chips and a <div> card; this guards the odd one over the cap.
+  const cardIsButton = Boolean(entry.interactive && !entry.dayChips);
   const cardClassName = [
     'wf-cu-card',
+    open ? null : 'wf-cu-card-closed',
     entry.isFeature ? 'wf-cu-card-feat' : null,
     entry.isForecast ? 'wf-cu-card-fc' : null,
     // A chip run is neither a button nor a dead door: its own chips are the controls.
@@ -511,6 +522,8 @@ export default function WindowComingUpEntry({
           )}
         </span>
       </div>
+      {open && (
+        <>
       {' '}
 
       {/* Additive with `prose`, NOT exclusive-or (a corrected first attempt — see the class doc's
@@ -602,8 +615,12 @@ export default function WindowComingUpEntry({
                   <span className="wf-cu-locked-body" data-testid="coming-up-tide-light-locked-body">
                     {TIDE_LIGHT_LOCKED_BODY}
                   </span>
+                  {!cardIsButton && <GuideWhy section="comingUpTides" />}
                 </span>
               </>
+            )}
+            {isTideRun && !cardIsButton && (
+              <GuideLink section="comingUpTides" label="How tide entries work" />
             )}
           </div>
           {' '}
@@ -656,6 +673,8 @@ export default function WindowComingUpEntry({
           </span>
         </>
       )}
+        </>
+      )}
     </>
   );
 
@@ -669,14 +688,15 @@ export default function WindowComingUpEntry({
       data-testid="coming-up-entry"
       data-type={entry.type}
       data-entry-id={entry.id}
+      data-open={open ? 'true' : 'false'}
     >
       <div className="wf-cu-rail" data-testid="coming-up-rail">
         <span className="wf-cu-dbox">
-          {rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
+          {open && rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}
           <span className={rail.isRange ? 'wf-cu-dn wf-cu-dn-run' : 'wf-cu-dn'}>{rail.day}</span>
-          <span className="wf-cu-mo">{rail.month}</span>
+          {open && <span className="wf-cu-mo">{rail.month}</span>}
         </span>
-        {rail.countdown && (
+        {open && rail.countdown && (
           <span className="wf-cu-cd" data-testid="coming-up-countdown">{rail.countdown}</span>
         )}
       </div>
@@ -703,6 +723,22 @@ export default function WindowComingUpEntry({
           count={outsideDoor.count}
           zeroPicks={outsideDoor.zeroPicks}
         />
+      )}
+      {/* The Open / Close button (collapse-and-topic-pips-plan.md §5), drawn over the card's top right corner by
+          CSS (absolute). A sibling of the card, because a single-action card is itself a button, and last in the
+          DOM so the sub-regions door stays right after the card. Named plainly (Close / Open): a name carrying
+          the title would collide with the card's. */}
+      {onToggleOpen && (
+        <button
+          type="button"
+          className="wf-tide-strip-toggle wf-cu-toggle"
+          data-testid="coming-up-toggle"
+          aria-expanded={open}
+          aria-label={open ? 'Close' : 'Open'}
+          onClick={onToggleOpen}
+        >
+          {open ? <span aria-hidden="true">▾</span> : (<>Open <span aria-hidden="true">▴</span></>)}
+        </button>
       )}
     </div>
   );
@@ -778,6 +814,10 @@ WindowComingUpEntry.propTypes = {
   onShowOnMap: PropTypes.func.isRequired,
   /** The S5b-2 line under the door row, or null (always null for Pro, Admin and an unshaped body). */
   outsideLine: PropTypes.string,
+  /** Whether the card shows its body; closed, only the title line and the date's day are drawn. */
+  open: PropTypes.bool,
+  /** The Open / Close button's press. Without it no button is drawn (the card cannot be closed). */
+  onToggleOpen: PropTypes.func,
   /** The S5b-2 sub-regions door this entry carries, or null. */
   outsideDoor: PropTypes.shape({
     subject: PropTypes.oneOf(['coastal', 'darkSky']).isRequired,

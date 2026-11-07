@@ -34,6 +34,7 @@ export function RegionDoor({ regionName, places, subRegionCount }) {
         regionName, places, subRegionCount, examples: regionExamplePlaces(state, regionName),
       })}
       testIdPrefix="wf-subregions-region-upsell"
+      guide={{ section: 'subRegions' }}
     />
   );
 }
@@ -65,6 +66,7 @@ export function AllDoor({
         total, subRegionCount, allowed, picked,
       })}
       testIdPrefix="wf-subregions-all-upsell"
+      guide={{ section: 'subRegions' }}
     />
   );
 }
@@ -90,6 +92,7 @@ export function PlaceDoor({ place }) {
       heading={label}
       body={subregionsPlaceBody(place)}
       testIdPrefix="wf-subregions-place-upsell"
+      guide={{ section: 'subRegions' }}
     />
   );
 }

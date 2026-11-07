@@ -71,8 +71,8 @@ class AskUnrecordedCostTest {
     @BeforeEach
     void setUp() {
         clock = new MutableClock(Instant.parse("2026-10-05T12:00:00Z"));
-        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, costCalculator, new AskProperties(),
-                clock);
+        service = new AskJobRunService(jobRunService, jobRuns, apiCalls, costCalculator,
+                AskModelFixtures.haiku(), clock);
         when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean()))
                 .thenAnswer(inv -> inv.getArgument(1) == null ? 0L : COST);
         when(jobRunService.logApiCall(anyLong(), any(), any(), any(), any(), anyLong(), any(), any(),

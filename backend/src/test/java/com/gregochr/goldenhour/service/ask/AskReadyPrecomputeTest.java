@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -60,6 +62,7 @@ class AskReadyPrecomputeTest {
     private static final int NOT_OFFERED = 4 + 3;
 
     private final AskProperties properties = new AskProperties();
+    private final ModelSelectionService modelSelection = AskModelFixtures.haiku();
     private final AskSnapshotBuilder snapshotBuilder = mock(AskSnapshotBuilder.class);
     private final RegionRepository regions = mock(RegionRepository.class);
     private final AskReadyStore store = mock(AskReadyStore.class);
@@ -88,12 +91,12 @@ class AskReadyPrecomputeTest {
                 region(2L, "Teesdale")));
         // A scheduled or on-demand run has no cycle behind it, so it takes the three-argument form.
         for (boolean manual : new boolean[] {true, false}) {
-            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(manual), eq(properties.getModel())))
+            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(manual), eq(EvaluationModel.HAIKU)))
                     .thenReturn(job);
         }
         // A run a cycle dispatched is started with the cycle's id, so it is stored on the row at insert.
         for (long cycleId : new long[] {1L, 2L, 3L, 42L}) {
-            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel()), isNull(),
+            when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU), isNull(),
                     eq(cycleId))).thenReturn(job);
         }
         model = call -> goodModel(call, snapshot);
@@ -106,7 +109,8 @@ class AskReadyPrecomputeTest {
             calls.add(call);
             return model.apply(call);
         };
-        return new AskReadyPrecompute(properties, snapshotBuilder, engine, regions, store, jobRunService,
+        return new AskReadyPrecompute(properties, modelSelection, snapshotBuilder, engine, regions, store,
+                jobRunService,
                 jobRunRepository, hotTopicSimulation, auroraStateCache, clock, deadline);
     }
 
@@ -180,7 +184,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<String> scope = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scope.capture(), question.capture(), any(), any(),
-                any(), any(), any());
+                any(), any(), any(), any());
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < scope.getAllValues().size(); i++) {
             keys.add(scope.getAllValues().get(i) + "/" + question.getAllValues().get(i));
@@ -210,7 +214,7 @@ class AskReadyPrecomputeTest {
         });
         ArgumentCaptor<ReadyQuestion.Offer> offer = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), offer.capture(), any(), any(), any(),
-                any());
+                any(), any());
         assertThat(offer.getAllValues()).extracting(ReadyQuestion.Offer::text).contains("Best spot this weekend?",
                 "Best spot this evening?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
                 "Any rare events coming up?", "Is there snow on the tops?");
@@ -246,11 +250,54 @@ class AskReadyPrecomputeTest {
     void jobRunAndProvenance() {
         service.precompute(42L);
 
-        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel(), null, 42L);
+        verify(jobRunService).startRun(RunType.ASK_READY, false, EvaluationModel.HAIKU, null, 42L);
         verify(jobRunService).completeRun(job, 17, 0);
         assertThat(job.getLocationsProcessed()).isEqualTo(17);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), eq(snapshot.generatedAt()),
-                eq(42L), isNull());
+                eq(42L), isNull(), any());
+    }
+
+    @Test
+    @DisplayName("the job run records the ASK_READY row's model, and every conversation in the run is pinned to "
+            + "it, even if the row is switched while the run is going; the row is read once per run")
+    void jobRunRecordsTheResolvedModelAndPinsEveryConversation() {
+        when(modelSelection.getActiveModel(RunType.ASK_READY))
+                .thenReturn(EvaluationModel.HAIKU_55, EvaluationModel.SONNET);
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU_55), isNull(),
+                eq(42L))).thenReturn(job);
+
+        service.precompute(42L);
+
+        verify(jobRunService).startRun(RunType.ASK_READY, false, EvaluationModel.HAIKU_55, null, 42L);
+        verify(modelSelection, org.mockito.Mockito.times(1)).getActiveModel(RunType.ASK_READY);
+        assertThat(calls).isNotEmpty();
+        assertThat(calls).allSatisfy(c -> assertThat(c.options().model()).isEqualTo(EvaluationModel.HAIKU_55));
+    }
+
+    @Test
+    @DisplayName("the run's pinned model reaches every upsert: a run on HAIKU_55 writes HAIKU_55")
+    void pinnedModelReachesEveryUpsert() {
+        when(modelSelection.getActiveModel(RunType.ASK_READY)).thenReturn(EvaluationModel.HAIKU_55);
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU_55), isNull(),
+                eq(42L))).thenReturn(job);
+
+        service.precompute(42L);
+
+        ArgumentCaptor<String> scope = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
+        verify(store, org.mockito.Mockito.times(17)).upsert(scope.capture(), question.capture(), any(), any(),
+                eq(snapshot.generatedAt()), eq(42L), any(), eq(EvaluationModel.HAIKU_55));
+        List<String> keys = new ArrayList<>();
+        for (int i = 0; i < scope.getAllValues().size(); i++) {
+            keys.add(scope.getAllValues().get(i) + "/" + question.getAllValues().get(i));
+        }
+        assertThat(keys).containsExactly(
+                "ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH", "ALL/AM_OR_PM", "ALL/RARE_EVENTS",
+                "ALL/SNOW_TOPS",
+                "1/BEST_WEEKEND", "1/BEST_NEXT", "1/COASTAL_HIGH", "1/AM_OR_PM", "1/RARE_EVENTS", "1/SNOW_TOPS",
+                "2/BEST_WEEKEND", "2/BEST_NEXT", "2/AM_OR_PM", "2/RARE_EVENTS", "2/SNOW_TOPS");
+        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.argThat(m -> m != EvaluationModel.HAIKU_55));
     }
 
     @Test
@@ -259,9 +306,9 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precomputeOnDemand();
 
         assertThat(result.written()).isEqualTo(17);
-        verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
+        verify(jobRunService).startRun(RunType.ASK_READY, true, EvaluationModel.HAIKU);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), isNull(),
-                isNull());
+                isNull(), any());
     }
 
     @Test
@@ -297,7 +344,7 @@ class AskReadyPrecomputeTest {
         assertThat(result.written() + result.skipped() + result.failed()).isZero();
         assertThat(calls).isEmpty();
         verifyNoInteractions(jobRunService);
-        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -428,7 +475,7 @@ class AskReadyPrecomputeTest {
     @DisplayName("a store failure for one answer is counted and the next question is still stored")
     void storeFailureDoesNotStopTheRest() {
         doThrow(new IllegalStateException("db down")).when(store).upsert(eq("ALL"),
-                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any(), any());
+                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any(), any(), any());
 
         AskReadyPrecompute.Result result = service.precompute(1L);
 
@@ -473,7 +520,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<ReadyQuestion> questions = ArgumentCaptor.forClass(ReadyQuestion.class);
         ArgumentCaptor<AskAnswer> answers = ArgumentCaptor.forClass(AskAnswer.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scopes.capture(), questions.capture(), any(),
-                answers.capture(), any(), any(), any());
+                answers.capture(), any(), any(), any(), any());
         for (int i = 0; i < scopes.getAllValues().size(); i++) {
             if (scopes.getAllValues().get(i).equals(scope) && questions.getAllValues().get(i) == question) {
                 return answers.getAllValues().get(i);
@@ -755,7 +802,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<ReadyQuestion.Offer> offers = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
         ArgumentCaptor<String> versions = ArgumentCaptor.forClass(String.class);
         verify(store, org.mockito.Mockito.times(19)).upsert(any(), questions.capture(), offers.capture(), any(), any(),
-                any(), versions.capture());
+                any(), versions.capture(), any());
         for (int i = 0; i < questions.getAllValues().size(); i++) {
             if (questions.getAllValues().get(i) == ReadyQuestion.NIGHT_SKY) {
                 assertThat(offers.getAllValues().get(i).text()).isEqualTo(NIGHT_TEXT);
@@ -851,9 +898,9 @@ class AskReadyPrecomputeTest {
         assertThat(result).isEqualTo(new AskReadyPrecompute.Result(2, 1, 0, null));
         assertThat(storedKeys()).containsExactly("ALL/NIGHT_SKY", "1/NIGHT_SKY");
         assertThat(calls).extracting(c -> c.question().sanitised()).containsExactly(NIGHT_TEXT, NIGHT_TEXT);
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.BEST_NEXT), any(), any(), any(), any(), any());
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any());
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.BEST_NEXT), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -862,7 +909,7 @@ class AskReadyPrecomputeTest {
     void filteredPrecomputeKeepsTheGuards() throws Exception {
         useSnapshot(fridayWithNights(northernNight()));
         service.precompute(null, NIGHT_ONLY);
-        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel());
+        verify(jobRunService).startRun(RunType.ASK_READY, false, EvaluationModel.HAIKU);
         verify(jobRunService).completeRun(job, 2, 0);
 
         todaysScheduledRuns(6);
@@ -903,7 +950,7 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precomputeOnDemand(NIGHT_ONLY);
 
         assertThat(result.written()).isEqualTo(2);
-        verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
+        verify(jobRunService).startRun(RunType.ASK_READY, true, EvaluationModel.HAIKU);
         assertThat(service.precompute(null, Set.of()).written()).isZero();
     }
 

@@ -1,10 +1,8 @@
 package com.gregochr.goldenhour.service.ask;
 
-import com.gregochr.goldenhour.entity.EvaluationModel;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.context.properties.bind.BindException;
@@ -49,14 +47,13 @@ class AskPropertiesTest {
     }
 
     @Test
-    @DisplayName("the defaults are the plan's: off, Haiku, 4 turns, 600 tokens, 20s/30s, 5/min, pro 30, "
+    @DisplayName("the defaults are the plan's: off, 4 turns, 600 tokens, 20s/30s, 5/min, pro 30, "
             + "ceiling 3x, $0.50, 6 cycles, 2000 entries for 30 minutes, 8 thread exchanges, 90 days")
     void defaults() {
         AskProperties p = new AskProperties();
 
         assertThat(p.isEnabled()).isFalse();
         assertThat(p.isStub()).isFalse();
-        assertThat(p.getModel()).isEqualTo(EvaluationModel.HAIKU);
         assertThat(p.getMaxTurns()).isEqualTo(4);
         assertThat(p.getMaxTokens()).isEqualTo(600);
         assertThat(p.getCallTimeoutSeconds()).isEqualTo(20);
@@ -85,26 +82,6 @@ class AskPropertiesTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(bound.key());
         assertThatThrownBy(() -> bound.setter().accept(p, bound.max() + 1))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(bound.key());
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = EvaluationModel.class, names = {"HAIKU", "SONNET"})
-    @DisplayName("Haiku and Sonnet 4.6 are the only models Ask accepts")
-    void modelAccepted(EvaluationModel model) {
-        AskProperties p = new AskProperties();
-
-        p.setModel(model);
-
-        assertThat(p.getModel()).isEqualTo(model);
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = EvaluationModel.class, names = {"HAIKU", "SONNET"}, mode = EnumSource.Mode.EXCLUDE)
-    @DisplayName("every other model is refused: Sonnet 5.5 cannot disable thinking, which breaks the budgets")
-    void modelRefused(EvaluationModel model) {
-        assertThatThrownBy(() -> new AskProperties().setModel(model))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("HAIKU or SONNET");
     }
 
     @Test
@@ -179,7 +156,6 @@ class AskPropertiesTest {
         AskProperties p = bind(Map.of(
                 "photocast.ask.enabled", "true",
                 "photocast.ask.stub", "true",
-                "photocast.ask.model", "SONNET",
                 "photocast.ask.max-turns", "5",
                 "photocast.ask.daily-spend-cap-usd", "1.25",
                 "photocast.ask.ready.max-cycles-per-day", "8",
@@ -189,7 +165,6 @@ class AskPropertiesTest {
 
         assertThat(p.isEnabled()).isTrue();
         assertThat(p.isStub()).isTrue();
-        assertThat(p.getModel()).isEqualTo(EvaluationModel.SONNET);
         assertThat(p.getMaxTurns()).isEqualTo(5);
         assertThat(p.getDailySpendCapUsd()).isEqualTo(1.25);
         assertThat(p.getReady().getMaxCyclesPerDay()).isEqualTo(8);
@@ -226,9 +201,6 @@ class AskPropertiesTest {
 
     static Stream<Map<String, String>> badConfiguration() {
         return Stream.of(
-                Map.of("photocast.ask.model", "SONNET_55"),
-                Map.of("photocast.ask.model", "OPUS"),
-                Map.of("photocast.ask.model", "not-a-model"),
                 Map.of("photocast.ask.max-turns", "7"),
                 Map.of("photocast.ask.max-turns", "0"),
                 Map.of("photocast.ask.daily-spend-cap-usd", "0"),

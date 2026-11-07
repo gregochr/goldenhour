@@ -632,6 +632,19 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             @Param("longitude") double longitude, @Param("calculatedAt") Instant calculatedAt);
 
     /**
+     * Lists every enabled account of the given roles that has a home and a full drive-time measurement stamp: the
+     * homes the admin unroutable-places read can judge a location from. Scalar projection, no entity held.
+     *
+     * @param roles the roles whose homes are measured (Pro and Admin)
+     * @return one {@link DriveStamp} per such account
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.DriveStamp(u.id, u.driveTimesCalculatedAt) "
+            + "FROM AppUserEntity u WHERE u.enabled = true AND u.role IN :roles "
+            + "AND u.homeLatitude IS NOT NULL AND u.homeLongitude IS NOT NULL "
+            + "AND u.driveTimesCalculatedAt IS NOT NULL")
+    List<DriveStamp> findMeasuredHomeStamps(@Param("roles") List<UserRole> roles);
+
+    /**
      * Clears the drive-time stamp to {@code null} — but only while the home is still the one the
      * (empty) measurement was taken from. The same compare-and-set {@link #stampDriveTimesIfHomeIs}
      * performs, for the one case that has nothing to store:

@@ -603,6 +603,8 @@ describe('a tab switch, through the pane\'s own ResizeObserver (the real source 
     vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({
       width, height, top: 0, left: 0, right: width, bottom: height,
     });
+    // An observer that is not constructed yet would make the forEach below a silent no-op.
+    await waitFor(() => expect(observers.length).toBeGreaterThan(0));
     await act(async () => { observers.forEach((o) => o.callback([])); });
   };
 

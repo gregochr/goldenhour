@@ -113,6 +113,72 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 ---
 
+## The E2E smoke gate (Playwright, a required check)
+
+`E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
+and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
+`docs/engineering/engineering-gaps-plan.md`, Phase 2. Phase 3 adds seeded data so the Map and Plan specs run too.
+
+**What it is.** The real backend (local profile, a fresh H2 file, Ask on its stub) and the built frontend behind
+`vite preview`, driven by Chromium through `frontend/playwright.smoke.config.js`. Specs live in
+`frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`; `global-setup.js` dismisses the one-time postcode
+prompt for the local admin. The older `src/test/e2e/*.spec.js` (run by `playwright.config.js`, which now ignores
+`smoke/`) are manual and move to Phase 3.
+
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free):
+
+```bash
+cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
+cd frontend && npm run build
+cd frontend && npx playwright install chromium                       # once
+cd frontend && npm run test:e2e:smoke
+```
+
+Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
+`frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
+database; stop it first when a spec fails oddly. If the machine's preinstalled Chromium does not match the pinned
+Playwright, `E2E_CHROMIUM_PATH=/path/to/chrome` points the run at it (local only; CI never sets it). `E2E_HYGIENE=record`
+prints the hygiene findings below instead of failing on them, which is how to discover a new tab's errors.
+
+**The rules** (each was put in the plan by an adversarial review):
+
+- **Reliability is the requirement.** Chromium only, `@playwright/test` pinned exactly (also in the lockfile's root
+  entry, or `npm ci` fails), `workers: 2`, `retries: 0`, traces `retain-on-failure`, `serviceWorkers: 'block'` (the PWA's
+  worker would otherwise take over mid-test). No fixed sleeps: web-first assertions and `waitForResponse` only. No clock
+  freezing in this phase.
+- **No spend, by construction.** The job has no secrets and the backend script forces a fake `ANTHROPIC_API_KEY`. The
+  backend still makes outbound health probes (Anthropic 401, Open-Meteo), which are soft and show a DEGRADED banner, so
+  **no spec asserts on the absence of the health banner**. Readiness is `/actuator/health/container` only (db and ping),
+  never the bare `/actuator/health`.
+- **Third parties are fulfilled, never aborted** (an aborted request logs `net::ERR_FAILED` as a console error): ArcGIS
+  tiles get a real 1x1 PNG and the Turnstile script gets a stub that verifies at once. Any other off-origin request is
+  recorded and fails the test.
+- **Hygiene on every test.** The fixture records console errors, `pageerror`s, responses of 400 or more from the app's
+  own origin, and unexpected off-origin requests, and each test ends by asserting there were none apart from a named
+  allow-list (`ALLOW_LIST` in `fixture.js`; each entry needs a reason and a follow-up). A test that provokes an error on
+  purpose declares it with `hygiene.expect(...)`, scoped to that test.
+- **The CORS gotcha.** The browser's `Origin` is the preview origin and the proxy passes it on. The backend allows
+  `http://localhost:*` but not `127.0.0.1`, so the backend script adds `--cors.extra-origins=http://127.0.0.1:4173`; without
+  it every browser POST, the login form's included, is a 403.
+- **Logging in** posts to `/api/auth/login` through the preview origin (so the proxy is exercised) with the local admin
+  `admin` / `golden2026`. `LocalAdminSeeder` makes it.
+- **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke']`, `workers: 1`):
+  signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its token.
+- **Never fail the admin's sign-in on purpose.** Ten failed sign-ins lock an account out with a 429, which then
+  rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
+- **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the
+  local profile does not run), so no scheduled job registers. A spec asserts `GET /api/admin/scheduler/jobs` is empty, so a
+  future seeder that adds rows fails loudly. `photocast.ask.seed-local-fixture` stays off: it triggers a briefing build.
+- **An empty database has no Map tab.** `App.jsx` offers it only with a forecast or a real aurora alert. The spec asserts
+  the three-tab bar; Leaflet and tile assertions arrive with Phase 3's seeded data.
+- **Ask on an empty database** renders its box and the allowance line. A typed question returns 503
+  `TYPED_UNAVAILABLE`, which the dock renders gracefully but which is a console error, so the spec sends none.
+- **Time budget:** the job under 10 minutes, the specs under 2.
+
+**After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
+
+---
+
 ## UI Work — Review Cadence
 
 **Every code commit that touches the UI gets an adversarial review before it lands, and the tests go
@@ -203,23 +269,27 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
 grep -E "BUILD (SUCCESS|FAILURE)|Rule violated|Tests run: [0-9]+, Fail" /tmp/v.log | tail -6
 ```
 
-Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/integration/**` path glob rather than a list of class names — a name list rots (`HttpIntegrationTestBaseProbeTest` ends in `ProbeTest` and slips past `!*IntegrationTest`), and `-Dtest='!com.gregochr.goldenhour.integration.*'` does not work at all, as surefire ignores that form. JaCoCo coverage is then computed without those tests, i.e. slightly pessimistic — if it passes locally it passes on CI. **JaCoCo's rule is 80% line coverage per class**, which bites small new records: cover the defensive null branches with real assertions rather than deleting the guards.
+Exit `0` is the gate; the grep is only for reading the detail. Use the `!**/integration/**` path glob rather than a list of class names — a name list rots (`HttpIntegrationTestBaseProbeTest` ends in `ProbeTest` and slips past `!*IntegrationTest`), and `-Dtest='!com.gregochr.goldenhour.integration.*'` does not work at all, as surefire ignores that form. JaCoCo coverage is then computed without those tests, i.e. slightly pessimistic — if it passes locally it passes on CI. **JaCoCo holds every class to 95% of lines and 90% of branches on its own**, plus a bundle floor (99.3% lines, 95.8% branches, measured 2026-11-05 without the integration tests, rounded down). The seven classes that carry an unreachable branch have their own `<rule>` in `backend/pom.xml`, each at its measured figure with the reason in an XML comment; they are excluded from the default rule and nothing is excluded from checking. A new class arrives with its tests, which bites small new records: cover the defensive null branches with real assertions rather than deleting the guards. Never lower the default to fit a class; add an override only for a branch that truly cannot be reached, with the reason, and raise an override when its class improves.
+
+**Backend changed-lines check.** On `pull_request` runs the backend job also runs `diff-cover` (pinned `10.0.0`) over `backend/target/site/jacoco/jacoco.xml` against the PR's base branch and fails when under 90% of the lines the PR adds or changes under `backend/src/main` are covered; it needs `fetch-depth: 0` on the checkout and a `git fetch` of the base ref, like the frontend step. JaCoCo's `sourcefile` paths are package-relative (`com/gregochr/.../Foo.java`), so `--src-roots backend/src/main/java` is required to map them onto the diff's `backend/src/main/java/...` paths, and it must run from the repo root. ⚠️ Without `--src-roots` nothing matches, diff-cover prints "No lines with coverage information in this diff" and exits 0 (proved locally), so a green run on a PR that changes `src/main` must show real percentages in the job summary. Tests, resources and a PR with no `src/main` change are absent from the report and pass. Line coverage only. Locally, after the `verify` command above (the per-class gate may fail it; the XML is written at the `test` phase either way): `pip install diff-cover==10.0.0` then, from the repo root, `diff-cover backend/target/site/jacoco/jacoco.xml --src-roots backend/src/main/java --compare-branch=origin/main --fail-under=90`. The diff covers committed, staged and unstaged changes.
+
+**Frontend coverage floor.** CI's Vitest step is `npm run test:coverage` (`vitest run --coverage`, v8 provider via `@vitest/coverage-v8`, pinned to the exact vitest version). The floor is `test.coverage.thresholds` in `frontend/vite.config.js`: global lines / statements / functions / branches, the figure measured on 2026-11-04 rounded down to a whole percent (99 / 98 / 98 / 95; raised three times: 97 / 96 / 96 / 93 → 98 / 97 / 97 / 93 by tests for the API wrappers and the simulation UIs → 99 / 98 / 98 / 94 by tests for the auth context, hooks, utils and remaining API wrappers → 99 / 98 / 98 / 95 by the per-file branch tests below). `include` is `src/**/*.{js,jsx}` so untested files count as 0%. **Per-file floor:** every file in `src/**` must also reach **95% lines and 90% branches on its own**, enforced by a glob entry with `perFile` in the same `thresholds` block (the run fails naming the file), so a new file must arrive with its tests. Vitest applies a top-level `perFile` to every file and a glob entry cannot relax it, so the glob excludes by name the two files whose remaining branches truly cannot be reached, and each has its own entry with its measured figure (they still cannot fall further): `TurnstileWidget.jsx` (81% branches: the `typeof document` SSR guard, a null container ref, and a re-render over an existing widget id that the once-only effect can never hold, and the `!cancelled` re-checks after the cleanup has cleared the poll) and `runs/StartRunScope.jsx` (87%: the `if (allRef.current)` null arm in an effect, since React sets the ref first). A guard that protects real behaviour (a double submit, a race, a stale response) is never an exception: it gets a test (`FixedDelayEditor`'s double-click guard is tested with two native clicks in one `act`). Do not add a file to that list to dodge writing a test. **Changed-lines check.** On `pull_request` runs CI also runs `diff-cover` (pinned `10.0.0`, installed with pip) over `coverage/lcov.info` against the PR's base branch and fails when under 90% of the lines the PR adds or changes under `frontend/src` are covered, so a PR cannot hide untested code inside a high global total. Only files present in lcov count (the `include`/`exclude` above), so tests, `src/test/**` and `src/main.jsx` are ignored; a PR with no covered source changes reports "No lines with coverage information in this diff" and passes. It gates line coverage only: diff-cover reads `BRDA` but cannot gate branches separately. Locally, after `npm run test:coverage`: `pip install diff-cover==10.0.0` then, from the repo root, `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/lcov-root.info && diff-cover /tmp/lcov-root.info --compare-branch=origin/main --fail-under=90` (the `SF:` rewrite is needed: lcov paths are relative to `frontend/`, diff-cover resolves them against the repo root, and without it nothing matches and the check passes vacuously). **Ratchet rule: raise the numbers when coverage rises; never lower them without the owner's say-so.** `npm test` stays the plain, no-coverage run. Output goes to the ignored `frontend/coverage/`.
 
 **Don't use background Bash tasks for long Maven builds** — the background task output files are unreliable (often 0 bytes until the process finishes writing). Always run `./mvnw` in the foreground with an explicit `timeout` parameter so results come back immediately.
 
 **Frontend tests are fast — run them separately:**
 
 ```bash
-cd frontend && npm run test -- --reporter=dot   # ~90s, much faster than backend
+cd frontend && npm run test -- --reporter=dot   # ~8-10 min for the full suite (15.6k tests); coverage overhead was within run-to-run noise in one local measurement
 ```
 
-⚠️ **`npm run test` is NOT the frontend CI job.** That job is lint → Vitest → **`npm audit
+⚠️ **`npm run test` is NOT the frontend CI job.** That job is lint → Vitest with the coverage floor → **`npm audit
 --audit-level=high`** → build, and the audit step is the one nothing local runs. It blocks on a
 *transitive* advisory nobody in this repo introduced, so the PR goes red on a change that touches no
 dependency file — which is exactly how P11 lost a CI round. Run all four before pushing:
 
 ```bash
-cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
 
 And when `npm audit` does fire, prefer a **surgical lockfile edit** to `npm audit fix`. The fix
@@ -237,7 +307,70 @@ three-line lockfile edit leaves `npm ci` refusing the tree (`Missing: brace-expa
 per `minimatch`), and an audit run over an EMPTY `node_modules` then reports 0 vulnerabilities,
 which is not evidence of anything.
 
+**Gate values are published.** When a gate value changes (`vite.config.js` coverage thresholds, the JaCoCo minimum, the SpotBugs threshold, `failBuildOnCVSS`, PIT `mutationThreshold`, the ZAP gate's risk level, or the required checks on `main`), update `landing/engineering.html` and its "Last checked" date in the same PR.
+
 The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. ⚠️ Every rung that reaches the full `test` phase must carry `-Dtest='!**/integration/**'`, because there is no local Docker and never will be; without it you get a Testcontainers stack trace instead of a test failure. The integration classes run in CI.
+
+---
+
+## Backend mutation testing (PIT)
+
+`.github/workflows/pitest.yml` runs PIT weekly (Monday 06:00 UTC) over the service and utility layers; configuration is the `pitest-maven` plugin in `backend/pom.xml` (`mutationThreshold` 60). It never blocks a PR.
+
+- **Runner.** `ubuntu-latest` (free, the repo is public), not the self-hosted runner that serves production deploys. PIT excludes the Testcontainers and full-context tests (`PitExclusionDriftTest` enforces the list), so it needs no Docker.
+- **Shards.** One cold run is ~2h07m (10,506 mutations at the last success), so the workflow runs five parallel shards, each with its own report artifact `pitest-report-<n>` and a summary line. `pom.xml` takes the targets from the `pit.targetClasses` property (default: the full list); explicit plugin configuration beats `-D`, so the property is the only override route. Each shard passes `-Dpit.targetClasses=...`. ⚠️ In PIT globs `*` matches dots, so `service.*` already covers every sub-package: shards split the top-level `service` classes by first letter (class names are uppercase, sub-package names lowercase) and list sub-packages explicitly. The `plan` job asserts that every class under `service/` and `util/` that the default targets match is matched by exactly one shard pattern, so a new class or package cannot be missed or mutated twice; add a new sub-package to a shard when it fails. Run one shard locally with `./mvnw test-compile pitest:mutationCoverage -Dpit.targetClasses='com.gregochr.goldenhour.util.*'`.
+- **No incremental analysis.** Open-source PIT 1.30.1 has none: `historyInputFile` and `historyOutputFile` fail with "History has been enabled but no history plugin has been installed" (history is the commercial arcmutate plugin). Sharding is the answer.
+- **Timeouts.** Each shard 350 minutes (GitHub's cap is 360), the PIT step 320, so the summary and report upload still run.
+- **Why it changed.** The last success (2026-10-05) took 2h23m (PIT 2h07m, 10,506 mutations, 77% killed, test strength 80%). The runs of 2026-10-12, 10-19, 10-26 and 11-02 were all `cancelled` by the old 180-minute cap and nobody was told: `notify-failure` used `if: failure()`, and a timed-out job ends as `cancelled`, so the dependent job was skipped. `pitest.yml` and `stryker.yml` now notify on `failure` **or** `cancelled`; `ci-failure-issue.yml` assumes no particular conclusion (its text says only "failed").
+- **Never run the full PIT locally**: it takes hours.
+
+## Frontend mutation testing
+
+Stryker (`@stryker-mutator/core` + `@stryker-mutator/vitest-runner`, pinned to the same exact version
+so Dependabot bumps them together as the `stryker` group) mutates `frontend/src/utils/*.js` and checks
+that some test notices each fault. Config: `frontend/stryker.config.mjs`; workflow:
+`.github/workflows/stryker.yml`; plan and review record: `docs/engineering/frontend-mutation-testing-plan.md`.
+It **runs weekly (Wednesday 03:00 UTC) and never blocks a PR**; a failed run opens a report through
+`ci-failure-issue.yml`, as `pitest.yml` does. `thresholds.break` is `null`: a floor is set only after
+the first full measurement (plan Phase 2).
+
+- **Locally:** `cd frontend && npm run test:mutation` (add `-- --mutate 'src/utils/heatField.js'` to
+  narrow it). The dry run alone is about 18 minutes (15.4k tests, one worker, because the runner forces
+  `maxWorkers: 1`); a full run is 18,902 mutants at roughly 18 per minute (measured 2026-11-06 on a loaded laptop, four
+  runners), about 17 hours, so **always narrow it**. An interrupted run (Ctrl-C) saves a partial
+  incremental file and restores the originals; it may leave `stryker-setup-*.js` files behind (git-ignored). ⚠️ Interrupt only the main `stryker`
+  process (SIGINT) and let it finish restoring: killing its children, or deleting `.stryker-tmp/` first,
+  strands the whole tree with a `// @ts-nocheck` header and the mutants' instrumentation (1,286 files
+  were left modified once). **Run mutation testing only in a separate clean worktree** (`git worktree add`), so nothing of yours is in the tree; then the recovery is to delete that worktree. If you must recover in place, commit or copy your own work out first, then restore (CLAUDE.md forbids restoring with `git checkout --` over uncommitted work).
+  Stryker runs `inPlace: true` (the originals are backed up to `.stryker-tmp/` and restored on exit):
+  `windowFirstTopics.test.js` reads a backend source file by a path that climbs out of `frontend/`,
+  which the default one-level-deeper sandbox copy breaks. Run it on a clean checkout, and if a run is
+  killed, check `git status` for a half-mutated `src/utils` file. The pool is `forks`, not the runner's
+  default `threads`, because the suite pins `process.env.TZ`.
+- **Shape:** ten shards, split by first letters of the file name and balanced by line count (about 5k
+  lines, 1.9k mutants each), because one job would run for most of a day. The `plan` job owns the
+  shard list and fails the run if the globs do not match `src/utils/*.js` exactly once, so a new file
+  whose name starts outside every shard (for example `e…`, `k…`, `n…`) fails that check loudly: add its
+  glob to the lightest shard. **Add shards, never widen one**, if the run time grows; the first full run
+  of a shard must fit in its 350-minute job cap on its own.
+- **Incremental state** (`incremental: true`) is saved only when a shard's run finishes. It travels as an
+  artifact `stryker-incremental-<shard>` (30-day retention, uploaded `if: always()`), fetched at the start
+  from the newest of the last 10 completed `stryker.yml` runs on `main` that has one for the shard, whatever its conclusion; `actions/cache` is not
+  used because GitHub evicts caches unused for 7 days, which is the weekly boundary. With no earlier run,
+  a shard starts from scratch.
+- **Forced runs.** Incremental mode cannot see changes to `setup.js`, `vite.config.js` or dependency
+  bumps, so `stryker run --force` re-tests everything: via the `force` input of a manual dispatch, and
+  automatically on any scheduled run whose UTC day of the month is 7 or less (the first Wednesday).
+- **Deliberate trade-offs, revisit once reports exist:** `ignoreStatic: true` (module-level tables are
+  static mutants that re-run every covering test) and `mutator.excludedMutations: ['StringLiteral']`
+  (strings in `utils` are mostly user-facing labels: low value, high cost). `coverageAnalysis` is not
+  set; the vitest runner always uses per-test coverage.
+- **Reading survivors.** A mutant in code that only runs inside a `React.lazy` import can survive falsely:
+  the first test that triggers the lazy load may time out, and a covering test that runs only after the
+  module is cached sees no difference. Check the report (`reports/mutation/mutation.html`, uploaded as the
+  `stryker-report-<shard>` artifact) before writing a test for a survivor.
+- `.stryker-tmp/` and `reports/` are git-ignored and docker-ignored, and `**/.stryker-tmp/**` is excluded
+  from Vitest so a failed run's leftovers cannot duplicate tests.
 
 ---
 

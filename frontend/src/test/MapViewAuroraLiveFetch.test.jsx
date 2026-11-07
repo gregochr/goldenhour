@@ -12,8 +12,8 @@
  * <ul>
  *   <li><b>After the alert ended.</b> A poll saying the alert is over clears the scores; a request
  *       the previous poll made, landing after that, wrote the ended alert's stars straight back —
- *       into the rating's live fallback, the overlay popup and the "🏆 best
- *       location" card — where they stood until the next poll or focus.</li>
+ *       into the rating's live fallback and the overlay popup
+ *       — where they stood until the next poll or focus.</li>
  *   <li><b>Out of order.</b> Two refreshes close together each make a request, and the older one
  *       landing last replaced the newer answer with its own.</li>
  * </ul>
@@ -37,12 +37,11 @@
  * The status itself comes through the API module's `getAuroraStatus`, mocked at the boundary the
  * frontend test standards prescribe; the rest are the standard `MapView` mocks the sibling files use.
  *
- * <p>Every negative here is a DRAWN-PLACE COUNT (the `spots` handed to `MapLabels`) or the best
- * card's text.
+ * <p>Every negative here is a DRAWN-PLACE COUNT (the `spots` handed to `MapLabels`) or the stars on them.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -132,6 +131,8 @@ const HEAT = {
 
 /** How many places the map is drawing right now. */
 const drawn = () => (labelSpotsSeen.last ?? []).length;
+/** The stars on the places drawn, lowest first: [4] for EARLIER, [4, 5] for LATER. */
+const drawnStars = () => (labelSpotsSeen.last ?? []).map((spot) => spot.rating).sort();
 
 const live = (name, stars, summary) => {
   const { lat, lon } = LOCATIONS.find((l) => l.name === name);
@@ -141,7 +142,7 @@ const live = (name, stars, summary) => {
 const EARLIER = [live('Kielder', 4, 'Clear to the north')];
 /**
  * A later one: both places clear the floor, and the best has moved. So the two answers differ in
- * the drawn-place COUNT (1 against 2) and in the name on the best card — neither of which a cache hides.
+ * the drawn-place COUNT (1 against 2) and in the stars drawn ([4] against [4, 5]) — neither of which a cache hides.
  */
 const LATER = [live('Kielder', 4, 'Clear to the north'), live('Cheviot', 5, 'Arc overhead')];
 
@@ -276,9 +277,9 @@ describe('the live aurora scores answer for the latest alert state', () => {
       .mockReturnValueOnce(inFlight.promise);
 
     await openMap();
-    // Control: tonight's live answer is drawn — both its places beside the stored one — and named.
+    // Control: tonight's live answer is drawn — both its places beside the stored one — with their stars.
     await waitFor(() => expect(drawn()).toBe(3));
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
+    expect(drawnStars()).toEqual([3, 4, 5]);
 
     // The same alert, re-polled: this is the request that will still be out when the alert ends.
     await escalate();
@@ -289,15 +290,13 @@ describe('the live aurora scores answer for the latest alert state', () => {
     // The alert is over: no new request, and the live answer is cleared — the stored place alone.
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     expect(drawn()).toBe(1);
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
 
     // Now the ended alert's request lands.
     await land(() => inFlight.resolve(LATER));
 
     // Still the stored place alone. Broken, the ended alert's stars were written back after the
-    // clear: both live places drawn again and the card naming Cheviot, until the next poll or focus.
+    // clear: both live places drawn again, until the next poll or focus.
     expect(drawn()).toBe(1);
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
   });
 
   it('keeps the newer answer when an older request lands after it', async () => {
@@ -317,14 +316,13 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await land(() => newer.resolve(LATER));
     // Control: the newer answer is drawn — two places, Cheviot the best.
     expect(drawn()).toBe(2);
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
+    expect(drawnStars()).toEqual([4, 5]);
 
     await land(() => older.resolve(EARLIER));
 
-    // Still the newer answer. Broken, the older one replaced it: one place, and the card naming
-    // Kielder, until the next poll or focus.
+    // Still the newer answer. Broken, the older one replaced it: one place, until the next poll or focus.
     expect(drawn()).toBe(2);
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
+    expect(drawnStars()).toEqual([4, 5]);
   });
 
   it('keeps the current answer on screen while a re-poll of the same alert is out', async () => {
@@ -345,12 +343,12 @@ describe('the live aurora scores answer for the latest alert state', () => {
     expect(getAuroraLocations).toHaveBeenCalledTimes(2);
     // ...and the alert's last answer is still drawn for the round trip. Cleared, both would be gone.
     expect(drawn()).toBe(1);
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+    expect(drawnStars()).toEqual([4]);
 
     // And the refresh's own answer replaces it when it lands — the request is live, not dropped.
     await land(() => refresh.resolve(LATER));
     expect(drawn()).toBe(2);
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Cheviot');
+    expect(drawnStars()).toEqual([4, 5]);
   });
 
   it('keeps the last answer when a refresh fails — a network blip must not blank the alert', async () => {
@@ -370,6 +368,6 @@ describe('the live aurora scores answer for the latest alert state', () => {
     await land(() => refresh.reject(new Error('503 from /api/aurora/locations')));
 
     expect(drawn()).toBe(1);
-    expect(screen.getByTestId('aurora-best-location-card')).toHaveTextContent('Kielder');
+    expect(drawnStars()).toEqual([4]);
   });
 });

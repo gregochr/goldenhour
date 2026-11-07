@@ -178,6 +178,14 @@ export function LaneCard({ lane, stats, models, head, fixtureCount, now, onRunCh
           {modelLabel(lane.model)}
         </span>
         <span className="text-[12.5px] text-plex-text-muted">{lane.purpose}</span>
+        <a
+          href={`#manage/models/${lane.runType}`}
+          aria-label={`Change the ${lane.label} model in Model Config`}
+          className="self-start text-xs text-tide underline hover:text-tide-light focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:inline-flex max-[639px]:min-h-11 max-[639px]:items-center"
+          data-testid={`sky-eval-lane-change-model-${lane.runType}`}
+        >
+          Change model
+        </a>
       </div>
 
       <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[10px] border border-plex-border bg-plex-border max-[559px]:grid-cols-2" data-testid="sky-eval-lane-stats">

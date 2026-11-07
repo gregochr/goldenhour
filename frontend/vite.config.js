@@ -158,7 +158,7 @@ export default defineConfig(({ mode }) => {
     setupFiles: ['./src/test/setup.js'],
     css: false,
     globals: true,
-    exclude: ['**/node_modules/**', '**/e2e/**'],
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/.stryker-tmp/**'],
     // ⚠️ Raised from Vitest's 5000 ms default, because the suite's OWN async ceiling is 4000 ms and
     // the two were incoherent. `setup.js` sets `asyncUtilTimeout: 4000` so a cold `React.lazy`
     // boundary has room; a Plan-shell test crosses two of them in sequence, which a 5000 ms budget
@@ -199,6 +199,41 @@ export default defineConfig(({ mode }) => {
     // case, so most failure latencies are unchanged; and the frontend CI job now carries a
     // `timeout-minutes` so a genuine hang cannot run up the runner's clock.
     testTimeout: 20000,
+    // Coverage floor (CI runs `npm run test:coverage`). Two layers:
+    //  1. Global, measured 2026-11-04 (after the per-file branch tests): lines 99.55%, statements 98.72%,
+    //     functions 98.79%, branches 95.91%, rounded down.
+    //  2. Per file: every file in src/** must reach 95% lines and 90% branches (a glob entry with `perFile`), so a new file must
+    //     arrive with tests. The two files whose remaining branches truly cannot be reached carry their own
+    //     measured figure in a glob entry below, with the reason beside it, instead of being excluded.
+    // Raise these when coverage rises; never lower them without the owner's say-so.
+    coverage: {
+      provider: 'v8',
+      // `include` (not the removed `all`) makes files that no test imports count as 0%.
+      include: ['src/**/*.{js,jsx}'],
+      exclude: [
+        'src/test/**', // test setup and helpers, not product code
+        'src/**/*.test.{js,jsx}', // the tests themselves
+        'src/main.jsx', // bootstrap that mounts <App/> into the page; nothing to unit-test
+      ],
+      // lcov feeds the CI changed-lines check (diff-cover); see dev-and-testing.md.
+      reporter: ['text-summary', 'json-summary', 'lcov'],
+      reportOnFailure: true,
+      thresholds: {
+        lines: 99,
+        statements: 98,
+        functions: 98,
+        branches: 95,
+        // Everything except the two files below: 95% lines and 90% branches each.
+        'src/**/!(TurnstileWidget|StartRunScope).{js,jsx}': {
+          perFile: { lines: 95, branches: 90 },
+        },
+        // 81%: the remaining branches are the SSR `document` guard, a null container ref, a widget id the once-only
+        // effect can never already hold, and `!cancelled` re-checks after the cleanup has cleared the poll.
+        'src/components/TurnstileWidget.jsx': { perFile: { lines: 95, branches: 81 } },
+        // 87%: `if (allRef.current)` null arm in an effect; React always sets the ref before the effect runs.
+        'src/components/runs/StartRunScope.jsx': { perFile: { lines: 95, branches: 87 } },
+      },
+    },
   },
   };
 });

@@ -118,23 +118,28 @@ public class AskPromptBuilder {
             Each "why" is under 22 words and cites the sky, the tide or the rating.
             - If the tools show nothing worth going for, say so plainly: answerable true, no picks.
             - How to judge a window. Readers rate like this: 1★ and 2★ are stay home; 3★ is \
-            marginal; 4★ is game on; 5★ is go. list_windows gives each window's spread: how many \
-            rated places sit at each star, how many are game on (4★ or better), the regions that \
-            hold a game-on place (the pockets), and how many regions were stood down whole or not \
-            scored. Read the spread before the best rating. A window whose rated places are nearly \
-            all 3★ or below, with a handful at 4★, is a stay-home window with a few exceptions, not \
-            a good window: say so plainly, quoting the figures as returned ("of 180 rated places, 2 \
-            are 4★"), and name the exceptions as exceptions, with their region. A window that is \
-            broadly game on is one to get excited about: say so and give picks. A window whose \
-            regions were all stood down is poor everywhere: say so. A window whose regions are \
-            mostly not scored or thin is mostly unlooked-at: say that, never that it is poor. Never \
-            call a window good because its best rating is 4★ or 5★ when its spread says otherwise. \
-            Picks are the places worth going to, best first, up to three at different spots: on a \
-            stay-home window only the game-on exceptions (one is fine, none is fine), each named as \
-            an exception.
+            marginal; 4★ is worth going; 5★ is go. list_windows gives each window's spread: how many \
+            rated places sit at each star, how many are worth going (4★ or better), the regions that \
+            hold a place worth going to (the pockets), and how many regions were ruled out by the \
+            weather whole or not scored. Its field gameOn counts the places rated 4★ or better and \
+            its field stoodDown counts the regions or places the weather ruled out; those are field \
+            names, not words for the reader. Read the spread before the best rating. A window whose \
+            rated places are nearly all 3★ or below, with a handful at 4★, is a stay-home window with \
+            a few exceptions, not a good window: say so plainly, quoting the figures as returned ("of \
+            180 rated places, 2 are 4★"), and name the exceptions as exceptions, with their region. A \
+            window that is broadly worth going is one to get excited about: say so and give picks. A \
+            window whose regions were all ruled out by the weather is poor everywhere: say so. A \
+            window whose regions are mostly not scored or thin is mostly unlooked-at: say that, never \
+            that it is poor. Never call a window good because its best rating is 4★ or 5★ when its \
+            spread says otherwise. Picks are the places worth going to, best first, up to three at \
+            different spots: on a stay-home window only the exceptions worth going to (one is fine, \
+            none is fine), each named as an exception.
+            - Never write "game on", "game-on", "stand down", "standing down" or "stood down" in the \
+            summary or a pick's why. Say instead that places are worth going to, or that most places \
+            are not worth going out for, or that the weather rules most places out.
             - A good investigation usually runs: list_windows; if none of the windows the question \
-            is about holds a game-on place, say so and stop; if one of them is broadly game on, \
-            rank_spots there; if they have pockets, even a couple of exceptions on a stay-home \
+            is about holds a place worth going to, say so and stop; if one of them is broadly worth \
+            going, rank_spots there; if they have pockets, even a couple of exceptions on a stay-home \
             window, rank_spots in those regions and windows, and for a coastal pocket read \
             tideState and tideAligned and check get_hot_topics for a spring or king tide; then \
             pick, naming an exception as one. Questions this does not fit (one place, one tide, one \
@@ -156,7 +161,7 @@ public class AskPromptBuilder {
             figure it cites: astroWindowId for the sky, auroraWindowId for the northern lights.
             - For a general "best" question lead with the window list_windows marks bestBet, when \
             it is in scope: its pick comes first, named as the forecast's pick even when that window \
-            is a stay-home one, and any game-on exceptions on other windows follow as exceptions. If \
+            is a stay-home one, and any exceptions worth going to on other windows follow as exceptions. If \
             your answer leads elsewhere, the summary says why.
             - Say the tide "suits" a spot only when tideAligned is true. tideState is the water at \
             the event; tideAligned is whether it is the water that spot wants.

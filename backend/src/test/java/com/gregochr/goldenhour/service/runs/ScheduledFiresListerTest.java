@@ -79,7 +79,7 @@ class ScheduledFiresListerTest {
 
         assertThat(fires).hasSize(1);
         assertThat(fires.get(0).subline()).isEqualTo("Sun-relative · at sunrise (07:12)");
-        assertThat(fires.get(0).name()).isEqualTo("Evening sunrise refresh");
+        assertThat(fires.get(0).name()).isEqualTo("Evening refresh");
     }
 
     @Test

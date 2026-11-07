@@ -259,6 +259,17 @@ describe('LocationFourDaySheet', () => {
     expect(screen.getAllByTestId('location-sheet-leave-day')).toHaveLength(1);
   });
 
+  it('names the drive point the minutes are to, before the origin', () => {
+    setup({ reachById: new Map([[7, { driveMinutes: 80, driveTo: 'Glenridding' }]]) });
+    expect(screen.getByTestId('location-sheet-meta'))
+      .toHaveTextContent('Northumberland · 1h 20min to Glenridding from Newcastle');
+  });
+
+  it('names the drive point with no origin label too, and never for a place with none', () => {
+    setup({ reachById: new Map([[7, { driveMinutes: 80, driveTo: 'Glenridding' }]]), originLabel: null });
+    expect(screen.getByTestId('location-sheet-meta').textContent).toBe('Northumberland · 1h 20min to Glenridding');
+  });
+
   it('prints no departure line at all when the drive is unknown', () => {
     // Plan §2.5: absence means "unknown", never "out of reach" — the normal state for a reader with
     // no home postcode, and never a guess.
@@ -409,8 +420,10 @@ describe('LocationFourDaySheet', () => {
       .toHaveAttribute('aria-label', 'Low confidence · provisional');
     const badge = low.getByTestId('location-sheet-rating');
     expect(badge).toHaveTextContent('2★');
+    // `backgroundColor`, not the `background` shorthand: jsdom 30.1.3 computes the shorthand as the full
+    // "rgb(...) none repeat scroll ..." list, which no longer equals the single colour the ramp painted.
     expect(badge).toHaveStyle({
-      background: spotBadgeStyle(2).background, color: spotBadgeStyle(2).color,
+      backgroundColor: spotBadgeStyle(2).background, color: spotBadgeStyle(2).color,
     });
     // A Tailwind class is how a dimming regression would most plausibly arrive, and jsdom applies
     // no Tailwind — so the class list is asserted too.

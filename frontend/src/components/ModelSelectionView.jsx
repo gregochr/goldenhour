@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { modelLabel } from '../utils/modelLabels.js';
 import { getAvailableModels, setActiveModel, setExtendedThinking } from '../api/modelsApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import useHashSelection from '../hooks/useHashSelection.js';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
@@ -11,7 +12,18 @@ const CONFIG_TABS = [
   { key: 'AURORA_EVALUATION', label: 'Aurora', tip: 'Claude model for scoring aurora photography conditions per location.' },
   { key: 'BATCH_NEAR_TERM', label: 'Batch Near-Term', tip: 'Claude model for T+0 and T+1 in the nightly cycle, and for every intraday, evening and JFDI request.', adminOnly: true },
   { key: 'BATCH_FAR_TERM', label: 'Batch Far-Term', tip: 'Claude model for nightly T+2 (settled or transitional) and T+3 (settled), plus forced headline contenders.', adminOnly: true },
+  { key: 'ASK', label: 'Ask', tip: 'Claude model for typed Ask PhotoCast questions.', adminOnly: true },
+  { key: 'ASK_READY', label: 'Ask ready answers', tip: 'Claude model for the ready answers precomputed after each forecast cycle.', adminOnly: true },
 ];
+
+/** The tab shown when the hash names no (visible) run type. */
+const DEFAULT_TAB = 'BRIEFING_BEST_BET';
+
+/** Reads {@code #manage/models/{RUN_TYPE}}: the first segment if it is a known run type (visibility is checked later). */
+const parseTabSegments = (segments) => (CONFIG_TABS.some((t) => t.key === segments[0]) ? segments[0] : null);
+
+/** A run type's hash path. */
+const formatTab = (key) => key;
 
 /** How long a transient success banner stays on screen before it clears itself. */
 const SUCCESS_BANNER_MS = 3000;
@@ -48,7 +60,12 @@ export function modelInfoFor(model) {
 const TAB_DESCRIPTIONS = {
   BRIEFING_BEST_BET: 'Analyses region-level triage data to recommend the best photography opportunity',
   AURORA_EVALUATION: 'Evaluates aurora visibility conditions per location based on Kp forecast, cloud cover, and light pollution rating',
+  ASK: 'Answers a typed question in plain English from the served forecasts, using a short loop of tool calls',
+  ASK_READY: 'Writes the ready answers shown on the Map and the Plan matrix, precomputed after each forecast cycle',
 };
+
+/** The Ask tabs: their model choice is narrower than the platform list and they have no thinking switch. */
+const isAskTab = (key) => key === 'ASK' || key === 'ASK_READY';
 
 /** Per-model descriptions for the batch tabs. */
 const BATCH_MODEL_DESCRIPTIONS = {
@@ -241,13 +258,20 @@ export default function ModelSelectionView() {
   const [configs, setConfigs] = useState({});
   const [extendedThinkingConfig, setExtendedThinkingConfig] = useState({});
   const [costProfiles, setCostProfiles] = useState(null);
+  const [allowedByRunType, setAllowedByRunType] = useState({});
   const [tokenRates, setTokenRates] = useState({});
   const [gbpPerUsd, setGbpPerUsd] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [switching, setSwitching] = useState(false);
-  const [activeTab, setActiveTab] = useState('BRIEFING_BEST_BET');
+  const { selectedId: hashTab, select: selectHashTab } = useHashSelection('models', {
+    parse: parseTabSegments,
+    format: formatTab,
+  });
+  // Visibility is checked here, not in parse: a run type the reader cannot see falls back to the default.
+  const hashTabVisible = CONFIG_TABS.some((t) => t.key === hashTab && (!t.adminOnly || isAdmin));
+  const activeTab = hashTabVisible ? hashTab : DEFAULT_TAB;
 
   /**
    * Clears the success banner {@link SUCCESS_BANNER_MS} after it appears.
@@ -295,6 +319,7 @@ export default function ModelSelectionView() {
         setConfigs(data.configs || {});
         setExtendedThinkingConfig(data.extendedThinkingConfigs || {});
         setCostProfiles(data.costProfiles || null);
+        setAllowedByRunType(data.allowedByRunType || {});
         setTokenRates(data.tokenRates || {});
         setGbpPerUsd(typeof data.gbpPerUsd === 'number' ? data.gbpPerUsd : null);
       } catch (err) {
@@ -363,11 +388,16 @@ export default function ModelSelectionView() {
   const activeModelForTab = configs[activeTab] || 'HAIKU';
   const activeProfile = costProfiles?.[activeTab];
   const etOn = !!extendedThinkingConfig['BRIEFING_BEST_BET'];
+  // A run type the backend narrows (Ask) shows only the models it accepts; the others show every model.
+  const allowedForTab = allowedByRunType[activeTab];
+  const modelsForTab = allowedForTab
+    ? availableModels.filter((m) => allowedForTab.includes(m))
+    : availableModels;
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-plex-text mb-2">Run Configuration</h2>
+        <h2 className="text-xl font-bold text-plex-text mb-2">Model Configuration</h2>
         <p className="text-sm text-plex-text-secondary mb-4">
           Choose which Claude model to use for each forecast run type.
         </p>
@@ -378,7 +408,7 @@ export default function ModelSelectionView() {
         {visibleTabs.map((tab) => (
           <span key={tab.key} className="inline-flex items-center gap-1">
             <button
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => selectHashTab(tab.key, { replace: true })}
               className={`pb-2 text-sm font-medium transition-colors border-b-2 ${
                 activeTab === tab.key
                   ? 'text-plex-gold border-plex-gold'
@@ -406,7 +436,7 @@ export default function ModelSelectionView() {
 
       {/* Model cards for the active tab */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {availableModels.map((model) => {
+        {modelsForTab.map((model) => {
           const info = modelInfoFor(model);
           const isActive = model === activeModelForTab;
           const cost = costFor(activeProfile, model);
@@ -520,6 +550,19 @@ export default function ModelSelectionView() {
         </div>
       )}
 
+      {/* Ask: why the list is short, and that there is no thinking switch */}
+      {isAskTab(activeTab) && (
+        <div className="card border border-plex-border" data-testid="ask-model-note">
+          <p className="text-sm font-medium text-plex-text">Models Ask can run on</p>
+          <p className="text-xs text-plex-text-secondary mt-1">
+            Ask offers {modelsForTab.map((m) => modelInfoFor(m).name).join(', ')}. Models not listed are not
+            offered: Ask runs with thinking off to keep its token and time budgets, and Sonnet 5.5 cannot
+            switch thinking off. Ask has no extended-thinking switch. A switch applies to the next question (typed) or the next
+            precompute (ready answers).
+          </p>
+        </div>
+      )}
+
       {/* Aurora: how thinking is set (no toggle) */}
       {activeTab === 'AURORA_EVALUATION' && (
         <div className="card border border-plex-border" data-testid="aurora-thinking-note">
@@ -580,7 +623,7 @@ export default function ModelSelectionView() {
             </div>
             <p className="mt-2">
               The intraday cycle covers today&apos;s sunset and tomorrow&apos;s sunrise and sunset; the evening
-              cycle covers tomorrow&apos;s sunrise.
+              cycle covers tomorrow&apos;s sunrise and sunset.
             </p>
           </div>
           <div>
@@ -598,7 +641,7 @@ export default function ModelSelectionView() {
         activeTab={activeTab}
         costProfiles={costProfiles}
         gbpPerUsd={gbpPerUsd}
-        models={availableModels}
+        models={modelsForTab}
         activeModel={activeModelForTab}
       />
 

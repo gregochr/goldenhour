@@ -123,6 +123,10 @@ jobs:
         with:
           languages: ${{ needs.changes.outputs.docs_only == 'true' && 'javascript-typescript' || 'javascript-typescript, java-kotlin' }}
           config-file: ./.github/codeql/codeql-config.yml
+          # Per-commit `codeql-trap-*-javascript-<sha>` caches (~155 MiB each, one per push
+          # to main) were filling the 10 GB repository cache and evicting other caches
+          # (the NVD database, setup-java).
+          trap-caching: false
 
       - name: Build backend
         if: needs.changes.outputs.docs_only != 'true'

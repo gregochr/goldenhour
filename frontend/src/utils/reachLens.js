@@ -28,13 +28,22 @@ import { formatDriveDuration, formatDriveDurationCompact } from './briefingDispl
  * point and the mark's meaning are the same judgement, and splitting them would let a card call a
  * drive long that the control had just called ordinary.
  *
- * <h2>A lens with no data is not a gate</h2>
+ * <h2>A lens with no data is not a gate, but a confirmed omission is</h2>
  *
  * <p>Plan §2.5, rule 1, and it is the <b>normal first-run state</b> rather than a failure
  * (the retired Close-to-home service said so too). A spot with no drive time is
  * <em>unknown</em>, not out of reach: it passes every tier and is never far. {@link gateSpotsByReach}
  * and {@link isFarSpot} both key on {@code driveMinutes != null} for that reason, so a user with no
  * home postcode sees the control move and nothing else — a visible no-op, never a silently empty page.
+ *
+ * <p><b>Amended 2026-11-05 (reach-scoped-card-plan D1): there are three kinds of drive, not two.</b>
+ * A missing drive time is either {@code PENDING} (nothing has measured it yet: still unknown, still
+ * passes) or {@code UNROUTABLE} (the origin was fully measured after the place last moved, and
+ * OpenRouteService had no route: a confirmed omission). Rule 1 stays true of absence, but a
+ * confirmed omission no longer passes a finite tier for a reader whose drive times are measured —
+ * a summit with no road otherwise "fitted within 45 min" from everywhere and, as a high-rated
+ * mountain, won the Best row. The status is served ({@code driveStatus}, from the backend for home
+ * and derived in {@code planOrigin.js} for an away base); the client never infers it.
  */
 
 /** The tier that gates nothing. Its own id, so a stored value can name it. */
@@ -192,7 +201,9 @@ export function writeStoredTierId(tierId, todayStr) {
  * construction and is the honest answer to "what did that control just do".
  *
  * <p>A null default limit — only reachable if the default were ever "Any" — marks nothing, and so
- * does an unknown drive time (rule 1).
+ * does an unknown drive time (rule 1). An UNROUTABLE place has no drive time, so it is never far:
+ * "far" says the drive is long, and an unroutable place has no drive at all. A finite tier drops it
+ * in {@link gateSpotsByReach}; under "Any" it stays, unmarked.
  *
  * @param {?number} driveMinutes    the spot's drive time, or null when unknown
  * @param {?number} defaultLimitMinutes today's default tier's threshold
@@ -204,19 +215,108 @@ export function isFarSpot(driveMinutes, defaultLimitMinutes) {
 }
 
 /**
+ * The scope a tier-scoped headline word is printed with, in the compact spelling the Spread row's qualifier uses:
+ * {@code within 45m}, {@code within 1h30}, {@code within 2h30} (reach-scoped-card-plan D6, R2 step 9).
+ *
+ * <p>The PRINTED form: one function for every surface that prints a scoped word (the card's scope line, the dialog
+ * badge, the search row), so they cannot differ. Speech takes {@link verdictScopeSpoken}.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the card's {@code verdictScope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "within 45m"}, or null when the word is not scoped
+ */
+export function verdictScopeText(verdictScope) {
+  const minutes = formatDriveDurationCompact(verdictScope?.tierMinutes ?? null);
+  return minutes ? `within ${minutes}` : null;
+}
+
+/**
+ * The scope in its SHORTEST printed form, for a cell too narrow for {@link verdictScopeText}: {@code ≤45m},
+ * {@code ≤1h30}, {@code ≤2h30} (reach-scoped-card-plan R3). Visible only; speech still takes {@link verdictScopeSpoken}.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the verdict's {@code scope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "≤45m"}, or null when the word is not scoped
+ */
+export function verdictScopeShort(verdictScope) {
+  const minutes = formatDriveDurationCompact(verdictScope?.tierMinutes ?? null);
+  return minutes ? `≤${minutes}` : null;
+}
+
+/**
+ * The same scope as {@link verdictScopeText}, in the long form speech takes: {@code within 45 min},
+ * {@code within 1h 30min}, {@code within 2h 30min}. The card's own precedent (the Spread qualifier, `spreadQualifier`)
+ * prints short and speaks long, because "45m" is voiced as a letter; the visible string is the short one.
+ *
+ * @param {?{tierMinutes: ?number}} verdictScope the card's {@code verdictScope}, absent when the word is not scoped
+ * @returns {?string} e.g. {@code "within 45 min"}, or null when the word is not scoped
+ */
+export function verdictScopeSpoken(verdictScope) {
+  const minutes = formatDriveDuration(verdictScope?.tierMinutes ?? null);
+  return minutes ? `within ${minutes.toLowerCase()}` : null;
+}
+
+/** The served status of a drive that no OpenRouteService route exists for (reach-scoped-card-plan D1). */
+export const DRIVE_UNROUTABLE = 'UNROUTABLE';
+
+/**
+ * Whether a reach map holds any measured drive at all — the reader-level answer to "could a tier act".
+ *
+ * <p>Computed ONCE for the active origin (reach-scoped-card-plan D2, in {@code WindowFirstBriefingContext})
+ * and passed to every gate as {@code measured}; no surface may re-derive it from a subset of spots, which
+ * answers a different question (a region with no measured spot is not a reader with no measured drive).
+ * A reader with no measured entry (no postcode, Lite, a cleared home) is unchanged by the unroutable rule:
+ * everything passes and no surface says "within reach".
+ *
+ * @param {?Map} reachById location id to {@code {driveMinutes, ...}}, home's or the away origin's
+ * @returns {boolean} true when at least one location has a drive time
+ */
+export function reachIsMeasured(reachById) {
+  if (!reachById || typeof reachById.values !== 'function') return false;
+  for (const entry of reachById.values()) {
+    if (entry?.driveMinutes != null) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a finite tier drops a spot because it is UNROUTABLE.
+ *
+ * <p>The single predicate {@link gateSpotsByReach} filters with and every "N have no route" count reads, so
+ * what is removed and what is said to be removed are one test. Needs all three: a finite limit, a measured
+ * reader, and the served {@code UNROUTABLE} status on a spot with no drive time.
+ *
+ * @param {object}  spot         a spot descriptor
+ * @param {?number} limitMinutes the tier's threshold, null for "Any"
+ * @param {boolean} measured     the reader-level {@link reachIsMeasured}
+ * @returns {boolean} true when the gate removes this spot as unroutable
+ */
+export function isUnroutableDropped(spot, limitMinutes, measured) {
+  return limitMinutes != null && measured === true
+    && spot?.driveMinutes == null && spot?.driveStatus === DRIVE_UNROUTABLE;
+}
+
+/**
  * The spots a tier leaves on screen.
  *
  * <p>Inclusive at the boundary: a 45-minute drive is within "45 min". A null limit returns the input
- * untouched, and so does a spot with no drive time — rule 1 again, and it is why this is a filter
- * over a nullable field rather than a comparison with a default of zero.
+ * untouched, and so does a spot with no drive time unless its drive is UNROUTABLE (see the module
+ * comment): a PENDING or never-measured spot is <em>unknown</em> and passes, which is why this is a
+ * filter over a nullable field rather than a comparison with a default of zero.
+ *
+ * <p>{@code measured} is the reader-level answer ({@link reachIsMeasured}), never derived from
+ * {@code spots}. Without it (the default) nothing is dropped as unroutable, which is how a caller that
+ * has not been threaded behaves exactly as before.
  *
  * @param {Array} spots        ordered descriptors from {@code buildWindowSpots}
  * @param {?number} limitMinutes the active tier's threshold, or null for "Any"
+ * @param {object} [options]
+ * @param {boolean} [options.measured] whether this reader's drive times are measured at all
  * @returns {Array} the spots that pass, in the order they arrived
  */
-export function gateSpotsByReach(spots, limitMinutes) {
+export function gateSpotsByReach(spots, limitMinutes, { measured = false } = {}) {
   if (limitMinutes == null) return spots;
-  return spots.filter((spot) => spot.driveMinutes == null || spot.driveMinutes <= limitMinutes);
+  return spots.filter((spot) => (spot.driveMinutes == null
+    ? !isUnroutableDropped(spot, limitMinutes, measured)
+    : spot.driveMinutes <= limitMinutes));
 }
 
 /**

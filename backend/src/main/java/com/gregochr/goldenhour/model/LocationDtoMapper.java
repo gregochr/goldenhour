@@ -66,6 +66,7 @@ public class LocationDtoMapper {
                 toRegionDto(entity.getRegion()),
                 entity.isEnabled(),
                 entity.getCreatedAt(),
+                entity.getDriveTargetChangedAt(),
                 entity.getConsecutiveFailures(),
                 entity.getLastFailureAt(),
                 entity.getDisabledReason(),
@@ -91,7 +92,10 @@ public class LocationDtoMapper {
                 entity.getValleyFloorLat(),
                 entity.getValleyFloorLng(),
                 entity.getTideLat(),
-                entity.getTideLng());
+                entity.getTideLng(),
+                entity.getDrivePointName(),
+                entity.getDrivePointLat(),
+                entity.getDrivePointLon());
     }
 
     private LocationRegionDto toRegionDto(RegionEntity region) {

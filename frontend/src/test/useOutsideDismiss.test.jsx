@@ -16,6 +16,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import {
   useOutsideDismiss, isInsideMapFrame, MAP_FRAME_SELECTOR, isInsideAskSurface, ASK_SURFACE_SELECTOR,
+  isInsideGuideSurface, GUIDE_SURFACE_SELECTOR,
 } from '../hooks/useOutsideDismiss.js';
 
 /**
@@ -39,6 +40,10 @@ function Harness({ open = true, enabled = true, onDismiss }) {
       {/* Ask's dock: a sibling of the whole shell column, outside the frame and outside the panel. */}
       <aside data-ask-surface="" data-testid="ask-surface">
         <button type="button" data-testid="pick-card">a pick card in the dock</button>
+      </aside>
+      {/* The guide's docked column or stacked dialog (G2): the same kind of neighbour. */}
+      <aside data-guide-surface="" data-testid="guide-surface">
+        <button type="button" data-testid="guide-close-button">the guide close</button>
       </aside>
     </div>
   );
@@ -231,5 +236,39 @@ describe('useOutsideDismiss and Ask\'s dock', () => {
     fireEvent.mouseDown(screen.getByTestId('masthead'));
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useOutsideDismiss and the guide panel', () => {
+  it('names the panel by the attribute GuidePanel renders', () => {
+    expect(GUIDE_SURFACE_SELECTOR).toBe('[data-guide-surface]');
+  });
+
+  it('⚠️ does NOT dismiss on a press in the guide\'s own chrome', () => {
+    const onDismiss = vi.fn();
+    render(<Harness onDismiss={onDismiss} />);
+
+    fireEvent.mouseDown(screen.getByTestId('guide-surface'));
+    fireEvent.mouseDown(screen.getByTestId('guide-close-button'));
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('still dismisses on a press elsewhere outside the panel', () => {
+    const onDismiss = vi.fn();
+    render(<Harness onDismiss={onDismiss} />);
+
+    fireEvent.mouseDown(screen.getByTestId('guide-surface'));
+    fireEvent.mouseDown(screen.getByTestId('masthead'));
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('isInsideGuideSurface is false for a non-element and for the page', () => {
+    render(<Harness onDismiss={vi.fn()} />);
+    expect(isInsideGuideSurface(screen.getByTestId('guide-close-button'))).toBe(true);
+    expect(isInsideGuideSurface(screen.getByTestId('masthead'))).toBe(false);
+    expect(isInsideGuideSurface(document)).toBe(false);
+    expect(isInsideGuideSurface(null)).toBe(false);
   });
 });

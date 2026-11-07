@@ -376,7 +376,7 @@ class AskConversationTest {
 
     private AskConversation readyConversation(ReadyQuestion question, ReadyQuestion.Offer offer) {
         return open(question("ready question"), twoWindowSnapshot(), AskUserContext.userLess(),
-                new AskRunOptions(null, 99L, null, new AskAnswerValidator.ReadyBasis(question, offer)));
+                new AskRunOptions(null, 99L, null, new AskAnswerValidator.ReadyBasis(question, offer), null));
     }
 
     private static List<String> rankedWindows(AskConversation conversation) {

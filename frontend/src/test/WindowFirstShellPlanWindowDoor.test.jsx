@@ -177,7 +177,7 @@ const tab = (name) => screen.getByRole('tab', { name: name === 'At a Glance' ? /
 
 /** Presses the day header's topic pill for one topic type (At a Glance is the default tab). */
 async function pressLane(type) {
-  const button = (await screen.findAllByTestId('wf-glance-topic'))
+  const button = (await screen.findAllByTestId('wf-glance-lane'))
     .find((b) => b.getAttribute('data-topic') === type);
   expect(button).toBeDefined();
   await act(async () => { fireEvent.click(button); });
@@ -215,7 +215,7 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
     const onOpenMapTab = vi.fn();
     const mist = {
       type: 'MIST', label: 'Valley mist', date: TODAY, eventType: 'SUNRISE', regions: ['Lake District'],
-      glance: { value: 'dawn · likely at 2 sites', shortValue: 'likely', weather: true },
+      glance: { value: 'dawn · likely at 2 sites', weather: true },
     };
     await renderShell(
       { briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [mist], days: DAYS } },
@@ -312,8 +312,8 @@ describe('WindowFirstShell — the Plan window door (a Coming up lane’s tap-th
         },
       ],
     });
-    const pill = await screen.findByTestId('wf-glance-topic');
-    expect(pill.closest('[data-testid="wf-glance-topics"]')).toHaveStyle({ '--c': '1' });
+    const pill = await screen.findByTestId('wf-glance-lane');
+    expect(pill.closest('li')).toHaveStyle({ '--ls': '1', '--le': '2' });
     const days = screen.getAllByTestId('wf-heat-day');
     expect(days[0]).toHaveTextContent('Today31');
     expect(days[1]).toHaveTextContent('Fri1');

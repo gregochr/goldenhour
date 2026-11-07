@@ -1,8 +1,11 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 let mockTideLocked = true;
 vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
@@ -75,7 +78,7 @@ const renderEntry = (over) => render(
   <WindowComingUpEntry entry={view(over)} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} />,
 );
 
-beforeEach(() => { mockTideLocked = true; });
+beforeEach(() => { mockTideLocked = true; mockOpenGuide.mockClear(); });
 
 describe('Coming up — the Lite locked tide-light row', () => {
   it('draws the row inside the facts block, after the last fact, with the exact words', () => {
@@ -91,13 +94,14 @@ describe('Coming up — the Lite locked tide-light row', () => {
     expect(within(row).getByTestId('wf-cu-locked-sketch')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('is static: no role, tabindex, title or focusable descendant', () => {
+  it('is static: no role, tabindex, title or link, and its one control is the guide door (G3)', () => {
     renderPane([tide('a', '2026-08-12', { lightRowsWithheld: true })]);
     const row = screen.getByTestId('coming-up-tide-light-locked');
     expect(row).not.toHaveAttribute('role');
     expect(row).not.toHaveAttribute('tabindex');
     expect(row).not.toHaveAttribute('title');
-    expect(within(row).queryByRole('button')).toBeNull();
+    // Was: no button at all. G3 adds "What does this do?"; it is the only focusable thing in the row.
+    expect(within(row).getAllByRole('button').map((b) => b.getAttribute('data-testid'))).toEqual(['guide-why']);
     expect(within(row).queryByRole('link')).toBeNull();
     expect(within(row).getByTestId('wf-cu-locked-sketch')).toHaveAttribute('focusable', 'false');
     expect(row).not.toHaveTextContent(/upgrade/i);
@@ -213,5 +217,48 @@ describe('WindowComingUpEntry — the locked row in isolation', () => {
     expect(sketchB).toBe(sketchA);
     expect(sketchA).not.toContain('4.1');
     expect(sketchA).not.toContain('7.9');
+  });
+});
+
+describe('WindowComingUpEntry — guide doors on a tide run (G3)', () => {
+  it('draws "What does this do?" in the locked row, and a press opens coming-up#tides without touching the card', () => {
+    const onGoToPlan = vi.fn();
+    const onShowOnMap = vi.fn();
+    render(<WindowComingUpEntry entry={view({ lightRowsWithheld: true })} onGoToPlan={onGoToPlan} onShowOnMap={onShowOnMap} />);
+    const why = within(screen.getByTestId('coming-up-tide-light-locked')).getByTestId('guide-why');
+    fireEvent.click(why);
+    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'tides', expect.any(Object));
+    expect(onGoToPlan).not.toHaveBeenCalled();
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+
+  it('draws the locked-row link only for a Lite body (the wire flag), never on an unflagged run', () => {
+    renderEntry({ lightRowsWithheld: false, facts: [{ segments: [{ text: 'range', tone: 'base' }] }] });
+    expect(screen.queryByTestId('guide-why')).toBeNull();
+  });
+
+  it('draws a ? in the facts block of a tide run only, opening coming-up#tides', () => {
+    const { unmount } = renderEntry({ facts: [{ segments: [{ text: 'range', tone: 'base' }] }] });
+    const link = within(screen.getByTestId('coming-up-facts')).getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('How tide entries work');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'tides', expect.any(Object));
+    unmount();
+    renderEntry({
+      type: 'meteor-shower',
+      family: 'night-sky',
+      facts: [{ segments: [{ text: 'radiates', tone: 'base' }] }],
+    });
+    expect(screen.queryByTestId('guide-link')).toBeNull();
+  });
+
+  it('draws no door inside a card that is itself a button (a button cannot nest in one)', () => {
+    renderEntry({
+      interactive: true,
+      lightRowsWithheld: true,
+      facts: [{ segments: [{ text: 'range', tone: 'base' }] }],
+    });
+    expect(screen.queryByTestId('guide-link')).toBeNull();
+    expect(screen.queryByTestId('guide-why')).toBeNull();
   });
 });

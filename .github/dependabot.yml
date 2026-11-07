@@ -13,3 +13,13 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
+    groups:
+      # vitest and its @vitest/* companions (coverage-v8 is pinned to the exact vitest version) must bump together.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      # core and the vitest runner are pinned to each other's exact version, so they bump together.
+      stryker:
+        patterns:
+          - "@stryker-mutator/*"

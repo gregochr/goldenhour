@@ -166,6 +166,68 @@ class ForecastDispositionServiceTest {
     }
 
     @Test
+    @DisplayName("persist with a null pipeline run: saves the rows but records no link")
+    void persistWithPipelineRun_nullPipelineRunId_savesRowsWithoutLink() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+
+        service.persist(null, 555L, List.of(d));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastRunDispositionEntity>> captor = ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(captor.capture());
+        assertThat(captor.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getJobRunId()).isEqualTo(555L);
+            assertThat(row.getLocationName()).isEqualTo("Durham UK");
+            assertThat(row.getDisposition()).isEqualTo("SKIPPED_TRIAGED");
+        });
+        verifyNoInteractions(pipelineRunRepository);
+    }
+
+    @Test
+    @DisplayName("persist with a null job run: nothing is saved and no link is recorded")
+    void persistWithPipelineRun_nullJobRunId_noRowsNoLink() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "cloud");
+
+        service.persist(99L, null, List.of(d));
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(pipelineRunRepository);
+    }
+
+    @Test
+    @DisplayName("persist with a pipeline run: a null disposition list is a no-op")
+    void persistWithPipelineRun_nullList_noOp() {
+        service.persist(99L, 555L, null);
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(pipelineRunRepository);
+    }
+
+    @Test
+    @DisplayName("persist: a disposition with no event type is stored with a null event type")
+    void persist_nullEventType_storedAsNull() {
+        CandidateDisposition d = new CandidateDisposition(
+                42L, "Durham UK", TODAY, null, 0, DispositionCategory.EVALUATED, null);
+
+        service.persist(7L, List.of(d));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ForecastRunDispositionEntity>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(captor.capture());
+        assertThat(captor.getValue()).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getEventType()).isNull();
+                    assertThat(row.getJobRunId()).isEqualTo(7L);
+                    assertThat(row.getDisposition()).isEqualTo("EVALUATED");
+                });
+    }
+
+    @Test
     @DisplayName("persist: null jobRunId → no-op (no repo interaction)")
     void persist_nullJobRunId_noOp() {
         CandidateDisposition d = new CandidateDisposition(

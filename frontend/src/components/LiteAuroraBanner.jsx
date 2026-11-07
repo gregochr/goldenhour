@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import ProUpsellDoor, { AURORA_UPSELL_BODY, AURORA_UPSELL_HEADING } from './shared/ProUpsell.jsx';
 import { SEVERITY, rootVars } from './AuroraBanner.jsx';
+import GuideLink from './guide/GuideLink.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { isLiteAlertShown } from '../utils/auroraLiteAlert.js';
 
@@ -35,6 +36,7 @@ function Door() {
       body={AURORA_UPSELL_BODY}
       testIdPrefix="aurora-banner-upsell"
       className="wf-aurora-lite-door"
+      guide={{ section: 'auroraMap' }}
     />
   );
 }
@@ -102,6 +104,7 @@ export default function LiteAuroraBanner({ liteAlert }) {
           <p className="wf-aurora-strip-l2" data-testid="aurora-banner-strip-detail">{STRIP_DETAIL}</p>
         </div>
         <Door />
+        <GuideLink section="auroraAlerts" label="About aurora alerts" />
         <Dismiss onDismiss={onDismiss} strip />
       </div>
     );
@@ -127,6 +130,7 @@ export default function LiteAuroraBanner({ liteAlert }) {
           <p className="wf-aurora-title" data-testid="aurora-banner-title">{TITLE}</p>
         </div>
         <Door />
+        <GuideLink section="auroraAlerts" label="About aurora alerts" />
       </div>
       <Dismiss onDismiss={onDismiss} />
     </div>

@@ -2,6 +2,7 @@ import React, {
   Component, Suspense, lazy, useCallback, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
+import GuideLink from './guide/GuideLink.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
@@ -443,7 +444,21 @@ function AuroraToggle({
       data-testid="aurora-banner-toggle"
       className={`wf-aurora-tog ${className}`.trim()}
     >
-      <span aria-hidden="true">{expanded ? '˄' : '˅'}</span>
+      <span className="wf-aurora-tog-pill">
+        {expanded ? (
+          <>
+            Close
+            {' '}
+            <span aria-hidden="true">▴</span>
+          </>
+        ) : (
+          <>
+            Open
+            {' '}
+            <span aria-hidden="true">▾</span>
+          </>
+        )}
+      </span>
     </button>
   );
 }
@@ -580,6 +595,7 @@ function AuroraCard({
         </div>
         <div className="wf-aurora-actions">
           <AuroraToggle expanded onToggle={onToggle} toggleRef={toggleRef} hold={hold} />
+          <GuideLink section="auroraAlerts" label="About aurora alerts" />
           <button
             type="button"
             onClick={onDismiss}
@@ -696,6 +712,7 @@ function AuroraStrip({
         {onToggle && (
           <AuroraToggle expanded={false} onToggle={onToggle} toggleRef={toggleRef} hold={hold} className="wf-aurora-tog-strip" />
         )}
+        <GuideLink section="auroraAlerts" label="About aurora alerts" />
         <button
           type="button"
           onClick={onDismiss}

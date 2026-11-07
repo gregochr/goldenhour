@@ -2,6 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import WindowComingUpSinceLine from '../components/WindowComingUpSinceLine.jsx';
+import { mockOpenGuide } from './guideContextMock.js';
+
+vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
 /** A qualifying entry, in the shape the since-line reads (a subset of `ComingUpEntry`). */
 const sinceEntry = (over = {}) => ({
@@ -95,5 +98,20 @@ describe('WindowComingUpSinceLine', () => {
     );
     fireEvent.click(screen.getByTestId('coming-up-since-mark-seen'));
     expect(onMarkSeen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WindowComingUpSinceLine — guide door (G3)', () => {
+  it('opens coming-up#new from a ? beside Mark as seen, and never marks the entries seen', () => {
+    mockOpenGuide.mockClear();
+    const onMarkSeen = vi.fn();
+    render(
+      <WindowComingUpSinceLine badge={{ band: 'announce', count: 1 }} entry={sinceEntry()} onMarkSeen={onMarkSeen} />,
+    );
+    const link = screen.getByTestId('guide-link');
+    expect(link).toHaveAccessibleName('What new arrivals are');
+    fireEvent.click(link);
+    expect(mockOpenGuide).toHaveBeenCalledWith('coming-up', 'new', expect.any(Object));
+    expect(onMarkSeen).not.toHaveBeenCalled();
   });
 });

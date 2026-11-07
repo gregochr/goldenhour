@@ -22,6 +22,7 @@ import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.AnyRequestMatcher;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.CrossOriginResourcePolicyHeaderWriter.CrossOriginResourcePolicy;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -85,10 +86,16 @@ public class SecurityConfig {
                         .requestMatchers("/api/waitlist").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/container").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
-                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/v3/api-docs/**").permitAll()
+                        // Belt and braces: if the springdoc -ui starter is ever re-added, this still keeps
+                        // Swagger UI from being served (springdoc.swagger-ui.enabled is no longer set in prod).
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html").denyAll()
                         // Ask PhotoCast is Pro and Admin only. In the chain, so the refusal precedes
                         // AskBodyLimitFilter and the flag and admission interceptors.
                         .requestMatchers("/api/ask", "/api/ask/**").hasAnyRole("PRO_USER", "ADMIN")
+                        // Defence in depth: non-admins are refused at the filter, before argument binding, and
+                        // the method-level @PreAuthorize stays as the second layer.
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter,
@@ -100,8 +107,13 @@ public class SecurityConfig {
                 // refuses a flagged account everywhere but the endpoints that let it change the password.
                 .addFilterAfter(passwordChangeRequiredFilter, JwtAuthenticationFilter.class);
 
-        // Allow H2 console frames in the local profile
-        http.headers(headers -> headers.frameOptions(fo -> fo.sameOrigin()));
+        // Allow H2 console frames in the local profile (sameOrigin framing).
+        // Cross-Origin-Resource-Policy: nothing the API serves is loaded by another origin's no-cors
+        // request (the app's own browser calls are same-origin through the nginx proxy, and CORS
+        // fetches are not subject to CORP), so API responses opt out of cross-origin embedding.
+        http.headers(headers -> headers
+                .frameOptions(fo -> fo.sameOrigin())
+                .crossOriginResourcePolicy(corp -> corp.policy(CrossOriginResourcePolicy.SAME_ORIGIN)));
 
         return http.build();
     }

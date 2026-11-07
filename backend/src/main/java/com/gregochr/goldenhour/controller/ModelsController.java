@@ -34,6 +34,9 @@ public class ModelsController {
      * Get available evaluation models, per-run-type active models, extended-thinking flags, and the
      * measured cost of each Run Config tab (ADMIN only).
      *
+     * <p>{@code allowedByRunType} lists the models of a run type whose choice is narrower than
+     * {@code available} (Ask); a run type absent from it accepts every available model.
+     *
      * <p>{@code costProfiles} is keyed by run type and empty when the figures could not be computed;
      * {@code tokenRates} is the configured price of each selectable model; {@code gbpPerUsd} is the
      * newest rate recorded on a job run and is omitted when none exists.
@@ -48,12 +51,25 @@ public class ModelsController {
                 .toList();
         Map<String, Object> body = new HashMap<>();
         body.put("available", availableWithVersions);
+        body.put("allowedByRunType", allowedByRunType());
         body.put("configs", modelSelectionService.getAllConfigs());
         body.put("extendedThinkingConfigs", modelSelectionService.getAllExtendedThinkingConfigs());
         body.put("costProfiles", runCostProfileService.costProfiles());
         body.put("tokenRates", runCostProfileService.tokenRates());
         runCostProfileService.gbpPerUsd().ifPresent(rate -> body.put("gbpPerUsd", rate));
         return ResponseEntity.ok(body);
+    }
+
+    /** The models each restricted run type accepts, so the screen shows only those cards. */
+    private static Map<String, List<String>> allowedByRunType() {
+        Map<String, List<String>> allowed = new HashMap<>();
+        for (RunType type : ModelSelectionService.configurableRunTypes()) {
+            List<EvaluationModel> models = ModelSelectionService.allowedModels(type);
+            if (models.size() != EvaluationModel.selectable().size()) {
+                allowed.put(type.name(), models.stream().map(Enum::name).toList());
+            }
+        }
+        return allowed;
     }
 
     /**
@@ -66,8 +82,9 @@ public class ModelsController {
      * @param request body containing "runType" (or "configType") and "model" fields
      * @return response containing the updated run type and model
      * @throws IllegalArgumentException if the model or run type is unknown, the model is not
-     *                                  {@link EvaluationModel#selectable() selectable}, or the run
-     *                                  type is not configurable (mapped to 400)
+     *                                  {@link EvaluationModel#selectable() selectable} or not one the
+     *                                  run type allows ({@link ModelSelectionService#allowedModels}),
+     *                                  or the run type is not configurable (mapped to 400)
      */
     @PutMapping("/active")
     @PreAuthorize("hasRole('ADMIN')")
@@ -84,6 +101,9 @@ public class ModelsController {
         }
         if (!ModelSelectionService.isConfigurable(runType)) {
             throw new IllegalArgumentException("Run type " + runType + " has no configurable model");
+        }
+        if (!ModelSelectionService.allowedModels(runType).contains(model)) {
+            throw new IllegalArgumentException("Model " + model + " is not allowed for " + runType);
         }
         EvaluationModel active = modelSelectionService.setActiveModel(runType, model);
         return ResponseEntity.ok(Map.of("runType", runType, "active", active));

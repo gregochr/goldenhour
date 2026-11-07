@@ -1679,7 +1679,7 @@ public class AskTools {
             case UNRATED -> region.coverageReason() == null ? "Not rated for this window."
                     : "Not rated for this window. Its region was "
                             + (region.coverageReason() == CoverageReason.STOOD_DOWN
-                                    ? "stood down for the weather." : "not scored.");
+                                    ? "ruled out by the weather." : "not scored.");
             case CANOPY -> "A woodland canopy rating: how good the light under the trees is, not the sky.";
             case NEIGHBOUR_OUTLIER ->
                     "Rated well above the places beside it, so PhotoCast is not suggesting it.";

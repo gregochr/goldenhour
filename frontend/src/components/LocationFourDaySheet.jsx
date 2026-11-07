@@ -306,7 +306,10 @@ export default function LocationFourDaySheet({
     });
   }
 
+  // "1h 20min to Glenridding" when the minutes are measured to a drive point (reach-scoped-card-plan R1c); the miles
+  // the sheet never printed stay unprinted.
   const drive = formatDriveDuration(sheet.driveMinutes);
+  const driveText = drive && sheet.driveTo ? `${drive} to ${sheet.driveTo}` : drive;
   const handoff = sheet.rows.find((row) => row.key === sheet.handoffKey) ?? null;
   // The sub-region beside the region for a place outside the picks (design screen 06); absent when none is served.
   const placeSubRegion = location?.subRegionName ?? spot?.subRegionName ?? null;
@@ -316,7 +319,7 @@ export default function LocationFourDaySheet({
     // Named, never bare. The lens bar above the page names the base every other drive figure is
     // measured from, so a number here with no origin on it is one the reader cannot place against
     // it. `planOrigin` records the same rule for `distanceMiles`.
-    drive && originLabel ? `${drive} from ${originLabel}` : drive,
+    driveText && originLabel ? `${driveText} from ${originLabel}` : driveText,
   ].filter(Boolean);
 
   // ⚠️ A pure wildlife hide REPLACES the window rows with its hourly comfort forecast rather than
@@ -494,6 +497,7 @@ export default function LocationFourDaySheet({
                 heading={SCORES_UPSELL_HEADING}
                 body={SCORES_UPSELL_BODY}
                 testIdPrefix="wf-scores-upsell"
+                guide={{ section: 'fiery' }}
               />
             </div>
           )}

@@ -6,6 +6,7 @@ import JobSchedule from './JobSchedule.jsx';
 import JobNextFires, { SunTimingNotes } from './JobNextFires.jsx';
 import JobActions from './JobActions.jsx';
 import SkyEvalWeeklyModels from './SkyEvalWeeklyModels.jsx';
+import UnroutableLocationsSection from './UnroutableLocationsSection.jsx';
 import {
   CallsOutSection,
   ClaudeCostSection,
@@ -25,6 +26,9 @@ import {
   jobStatusView,
   relativeTime,
 } from '../../utils/schedulerView.js';
+
+/** The job whose panel lists the places no measured home or base can route to (reach-scoped-card-plan R1b). */
+const DRIVE_TIME_JOB_KEY = 'drive_time_refresh';
 
 /** The meta line for a job with no catalogue entry: "{type} · {status} · next {time} ({relative})". */
 function metaLine(job) {
@@ -141,6 +145,7 @@ export default function SchedulerJobPanel({
         <JobNextFires jobKey={job.jobKey} status={job.status} preview={preview} failed={previewFailed} showReference={!solar} />
       )}
       {job.jobKey === 'sky_rating_eval' && <SkyEvalWeeklyModels />}
+      {job.jobKey === DRIVE_TIME_JOB_KEY && <UnroutableLocationsSection />}
       <LastRunSection job={job} detail={detail} />
       {c && <ClaudeCostSection catalogue={c} detail={detail} loading={detailLoading} error={detailError} />}
       {c && <CallsOutSection services={c.services ?? []} />}

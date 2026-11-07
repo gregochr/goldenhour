@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
+import GuideLink, { GuideWhy } from '../guide/GuideLink.jsx';
 import InfoTip from '../InfoTip.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
@@ -49,7 +50,7 @@ export default function FiltersPopover({
   open, onOpenChange,
   minStars, onSelectMinStars,
   activeTypeFilters, onToggleType, subjectChips, seasonalFeatures, role,
-  driveTimeFilter, onSelectDriveTime, driveLocked = false,
+  driveTimeFilter, onSelectDriveTime, driveLocked = false, driveUnmeasured = false,
   darkSkyFilter, onToggleDarkSky, darkSkyThreshold,
   hasHome, heatArea, onSelectScope, areaLabel,
   isAuroraMode, isAstroMode,
@@ -187,10 +188,13 @@ export default function FiltersPopover({
                 onClick={() => (role !== 'LITE_USER' ? onToggleType('BLUEBELL') : undefined)}
                 disabled={role === 'LITE_USER'}
                 className={`wf-filters-chip-btn${activeTypeFilters.has('BLUEBELL') ? ' on' : ''}${role === 'LITE_USER' ? ' disabled' : ''}`}
-                title={role === 'LITE_USER' ? 'Upgrade to Pro to filter by Bluebell sites' : undefined}
+                title={role === 'LITE_USER' ? 'Bluebell filter is part of Pro' : undefined}
               >
                 🌸 Bluebell
               </button>
+            )}
+            {seasonalFeatures.includes('BLUEBELL') && role === 'LITE_USER' && (
+              <GuideWhy section="mapFilters" testId="guide-why-bluebell" />
             )}
           </div>
         </div>
@@ -212,7 +216,7 @@ export default function FiltersPopover({
                   key={value}
                   type="button"
                   // A real `disabled` as well as the wrapper's `pointer-events: none`: that does not stop a keyboard.
-                  disabled={driveLocked}
+                  disabled={driveLocked || driveUnmeasured}
                   data-testid={`drive-time-filter-${value}`}
                   aria-pressed={driveTimeFilter === value}
                   className={`wf-filters-seg-btn${driveTimeFilter === value ? ' on' : ''}`}
@@ -225,11 +229,24 @@ export default function FiltersPopover({
           );
           // Wrapped only when locked (the tide segment's wrapper), so the Pro DOM is unchanged.
           return driveLocked ? (
-            <div className="wf-map-peek-tide-seg-group">
-              {seg}
-              <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+            <div className="wf-filters-drive-lock">
+              <div className="wf-map-peek-tide-seg-group">
+                {seg}
+                <span data-testid="drive-time-filter-upsell" className="wf-lens-pro">Pro</span>
+              </div>
+              {/* On its own line under the segments, so the four buttons keep their single row. */}
+              <GuideWhy section="mapFilters" testId="guide-why-drive" />
             </div>
-          ) : seg;
+          ) : (driveUnmeasured ? (
+            // The reader has no measured drive time, so no tier can act (reach-scoped-card-plan R3): the buttons are
+            // disabled and say why, rather than showing a tier pressed that filters nothing.
+            <div className="wf-filters-drive-lock">
+              {seg}
+              <span className="wf-filters-hint" data-testid="drive-time-filter-unmeasured">
+                No drive times yet: set your home in Settings
+              </span>
+            </div>
+          ) : seg);
         })()}
       </div>
 
@@ -321,6 +338,7 @@ export default function FiltersPopover({
             Clear all
           </button>
         )}
+        <GuideLink section="mapFilters" label="How the map filters work" />
       </div>
     </>
   );
@@ -395,6 +413,8 @@ FiltersPopover.propTypes = {
   role: PropTypes.string,
   driveTimeFilter: PropTypes.number.isRequired,
   driveLocked: PropTypes.bool,
+  /** True when the reader's drives are unmeasured (not LITE): the tier buttons are disabled with a hint. */
+  driveUnmeasured: PropTypes.bool,
   onSelectDriveTime: PropTypes.func.isRequired,
   darkSkyFilter: PropTypes.bool.isRequired,
   onToggleDarkSky: PropTypes.func.isRequired,

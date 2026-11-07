@@ -17,6 +17,8 @@ import { BUSY_BUTTON, BUSY_BUTTON_DANGER } from '../utils/busyButton.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import useGeolocationPostcode from '../hooks/useGeolocationPostcode.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
+import { useGuide } from '../context/GuideContext.jsx';
+import { GuideWhy } from './guide/GuideLink.jsx';
 
 const ROLE_LABELS = {
   ADMIN: { text: 'Admin', cls: 'bg-red-900/40 border-red-500/50 text-red-300' },
@@ -83,6 +85,9 @@ export default function UserSettingsModal({
   // True while a sub-region dialog (the phone picker sheet, or the save confirmation) is over this one:
   // `Modal`'s `stacked` then makes this layer inert so only one dialog is ever THE modal.
   const [subRegionsStacked, setSubRegionsStacked] = useState(false);
+  // The guide as a dialog over this one (G2): the same stacked protocol as the sub-region layer.
+  const { openGuide, guideModal } = useGuide();
+  const stacked = subRegionsStacked || guideModal;
   const isMobile = useIsMobile();
   // The read on opening starts through the newest callback without the read re-running when the
   // callback's identity changes — it is made once, from a mount effect.
@@ -923,6 +928,8 @@ export default function UserSettingsModal({
                   </p>
                 )}
               </div>
+              {/* Outside the greyed wrapper: pointer-events-none would make the door unpressable. */}
+              {!isPro && <GuideWhy section="settingsRadius" testId="guide-why-radius" />}
             </div>
           </section>
 
@@ -1062,6 +1069,8 @@ export default function UserSettingsModal({
                 </p>
               )}
             </div>
+            {/* Outside the greyed wrapper, which is pointer-events-none. */}
+            {!isPro && <GuideWhy section="settingsDrive" testId="guide-why-drive" />}
           </section>
           {!isPro && (
             <p className="text-center text-plex-text-secondary text-[13px]">
@@ -1168,7 +1177,7 @@ export default function UserSettingsModal({
       // It is withheld while the sub-region sheet or its save confirmation is over this dialog: that
       // layer's own Escape closes it first, and `Modal` requires a stacked layer to stand down or one
       // press would answer both. The desktop inline picker is not a dialog, so Escape closes Settings.
-      closeOnEscape={!subRegionsStacked}
+      closeOnEscape={!stacked}
       // The dialog is already four sections tall and the open danger zone adds a field, an error
       // line and two buttons: on a short or keyboard-shortened phone the centred panel would clip
       // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
@@ -1176,12 +1185,21 @@ export default function UserSettingsModal({
       // not scroll: the body below does, so the header (and its ×) can never be scrolled off screen
       // by the sub-region picker's `scrollIntoView`.
       className={isMobile ? 'max-h-full' : 'max-h-full overflow-y-auto'}
-      stacked={subRegionsStacked}
+      stacked={stacked}
       restoreFocusFallback={restoreFocusFallback}
       data-testid="settings-modal"
     >
       <div key="settings" ref={viewRef} className={`flex items-center justify-between${isMobile ? ' shrink-0' : ''}`}>
         <h2 className="text-lg font-semibold text-plex-text">Settings</h2>
+        <button
+          type="button"
+          onClick={() => openGuide('settings')}
+          className="ml-auto mr-3 w-6 h-6 rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text text-sm font-mono leading-none"
+          aria-label="Guide for Settings"
+          data-testid="settings-guide"
+        >
+          ?
+        </button>
         <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
       </div>
 

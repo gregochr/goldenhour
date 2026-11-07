@@ -3,25 +3,21 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import BoltIcon from './BoltIcon.jsx';
+import GuideLink from '../guide/GuideLink.jsx';
 import {
   barTarget, columnWord, labelTarget, markPhrase,
 } from '../../utils/mapTopics.js';
+import { barLightState, currentDayIndex, topicDays } from '../../utils/mapTopicDays.js';
 
 /** No locked types: every row is an ordinary topic door (PRO, Admin, and every bare render). */
 const NO_LOCKED_TYPES = [];
 /** Appended to a locked door's name when it has nothing to open (the phone, no coastal spot in view). */
 const DOOR_DISABLED_SUFFIX = ', no coastal spot in view';
 
-/** The per-viewer preference: '1' (open), '0' (closed) or absent (the frame height decides). */
-export const TOPIC_STRIP_OPEN_KEY = 'mapTopicStripOpen';
-
-/** With no stored choice the strip starts open only on a map frame at least this tall (CSS px). */
-export const OPEN_BY_DEFAULT_MIN_FRAME_PX = 720;
-
 /** The phone sheet's own preference (M4): a rotate across 640px must not carry one variant's choice into the other. */
 export const TOPIC_STRIP_OPEN_SHEET_KEY = 'mapTopicStripOpenSheet';
 
-/** The stored preference as true / false, or null when there is none (or storage is unavailable). */
+/** The sheet's stored preference as true / false, or null when there is none (or storage is unavailable). */
 function readOpenPreference(key) {
   try {
     const v = localStorage.getItem(key);
@@ -69,16 +65,20 @@ function spanWords(grid, bar) {
  * visible label (WCAG 2.5.3) and then say which windows and where a press goes. A column with no EV
  * row, and a past column of today, are drawn but cannot be pressed.
  *
- * <p><b>Collapse.</b> The header is a {@code <button aria-expanded>}. The preference lives in
- * {@code localStorage} under try/catch and is three-way: '1', '0', or absent, and when absent the strip
- * starts open only on a map frame at least {@link OPEN_BY_DEFAULT_MIN_FRAME_PX} tall (a short frame is
- * where its label cost is highest). That default is not a hold: the reader can open it, and
- * doing so stores '1'.
+ * <p><b>Collapse.</b> The panel variant starts collapsed and its open state is OWNED BY {@code MapView}
+ * ({@code open} / {@code onOpenChange}, session-only, the tide strip's precedent: the pane is never
+ * unmounted, so no storage; collapse-and-topic-pips-plan.md §1). Collapsed, the header is the tide strip's
+ * collapsed row: the label {@code HOT TOPICS}, one day group per forecast day with up to three topic dots
+ * ({@link topicDays}), and the shared {@code Open ▴} button; {@code none ahead} replaces the groups when no
+ * topic is in the four days. A day with a topic window to open is a button that calls {@code onJumpToDay}
+ * (desktop and tablet only; the panel stays collapsed). Rendered bare (no {@code open} prop) the panel keeps
+ * its own in-memory state, default collapsed. The sheet variant keeps its {@code localStorage} preference
+ * ({@link TOPIC_STRIP_OPEN_SHEET_KEY}) and its plain header button.
  *
  * <p><b>Held.</b> {@code held} (an open tide strip is showing) draws the strip closed but leaves the
- * header pressable: a press stores '1' and calls {@code onOpenHeld}; the strip does NOT open itself, it
- * opens when the owner re-renders with {@code held} false (topic-strip-tide-yield-plan). The sheet
- * variant ignores {@code held}.
+ * header pressable: a press records the open state and calls {@code onOpenHeld}; the strip does NOT open
+ * itself, it opens when the owner re-renders with {@code held} false (topic-strip-tide-yield-plan). The
+ * sheet variant ignores {@code held}.
  *
  * <p><b>Focus.</b> A press that MOVES the window parks focus on the strip root (kept mounted,
  * {@code tabIndex -1}) BEFORE it changes it, the tide strip's {@code focusAfterJump} order, because the
@@ -91,6 +91,11 @@ function spanWords(grid, bar) {
  * @param {object} props.grid {@code fourDayGrid}'s result
  * @param {?string} props.selectedType the selected topic type, or null
  * @param {Array<string>} props.currentTypes the topic types that are chips on the window on screen
+ * @param {boolean} [props.open] panel only: the open state, owned by the caller; omitted, the panel keeps its
+ *   own (default collapsed)
+ * @param {?Function} [props.onOpenChange] panel only: {@code (next: boolean) => void}, the reader opened or closed it
+ * @param {?Function} [props.onJumpToDay] panel only: {@code (row, message) => void}, a day dot was pressed;
+ *   {@code row} is the EV row to select (the window control's own path), {@code message} the words to announce
  * @param {boolean} [props.held] draw closed but pressable (the tide strip is open); panel only
  * @param {string} [props.heldReason] what holds it, in words: "the tide strip"
  * @param {?Function} [props.onOpenHeld] called when the reader presses the header while held
@@ -103,7 +108,7 @@ function spanWords(grid, bar) {
  * @param {?Function} [props.onHeightChange] called with the strip's height in px, null on unmount
  * @param {?Function} [props.fallbackFocus] where focus goes if the strip unmounts holding it
  * @param {'panel'|'sheet'} [props.variant] {@code 'sheet'} (M4, phone only) is the same grid inside the peek
- *   sheet's Windows body: full width, 70px label column, no frame-height default (it starts closed when no
+ *   sheet's Windows body: full width, 78px label column, no frame-height default (it starts closed when no
  *   preference is stored (unless {@code openByDefault}), no height report, its own storage key
  *   ({@link TOPIC_STRIP_OPEN_SHEET_KEY}), and a scroll into view when the reader opens it. The model, names and
  *   presses are the panel's own.
@@ -119,28 +124,28 @@ function spanWords(grid, bar) {
  * @param {boolean} [props.doorDisabled] a locked door with nothing to open (phone, no coastal spot in view)
  */
 export default function MapTopicStrip({
-  grid, selectedType = null, currentTypes, held = false,
+  grid, selectedType = null, currentTypes, open: openProp = undefined, onOpenChange = undefined,
+  onJumpToDay = undefined, held = false,
   heldReason = '', onOpenHeld = undefined, onCloseYielded = undefined, onToggleType,
   onPick, onSelectHw = undefined, onHeightChange = undefined, fallbackFocus = null, variant = 'panel',
   openByDefault = false, lockedTopicTypes = NO_LOCKED_TYPES, upsellOpen = false,
   upsellId = undefined, doorPopup = true, doorDisabled = false,
 }) {
   const inSheet = variant === 'sheet';
-  const storageKey = inSheet ? TOPIC_STRIP_OPEN_SHEET_KEY : TOPIC_STRIP_OPEN_KEY;
-  const [pref, setPref] = useState(() => readOpenPreference(storageKey));
+  // The sheet's own stored preference; the panel's open state is the owner's (or, bare, this local flag).
+  const [pref, setPref] = useState(() => (inSheet ? readOpenPreference(TOPIC_STRIP_OPEN_SHEET_KEY) : null));
+  const [localOpen, setLocalOpen] = useState(false);
   const [node, setNode] = useState(null);
-  // The map frame's height while it is known (0 reads as hidden, i.e. unknown), for the default.
-  const [frameHeight, setFrameHeight] = useState(null);
   const gridId = useId();
   const heldId = useId();
   const headerRef = useRef(null);
   const focusedInGridRef = useRef(null);
   const scrollOnOpenRef = useRef(false);
   const fallbackRef = useRef(fallbackFocus);
-  const defaultOpen = inSheet
-    ? openByDefault
-    : (frameHeight == null || frameHeight >= OPEN_BY_DEFAULT_MIN_FRAME_PX);
-  const stored = pref ?? defaultOpen;
+  const controlled = !inSheet && openProp !== undefined;
+  let stored = localOpen;
+  if (inSheet) stored = pref ?? openByDefault;
+  else if (controlled) stored = openProp;
   // The sheet has no tide strip, so it ignores `held`.
   const isHeld = held && !inSheet;
   const open = stored && !isHeld;
@@ -149,19 +154,10 @@ export default function MapTopicStrip({
   // needs only this value's identity changing as its repaint trigger.
   useEffect(() => {
     if (inSheet || !node || typeof ResizeObserver === 'undefined') return undefined;
-    // The frame is the positioned ancestor of the chrome-bl stack this strip sits in: its height is
-    // watched by the SAME observer that reports the strip's own height (no second observer).
-    const stack = node.parentElement;
-    const frame = stack?.offsetParent ?? stack?.parentElement ?? null;
-    const write = () => {
-      onHeightChange?.(Math.round(node.offsetHeight));
-      const h = frame?.offsetHeight ?? 0;
-      setFrameHeight(h > 0 ? h : null);
-    };
+    const write = () => onHeightChange?.(Math.round(node.offsetHeight));
     write();
     const observer = new ResizeObserver(write);
     observer.observe(node);
-    if (frame) observer.observe(frame);
     return () => {
       observer.disconnect();
       onHeightChange?.(null);
@@ -192,7 +188,7 @@ export default function MapTopicStrip({
   });
   // Unmounting while holding focus (the topics all went, the width crossed the phone line): the pane.
   useLayoutEffect(() => () => {
-    const root = headerRef.current?.parentElement;
+    const root = headerRef.current?.closest('.wf-topic-strip');
     if (root && root.contains(document.activeElement)) fallbackRef.current?.();
   }, []);
 
@@ -211,17 +207,27 @@ export default function MapTopicStrip({
   const parkFocus = () => node?.focus({ preventScroll: true });
   const onCurrent = (type) => currentTypes.includes(type);
 
+  /** Records the reader's open or close: the sheet's stored preference, or the panel's owner (or local flag). */
+  function setStored(next) {
+    if (inSheet) {
+      setPref(next);
+      writeOpenPreference(TOPIC_STRIP_OPEN_SHEET_KEY, next);
+    } else if (controlled) {
+      onOpenChange?.(next);
+    } else {
+      setLocalOpen(next);
+    }
+  }
+
   function toggleOpen() {
     if (isHeld) {
       // The owner opens it by re-rendering with `held` false; nothing opens locally.
-      setPref(true);
-      writeOpenPreference(storageKey, true);
+      setStored(true);
       onOpenHeld?.();
       return;
     }
     const next = !open;
-    setPref(next);
-    writeOpenPreference(storageKey, next);
+    setStored(next);
     scrollOnOpenRef.current = inSheet && next;
     if (!next && !inSheet) onCloseYielded?.();
   }
@@ -305,6 +311,71 @@ export default function MapTopicStrip({
     onSelectHw?.(tick.row, `Window moved to ${tick.dow} high water ${tick.time}`);
   }
 
+  // The collapsed row's day groups: panel only, and only while collapsed (nothing is built otherwise).
+  const days = !inSheet && !open ? topicDays(grid) : [];
+  const currentDay = !inSheet && open ? currentDayIndex(grid) : -1;
+
+  function pressDay(d) {
+    if (d.current || !d.target) return;
+    // The window moves: park focus on the strip root first (the focus rule above), as a bar press does.
+    parkFocus();
+    onJumpToDay?.(d.target.row, `Window moved to ${d.target.word}`);
+  }
+
+  function renderDay(d) {
+    const body = (
+      <>
+        <span aria-hidden="true">{d.label}</span>
+        <span className="wf-tl-dots" aria-hidden="true">
+          {d.dots.length === 0
+            ? <i className="wf-tl-dot wf-tl-dot-empty" data-testid={`wf-topic-day-empty-${d.index}`} />
+            : d.dots.map((dot) => (
+              <i
+                key={dot.type}
+                className="wf-tl-dot"
+                data-state={dot.state}
+                data-testid={`wf-topic-dot-${d.index}-${dot.type}`}
+                style={{ '--wf-tc': dot.colour }}
+              />
+            ))}
+        </span>
+        {d.tooltip && (
+          <span className="wf-tl-tip" aria-hidden="true" data-testid={`wf-topic-day-tip-${d.index}`}>
+            {d.tooltip.lead}
+            {d.tooltip.rest && <span>{d.tooltip.rest}</span>}
+          </span>
+        )}
+      </>
+    );
+    const common = {
+      className: 'wf-tl-day',
+      'data-current': d.current ? 'true' : undefined,
+      'data-edge': d.index === 0 ? 'left' : undefined,
+      'data-testid': `wf-topic-day-${d.index}`,
+    };
+    if (d.tooltip) {
+      return (
+        <button
+          key={d.date}
+          type="button"
+          {...common}
+          aria-label={d.tooltip.lead}
+          aria-current={d.current ? 'true' : undefined}
+          aria-disabled={d.current ? 'true' : undefined}
+          onClick={() => pressDay(d)}
+        >
+          {body}
+        </button>
+      );
+    }
+    return (
+      <span key={d.date} {...common}>
+        {body}
+        <span className="sr-only">{`${d.dow}: ${d.topicCount > 0 ? 'no window to open' : 'no hot topics'}`}</span>
+      </span>
+    );
+  }
+
   return (
     <div
       ref={setNode}
@@ -316,19 +387,60 @@ export default function MapTopicStrip({
       data-testid="wf-topic-strip"
       data-open={open ? 'true' : 'false'}
     >
-      <button
-        ref={headerRef}
-        type="button"
-        className="wf-tl-head"
-        aria-expanded={open}
-        aria-controls={open ? gridId : undefined}
-        aria-describedby={describedBy}
-        data-testid="wf-topic-strip-toggle"
-        onClick={toggleOpen}
-      >
-        <span>Hot topics · next four days</span>
-        <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>
-      </button>
+      {inSheet ? (
+        // The guide door sits BESIDE the header button, never inside it (a button cannot nest in one).
+        <div className="wf-tl-head-row">
+          <button
+            ref={headerRef}
+            type="button"
+            className="wf-tl-head"
+            aria-expanded={open}
+            aria-controls={open ? gridId : undefined}
+            aria-describedby={describedBy}
+            data-testid="wf-topic-strip-toggle"
+            onClick={toggleOpen}
+          >
+            <span>Hot topics · next four days</span>
+            <span className="wf-tl-cv" aria-hidden="true">{open ? '▾' : '▴'}</span>
+          </button>
+          <GuideLink section="mapHotTopics" label="How the hot topics panel works" />
+        </div>
+      ) : (
+        // The panel's header row (collapse-and-topic-pips-plan.md §1): a div, because the day groups are
+        // buttons and cannot nest in one. The whole row is a mouse target for the toggle; the toggle button
+        // is the keyboard and screen-reader control.
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+        <div
+          className="wf-tl-collapsed"
+          data-testid="wf-topic-strip-head"
+          onClick={(e) => {
+            if (!e.target.closest('button')) toggleOpen();
+          }}
+        >
+          <span className="wf-tide-strip-kicker">{open ? 'Hot topics · next four days' : 'Hot topics'}</span>
+          <GuideLink section="mapHotTopics" label="How the hot topics panel works" />
+          {!open && (grid.rows.length > 0 ? (
+            <span className="wf-tl-days" data-testid="wf-topic-strip-days">
+              {days.map((d) => renderDay(d))}
+            </span>
+          ) : (
+            <span className="wf-tl-none" data-testid="wf-topic-strip-none">none ahead</span>
+          ))}
+          <button
+            ref={headerRef}
+            type="button"
+            className="wf-tide-strip-toggle"
+            aria-expanded={open}
+            aria-controls={open ? gridId : undefined}
+            aria-describedby={describedBy}
+            aria-label={open ? 'Collapse' : undefined}
+            data-testid="wf-topic-strip-toggle"
+            onClick={toggleOpen}
+          >
+            {open ? <span aria-hidden="true">▾</span> : (<>Open <span aria-hidden="true">▴</span></>)}
+          </button>
+        </div>
+      )}
       {isHeld && heldReason && (
         <span id={heldId} className="sr-only" data-testid="wf-topic-strip-held-reason">
           {`Opening it collapses ${heldReason}`}
@@ -366,6 +478,7 @@ export default function MapTopicStrip({
               aria-hidden="true"
               data-testid={`wf-topic-strip-day-${day.date}`}
               data-today={day.today ? 'true' : undefined}
+              data-current-day={i === currentDay ? 'true' : undefined}
               style={{ gridArea: `1 / ${i * 2 + 2} / 2 / ${i * 2 + 4}` }}
             >
               <i>{day.dow.slice(0, 3)}</i>
@@ -396,8 +509,8 @@ export default function MapTopicStrip({
             if (first >= 0) jump = `jump to ${columnWord(grid, first)}`;
             // The toggle's name must not flip with its state: `aria-pressed` carries that.
             let labelName = onHere
-              ? `${topicRow.shortName}: show on the map`
-              : `${topicRow.shortName}: ${jump}`;
+              ? `${topicRow.name}: show on the map`
+              : `${topicRow.name}: ${jump}`;
             // A locked row opens the upsell: "show on the map" / "jump to ..." would be false.
             if (rowLocked) labelName = `${topicRow.name}, a Pro map view${doorDisabled ? DOOR_DISABLED_SUFFIX : ''}`;
             // The tide runs' peak (served: tideRun.peak) rides under the name; the sheet keeps the day only.
@@ -405,8 +518,8 @@ export default function MapTopicStrip({
             let subText = null;
             if (sub) subText = inSheet || !sub.range ? `peak ${sub.dow.slice(0, 3)}` : `peak ${sub.dow.slice(0, 3)} \u00B7 ${sub.range}`;
             if (sub) {
-              labelName = labelName.replace(`${topicRow.shortName}:`,
-                `${topicRow.shortName}, ${subText}:`);
+              labelName = labelName.replace(`${topicRow.name}:`,
+                `${topicRow.name}, ${subText}:`);
             }
             return (
               <React.Fragment key={topicRow.type}>
@@ -434,12 +547,12 @@ export default function MapTopicStrip({
                       <span className="wf-tl-n1">
                         <span className="wf-tl-g">{topicRow.glyph}</span>
                         {' '}
-                        {topicRow.shortName}
+                        {topicRow.name}
                       </span>
                       <span className="wf-tl-sub" data-testid={`wf-topic-strip-sub-${topicRow.type}`}>{subText}</span>
                     </span>
                   ) : (
-                    <span aria-hidden="true">{topicRow.shortName}</span>
+                    <span aria-hidden="true">{topicRow.name}</span>
                   )}
                 </button>
                 {topicRow.bars.map((bar) => {
@@ -454,6 +567,8 @@ export default function MapTopicStrip({
                     'data-testid': `wf-topic-bar-${topicRow.type}-${bar.start}`,
                     'data-current': covers ? 'true' : undefined,
                     'data-selected': isSelected && covers ? 'true' : undefined,
+                    // The panel's current day: the bar on the selected window glows, the same day's other light dashes.
+                    'data-light': inSheet ? undefined : (barLightState(grid, bar) ?? undefined),
                     style: {
                       gridArea: `${gridRow} / ${bar.start + 2} / ${gridRow + 1} / ${bar.end + 3}`,
                       '--wf-tc': topicRow.colour,
@@ -479,13 +594,13 @@ export default function MapTopicStrip({
                     return (
                       <span key={key} {...barProps} data-interactive="false">
                         <span className="sr-only">
-                          {`${topicRow.shortName}, ${span}, no window to open`}
+                          {`${topicRow.name}, ${span}, no window to open`}
                         </span>
                       </span>
                     );
                   }
-                  let name = `${topicRow.shortName}, ${span}, opens ${columnWord(grid, target.column)}`;
-                  if (target.stay) name = `${topicRow.shortName}, ${span}, current window`;
+                  let name = `${topicRow.name}, ${span}, opens ${columnWord(grid, target.column)}`;
+                  if (target.stay) name = `${topicRow.name}, ${span}, current window`;
                   if (target.stay && isSelected) name += ', selected';
                   return (
                     <button
@@ -605,7 +720,6 @@ MapTopicStrip.propTypes = {
     })),
     rows: PropTypes.arrayOf(PropTypes.shape({
       type: PropTypes.string,
-      shortName: PropTypes.string,
       glyph: PropTypes.string,
       colour: PropTypes.string,
       bigSeas: PropTypes.bool,
@@ -637,6 +751,9 @@ MapTopicStrip.propTypes = {
   }).isRequired,
   selectedType: PropTypes.string,
   currentTypes: PropTypes.arrayOf(PropTypes.string).isRequired,
+  open: PropTypes.bool,
+  onOpenChange: PropTypes.func,
+  onJumpToDay: PropTypes.func,
   held: PropTypes.bool,
   heldReason: PropTypes.string,
   onOpenHeld: PropTypes.func,

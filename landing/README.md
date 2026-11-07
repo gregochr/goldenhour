@@ -6,7 +6,9 @@ Plain static HTML, one stylesheet and two small scripts. **No build step, no bun
 ```
 index.html              the marketing page
 faq.html                privacy.html   terms.html   acknowledgements.html
+guide/                  the user guide: nine pages, guide.css, guide.js, guide-search.js, shots/*.webp
 photocast.css           the shared skin for all five pages
+home.css                rules for index.html only (kept apart: they style bare elements like section)
 viewer.js               the screenshot viewer (index.html only; plain JS, no dependencies)
 home.js                 phone-only enhancements for index.html (plain JS, no dependencies)
 favicon.svg  favicon.png  apple-touch-icon.png   screenshot*.png
@@ -23,7 +25,9 @@ fires on a `v*` tag and builds exactly two images, backend and frontend — it n
 looks at this directory. So cutting a version tag does not publish a landing change,
 and publishing a landing change does not need a version tag. The two are independent.
 
-There is no CI for it either. The container is built **on the production host** from the
+CI does not build or deploy it, but a change under `landing/guide/`, `nginx.conf`, `Dockerfile` or
+`security-headers.conf` runs the frontend suite (which pins the nginx headers) and the landing
+`nginx -t` step plus the access-log canary. The container is built **on the production host** from the
 files in this directory, and the release is a command you run from your laptop:
 
 ```bash
@@ -80,13 +84,14 @@ routing config lives on the host (`~/.cloudflared/`), not in this repo.
 
 ## Adding a file
 
-⚠️ **`Dockerfile` copies every file by name, one `COPY` per line.** It does not copy the
-directory. A new asset that is not added there is missing in production while looking
+⚠️ **`Dockerfile` copies every root file by name, one `COPY` per line.** The one exception is
+`guide/`, which is copied as a directory (`COPY guide/ …`): a file added under `guide/` needs no `COPY`
+line. Every other new asset that is not added there is missing in production while looking
 perfectly fine locally — the page renders from disk in your browser and from the image
 in the container, and only the container is short a file. This has already bitten once:
 `photocast.css` arrived without a `COPY` line and would have shipped every page unstyled.
 
-Add the `COPY` line in the same commit as the file.
+Add the `COPY` line in the same commit as the file (not needed under `guide/`).
 
 **Asset URLs are fingerprinted at image build.** nginx and Cloudflare cache css/js/images for 30
 days under fixed URLs, so a changed file would be masked. A `RUN` step in `Dockerfile` hashes each
@@ -96,10 +101,39 @@ The source HTML keeps plain URLs (local previews are unchanged), and plain paths
 **Caching split.** HTML is served `Cache-Control: no-cache` (revalidated on every visit, a cheap 304), so a
 deploy is seen at once; fingerprinted assets are cached for 30 days. The security headers live in
 `security-headers.conf` (included at server level and in each location) because a location with its own
-`add_header` stops inheriting the server-level ones.
+`add_header` stops inheriting the server-level ones. They are `X-Frame-Options`, `X-Content-Type-Options`,
+`Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` and a `Content-Security-Policy` sized
+to what the pages load (same-origin scripts, no inline script; same-origin styles, no inline style: the
+`<style>` block and `style=""` attributes became classes, and a Vitest test keeps them out; Google Fonts). A page that starts loading anything else
+(another script host, an iframe, a form post elsewhere) must widen the policy in the same change.
+There is deliberately no `Strict-Transport-Security`: that is a long-lived commitment for the owner to make.
 
 The live `photocast.css` still needs a one-off Cloudflare purge to clear the copy cached under the
 old plain URL. That only matters for the plain URL: once fingerprinted URLs ship, nothing requests it.
+
+## Guide pages
+
+`guide/` holds the user guide, served at `https://photocast.online/guide/`. The app's help panel (a
+later phase) frames these pages with `?embed=1`; `guide.js` is the embed mode and posts the page title
+to the app. `nginx.conf` maps `/guide/` documents to `frame-ancestors https://app.photocast.online` and no
+`X-Frame-Options` (every other page keeps `SAMEORIGIN` and `frame-ancestors 'self'`).
+`/guide` redirects to `/guide/`. The fingerprint step in the `Dockerfile` also runs inside `guide/`
+(its own assets and `../photocast.css`, `../favicon.png`).
+
+Deploy the landing site before any app release that opens the guide panel; until then /guide/ refuses to be framed.
+
+**Section-id contract.** The app opens exactly these `page#section` ids, and a frontend test checks
+each exists in `guide/`. Rename one here and it must change in the app too: `at-a-glance#lens`,
+`at-a-glance#bestbet`, `reading-the-forecast#fixed`, `reading-the-forecast#colour`,
+`reading-the-forecast#fiery`, `coming-up#new`, `coming-up#topics`, `coming-up#tides`, `map#window`,
+`map#filters`, `map#hot-topics`, `map#tide`, `night-sky#alerts`, `night-sky#aurora-map`,
+`ask-photocast#typed`, `settings#sub-regions`, `settings#drive`, `settings#radius`, plus the pages
+`at-a-glance`, `coming-up`, `map`, `ask-photocast`, `settings`.
+
+**Filling a placeholder screenshot.** Placeholders (`map#shot-tide-match`, `at-a-glance#shot-days`,
+`at-a-glance#shot-open`, `night-sky#shot-banner`, `night-sky#shot-aurora-map`) are `<figure id="shot-…">`
+blocks holding a `<div class="ph">`. Add the WebP to `guide/shots/`, replace the `ph` div with an
+`<img src="shots/name.webp" width height alt>` like its neighbours, and deploy; no `COPY` line is needed.
 
 ## A note on the skin
 

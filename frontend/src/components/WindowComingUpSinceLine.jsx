@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { formatArrivalDate } from '../utils/comingUpFeed.js';
+import GuideLink from './guide/GuideLink.jsx';
 
 /**
  * "The badge must land somewhere" (design §6): the line above the filter chips that gives a count
@@ -69,6 +70,7 @@ export default function WindowComingUpSinceLine({ badge = null, entry = null, on
           {note && ` ${note}`}
         </span>
       )}
+      <GuideLink section="comingUpNew" label="What new arrivals are" />
       <button
         type="button"
         className="wf-cu-since-seen"

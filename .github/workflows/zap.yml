@@ -9,6 +9,14 @@ jobs:
   zap-scan:
     name: ZAP Full Scan
     runs-on: self-hosted
+    timeout-minutes: 60
+    env:
+      # Pinned by digest (the `stable` index digest on 2026-11-04) so a scanner
+      # update can never change results silently. Dependabot cannot see this
+      # value, so bumping it is a manual, triaged change: update the digest, then
+      # refresh .zap/known-rules-*.txt and review the "Rule drift" section of the
+      # job summary.
+      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af
     steps:
       - uses: actions/checkout@v4
 
@@ -99,7 +107,7 @@ jobs:
           #
           # These loops must FAIL when they time out. Previously they fell
           # through silently, so a target that never came up still reached the
-          # scan steps — and because those steps end in `|| true`, the whole
+          # scan steps — and because the scan steps could not fail, the whole
           # workflow reported success having scanned nothing at all.
           # Nothing is published to the host, so probe from inside the network
           # rather than via localhost. A throwaway curl container is used instead
@@ -193,6 +201,7 @@ jobs:
           echo "JWT minted — scanning the authenticated surface as PRO_USER"
 
       - name: Run ZAP API scan — authenticated backend
+        id: zap_backend
         env:
           TOKEN: ${{ steps.auth.outputs.token }}
         run: |
@@ -213,14 +222,33 @@ jobs:
           replacer.full_list(0).replacement=Bearer ${TOKEN}
           PROP
 
+          # How pass/fail works for both scans. ZAP is run with -I and WITHOUT a
+          # -c rules file: passing any config file switches the API scan from its
+          # minimal policy to the default policy with every active rule enabled,
+          # which is a different (and much heavier) scan. So ZAP's own exit code
+          # is not used to judge findings. Each scan step records the exit code
+          # and still exits 0 so the report upload and teardown always run; the
+          # final "ZAP gate" step reads the JSON reports and decides. Its default
+          # is FAIL: every alert of Low risk or above fails the job unless
+          # .zap/exceptions.json explicitly covers it. A non-zero scanner exit
+          # code, a missing report, or too few imported URLs also fail the job.
+          # -silent stops the scan updating add-ons at run time, which also stops
+          # the scripts' implicit install of the beta passive rules (pscanrulesBeta),
+          # and the pinned image does not bundle it. That one add-on is therefore
+          # installed explicitly with -addoninstall; everything else stays frozen.
+          # The gate also fails if a rule listed in .zap/known-rules-<target>.txt
+          # does not appear in that scan's log, since a rule that did not run
+          # cannot alert.
+          #
           # zap-api-scan against the OpenAPI spec, not zap-full-scan against the
           # root URL. A JSON API has no links to follow, so spidering found 6
           # URLs and stopped — every previous "full scan" was six unauthenticated
           # requests returning 500s. The spec gives ZAP the real endpoint list.
+          set +e
           docker run --rm --network pentest_default \
-            -v $(pwd)/zap-reports:/zap/wrk:rw \
-            -v $(pwd)/zap-conf:/zap/conf:ro \
-            ghcr.io/zaproxy/zaproxy:stable \
+            -v "$(pwd)/zap-reports:/zap/wrk:rw" \
+            -v "$(pwd)/zap-conf:/zap/conf:ro" \
+            "$ZAP_IMAGE" \
             zap-api-scan.py \
               -t http://pentest-backend:8082/v3/api-docs \
               -f openapi \
@@ -228,22 +256,32 @@ jobs:
               -x backend-report.xml \
               -J backend-report.json \
               -I \
-              -z "-configfile /zap/conf/auth.prop" \
-            || true  # Don't fail workflow on findings — upload report first
+              -z "-silent -addoninstall pscanrulesBeta -configfile /zap/conf/auth.prop" \
+            2>&1 | tee zap-reports/backend.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Run ZAP baseline scan — frontend
+        id: zap_frontend
         run: |
           set -e
+          mkdir -p zap-reports
+          set +e
           docker run --rm --network pentest_default \
-            -v $(pwd)/zap-reports:/zap/wrk:rw \
-            ghcr.io/zaproxy/zaproxy:stable \
+            -v "$(pwd)/zap-reports:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
             zap-baseline.py \
               -t http://pentest-frontend:80 \
               -r frontend-report.html \
               -x frontend-report.xml \
               -J frontend-report.json \
               -I \
-            || true
+              -z "-silent -addoninstall pscanrulesBeta" \
+            2>&1 | tee zap-reports/frontend.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
 
       - name: Upload ZAP reports
         if: always()
@@ -260,6 +298,42 @@ jobs:
           # Holds the bearer token — remove it even if the scan died mid-run.
           rm -rf zap-conf
           echo "Pen test environment destroyed"
+
+      # Runs last, after the reports are uploaded and the stack is gone, so a
+      # failure here never leaves containers behind. Python runs in a pinned
+      # container so nothing is assumed about the runner's own Python.
+      - name: ZAP gate
+        if: ${{ !cancelled() }}
+        env:
+          BACKEND_RC: ${{ steps.zap_backend.outputs.rc }}
+          FRONTEND_RC: ${{ steps.zap_frontend.outputs.rc }}
+        run: |
+          set -e
+          docker run --rm --user "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$PWD":/w -w /w python:3.13-slim \
+            python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+          set +e
+          docker run --rm --user "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 \
+            -v "$PWD":/w -w /w \
+            -e BACKEND_RC -e FRONTEND_RC python:3.13-slim \
+            python3 .github/scripts/zap_gate.py \
+              --exceptions .zap/exceptions.json \
+              --report backend=zap-reports/backend-report.json \
+              --report frontend=zap-reports/frontend-report.json \
+              --log backend=zap-reports/backend.log \
+              --log frontend=zap-reports/frontend.log \
+              --rc "backend=$BACKEND_RC" \
+              --rc "frontend=$FRONTEND_RC" \
+              --min-imported-urls 150 \
+              --known-rules backend=.zap/known-rules-backend.txt \
+              --known-rules frontend=.zap/known-rules-frontend.txt \
+              --summary zap-reports/gate-summary.md
+          gate_rc=$?
+          set -e
+          if [ -f zap-reports/gate-summary.md ]; then
+            cat zap-reports/gate-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$gate_rc"
 
   notify-failure:
     needs: zap-scan

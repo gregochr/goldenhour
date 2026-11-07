@@ -1581,4 +1581,117 @@ class BriefingEvaluationServiceTest {
             assertThat(warnContains("removing 7 rows")).isTrue();
         }
     }
+
+    // ── Failure paths around the cache write and the retry merge ─────────────────
+
+    @Nested
+    @DisplayName("Failure paths around the cache write and the retry merge")
+    class FailurePaths {
+
+        private final String cacheKey = REGION + "|" + DATE + "|SUNSET";
+        private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        private Logger logger;
+
+        @BeforeEach
+        void attach() {
+            logger = (Logger) LoggerFactory.getLogger(BriefingEvaluationService.class);
+            logs.start();
+            logger.addAppender(logs);
+        }
+
+        @AfterEach
+        void detach() {
+            logger.detachAppender(logs);
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+
+        private boolean logged(String fragment) {
+            return logs.list.stream().anyMatch(e -> e.getFormattedMessage().contains(fragment));
+        }
+
+        @Test
+        @DisplayName("a corrupt prior results_json is ignored: the retry merge starts from empty, keeping the recovery")
+        void mergeFromBatch_corruptPriorJson_startsFromEmpty() {
+            CachedEvaluationEntity corrupt = new CachedEvaluationEntity();
+            corrupt.setCacheKey(cacheKey);
+            corrupt.setResultsJson("{corrupt");
+            when(cachedEvaluationRepository.findByCacheKey(cacheKey)).thenReturn(Optional.of(corrupt));
+
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).containsOnlyKeys("Craster");
+            assertThat(logged("could not parse prior results_json")).isTrue();
+        }
+
+        @Test
+        @DisplayName("a database that cannot be read still lets the retry merge keep the recovery in memory")
+        void mergeFromBatch_repositoryThrows_startsFromEmpty() {
+            when(cachedEvaluationRepository.findByCacheKey(cacheKey))
+                    .thenThrow(new IllegalStateException("db down"));
+
+            service.mergeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Craster", 5, 88, 80, "recovered")));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)).containsOnlyKeys("Craster");
+            assertThat(logged("could not load prior cached_evaluation")).isTrue();
+            assertThat(logged("Failed to persist evaluation cache")).isTrue();
+        }
+
+        @Test
+        @DisplayName("results that cannot be serialised are served from memory and never saved")
+        void writeFromBatch_serialisationFails_servedFromMemoryNotSaved() {
+            ObjectMapper failing = new ObjectMapper() {
+                @Override
+                public String writeValueAsString(Object value)
+                        throws com.fasterxml.jackson.core.JsonProcessingException {
+                    throw new com.fasterxml.jackson.core.JsonProcessingException("cannot serialise") { };
+                }
+            };
+            BriefingEvaluationService unserialisable = new BriefingEvaluationService(
+                    cachedEvaluationRepository, deltaLogRepository, failing, freshnessResolver,
+                    stabilitySnapshotProvider, supersedingDispositionService, new ServedBriefingEpoch());
+
+            unserialisable.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 72, 65, "good")));
+
+            assertThat(unserialisable.getCachedScores(REGION, DATE, TargetType.SUNSET)).containsOnlyKeys("Bamburgh");
+            verify(cachedEvaluationRepository, org.mockito.Mockito.never()).save(any());
+            assertThat(logged("Failed to serialise evaluation cache")).isTrue();
+        }
+
+        @Test
+        @DisplayName("a persisted row whose cache key cannot be parsed is still rehydrated, with its ratings checked")
+        void rehydrate_unparseableCacheKey_stillLoadsAndClampsRatings() throws Exception {
+            LocalDate today = LocalDate.now(UK_ZONE);
+            CachedEvaluationEntity entity = new CachedEvaluationEntity();
+            entity.setCacheKey("garbage-key");
+            entity.setEvaluationDate(today);
+            entity.setTargetType("SUNSET");
+            entity.setResultsJson(objectMapper.writeValueAsString(List.of(
+                    new BriefingEvaluationResult("Bamburgh", 9, 72, 65, "impossible rating"))));
+            entity.setEvaluatedAt(Instant.now());
+            entity.setUpdatedAt(Instant.now());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                    .thenReturn(List.of(entity));
+
+            service.rehydrateCacheOnStartup();
+
+            assertThat(logged("Loaded 1 entries")).isTrue();
+            assertThat(logged("1 ratings clamped")).isTrue();
+        }
+
+        @Test
+        @DisplayName("an admin clear names the signed-in caller in its audit line")
+        void clearCache_namesTheSignedInCaller() {
+            org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                    new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                            "chris", "n/a", List.of()));
+            when(cachedEvaluationRepository.count()).thenReturn(2L);
+
+            service.clearCache();
+
+            assertThat(logged("deleteAll requested by chris")).isTrue();
+        }
+    }
 }

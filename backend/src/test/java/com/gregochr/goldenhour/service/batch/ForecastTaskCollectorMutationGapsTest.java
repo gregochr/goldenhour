@@ -781,7 +781,8 @@ class ForecastTaskCollectorMutationGapsTest {
         }
         stubBriefingAndPrefetch();
         BriefingEvaluationResult rated = new BriefingEvaluationResult("x", 4, 70, 60, "Good", null, null, null);
-        when(evaluationViewService.getLiveScoresForEnrichmentBulk(t1, t1, Set.of(TargetType.SUNRISE)))
+        when(evaluationViewService.getLiveScoresForEnrichmentBulk(t1, t1,
+                Set.of(TargetType.SUNRISE, TargetType.SUNSET)))
                 .thenReturn(Map.of(CacheKeyFactory.build("North East", t1, TargetType.SUNRISE),
                         Map.of("Alpha", rated, "Beta", rated)));
         Clock clock = Clock.fixed(JAN.atTime(12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);

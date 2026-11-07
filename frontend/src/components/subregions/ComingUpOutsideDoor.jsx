@@ -40,6 +40,7 @@ export default function ComingUpOutsideDoor({ subject, count, zeroPicks }) {
               heading={coastal ? SUBREGIONS_COAST_HEADING : SUBREGIONS_DARKSKY_HEADING}
               body={coastal ? subregionsCoastBody(count) : subregionsDarkskyBody(count)}
               testIdPrefix={coastal ? 'coming-up-subregions-coast-upsell' : 'coming-up-subregions-darksky-upsell'}
+              guide={{ section: 'subRegions' }}
             />
           )}
         </>

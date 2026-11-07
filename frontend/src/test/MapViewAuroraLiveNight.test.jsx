@@ -9,8 +9,7 @@
  * NOAA-triggered live state for the night in progress, fetched only while an alert is running.
  *
  * <p>Read unconditionally, the live cache answered for whichever night the reader was looking at.
- * Browse to a future night with no stored run and the rating, the chips, the "🏆 best
- * location" card and the overlay's aurora popup all carried TONIGHT's live stars and narrative as
+ * Browse to a future night with no stored run and the rating, the chips and the overlay's aurora popup all carried TONIGHT's live stars and narrative as
  * though they were that night's. The same class of defect as #803's stale-window ratings — a
  * rating answering for a window it does not belong to — through a source with no date to check.
  *
@@ -44,7 +43,7 @@ const { auroraStatusRef } = vi.hoisted(() => ({ auroraStatusRef: { current: null
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'ADMIN' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatusRef.current }) }));
-// A stable viewline, so the overlay below has something to draw — the viewline is the OTHER
+// A stable viewline, so the overlay below has something to draw — the viewline is another
 // consumer of `liveAuroraOnScreen`, and the kept-local test pins it too.
 const { stableViewline } = vi.hoisted(() => ({ stableViewline: { points: [], active: true } }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: stableViewline }) }));
@@ -170,147 +169,13 @@ afterEach(() => {
   getAuroraForecastAvailableDates.mockResolvedValue([]);
 });
 
-describe('the 🏆 best-location card', () => {
-  it('names the live best on the night in progress', async () => {
+describe('the Map no longer carries its own best-location card', () => {
+  it('shows no card and no "Centre map" button on the night in progress, with 2★+ live scores', async () => {
     await renderOn(THE_NIGHT);
-    const card = await screen.findByTestId('aurora-best-location-card');
-    expect(card).toHaveTextContent(LOC);
-  });
-
-  it('is withheld on any OTHER night — it was naming tonight\'s best as that night\'s', async () => {
-    await renderOn(ANOTHER_NIGHT);
-    // The live fetch did resolve — so an absent card is the gate, not an empty cache.
-    await waitFor(() => expect(getAuroraLocations).toHaveBeenCalled());
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-  });
-});
-
-describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
-  /** Re-render with a NEW status object (the live fetch is keyed on its identity) and the given scores. */
-  async function reRead(view, night, scores) {
-    auroraStatusRef.current = { level: 'MODERATE', kpIndex: 6, currentNightDate: night, active: true };
-    getAuroraLocations.mockResolvedValue(scores);
-    await act(async () => {
-      view.rerender(
-        <MapView locations={locations()} heat={HEAT} date={night} autoEventType="AURORA" />,
-      );
-    });
-    await act(async () => { await Promise.resolve(); });
-  }
-
-  async function dismiss() {
-    await screen.findByTestId('aurora-best-location-card');
-    fireEvent.click(screen.getByTestId('aurora-best-location-dismiss'));
-  }
-
-  it('offers a named dismiss button', async () => {
-    await renderOn(THE_NIGHT);
-    const button = await screen.findByTestId('aurora-best-location-dismiss');
-    expect(button).toHaveAccessibleName('Dismiss best aurora location');
-  });
-
-  it('hides the card when dismissed', async () => {
-    await renderOn(THE_NIGHT);
-    await dismiss();
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-  });
-
-  it('keeps it hidden across a re-render with the same best location', async () => {
-    const view = await renderOn(THE_NIGHT);
-    await dismiss();
-    await reRead(view, THE_NIGHT, [liveScore()]);
-    // The live read did run again — so an absent card is the key, not an empty cache.
-    expect(getAuroraLocations.mock.calls.length).toBeGreaterThan(1);
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-  });
-
-  it('shows it again when a different location takes the top spot', async () => {
-    const view = await renderOn(THE_NIGHT);
-    await dismiss();
-    const other = `${LOC}-other`;
-    await reRead(view, THE_NIGHT, [
-      { location: { name: other, lat: 55.1, lon: -1.8 }, stars: 5, summary: 'A new top spot' },
-    ]);
-    expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent(other);
-  });
-
-  it('shows it again when the NIGHT moves, even for the same location', async () => {
-    const view = await renderOn(THE_NIGHT);
-    await dismiss();
-    await reRead(view, ANOTHER_NIGHT, [liveScore()]);
-    expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent(LOC);
-  });
-
-  it('keys on the NIGHT the card speaks for, not the viewed date (plan A4 D-rule)', async () => {
-    // The live night THE_NIGHT is picked through the real window control while the parent's `date`
-    // is an earlier day, and THE_NIGHT is not in `forecastDates` — so the pick is KEPT LOCAL
-    // (`localNightDate`): `nightDate` is THE_NIGHT while `date` stays DAY_BEFORE.
-    const DAY_BEFORE = '2026-08-12';
-    getAuroraForecastAvailableDates.mockResolvedValue([THE_NIGHT]);
-    const view = await renderOn(DAY_BEFORE, { forecastDates: [DAY_BEFORE] });
-    await act(async () => { fireEvent.click(await screen.findByTestId('wf-win-pill')); });
-    const row = screen.getAllByTestId('wf-win-row')
-      .find((r) => r.getAttribute('data-ev-id') === `aur:${THE_NIGHT}:AURORA`);
-    expect(row).toBeTruthy();
-    await act(async () => { fireEvent.click(row); });
-    await dismiss();
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-    // The parent now moves `date` onto the very night that was dismissed: same night, new `date`.
-    // A date-keyed dismissal would read this as a new card.
-    await act(async () => {
-      view.rerender(
-        <MapView
-          locations={locations()} heat={HEAT}
-          date={THE_NIGHT}
-          forecastDates={[THE_NIGHT]}
-          autoEventType="AURORA"
-        />,
-      );
-    });
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-    // ...and a card for that night is still reachable, proving the absence above is the key.
-    await reRead(view, THE_NIGHT, [
-      { location: { name: `${LOC}-other`, lat: 55.1, lon: -1.8 }, stars: 5, summary: 'x' },
-    ]);
-    expect(await screen.findByTestId('aurora-best-location-card')).toBeInTheDocument();
-  });
-
-  it('hands focus to the window pill when one exists', async () => {
-    getAuroraForecastAvailableDates.mockResolvedValue([THE_NIGHT]);
-    await renderOn(THE_NIGHT, { forecastDates: [THE_NIGHT] });
-    const pill = await screen.findByTestId('wf-win-pill');
-    const button = await screen.findByTestId('aurora-best-location-dismiss');
-    button.focus();
-    fireEvent.click(button);
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(pill);
-  });
-
-  it('with no window pill, skips disabled, aria-hidden and tabindex=-1 controls and lands on the next real one', async () => {
-    // Since overlay convergence C3 a REAL live alert always gets its own window row, so a map with live
-    // scores and NO pill needs an alert that offers no row: a SIMULATED one, which is still `active`
-    // (aurora mode stands) and still has its live scores fetched by level, but is isolated from the row.
-    auroraStatusRef.current = { ...auroraStatusRef.current, simulated: true };
-    const { container } = await renderOn(THE_NIGHT);
-    await screen.findByTestId('aurora-best-location-card');
-    expect(screen.queryByTestId('wf-win-pill')).not.toBeInTheDocument();
-    const pane = container.querySelector('.wf-map-tab');
-    const make = (testid, attrs) => {
-      const el = document.createElement('button');
-      el.setAttribute('data-testid', testid);
-      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
-      return el;
-    };
-    const good = make('good-target', {});
-    // Prepended in reverse so the DOM order is: disabled, aria-hidden, tabindex=-1, good.
-    [good, make('skip-tab', { tabindex: '-1' }), make('skip-hidden', { 'aria-hidden': 'true' }),
-      make('skip-disabled', { disabled: '' })].forEach((el) => pane.prepend(el));
-    const button = screen.getByTestId('aurora-best-location-dismiss');
-    button.focus();
-    fireEvent.click(button);
-    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(good);
+    // The live scores did land and are drawn — so an absent card is the removal, not an empty cache.
+    await waitFor(() => expect(drawnRatings()).toContain(5));
+    expect(screen.queryByTestId('aurora-best-location-card')).toBeNull();
+    expect(screen.queryByRole('button', { name: /centre map/i })).toBeNull();
   });
 });
 
@@ -373,8 +238,7 @@ describe('the night on screen is `nightDate`, not `date`', () => {
     await act(async () => { fireEvent.click(row); });
 
     // `date` never moved off the ordinary day; only `nightDate` did — and the live best is shown.
-    const card = await screen.findByTestId('aurora-best-location-card');
-    expect(card).toHaveTextContent(LOC);
+    await waitFor(() => expect(drawnRatings()).toContain(5));
     // ...and the VIEWLINE, the other live-state consumer, which now reads the same predicate. Its
     // own comment records `date === auroraNight` here as a real, shipped bug — "a raw `date`
     // compare would have hidden the viewline on the night the reader had just picked" — yet no

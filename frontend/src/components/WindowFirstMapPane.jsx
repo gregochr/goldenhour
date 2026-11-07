@@ -19,7 +19,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
-import { buildRegionVerdictIndex, buildShapedLeadIndex } from '../utils/mapVerdict.js';
+import { buildReachVerdictIndex, buildRegionVerdictIndex, buildShapedLeadIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver, mutationsMayChangeForeignModal } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
 import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
@@ -319,7 +319,7 @@ export default function WindowFirstMapPane({
   const {
     heatSpots, heatPointSets, heatStripCards, upcomingEvents, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions, tideLocked, driveLocked,
-    allowedLocationIds,
+    allowedLocationIds, reachLens = null, reachVerdicts = null, reachMeasured,
   } = useWindowFirstBriefing();
 
   // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
@@ -466,6 +466,20 @@ export default function WindowFirstMapPane({
   const regionVerdictIndex = useMemo(
     () => buildRegionVerdictIndex(briefing?.days), [briefing?.days],
   );
+  /**
+   * The active drive tier's served per-region verdicts, for the pill (reach-scoped-card-plan R3, D9), or null.
+   *
+   * <p>Held only when it can be true, the same conjunction the Plan cards use: a finite tier, a matching answer for
+   * it (Pro or Admin, measured, not shaped, version-matched: {@code reachVerdicts} is null otherwise) and a reader
+   * who is not drive-locked. Null leaves the Map's verdict exactly as it was. The tier is the Plan bar's own
+   * ({@code reachLens}); a tier tap is a lookup in what is held and never a request.
+   */
+  const reachTierMinutes = !driveLocked && reachVerdicts ? (reachLens?.tier?.limitMinutes ?? null) : null;
+  const reachScope = useMemo(() => {
+    const windows = reachTierMinutes != null ? reachVerdicts?.[String(reachTierMinutes)] : null;
+    if (!Array.isArray(windows)) return null;
+    return { tierMinutes: reachTierMinutes, ...buildReachVerdictIndex(windows) };
+  }, [reachTierMinutes, reachVerdicts]);
   /**
    * The served lead region of each window, for a body the server shaped by the reader's picks (S5a):
    * a shaped region carries no mean for the pill's pick to rank by, so the server names the lead by
@@ -720,8 +734,11 @@ export default function WindowFirstMapPane({
         // straight through via `resolveConfidence`'s own fail-soft precedence — see that
         // module's `solarRow`). A second call here would risk the two silently drifting if
         // either read a different confidence shape in future.
+        // The card's own confidence: while the Plan wears a scoped headline (reach-scoped-card-plan R2) that is the
+        // drive tier's, and the Map follows the same tier (R3), so the haze and the pill describe the same places.
         const confidenceTier = resolveConfidence(
-          { confidence: card.confidence }, daysOut(card.date, todayStr),
+          { confidence: card.confidence },
+          daysOut(card.date, todayStr),
         );
         return {
           key: card.key,
@@ -770,6 +787,7 @@ export default function WindowFirstMapPane({
           // building it that way would print "Best bet · Northumberland" for a pick that is in
           // Cornwall. If the line ever names a region it must be `win.pick.regionName`, the pick's
           // own, which `buildHeatStripCards` currently drops.
+          // The card's pick, which follows the active drive tier while the Plan wears a scoped headline (R3).
           pickKind: card.pickKind,
           // The region the pick NAMES (map-landing-plan.md §3 L6). The pill and the window panel
           // need only the kind — their subject is the window — but the region panel's header is
@@ -791,9 +809,13 @@ export default function WindowFirstMapPane({
           // moves the verdict and reader filters do not. Forwarding the card's word as well would
           // put two answers for one window on one pill, disagreeing by default (`heatArea` starts
           // true), and three later phases would each pick one. So there is exactly one verdict
-          // channel on this tab: `utils/mapVerdict.js`, read in `MapView` off the scope pool.
+          // channel on this tab: `utils/mapVerdict.js`, read in `MapView` off the scope pool. Under a
+          // finite drive tier it reads one more SERVED input, the tier's per-region verdicts
+          // (`reachScope` above, reach-scoped-card-plan R3); still one channel, still a selection
+          // among served words, never a second answer shipped beside it.
           // Agreement with the Plan tab is proven by test at whole-catalogue scope
-          // (map-landing-plan.md check 8), not by shipping the same value twice.
+          // (map-landing-plan.md check 8) and at every tier, both origins, not by shipping the same
+          // value twice.
         };
       }), ...pastHeat.windows],
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
@@ -928,6 +950,9 @@ export default function WindowFirstMapPane({
         askOffered={askOffered}
         tideLocked={tideLocked}
         driveLocked={driveLocked}
+        reachLens={reachLens}
+        reachMeasured={reachMeasured}
+        reachScope={reachScope}
         askPhase={askPhase}
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}

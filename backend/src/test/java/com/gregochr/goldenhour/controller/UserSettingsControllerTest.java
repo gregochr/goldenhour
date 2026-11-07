@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
+import com.gregochr.goldenhour.model.DriveStatus;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -30,6 +31,7 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -263,8 +265,8 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         // always be present. The two figures are independently absent, and NON_NULL keeps them off
         // the wire entirely rather than as nulls a consumer might render as a zero.
         when(reachService.getReach(any())).thenReturn(List.of(
-                new ReachEntry(1L, 62, 44),
-                new ReachEntry(2L, null, 24)));
+                new ReachEntry(1L, 62, 44, DriveStatus.MEASURED),
+                new ReachEntry(2L, null, 24, DriveStatus.PENDING)));
 
         mockMvc.perform(get("/api/user/settings/reach"))
                 .andExpect(status().isOk())
@@ -284,8 +286,8 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         // The normal first-run state. An empty body here would make the reach lens look broken to
         // exactly the user it most needs to be honest with.
         when(reachService.getReach(any())).thenReturn(List.of(
-                new ReachEntry(1L, null, null),
-                new ReachEntry(2L, null, null)));
+                new ReachEntry(1L, null, null, DriveStatus.PENDING),
+                new ReachEntry(2L, null, null, DriveStatus.PENDING)));
 
         mockMvc.perform(get("/api/user/settings/reach"))
                 .andExpect(status().isOk())
@@ -366,6 +368,75 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getTodaysLight_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/user/settings/light"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ---- control characters in a postcode: a database error on PostgreSQL, so refused as a 400 ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /home answers 400 with the fixed body for a NUL byte in the postcode, and saves nothing")
+    void saveHome_nulByteInPostcode_returns400() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"AB\\u0000C\", \"latitude\": 54.7761, \"longitude\": -1.5733}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid request"));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /home answers 400 for a newline in the postcode, and does not echo it")
+    void saveHome_newlineInPostcode_returns400WithoutEcho() throws Exception {
+        mockMvc.perform(put("/api/user/settings/home")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"A\\nB\", \"latitude\": 1.0, \"longitude\": 1.0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body for a NUL byte in the postcode")
+    void lookupPostcode_nulByte_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"A\\u0000B\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    // ---- a lookup with no postcode: an NPE in the client, a 500 through the catch-all ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body when the postcode is missing")
+    void lookupPostcode_missingPostcode_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed body when the postcode is blank")
+    void lookupPostcode_blankPostcode_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"error\":\"Invalid request\"}", true));
+
+        verifyNoInteractions(settingsService);
     }
 
     // ---- postcode lookup failures (login-registration plan §1 #11, §2 #5) ----

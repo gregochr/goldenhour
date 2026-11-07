@@ -199,6 +199,8 @@ function kindShort(event) {
  * @param {?number} [props.driveMinutes] measured drive time, or null when unmeasured
  * @param {?number} [props.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null under an away origin (§1.12's `reachMeasured` discipline, `utils/planOrigin.js`)
+ * @param {?string} [props.driveTo] the place's drive point name when the drive minutes are measured to one
+ *        (reach-scoped-card-plan R1c): the Drive fact then reads "1h 20min to Glenridding" with no miles
  * @param {?{onTheLight: boolean, phrase: ?string, aligned: ?boolean, state: ?string,
  *   level: ?number, direction: ?string, height: ?string, shortfall: ?string,
  *   fitPhrase: ?string}} [props.tideOnLight] this window's tide facts for THIS location, from
@@ -341,7 +343,7 @@ function kindShort(event) {
  *        on a SOLAR window only. The sheet's own away rows say the same in its vocabulary
  */
 export default function MapCallout({
-  location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
+  location, rating = null, event = null, driveMinutes = null, distanceMiles = null, driveTo = null,
   tideOnLight = null, tideAlignmentIndex = null, eclipseSight = null,
   scoreIndex = null, slotIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evRows = [],
@@ -748,6 +750,7 @@ export default function MapCallout({
   const facts = calloutFacts({
     driveMinutes,
     distanceMiles,
+    driveTo,
     eventTimeIso,
     bortleClass: location.bortleClass ?? null,
     past: Boolean(event?.past),
@@ -1156,7 +1159,7 @@ export default function MapCallout({
                 drops a whitespace-only line between two tags, so it has to be an explicit
                 expression. (A flex `gap` would not reach the name; a `::before` WOULD — generated
                 content is in the accessible name, a bare-space `content` included. This comment
-                used to say neither could. See `WindowGlanceDayTopics`'s class doc.) */}
+                used to say neither could. See `WindowGlanceLanes`'s class doc.) */}
             {' '}
             <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>
@@ -1376,6 +1379,7 @@ MapCallout.propTypes = {
   }),
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,
+  driveTo: PropTypes.string,
   tideOnLight: PropTypes.shape({
     onTheLight: PropTypes.bool,
     phrase: PropTypes.string,

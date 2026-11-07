@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -91,64 +92,6 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                 for (BriefingRegion region : es.regions()) {
                     Map<String, BriefingEvaluationResult> cached =
                             resolver.resolve(region.regionName(), day.date(), es.targetType());
-                    List<BriefingSlot> enrichedSlots = region.slots().stream()
-                            .map(slot -> enrichSlot(slot, cached))
-                            .toList();
-                    // TWO rollups over one slot list, because two different questions are asked
-                    // of it and answering both with one number is what let a wood set a sky
-                    // region's band.
-                    //
-                    //   coverageStats — every slot, because "how many locations here were
-                    //   evaluated" counts the wood: it IS evaluated, by the bluebell or woodland
-                    //   prompt, and both arms render "N of M evaluated" against the full slot list.
-                    //
-                    //   votingStats — the voting slots only (BriefingSlot.votingSlots), because the
-                    //   VERDICT and the star are a claim about the sky. A canopy GO means heavy
-                    //   cloud and mist, the opposite of what it means for a sky window, so a rated
-                    //   wood used to lift the region's band — and with it the grid cell, the day
-                    //   card and (since the verdict became region-led) the window badge — above
-                    //   every rating those surfaces could show. Every other consumer of a region
-                    //   verdict already excluded canopy; this was the one place that did not.
-                    List<BriefingRatingStats.Entry> coverageEntries = enrichedSlots.stream()
-                            .map(s -> new BriefingRatingStats.Entry(
-                                    s.locationName(), s.claudeRating()))
-                            .toList();
-                    BriefingRatingStats.Stats coverageStats = BriefingRatingStats.compute(
-                            coverageEntries, region.regionName(), day.date(), es.targetType());
-                    List<BriefingSlot> votingSlotList = BriefingSlot.votingSlots(enrichedSlots);
-                    List<BriefingRatingStats.Entry> votingEntries = votingSlotList.stream()
-                            .map(s -> new BriefingRatingStats.Entry(
-                                    s.locationName(), s.claudeRating()))
-                            .toList();
-                    BriefingRatingStats.Stats votingStats = BriefingRatingStats.compute(
-                            votingEntries, region.regionName(), day.date(), es.targetType());
-                    // Only warn about zero coverage where coverage was actually expected. An
-                    // all-canopy region has none by construction and the honesty filter now
-                    // passes it through untouched, so logging it here would fire per region per
-                    // event on EVERY serve — drowning the line an operator greps for a genuine
-                    // overnight batch failure, and asserting a rewrite that no longer happens.
-                    boolean anyScoreable = enrichedSlots.stream()
-                            .anyMatch(slot -> !(slot.canopy() && slot.claudeRating() == null));
-                    if (coverageStats.isEmpty() && anyScoreable) {
-                        LOG.info("[ZERO COVERAGE] region={} date={} target={} "
-                                        + "briefingVerdict={} scoredCount=0 "
-                                        + "(honesty filter will blank it at API read time, "
-                                        + "worded by why: not scored at this range, travel "
-                                        + "day, run failed or weather stand-down; this "
-                                        + "fires for every unscored window, so it is not a "
-                                        + "failure signal on its own)",
-                                region.regionName(), day.date(), es.targetType(),
-                                region.verdict());
-                    }
-                    // Verdict-minimum-sample rule (docs/engineering/plan-verdict-consolidation-plan.md,
-                    // VerdictSampleGate): a region's ratings may set its own verdict, crown a pick
-                    // and outrank a region only once the sample is large enough to mean something.
-                    // Before this gate a single rated location — however it got that rating — was
-                    // enough, which let six force-evaluated 4-star ratings in a 253-location
-                    // catalogue crown a window "Worth it" and take ALSO GOOD (2026-09-29 production
-                    // evidence). Roster and examined coverage are both over the VOTING slots, the
-                    // same population the verdict and mean already read.
-                    ConfidenceDeriver.RegionRoster roster = rosterOf(enrichedSlots);
                     // "Examined" is real evidence the pipeline looked at a slot and stood it down
                     // on weather — never this slot's own independently-computed weather-triage
                     // Verdict, which is computed once across the whole horizon and can disagree
@@ -190,138 +133,20 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                             .filter(eval -> eval.triageReason() != null)
                             .map(BriefingEvaluationResult::locationName)
                             .forEach(triagedLocationNames::add);
-                    int examined = VerdictSampleGate.examinedCount(
-                            votingSlotList, votingStats.count(), triagedLocationNames);
-                    boolean rawSufficient = VerdictSampleGate.isSufficient(
-                            votingStats.count(), examined, roster.voting());
-                    // Force-evaluation exemption (owner decision, 2026-09-29). ForceEvalHeadlineSelector
-                    // force-evaluates up to a handful of far-out headline candidates a night
-                    // specifically so a clear far-out day can be crowned with real Claude evidence —
-                    // a minimum-sample rule with no exemption would leave that spend buying stars
-                    // nobody's verdict could use. A region with at least one CURRENTLY forced-rated
-                    // voting slot is therefore exempt from the sample test outright: its verdict,
-                    // pick eligibility, ranking and confidence follow the rated average exactly as
-                    // they did before this gate existed. "Currently" is read straight off each
-                    // slot's own resolved BriefingEvaluationResult#forced — provenance stamped ONCE
-                    // by ForecastResultHandler#buildResult from the task that actually produced the
-                    // rating, never re-derived here from a disposition timestamp (that inference was
-                    // tried and found provably wrong — see BriefingEvaluationResult#forced's own
-                    // javadoc). Any later write for the slot (an ordinary evaluation, a stability
-                    // skip's retraction, a sync/force-submit run) replaces the stored result and
-                    // clears the flag automatically, so the exemption lasts at most until the next
-                    // write. A slot the resolver has nothing new to say for (cached.get returns null
-                    // — the slot kept its previously persisted rating unchanged) is never counted as
-                    // forced: unknown must never grant the exemption.
-                    boolean forcedSample = votingSlotList.stream()
-                            .filter(s -> s.claudeRating() != null)
-                            .anyMatch(s -> {
-                                BriefingEvaluationResult eval = cached.get(s.locationName());
-                                return eval != null && eval.forced();
-                            });
-                    boolean sufficientForVerdict = rawSufficient || forcedSample;
-                    // Below the gate (and with no forced exemption) the region speaks only through the
-                    // triage fallback: GO/MARGINAL resolve to UNRATED, STANDDOWN to STAND_DOWN. The
-                    // old WORTH_IT / MAYBE reading let 38 ratings that failed the gate claim "Worth
-                    // it" on weather alone (unrated-verdict-plan.md U1). verdictEligible() is
-                    // unchanged, so an UNRATED region is never a BEST BET / ALSO GOOD candidate.
-                    DisplayVerdict freshVerdict = sufficientForVerdict
-                            ? BriefingRatingStats.resolveRegionDisplayVerdict(
-                                    votingStats, region.verdict())
-                            : DisplayVerdict.resolve(null, region.verdict());
-                    // A gloss is Claude prose written against the verdict that held when the
-                    // briefing was built. When read-time re-enrichment moves the verdict —
-                    // a batch re-scored the region after build — that prose can now contradict
-                    // the fresh rating (a glowing gloss on a downgraded cell). Drop it rather
-                    // than show copy that disagrees with the score; regenerating would cost a
-                    // Claude call. At build time the gloss is still null (generated afterwards),
-                    // so this is a no-op on the write path.
-                    boolean verdictChanged = region.displayVerdict() != freshVerdict;
-                    String glossHeadline = verdictChanged ? null : region.glossHeadline();
-                    String glossDetail = verdictChanged ? null : region.glossDetail();
-                    // Derive the quiet confidence channel from horizon + rating spread/coverage.
-                    // A region with NOTHING scored yields null, the documented unknown case.
-                    int daysAhead = (int) (day.date().toEpochDay() - today.toEpochDay());
-                    // Coverage denominator counts only slots that COULD carry a rating. A
-                    // canopy slot is excluded from the sky batch, so counting it would report a
-                    // permanent, unfixable shortfall and downgrade a wood-bearing region's
-                    // confidence a band every day — including for the sky locations in it.
-                    // Keyed on what the slot actually carries, NOT on "is it canopy": an in-season
-                    // bluebell site IS scored, by the bluebell prompt. See rosterOf for why it is
-                    // now a denominator alone.
-                    // The VOTING stats, so the channel qualifies the verdict it is attached to:
-                    // the spread term stops counting a wood as sky locations disagreeing, which it
-                    // is not. The coverage term's denominator stays `scoreable` (canopy-inclusive
-                    // where rated), so for a wood-bearing region the ratio is marginally
-                    // pessimistic — it can only make the channel more provisional, the safe
-                    // direction.
-                    //
-                    // The FLOOR is not decoration. Handing `derive` empty voting stats returns
-                    // null, and null does NOT read as "no confidence" on the client:
-                    // `confidenceUtils.resolveConfidence` is fail-soft and falls back to a
-                    // horizon-only tier capped at medium. So a region whose only rated slot is a
-                    // wood — verdict from the triage fallback, no sky score behind it at all —
-                    // would render MEDIUM where the canopy-inclusive stats could have yielded LOW.
-                    // That is the channel reading LESS provisional at the moment it knows least,
-                    // the exact inversion it exists to prevent. Something here was scored and none
-                    // of it votes: LOW, explicitly.
-                    //
-                    // Null is still right where NOTHING is scored — the documented zero-coverage
-                    // case — and `coverageStats` is what tells the two apart.
-                    //
-                    // A third LOW floor, added alongside the verdict-minimum-sample rule: something
-                    // IS rated (votingStats non-empty) but the sample is not large enough to trust
-                    // AND no force-evaluation exemption applies. Skipped for an exempt region —
-                    // "its confidence follows today's rules with no extra floor from this change"
-                    // (owner decision, 2026-09-29) — because the exemption exists precisely so a
-                    // forced rating can be believed at face value.
-                    Confidence confidence;
-                    if (votingStats.isEmpty() && !coverageStats.isEmpty()) {
-                        confidence = Confidence.LOW;
-                    } else if (!votingStats.isEmpty() && !sufficientForVerdict) {
-                        confidence = Confidence.LOW;
-                    } else {
-                        confidence = ConfidenceDeriver.derive(daysAhead, votingStats, roster);
-                    }
-                    enrichedRegions.add(new BriefingRegion(
-                            region.regionName(), region.verdict(), region.summary(),
-                            region.tideHighlights(), enrichedSlots,
-                            region.regionTemperatureCelsius(),
-                            region.regionApparentTemperatureCelsius(),
-                            region.regionWindSpeedMs(), region.regionWeatherCode(),
-                            glossHeadline, glossDetail,
-                            // Coverage, NOT the voting count: the honesty filter tests this
-                            // against its own canopy-inclusive scoreable count, and both arms
-                            // render "N of M evaluated" with M as the whole slot list. A voting
-                            // count here would under-report a scored wood in the drill-down and
-                            // could blank a region whose only evaluated location is one.
-                            freshVerdict, coverageStats.count())
-                            .withConfidence(confidence)
-                            // The grid cell's star, from the SAME statistics as freshVerdict above,
-                            // so the word and the number in one cell can no longer come from two
-                            // computations. The grid used to derive this in the browser off a second
-                            // endpoint joined on a region-name prefix — see plan §1 D2. Null rather
-                            // than 0.0 when nothing is scored: "not rated" and "rated badly" are
-                            // different statements and the cell renders them differently.
-                            .withMeanRating(
-                                    votingStats.isEmpty() ? null : votingStats.averageRating())
-                            // The region rail's `best N★`, from the SAME statistics again — so the
-                            // best, the mean and the verdict word describe one population and the
-                            // best can never sit below the mean it is printed beside. The VOTING
-                            // stats for the reason the mean uses them: a woodland GO means heavy
-                            // cloud and mist, so a rated wood must not supply a sky region's best
-                            // spot any more than it may set its band. Null rather than 0 when
-                            // nothing that votes is scored — "not rated" and "rated badly" are
-                            // different statements, and BriefingRatingStats.Stats.empty() reports
-                            // maxRating 0 for the same reason its averageRating is 0.0.
-                            .withBestRating(
-                                    votingStats.isEmpty() ? null : votingStats.maxRating())
-                            // The verdict-minimum-sample rule's own two facts, served so a client
-                            // can tell "crowned on a sufficient sample" apart from "crowned on
-                            // forced headline ratings" — see VerdictSampleGate and the two fields'
-                            // own javadoc on BriefingRegion. Computed fresh here on both the build
-                            // and serve paths, exactly like confidence/meanRating/bestRating above.
-                            .withSampleSufficient(rawSufficient)
-                            .withForcedSample(forcedSample));
+                    // Stamped onto each slot so the region's rollup can be re-run from the served briefing
+                    // alone (reach-scoped-card-plan D5): the force-evaluation provenance is read off the resolved
+                    // result, and a slot the resolver has nothing new to say for (null) is never forced. Both
+                    // stamps are @JsonIgnore, so the wire and the cache are unchanged.
+                    List<BriefingSlot> enrichedSlots = region.slots().stream()
+                            .map(slot -> {
+                                BriefingEvaluationResult eval = cached.get(slot.locationName());
+                                return enrichSlot(slot, cached).withReachStamps(
+                                        eval != null && eval.forced(),
+                                        triagedLocationNames.contains(slot.locationName()));
+                            })
+                            .toList();
+                    enrichedRegions.add(rollUpRegion(region, enrichedSlots, day.date(), es.targetType(),
+                            today, true));
                 }
                 enrichedEvents.add(es.withRegions(enrichedRegions));
             }
@@ -329,6 +154,246 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
         }
         return enrichedDays;
     }
+    /**
+     * Re-runs the per-region arithmetic on a slot list pruned from a SERVED region (reach-scoped-card-plan D4).
+     *
+     * <p>"Today" is read from the injected clock at call time, exactly as {@link #enrich} reads it, so a pruned
+     * region's confidence horizon is the request day's. The slots must be the served region's own slots (carrying
+     * their {@link BriefingSlot#forced()} and {@link BriefingSlot#triaged()} stamps), possibly fewer of them.
+     *
+     * @param served      the region as served
+     * @param prunedSlots the served region's slots, pruned
+     * @param date        the window's date
+     * @param targetType  the window's solar event
+     * @return the region re-scored over the pruned slots, in the shape {@link #enrich} produces
+     */
+    public BriefingRegion rerollRegion(BriefingRegion served, List<BriefingSlot> prunedSlots, LocalDate date,
+            TargetType targetType) {
+        return rollUpRegion(served, prunedSlots, date, targetType, LocalDate.now(clock.withZone(LONDON)), false);
+    }
+
+    /**
+     * The per-region arithmetic: turns one region's ENRICHED slots into the scored region the Plan tab serves, with
+     * its display verdict, mean, best, confidence and the two sample facts.
+     *
+     * <p><b>Extracted from {@link #enrich} unchanged</b> (reach-scoped-card-plan R2 step 2), so that
+     * {@link ReachVerdictService} re-runs exactly this arithmetic on a slot list pruned to the places inside a
+     * reader's drive, with no second copy of the rules.
+     * {@code BriefingRegionEvaluationRollupCharacterisationTest} pins its outputs on both sides of the move. Every
+     * input it needs beyond the slots is ON the slots: the force-evaluation provenance
+     * ({@link BriefingSlot#forced()}) and the batch-triage evidence ({@link BriefingSlot#triaged()}) are stamped by
+     * {@link #enrich}, because a served briefing is the only source a reach computation may read (D5).
+     *
+     * <p>⚠️ The commentary inside is load-bearing and moved with the code; see the class comment.
+     *
+     * @param region             the region as it stood before this arithmetic: its weather {@code verdict()}, its
+     *                           display verdict before the move (the gloss rule compares against it), its gloss and
+     *                           its weather figures
+     * @param enrichedSlots      the region's slots after enrichment, or pruned from enriched ones
+     * @param date               the window's date
+     * @param targetType         the window's solar event
+     * @param today              the request-time UK civil date, for the confidence horizon
+     * @param reportZeroCoverage whether to log the zero-coverage line: true on the enrichment path, false on a
+     *                           per-request re-run, which would otherwise repeat it for every pruned region
+     * @return the scored region
+     */
+    BriefingRegion rollUpRegion(BriefingRegion region, List<BriefingSlot> enrichedSlots, LocalDate date,
+            TargetType targetType, LocalDate today, boolean reportZeroCoverage) {
+        // TWO rollups over one slot list, because two different questions are asked
+        // of it and answering both with one number is what let a wood set a sky
+        // region's band.
+        //
+        //   coverageStats — every slot, because "how many locations here were
+        //   evaluated" counts the wood: it IS evaluated, by the bluebell or woodland
+        //   prompt, and both arms render "N of M evaluated" against the full slot list.
+        //
+        //   votingStats — the voting slots only (BriefingSlot.votingSlots), because the
+        //   VERDICT and the star are a claim about the sky. A canopy GO means heavy
+        //   cloud and mist, the opposite of what it means for a sky window, so a rated
+        //   wood used to lift the region's band — and with it the grid cell, the day
+        //   card and (since the verdict became region-led) the window badge — above
+        //   every rating those surfaces could show. Every other consumer of a region
+        //   verdict already excluded canopy; this was the one place that did not.
+        List<BriefingRatingStats.Entry> coverageEntries = enrichedSlots.stream()
+                .map(s -> new BriefingRatingStats.Entry(
+                        s.locationName(), s.claudeRating()))
+                .toList();
+        BriefingRatingStats.Stats coverageStats = BriefingRatingStats.compute(
+                coverageEntries, region.regionName(), date, targetType);
+        List<BriefingSlot> votingSlotList = BriefingSlot.votingSlots(enrichedSlots);
+        List<BriefingRatingStats.Entry> votingEntries = votingSlotList.stream()
+                .map(s -> new BriefingRatingStats.Entry(
+                        s.locationName(), s.claudeRating()))
+                .toList();
+        BriefingRatingStats.Stats votingStats = BriefingRatingStats.compute(
+                votingEntries, region.regionName(), date, targetType);
+        // Only warn about zero coverage where coverage was actually expected. An
+        // all-canopy region has none by construction and the honesty filter now
+        // passes it through untouched, so logging it here would fire per region per
+        // event on EVERY serve — drowning the line an operator greps for a genuine
+        // overnight batch failure, and asserting a rewrite that no longer happens.
+        boolean anyScoreable = enrichedSlots.stream()
+                .anyMatch(slot -> !(slot.canopy() && slot.claudeRating() == null));
+        if (reportZeroCoverage && coverageStats.isEmpty() && anyScoreable) {
+            LOG.info("[ZERO COVERAGE] region={} date={} target={} "
+                            + "briefingVerdict={} scoredCount=0 "
+                            + "(honesty filter will blank it at API read time, "
+                            + "worded by why: not scored at this range, travel "
+                            + "day, run failed or weather stand-down; this "
+                            + "fires for every unscored window, so it is not a "
+                            + "failure signal on its own)",
+                    region.regionName(), date, targetType,
+                    region.verdict());
+        }
+        // Verdict-minimum-sample rule (docs/engineering/plan-verdict-consolidation-plan.md,
+        // VerdictSampleGate): a region's ratings may set its own verdict, crown a pick
+        // and outrank a region only once the sample is large enough to mean something.
+        // Before this gate a single rated location — however it got that rating — was
+        // enough, which let six force-evaluated 4-star ratings in a 253-location
+        // catalogue crown a window "Worth it" and take ALSO GOOD (2026-09-29 production
+        // evidence). Roster and examined coverage are both over the VOTING slots, the
+        // same population the verdict and mean already read.
+        ConfidenceDeriver.RegionRoster roster = rosterOf(enrichedSlots);
+        // The examined-by-the-batch evidence, read off the slots: enrich() stamped BriefingSlot#triaged from the
+        // union described in enrich(), so a re-run on a pruned slot list needs no resolver.
+        Set<String> triagedNames = new HashSet<>();
+        for (BriefingSlot candidate : enrichedSlots) {
+            if (candidate.triaged()) {
+                triagedNames.add(candidate.locationName());
+            }
+        }
+        int examined = VerdictSampleGate.examinedCount(
+                votingSlotList, votingStats.count(), triagedNames);
+        boolean rawSufficient = VerdictSampleGate.isSufficient(
+                votingStats.count(), examined, roster.voting());
+        // Force-evaluation exemption (owner decision, 2026-09-29). ForceEvalHeadlineSelector
+        // force-evaluates up to a handful of far-out headline candidates a night
+        // specifically so a clear far-out day can be crowned with real Claude evidence —
+        // a minimum-sample rule with no exemption would leave that spend buying stars
+        // nobody's verdict could use. A region with at least one CURRENTLY forced-rated
+        // voting slot is therefore exempt from the sample test outright: its verdict,
+        // pick eligibility, ranking and confidence follow the rated average exactly as
+        // they did before this gate existed. "Currently" is read straight off each
+        // slot's own BriefingSlot#forced, which enrich() stamps from the slot's resolved
+        // BriefingEvaluationResult#forced — provenance stamped ONCE
+        // by ForecastResultHandler#buildResult from the task that actually produced the
+        // rating, never re-derived here from a disposition timestamp (that inference was
+        // tried and found provably wrong — see BriefingEvaluationResult#forced's own
+        // javadoc). Any later write for the slot (an ordinary evaluation, a stability
+        // skip's retraction, a sync/force-submit run) replaces the stored result and
+        // clears the flag automatically, so the exemption lasts at most until the next
+        // write. A slot the resolver has nothing new to say for (cached.get returns null
+        // — the slot kept its previously persisted rating unchanged) is never counted as
+        // forced: unknown must never grant the exemption.
+        boolean forcedSample = votingSlotList.stream()
+                .filter(s -> s.claudeRating() != null)
+                .anyMatch(BriefingSlot::forced);
+        boolean sufficientForVerdict = rawSufficient || forcedSample;
+        // Below the gate (and with no forced exemption) the region speaks only through the
+        // triage fallback: GO/MARGINAL resolve to UNRATED, STANDDOWN to STAND_DOWN. The
+        // old WORTH_IT / MAYBE reading let 38 ratings that failed the gate claim "Worth
+        // it" on weather alone (unrated-verdict-plan.md U1). verdictEligible() is
+        // unchanged, so an UNRATED region is never a BEST BET / ALSO GOOD candidate.
+        DisplayVerdict freshVerdict = sufficientForVerdict
+                ? BriefingRatingStats.resolveRegionDisplayVerdict(
+                        votingStats, region.verdict())
+                : DisplayVerdict.resolve(null, region.verdict());
+        // A gloss is Claude prose written against the verdict that held when the
+        // briefing was built. When read-time re-enrichment moves the verdict —
+        // a batch re-scored the region after build — that prose can now contradict
+        // the fresh rating (a glowing gloss on a downgraded cell). Drop it rather
+        // than show copy that disagrees with the score; regenerating would cost a
+        // Claude call. At build time the gloss is still null (generated afterwards),
+        // so this is a no-op on the write path.
+        boolean verdictChanged = region.displayVerdict() != freshVerdict;
+        String glossHeadline = verdictChanged ? null : region.glossHeadline();
+        String glossDetail = verdictChanged ? null : region.glossDetail();
+        // Derive the quiet confidence channel from horizon + rating spread/coverage.
+        // A region with NOTHING scored yields null, the documented unknown case.
+        int daysAhead = (int) (date.toEpochDay() - today.toEpochDay());
+        // Coverage denominator counts only slots that COULD carry a rating. A
+        // canopy slot is excluded from the sky batch, so counting it would report a
+        // permanent, unfixable shortfall and downgrade a wood-bearing region's
+        // confidence a band every day — including for the sky locations in it.
+        // Keyed on what the slot actually carries, NOT on "is it canopy": an in-season
+        // bluebell site IS scored, by the bluebell prompt. See rosterOf for why it is
+        // now a denominator alone.
+        // The VOTING stats, so the channel qualifies the verdict it is attached to:
+        // the spread term stops counting a wood as sky locations disagreeing, which it
+        // is not. The coverage term's denominator stays `scoreable` (canopy-inclusive
+        // where rated), so for a wood-bearing region the ratio is marginally
+        // pessimistic — it can only make the channel more provisional, the safe
+        // direction.
+        //
+        // The FLOOR is not decoration. Handing `derive` empty voting stats returns
+        // null, and null does NOT read as "no confidence" on the client:
+        // `confidenceUtils.resolveConfidence` is fail-soft and falls back to a
+        // horizon-only tier capped at medium. So a region whose only rated slot is a
+        // wood — verdict from the triage fallback, no sky score behind it at all —
+        // would render MEDIUM where the canopy-inclusive stats could have yielded LOW.
+        // That is the channel reading LESS provisional at the moment it knows least,
+        // the exact inversion it exists to prevent. Something here was scored and none
+        // of it votes: LOW, explicitly.
+        //
+        // Null is still right where NOTHING is scored — the documented zero-coverage
+        // case — and `coverageStats` is what tells the two apart.
+        //
+        // A third LOW floor, added alongside the verdict-minimum-sample rule: something
+        // IS rated (votingStats non-empty) but the sample is not large enough to trust
+        // AND no force-evaluation exemption applies. Skipped for an exempt region —
+        // "its confidence follows today's rules with no extra floor from this change"
+        // (owner decision, 2026-09-29) — because the exemption exists precisely so a
+        // forced rating can be believed at face value.
+        Confidence confidence;
+        if (votingStats.isEmpty() && !coverageStats.isEmpty()) {
+            confidence = Confidence.LOW;
+        } else if (!votingStats.isEmpty() && !sufficientForVerdict) {
+            confidence = Confidence.LOW;
+        } else {
+            confidence = ConfidenceDeriver.derive(daysAhead, votingStats, roster);
+        }
+        return new BriefingRegion(
+                region.regionName(), region.verdict(), region.summary(),
+                region.tideHighlights(), enrichedSlots,
+                region.regionTemperatureCelsius(),
+                region.regionApparentTemperatureCelsius(),
+                region.regionWindSpeedMs(), region.regionWeatherCode(),
+                glossHeadline, glossDetail,
+                // Coverage, NOT the voting count: the honesty filter tests this
+                // against its own canopy-inclusive scoreable count, and both arms
+                // render "N of M evaluated" with M as the whole slot list. A voting
+                // count here would under-report a scored wood in the drill-down and
+                // could blank a region whose only evaluated location is one.
+                freshVerdict, coverageStats.count())
+                .withConfidence(confidence)
+                // The grid cell's star, from the SAME statistics as freshVerdict above,
+                // so the word and the number in one cell can no longer come from two
+                // computations. The grid used to derive this in the browser off a second
+                // endpoint joined on a region-name prefix — see plan §1 D2. Null rather
+                // than 0.0 when nothing is scored: "not rated" and "rated badly" are
+                // different statements and the cell renders them differently.
+                .withMeanRating(
+                        votingStats.isEmpty() ? null : votingStats.averageRating())
+                // The region rail's `best N★`, from the SAME statistics again — so the
+                // best, the mean and the verdict word describe one population and the
+                // best can never sit below the mean it is printed beside. The VOTING
+                // stats for the reason the mean uses them: a woodland GO means heavy
+                // cloud and mist, so a rated wood must not supply a sky region's best
+                // spot any more than it may set its band. Null rather than 0 when
+                // nothing that votes is scored — "not rated" and "rated badly" are
+                // different statements, and BriefingRatingStats.Stats.empty() reports
+                // maxRating 0 for the same reason its averageRating is 0.0.
+                .withBestRating(
+                        votingStats.isEmpty() ? null : votingStats.maxRating())
+                // The verdict-minimum-sample rule's own two facts, served so a client
+                // can tell "crowned on a sufficient sample" apart from "crowned on
+                // forced headline ratings" — see VerdictSampleGate and the two fields'
+                // own javadoc on BriefingRegion. Computed fresh here on both the build
+                // and serve paths, exactly like confidence/meanRating/bestRating above.
+                .withSampleSufficient(rawSufficient)
+                .withForcedSample(forcedSample);
+    }
+
     /**
      * Derives the two roster sizes {@link ConfidenceDeriver} needs from a region's slots. They are
      * different filters over the same list, and getting either wrong is silent — hence one named,

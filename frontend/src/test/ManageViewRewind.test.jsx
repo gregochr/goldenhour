@@ -36,8 +36,8 @@ describe('ManageView — Rewind tab', () => {
 
   it('lists Sky Eval as the only model-test screen (the other two were retired)', () => {
     render(<ManageView onComplete={vi.fn()} />);
-    fireEvent.click(screen.getByTestId('manage-group-tuning'));
-    expect(screen.getByText('Sky Eval')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('manage-group-testing'));
+    expect(screen.getByTestId('manage-tab-skyeval')).toHaveTextContent('Sky Eval');
     expect(screen.queryByText('Location Model Test')).not.toBeInTheDocument();
     expect(screen.queryByText('Briefing Model Test')).not.toBeInTheDocument();
   });

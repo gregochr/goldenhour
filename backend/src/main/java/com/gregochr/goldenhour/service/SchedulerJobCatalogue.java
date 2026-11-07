@@ -276,16 +276,16 @@ public final class SchedulerJobCatalogue {
                 .resultsCollectedBy("batch_result_polling"));
         add(draft("intraday_forecast_refresh", "The afternoon refresh", Purpose.FORECAST, true,
                 List.of("Open-Meteo", "Anthropic Batch API"),
-                "A second look before tonight's sunset. Re-rates tonight's sunset and tomorrow's sunrise "
-                        + "and sunset where the weather is still changing, skips places that are settled, then "
-                        + "rebuilds the briefing.",
-                "Fires a set time before sunset so there's still time to change plans. If tomorrow's "
-                        + "sunrise already has a rating, it leaves it for the evening refresh.")
+                "The last look before tonight's sunset. Re-rates tonight's sunset everywhere, then "
+                        + "rebuilds the briefing. Tomorrow's sunrise and sunset are left to the evening refresh.",
+                "Fires a set time before sunset, so there's still time to change plans. If the evening "
+                        + "refresh is paused, or a place has no rating yet for tomorrow, it rates tomorrow too, "
+                        + "skipping a settled sunset.")
                 .resultsCollectedBy("batch_result_polling"));
-        add(draft("evening_sunrise_refresh", "Tomorrow's sunrise, at bedtime", Purpose.FORECAST, true,
+        add(draft("evening_sunrise_refresh", "Tomorrow, at bedtime", Purpose.FORECAST, true,
                 List.of("Open-Meteo", "Anthropic Batch API"),
-                "Re-rates tomorrow's sunrise only, so the decision to set an early alarm is based on a "
-                        + "fresh forecast.",
+                "Re-rates tomorrow's sunrise and sunset at bedtime, so tonight's decisions (an early "
+                        + "alarm, tomorrow evening's plan) rest on a fresh forecast.",
                 "At a set bedtime hour in UK time all year (it follows the clocks, unlike most jobs, which "
                         + "run on GMT).")
                 .resultsCollectedBy("batch_result_polling"));
@@ -356,6 +356,12 @@ public final class SchedulerJobCatalogue {
                 "Fetches 97 days of high and low tides from WorldTides for seascape locations that have a "
                         + "tide preference.",
                 "Weekly. 97 days covers the 90-day Coming up feed plus a week of slack."));
+        add(draft("imo_calendar_refresh", "Meteor shower calendar", Purpose.NIGHT_SKY, false,
+                List.of("International Meteor Organization"),
+                "Reads the International Meteor Organization's calendar for this year and next, and keeps "
+                        + "the meteor shower peak nights and rates current. Changes nothing it cannot read "
+                        + "cleanly, and emails an admin if the calendar changes shape or goes missing.",
+                "Weekly, because a calendar can be revised ahead of an outburst."));
         add(draft("cloud_verification_backfill", "Checks old forecasts against reality", Purpose.FORECAST, false,
                 List.of("Open-Meteo archive (ERA5)"),
                 "Checks past forecasts against what the sky actually did (ERA5 reanalysis). Works through "

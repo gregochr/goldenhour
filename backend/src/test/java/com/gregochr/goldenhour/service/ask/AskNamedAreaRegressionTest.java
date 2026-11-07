@@ -110,7 +110,8 @@ class AskNamedAreaRegressionTest {
         AskJobRunService jobRuns = mock(AskJobRunService.class);
         when(jobRuns.dailyRunId()).thenReturn(DAILY_RUN_ID);
         when(jobRuns.accountingAvailable()).thenReturn(true);
-        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(), jobRuns,
+        engine = new ClaudeAskEngine(new AnthropicApiClient(client), new AskProperties(),
+                AskModelFixtures.haiku(), jobRuns,
                 mock(DriveTimeResolver.class), new AskAnswerValidator(), new AskPromptBuilder(),
                 new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), AskLocationNames.NONE);
     }

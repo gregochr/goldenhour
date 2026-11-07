@@ -194,7 +194,7 @@ public record SlotSignals(
      * @param surgeWindSpeedMs          surge-time 10 m wind speed in m/s, or null
      * @param surgeWindDirectionDegrees surge-time wind direction (degrees FROM), or null
      * @param temperatureCelsius        2 m air temperature in °C, or null; gates the SNOW_MIST
-     *                                  freezing-fog / hoar-frost facts
+     *                                  sub-zero frost wording
      * @param inversionScore            cloud inversion likelihood score (0–10,
      *                                  {@code InversionScoreCalculator}), or null when either the
      *                                  location was not inversion-eligible or the calculator itself

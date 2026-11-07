@@ -58,6 +58,8 @@ to say. The phone never writes `mapLandingSeenRun`, so a reader who later opens 
 on desktop still sees the card once, per this document's own once-per-run design. The desktop
 behaviour L1–L7 built (open on `runStamp`, dismiss, the `↺ Back to …` reopen row) is unchanged.
 
+**R3 (2026-11-06, `reach-scoped-card-plan.md` R3, a follow-on to L7 rather than a numbered phase here).** The pill's verdict follows the Plan bar's drive tier: `useReachLens` is the Map's one drive state, and under a finite tier the verdict is taken from the server's per-tier, per-region verdicts, intersected with the scope pool narrowed by the tier. Figures decided: the pill word, region line and tally are scoped; the window panel header is scoped with the scope beside it and its note says so; the panel and region rows (and their "N of M at 4★+", the L7 member (d)) are regional by definition; the pill's `· N rated` is counted over the scope pool narrowed by the tier; the "is better" line, the stepper ticks and `activeWindowTier` follow the scoped verdicts; `allPoor` and `nextWorthIt` (L7 members (b), (c)) no longer exist in code. The scope words print short (`within 45m`) and are spoken long; on a phone they take the hidden region line's slot. Details: `reference/map-tab.md`.
+
 ⚠️ **The `commit` column names the PR, not a SHA, and that is deliberate.** Every per-phase hash this
 table carried was orphaned the moment the stack was rebased onto main, and the repo squash-merges —
 so all seven phases land as ONE commit whose hash cannot exist until after the merge. A SHA here
@@ -1334,7 +1336,7 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   reader who wants nearest opens the window panel and reads every in-scope region's nearest measured
   drive beside its verdict, so the pill names the strongest and the level below answers "but which
   of them is closest" — without either surface re-deriving the other's figure.
-- **Q4 — The tally's exit. STILL OPEN, and it now covers four figures rather than one.** Whether a
+- **Q4 — The tally's exit. STILL OPEN, and it now covers four figures rather than one.** *(2026-11-06: the owner's request in `reach-scoped-card-plan.md` answers this for the Plan HEADLINE and the Map pill only. R2 built the headline half, `GET /api/user/settings/reach-verdicts`, whose per-window `regions[]` is the pill's input; **R3 built the pill (and its figures) on it, 2026-11-06: see the "R3" note under the phase log.** The four figures: the tally (a) now counts regions in scope AND in reach under a finite tier, `allPoor`/`nextWorthIt` (b)/(c) no longer exist in code (the landing card was removed), and "N of M at 4★+" (d) stays a scope-pool count, regional by definition. The tally, `allPoor`, `nextWorthIt` and the drilldown counts below stay open.)*  Whether a
   served, scope-aware region tally is ever wanted. It cannot ride `/api/briefing` (per-user scope,
   ETag-shared); the shape is `plan-matrix-plan.md` §8's **O-4**, a never-cached per-user endpoint.
   ⚠️ **Not `map-tab-v2-plan.md`'s O-4**, which is curated region short names — two plans, two O-4s,

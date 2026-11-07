@@ -27,16 +27,9 @@ const GROUPS = [
     label: 'Runs',
     tabs: [
       { value: 'runs', label: 'Runs' },
+      { value: 'models', label: 'Model Config' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
-    ],
-  },
-  {
-    value: 'tuning',
-    label: 'Tuning',
-    tabs: [
-      { value: 'models', label: 'Run Config' },
-      { value: 'skyeval', label: 'Sky Eval' },
     ],
   },
   {
@@ -61,6 +54,7 @@ const GROUPS = [
     value: 'testing',
     label: 'Testing',
     tabs: [
+      { value: 'skyeval', label: 'Sky Eval' },
       { value: 'hottopics', label: 'Hot Topics' },
       { value: 'rewind', label: 'Rewind' },
     ],

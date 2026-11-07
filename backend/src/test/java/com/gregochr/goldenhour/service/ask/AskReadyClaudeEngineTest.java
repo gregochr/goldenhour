@@ -4,10 +4,12 @@ import com.anthropic.models.messages.ContentBlockParam;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.repository.JobRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.service.HotTopicSimulationService;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -61,6 +63,7 @@ class AskReadyClaudeEngineTest {
     private final AskSnapshotBuilder snapshotBuilder = mock(AskSnapshotBuilder.class);
     private final List<AskJobRunService.Turn> turns = new ArrayList<>();
     private final AskProperties properties = new AskProperties();
+    private final ModelSelectionService modelSelection = AskModelFixtures.haiku();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-09T12:00:00Z"));
     private ClaudeAskEngine engine;
 
@@ -69,7 +72,7 @@ class AskReadyClaudeEngineTest {
         properties.setEnabled(true);
         when(askJobRuns.accountingAvailable()).thenReturn(true);
         org.mockito.Mockito.doAnswer(inv -> turns.add(inv.getArgument(0))).when(askJobRuns).recordTurn(any());
-        engine = new ClaudeAskEngine(client, properties, askJobRuns, driveTimes,
+        engine = new ClaudeAskEngine(client, properties, modelSelection, askJobRuns, driveTimes,
                 new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
         AskSnapshot snapshot = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
                 List.of(day(oct(9), false, true, null, ReadyFixtures.teesdale())),
@@ -78,10 +81,10 @@ class AskReadyClaudeEngineTest {
         when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
         when(regions.findAllByEnabledTrueOrderByNameAsc()).thenReturn(List.of());
         JobRunEntity readyJob = JobRunEntity.builder().id(JOB_RUN_ID).runType(RunType.ASK_READY).build();
-        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel())))
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU)))
                 .thenReturn(readyJob);
         // A precompute a cycle dispatched starts its run with the cycle's id.
-        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(properties.getModel()), isNull(),
+        when(jobRunService.startRun(eq(RunType.ASK_READY), eq(false), eq(EvaluationModel.HAIKU), isNull(),
                 eq(42L))).thenReturn(readyJob);
     }
 
@@ -107,7 +110,8 @@ class AskReadyClaudeEngineTest {
                 toolTurn(tool("t4", "get_hot_topics", Map.of())),
                 submit(Map.of("answerable", true, "summary", "Snow on the Cheviot.", "events",
                         List.of(Map.of("type", "SNOW_TOPS", "why", "Fresh snow.")))));
-        AskReadyPrecompute service = new AskReadyPrecompute(properties, snapshotBuilder, engine, regions, store,
+        AskReadyPrecompute service = new AskReadyPrecompute(properties, modelSelection, snapshotBuilder,
+                engine, regions, store,
                 jobRunService, mock(JobRunRepository.class), mock(HotTopicSimulationService.class),
                 mock(AuroraStateCache.class), clock, Duration.ofMinutes(5));
 
@@ -125,7 +129,7 @@ class AskReadyClaudeEngineTest {
         ArgumentCaptor<AskAnswer> answer = ArgumentCaptor.forClass(AskAnswer.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.times(3)).upsert(any(), question.capture(), any(), answer.capture(),
-                any(), any(), isNull());
+                any(), any(), isNull(), any());
         assertThat(question.getAllValues()).containsExactly(ReadyQuestion.BEST_NEXT, ReadyQuestion.RARE_EVENTS,
                 ReadyQuestion.SNOW_TOPS);
         assertThat(answer.getAllValues().getFirst().picks()).singleElement().satisfies(p -> {

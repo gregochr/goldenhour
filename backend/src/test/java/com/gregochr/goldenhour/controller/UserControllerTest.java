@@ -211,6 +211,83 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users returns 400 when any one required field is absent or blank")
+    void createUser_eachRequiredFieldMissingOrBlank_returns400() throws Exception {
+        String[] bodies = {
+                "{\"password\":\"pass\",\"role\":\"LITE_USER\",\"email\":\"bob@example.com\"}",
+                "{\"username\":\" \",\"password\":\"pass\",\"role\":\"LITE_USER\",\"email\":\"bob@example.com\"}",
+                "{\"username\":\"bob\",\"role\":\"LITE_USER\",\"email\":\"bob@example.com\"}",
+                "{\"username\":\"bob\",\"password\":\" \",\"role\":\"LITE_USER\",\"email\":\"bob@example.com\"}",
+                "{\"username\":\"bob\",\"password\":\"pass\",\"email\":\"bob@example.com\"}",
+                "{\"username\":\"bob\",\"password\":\"pass\",\"role\":\" \",\"email\":\"bob@example.com\"}",
+                "{\"username\":\"bob\",\"password\":\"pass\",\"role\":\"LITE_USER\"}",
+                "{\"username\":\"bob\",\"password\":\"pass\",\"role\":\"LITE_USER\",\"email\":\" \"}"};
+        for (String body : bodies) {
+            mockMvc.perform(post("/api/users")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("username, password, role, and email are required"));
+        }
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email and /role return 400 for a blank value")
+    void setEmailAndRole_blankValue_returns400() throws Exception {
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("email field required"));
+        mockMvc.perform(put("/api/users/1/role")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("role field required"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 400 when the stored email is blank")
+    void resendVerification_blankEmail_returns400() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        user.setEmail("   ");
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User has no email address"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("GET /api/users: free-until is served when set, a missing created-at is an empty string, and a "
+            + "pending account with no minted link has no verification date")
+    void getUsers_freeUntilCreatedAtAndUnsentLink() throws Exception {
+        AppUserEntity ageless = buildUser(1L, "ageless", UserRole.LITE_USER);
+        ageless.setCreatedAt(null);
+        AppUserEntity pending = buildUser(2L, "waiting", UserRole.LITE_USER);
+        pending.setEnabled(false);
+        pending.setPassword("");
+        List<AppUserEntity> all = List.of(ageless, pending);
+        when(userService.listAllUsers()).thenReturn(all);
+        when(userSubRegionService.adminSummaries(all)).thenReturn(Map.of(
+                1L, new UserSubRegionSummary(List.of("Swaledale"), SubRegionState.FIRST_CHOICE,
+                        LocalDate.of(2026, 11, 10), null, false)));
+        when(registrationService.verificationSentAtByUser()).thenReturn(Map.of());
+
+        mockMvc.perform(get("/api/users"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].createdAt").value(""))
+                .andExpect(jsonPath("$[0].freeUntil").value("2026-11-10"))
+                .andExpect(jsonPath("$[0].nextChangeOn").doesNotExist())
+                .andExpect(jsonPath("$[1].awaitingVerification").value(true))
+                .andExpect(jsonPath("$[1].verificationSentAt").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/users returns 400 when role is invalid")
     void createUser_invalidRole_returns400() throws Exception {
         mockMvc.perform(post("/api/users")

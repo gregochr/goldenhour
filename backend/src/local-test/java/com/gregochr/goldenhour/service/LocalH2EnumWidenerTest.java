@@ -123,6 +123,13 @@ class LocalH2EnumWidenerTest {
     }
 
     @Test
+    @DisplayName("model_selection.run_type is a widening target, so a local file accepts ASK and ASK_READY rows")
+    void modelSelectionRunTypeIsATarget() {
+        assertThat(LocalH2EnumWidener.TARGETS).contains(
+                new Target("model_selection", "run_type", com.gregochr.goldenhour.entity.RunType.class));
+    }
+
+    @Test
     @DisplayName("the Sky Eval run model column is a widening target; the exclusion table is a plain string")
     void skyEvalModelColumnsAreTargets() {
         assertThat(LocalH2EnumWidener.TARGETS).contains(

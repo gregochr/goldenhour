@@ -1,14 +1,35 @@
 package com.gregochr.goldenhour.model;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
 /**
  * Request body for saving a user's home location.
  *
- * @param postcode  the formatted UK postcode (e.g. "DH1 3LE")
+ * <p>The bounds are checked when the controller binds the body ({@code @Valid}), so malformed input answers
+ * HTTP 400 and never reaches the database: the postcode is held in a {@code VARCHAR(10)} column
+ * ({@link #POSTCODE_MAX_LENGTH}), and a longer value used to surface as a database error. A control
+ * character in the postcode (a NUL byte above all, which PostgreSQL refuses to store in a text column)
+ * is refused for the same reason: it would otherwise surface as a database error, not a 400.
+ *
+ * @param postcode  the formatted UK postcode (e.g. "DH1 3LE"), at most {@value #POSTCODE_MAX_LENGTH} characters
  * @param latitude  WGS84 latitude resolved from the postcode
  * @param longitude WGS84 longitude resolved from the postcode
  * @param localRadiusMiles the Close to home radius in miles, or null to leave it unchanged —
  *                  the two settings live together because the radius is measured from this home
  */
-public record SaveHomeRequest(String postcode, double latitude, double longitude,
+public record SaveHomeRequest(
+        @Size(max = SaveHomeRequest.POSTCODE_MAX_LENGTH)
+        @Pattern(regexp = SaveHomeRequest.NO_CONTROL_CHARACTERS) String postcode,
+        @DecimalMin("-90.0") @DecimalMax("90.0") double latitude,
+        @DecimalMin("-180.0") @DecimalMax("180.0") double longitude,
         Integer localRadiusMiles) {
+
+    /** The width of the {@code app_user.home_postcode} column (V67). */
+    public static final int POSTCODE_MAX_LENGTH = 10;
+
+    /** Any text with no ASCII control character (U+0000 to U+001F, U+007F) in it; the empty text matches. */
+    public static final String NO_CONTROL_CHARACTERS = "[^\\p{Cntrl}]*";
 }

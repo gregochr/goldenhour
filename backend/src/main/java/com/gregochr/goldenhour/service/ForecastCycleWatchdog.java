@@ -47,7 +47,7 @@ import java.util.Optional;
  * <p>No forecast is the worst outcome this application can have, and nothing used to say so: a cycle
  * that never fired, or one still waiting on Anthropic as the light arrives, was found by whoever
  * opened the app. For each forecast cycle job ({@link ForecastCycleJobs#allCycleJobs()}: the two
- * solar-capable main cycles and the evening sunrise refresh) it checks two things and mails the
+ * solar-capable main cycles and the evening refresh) it checks two things and mails the
  * admins once per occurrence:
  * <ul>
  *   <li><b>Did not start.</b> The job is ACTIVE, its most recent scheduled fire time F is more than
@@ -304,7 +304,7 @@ public class ForecastCycleWatchdog {
                 String detail = "The " + cycle + " forecast cycle (" + config.getJobKey() + ") run "
                         + run.getId() + ", triggered " + UK_TIME.format(run.getTriggerTime())
                         + " UK time, did not finish within its " + eveningBudget.toMinutes()
-                        + "-minute budget, so tomorrow morning's sunrise may not carry the evening look."
+                        + "-minute budget, so tomorrow's sunrise and sunset may not carry the evening look."
                         + "\n\nMissing: " + missing;
                 LOG.error("Forecast-cycle watchdog: {} run {} did not finish: {}",
                         config.getJobKey(), run.getId(), missing);
