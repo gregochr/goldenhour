@@ -53,8 +53,6 @@ public class HotTopicGlanceDecorator {
     private static final String AOD_KEY = "AOD";
     private static final String FACT_SEPARATOR = " · ";
     private static final String RUN_STARTS_SUFFIX = " · run starts";
-    private static final String PEAK_SHORT_SUFFIX = " pk";
-    private static final String SUPERMOON_SHORT = "full";
     private static final String RISE_PREFIX = "rise ";
     private static final String HIGH_WATER_PREFIX = "HW ";
     private static final String COMMA = ",";
@@ -90,11 +88,11 @@ public class HotTopicGlanceDecorator {
         }
         if (FIRST_FACT_TYPES.contains(type)) {
             String first = firstFactValue(topic).orElse(null);
-            return topic.withGlance(new GlanceLine(first, first, null, WEATHER_TYPES.contains(type)));
+            return topic.withGlance(new GlanceLine(first, null, WEATHER_TYPES.contains(type)));
         }
         if (WEATHER_TYPES.contains(type)) {
             // A weather type no strategy stamped (e.g. a simulated one) is still marked WX.
-            return topic.withGlance(new GlanceLine(null, null, null, true));
+            return topic.withGlance(new GlanceLine(null, null, true));
         }
         return topic;
     }
@@ -132,7 +130,7 @@ public class HotTopicGlanceDecorator {
     private static GlanceLine surgeGlance(SurgeRunDay run, boolean peakDate) {
         String badge = peakDate ? GlanceLine.BADGE_PEAK : null;
         if (run == null) {
-            return new GlanceLine(null, null, badge, true);
+            return new GlanceLine(null, badge, true);
         }
         String peak = run.peak();
         String hw = run.highWaterTime() == null ? null : HIGH_WATER_PREFIX + run.highWaterTime();
@@ -142,19 +140,17 @@ public class HotTopicGlanceDecorator {
         } else {
             value = hw != null ? hw : peak;
         }
-        String shortValue = peak == null ? null : peak + (peakDate ? PEAK_SHORT_SUFFIX : "");
-        return new GlanceLine(value, shortValue, badge, true);
+        return new GlanceLine(value, badge, true);
     }
 
     private static GlanceLine tideGlance(TideRunDay run) {
         if (run == null) {
-            return new GlanceLine(null, null, null, false);
+            return new GlanceLine(null, null, false);
         }
         String range = run.range();
         boolean starts = run.dayNumber() == FIRST_RUN_DAY && run.dayCount() > 1;
         String value = range == null ? null : range + (starts ? RUN_STARTS_SUFFIX : "");
-        String shortValue = range == null ? null : range + (run.peak() ? PEAK_SHORT_SUFFIX : "");
-        return new GlanceLine(value, shortValue, run.peak() ? GlanceLine.BADGE_PEAK : null, false);
+        return new GlanceLine(value, run.peak() ? GlanceLine.BADGE_PEAK : null, false);
     }
 
     private static GlanceLine supermoonGlance(HotTopic topic) {
@@ -163,13 +159,12 @@ public class HotTopicGlanceDecorator {
                 .map(String::trim)
                 .map(v -> RISE_PREFIX + v)
                 .orElse(null);
-        return new GlanceLine(rise, SUPERMOON_SHORT, GlanceLine.BADGE_FULL, false);
+        return new GlanceLine(rise, GlanceLine.BADGE_FULL, false);
     }
 
     private static GlanceLine dustGlance(HotTopic topic) {
         String aod = factValue(topic, AOD_KEY).orElse(null);
-        String number = aod == null ? null : aod.split(FACT_SEPARATOR.trim(), 2)[0].trim();
-        return new GlanceLine(aod, number, null, true);
+        return new GlanceLine(aod, null, true);
     }
 
     private static Optional<String> factValue(HotTopic topic, String key) {

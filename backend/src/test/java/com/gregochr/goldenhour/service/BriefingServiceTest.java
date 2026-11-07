@@ -302,7 +302,7 @@ class BriefingServiceTest {
     /** Meteor clarity service wired with a real overhead sampler over the mocked Open-Meteo client. */
     private MeteorClarityService meteor() {
         return new MeteorClarityService(
-                new OverheadCloudSampler(openMeteoClient), locationRepository);
+                new OverheadCloudSampler(openMeteoClient), locationRepository, MeteorPeakCalendars.empty());
     }
 
     @Nested
@@ -1757,7 +1757,7 @@ class BriefingServiceTest {
             assertThat(second).isSameAs(first);
             assertThat(first.hotTopics()).hasSize(1);
             assertThat(first.hotTopics().getFirst().glance())
-                    .isEqualTo(new GlanceLine("0.45 · thick", "0.45", null, true));
+                    .isEqualTo(new GlanceLine("0.45 · thick", null, true));
         }
 
         /**

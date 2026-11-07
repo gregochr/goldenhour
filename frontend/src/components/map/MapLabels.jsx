@@ -831,7 +831,12 @@ export default function MapLabels({
   if (!pane || !frame) return null;
 
   const labelLayer = createPortal(
-    <div ref={setRootRef} className="wf-maplab-layer" data-testid="map-labels">
+    <div
+      ref={setRootRef}
+      className="wf-maplab-layer"
+      data-testid="map-labels"
+      data-placed={isMeasured ? 'true' : undefined}
+    >
       {frame.homeItems.map((it) => (
         <span
           key={it.key}

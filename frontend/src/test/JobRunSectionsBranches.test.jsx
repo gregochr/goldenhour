@@ -166,6 +166,17 @@ describe('DiagnosticsSection branches', () => {
     expect(screen.getByTestId('cache-diagnostics-more')).toHaveTextContent(/^\+\d+ more$/);
   });
 
+  it('lets a cache row wrap on a phone and a long reason break instead of crushing the row', () => {
+    const calls = [{
+      service: 'ANTHROPIC', succeeded: true, customId: 'req-long',
+      cacheDiagnostics: JSON.stringify({ status: 'MISS', reason: 'x'.repeat(120) }),
+    }];
+    render(<DiagnosticsSection apiCalls={calls} />);
+    fireEvent.click(screen.getByTestId('diagnostics-cache-toggle'));
+    expect(screen.getByTestId('cache-diagnostics-row')).toHaveClass('max-[639px]:flex-wrap');
+    expect(screen.getByTestId('cache-badge')).toHaveClass('min-w-0', 'break-words', '[overflow-wrap:anywhere]');
+  });
+
   it('keys a cache row by customId when it has no id, and shows no more-counter for few rows', () => {
     const calls = [{
       service: 'ANTHROPIC', succeeded: true, customId: 'only-custom',

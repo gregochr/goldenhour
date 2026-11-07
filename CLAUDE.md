@@ -179,6 +179,8 @@ Frontend CI is lint → Vitest with a coverage floor (`vite.config.js` `test.cov
 cd frontend && npm run lint && npm run test:coverage && npm audit --audit-level=high && npm run build
 ```
 
+The **E2E smoke** (`E2E — Playwright smoke`) is also a required CI check: with the backend jar built (`cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package`) and `npm run build` done, run `cd frontend && npm run test:e2e:smoke` (recipe and rules in `dev-and-testing.md`, "The E2E smoke gate").
+
 Changed-lines check locally (repo root, after the coverage run; `pip install diff-cover==10.0.0`; the `SF:` rewrite is required): `sed 's#^SF:#SF:frontend/#' frontend/coverage/lcov.info > /tmp/l.info && diff-cover /tmp/l.info --compare-branch=origin/main --fail-under=90`.
 
 When `npm audit` fires, edit the lockfile surgically rather than `npm audit fix`, check `package.json`'s `overrides` pin first, and prove it with `rm -rf node_modules && npm ci`. Details are in `dev-and-testing.md`.

@@ -60,7 +60,7 @@ class TideLightLiteShapingTest {
         return new HotTopic("KING_TIDE", "King tide", PRO_SENTENCE, DAY, 1, null, List.of("North East"),
                 "A king tide", expanded(), "SUNRISE", "06:41", List.of("Bamburgh"), null, null,
                 List.of(new HotTopicFact(null, "5.8 m", null, false, true)), "look low",
-                runDay(), null, "rarity", "safety", new GlanceLine("v", "s", null, false))
+                runDay(), null, "rarity", "safety", new GlanceLine("v", null, false))
                 .withLiteDetail(LITE_SENTENCE);
     }
 
@@ -196,7 +196,7 @@ class TideLightLiteShapingTest {
         Set<String> strippedWhole = Set.of("runLabel", "dayNumber", "dayCount", "dayLabel", "locationName",
                 "range", "rangeAnomaly", "highWater", "sunrise", "sunset",
                 "seas", "tides", "verdict", "aligned", "alignedEvent",
-                "roster", "peak", "phrase");
+                "roster", "peak", "phrase", "runStart", "runEnd");
 
         assertThat(names(TideRunDay.class))
                 .as("a new TideRunDay component is stripped with the whole run row; classify it here")

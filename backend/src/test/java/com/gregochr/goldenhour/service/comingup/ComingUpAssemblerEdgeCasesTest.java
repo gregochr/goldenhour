@@ -135,6 +135,52 @@ class ComingUpAssemblerEdgeCasesTest {
     }
 
     @Test
+    @DisplayName("meteor: the metric comes from ukRate when present, else the ZHR; the low-radiant fact "
+            + "names the catalogue rate; ukRate, lowRadiant and minor are stripped from meta")
+    void meteorLowRadiantMetricFactAndStrippedKeys() {
+        ComingUpEntry entry = only(event("meteor", Map.of("zhr", "50", "ukRate", "5", "lowRadiant", "true",
+                "minor", "true", "radiant", "E")));
+
+        assertThat(entry.metric()).isEqualTo("~5/hr");
+        assertThat(factTexts(entry)).containsExactly("radiates from the E",
+                "radiant low from the UK — catalogue rate ~50/hr");
+        assertThat(entry.facts().get(1).segments()).extracting(ComingUpFact.Segment::tone)
+                .containsExactly("accent");
+        assertThat(entry.meta()).doesNotContainKeys("ukRate", "lowRadiant", "minor", "zhr");
+        assertThat(only(event("meteor", Map.of("zhr", "150"))).metric()).isEqualTo("~150/hr");
+        assertThat(factTexts(only(event("meteor", Map.of("zhr", "150", "lowRadiant", "false")))))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("meteor: a minor shower scores under the announce edge and states no frequency; a major "
+            + "shower still clears it")
+    void minorMeteorScoresBelowAnnounce() {
+        ComingUpEntry minor = only(event("meteor", Map.of("zhr", "5", "minor", "true")));
+        ComingUpEntry major = only(event("meteor", Map.of("zhr", "15")));
+
+        assertThat(minor.bits()).isCloseTo(6.9, org.assertj.core.data.Offset.offset(0.05))
+                .isLessThan(properties.getBands().getAnnounce());
+        assertThat(major.bits()).isGreaterThan(properties.getBands().getAnnounce());
+    }
+
+    @Test
+    @DisplayName("meteor: in one window a minor shower never takes the first-of-type prose; the first major does")
+    void minorMeteorNeverTakesFirstOfType() {
+        AlmanacEvent taurids = event(DAY, DAY, "meteor", "N. Taurids", Map.of("minor", "true"));
+        AlmanacEvent leonids = event(DAY.plusDays(5), DAY.plusDays(5), "meteor", "Leonids", Map.of());
+        AlmanacEvent geminids = event(DAY.plusDays(30), DAY.plusDays(30), "meteor", "Geminids", Map.of());
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(taurids, leonids, geminids));
+
+        assertThat(response.entries()).extracting(ComingUpEntry::title)
+                .containsExactly("N. Taurids", "Leonids", "Geminids");
+        assertThat(response.entries().get(0).prose()).isNull();
+        assertThat(response.entries().get(1).prose()).isEqualTo("detail");
+        assertThat(response.entries().get(2).prose()).isNull();
+    }
+
+    @Test
     @DisplayName("meteor: radiant alone has no trailing separator")
     void meteorRadiantAlone() {
         assertThat(factTexts(only(event("meteor", Map.of("radiant", "Perseus")))))

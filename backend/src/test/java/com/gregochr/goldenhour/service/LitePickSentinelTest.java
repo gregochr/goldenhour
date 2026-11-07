@@ -82,7 +82,7 @@ class LitePickSentinelTest {
         return new HotTopic("BLUEBELL", "Bluebell conditions", "U_BEST_SUMMARY today", DAY, 1, "BLUEBELL",
                 List.of("North East"), "description", detail, "SUNRISE", "06:00", null, null, null,
                 List.of(HotTopicFact.metric("conditions", "U_FACT 5/5 · excellent")), "note", null, null, null,
-                null, new GlanceLine("U_GLANCE", "U_GLANCE", null, false));
+                null, new GlanceLine("U_GLANCE", null, false));
     }
 
     private static DailyBriefingResponse briefing() {

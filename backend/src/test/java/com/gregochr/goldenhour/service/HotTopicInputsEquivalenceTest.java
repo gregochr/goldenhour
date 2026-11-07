@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.LunarEclipseCalculator;
 import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.solarutils.MoonriseMoonsetCalculator;
+import com.gregochr.solarutils.SolarCalculator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -133,7 +134,6 @@ class HotTopicInputsEquivalenceTest {
             LunarPhaseService lunar = mock(LunarPhaseService.class);
             // any(): the moon is stubbed constant on every date; no query bound depends on it.
             when(lunar.isFullMoon(any())).thenReturn(false);
-            when(lunar.getIlluminationFraction(any())).thenReturn(0.05);
             LunarEclipseCalculator lunarCalculator = mock(LunarEclipseCalculator.class);
             // any(): the sight is a constant for every eclipse and place; no query bound depends on it.
             when(lunarCalculator.sight(any(), Mockito.anyDouble(), Mockito.anyDouble()))
@@ -155,16 +155,21 @@ class HotTopicInputsEquivalenceTest {
                     new SupermoonHotTopicStrategy(lunar, locations, mock(LunarCalculator.class),
                             mock(MoonriseMoonsetCalculator.class), solar),
                     new SpringTideHotTopicStrategy(briefing, locations, freshness,
-                            mock(CoastalTideFactsBuilder.class), mock(TideRunBuilder.class), lunar),
+                            mock(CoastalTideFactsBuilder.class), mock(TideRunBuilder.class),
+                            mock(TideRunExtent.class), lunar),
                     new KingTideHotTopicStrategy(briefing, locations, freshness,
-                            mock(CoastalTideFactsBuilder.class), mock(TideRunBuilder.class), lunar),
+                            mock(CoastalTideFactsBuilder.class), mock(TideRunBuilder.class),
+                            mock(TideRunExtent.class), lunar),
                     new EclipseHotTopicStrategy(locations, solar, freshness),
                     new LunarEclipseHotTopicStrategy(locations, solar, freshness,
                             lunarCalculator),
                     new EquinoxHotTopicStrategy(solar, locations, freshness),
                     new AuroraHotTopicStrategy(auroraState, mock(NoaaSwpcClient.class), locations,
                             auroraSummary, auroraRun),
-                    new MeteorHotTopicStrategy(lunar, locations, meteorClarity));
+                    new MeteorHotTopicStrategy(
+                            new MeteorMoonGate(new LunarCalculator(), new SolarCalculator(),
+                                    new MoonriseMoonsetCalculator()),
+                            locations, meteorClarity, MeteorPeakCalendars.empty()));
             enricher = new HotTopicEventEnricher(solar, locations, freshness);
             aggregator = new HotTopicAggregator(strategies, simulation, travelDays, enricher,
                     new HotTopicGlanceDecorator(), reader, locations);

@@ -117,7 +117,7 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
         return new HotTopic("BLUEBELL", "Bluebell conditions", "In bloom today", DAY, 1, "BLUEBELL",
                 List.of("North East"), "description", detail)
                 .withScience(List.of(HotTopicFact.metric("conditions", "5/5 · excellent")), "note")
-                .withGlance(new GlanceLine("5/5 · excellent", "5/5 · excellent", null, false));
+                .withGlance(new GlanceLine("5/5 · excellent", null, false));
     }
 
     private static DailyBriefingResponse briefing() {

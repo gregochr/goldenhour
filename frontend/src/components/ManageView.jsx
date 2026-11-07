@@ -27,9 +27,9 @@ const GROUPS = [
     label: 'Runs',
     tabs: [
       { value: 'runs', label: 'Runs' },
+      { value: 'models', label: 'Model Config' },
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
-      { value: 'models', label: 'Model Config' },
     ],
   },
   {

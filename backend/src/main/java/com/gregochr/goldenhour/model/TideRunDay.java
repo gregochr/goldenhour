@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -80,6 +81,10 @@ import java.util.List;
  *                     foreground"} when the low is the one in the light, and a submerged-foreshore
  *                     line when the high is. Both sentences always described a water; they read as
  *                     run-type phrases only while the run type was picking the water
+ * @param runStart     the run's real first date (ISO {@code yyyy-MM-dd} on the wire), or null when not
+ *                     computed (old cached briefings). Every day of one run carries the same pair, and
+ *                     it can lie before the served window, which {@link #dayNumber} cannot express
+ * @param runEnd       the run's real last date, or null; may lie after the served window
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TideRunDay(
@@ -100,7 +105,9 @@ public record TideRunDay(
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
         boolean peak,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String phrase,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate runStart,
+        @JsonInclude(JsonInclude.Include.NON_NULL) LocalDate runEnd) {
 
     /**
      * Canonical constructor with Jackson bindings so cached briefing JSON round-trips.
@@ -123,6 +130,8 @@ public record TideRunDay(
      * @param roster       the roster-wide alignment tally, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
+     * @param runStart     the run's real first date, or null when not computed
+     * @param runEnd       the run's real last date, or null when not computed
      */
     @JsonCreator
     public TideRunDay(
@@ -143,7 +152,9 @@ public record TideRunDay(
             @JsonProperty("alignedEvent") String alignedEvent,
             @JsonProperty("roster") RosterAlignment roster,
             @JsonProperty("peak") boolean peak,
-            @JsonProperty("phrase") String phrase) {
+            @JsonProperty("phrase") String phrase,
+            @JsonProperty("runStart") LocalDate runStart,
+            @JsonProperty("runEnd") LocalDate runEnd) {
         this.runLabel = runLabel;
         this.dayNumber = dayNumber;
         this.dayCount = dayCount;
@@ -162,6 +173,54 @@ public record TideRunDay(
         this.roster = roster;
         this.peak = peak;
         this.phrase = phrase;
+        this.runStart = runStart;
+        this.runEnd = runEnd;
+    }
+
+    /**
+     * Eighteen-argument form without the run's extent: both dates are null. Kept so callers that do
+     * not know the run's real extent need not name it.
+     *
+     * @param runLabel     the run's chip text
+     * @param dayNumber    1-based position in the run
+     * @param dayCount     days in the run
+     * @param dayLabel     short day label
+     * @param locationName the representative coastal location
+     * @param range        the day's tidal range
+     * @param rangeAnomaly signed anomaly against the mean range, or null
+     * @param highWater    the day's highest water, or null
+     * @param sunrise      the day's sunrise
+     * @param sunset       the day's sunset
+     * @param seas         wave height and sea-state band, or null
+     * @param tides        every tide extreme in the local day
+     * @param verdict      the plain-language alignment call
+     * @param aligned      whether a water of either kind lands near a solar event
+     * @param alignedEvent which solar event it aligned with, or null
+     * @param roster       the roster-wide alignment tally, or null
+     * @param peak         whether this is the run's biggest-range day
+     * @param phrase       the editorial line for this event type
+     */
+    public TideRunDay(String runLabel, int dayNumber, int dayCount, String dayLabel,
+            String locationName, String range, String rangeAnomaly, String highWater,
+            String sunrise, String sunset, String seas, List<Extreme> tides, String verdict,
+            boolean aligned, String alignedEvent, RosterAlignment roster, boolean peak,
+            String phrase) {
+        this(runLabel, dayNumber, dayCount, dayLabel, locationName, range, rangeAnomaly, highWater,
+                sunrise, sunset, seas, tides, verdict, aligned, alignedEvent, roster, peak, phrase,
+                null, null);
+    }
+
+    /**
+     * Returns a copy of this day carrying the run's real extent.
+     *
+     * @param start the run's real first date, or null
+     * @param end   the run's real last date, or null
+     * @return a new {@link TideRunDay} with {@code runStart} and {@code runEnd} set
+     */
+    public TideRunDay withRunExtent(LocalDate start, LocalDate end) {
+        return new TideRunDay(runLabel, dayNumber, dayCount, dayLabel, locationName, range,
+                rangeAnomaly, highWater, sunrise, sunset, seas, tides, verdict, aligned,
+                alignedEvent, roster, peak, phrase, start, end);
     }
 
     /**

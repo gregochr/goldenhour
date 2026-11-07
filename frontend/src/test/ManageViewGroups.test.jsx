@@ -30,7 +30,7 @@ vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
     ['runs', 'Runs'],
-    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'], ['models', 'Model Config'],
+    ['models', 'Model Config'], ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
   ] },
   { group: 'places', label: 'Places', tabs: [
     ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
@@ -107,6 +107,14 @@ describe('ManageView — grouping', () => {
     expect(isSelectedGroup(group)).toBe(true);
     expect(screen.getByTestId(`manage-tab-${value}`)).toBeInTheDocument();
     expect(screen.getByTestId('stub-view')).toHaveTextContent(label);
+  });
+
+  it('a run-type deep link #manage/models/BATCH_NEAR_TERM lands in Runs / Model Config', () => {
+    window.location.hash = '#manage/models/BATCH_NEAR_TERM';
+    render(<ManageView onComplete={vi.fn()} />);
+    expect(isSelectedGroup('runs')).toBe(true);
+    expect(screen.getByTestId('manage-tab-models')).toHaveTextContent('Model Config');
+    expect(screen.getByTestId('stub-view')).toHaveTextContent('Model Config');
   });
 
   it('the old Tuning deep links still work: #manage/models is Runs / Model Config, #manage/skyeval is Testing / Sky Eval', () => {

@@ -76,7 +76,7 @@ copy is corrected.
 | Haiku 5.5 ran Batch Far-Term for a day and was moved off after the eval check | `reference/pipeline.md` |
 | Production model calls (forecast runs and Ask) logged with input, output and cache token counts; the sky eval records its own tokens separately | `api_call_log`, `api-endpoints.md` |
 | Ask: at most 4 turns, structured `submit_answer`, validator, keyword-matched Ready answers (no embeddings), cached static prompt and tools | `reference/ask-photocast.md` |
-| "More than 25,000 automated tests", "more than 200 database migrations", "more than 120 written plans" | about 27,000 tests, 215 migrations, 133 plans on 2026-11-05 |
+| "More than 33,000 automated tests", "more than 200 database migrations", "more than 120 written plans" | about 33,400 tests (14,913 backend + 18,524 frontend, CI run 42349072217, 2026-11-07); migrations and plans unchanged in kind (217 migration files, 134 plans on 2026-11-07, both still above the claimed 200 and 120) |
 
 **OWASP names.** Use the 2025 edition's exact titles: Broken Access Control, Security Misconfiguration, Software
 Supply Chain Failures, Injection. No numbering. Anything that isn't a category goes under "Beyond the
@@ -164,11 +164,13 @@ lower any of them without a stated reason.
 | SpotBugs with FindSecBugs | Every PR | Any High-priority finding | The build fails |
 | Checkstyle | Every PR | Javadoc on every public type and method, indentation, line length, unused imports | The build fails |
 | ESLint, including `jsx-a11y` | Every PR | Any error or warning | The build fails |
+| Playwright smoke (Chromium) | Every PR and every release | Signing in and out and the main tabs, against the real server with an empty database; any console error, failed request or unexpected third-party request | The build fails |
 | `npm audit` | Every PR | Any high or critical advisory | The build fails |
 | CodeQL | Every PR (new alerts) and weekly (whole codebase) | New alerts a change introduces | The check fails |
 | OWASP Dependency-Check | PRs that change server dependencies, and daily | CVSS 7.0 or above, unless investigated and recorded as not applicable | The check fails |
 | OWASP ZAP | Weekly | Any alert of Low risk or above without a written exception, or a scan that didn't run properly | An issue is opened for me |
 | PIT mutation testing | Weekly | 60% of mutants killed in the service and utility layers | An issue is opened for me |
+| Stryker mutation testing | Weekly | The app's client logic | An issue is opened for me if the run fails |
 
 Per-class coverage is the one I'd defend hardest. An 80% average lets a well-tested utility package hide an
 untested service; per class, a new class can't lean on the rest of the codebase for its number. The app goes further: every file has its own floor, and the lines a change touches must be
@@ -220,7 +222,11 @@ None of this is a substitute for a professional penetration test, and I don't cl
 Coverage says what the tests ran, not whether they'd notice a bug. So:
 
 - **Mutation testing.** PIT runs weekly over the service and utility layers, planting small faults and checking
-  the tests fail. The threshold is 60% of mutants killed.
+  the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.
+- **A real browser.** A short Playwright suite drives Chromium against the real server and a fresh, empty
+  database, signs in and out, visits the main tabs and fails on any console error, failed request or unexpected
+  third-party request. It is a required check on every pull request and every release. It does not yet cover the
+  map and planning screens with data.
 - **Testing the model, not just the code.** A weekly evaluation re-rates a fixed set of past sunrises and
   sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a
   model changes, and it decides which model runs which job: a newer model was taken off a production job after
@@ -233,7 +239,7 @@ Coverage says what the tests ran, not whether they'd notice a bug. So:
 - **Time is injected.** "Today" in the UK is derived from an injected clock everywhere, so the tests cover
   midnight, daylight-saving changes and a server running on UTC.
 
-In all, more than 25,000 automated tests across the server and the app.
+In all, more than 33,000 automated tests across the server and the app.
 
 ### AI inside the product
 - **Ask PhotoCast uses tool calling rather than document retrieval.** It's retrieval-augmented generation
@@ -258,8 +264,10 @@ and challenged before any code exists. [How PhotoCast is built](how-its-built.ht
 English.
 
 ### Where it falls short
-- The app's tests run in a simulated browser. A few real-browser tests exist, but they run by hand.
-- Mutation testing covers the server only, and runs weekly rather than on every change.
+- Most of the app's tests run in a simulated browser. A real-browser smoke test now runs on every change and must
+  pass, but it uses an empty database, so the map and planning screens with real forecasts are still checked in a
+  real browser by hand.
+- Mutation testing covers the server and the app's client logic, but not the app's screens, and runs weekly rather than on every change.
 - The prompt regression suite runs by hand, because every run spends real money; the weekly evaluation fills the
   gap in between.
 - PhotoCast runs as Docker containers on a single Linux host, with no separate staging copy of the live

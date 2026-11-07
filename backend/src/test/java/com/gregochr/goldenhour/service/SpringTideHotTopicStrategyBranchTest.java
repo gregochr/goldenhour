@@ -39,6 +39,7 @@ class SpringTideHotTopicStrategyBranchTest {
     private SolarEventFreshness freshness;
     private CoastalTideFactsBuilder coastalTideFactsBuilder;
     private TideRunBuilder tideRunBuilder;
+    private TideRunExtent tideRunExtent = mock(TideRunExtent.class);
     private LunarPhaseService lunarPhaseService;
     private SpringTideHotTopicStrategy strategy;
     private LocationEntity craster;
@@ -53,7 +54,7 @@ class SpringTideHotTopicStrategyBranchTest {
         tideRunBuilder = mock(TideRunBuilder.class);
         lunarPhaseService = mock(LunarPhaseService.class);
         strategy = new SpringTideHotTopicStrategy(briefingService, locationRepository, freshness,
-                coastalTideFactsBuilder, tideRunBuilder, lunarPhaseService);
+                coastalTideFactsBuilder, tideRunBuilder, tideRunExtent, lunarPhaseService);
 
         RegionEntity region = new RegionEntity();
         region.setName("Northumberland");

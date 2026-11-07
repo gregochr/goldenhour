@@ -10,7 +10,7 @@ import {
 } from '../../../utils/runsDay.js';
 
 /** The row's grid: start, run, [duration, [cost,]] status, widening with the list column (container queries, F9). */
-const ROW_GRID = 'grid grid-cols-[52px_minmax(0,1fr)_92px] items-start gap-x-3 @min-[600px]:grid-cols-[62px_minmax(0,1fr)_110px_92px] @min-[900px]:grid-cols-[62px_minmax(0,1fr)_110px_72px_92px]';
+const ROW_GRID = 'grid grid-cols-[52px_minmax(0,1fr)_92px] items-start gap-x-3 max-[639px]:grid-cols-[44px_minmax(0,1fr)_76px] max-[639px]:gap-x-2 @min-[600px]:grid-cols-[62px_minmax(0,1fr)_110px_92px] @min-[900px]:grid-cols-[62px_minmax(0,1fr)_110px_72px_92px]';
 
 /** A row of the facts line: a label and its mono value. */
 function Fact({ label, children, testId }) {
@@ -99,7 +99,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
           {rowStartText(row)}
         </span>
         <span className="min-w-0">
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 items-center gap-2 max-[639px]:flex-wrap">
             <span className={`size-2 shrink-0 rounded-[2px] ${typeStyle(row.type).swatch}`} aria-hidden="true" />
             {isCycleType(row.type) && (
               <span
@@ -110,7 +110,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
               </span>
             )}
             <span
-              className={`truncate ${scheduled ? 'font-normal' : 'font-medium'} ${dim}`}
+              className={`truncate max-[639px]:min-w-0 max-[639px]:max-w-full ${scheduled ? 'font-normal' : 'font-medium'} ${dim}`}
               title={row.name}
               data-testid={`runs-day-name-${row.id}`}
             >

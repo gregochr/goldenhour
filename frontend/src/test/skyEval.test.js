@@ -3,6 +3,7 @@ import {
   CELL_FILL, GRID_RUNS, HISTORY, buildFixtureHistory, cellState, cellTitle, defaultFixtureModel, dotKind,
   fixtureModels, fixtureRows, historyWindow, historyX, historyY, modelRunColumns,
   CHART, barWidthPct, buildAccuracySeries, changeTone, chartWindow, chartX, chartY, comparedTone, estimateCheck,
+  FALLBACK_COLOUR, FALLBACK_SWATCH_CLASS,
   formatAgo, formatClockUk, formatCostMultiple, formatDayUk, formatGbp, formatPct, formatPts, formatSeconds,
   formatShortDateUk, isKnownTab, laneBarState, laneShortLabel, modelColour, paginateSessions, passTone,
   pointTitle, swatchClass, timeTicks, triggerLabel, versionMarkers,
@@ -537,5 +538,23 @@ describe('Fixtures grid helpers', () => {
       const g = buildFixtureHistory({ name: 'x', bandLo: 1, bandHi: 2 }, cols, []);
       expect(g.points[0]).toMatchObject({ y: null, yMin: null, yMax: null });
     });
+  });
+});
+
+describe('model colours', () => {
+  const LABELLED_MODELS = ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_ET', 'SONNET_55', 'OPUS', 'OPUS_ET'];
+
+  it('gives every labelled model its own colour and a swatch class that matches it', () => {
+    LABELLED_MODELS.forEach((m) => {
+      expect(modelColour(m)).not.toBe(FALLBACK_COLOUR);
+      expect(swatchClass(m)).not.toBe(FALLBACK_SWATCH_CLASS);
+      expect(swatchClass(m)).toBe(`bg-[${modelColour(m).replace(/ /g, '_')}]`);
+    });
+    expect(new Set(LABELLED_MODELS.map(modelColour)).size).toBe(LABELLED_MODELS.length);
+  });
+
+  it('still gives an unknown model the fallback', () => {
+    expect(modelColour('MYSTERY')).toBe(FALLBACK_COLOUR);
+    expect(swatchClass('MYSTERY')).toBe(FALLBACK_SWATCH_CLASS);
   });
 });

@@ -213,6 +213,22 @@ describe('MapLabels — mounting', () => {
     expect(pane.querySelector('[data-testid="map-labels"]')).not.toBeNull();
   });
 
+  it('marks the layer data-placed once the placement pass has measured it, and again after a repaint (the E2E settled signal)', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap();
+    await mount();
+    await act(async () => { runFrames(); });
+    const layer = currentMap.panes['wf-labels'].querySelector('[data-testid="map-labels"]');
+    expect(layer).toHaveAttribute('data-placed', 'true');
+    // The chips it vouches for are placed boxes, not the parked off-screen candidates.
+    const chip = layer.querySelector('[data-testid="map-label-chip"]');
+    expect(chip.style.left).not.toBe('-9999px');
+
+    await act(async () => { currentMap.fire('moveend'); });
+    await act(async () => { runFrames(); });
+    expect(layer).toHaveAttribute('data-placed', 'true');
+  });
+
   it('renders nothing at all while the shell has the pane hidden', async () => {
     currentMap = makeFullMap({ onScreen: false });
     await mount();

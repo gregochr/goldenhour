@@ -80,6 +80,8 @@ an owner question in §5. The build goes ahead on the default.
 
 ## §2 Data: what each chip prints
 
+> 2026-11-07: `chipName` (the palette's phone name) and `GlanceLine.shortValue` (the phone second line) were removed as dead code; nothing rendered them after #1478 and #1482. Mentions below are historical.
+
 ### 2.1 The served `glance` line (Backend-heavy)
 
 Each chip's second line is assembled from served fields that differ per topic type (`tideRun`,
