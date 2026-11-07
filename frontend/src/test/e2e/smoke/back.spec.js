@@ -1,10 +1,11 @@
 import {
-  test, expect, loginAndWaitForForecast, openTab, tokenOf, stubGuideFrame,
+  test, expect, loginAndWaitForForecast, openTab, tokenOf, stubGuideFrame, openMapTab, visibleChips, CHIP_NAME,
+  installDialogDepthObserver, dialogDepth,
 } from './fixture.js';
 
 /**
  * The browser Back button closes the top dialog (docs/engineering/back-closes-dialogs-plan.md, PR 2a: Settings,
- * the guide, the Ask sheet, a confirm dialog over an Operations panel). The Plan-shell dialogs are PR 2b.
+ * the guide, the Ask sheet, a confirm dialog over an Operations panel; PR 2b: the Plan-shell dialogs).
  *
  * <p>The rules every test here follows:
  *  - **Settle first.** Playwright's `goBack` is index-based, so a Back issued while the store still has a
@@ -322,5 +323,164 @@ test.describe('Back closes the top dialog: phone sheets', () => {
     await open();
     await page.goBack();
     await expectKept('goBack');
+  });
+});
+
+test.describe('Back closes the top dialog: the Plan surfaces', () => {
+  /** Opens the Plan and a window popup that is not the first card (it may be the window about to pass). */
+  async function openPopup(page) {
+    await openTab(page, 'plan');
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+    const card = page.getByTestId('wf-heat-card').nth(2);
+    await card.click();
+    const popup = page.getByTestId('window-sheet');
+    await expect(popup).toBeVisible();
+    await expect.poll(() => popup.getByTestId('window-spot').count()).toBeGreaterThanOrEqual(6);
+    return { card, popup };
+  }
+
+  /** Opens a place's four-day sheet from the popup, so two layers stand. */
+  async function openLocationSheet(page, popup) {
+    const spot = popup.getByTestId('window-spot').filter({ hasText: 'Bamburgh Beach' });
+    await expect(spot).toHaveCount(1);
+    await spot.click();
+    await expect(page.getByTestId('location-sheet')).toBeVisible();
+    await settled(page, 2);
+    return spot;
+  }
+
+  test('popup, place, location sheet: the first goBack closes the sheet only, the second the popup', async ({ page }) => {
+    test.setTimeout(60_000);
+    await installDialogDepthObserver(page);
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    const base = await entryIndex(page);
+    const url = page.url();
+    const { card, popup } = await openPopup(page);
+    await settled(page, 1);
+    const spot = await openLocationSheet(page, popup);
+    expect(await entryIndex(page)).toBe(base + 2);
+    expect((await marker(page))?.depth).toBe(2);
+
+    await page.goBack();
+
+    await expect(page.getByTestId('location-sheet')).toHaveCount(0);
+    await expect(popup).toBeVisible();
+    await expect(spot).toBeFocused();
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    await page.goBack();
+
+    await expect(popup).toHaveCount(0);
+    await expect(card).toBeFocused();
+    await expectBaseline(page, base);
+    expect(page.url(), 'the URL never changes').toBe(url);
+    await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('window-first-shell')).toBeVisible();
+
+    const depth = await dialogDepth(page);
+    expect(depth.maxDialogs, 'concurrent dialogs (a lower bound: the observer really saw both layers)').toBe(2);
+    expect(depth.maxModal, 'concurrent aria-modal elements').toBeLessThanOrEqual(1);
+    expect(depth.nowDialogs).toBe(0);
+  });
+
+  test('Escape closes the top layer, then goBack closes the next: no dead press and no double close', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    const base = await entryIndex(page);
+    const { popup } = await openPopup(page);
+    await settled(page, 1);
+    await openLocationSheet(page, popup);
+
+    await page.keyboard.press('Escape');
+
+    await expect(page.getByTestId('location-sheet')).toHaveCount(0);
+    await expect(popup).toBeVisible();
+    await settled(page, 1);
+    expect(await entryIndex(page), 'Escape took its entry with it').toBe(base + 1);
+
+    await page.goBack();
+
+    await expect(popup).toHaveCount(0);
+    await expectBaseline(page, base);
+  });
+
+  test('two layers, then the Map tab: the entries are consumed and a stale Forward reopens nothing', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    const base = await entryIndex(page);
+    const { popup } = await openPopup(page);
+    await settled(page, 1);
+    await openLocationSheet(page, popup);
+
+    // The tab bar sits under the modal scrim, so the real route to `selectTab` with two layers up is the sheet's own
+    // "show on map" door, which closes both and moves the tab.
+    await page.getByTestId('location-sheet-map').click();
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+
+    await expect(popup).toHaveCount(0);
+    await expect(page.getByTestId('location-sheet')).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    // The two stale entries still sit ahead of the baseline. Forward lands on one: it is bounced, nothing reopens, and
+    // the page ends on the baseline again. (A goBack from the baseline would leave the origin, which is correct and
+    // is not what this asserts.)
+    expect(await page.evaluate(() => window.navigation.canGoForward), 'stale entries ahead, so the bounce is exercised').toBe(true);
+    await page.goForward();
+
+    await expectBaseline(page, base);
+    await expect(page.getByTestId('window-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('location-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('window-first-tab-map')).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('over the Map: callout, "Four days here", the sheet; goBack closes the sheet and keeps the callout', async ({ page }) => {
+    test.setTimeout(60_000);
+    await loginAndWaitForForecast(page);
+    await openMapTab(page);
+    const base = await entryIndex(page);
+    const chip = visibleChips(page).first();
+    const [, name] = CHIP_NAME.exec(await chip.getAttribute('aria-label'));
+    await chip.click();
+    const callout = page.getByTestId('map-callout');
+    await expect(callout).toBeVisible();
+    await expect(callout).toContainText(name);
+    // The callout is not a layer: opening it makes no entry.
+    await settled(page, 0);
+    expect(await entryIndex(page)).toBe(base);
+
+    const reason = page.getByTestId('map-callout-reason');
+    await reason.click();
+    const sheet = page.getByTestId('location-sheet');
+    await expect(sheet).toBeVisible();
+    await settled(page, 1);
+
+    await page.goBack();
+
+    await expect(sheet).toHaveCount(0);
+    await expect(callout).toBeVisible();
+    await expect(callout).toContainText(name);
+    await expect(reason).toBeFocused();
+    await expectBaseline(page, base);
+  });
+
+  test('Plan search: goBack closes it', async ({ page }) => {
+    await loginAndWaitForForecast(page);
+    await openTab(page, 'plan');
+    await expect.poll(() => page.getByTestId('wf-heat-card').count()).toBeGreaterThanOrEqual(6);
+    const base = await entryIndex(page);
+
+    await page.getByTestId('window-first-search').click();
+    const panel = page.getByTestId('plan-search-panel');
+    await expect(panel).toBeVisible();
+    await settled(page, 1);
+
+    await page.goBack();
+
+    await expect(panel).toHaveCount(0);
+    await expectBaseline(page, base);
   });
 });
