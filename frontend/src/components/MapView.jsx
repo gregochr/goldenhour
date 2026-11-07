@@ -229,6 +229,9 @@ const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
  * here would only add a Suspense flash the instant a reader selects a location.
  */
 
+/** Baseline marker: the map was constructed inside a hidden (0x0) pane, so its opening fit is not trusted. */
+const OPENED_UNSIZED = Symbol('opened-unsized');
+
 /**
  * Fits the map to a bounds box, once per nonce, WITHOUT animating.
  *
@@ -248,7 +251,7 @@ const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
  * pads a region's own, generally tighter box more generously than the wider area/catalogue box needs.
  */
 function HeatBoundsController({
-  bounds, nonce, padding = [28, 28], onProgrammaticMove = undefined, active = true,
+  bounds, nonce, padding = [28, 28], onProgrammaticMove = undefined, active = true, fallbackBounds = null,
 }) {
   const map = useMap();
   /**
@@ -266,28 +269,62 @@ function HeatBoundsController({
    */
   const applied = useRef(null);
   const key = `${nonce}|${JSON.stringify(bounds)}`;
+  /**
+   * Bumped by Leaflet's own `resize` while a fit is held at 0x0, so the effect re-runs without relying on the
+   * pane's ResizeObserver flipping `active` (a browser may skip that initial 0x0 observation).
+   */
+  const [sizeTick, setSizeTick] = useState(0);
   useEffect(() => {
     if (applied.current === null) {
-      applied.current = key;
-      return;
+      // MapContainer fitted its opening bounds at construction against whatever box Leaflet measured then.
+      // Built inside a hidden panel that box was 0x0 and the fit clamped to maxZoom: never adopt it as the
+      // baseline, so the current key replays once the pane is shown.
+      const opened = map?.getSize?.();
+      if (!opened || opened.x > 0 || opened.y > 0) {
+        applied.current = key;
+        return undefined;
+      }
+      applied.current = OPENED_UNSIZED;
     }
-    if (applied.current === key) return;
+    if (applied.current === key) return undefined;
     // Hidden pane: Leaflet holds a cached 0x0 size, so a fit now would clamp to the map's maxZoom. Leave
     // `applied` alone so the change replays once `active` turns true.
-    if (!active) return;
+    if (!active) return undefined;
+    // `panelShown` starts true and only falls on the pane's first ResizeObserver tick, so read the box too.
+    // Never make a view move (fit, fly, zoom) on a 0x0 container: Leaflet computes NaN and clamps or throws.
+    const box = map?.getContainer?.();
+    if (box && box.clientWidth === 0 && box.clientHeight === 0) {
+      // Hold, and wake on Leaflet's `resize`, which `invalidateSize` fires once the box really changes.
+      if (typeof map?.once !== 'function') return undefined;
+      const wake = () => setSizeTick((n) => n + 1);
+      map.once('resize', wake);
+      return () => map.off?.('resize', wake);
+    }
+    const wasUnsized = applied.current === OPENED_UNSIZED;
     applied.current = key;
-    if (!bounds || typeof map?.fitBounds !== 'function') return;
+    if (typeof map?.fitBounds !== 'function') return undefined;
+    if (!bounds) {
+      // No heat field, but the map was built unsized and sits at maxZoom: refit to the catalogue box
+      // MapContainer itself was given.
+      if (wasUnsized && fallbackBounds) {
+        onProgrammaticMove?.();
+        map.invalidateSize?.({ animate: false });
+        map.fitBounds(fallbackBounds, { padding: [60, 60], animate: false });
+      }
+      return undefined;
+    }
     // A programmatic move: the tide upsell's map-move close must not read its zoom as a hand's.
     onProgrammaticMove?.();
     // Re-measure first (see `FitBoundsController`); the optional call keeps size-less test maps working.
     map.invalidateSize?.({ animate: false });
     map.fitBounds(bounds, { padding, animate: false });
+    return undefined;
     // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
     // `padding` is deliberately NOT a dependency either: it always changes in lockstep with `bounds`
     // (both are derived from the SAME `jumpFitOverride` presence one level up), so the closure read
     // here is never stale at the moment `key` actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, active]);
+  }, [key, active, sizeTick]);
   return null;
 }
 
@@ -297,6 +334,7 @@ HeatBoundsController.propTypes = {
   padding: PropTypes.arrayOf(PropTypes.number),
   onProgrammaticMove: PropTypes.func,
   active: PropTypes.bool,
+  fallbackBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
 };
 
 
@@ -6823,6 +6861,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             padding={heatBoundsPadding}
             onProgrammaticMove={stampOwnCameraMove}
             active={panelShown}
+            fallbackBounds={bounds}
           />
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
               (https://carto.com/basemaps/apikey) — anonymous requests render an
