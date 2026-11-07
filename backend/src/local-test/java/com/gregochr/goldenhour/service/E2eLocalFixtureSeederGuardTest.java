@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserSubRegionRepository;
+import com.gregochr.goldenhour.repository.AreaRepository;
 import com.gregochr.goldenhour.repository.DailyBriefingCacheRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
@@ -12,6 +15,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.assertj.AssertableApplicationContext;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import javax.sql.DataSource;
 import java.time.Clock;
@@ -45,18 +49,25 @@ class E2eLocalFixtureSeederGuardTest {
                 .withBean(EvaluationViewService.class, () -> mock(EvaluationViewService.class))
                 .withBean(AlmanacService.class, () -> mock(AlmanacService.class))
                 .withBean(SolarEventFreshness.class, () -> mock(SolarEventFreshness.class))
+                .withBean(AppUserRepository.class, () -> mock(AppUserRepository.class))
+                .withBean(PasswordEncoder.class, () -> mock(PasswordEncoder.class))
+                .withBean(AreaRepository.class, () -> mock(AreaRepository.class))
+                .withBean(SubRegionMembershipService.class, () -> mock(SubRegionMembershipService.class))
+                .withBean(AppUserSubRegionRepository.class, () -> mock(AppUserSubRegionRepository.class))
                 .withBean(DataSource.class, () -> mock(DataSource.class))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(Clock.class, () -> Clock.fixed(Instant.parse("2031-07-14T12:00:00Z"), ZoneOffset.UTC))
-                .withUserConfiguration(E2eLocalFixtureSeeder.class, E2eFixtureHealthIndicator.class);
+                .withUserConfiguration(E2eLocalFixtureSeeder.class, E2eRoleUsers.class,
+                        E2eFixtureHealthIndicator.class);
     }
 
     @Test
-    @DisplayName("local with the flag exactly true creates the seeder and the indicator named for the health group")
+    @DisplayName("local with the flag exactly true creates the seeder, the role users and the named indicator")
     void localWithFlagCreatesBoth() {
         runner().withPropertyValues("spring.profiles.active=local", "photocast.e2e.seed-fixture=true")
                 .run(context -> {
                     assertThat(context).hasSingleBean(E2eLocalFixtureSeeder.class);
+                    assertThat(context).hasSingleBean(E2eRoleUsers.class);
                     assertThat(context).hasBean("e2eFixtureHealthIndicator");
                 });
     }
@@ -96,6 +107,7 @@ class E2eLocalFixtureSeederGuardTest {
 
     private void assertNeither(AssertableApplicationContext context) {
         assertThat(context).doesNotHaveBean(E2eLocalFixtureSeeder.class);
+        assertThat(context).doesNotHaveBean(E2eRoleUsers.class);
         assertThat(context).doesNotHaveBean("e2eFixtureHealthIndicator");
     }
 }

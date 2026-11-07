@@ -1,3 +1,16 @@
+// The per-shard floor: the weekly workflow sets STRYKER_BREAK from each shard's matrix entry.
+// Unset (every local run), there is no floor. Set but not a whole number 0-100, it throws, so a typo
+// cannot quietly switch the floor off.
+function breakFloor() {
+  const raw = process.env.STRYKER_BREAK;
+  if (raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw.trim()) || !Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error(`STRYKER_BREAK must be a whole number from 0 to 100, got "${raw}"`);
+  }
+  return value;
+}
+
 // Mutation testing for the client logic in src/utils (weekly, never a PR gate).
 // Plan: docs/engineering/frontend-mutation-testing-plan.md. Notes: reference/dev-and-testing.md.
 /** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
@@ -23,8 +36,11 @@ export default {
   reporters: ['clear-text', 'progress', 'html', 'json'],
   htmlReporter: { fileName: 'reports/mutation/mutation.html' },
   jsonReporter: { fileName: 'reports/mutation/mutation.json' },
-  // break stays null until a first real measurement sets the floor (plan Phase 2).
-  thresholds: { high: 80, low: 60, break: null },
+  // Per-shard floors (plan Phase 2). thresholds.break applies to each Stryker process's own score, and
+  // each CI shard is its own process with its own score, so one number would fail the weaker shards:
+  // stryker.yml carries a floor per shard (the first full run's score rounded down) and passes it in
+  // as STRYKER_BREAK. Ratchet rule: raise a floor, never lower one without the owner's say-so.
+  thresholds: { high: 80, low: 60, break: breakFloor() },
   tempDirName: '.stryker-tmp',
   // In place, not the default sandbox copy: windowFirstTopics.test.js reads the backend's
   // PlanWindowProjector.java through a path that climbs out of frontend/, which the one-level-deeper

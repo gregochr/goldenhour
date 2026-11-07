@@ -85,6 +85,8 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>regions, places (through the repositories, never {@code LocationService}, which can fetch elevation
  *       from Open-Meteo) and synthetic tide extremes for the coastal places;</li>
+ *   <li>the sub-regions, the {@code lite} and {@code pro} readers and {@code lite}'s picks
+ *       ({@link E2eRoleUsers}, Phase 3a.2), which need the saved places;</li>
  *   <li>{@code forecast_evaluation} rows for T-3..T+4 (T-4 is left empty on purpose);</li>
  *   <li>{@code cached_evaluation} for today..T+4, through {@code BriefingEvaluationService.mergeFromBatch};</li>
  *   <li>the briefing slots and days from synthetic weather;</li>
@@ -208,6 +210,7 @@ public class E2eLocalFixtureSeeder {
     private final Clock clock;
     private final ObjectMapper objectMapper;
     private final E2eFixtureHealthIndicator health;
+    private final E2eRoleUsers roleUsers;
 
     /**
      * Creates the seeder.
@@ -231,6 +234,8 @@ public class E2eLocalFixtureSeeder {
      * @param clock                        the application clock
      * @param objectMapper                 the Jackson 2 mapper {@code daily_briefing_cache} is written with
      * @param health                       readiness, {@code UP} only once the self-check passes
+     * @param roleUsers                    the {@code lite} and {@code pro} readers and the sub-regions the Lite
+     *                                     reader's picks need
      */
     public E2eLocalFixtureSeeder(RegionRepository regionRepository, LocationRepository locationRepository,
             TideExtremeRepository tideExtremeRepository,
@@ -240,7 +245,8 @@ public class E2eLocalFixtureSeeder {
             BriefingHierarchyBuilder hierarchyBuilder, BriefingRegionEvaluationRollup rollup,
             BriefingHeadlineGenerator headlineGenerator, EvaluationViewService evaluationViewService,
             AlmanacService almanacService, SolarEventFreshness freshness, DataSource dataSource,
-            Environment environment, Clock clock, ObjectMapper objectMapper, E2eFixtureHealthIndicator health) {
+            Environment environment, Clock clock, ObjectMapper objectMapper, E2eFixtureHealthIndicator health,
+            E2eRoleUsers roleUsers) {
         this.regionRepository = regionRepository;
         this.locationRepository = locationRepository;
         this.tideExtremeRepository = tideExtremeRepository;
@@ -260,6 +266,7 @@ public class E2eLocalFixtureSeeder {
         this.clock = clock;
         this.objectMapper = objectMapper;
         this.health = health;
+        this.roleUsers = roleUsers;
     }
 
     /**
@@ -336,6 +343,7 @@ public class E2eLocalFixtureSeeder {
         Map<String, RegionEntity> regions = saveRegions();
         List<LocationEntity> locations = savePlaces(regions);
         int tides = saveTides(locations, today);
+        String roles = roleUsers.seed(locations);
 
         int forecastRows = saveForecastRows(locations, today, seedStart);
         int cachedEntries = saveCachedEvaluations(locations, today);
@@ -353,9 +361,10 @@ public class E2eLocalFixtureSeeder {
         almanacService.refresh();
 
         int picks = selfCheck(forecastRows, cachedEntries);
+        roleUsers.verify();
         return regions.size() + " regions, " + locations.size() + " places, " + forecastRows
                 + " forecast rows, " + cachedEntries + " cached entries, " + tides + " tide extremes, "
-                + picks + " windows with a pick";
+                + picks + " windows with a pick, " + roles;
     }
 
     // -- the ratings -------------------------------------------------------------------------

@@ -28,7 +28,7 @@
 </div>
 </header>
 <main>
-<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>The engineering<br>behind PhotoCast.</h1><p>PhotoCast is a full-stack forecasting service that I design, build and run on my own, drawing on more than 25 years of software engineering. This page is for engineers: the stack, the pipeline every change goes through, the gates it has to pass, and where it still falls short. The figures are the ones enforced in the build today.</p><p>Last checked: 5 November 2026. For the plain-English version, see <a href="how-its-built.html">How PhotoCast is built</a>.</p></div></div>
+<div class="phead"><div class="wrap"><div class="eyebrow">Reference</div><h1>The engineering<br>behind PhotoCast.</h1><p>PhotoCast is a full-stack forecasting service that I design, build and run on my own, drawing on more than 25 years of software engineering. This page is for engineers: the stack, the pipeline every change goes through, the gates it has to pass, and where it still falls short. The figures are the ones enforced in the build today.</p><p>Last checked: 7 November 2026. For the plain-English version, see <a href="how-its-built.html">How PhotoCast is built</a>.</p></div></div>
 <div class="doc"><div class="wrap">
 <nav aria-label="Sections">
 <ul>
@@ -83,7 +83,7 @@
 <tr><td>OWASP Dependency-Check</td><td>PRs that change server dependencies, and daily</td><td>CVSS 7.0 or above, unless investigated and recorded as not applicable</td><td>The check fails</td></tr>
 <tr><td>OWASP ZAP</td><td>Weekly</td><td>Any alert of Low risk or above without a written exception, or a scan that didn't run properly</td><td>An issue is opened for me</td></tr>
 <tr><td>PIT mutation testing</td><td>Weekly</td><td>60% of mutants killed in the service and utility layers</td><td>An issue is opened for me</td></tr>
-<tr><td>Stryker mutation testing</td><td>Weekly</td><td>The app's client logic</td><td>An issue is opened for me if the run fails</td></tr>
+<tr><td>Stryker mutation testing</td><td>Weekly</td><td>94–97% of mutants killed per shard in the app's client logic (96% overall at the last full run)</td><td>An issue is opened for me if the run fails</td></tr>
 </tbody></table></div>
 <p>Per-class coverage is the one I'd defend hardest. An overall average lets a well-tested utility package hide an untested service; per class, a new class can't lean on the rest of the codebase for its number. The lines a change touches must be covered too, on the server and in the app, and every app file has its own floor.</p>
 <h2 id="security">Security and the OWASP Top 10</h2>
@@ -111,7 +111,7 @@
 <h2 id="testing">Testing beyond coverage</h2>
 <p>Coverage says what the tests ran, not whether they'd notice a bug. So:</p>
 <ul>
-<li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic; the app's screens aren't mutation-tested yet.</li>
+<li><b>Mutation testing.</b> PIT runs weekly over the service and utility layers, planting small faults and checking the tests fail. The threshold is 60% of mutants killed. Stryker does the same each week for the app's client logic, with a floor of 94–97% of mutants killed for each part of the run, set from the first full measurement; the app's screens aren't mutation-tested yet.</li>
 <li><b>A real browser.</b> A short Playwright suite drives Chromium against the real server and a fresh, empty database, signs in and out, visits the main tabs and fails on any console error, failed request or unexpected third-party request. It is a required check on every pull request and every release. It does not yet cover the map and planning screens with data.</li>
 <li><b>Testing the model, not just the code.</b> A weekly evaluation re-rates a fixed set of past sunrises and sunsets whose outcome is known, eight times each, and charts the spread over time. That catches drift when a model changes, and it decides which model runs which job: a newer model was taken off a production job after a day, when the evaluation showed it under-rating a clear-horizon morning.</li>
 <li><b>Prompt regression tests.</b> A larger suite checks real model output against ground truth from what was actually observed. Only I change those expectations; the AI tools that write the code are forbidden to.</li>

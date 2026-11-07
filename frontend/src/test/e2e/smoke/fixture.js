@@ -48,29 +48,50 @@ function isAllowed(finding, extra) {
 }
 
 /**
- * Signs in as the local admin through the PREVIEW origin (so the dev proxy is exercised and no backend
- * port is hard-coded), then seeds the keys the app boots from.
+ * The seeded accounts (`LocalAdminSeeder` for the admin, `E2eRoleUsers` for the other two; Phase 3a.2). The
+ * passwords are fixed here and in the seeder; a drift fails the login in global setup.
+ */
+export const USERS = {
+  admin: { username: 'admin', password: 'golden2026' },
+  lite: { username: 'lite', password: 'E2eLite#Pass1' },
+  pro: { username: 'pro', password: 'E2ePro#Pass1' },
+};
+
+/**
+ * Signs in as one of the seeded accounts through the PREVIEW origin (so the dev proxy is exercised and no
+ * backend port is hard-coded), then seeds the keys the app boots from.
  *
  * @param {import('@playwright/test').Page} page the page to sign in
+ * @param {'admin'|'lite'|'pro'} [role] which seeded account
  */
-export async function loginAsAdmin(page) {
+export async function loginAs(page, role = 'admin') {
+  const { username: name, password } = USERS[role];
   const response = await page.request.post('/api/auth/login', {
-    data: { username: 'admin', password: 'golden2026', turnstileToken: 'e2e-token' },
+    data: { username: name, password, turnstileToken: 'e2e-token' },
   });
-  expect(response.status(), 'admin login through the preview proxy').toBe(200);
-  const { accessToken, refreshToken, refreshExpiresAt, username } = await response.json();
+  expect(response.status(), `${role} login through the preview proxy`).toBe(200);
+  const { accessToken, refreshToken, refreshExpiresAt, username, role: serverRole } = await response.json();
   await page.goto('/');
   await page.evaluate(
-    ({ token, refresh, refreshExpires, user }) => {
+    ({ token, refresh, refreshExpires, user, userRole }) => {
       localStorage.setItem('goldenhour_token', token);
       localStorage.setItem('goldenhour_refresh', refresh);
-      localStorage.setItem('goldenhour_role', 'ADMIN');
+      localStorage.setItem('goldenhour_role', userRole);
       localStorage.setItem('goldenhour_username', user);
       localStorage.setItem('goldenhour_refresh_expires', refreshExpires);
     },
-    { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt, user: username },
+    { token: accessToken, refresh: refreshToken, refreshExpires: refreshExpiresAt, user: username, userRole: serverRole },
   );
   await page.reload();
+}
+
+/**
+ * Signs in as the local admin (the default for every spec outside `roles.spec.js`).
+ *
+ * @param {import('@playwright/test').Page} page the page to sign in
+ */
+export function loginAsAdmin(page) {
+  return loginAs(page, 'admin');
 }
 
 export const test = base.extend({
@@ -146,6 +167,9 @@ export const test = base.extend({
 
 /** A chip's accessible name is "{name}, {n} star" plus an optional ", ..." clause. Seeded names carry no ", ". */
 export const CHIP_NAME = /^(.+?), (\d) star(?:,|$)/;
+
+/** A Lite reader's chip for a place outside their picks: "{name}, outside your sub-regions" (no star). */
+export const OUTSIDE_CHIP = /^(.+?), outside your sub-regions$/;
 
 /** A solar window row id: `solar:YYYY-MM-DD:SUNRISE|SUNSET`. */
 export const SOLAR_ID = /^solar:(\d{4}-\d\d-\d\d):(SUNRISE|SUNSET)$/;
@@ -251,9 +275,10 @@ export async function openTab(page, id) {
  * Signs in, waits for the shell, and waits for the Map tab (it is offered only once the forecast has arrived).
  *
  * @param {import('@playwright/test').Page} page
+ * @param {'admin'|'lite'|'pro'} [role] which seeded account
  */
-export async function loginAndWaitForForecast(page) {
-  await loginAsAdmin(page);
+export async function loginAndWaitForForecast(page, role = 'admin') {
+  await loginAs(page, role);
   await expect(page.getByTestId('window-first-shell')).toBeVisible();
   await expect(page.getByTestId('window-first-tab-map')).toBeVisible();
 }
@@ -361,6 +386,52 @@ export async function readWindowRows(page) {
 export async function activeWindowId(page) {
   const rows = await readWindowRows(page);
   return rows.find((row) => row.active)?.id;
+}
+
+/**
+ * Clicks the visible chip nearest the vertical middle of the viewport. A Map callout opens beside its chip and
+ * cannot scroll, so a chip low on the map can leave the callout's lower controls (the "How was it?" stars) below
+ * the fold, and which chip is first in the DOM varies with how the label layer culled them. A middle chip always
+ * leaves room both ways.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clickMiddleChip(page) {
+  const chips = visibleChips(page);
+  const middle = page.viewportSize().height / 2;
+  const distances = await chips.evaluateAll((els, mid) => els.map((el) => {
+    const box = el.getBoundingClientRect();
+    return Math.abs(box.top + box.height / 2 - mid);
+  }), middle);
+  await chips.nth(distances.indexOf(Math.min(...distances))).click();
+}
+
+/**
+ * Steps the Map's window control back until a past window is active (the pill reads "Past"). Each step waits for
+ * the pill to change, so no press is lost to a re-render.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function stepIntoPast(page) {
+  const pill = page.getByTestId('wf-win-pill');
+  for (let i = 0; i < 12 && (await page.getByTestId('wf-win-past').count()) === 0; i += 1) {
+    const before = await pill.innerText();
+    await page.getByTestId('wf-win-prev').click();
+    await expect(pill).not.toHaveText(before);
+  }
+  await expect(page.getByTestId('wf-win-past')).toBeVisible();
+}
+
+/**
+ * A served JSON body, read with the signed-in reader's own token through `page.request`, which the page's
+ * hygiene recorder never sees (so a refusal can be asserted without being a finding).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} path an API path
+ * @returns {Promise<import('@playwright/test').APIResponse>}
+ */
+export async function apiGet(page, path) {
+  return page.request.get(path, { headers: { Authorization: `Bearer ${await tokenOf(page)}` } });
 }
 
 export { expect };

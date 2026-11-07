@@ -117,15 +117,15 @@ only in CI), frontend **8,398** Vitest tests in **331** files (`npx vitest run`)
 
 `E2E — Playwright smoke` (the `e2e` job in `.github/workflows/ci.yml`) is a **required, merge-blocking check**,
 and because `deploy.yml` calls `ci.yml` it also blocks a tagged release. Plan and rationale:
-`docs/engineering/engineering-gaps-plan.md`, Phases 2 and 3a.1 (3a.2 adds LITE and PRO users, 3b the production nginx
-config, 3c an advisory accessibility scan).
+`docs/engineering/engineering-gaps-plan.md`, Phases 2, 3a.1 and 3a.2 (3b adds the production nginx config, 3c an
+advisory accessibility scan).
 
 **What it is.** The real backend (local profile, a fresh H2 file **carrying a seeded fixture**, Ask on its stub, a dead
 outbound proxy) and the built frontend behind `vite preview`, driven by Chromium through
 `frontend/playwright.smoke.config.js`. Specs live in `frontend/src/test/e2e/smoke/`; the shared fixture is `fixture.js`
 (login, hygiene, the tile counter, the dialog-depth observer and the helpers that read the served forecast);
-`sheet-helpers.js` holds the location-sheet assertions; `global-setup.js` writes the two one-time bits of per-user
-state (the postcode prompt dismissal and the Coming up "seen" mark). The older `src/test/e2e/forecast.spec.js` (run by
+`sheet-helpers.js` holds the location-sheet assertions; `global-setup.js` writes the one-time bits of per-user
+state (the admin's postcode prompt dismissal, and the Coming up "seen" mark for all three accounts). The older `src/test/e2e/forecast.spec.js` (run by
 `playwright.config.js`, which ignores `smoke/`) is manual.
 
 **The seeded fixture** (`E2eLocalFixtureSeeder` in `backend/src/local/java`, with its readiness bean
@@ -143,6 +143,18 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
   and days; `BriefingRegionEvaluationRollup.enrich` (persisting without it drops every pick, because the serve path nulls
   a gloss when the verdict changes); the stamped gloss and headline; the `daily_briefing_cache` row; `loadPersistedBriefing`;
   an almanac refresh; then the self-check (a BEST pick is served, the rows read back). Only then does it go UP.
+- **Role users and sub-region enforcement (3a.2).** `E2eRoleUsers` (same gating, called only by the seeder, after the
+  places are saved) inserts a `lite` (`LITE_USER`, `E2eLite#Pass1`) and a `pro` (`PRO_USER`, `E2ePro#Pass1`) beside the
+  seeded admin (`admin` / `golden2026`), through the repository, mirroring `LocalAdminSeeder`: an encoded password,
+  `enabled`, `createdAt`, and the insertable-but-`updatable = false` columns set on the builder (`passwordChangeRequired =
+  false`, `postcodePromptDismissedAt`, so the postcode prompt never holds the app inert). Nothing else gates a first sign-in:
+  terms are accepted at registration only. The script also passes `--photocast.sub-regions.enforce=true`, as production
+  does, so `LitePickShaper` strips and marks `gated` the ratings outside a Lite reader's picks. The seeder writes one
+  sub-region per region (`Northumberland Shore`, `Lakeland Fells`, `Dales Limestone`, each holding all six of its region's
+  places, through `SubRegionMembershipService`) and gives `lite` picks for the first two, so it holds **some but not all**
+  (Yorkshire Dales is gated). `lite` has picks, so its standing is `OPEN` (no grace stamp, no change lock) and the
+  first-choice sign-in prompt, which shows only at `FIRST_CHOICE`, never appears. `pro` and `admin` are unrestricted. The
+  self-check fails the seed unless both users exist with their roles and `lite` reads back exactly two of three picks.
 - **The ratings are one pure function** (`E2eLocalFixtureSeeder.rating`): a region's base cycles 4, 3, 2 and rotates every
   window, and a place adds -1, +1 or 0 (zero over a region). So every place changes star between adjacent windows, and every
   window has a Worth it, a Maybe and a Stand-down region. Specs do not mirror it: they read the served `/api/forecast` as the
@@ -159,7 +171,7 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
   `Horizon cloud fetch` or `[ASK FIXTURE]`, **or if `[E2E FIXTURE] seeded` is absent** (so the check cannot pass on a log that
   never seeded).
 - **The seeder's own gate.** `src/local` and `src/local-test` are outside the backend job (no JaCoCo, checkstyle or SpotBugs),
-  so the E2E job runs `./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*'` and `./mvnw -Plocal-dev generate-test-sources
+  so the E2E job runs `./mvnw -Plocal-dev test -Dtest='E2eLocalFixtureSeeder*,E2eRoleUsers*'` and `./mvnw -Plocal-dev generate-test-sources
   checkstyle:check`. ⚠️ The `generate-test-sources` is not optional: `-Plocal-dev` adds the two roots in that phase, and a bare
   `checkstyle:check` audits neither (it passes with a deliberate violation in `src/local`).
 - **Dates.** Everything is relative to the server's UK "today" at boot. A run that crosses a sunrise or sunset (about 0.2-0.4%
@@ -177,6 +189,8 @@ window from T-3 to T+4 (T-4 is left empty on purpose, so the window control reac
 | `drilldown-map.spec.js` | Chip, callout, "Four days here", the location sheet (one row opens expanded; its detail response is awaited from a waiter registered before the click), a second row's lazily fetched detail, and the Escape order back out (sheet, focus to the reason line, selection). |
 | `drilldown-plan.spec.js` | Heat card, window sheet, a place, the location sheet: two dialogs deep, never three (a MutationObserver installed before load records the maximum concurrent `.app-safe-modal` and `aria-modal`). Bamburgh Beach shows the rising-tide fact; an inland place does not. Escape closes the top layer first; the close buttons work. |
 | `door1-obstacles.spec.js` | Moved here from `src/test/e2e/`: no overlay control covers a field chip in any matrix window, at 1280 and at 390 px. |
+| `roles.spec.js` | Read-only role gating, signed in as `lite` and `pro` (not the admin, so the sign-out hazard does not apply). Every non-admin: no Operations tab, and `GET /api/admin/scheduler/jobs` is 403 through `page.request` (the page's hygiene never sees it), with the admin's 200 as the control. LITE: Pro doors (`wf-heat-bestbets-upsell-*` on the Plan, `wf-scores-upsell-*` in a location sheet) open a worded popover with a Pro pill and no link; Ask is locked (`ask-field[data-locked]`, the Pro lens, the upsell) and no `/api/ask*` request is made; "How was it?" is locked (`pro-pill`, "Rating is part of Pro.", no write); chips outside the picks carry `data-gated`, the callout says "Outside your sub-regions" and the sheet shows `location-sheet-outside`; and the served `/api/forecast`, `/api/briefing/evaluate/scores` and `/api/briefing` carry no Fiery/Golden scores, no written why and no picks, with the gated places unrated, against PRO's full bodies as the contrast. PRO: none of the locks. |
+| `roles-write.spec.js` | The Pro reader rates one past window (`outcome-rating-block`): the `PUT /api/outcome/ratings` is 200, the block reads rated, and the row reads back from `GET /api/outcome/ratings`. The only spec that writes shared state, so it is its own serial project, `roles-write` (`dependencies: ['smoke']`, `workers: 1`), before `logout`. |
 | `ask.spec.js`, `scheduler.spec.js`, `auth.spec.js`, `logout.spec.js` | As in Phase 2. Ask asserts the box and its allowance only: nothing runs `AskReadyPrecompute`, so no Ready answers exist. |
 
 The browser Back button closes the top dialog (`back-closes-dialogs-plan.md`; PR 2a wires Settings, the guide, the Ask sheet,
@@ -190,6 +204,12 @@ cd frontend && npm run build
 cd frontend && npx playwright install chromium                       # once
 cd frontend && npm run test:e2e:smoke
 ```
+
+The ports are 8083 and 4173 (fixed in CI). ⚠️ Two checkouts running the suite on one machine collide on them, and because a local
+run reuses whatever already answers there, each can silently drive (and later lose) the OTHER's servers: a run that fails
+with `ERR_CONNECTION_REFUSED` halfway, or a backend that exits 143 under a later invocation, is that. `E2E_API_PORT` and
+`E2E_WEB_PORT` move both (the config and the backend script read the same two), and a `--repeat-each` proof that chains
+invocations should wait for the first one's backend to stop answering before starting the next.
 
 Playwright starts both servers (`scripts/e2e-smoke-backend.sh` and `vite preview`), whose logs go to
 `frontend/test-results/e2e-logs/`. Locally an already-running server on those ports is reused, which is **not** a fresh
@@ -219,8 +239,15 @@ prints the hygiene findings below instead of failing on them, which is how to di
   it every browser POST, the login form's included, is a 403.
 - **Logging in** posts to `/api/auth/login` through the preview origin (so the proxy is exercised) with the local admin
   `admin` / `golden2026`. `LocalAdminSeeder` makes it.
-- **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke']`, `workers: 1`):
-  signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its token.
+- **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke', 'roles-write']`,
+  `workers: 1`): signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its
+  token. The role specs use `lite` and `pro`, so they carry no such hazard.
+- **Opening the Map after the Plan tab in one session is flaky** (an app quirk found by 3a.2: the map can mount at an extreme
+  zoom with most chips culled, for the admin as well). The role specs open the Map first and the Plan last; a spec that must
+  visit both in that order should not rely on chips being visible.
+- **A re-rating answers with the PREVIOUS star** (a stale re-read in `OutcomeRatingService.rate`, found by 3a.2), so the
+  "How was it?" block shows the old value until a reload. `roles-write.spec.js` asserts the block's value on a first rating
+  only, and the stored row (through `GET`) on every rating.
 - **Never fail the admin's sign-in on purpose.** Ten failed sign-ins lock an account out with a 429, which then
   rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
 - **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the
@@ -234,7 +261,8 @@ prints the hygiene findings below instead of failing on them, which is how to di
 - **Time budget:** the suite under 3 minutes on 2 workers; the job's `timeout-minutes` is 20 (it also runs the seeder's
   tests and the boot).
 - **Reliability proof.** `--repeat-each` repeats only the projects it is asked for, and a project's dependencies run once, so
-  the whole suite repeated is two invocations: `--project=smoke --repeat-each=10` and `--project=logout --repeat-each=10`.
+  the whole suite repeated is three invocations: `--project=smoke`, `--project=roles-write` and `--project=logout`, each with
+  `--repeat-each=10`.
 
 **After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
 
@@ -439,8 +467,24 @@ so Dependabot bumps them together as the `stryker` group) mutates `frontend/src/
 that some test notices each fault. Config: `frontend/stryker.config.mjs`; workflow:
 `.github/workflows/stryker.yml`; plan and review record: `docs/engineering/frontend-mutation-testing-plan.md`.
 It **runs weekly (Wednesday 03:00 UTC) and never blocks a PR**; a failed run opens a report through
-`ci-failure-issue.yml`, as `pitest.yml` does. `thresholds.break` is `null`: a floor is set only after
-the first full measurement (plan Phase 2).
+`ci-failure-issue.yml`, as `pitest.yml` does. Each shard has a mutation-score floor (`thresholds.break`).
+
+- **Per-shard floors.** `thresholds.break` applies to each Stryker process's own score and each CI shard is its own process, so one number would fail the weaker shards. The floors are the scores of the first full forced run after the survivor sweeps (run 42380927482, 2026-11-07), rounded down: overall 96.28% (18,402 killed, 710 live), up from an 87.81% pre-sweep baseline (run 42202344388).
+
+  | shard | score | floor |
+  |---|---|---|
+  | 1 | 96.77% | 96 |
+  | 2 | 95.99% | 95 |
+  | 3 | 94.15% | 94 |
+  | 4 | 97.90% | 97 |
+  | 5 | 95.47% | 95 |
+  | 6 | 96.51% | 96 |
+  | 7 | 96.75% | 96 |
+  | 8 | 97.21% | 97 |
+  | 9 | 96.20% | 96 |
+  | 10 | 96.50% | 96 |
+
+  The floor lives in the `plan` job's matrix (`"break"` per shard, asserted numeric), reaches Stryker as `STRYKER_BREAK` on the run step, and `stryker.config.mjs` reads it (a whole number 0-100, otherwise it throws; unset, as in every local run, it is `null`, so there is no floor). Ratchet rule: raise a floor, never lower one without the owner's say-so.
 
 - **Locally:** `cd frontend && npm run test:mutation` (add `-- --mutate 'src/utils/heatField.js'` to
   narrow it). The dry run alone is about 18 minutes (15.4k tests, one worker, because the runner forces

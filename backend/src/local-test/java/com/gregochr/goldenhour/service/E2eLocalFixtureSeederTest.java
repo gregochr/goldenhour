@@ -82,6 +82,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -116,6 +117,7 @@ class E2eLocalFixtureSeederTest {
     private static final int FORECAST_ROWS = PLACES * 8 * 2;
     private static final BriefingSlot.WeatherConditions WEATHER = new BriefingSlot.WeatherConditions(20,
             BigDecimal.ZERO, 20_000, 60, 9.0, 7.0, 1, new BigDecimal("3.2"), 30, 40);
+    private static final String ROLE_SUMMARY = "2 role users, 3 sub-regions, 2 lite picks";
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private RegionRepository regionRepository;
@@ -134,6 +136,7 @@ class E2eLocalFixtureSeederTest {
     private SolarEventFreshness freshness;
     private TideExtremeSnapshot snapshot;
     private E2eFixtureHealthIndicator health;
+    private E2eRoleUsers roleUsers;
     private ListAppender<ILoggingEvent> logs;
     private final AtomicLong ids = new AtomicLong(100);
 
@@ -163,6 +166,7 @@ class E2eLocalFixtureSeederTest {
         freshness = mock(SolarEventFreshness.class);
         snapshot = mock(TideExtremeSnapshot.class);
         health = new E2eFixtureHealthIndicator();
+        roleUsers = mock(E2eRoleUsers.class);
 
         // The database's id assignment (typed matchers: the entities are built by the seeder; they are captured
         // below and asserted field by field).
@@ -184,6 +188,9 @@ class E2eLocalFixtureSeederTest {
                     LocalDate date = inv.getArgument(1);
                     return inv.getArgument(2) == TargetType.SUNRISE ? date.atTime(7, 0) : date.atTime(16, 0);
                 });
+
+        // The role users and sub-regions are handed exactly the saved fixture places (ids and regions set).
+        when(roleUsers.seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces))).thenReturn(ROLE_SUMMARY);
 
         // The briefing chain answers ONLY for the exact arguments the seeder should pass.
         when(slotBuilder.snapshotFor(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces), eq(WINDOW_DATES)))
@@ -308,7 +315,7 @@ class E2eLocalFixtureSeederTest {
         env.setActiveProfiles(profiles);
         return new E2eLocalFixtureSeeder(regionRepository, locationRepository, tideRepository, forecastRepository,
                 cacheRepository, evaluationService, briefingService, slotBuilder, hierarchyBuilder, rollup,
-                headlineGenerator, viewService, almanac, freshness, ds, env, CLOCK, MAPPER, health);
+                headlineGenerator, viewService, almanac, freshness, ds, env, CLOCK, MAPPER, health, roleUsers);
     }
 
     private static DataSource databaseCalled(String product) throws SQLException {
@@ -416,7 +423,7 @@ class E2eLocalFixtureSeederTest {
         assertThatThrownBy(seeder::onApplicationReady)
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("already holds locations");
         verifyNoInteractions(regionRepository, forecastRepository, evaluationService, cacheRepository,
-                tideRepository, slotBuilder, hierarchyBuilder, rollup, headlineGenerator, almanac);
+                tideRepository, slotBuilder, hierarchyBuilder, rollup, headlineGenerator, almanac, roleUsers);
         verify(locationRepository, never()).save(any(LocationEntity.class));
         assertThat(health.health().getStatus()).isEqualTo(Status.DOWN);
     }
@@ -427,7 +434,7 @@ class E2eLocalFixtureSeederTest {
         assertThatThrownBy(() -> seeder(databaseCalled("PostgreSQL"), "local").onApplicationReady())
                 .isInstanceOf(IllegalStateException.class);
         assertThat(health.health().getStatus()).isEqualTo(Status.DOWN);
-        verifyNoInteractions(regionRepository);
+        verifyNoInteractions(regionRepository, roleUsers);
     }
 
     // -- the write order and what each collaborator is handed --------------------------------
@@ -443,6 +450,7 @@ class E2eLocalFixtureSeederTest {
         ArgumentCaptor<RegionEntity> regions = ArgumentCaptor.forClass(RegionEntity.class);
         ArgumentCaptor<LocationEntity> places = ArgumentCaptor.forClass(LocationEntity.class);
         ArgumentCaptor<Collection<TideExtremeEntity>> tides = tideCaptor();
+        ArgumentCaptor<List<LocationEntity>> roleUserPlaces = placeListCaptor();
         ArgumentCaptor<Collection<ForecastEvaluationEntity>> forecastRows = forecastCaptor();
         ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<List<BriefingEvaluationResult>> results = resultsCaptor();
@@ -463,10 +471,11 @@ class E2eLocalFixtureSeederTest {
 
         InOrder order = inOrder(regionRepository, locationRepository, tideRepository, forecastRepository,
                 evaluationService, slotBuilder, hierarchyBuilder, viewService, rollup, headlineGenerator,
-                cacheRepository, briefingService, almanac);
+                cacheRepository, briefingService, almanac, roleUsers);
         order.verify(regionRepository, times(3)).save(regions.capture());
         order.verify(locationRepository, times(PLACES)).save(places.capture());
         order.verify(tideRepository, times(3)).saveAll(tides.capture());
+        order.verify(roleUsers).seed(roleUserPlaces.capture());
         order.verify(forecastRepository).saveAll(forecastRows.capture());
         order.verify(evaluationService, times(30)).mergeFromBatch(keys.capture(), results.capture());
         order.verify(slotBuilder).snapshotFor(snapshotPlaces.capture(), snapshotDates.capture());
@@ -481,6 +490,13 @@ class E2eLocalFixtureSeederTest {
         order.verify(briefingService).loadPersistedBriefing();
         order.verify(almanac).refresh();
         order.verify(briefingService).getCachedBriefingForApi();
+        order.verify(roleUsers).verify();
+
+        // The role users are handed the very places that were saved, in the fixture's order, and nothing else.
+        assertThat(roleUserPlaces.getValue()).containsExactlyElementsOf(places.getAllValues());
+        assertThat(roleUserPlaces.getValue()).extracting(LocationEntity::getName)
+                .containsExactlyElementsOf(PLACE_NAMES);
+        verifyNoMoreInteractions(roleUsers);
 
         // Regions and places, exactly as the fixture defines them.
         assertThat(regions.getAllValues()).extracting(RegionEntity::getName)
@@ -547,7 +563,7 @@ class E2eLocalFixtureSeederTest {
 
         assertThat(health.health().getStatus()).isEqualTo(Status.UP);
         assertThat(logs.list).anySatisfy(e -> assertThat(e.getFormattedMessage())
-                .startsWith(E2eLocalFixtureSeeder.SEEDED_MARKER));
+                .startsWith(E2eLocalFixtureSeeder.SEEDED_MARKER).endsWith(ROLE_SUMMARY));
     }
 
     @Test
@@ -728,6 +744,25 @@ class E2eLocalFixtureSeederTest {
             doReturn(Map.of()).when(evaluationService).getCachedScores(region, TODAY, TargetType.SUNRISE);
         }
         assertFailsLoudly("no cached evaluation today");
+    }
+
+    @Test
+    @DisplayName("self-check: a missing or mis-roled reader, or picks that do not read back, fail it")
+    void selfCheckNeedsTheRoleUsers() throws SQLException {
+        doThrow(new IllegalStateException("Self-check: user 'lite' does not exist")).when(roleUsers).verify();
+        assertFailsLoudly("user 'lite' does not exist");
+        verify(roleUsers).seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
+        verify(roleUsers).verify();
+    }
+
+    @Test
+    @DisplayName("failure path: role users that cannot be written fail loudly before any forecast row is written")
+    void roleUserWriteFailureStaysDown() throws SQLException {
+        doThrow(new IllegalArgumentException("no users")).when(roleUsers)
+                .seed(argThat(E2eLocalFixtureSeederTest::isTheSeededPlaces));
+        assertFailsLoudly("no users");
+        verifyNoInteractions(forecastRepository, evaluationService, cacheRepository, almanac);
+        verify(roleUsers, never()).verify();
     }
 
     @Test
