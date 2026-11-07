@@ -406,8 +406,8 @@ jobs:
 
   # ── Playwright E2E smoke ─────────────────────────────────────────────────────
   # A REQUIRED check (docs/engineering/engineering-gaps-plan.md, Phase 2): the real backend (local profile,
-  # fresh H2, a FAKE Anthropic key, Ask on its stub) and the built frontend behind `vite preview`, driven by
-  # Chromium. The job name below is the branch-protection string; do not rename it.
+  # fresh H2, a FAKE Anthropic key, Ask on its stub) and the built frontend behind the PRODUCTION nginx.conf (nginx:alpine; `vite preview`
+  # locally), driven by Chromium. The job name below is the branch-protection string; do not rename it.
   #
   # Step-level `if:` guards and a "skipped" echo step, exactly like the jobs above, and NO job-level `if:`:
   # a skipped required check blocks a merge instead of passing it, and the job needs no secrets, so it also
@@ -493,8 +493,20 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npx playwright install-deps chromium
 
+      # The suite serves the built frontend through the PRODUCTION nginx.conf in nginx:alpine (frontend/scripts/
+      # e2e-smoke-nginx.sh). The pull is its own step so image-pull time is not charged to Playwright's 60 s
+      # web-server timeout; the backend job's nginx runs are on another runner.
+      - name: Pull the nginx image
+        if: needs.changes.outputs.docs_only != 'true'
+        run: docker pull nginx:alpine
+
+      # nginx.conf's upstream is goldenhour-backend:8082 and the config is mounted unedited, so in nginx mode the
+      # backend listens on 8082 (any other E2E_API_PORT is refused).
       - name: Run the smoke suite
         if: needs.changes.outputs.docs_only != 'true'
+        env:
+          E2E_WEB: nginx
+          E2E_API_PORT: '8082'
         run: cd frontend && npm run test:e2e:smoke
 
       # Browser hygiene cannot see what the BACKEND does, and the backend runs behind a dead outbound proxy, so

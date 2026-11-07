@@ -20,10 +20,33 @@ import { defineConfig, devices } from '@playwright/test';
 // The ports are fixed in CI. Two checkouts running the suite on one machine would otherwise collide (and, with
 // `reuseExistingServer`, each silently drive the OTHER's servers), so a local run may move them:
 // E2E_API_PORT and E2E_WEB_PORT (the backend script reads the same two).
-const API_PORT = Number(process.env.E2E_API_PORT || 8083);
+//
+// E2E_WEB=nginx (CI) serves the built frontend through the PRODUCTION nginx.conf in an nginx:alpine container
+// (scripts/e2e-smoke-nginx.sh) instead of `vite preview`. That config's upstream is goldenhour-backend:8082 and is
+// mounted unedited, so the backend must then listen on 8082: any other E2E_API_PORT is refused here, at once.
+// Unset (or 'preview') keeps `vite preview` and needs no Docker.
+const NGINX_MODE = process.env.E2E_WEB === 'nginx';
+if (process.env.E2E_WEB && !['nginx', 'preview'].includes(process.env.E2E_WEB)) {
+  throw new Error(`E2E_WEB must be 'nginx' or 'preview' (or unset), got '${process.env.E2E_WEB}'`);
+}
+if (NGINX_MODE && process.env.E2E_API_PORT && process.env.E2E_API_PORT !== '8082') {
+  throw new Error(
+    `E2E_WEB=nginx needs E2E_API_PORT=8082 (nginx.conf's upstream is goldenhour-backend:8082), got ${process.env.E2E_API_PORT}`,
+  );
+}
+const API_PORT = Number(process.env.E2E_API_PORT || (NGINX_MODE ? 8082 : 8083));
 const WEB_PORT = Number(process.env.E2E_WEB_PORT || 4173);
 const LOG_DIR = path.resolve(process.env.E2E_LOG_DIR || 'test-results/e2e-logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
+// The config file the nginx container mounts. Set on this process so the workers (and the nginx spec) inherit it;
+// the script exports the same path, so the spec reads exactly what is mounted.
+const NGINX_CONF = path.resolve('..', 'nginx.conf');
+if (NGINX_MODE) {
+  process.env.E2E_NGINX_CONF = process.env.E2E_NGINX_CONF || NGINX_CONF;
+  if (!fs.existsSync(path.join('dist', 'index.html'))) {
+    throw new Error('E2E_WEB=nginx needs the built frontend: cd frontend && npm run build');
+  }
+}
 
 // LOCAL ONLY: lets a machine whose preinstalled Chromium does not match the pinned Playwright run the
 // suite. CI never sets it; it installs its own browser with `npx playwright install chromium`.
@@ -95,14 +118,31 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       env: { E2E_LOG_DIR: LOG_DIR, E2E_API_PORT: String(API_PORT), E2E_WEB_PORT: String(WEB_PORT) },
     },
-    {
-      command: `npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort > ${LOG_DIR}/preview.log 2>&1`,
-      url: `http://127.0.0.1:${WEB_PORT}`,
-      timeout: 60_000,
-      reuseExistingServer: !process.env.CI,
-      // `vite preview` inherits server.proxy; without this the proxy falls back to 8082 and every
-      // API call returns 502.
-      env: { VITE_API_TARGET: `http://127.0.0.1:${API_PORT}` },
-    },
+    NGINX_MODE
+      ? {
+          command: 'bash scripts/e2e-smoke-nginx.sh',
+          url: `http://127.0.0.1:${WEB_PORT}`,
+          timeout: 60_000,
+          // Never reuse: a stale container (or anything else holding the port) would be driven silently.
+          reuseExistingServer: false,
+          // Playwright SIGKILLs a webServer that has no gracefulShutdown, so the script's trap would never run and
+          // the container would outlive the run. SIGTERM lets the trap `docker rm -f` it.
+          gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
+          env: {
+            E2E_LOG_DIR: LOG_DIR,
+            E2E_WEB_PORT: String(WEB_PORT),
+            E2E_API_PORT: String(API_PORT),
+            E2E_NGINX_CONF: process.env.E2E_NGINX_CONF,
+          },
+        }
+      : {
+          command: `npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort > ${LOG_DIR}/preview.log 2>&1`,
+          url: `http://127.0.0.1:${WEB_PORT}`,
+          timeout: 60_000,
+          reuseExistingServer: !process.env.CI,
+          // `vite preview` inherits server.proxy; without this the proxy falls back to 8082 and every
+          // API call returns 502.
+          env: { VITE_API_TARGET: `http://127.0.0.1:${API_PORT}` },
+        },
   ],
 });

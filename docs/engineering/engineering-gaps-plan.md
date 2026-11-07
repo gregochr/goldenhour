@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 built on `test/e2e-role-gating` (PR pending; the 5x reliability proof is a separate, temporary tip commit that is reverted before merge). 3b and 3c next.
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b built on `test/e2e-nginx` (PR pending; the reliability proof is a separate, temporary tip commit that is reverted before merge). 3c next.
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -409,6 +409,111 @@ Built as planned, with these differences:
   - Nothing in the app injects a `<style>` element.
 - Same reliability proof as Phase 2.
 
+#### 3b build notes (planned 2026-11-07, from `origin/main` `a78a1ea0`)
+
+**What exists today.** `frontend/Dockerfile`'s serving stage is a floating `nginx:alpine` with `dist` copied in and no
+config of its own; production mounts the repo-root `nginx.conf` over `/etc/nginx/nginx.conf`. CI already runs that
+image twice in the backend job (`nginx -t` and `scripts/nginx-log-canary.sh`), so the runner has Docker and the image.
+The status stream (`/api/status/stream`, `useHealthStatus`) is SSE, and **nothing sets `X-Accel-Buffering: no` and
+`nginx.conf` leaves `proxy_buffering` on**, so whether events reach the browser promptly through the proxy is an open
+question that this phase answers rather than assumes.
+
+**The mode switch.** `E2E_WEB` selects the web server; unset (or `preview`) keeps `vite preview` exactly as today, so
+a local run with no Docker is unchanged. `E2E_WEB=nginx` (CI sets it on the run step):
+- swaps `webServer[1]` for `bash scripts/e2e-smoke-nginx.sh` (new, beside `e2e-smoke-backend.sh`);
+- forces the API port to **8082**, because `nginx.conf`'s upstream is `goldenhour-backend:8082` and the config is
+  mounted **unedited**. Any other `E2E_API_PORT` in nginx mode is a config error and fails fast with a message;
+- keeps `baseURL` at `http://127.0.0.1:${WEB_PORT}` (4173), so every spec, `loginAs` and the hygiene origin are
+  unchanged.
+
+**`scripts/e2e-smoke-nginx.sh`.**
+- `docker run --rm --name goldenhour-e2e-nginx -p 127.0.0.1:${WEB_PORT}:80
+  --add-host=goldenhour-backend:host-gateway`, with `frontend/dist` mounted read-only on `/usr/share/nginx/html`
+  and the repo-root `nginx.conf` read-only on `/etc/nginx/nginx.conf`. Image: `nginx:alpine`, the tag the
+  shipped image uses (not the `1.27-alpine` that `nginx -t` pins).
+- Removes any stale container of that name first; traps EXIT/INT/TERM to `docker rm -f` it, so a cancelled run never
+  leaves a container holding the port. Container stdout/stderr (nginx's access and error logs in this image) go to
+  `$E2E_LOG_DIR/nginx.log`, which the existing failure upload already collects.
+- Fails with a clear message if `frontend/dist/index.html` is missing or the Docker daemon is not reachable.
+- The backend must accept connections from the Docker bridge, not only loopback: Spring's default bind is all
+  interfaces, and the backend script sets no `server.address`; the builder confirms this rather than assumes it.
+
+**CORS and Host.** nginx forwards `Host $host` (no port), so the backend sees a cross-origin request from
+`http://127.0.0.1:4173`; `--cors.extra-origins` already allows it. No backend flag changes.
+
+**New spec, `smoke/nginx.spec.js`** (in the `smoke` project; every test `test.skip`s unless `E2E_WEB=nginx`, with the
+reason in the skip message). It reads the expected values **from `nginx.conf` itself** where it can, so the spec cannot
+drift from the file:
+1. **Mode guard:** the document response for `/` carries `Content-Security-Policy` equal to the `$csp` string parsed
+   from `nginx.conf`. This is what makes a silently-fallen-back `vite preview` run fail in CI.
+2. **Security headers** on `/`, on a hashed `/assets/*.js` and on a deep link: the seven `add_header` names from the
+   config, each present once.
+3. **Caching:** `/` and a deep link `Cache-Control: no-cache`; `/assets/*` `public, immutable` with a far `Expires`.
+4. **SPA fallback:** a deep link that is not a file (for example `/plan/anything`) answers 200 with the shell, and the
+   app boots on it with clean hygiene.
+5. **The status stream through the proxy:** a signed-in page receives its first `/api/status/stream` event within a
+   stated bound (pick it from the discovery run, with headroom). If discovery shows nginx buffering it, **stop and
+   report** with the measured delay: the fix (`proxy_buffering off` on that location, or the backend setting
+   `X-Accel-Buffering: no`) is a production change the planner decides, not something to tune the test around.
+6. **No inline `<style>` element** in the document after visiting each main tab and opening the window sheet (the
+   strict `style-src 'self'` would block it, and the hygiene fixture fails on the console error either way; this
+   names it).
+- The **whole existing suite** also runs behind nginx, so every journey is now a CSP test: a blocked style or script
+  logs a console error, which hygiene already fails on.
+
+**Discovery, before writing assertions** (run with `E2E_HYGIENE=record`, report what it finds):
+- Does `upgrade-insecure-requests` rewrite `http://127.0.0.1:4173` requests? Chromium treats loopback as potentially
+  trustworthy and is expected not to. If it does, the fallback is a CI-only copy of the config with **only** that
+  directive removed (`sed`), the reason recorded in the script and here, and spec 1 compares against the edited copy.
+- Any CSP violation, 4xx or off-origin finding that `vite preview` hid. Each is either fixed in its own PR or put on
+  `ALLOW_LIST` with a reason and a follow-up; nothing is silently tolerated.
+- The SSE timing above.
+
+**CI.** The smoke job's run step gets `E2E_WEB: nginx` and `E2E_API_PORT: 8082`; a `docker pull nginx:alpine` step
+before it, so pull time is not charged to Playwright's 60 s server timeout. The backend-log assertion step and the
+artifact upload are unchanged (the upload already takes `test-results/`). The job's `timeout-minutes` stays 20 unless
+the proof shows it needs more.
+
+**Local.** Default runs stay on `vite preview`. A machine with Docker can run `E2E_WEB=nginx npm run test:e2e:smoke`
+(the cloud session's container can start `dockerd`; the owner's laptop has no Docker, and nothing requires it).
+
+**Proof.** The temporary tip commit (5x job matrix, `--repeat-each=10` for each project, quoted step names), as 3a.1,
+3a.2 and Back 2b used; reverted before merge, then `@codex review` on the new head.
+
+**Docs in the same PR.** `reference/dev-and-testing.md` ("The E2E smoke gate": the two modes, the 8082 rule, the
+script), the status line at the top of this file, and a `changelog.d/` entry.
+
+**Amendments from the plan review (2026-11-07).** These override the notes above where they differ.
+1. **Container lifecycle.** Playwright SIGKILLs a webServer that has no `gracefulShutdown`, so a trap never runs
+   and the container outlives the run. The nginx entry gets `gracefulShutdown: { signal: 'SIGTERM', timeout:
+   10_000 }`; the script runs `docker run … &` then `wait $!` (never `exec`, never foreground) with the trap doing
+   `docker rm -f`. The entry passes `E2E_LOG_DIR` and `E2E_WEB_PORT` in `env`. In nginx mode `reuseExistingServer`
+   is **false** even locally (a stale container would otherwise be reused silently), and the script's
+   remove-stale-first step covers a container left by a hard kill.
+2. **Header assertions.** Use `page.request.get(...)` and `headersArray()` (duplicate-aware; `headers()` omits some
+   security headers). `/assets/` sends two `Cache-Control` headers (`expires 1y` adds `max-age=31536000`): assert
+   it contains `public` and `immutable`, and that `Expires` exists. The seven names come from the `add_header …
+   always` lines of `location /` only. A browser navigation is kept for the mode guard alone.
+3. **The nomodule hash.** Chromium skips `<script nomodule>` before CSP, so a stale hash logs nothing. nginx.spec
+   adds a Node-side check: the sha256 (base64) of the nomodule body in `dist/index.html` appears in the parsed `$csp`.
+4. **Status-stream timing.** The first `status` event is sent on connect and later ones every 30 s, the same as
+   the suite's 30 s test timeout. So if buffering holds the first event, the test simply times out and never
+   reports how long the event took. Measure in the page with `fetch('/api/status/stream', { headers:
+   { Authorization } })` and a `getReader()` loop until `event:status`. The discovery run uses
+   `test.setTimeout(90_000)` and records the time. The final spec uses a fixed bound well under 30 s.
+   `runProgressApi.js` streams through the same location, so a buffering finding covers it too.
+5. **The mode guard's parse.** It must fail loudly: assert the `set $csp "…";` match is non-null. The script
+   exports the path of the config it actually mounted (`E2E_NGINX_CONF`), and the spec reads that file, so the
+   `sed` fallback copy, if one is ever needed, stays consistent.
+6. **The proof** is `--repeat-each=10` (the count 3a.1, 3a.2 and Back 2b used); "Order and gates" below is
+   updated to match.
+7. **The image pull.** The `nginx:alpine` runs that already exist are in the backend job, on another runner, so
+   the smoke job's own `docker pull` step is required, not optional.
+8. **What the SPA fallback proves.** The app has no client router, so the fallback spec tests nginx's
+   `try_files` and nothing more. Also assert that `/assets/missing.js` is a 404 that still carries the
+   security headers, since that location has no `try_files`.
+9. **Not covered:** `worker-src`. The suite blocks service workers, so do not list `worker-src` as covered.
+
 ### 3c: the accessibility scan (advisory)
 
 - **The job:** a separate job, `E2E — accessibility (advisory)`, on the 3b stack (seeded, nginx), and **not** a required check. `@axe-core/playwright` scans each main tab and the open dialogs (window sheet, location sheet, callout) at desktop and phone widths.
@@ -422,7 +527,7 @@ Built as planned, with these differences:
 - **Order:** each PR follows the Phase 2 recipe. The planner reviews it, Sonnet builds it in a worktree, and the full local gates must pass:
   - backend: checkstyle and `clean verify`, with the seeder's own unit tests;
   - frontend: the four commands.
-- **Proof for 3a.1 and 3b:** the temporary 5× job matrix plus `--repeat-each=20`, removed before merge.
+- **Proof for 3a.1 and 3b:** the temporary 5× job matrix plus `--repeat-each=10`, removed before merge.
 - **Copy:** once 3a.1 and 3a.2 are merged, the landing pages drop "the map and planning screens are still checked by hand".
 
 ## Phase 4: post-deploy smoke and automatic rollback
