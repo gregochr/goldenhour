@@ -240,6 +240,32 @@ prints the hygiene findings below instead of failing on them, which is how to di
 
 ---
 
+## Dialog history tests (`utils/dialogHistory.js`)
+
+The store behind "Back closes the top dialog" (`docs/engineering/back-closes-dialogs-plan.md`) is tested against a
+**fake Chromium history**, not jsdom. `src/test/fakeBrowserHistory.js` (`createFakeBrowser()`) models what jsdom does
+not: every queued traversal runs, a push truncates the forward entries, an out-of-range `go` does nothing, a `go` is
+relative to the entry the browser is on when it RUNS, `popstate` fires only when the test steps or flushes the queue,
+and `userActivation` and `scrollRestoration` exist (with an ordered `log`). The store takes the fake through its seam:
+
+```js
+const b = createFakeBrowser();
+__resetForTests({ history: b.history, win: b.win });   // enabled: false exercises the off switch
+```
+
+`__resetForTests()` (no arguments) puts the real globals back; call it in `afterEach`. Assert **spy calls**
+(`go` called once with `-2`), never `popstate` counts. The timeout branch uses `vi.useFakeTimers()` and must call
+`createFakeBrowser()`/`__resetForTests` again afterwards so the store's `setTimeout` is the faked one. `tick()` lets the
+store's reconcile microtask run; in a React test wrap `tick()` and `b.flush()` in `act`.
+
+**jsdom limits** (why the fake exists): two `history.back()` calls merge into one, a traversal followed by `pushState`
+is dropped, and there is no `navigator.userActivation` and no `history.scrollRestoration`. Real jsdom is used only for
+a few wiring tests. **Playwright limits**: `goBack` ignores Chromium's skippable-entry rule and always grants user
+activation, so the activation gate, the first-run guard and the history-manipulation intervention cannot be
+automated; they belong to the manual device pass in the plan (a release blocker). Before any `goBack`/`goForward`/
+reload, wait for the store to settle by polling `data-back-depth` on `<html>` (a number when idle, `busy` while a
+traversal or reconcile is outstanding).
+
 ## UI Work — Review Cadence
 
 **Every code commit that touches the UI gets an adversarial review before it lands, and the tests go

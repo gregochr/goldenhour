@@ -2,10 +2,33 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import useDialogFocus from '../hooks/useDialogFocus.js';
+import useBackLayer from '../hooks/useBackLayer.js';
 import useVisualViewportHeight from '../hooks/useVisualViewportHeight.js';
 
 /** What a tall sheet leaves above itself, so the page behind it still reads as a page (design: 24px). */
 const TALL_TOP_MARGIN = 24;
+
+/** How many sheets currently hold the body scroll lock, and what `overflow` was before the first. */
+let scrollLocks = 0;
+let overflowBeforeLock = '';
+
+/**
+ * Locks body scroll, reference-counted: with two sheets closing in one commit the second cleanup
+ * used to restore the FIRST sheet's `hidden`, leaving the page unscrollable.
+ *
+ * @returns {Function} releases this lock
+ */
+function lockBodyScroll() {
+  if (scrollLocks === 0) {
+    overflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  scrollLocks += 1;
+  return () => {
+    scrollLocks -= 1;
+    if (scrollLocks === 0) document.body.style.overflow = overflowBeforeLock;
+  };
+}
 
 /**
  * Mobile bottom sheet overlay. Slides up from the bottom of the viewport
@@ -77,19 +100,22 @@ const TALL_TOP_MARGIN = 24;
  *        Regions/Filters rows unmount themselves the instant `RegionsJump`/`FiltersPopover` open,
  *        since the peek body tears down whenever `openMapMenu` leaves `'peek:lay'` (a Codex finding
  *        on the plan's M0). Omit for every other caller, unchanged.
+ * @param {'close'|'cancel'|'block'} [props.back] - Opt in to the Back button (see
+ *        `utils/dialogHistory.js`) while the sheet is open: `close` and `cancel` run `onClose` on Back,
+ *        `block` absorbs it. Omitted: no history call and no registration, byte-identical to before.
  */
 export default function BottomSheet({
   open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, restoreFallback = null,
-  size = 'default', closeOnEscape = false, footer = null, header = null, flush = false, children,
+  size = 'default', closeOnEscape = false, back, footer = null, header = null, flush = false, children,
 }) {
   const tall = size === 'tall';
   // Prevent body scroll while open
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = prev; };
+    return lockBodyScroll();
   }, [open]);
+
+  useBackLayer({ open: open && back !== undefined, onBack: onClose, mode: back });
 
   // Gated on `open`, unlike Modal's — this component returns null rather than unmounting, so the
   // hook has to be told when the sheet is actually on screen.
@@ -227,6 +253,7 @@ BottomSheet.propTypes = {
   restoreFallback: PropTypes.func,
   size: PropTypes.oneOf(['default', 'tall']),
   closeOnEscape: PropTypes.bool,
+  back: PropTypes.oneOf(['close', 'cancel', 'block']),
   footer: PropTypes.node,
   header: PropTypes.node,
   flush: PropTypes.bool,
