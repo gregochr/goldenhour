@@ -16,7 +16,9 @@
   --color-plex-border-light: #4A3A2E;
   --color-plex-text: #F2E7D3;
   --color-plex-text-secondary: rgba(242, 231, 211, 0.66);
-  --color-plex-text-muted: rgba(242, 231, 211, 0.42);
+  /* 0.53 bone (was 0.42, 3.5:1 -> axe color-contrast): 4.97 on plex-bg, 4.84 on plex-surface, 4.87 on plex-panel,
+     4.65 on plex-surface-light. */
+  --color-plex-text-muted: rgba(242, 231, 211, 0.53);
   /* The Data tabs' ink-4 (data-tabs-redesign-plan.md §4): off-status dots and the quietest marks. 26% bone. */
   --color-plex-text-faint: rgba(242, 231, 211, 0.26);
   /* The ink a PANEL's recessive text takes (§6). Named rather than repeated at the two override
