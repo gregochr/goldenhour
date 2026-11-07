@@ -162,6 +162,8 @@ prints the hygiene findings below instead of failing on them, which is how to di
   it every browser POST, the login form's included, is a 403.
 - **Logging in** posts to `/api/auth/login` through the preview origin (so the proxy is exercised) with the local admin
   `admin` / `golden2026`. `LocalAdminSeeder` makes it.
+- **Sign-out runs alone, last.** `logout.spec.js` is its own Playwright project (`dependencies: ['smoke']`, `workers: 1`):
+  signing out bumps the admin's account-wide credentials version, so a parallel spec would get a 401 on its token.
 - **Never fail the admin's sign-in on purpose.** Ten failed sign-ins lock an account out with a 429, which then
   rejects every other spec's login (found by `--repeat-each=20`). The failed-sign-in spec uses an unknown user.
 - **The scheduler invariant.** The smoke database has no `scheduler_job_config` rows (they come from Flyway, which the

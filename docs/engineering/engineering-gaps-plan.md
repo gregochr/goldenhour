@@ -113,6 +113,7 @@ numbered review items are folded in below.
    - Cache `~/.cache/ms-playwright` keyed on that version, and always run
      `npx playwright install-deps chromium`, because the apt packages are not cached.
    - `workers: 2`, fixed.
+5a. **Sign-out runs alone, last** (its own project, `dependencies: ['smoke']`, `workers: 1`): logout bumps the account-wide credentials version and would 401 any parallel spec sharing the admin.
 6. **Retries: 0.** Traces with `retain-on-failure`; on failure, the report, traces and both servers' logs are
    uploaded as an artifact.
 7. **Console and network hygiene.** A fixture records `console` messages of type `error`, `pageerror`

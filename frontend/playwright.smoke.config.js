@@ -48,7 +48,20 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'smoke',
+      testIgnore: '**/logout.spec.js',
+      use: { ...devices['Desktop Chrome'], ...localChromium },
+    },
+    // Why logout is its own project: signing out calls bumpCredentialsVersion, which is ACCOUNT-WIDE, and
+    // JwtAuthenticationFilter then rejects every token whose `cv` no longer matches. Every authenticated
+    // spec shares the one local admin, so a sign-out running beside another spec would give it a 401 (a
+    // hygiene failure). So it starts only after the whole `smoke` project has finished, on one worker, which
+    // also serialises its repeats under --repeat-each.
+    {
+      name: 'logout',
+      testMatch: '**/logout.spec.js',
+      dependencies: ['smoke'],
+      workers: 1,
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },
   ],

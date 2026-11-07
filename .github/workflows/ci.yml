@@ -492,7 +492,12 @@ jobs:
       - name: Reliability proof (--repeat-each=20)
         if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 10
-        run: cd frontend && npm run test:e2e:smoke -- --repeat-each=20
+        # --repeat-each does not repeat a project's DEPENDENCIES, so the plain flag would run the smoke
+        # project once and only logout 20 times. Run the two projects separately instead.
+        run: |
+          cd frontend
+          npm run test:e2e:smoke -- --project=smoke --repeat-each=20
+          npm run test:e2e:smoke -- --project=logout --no-deps --repeat-each=20
 
       # The report, the traces and both servers' logs, so a red run can be diagnosed without a re-run.
       - name: Upload Playwright report, traces and server logs
