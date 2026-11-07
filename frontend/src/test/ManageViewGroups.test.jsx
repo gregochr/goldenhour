@@ -30,7 +30,7 @@ vi.mock('../components/RewindView.jsx', () => stub('Rewind'));
 const EXPECTED = [
   { group: 'runs', label: 'Runs', tabs: [
     ['runs', 'Runs'],
-    ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'], ['models', 'Model Config'],
+    ['models', 'Model Config'], ['scheduler', 'Scheduler'], ['traveldays', 'Travel Days'],
   ] },
   { group: 'places', label: 'Places', tabs: [
     ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
