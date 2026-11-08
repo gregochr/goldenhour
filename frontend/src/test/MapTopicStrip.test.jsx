@@ -10,6 +10,7 @@ import { fourDayGrid } from '../utils/mapTopics.js';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { SATURDAY } from './bigSeasFixtures.js';
 import { mockOpenGuide } from './guideContextMock.js';
+import { labelInNameResult } from './labelInNameCheck.js';
 
 vi.mock('../context/GuideContext.jsx', async () => (await import('./guideContextMock.js')).guideContextMock);
 
@@ -523,7 +524,7 @@ describe('MapTopicStrip: the collapsed row\'s day dots (collapse-and-topic-pips-
     renderStrip({ open: false });
     expect(screen.getByTestId('wf-topic-day-1')).toHaveAccessibleName('Show Sat sunrise');
     expect(screen.getByTestId('wf-topic-day-tip-1')).toHaveTextContent(/^Show Sat sunrise · .*King tide/);
-    expect(screen.getByTestId('wf-topic-day-0')).toHaveAccessibleName('On this window · Aurora');
+    expect(screen.getByTestId('wf-topic-day-0')).toHaveAccessibleName(/^\w{3}, On this window · Aurora$/);
     expect(screen.getByTestId('wf-topic-day-0')).toHaveAttribute('aria-current', 'true');
   });
 
@@ -837,5 +838,25 @@ describe('MapTopicStrip: full topic names', () => {
     expect(label(type)).toHaveTextContent(name);
     expect(label(type).getAttribute('aria-label')).toMatch(new RegExp(`^${name}: `));
     expect(screen.getAllByTestId(new RegExp(`^wf-topic-bar-${type}-`))[0].getAttribute('aria-label')).toMatch(new RegExp(`^${name}, `));
+  });
+});
+
+describe('MapTopicStrip: the day buttons satisfy WCAG 2.5.3 (label in name)', () => {
+  it("says the visible day label in the current day's name, and passes axe's own check on every day", async () => {
+    // jsdom loads no stylesheet: hide the tooltip as index.css does (axe reads computed style).
+    const style = document.createElement('style');
+    style.textContent = '.wf-tl-tip{display:none}';
+    document.head.appendChild(style);
+    try {
+      renderStrip({ open: false });
+      const current = screen.getByTestId('wf-topic-day-0');
+      const visibleDay = current.querySelector('span').textContent;
+      expect(current.getAttribute('aria-label')).toBe(`${visibleDay}, On this window · Aurora`);
+      expect(await labelInNameResult(current)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
+      expect(await labelInNameResult(screen.getByTestId('wf-topic-day-1')))
+        .toEqual({ violations: 0, passes: 1, incomplete: 0 });
+    } finally {
+      style.remove();
+    }
   });
 });

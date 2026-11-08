@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import MapTopicChips from '../components/map/MapTopicChips.jsx';
+import { labelInNameResult } from './labelInNameCheck.js';
 
 const TIDE = {
   type: 'KING_TIDE', name: 'King tide', glyph: '🌊', colour: '#6FA8B0',
@@ -182,5 +183,29 @@ describe('MapTopicChips: the empty state', () => {
   it('still renders the chips on the phone', () => {
     renderChips({ isMobile: true });
     expect(screen.getAllByRole('button')).toHaveLength(3);
+  });
+});
+
+describe('MapTopicChips: the visible text satisfies WCAG 2.5.3 (label in name)', () => {
+  const SPRING = {
+    type: 'SPRING_TIDE', name: 'Spring tide', glyph: '🌊', colour: '#6FA8B0',
+    where: '3 coastal', label: 'Spring tide, mid tide, 3 coastal places', wholeSky: false, bigSeas: false,
+    light: { text: 'mid tide', align: 'match' },
+  };
+
+  it('keeps a space between the glyph, name, light and where, so the words do not glue', () => {
+    renderChips({ chips: [SPRING] });
+    const chip = screen.getByTestId('wf-topic-chip-SPRING_TIDE');
+    expect(chip.textContent).toBe('🌊 Spring tide mid tide 3 coastal');
+    // The accessible name is untouched: the separators are text nodes, not a rename.
+    expect(chip).toHaveAccessibleName('Spring tide, mid tide, 3 coastal places');
+  });
+
+  it("passes axe's own label-content-name-mismatch check for every chip shape", async () => {
+    renderChips({ chips: [SPRING, TIDE, AURORA, SEAS] });
+    const buttons = screen.getAllByRole('button');
+    for (const button of buttons) {
+      expect(await labelInNameResult(button)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
+    }
   });
 });
