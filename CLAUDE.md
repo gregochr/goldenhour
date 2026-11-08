@@ -53,6 +53,9 @@ plans and this file may be written by the planning session.)
    both immediately before `gh pr merge`.
    **One exception (owner, 2026-11-07):** the `E2E — accessibility (advisory)` workflow (`.github/workflows/a11y.yml`)
    never blocks a merge until the owner makes it a required check; report a red run in the PR summary instead.
+   **Second exception (owner, 2026-11-08):** the `Prompt regression — sky` and `Prompt regression — ask` jobs
+   (`.github/workflows/prompt-regression.yml`) wait for the owner's approval because they spend real Anthropic money.
+   Waiting, skipped or expired is normal: never wait on them, never approve them; report a red run in the PR summary.
 7. **Multi-phase plans repeat steps 2–6 for each phase**: one PR per phase, each branched from the
    updated `main` after the previous phase merged.
 
