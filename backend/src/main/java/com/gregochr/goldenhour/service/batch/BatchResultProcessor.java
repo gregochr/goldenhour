@@ -187,6 +187,10 @@ public class BatchResultProcessor {
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(),
                 batch.getPipelineRunId(), resolveSubmissionInstant(batch), null);
+        if (batch.getJobRunId() == null) {
+            LOG.warn("Forecast batch {} has no jobRunId: no api_call_log cost rows will be recorded "
+                    + "for it because api_call_log.job_run_id is NOT NULL", batch.getAnthropicBatchId());
+        }
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -568,6 +572,10 @@ public class BatchResultProcessor {
 
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(), null);
+        if (batch.getJobRunId() == null) {
+            LOG.warn("Aurora batch {} has no jobRunId: no api_call_log cost rows will be recorded "
+                    + "for it because api_call_log.job_run_id is NOT NULL", batch.getAnthropicBatchId());
+        }
         EvaluationModel model = resolveEvaluationModel(auroraModelId);
         TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead,
                 totalCacheCreate1h);
@@ -660,7 +668,15 @@ public class BatchResultProcessor {
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType,
             EvaluationModel model, TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
-        if (context == null || context.jobRunId() == null) {
+        if (context == null) {
+            LOG.debug("Inline failure: no api_call_log row for customId={} — no ResultContext was supplied",
+                    customId);
+            return;
+        }
+        if (context.jobRunId() == null) {
+            LOG.debug("Inline failure: no api_call_log row for customId={} batchId={} — jobRunId is absent "
+                    + "and api_call_log.job_run_id is NOT NULL",
+                    customId, context.batchId());
             return;
         }
         try {

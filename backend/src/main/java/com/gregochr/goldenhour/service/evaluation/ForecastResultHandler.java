@@ -863,7 +863,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
             LocalDate targetDate, TargetType targetType, EvaluationModel model,
             String errorTypeOverride, String responseBody) {
-        if (context == null || context.jobRunId() == null) {
+        if (context == null) {
+            LOG.debug("Forecast batch: no api_call_log row for customId={} — no ResultContext was supplied",
+                    outcome.customId());
+            return;
+        }
+        if (context.jobRunId() == null) {
+            LOG.debug("Forecast batch: no api_call_log row for customId={} batchId={} — jobRunId is absent "
+                    + "and api_call_log.job_run_id is NOT NULL",
+                    outcome.customId(), context.batchId());
             return;
         }
         try {

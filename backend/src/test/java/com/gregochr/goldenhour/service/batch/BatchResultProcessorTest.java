@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.service.ServedBriefingEpoch;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.StopReason;
@@ -40,6 +43,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -739,8 +743,19 @@ class BatchResultProcessorTest {
                 any(ClaudeBatchOutcome.class), any(ResultContext.class)))
                 .thenReturn(AuroraBatchOutcome.ok(7));
 
-        processor.processResults(batch);
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
 
+        assertThat(appender.list).filteredOn(event -> event.getLevel() == Level.WARN)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getFormattedMessage()).contains("Aurora batch msgbatch_fail");
+                    assertThat(event.getFormattedMessage()).contains("no api_call_log cost rows");
+                });
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
@@ -1592,11 +1607,27 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         stubStream(erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"));
 
-        processor.processResults(batch);
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
 
         verifyNoInteractions(jobRunService);
         assertThat(batch.getErroredCount()).isEqualTo(1);
         assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        // Once per batch at WARN, naming the batch and the consequence ...
+        assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains("no api_call_log cost rows"))
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("Forecast batch msgbatch_fail"));
+        // ... and at DEBUG per dropped result.
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("fc-42-2026-04-07-SUNRISE")
+                && event.getFormattedMessage().contains("jobRunId is absent"));
     }
 
     @Test
@@ -1872,5 +1903,23 @@ class BatchResultProcessorTest {
                 eq(false), eq(EvaluationFailure.TYPE_REFUSAL), any(),
                 eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
                 isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
+    }
+
+    /** Attaches a capturing appender and opens the logger to DEBUG, which the test config filters out. */
+    private static ListAppender<ILoggingEvent> attachAppender() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(BatchResultProcessor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        return appender;
+    }
+
+    private static void detachAppender(ListAppender<ILoggingEvent> appender) {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(BatchResultProcessor.class);
+        logger.detachAppender(appender);
+        logger.setLevel(null);
     }
 }

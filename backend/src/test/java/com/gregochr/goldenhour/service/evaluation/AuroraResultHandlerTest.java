@@ -1,5 +1,8 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -25,6 +28,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 import java.util.Map;
 
@@ -393,10 +398,38 @@ class AuroraResultHandlerTest {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
                 "au-MODERATE-2026-04-16", "EXPIRED", "expired", "expired");
 
-        handler.processBatchResponse(AlertLevel.MODERATE, outcome,
-                ResultContext.forBatch(null, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            handler.processBatchResponse(AlertLevel.MODERATE, outcome,
+                    ResultContext.forBatch(null, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+        } finally {
+            detachAppender(appender);
+        }
 
         verifyNoInteractions(jobRunService);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("au-MODERATE-2026-04-16")
+                && event.getFormattedMessage().contains("msgbatch_x")
+                && event.getFormattedMessage().contains("jobRunId is absent"));
+    }
+
+    @Test
+    @DisplayName("processBatchResponse: no context at all writes no api_call_log row and does not throw")
+    void processBatchResponse_nullContext_skipsLogWithoutThrowing() {
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
+                "au-MODERATE-2026-04-16", "EXPIRED", "expired", "expired");
+
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            handler.processBatchResponse(AlertLevel.MODERATE, outcome, null);
+        } finally {
+            detachAppender(appender);
+        }
+
+        verifyNoInteractions(jobRunService);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("au-MODERATE-2026-04-16")
+                && event.getFormattedMessage().contains("no ResultContext was supplied"));
     }
 
     @Test
@@ -470,10 +503,20 @@ class AuroraResultHandlerTest {
         ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
                 "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
 
-        handler.handleSyncResult(task, outcome,
-                ResultContext.forSync(null, BatchTriggerSource.SCHEDULED));
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            handler.handleSyncResult(task, outcome,
+                    ResultContext.forSync(null, BatchTriggerSource.SCHEDULED));
+            handler.handleSyncResult(task, outcome, null);
+        } finally {
+            detachAppender(appender);
+        }
 
         verifyNoInteractions(jobRunService);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("jobRunId is absent"));
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("no ResultContext was supplied"));
     }
 
     @Test
@@ -503,5 +546,23 @@ class AuroraResultHandlerTest {
         loc.setId(id);
         loc.setName(name);
         return loc;
+    }
+
+    /** Attaches a capturing appender and opens the logger to DEBUG, which the test config filters out. */
+    private static ListAppender<ILoggingEvent> attachAppender() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(AuroraResultHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        return appender;
+    }
+
+    private static void detachAppender(ListAppender<ILoggingEvent> appender) {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(AuroraResultHandler.class);
+        logger.detachAppender(appender);
+        logger.setLevel(null);
     }
 }
