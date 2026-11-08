@@ -1,6 +1,6 @@
 # Back closes the top dialog
 
-Status: planned 2026-11-07. Owner request, raised while planning Phase 3a.1 of `engineering-gaps-plan.md`.
+Status: planned 2026-11-07. **PR 3 (the first-run guard) built 2026-11-07; the Android Chrome measurement is still the manual pass.** Owner request, raised while planning Phase 3a.1 of `engineering-gaps-plan.md`.
 Research was done at `origin/main` 404d8392. Reviewed by five adversarial lenses on 2026-11-07; the **amendments section at the end is binding and wins over the earlier sections where they conflict**.
 
 ## The problem
@@ -341,7 +341,7 @@ and tests and rollout.
     - a data-refreshed popup;
     - a cold-chunk swap;
     - the guide with in-frame navigation;
-    - the first-run guard after a tap and before any tap;
+    - the first-run guard after a tap and before any tap, and **a second Back without a tap** (the engine's re-push has no activation, so Chrome may let it leave);
     - predictive-back previews;
     - the keyboard-up first Back (it only hides the keyboard, which is expected).
   - **iOS Safari in a tab:**
@@ -361,7 +361,70 @@ and tests and rollout.
 - **PR 2b:** the Plan-shell dialogs (popup, spots, location sheet, picks, search), the
   `openWindow(null)`-on-vanish fix and the `!guideModal` guard, with their specs. **No release is cut between
   2a and 2b.**
-- **PR 3:** the first-run guard.
+- **PR 3:** the first-run guard. **Built 2026-11-07** (see `#### PR 3 build notes`).
+
+#### PR 3 build notes (planned 2026-11-07, from `origin/main` `d6412142`)
+
+**What is guarded.** Two prompts, `PostcodePromptOverlay` (`postcode-prompt`) and `SubRegionSignInPrompt`
+(`sub-region-prompt`). Each is a portalled `role="dialog"` that Escape does not close, and each has only its own
+buttons as exits. Owner decision: once the reader has interacted, Back does nothing while either is open. Before
+any activation, Back leaves the page as it does today.
+
+**The engine stays as it is.** The guard is an ordinary `mode: 'block'` layer, which the engine already handles
+(design item 9: on `popstate` it pushes again and closes nothing). Only *when* it registers is new.
+
+**`useBackLayer` gains `activationGated` (default `false`).** When it is true, an open layer registers only once
+the page has a live activation:
+- **At open:** if `navigator.userActivation?.isActive` is true, register at once.
+- **Otherwise:** add a capture-phase listener for `click` and `keyup`, never `pointerdown`, which does not
+  trigger activation on touch (design item 10). Attach it to the prompt's element when the hook is given a ref,
+  else to `document`.
+  - On the first such event, register if `isActive` is true. If the browser has no `navigator.userActivation`,
+    register too: the event is itself a user gesture.
+  - Then remove the listener.
+- **Clean-up:** closing before any activation removes the listener and pushes nothing. Closing after
+  registration releases the layer, so the engine drops its entry, as for every other layer.
+- **Prompts that are always open from mount** (both are rendered only while shown): `open` is `true`, so the
+  gate alone decides when the entry appears.
+- The off switch (`BACK_CLOSES_DIALOGS_ENABLED=false`) still makes it a no-op, with zero history calls.
+- **No `beforeunload`.**
+
+**Wiring.** Each prompt calls `useBackLayer({ open: true, mode: 'block', activationGated: true, ref: dialogRef })`.
+Back on a registered prompt is absorbed: the prompt stays open, focus stays inside it, and the URL does not change.
+
+**Stacking.** The postcode prompt already waits for the sub-region prompt to close (`useModalPresent`), so at most
+one guard is live at a time. Neither prompt can sit under an included dialog.
+
+**Tests (Vitest).**
+- `useBackLayer` with `activationGated`, under a fake `navigator.userActivation`:
+  - an already active page registers at open;
+  - an inactive page registers on the first `click` or `keyup`, and not on `pointerdown`;
+  - with no `userActivation` API, it registers on the gesture;
+  - closing before activation makes zero history calls and leaves no listener;
+  - StrictMode's double mount nets to one push;
+  - the off switch makes zero history calls.
+- Each prompt component:
+  - after a click inside it, a simulated Back keeps it open and closes nothing beneath it;
+  - before any activation, nothing is pushed;
+  - Save, Not now and Continue release the guard.
+
+**Tests (Playwright smoke, `back.spec.js`).** Use an account that sees the prompt: the seeded `lite` or `pro`
+account has no `postcode-prompt-dismissed` path in `global-setup.js`. If neither shows the prompt, add a seeded
+user for it in `E2eRoleUsers`.
+- Click inside the prompt, then `page.goBack()`: the prompt is still visible, the URL is unchanged, and
+  `data-back-depth` is settled.
+- Not now: the prompt closes and the depth returns to 0.
+- No dead press: one more `goBack` then leaves to whatever is below.
+- **Before any click:** there is no history entry (assert on `history.length` or `data-back-depth`). Playwright's
+  `goBack` always grants activation, so the "Back leaves before a tap" claim itself is left to the manual pass.
+
+**Manual pass (release blocker, already listed above).** On Android Chrome, both in a tab and as a standalone PWA,
+check the first-run guard after a tap and before any tap. Record the result here.
+
+**Docs.**
+- `plan-tab.md` 'Back': the guarded prompts.
+- This plan's status.
+- A `changelog.d/` entry.
 - **Each PR** gets the full UI review cadence (about six lenses plus refuters), and amends the 3a.1 line "the
   browser Back button closes no dialog … not tested".
 
@@ -487,3 +550,15 @@ What the engine does where the plan was silent or its formula needed a correctio
 - **Third layer.** Popup, then masthead search, then the masthead guide door is already refused by `GuideContext.openGuide`
   (two standing dialogs, one inert: the full page opens in a new tab). Pinned by a Vitest case. The beyond-line door's
   `!guideModal` guard is tested, and fails when removed.
+
+#### PR 3 as built (2026-11-07)
+
+- `useBackLayer` takes `activationGated` and `ref` as specified; `dialogHistory.js` is unchanged. The hook reads `globalThis.navigator.userActivation`.
+- Both prompts call it with `mode: 'block'`, `activationGated: true` and their dialog ref.
+- **Smoke account choice:** no seeded account shows either prompt, and a server-side dismissal would not survive `--repeat-each` or a parallel worker. Each spec patches the real settings (`postcodePromptDue`) or sub-region (`FIRST_CHOICE`) read with `route.fetch()` and answers the dismissal / save itself, writing nothing to the server.
+- **Playwright limit, beyond the one the notes list:** `page.evaluate` also grants activation, so a page is already active when the prompt opens. The spec installs an init script that reports `userActivation.isActive` only after a trusted click or key press, so the "no entry before a click" assertion is real; Chromium's own skippable-entry behaviour stays in the manual pass.
+- **Manual Android Chrome measurement (tab and standalone PWA, after a tap and before any tap): not yet done.** Record the result here.
+- **Without a `userActivation` API** (hook and engine both): the layer registers on the gesture, but the engine pushes only on `isActive === true`, so there is no entry and no guard; Back behaves as before. Safe.
+- **Accepted nit:** if activation lapses between the hook's at-open check and a deferred push (a back-to-back prompt hand-off while `go(-1)` is in flight), the layer is placed with no entry and does not retry. The window is milliseconds.
+- **Second Back:** real Chromium absorbs only the first Back after a tap; a quick second one with no tap may leave (accepted; added to the manual Android list).
+

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import AuthShell from './AuthShell.jsx';
 import PostcodeCapture from './PostcodeCapture.jsx';
+import useBackLayer from '../../hooks/useBackLayer.js';
 
 /** Anything a keyboard can land on, for the hand-back when the prompt closes. */
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), '
@@ -39,6 +40,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([t
 export default function PostcodePromptOverlay({ onSaved, onNotNow }) {
   const anchorRef = useRef(null);
   const dialogRef = useRef(null);
+  // First-run guard: Back is absorbed once the reader has interacted (back-closes-dialogs-plan.md, PR 3).
+  useBackLayer({ open: true, mode: 'block', activationGated: true, ref: dialogRef });
 
   useLayoutEffect(() => {
     const opener = document.activeElement;

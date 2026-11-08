@@ -484,3 +484,169 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await expectBaseline(page, base);
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// First-run prompts (back-closes-dialogs-plan.md, PR 3)
+// ---------------------------------------------------------------------------------------------------------
+
+/**
+ * Makes the server's own answer raise the postcode prompt, for THIS page only, and writes nothing to the server.
+ *
+ * <p>No seeded account can show either first-run prompt on its own: `E2eRoleUsers` inserts `lite` and `pro` with the
+ * postcode prompt already dismissed (so no other spec is held inert) and gives `lite` its picks (so it is `OPEN`,
+ * never `FIRST_CHOICE`), and the admin's dismissal is written once in `global-setup.js`. A prompt dismissed
+ * server-side stays dismissed for the next `--repeat-each` run and for a parallel worker, so a real account could
+ * show it once. Instead each test patches the REAL read (`route.fetch()`, then one field) and answers the dismissal
+ * itself: the app, the engine and the browser's history are all real, the tests share no state, and a repeat sees
+ * the prompt every time.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function raisePostcodePrompt(page) {
+  let body = {};
+  await page.route(/\/api\/user\/settings$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const response = await route.fetch();
+    body = { ...(await response.json()), postcodePromptDue: true };
+    return route.fulfill({ response, json: body });
+  });
+  await page.route(/\/api\/user\/settings\/postcode-prompt-dismissed$/, (route) => route.fulfill({
+    json: { ...body, postcodePromptDue: false },
+  }));
+}
+
+/**
+ * The sub-region sign-in prompt for a Lite reader: the real state with `status: 'FIRST_CHOICE'`, no picks and the
+ * first `limit` sub-regions suggested. The save is answered with an `OPEN` state and never reaches the server.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function raiseSubRegionPrompt(page) {
+  let saved = false;
+  let state = {};
+  await page.route(/\/api\/user\/settings\/sub-regions$/, async (route) => {
+    const method = route.request().method();
+    if (method === 'PUT') {
+      saved = true;
+      return route.fulfill({ json: { ...state, status: 'OPEN' } });
+    }
+    if (method !== 'GET' || saved) return route.fallback();
+    const response = await route.fetch();
+    const real = await response.json();
+    state = real;
+    const suggested = real.options.flatMap((region) => region.subRegions.map((s) => s.areaId)).slice(0, real.limit);
+    return route.fulfill({
+      response,
+      json: { ...real, enforced: true, status: 'FIRST_CHOICE', picks: [], suggested, freeUntilIfChosenToday: '2099-01-01' },
+    });
+  });
+}
+
+/**
+ * Withholds the ambient user activation, so "before the reader has interacted" is a state a spec can be in.
+ *
+ * <p>Playwright evaluates every `page.evaluate` (and `goBack`) WITH a user gesture, so under it
+ * `navigator.userActivation.isActive` is already true when the prompt opens, and a real Chromium would never be.
+ * This replaces `navigator.userActivation` with a stub that reports active only after a TRUSTED click or key
+ * press reaches the page, the way a reader's first tap does. The history, the engine and the guard are all real;
+ * only the browser's activation flag is modelled, and whether real Chromium honours the entry that follows is
+ * the manual device pass (a release blocker in the plan).
+ *
+ * <p>Limits of the stub: its activation NEVER expires (a real one lapses after about 5 s); it grants on any trusted
+ * `keydown`, Escape included; and it cannot tell a `click` from a `pointerdown` (it listens to both), so the rule
+ * "never gate on pointerdown" is proved by the Vitest hook test, not here.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function withholdAmbientActivation(page) {
+  await page.addInitScript(() => {
+    let active = false;
+    const grant = (event) => { if (event.isTrusted) active = true; };
+    ['click', 'keyup', 'keydown', 'pointerdown'].forEach((type) => window.addEventListener(type, grant, true));
+    Object.defineProperty(Navigator.prototype, 'userActivation', {
+      configurable: true,
+      get: () => ({ isActive: active, hasBeenActive: active }),
+    });
+  });
+}
+
+/** A Back from the baseline can only leave: the page ends up off the app's URL. */
+async function expectLeftTheApp(page, appUrl) {
+  await expect.poll(() => page.url(), 'Back from the baseline leaves the app').not.toBe(appUrl);
+}
+
+test.describe('Back closes the top dialog: First-run prompts', () => {
+  test('postcode prompt: no entry before a click, Back absorbed after one, Not now releases it', async ({ page }) => {
+    await withholdAmbientActivation(page);
+    await raisePostcodePrompt(page);
+    await loginAndWaitForForecast(page, 'pro');
+    const prompt = page.getByTestId('postcode-prompt');
+    await expect(prompt).toBeVisible();
+    const url = page.url();
+    const base = await entryIndex(page);
+
+    // Before any click there is no entry: the guard waits for a user activation (Chromium would otherwise skip it).
+    await settled(page, 0);
+    expect(await entryIndex(page), 'no entry before the first click').toBe(base);
+    expect(await marker(page)).toBeNull();
+
+    // A click inside the prompt (its own heading: not an exit) is the activation that registers the guard.
+    await prompt.getByRole('heading', { name: 'Set your home postcode' }).click();
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    await page.goBack();
+
+    await expect(prompt).toBeVisible();
+    expect(page.url(), 'the URL never changes').toBe(url);
+    await settled(page, 1);
+    expect(await entryIndex(page), 'the entry was pushed back').toBe(base + 1);
+
+    // A second Back is absorbed as well. This proves the ENGINE re-arms its guard after each absorbed Back. It does
+    // not prove real Chromium keeps it: Playwright does not apply Chromium's skippable-entry rule, and the re-push
+    // from popstate has no activation of its own, so a quick second Back with no tap between can still leave on
+    // Chrome (the manual Android pass records it).
+    await page.goBack();
+    await expect(prompt).toBeVisible();
+    await settled(page, 1);
+
+    await page.getByTestId('prompt-secondary').click();
+    await expect(prompt).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    // No dead press: with the prompt gone, one more Back leaves to whatever is below the app.
+    await page.goBack();
+    await expectLeftTheApp(page, url);
+  });
+
+  test('sub-region prompt: Back absorbed after a click, Continue releases it', async ({ page }) => {
+    await withholdAmbientActivation(page);
+    await raiseSubRegionPrompt(page);
+    await loginAndWaitForForecast(page, 'lite');
+    const prompt = page.getByTestId('sub-region-prompt');
+    await expect(prompt).toBeVisible();
+    const url = page.url();
+    const base = await entryIndex(page);
+
+    await settled(page, 0);
+    expect(await entryIndex(page), 'no entry before the first click').toBe(base);
+
+    await prompt.getByRole('heading', { name: 'Choose your sub-regions' }).click();
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    await page.goBack();
+
+    await expect(prompt).toBeVisible();
+    expect(page.url()).toBe(url);
+    await settled(page, 1);
+    expect(await entryIndex(page)).toBe(base + 1);
+
+    await prompt.getByRole('button', { name: 'Continue' }).click();
+    await expect(prompt).toHaveCount(0);
+    await expectBaseline(page, base);
+
+    await page.goBack();
+    await expectLeftTheApp(page, url);
+  });
+});

@@ -4,6 +4,7 @@ import PropTypes from 'prop-types';
 import AuthShell from '../auth/AuthShell.jsx';
 import SubRegionStepCard from './SubRegionStepCard.jsx';
 import SubRegionToast from './SubRegionToast.jsx';
+import useBackLayer from '../../hooks/useBackLayer.js';
 import useModalPresent from '../../hooks/useModalPresent.js';
 import { getSubRegions } from '../../api/subRegionApi.js';
 import { persistSubRegions } from '../../utils/subRegionSave.js';
@@ -41,6 +42,8 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([t
 function PromptDialog({ state, onSaved }) {
   const anchorRef = useRef(null);
   const dialogRef = useRef(null);
+  // First-run guard: Back is absorbed once the reader has interacted (back-closes-dialogs-plan.md, PR 3).
+  useBackLayer({ open: true, mode: 'block', activationGated: true, ref: dialogRef });
   const [selected, setSelected] = useState(state.suggested);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
