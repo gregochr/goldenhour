@@ -80,31 +80,33 @@ class AnthropicWireMockFixtureContractTest {
     private static final String MODEL_ID = "claude-haiku-4-5-20251001";
 
     /**
-     * Deliberately carries double quotes: the assistant text is escaped twice on its way to
-     * the wire (once into the evaluation JSON, once into the JSONL envelope), and a broken
-     * escape produces a body that no longer deserialises.
-     *
-     * <p>A backslash is <em>not</em> included, because
-     * {@code AnthropicWireMockFixtures.succeededWithEvaluation} escapes only quotes when it
-     * builds the evaluation JSON and mangles one — see
-     * {@link #summaryContainingABackslashIsSilentlyCorruptedByTheFixtureDouble}.
+     * Deliberately carries double quotes and a backslash: the assistant text is escaped twice
+     * on its way to the wire (once into the evaluation JSON, once into the JSONL envelope), and
+     * a broken escape at either layer corrupts it or produces a body that no longer
+     * deserialises. Because {@link #ARGUMENTS_BY_PARAMETER_NAME} feeds this to every
+     * reflectively-discovered factory, the sweep proves the escaping across all of them.
      */
-    private static final String SUMMARY = "Thin cirrus \"strip\" at 226 km, far-field sample";
+    private static final String SUMMARY = "Thin cirrus \"strip\" at 226 km, C:\\path far-field sample";
 
     /**
-     * A summary whose backslash forms a <em>valid</em> JSON escape ({@code \t}) once the
-     * fixture drops it into the evaluation JSON unescaped. See
-     * {@link #summaryContainingABackslashIsSilentlyCorruptedByTheFixtureDouble}.
+     * A summary whose backslash forms a <em>valid</em> JSON escape ({@code \t}) if the fixture
+     * fails to escape it, so a regression reads back as a silently different string rather than
+     * a parse error. See {@link #summaryContainingABackslashRoundTripsThroughTheFixtureDouble}.
      */
     private static final String BACKSLASH_SUMMARY = "Shot from C:\\temp overlook";
-
-    /** What {@link #BACKSLASH_SUMMARY} actually reads back as: {@code \t} decoded to a tab. */
-    private static final String BACKSLASH_SUMMARY_CORRUPTED = "Shot from C:\temp overlook";
 
     private static final RequestCounts COUNTS = new RequestCounts(1, 2, 3, 4, 5);
 
     /** The message {@code erroredOverloaded} hardcodes; reused so both paths assert the same text. */
     private static final String OVERLOAD_MESSAGE = "Service temporarily overloaded";
+
+    /**
+     * An error message carrying quotes and a backslash, fed to every discovered factory that
+     * takes an {@code errorMessage}. {@code toJsonLine}'s errored branch has no second escaping
+     * layer above it, so an unescaped backslash lands directly in the JSONL envelope
+     * ({@code C:\path} fails the SDK parse outright).
+     */
+    private static final String ESCAPED_ERROR_MESSAGE = "Service \"overloaded\" at C:\\path";
 
     private static final String JSON_CONTENT_TYPE = "application/json";
     private static final String JSONL_CONTENT_TYPE = "application/x-jsonl";
@@ -150,7 +152,7 @@ class AnthropicWireMockFixtureContractTest {
             Map.entry("goldenHour", List.of(61)),
             Map.entry("summary", List.of(SUMMARY)),
             Map.entry("modelId", List.of(MODEL_ID)),
-            Map.entry("errorMessage", List.of(OVERLOAD_MESSAGE)),
+            Map.entry("errorMessage", List.of(ESCAPED_ERROR_MESSAGE)),
             Map.entry("errorType", ERROR_VARIANTS.stream()
                     .map(ErrorVariant::wireType)
                     .map(Object.class::cast)
@@ -326,40 +328,44 @@ class AnthropicWireMockFixtureContractTest {
     }
 
     /**
-     * KNOWN GAP IN THE DOUBLE — this test pins current behaviour, it does not endorse it.
+     * A backslash in the summary survives the double byte-for-byte.
      *
-     * <p>{@code succeededWithEvaluation} escapes only {@code "} when it interpolates the
-     * summary into the evaluation JSON ({@code summary.replace("\"", "\\\"")}), so a
-     * backslash reaches the text block unescaped. {@code toJsonLine} one layer up gets this
-     * right ({@code .replace("\\", "\\\\").replace("\"", "\\\"")}); the inner interpolation
-     * needs the same pair.
-     *
-     * <p>The consequence is worse than a parse error, which is why it is worth an assertion
-     * rather than a comment: a backslash that happens to form a valid JSON escape —
-     * {@code \t}, {@code \n}, {@code \b} — yields a text block that parses <em>cleanly</em>
-     * and silently returns different text than the fixture asked for. A test asserting on a
-     * summary would fail for a reason with nothing to do with the code under test, and a
-     * test not asserting on it would never notice. Only {@code \} followed by a
-     * non-escape character fails loudly.
-     *
-     * <p>Fixing it is a one-line change to {@code AnthropicWireMockFixtures}, which this
-     * slice does not own; when it lands, this test fails and should be deleted.
+     * <p>{@code succeededWithEvaluation} interpolates the summary into the evaluation JSON, and
+     * {@code toJsonLine} then escapes that whole text again for the JSONL envelope; both layers
+     * must escape the backslash <em>before</em> the quote. The failure mode this guards is worse
+     * than a parse error: a backslash that happens to form a valid JSON escape ({@code \t},
+     * {@code \n}, {@code \b}) yields a text block that parses <em>cleanly</em> and silently returns
+     * different text than the fixture asked for, so a test asserting on the summary would fail
+     * for a reason with nothing to do with the code under test.
      */
     @Test
-    @DisplayName("KNOWN GAP: a backslash in the summary is silently corrupted by the fixture double")
-    void summaryContainingABackslashIsSilentlyCorruptedByTheFixtureDouble() throws Exception {
+    @DisplayName("a backslash in the summary round-trips through the fixture double unchanged")
+    void summaryContainingABackslashRoundTripsThroughTheFixtureDouble() throws Exception {
         BatchResultFixture fixture = AnthropicWireMockFixtures.succeededWithEvaluation(
                 CUSTOM_ID, 4, 72, 61, BACKSLASH_SUMMARY, MODEL_ID);
 
         MessageBatchIndividualResponse response = readIndividualResponse(fixture.toJsonLine());
-        String text = firstTextBlock(response);
+        JsonNode evaluation = MAPPER.readTree(firstTextBlock(response));
 
-        JsonNode evaluation = assertDoesNotThrow(() -> MAPPER.readTree(text),
-                "the corrupted text block still parses — that is precisely why this hides");
-        assertThat(evaluation.get("summary").asText())
-                .as("the fixture leaves the backslash unescaped, so \\t decodes to a tab")
-                .isEqualTo(BACKSLASH_SUMMARY_CORRUPTED)
-                .isNotEqualTo(BACKSLASH_SUMMARY);
+        assertThat(evaluation.get("summary").asText()).isEqualTo(BACKSLASH_SUMMARY);
+    }
+
+    /**
+     * The errored branch of {@code toJsonLine} has no second escaping layer, so a backslash in
+     * the error message goes straight into the JSONL envelope; unescaped, {@code C:\temp} would
+     * decode to a tab and {@code C:\path} would fail the SDK parse and take the whole
+     * deserialisation with it.
+     */
+    @Test
+    @DisplayName("a backslash in an error message round-trips through the fixture double unchanged")
+    void errorMessageContainingABackslashRoundTripsThroughTheFixtureDouble() {
+        BatchResultFixture fixture = new BatchResultFixture(CUSTOM_ID, ResultKind.ERRORED, null, null,
+                "overloaded_error", ESCAPED_ERROR_MESSAGE, null, null, null, null);
+
+        MessageBatchIndividualResponse response = readIndividualResponse(fixture.toJsonLine());
+
+        assertThat(response.result().asErrored().error().error().asOverloadedError().message())
+                .isEqualTo(ESCAPED_ERROR_MESSAGE);
     }
 
     /**

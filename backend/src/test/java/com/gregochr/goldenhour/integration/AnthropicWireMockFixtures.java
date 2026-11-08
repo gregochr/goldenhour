@@ -1,10 +1,12 @@
 package com.gregochr.goldenhour.integration;
 
+import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import com.github.tomakehurst.wiremock.client.MappingBuilder;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
@@ -59,6 +61,24 @@ public final class AnthropicWireMockFixtures {
 
     private AnthropicWireMockFixtures() {
         // utility — not instantiable
+    }
+
+    /**
+     * Escapes a raw string for embedding between the quotes of a JSON string literal: backslash,
+     * double quote and control characters. Returns no surrounding quotes. Every string value this
+     * class interpolates goes through here, so a backslash, quote or newline in a fixture value
+     * can never corrupt the envelope; the surrounding STRUCTURE stays hand-concatenated so the
+     * double can still emit deliberately malformed shapes.
+     *
+     * @param raw the unescaped value; a null renders as the text {@code null}, as plain
+     *            concatenation did before this helper existed
+     * @return the value, escaped for a JSON string literal
+     */
+    private static String jsonEscape(String raw) {
+        if (raw == null) {
+            return "null";
+        }
+        return new String(JsonStringEncoder.getInstance().quoteAsString(raw));
     }
 
     /**
@@ -162,9 +182,9 @@ public final class AnthropicWireMockFixtures {
      */
     public static BatchResultFixture succeededWithEvaluation(String customId,
             int rating, int fierySky, int goldenHour, String summary, String modelId) {
-        String evaluationJson = String.format(
+        String evaluationJson = String.format(Locale.ROOT,
                 "{\"rating\":%d,\"fiery_sky\":%d,\"golden_hour\":%d,\"summary\":\"%s\"}",
-                rating, fierySky, goldenHour, summary.replace("\"", "\\\""));
+                rating, fierySky, goldenHour, jsonEscape(summary));
         return new BatchResultFixture(customId, ResultKind.SUCCEEDED, modelId,
                 evaluationJson, null, null,
                 /* inputTokens */ 1500L,
@@ -208,9 +228,9 @@ public final class AnthropicWireMockFixtures {
             RequestCounts counts, String resultsUrl, String endedAt) {
         StringBuilder sb = new StringBuilder()
                 .append("{")
-                .append("\"id\":\"").append(batchId).append("\",")
+                .append("\"id\":\"").append(jsonEscape(batchId)).append("\",")
                 .append("\"type\":\"message_batch\",")
-                .append("\"processing_status\":\"").append(processingStatus).append("\",")
+                .append("\"processing_status\":\"").append(jsonEscape(processingStatus)).append("\",")
                 .append("\"request_counts\":{")
                 .append("\"processing\":").append(counts.processing()).append(",")
                 .append("\"succeeded\":").append(counts.succeeded()).append(",")
@@ -226,13 +246,13 @@ public final class AnthropicWireMockFixtures {
         if (endedAt == null) {
             sb.append("null,");
         } else {
-            sb.append("\"").append(endedAt).append("\",");
+            sb.append("\"").append(jsonEscape(endedAt)).append("\",");
         }
         sb.append("\"results_url\":");
         if (resultsUrl == null) {
             sb.append("null");
         } else {
-            sb.append("\"").append(resultsUrl).append("\"");
+            sb.append("\"").append(jsonEscape(resultsUrl)).append("\"");
         }
         sb.append("}");
         return sb.toString();
@@ -300,16 +320,16 @@ public final class AnthropicWireMockFixtures {
          */
         String toJsonLine() {
             if (kind == ResultKind.SUCCEEDED) {
-                String escapedText = assistantTextJson.replace("\\", "\\\\").replace("\"", "\\\"");
+                String escapedText = jsonEscape(assistantTextJson);
                 return "{"
-                        + "\"custom_id\":\"" + customId + "\","
+                        + "\"custom_id\":\"" + jsonEscape(customId) + "\","
                         + "\"result\":{"
                         + "\"type\":\"succeeded\","
                         + "\"message\":{"
-                        + "\"id\":\"msg_test_" + customId + "\","
+                        + "\"id\":\"msg_test_" + jsonEscape(customId) + "\","
                         + "\"type\":\"message\","
                         + "\"role\":\"assistant\","
-                        + "\"model\":\"" + modelId + "\","
+                        + "\"model\":\"" + jsonEscape(modelId) + "\","
                         + "\"content\":[{"
                         + "\"type\":\"text\","
                         + "\"text\":\"" + escapedText + "\""
@@ -333,14 +353,14 @@ public final class AnthropicWireMockFixtures {
             // whose own .error() field is the inner Error object. Production
             // code reads that inner type via the SDK's getter chain.
             return "{"
-                    + "\"custom_id\":\"" + customId + "\","
+                    + "\"custom_id\":\"" + jsonEscape(customId) + "\","
                     + "\"result\":{"
                     + "\"type\":\"errored\","
                     + "\"error\":{"
                     + "\"type\":\"error\","
                     + "\"error\":{"
-                    + "\"type\":\"" + errorType + "\","
-                    + "\"message\":\"" + errorMessage.replace("\"", "\\\"") + "\""
+                    + "\"type\":\"" + jsonEscape(errorType) + "\","
+                    + "\"message\":\"" + jsonEscape(errorMessage) + "\""
                     + "}"
                     + "}"
                     + "}"
