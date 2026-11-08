@@ -930,7 +930,7 @@ Build notes (2026-11-08), where the build chose or departed from the text above:
   spends money without a click. The `ANTHROPIC_API_KEY` secret lives only in that environment.
 - **Not required, and never automatic on other PRs.** The assertions in `src/test/java/.../regression/` are
   never changed by a session.
-- **Owner setup:** create the environment and its secret.
+- **Owner setup:** create the environment and its secret (the list is under "Owner setup (PR 5b)" below).
 
 ### Phase 5 build notes (planned 2026-11-08, from `origin/main` `e6229496`)
 
@@ -1178,6 +1178,22 @@ Two lenses reviewed this plan. These amendments override the notes above where t
   - Sky's `timeout-minutes` is `${{ inputs.sky_runs == '8' && 60 || 30 }}`.
   - Pass `-DforkCount=1` on the Ask job, to avoid 429s.
 - **B11. The CI model setting** is `SKY_MODEL=SONNET_55` only.
+
+#### Owner setup (PR 5b)
+
+The workflow lands inert until these are done: its paid jobs wait for an environment that does not exist yet.
+
+1. **Settings, Environments, New environment `prompt-regression`.** Add yourself as a **required reviewer**.
+2. Leave **deployment branches unrestricted** (a branch rule would reject PR runs), and keep **"prevent self-review" off** so you can
+   approve PRs opened under your own account.
+3. Add the **environment secret** `PROMPT_REGRESSION_ANTHROPIC_API_KEY`: a separate key with a spend cap, never the production or
+   smoke key. (Not a repository secret.)
+4. On the first prompt-changing PR, read the pre-approval checklist in `reference/dev-and-testing.md` ("Prompt regression in CI"),
+   then approve the run in the Actions tab.
+5. Do **not** add the workflow to branch protection.
+
+As built (5b): the Ask side of `prompt-regression/` resources is `prompt-regression/ask/**` only; top-level `*.txt` there are sky;
+any other file in that directory sets both suites.
 
 ## Phase 6: `security.txt`
 
