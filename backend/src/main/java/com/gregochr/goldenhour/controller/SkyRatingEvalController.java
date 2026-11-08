@@ -27,7 +27,7 @@ import java.util.concurrent.Executors;
 
 /**
  * ADMIN endpoints for the sky-rating calibration eval — the persisted, graphable counterpart to the
- * gated {@code SkyRatingEvalTest}.
+ * gated {@code SkyRatingRegressionTest}.
  *
  * <p>{@code POST /run} returns 202 immediately and scores the fixtures in the background (several
  * minutes of real Claude calls); poll {@code GET /runs/{id}} for completion. The read endpoints back

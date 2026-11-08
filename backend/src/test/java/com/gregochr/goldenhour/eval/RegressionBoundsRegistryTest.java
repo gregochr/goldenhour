@@ -1,9 +1,5 @@
-package com.gregochr.goldenhour.service.evaluation;
+package com.gregochr.goldenhour.eval;
 
-import com.gregochr.goldenhour.eval.RatingBand;
-import com.gregochr.goldenhour.eval.RegressionBounds;
-import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
-import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Test;
 
@@ -16,9 +12,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * No-API guard for the shared sky-rating fixture registry.
  *
  * <p>Pins every prompt-regression bound to the owner-observed numbers, written out literally, so
- * that the move of those bounds from {@code PromptRegressionTest} into the registry is provable and
- * any later edit to a bound has to change this test visibly. Changing a bound is the owner's call
- * only (CLAUDE.md).
+ * that the move of those bounds from the old {@code PromptRegressionTest} into the registry is provable
+ * and any later edit to a bound has to change this test visibly. Changing a bound is the owner's call
+ * only (CLAUDE.md). Also guards that {@link SkyRatingRegressionTest} discovers all ten registry fixtures.
  */
 class RegressionBoundsRegistryTest {
 
@@ -91,12 +87,21 @@ class RegressionBoundsRegistryTest {
     }
 
     @Test
-    void promptRegressionMethodSource_discoversTheEightRegistryCasesByName() {
-        List<String> displayed = PromptRegressionTest.regressionFixtures()
+    void everyRegressionRatingBound_equalsItsFixtureBand() {
+        SkyRatingEvalFixtures.ALL.stream()
+                .filter(f -> f.regression() != null)
+                .forEach(f -> assertThat(f.band()).as(f.name()).isEqualTo(f.regression().rating()));
+    }
+
+    @Test
+    void skyRegressionMethodSource_discoversAllTenRegistryFixturesByName() {
+        List<String> displayed = SkyRatingRegressionTest.fixtureCases()
                 .map(Named::getName)
                 .toList();
 
-        assertThat(displayed).containsExactlyInAnyOrderElementsOf(EXPECTED.keySet());
-        assertThat(displayed).hasSize(8);
+        assertThat(displayed).containsExactlyInAnyOrderElementsOf(
+                SkyRatingEvalFixtures.ALL.stream().map(SkyRatingEvalFixture::name).toList());
+        assertThat(displayed).containsAll(EXPECTED.keySet());
+        assertThat(displayed).hasSize(10);
     }
 }

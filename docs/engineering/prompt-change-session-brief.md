@@ -53,7 +53,7 @@ verification-side code.
    fixture that moves band must exercise one of the two changed rules and move in the softening
    direction. Present the band-movement list to the user BEFORE accepting any new baseline.
 2. **Prompt regression tests** (`./mvnw test -Pprompt-regression`, needs `ANTHROPIC_API_KEY`).
-   `PromptBuilderCoptHillSimulationTest` and the veto-shape assertions in `PromptRegressionTest`
+   `PromptBuilderCoptHillSimulationTest` and the veto-shape assertions in `SkyRatingRegressionTest`
    WILL fail — that is expected and is the stop, not a bug to fix. Surface the diffs and STOP.
    Per CLAUDE.md, regression assertions are edited ONLY by the user. Never re-baseline them.
 

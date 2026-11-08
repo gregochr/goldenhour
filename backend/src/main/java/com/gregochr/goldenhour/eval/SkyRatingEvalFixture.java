@@ -11,7 +11,7 @@ package com.gregochr.goldenhour.eval;
  * fixture with no editing — the band and metadata live here in code, not in the JSON.
  *
  * <p><b>Gated vs monitored.</b> A {@code gated} fixture (the default) hard-asserts its band: a
- * single-session pass^k miss fails the manual {@code SkyRatingEvalTest} run. A <em>monitored</em>
+ * single-session pass^k miss fails the manual {@code SkyRatingRegressionTest} run in eval mode. A <em>monitored</em>
  * fixture ({@code gated = false}) is still scored and reported, but does not fail the build — used
  * for a fixture empirically shown to sit on a rating boundary, where the scorer's score clusters
  * within a session (correlated samples) and flips between sessions, so a single run's pass^k result
@@ -24,8 +24,8 @@ package com.gregochr.goldenhour.eval;
  * @param resource    classpath resource path, relative to {@code /eval/fixtures/}
  * @param gated       whether the harness hard-asserts this fixture's band (true) or only records
  *                    and reports it (false, monitored)
- * @param regression  the owner-observed bounds the manual {@code PromptRegressionTest} asserts for
- *                    this day, or {@code null} for an eval-only fixture (no regression case)
+ * @param regression  the owner-observed bounds {@code SkyRatingRegressionTest} also asserts for
+ *                    this day, or {@code null} for a band-only fixture (no bounds)
  */
 public record SkyRatingEvalFixture(String name, String description, RatingBand band, String resource,
         boolean gated, RegressionBounds regression) {

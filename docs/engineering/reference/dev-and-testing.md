@@ -23,9 +23,15 @@ cd backend && ./mvnw clean verify -Dtest='!**/integration/**' -DfailIfNoSpecifie
 
 # Prompt regression tests (requires ANTHROPIC_API_KEY)
 cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
+# The sky class alone: quick (1 run per fixture, every assertion hard) or eval (strict pass^k on gated fixtures)
+cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression -Dtest=SkyRatingRegressionTest
+cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression -Dtest=SkyRatingRegressionTest -Dsky.runs=8
+# Model: -Dsky.model > SKY_MODEL > -Dregression.model > -Deval.model > REGRESSION_MODEL > EVAL_MODEL > SONNET_55
+# (conflicting legacy settings fail fast; legacy SONNET still means Sonnet 4.6). One fixture: -Dsky.fixture=<substring>.
 # Observed sky-rating days live in ONE registry (eval/SkyRatingEvalFixtures.ALL) shared with the weekly Sky-Rating
-# Eval: a fixture with a RegressionBounds is also a PromptRegressionTest case. Add a JSON + one registry line + the
-# literal bounds in RegressionBoundsRegistryTest. Bounds are the owner's call only.
+# Eval: SkyRatingRegressionTest runs all of them and, for a fixture with a RegressionBounds, also checks its fiery and
+# golden bounds. Add a JSON + one registry line + the literal bounds in RegressionBoundsRegistryTest. Bounds are the
+# owner's call only.
 
 # Frontend tests
 cd frontend && npm run test
