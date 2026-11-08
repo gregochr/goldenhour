@@ -1584,9 +1584,10 @@ export default function WindowFirstHeatStrip({
     const body = (
       <>
         {/* ⚠️ EVERY visible string here is aria-hidden, and the accessible name comes from the
-            one `sr-only` sentence below. That is deliberate and it is not an `aria-label` in
-            disguise — the sentence is real text built from the same values in the same render,
-            so the two cannot drift, and WCAG 2.5.3 holds because it contains the visible time,
+            one `sr-only` sentence, which a control card holds in its own `.wf-hc-hit` button (the
+            control element's note, below, says why it is not in this body). That is deliberate and
+            it is not an `aria-label` in disguise — the sentence is real text built from the same
+            values in the same render, so the two cannot drift, and WCAG 2.5.3 holds because it contains the visible time,
             the visible verdict word, the visible best-reach words and the visible pick words
             verbatim.
 
@@ -1602,7 +1603,10 @@ export default function WindowFirstHeatStrip({
             un-hidden. That reading is the real
             case for the sentence below — it has no day word, no pauses, a stray `Spread` chart
             label and a shouted `SUNSET`, where the sentence gets all four right. */}
-        <span id={nameId} className="sr-only">{accessibleName}</span>
+        {/* The sentence's span. A CONTROL card holds it inside its `.wf-hc-hit` button (below) and nowhere
+            else: a second copy here would be read twice and put two elements on one id. An AWAY card has
+            no button, so it keeps the span here, as it always has. */}
+        {card.away && <span id={nameId} className="sr-only">{accessibleName}</span>}
         {/* The WORD, not an arrow — the design's own call, and it is right: a down arrow for
             sunset reads as a falling forecast. The glyph it replaces was P2's. */}
         <span className="wf-hc-top" aria-hidden="true">
@@ -1966,10 +1970,25 @@ export default function WindowFirstHeatStrip({
         {body}
       </div>
     ) : (
-      <button
+      // ⚠️ A `div` holding a stretched button, not a `<button>` holding the visible spans (WCAG 2.5.3, axe
+      // `label-content-name-mismatch`, a11y-heat-card-plan.md). axe counts an `aria-hidden` child as visible
+      // text and joins the siblings with no separator, then wants that run INSIDE the name; the card's visible
+      // text (sun word, time, verdict, region labels, the Spread numbers, the pick legend) is in no sentence a
+      // person would want read aloud. The rule only applies to a control that HAS visible text, so the control
+      // is now a transparent button whose only content is the sentence, and the visible card is its sibling
+      // text. A reader hears exactly what they did.
+      //
+      // The pointer and the keyboard take different routes, on purpose (plan A1). `.wf-hc-hit` is
+      // `pointer-events: none`, so a pointer lands on the CARD: its `title` tooltips, the pick legend's overhang
+      // and `cursor: pointer` all stay as they were. The keyboard and assistive tech activate the focused
+      // button, whose `click` bubbles up to this `onClick` (once, because no pointer ever targets the button).
+      // A pointer click focuses the button first: a `div` takes no focus, and without it `activeElement` would
+      // be `<body>` when the window sheet opens, so focus restore and Back would return there.
+      // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the keyboard and AT path is the inner `.wf-hc-hit` button; the div's click only serves the pointer
+      <div
         key={card.key}
-        type="button"
         data-testid="wf-heat-card"
+        data-control="true"
         // The same attribute name the region band's swatch uses for the same state, so the two
         // unscored marks on the Plan screen are one convention rather than two. It drives no
         // colour here: the mark is the canvas hatch, and dimming the verdict word instead would
@@ -1980,35 +1999,55 @@ export default function WindowFirstHeatStrip({
         // Ask PhotoCast's selected pick (F5) — a DIFFERENT mark from `data-open`, and the two can sit on
         // one card: the highlight never opens the popup, and an open popup never takes the highlight.
         data-ask-highlight={askRank !== null ? 'true' : undefined}
-        // Which window is open was a CSS-only signal — a gold border tint and two recoloured words
-        // — so a screen-reader user could not tell which one they were in, and neither could anyone
-        // who cannot resolve the tint.
-        //
-        // ⚠️ M1 stated it as `aria-expanded` + `aria-controls` pointing at the row this cell
-        // revealed. At M2 the row is gone and the cell opens a DIALOG, so both had to change rather
-        // than merely be re-pointed: `aria-controls` would have named an id no longer in the
-        // document (an IDREF that resolves to nothing is announced as nothing), and `aria-expanded`
-        // on a control that opens a modal reads as an in-place disclosure a reader can Tab into.
-        // `aria-haspopup="dialog"` is the pattern for a control that opens one, and the expanded
-        // state stays alongside it — ARIA permits the pair, and it is how a reader hears which of
-        // six cards the dialog on screen belongs to.
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        // `aria-labelledby` at the visually-hidden sentence, rather than leaving
-        // name-from-contents to find it. Both routes end at the same string, but this one is
-        // explicit: every accessible-name implementation honours an IDREF, whereas
-        // name-from-contents has to walk into a clipped 1px box — and a tree dump of the running
-        // app showed these buttons with NO computed name while every sibling control that uses an
-        // IDREF or a label was named. Still not an `aria-label`: the label is real text in the
-        // document, built from the same values the visible words are, so it cannot drift and WCAG
-        // 2.5.3's label-in-name holds by construction.
-        aria-labelledby={nameId}
         className={className}
         style={place}
-        onClick={() => onOpenWindow?.(card.key)}
+        onClick={(event) => {
+          event.currentTarget.querySelector('.wf-hc-hit')?.focus({ preventScroll: true });
+          onOpenWindow?.(card.key);
+        }}
       >
+        {/* Which window is open was a CSS-only signal — a gold border tint and two recoloured words
+            — so a screen-reader user could not tell which one they were in, and neither could anyone
+            who cannot resolve the tint.
+
+            ⚠️ M1 stated it as `aria-expanded` + `aria-controls` pointing at the row this cell
+            revealed. At M2 the row is gone and the cell opens a DIALOG, so both had to change rather
+            than merely be re-pointed: `aria-controls` would have named an id no longer in the
+            document (an IDREF that resolves to nothing is announced as nothing), and `aria-expanded`
+            on a control that opens a modal reads as an in-place disclosure a reader can Tab into.
+            `aria-haspopup="dialog"` is the pattern for a control that opens one, and the expanded
+            state stays alongside it — ARIA permits the pair, and it is how a reader hears which of
+            six cards the dialog on screen belongs to.
+
+            `aria-labelledby` at the visually-hidden sentence, rather than leaving
+            name-from-contents to find it. Both routes end at the same string, but this one is
+            explicit: every accessible-name implementation honours an IDREF, whereas
+            name-from-contents has to walk into a clipped 1px box — and a tree dump of the running
+            app showed these buttons with NO computed name while every sibling control that uses an
+            IDREF or a label was named. Still not an `aria-label`: the label is real text in the
+            document, built from the same values the visible words are, so it cannot drift and WCAG
+            2.5.3's label-in-name holds by construction.
+
+            ⚠️ FIRST in the card, and the position is load-bearing. It is an absolutely positioned box over the
+            whole card, and one placed AFTER the canvas well paints above it, which makes the engine promote it
+            to its own compositing layer over the canvas: measured in Chromium, that alone shifted the heat
+            field's pixels by one level on ~40,000 of them. First, it paints below the positioned canvas well
+            and the pick legend (tree order within the z-index: auto layer) and above only the unpositioned
+            text, so nothing is promoted and the card renders pixel-for-pixel as it did. The focus ring it
+            draws sits outside the card and is hidden behind the legend where they cross, as the card's own
+            ring always was. */}
+        <button
+          type="button"
+          className="wf-hc-hit"
+          data-testid="wf-heat-card-button"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-labelledby={nameId}
+        >
+          <span id={nameId} className="sr-only">{accessibleName}</span>
+        </button>
         {body}
-      </button>
+      </div>
     );
   };
 

@@ -561,4 +561,23 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
   });
+
+  it('reserves for the card\'s hit button too, a pixel more than the card, in both places the card has a reservation', () => {
+    // Focus lands on the card's inner `.wf-hc-hit` button, not the card (a11y-heat-card-plan.md, A4), and
+    // `scroll-margin` is read off the element scrolled into view: without these a keyboard-focused card scrolls flush
+    // under the sticky bars (SC 2.4.11). `+ 1px`: the button sits at the card's PADDING box (`inset: 0`), 1px below
+    // the border box the reservation was sized for. Their own rules, so the shared lists stay as the tests above read them.
+    const css = decls(readCss());
+    const base = css.indexOf('.wf-hc-hit {\n  scroll-margin-top');
+    expect(base, 'the plain hit-button reservation must exist').toBeGreaterThanOrEqual(0);
+    expect(css.slice(base, css.indexOf('}', base)))
+      .toContain('scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--safe-t) + 1px)');
+    const rows = css.indexOf('.wf-hstrip.wf-hstrip-rows .wf-hc-hit {');
+    expect(rows, 'the rows-mode hit-button reservation must exist').toBeGreaterThanOrEqual(0);
+    const rowsBody = css.slice(rows, css.indexOf('}', rows));
+    expect(rowsBody).toContain('var(--wf-dh-h, 45px)');
+    expect(rowsBody).toMatch(/var\(--safe-t\) \+ 1px\)/);
+    // And the card's own two rules are untouched: the hit button is in neither shared list.
+    expect(css).not.toMatch(/\.wf-hc-hit,\n/);
+  });
 });

@@ -432,11 +432,15 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     // from the window row's own pick badge, which is where the prose it opens belongs.
     await renderStrip({ cards: [stripCard({ pickKind: 'best' })] });
 
-    // The card IS the button, so the query is for a button INSIDE it — `queryAllByRole` because the
-    // assertion is an absence and `getAllByRole` throws before it can be made.
+    // The card is a `div` holding exactly ONE button, the stretched `wf-heat-card-button` that is its
+    // whole control (a11y-heat-card-plan.md). The legend is not a second one: nothing nested in it.
     const card = screen.getByTestId('wf-heat-card');
-    expect(within(card).queryAllByRole('button')).toHaveLength(0);
-    expect(card.tagName).toBe('BUTTON');
+    expect(card.tagName).toBe('DIV');
+    expect(card).toHaveAttribute('data-control', 'true');
+    const inside = within(card).getAllByRole('button');
+    expect(inside).toHaveLength(1);
+    expect(inside[0]).toBe(screen.getByTestId('wf-heat-card-button'));
+    expect(within(screen.getByTestId('wf-heat-legend')).queryAllByRole('button')).toHaveLength(0);
 
     const legend = screen.getByTestId('wf-heat-legend');
     expect(legend.tagName).toBe('SPAN');
@@ -578,7 +582,8 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     await renderStrip({ openKeys: new Set([`${TODAY}:SUNSET`]) });
     const card = screen.getByTestId('wf-heat-card');
     expect(card).toHaveAttribute('data-open', 'true');
-    expect(card).toHaveAttribute('aria-expanded', 'true');
+    // `aria-expanded` is the button's (the card is a `div` now): the state a reader hears.
+    expect(within(card).getByTestId('wf-heat-card-button')).toHaveAttribute('aria-expanded', 'true');
     expect(card).toHaveClass('on');
   });
 
@@ -586,7 +591,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     await renderStrip({ openKeys: new Set(['2026-08-05:SUNRISE']) });
     const card = screen.getByTestId('wf-heat-card');
     expect(card).not.toHaveAttribute('data-open');
-    expect(card).toHaveAttribute('aria-expanded', 'false');
+    expect(within(card).getByTestId('wf-heat-card-button')).toHaveAttribute('aria-expanded', 'false');
   });
 });
 
@@ -896,7 +901,7 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
   );
   /** The card's accessible sentence — the `aria-labelledby` target, whatever the button is named. */
   const sentence = () => document.getElementById(
-    screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+    screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
   ).textContent;
 
   describe('the wrapper', () => {
@@ -4213,8 +4218,8 @@ describe('WindowFirstHeatStrip — the region mean behind the verdict word (verd
     await renderStrip({ cards: [stripCard({ verdictMean: null })] });
     expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, no locations within 45 min, best, nothing in reach' }))
       .toBeInTheDocument();
-    expect(screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby')).toBeTruthy();
-    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    expect(screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
   });
 });
@@ -4261,7 +4266,7 @@ describe('WindowFirstHeatStrip — a word with no rating behind it prints no mea
     await renderStrip({ cards: [stripCard({ topMeanRating: 2.0, verdictMean: null })] });
 
     expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
-    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
   });
 
@@ -4329,7 +4334,7 @@ describe('WindowFirstHeatStrip — whose verdict it is when nothing in reach is 
     expect(screen.getByRole('button', {
       name: `Tonight Sunset, 21:11, Worth it, 3.5 star average, 1 location within 45 min, none rated yet, region ${REGION}, beyond 45 min`,
     })).toBeInTheDocument();
-    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent).not.toMatch(/not scored yet/);
   });
 
@@ -4456,8 +4461,8 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
 
     expect(screen.getByTestId('wf-heat-best'))
       .toHaveTextContent('Northumberland & Tyneside · beyond 45 min');
-    expect(screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby')).toBeTruthy();
-    const nameId = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    expect(screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     expect(document.getElementById(nameId).textContent)
       .toMatch(/Too few rated, 3\.6 star average.*region Northumberland & Tyneside, beyond 45 min/);
   });
@@ -4516,7 +4521,7 @@ describe('WindowFirstHeatStrip — the verdict line count (thin-sample F3)', () 
   }));
   const thinPool = () => pool(4, null, null, null, null, null, null, null, null, null, null);
   const nameOf = () => document.getElementById(
-    screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+    screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
   ).textContent;
 
   it('prints `· N rated` after the word and mean on a rated verdict over a thin pool', async () => {
@@ -4854,7 +4859,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
   it('voices the scope straight after the verdict word, spelled exactly as printed', async () => {
     await renderStrip({ cards: [scopedCard()] });
 
-    const name = screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby');
+    const name = screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby');
     const sentence = document.getElementById(name).textContent;
     // Printed short, spoken long: "45m" is voiced as a letter (the Spread qualifier's own precedent).
     expect(sentence).toMatch(/Tonight Sunset, 21:11, Poor, within 45 min, 2\.0 star average/);
@@ -4870,7 +4875,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     await renderStrip({ cards: [scopedCard(overrides)] });
 
     const sentence = document.getElementById(
-      screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+      screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
     ).textContent;
     const visible = ['wf-heat-verdict', 'wf-heat-scope', 'wf-heat-mean', 'wf-heat-thin', 'wf-heat-blanked']
       .map((id) => screen.queryByTestId(id))
@@ -4890,7 +4895,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
 
     expect(screen.getByTestId('wf-heat-thin')).toHaveTextContent('· 3 rated');
     const sentence = document.getElementById(
-      screen.getByTestId('wf-heat-card').getAttribute('aria-labelledby'),
+      screen.getByTestId('wf-heat-card-button').getAttribute('aria-labelledby'),
     ).textContent;
     expect(sentence).toMatch(/2\.0 star average, 3 rated/);
     cleanup();
@@ -4942,7 +4947,7 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
       grid.querySelector('[data-testid="wf-heat-verdict"]').parentElement,
     );
     // Not announced: the sentence says nothing of it.
-    const names = screen.getAllByTestId('wf-heat-card')
+    const names = screen.getAllByTestId('wf-heat-card-button')
       .map((el) => document.getElementById(el.getAttribute('aria-labelledby')).textContent);
     expect(names.find((name) => name.startsWith('Tonight Sunrise'))).not.toMatch(/Poor, within/);
     cleanup();

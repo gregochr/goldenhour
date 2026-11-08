@@ -157,6 +157,8 @@ afterEach(() => {
 });
 
 const cardButton = () => screen.getByTestId('wf-heat-card');
+/** The control inside the card: it carries the name (`aria-labelledby`), the card carries the `data-*` marks. */
+const cardControl = () => screen.getByTestId('wf-heat-card-button');
 
 describe('B1: a shaped card is not "not scored" because the server stripped the best star', () => {
   it('reads as scored when an allowed place is rated, though the served window best is null', async () => {
@@ -166,8 +168,8 @@ describe('B1: a shaped card is not "not scored" because the server stripped the 
     await renderStrip(props);
 
     expect(cardButton()).not.toHaveAttribute('data-unscored');
-    expect(cardButton().getAttribute('aria-labelledby')).toBeTruthy();
-    expect(document.getElementById(cardButton().getAttribute('aria-labelledby'))).not.toHaveTextContent(/not scored/i);
+    expect(cardControl().getAttribute('aria-labelledby')).toBeTruthy();
+    expect(document.getElementById(cardControl().getAttribute('aria-labelledby'))).not.toHaveTextContent(/not scored/i);
   });
 
   it('shows the thin "· N rated" count again, over the reader\'s places only', async () => {
@@ -183,7 +185,7 @@ describe('B1: a shaped card is not "not scored" because the server stripped the 
     }));
 
     expect(cardButton()).toHaveAttribute('data-unscored', 'true');
-    const name = document.getElementById(cardButton().getAttribute('aria-labelledby'));
+    const name = document.getElementById(cardControl().getAttribute('aria-labelledby'));
     // The Best row's own words say it; "not scored" is not said as well, and the Best clause is not dropped.
     expect(name).toHaveTextContent('None of your sub-regions are rated for this sunset yet.');
     expect(name).not.toHaveTextContent(/not scored/i);
@@ -200,7 +202,7 @@ describe('B1: a shaped card is not "not scored" because the server stripped the 
     await renderStrip(shapedProps({ allowed: [], rated: false }));
 
     expect(cardButton()).not.toHaveAttribute('data-unscored');
-    expect(document.getElementById(cardButton().getAttribute('aria-labelledby'))).not.toHaveTextContent(/not scored|rated/i);
+    expect(document.getElementById(cardControl().getAttribute('aria-labelledby'))).not.toHaveTextContent(/not scored|rated/i);
   });
 
   it('keeps the served best deciding for every other reader', async () => {
@@ -219,7 +221,7 @@ describe('B2: a place outside the picks is in neither half of any count', () => 
   it('counts the Spread, the pool phrase and the thin line over the places the reader holds', async () => {
     await renderStrip(shapedProps());
 
-    const name = document.getElementById(cardButton().getAttribute('aria-labelledby')).textContent;
+    const name = document.getElementById(cardControl().getAttribute('aria-labelledby')).textContent;
     expect(name).toContain('2 locations, in your sub-regions');
     expect(name).not.toMatch(/4 locations/);
     // Below the minimum sample the row is the plain "1/2 rated", over two places and never four.
@@ -249,7 +251,7 @@ describe('B2: a place outside the picks is in neither half of any count', () => 
     expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent(/in reach|not scored yet|nothing to show/);
   });
 
-  const nameOf = () => document.getElementById(cardButton().getAttribute('aria-labelledby')).textContent;
+  const nameOf = () => document.getElementById(cardControl().getAttribute('aria-labelledby')).textContent;
   const NONE_RATED = { mine: [slot(1, 'Bamburgh', null), slot(7, 'Craster', null)] };
 
   it('says "stood down" when both of the reader\'s own places stood down: the Best row, the Spread note and the name', async () => {
@@ -311,7 +313,7 @@ describe('B2: a place outside the picks is in neither half of any count', () => 
     expect(screen.queryByTestId('wf-heat-best')).toBeNull();
     expect(screen.queryByTestId('wf-heat-best-rating')).toBeNull();
     expect(screen.queryByTestId('wf-heat-thin')).toBeNull();
-    const name = document.getElementById(cardButton().getAttribute('aria-labelledby')).textContent;
+    const name = document.getElementById(cardControl().getAttribute('aria-labelledby')).textContent;
     expect(name).not.toMatch(/locations|rated|nothing in reach|nothing to show|not scored/i);
   });
 });

@@ -2257,7 +2257,7 @@ export default function WindowFirstShell({
    * and every action here also unmounts it — so the same problem, one level up, and the same
    * remedy: focus goes to the first card of the sunrise row, which is what the reader has just been
    * shown (matrix-axis plan D20 — the row-major DOM the rails restructure introduced means the
-   * first {@code button[data-testid="wf-heat-card"]} in document order is the first day's sunrise
+   * first {@code [data-testid="wf-heat-card-button"]} in document order is the first day's sunrise
    * card rather than the first day's own first window, but it is still the visually top-left card).
    */
   const applyConflictAction = (action) => {
@@ -2267,14 +2267,15 @@ export default function WindowFirstShell({
     // same way the other two do — the home pool is a superset of any one region's.
     else if (action?.kind === 'origin') setOrigin?.(null);
     else return;
-    // ⚠️ `button[…]`, not `[…]`. An AWAY window keeps its matrix cell and is a `<div>` with no
-    // tabindex (plan §3 rule 14 — a control with no visible effect is banned), and `querySelector`
-    // returns DOM order — so on a plan whose first rendered day is a travel day, focusing the bare
-    // selector is a no-op and the reader is dropped at `<body>`: the exact defect this move exists
-    // to prevent. Deferred a frame because the matrix is re-rendering on this very commit, and
+    // ⚠️ The card's inner BUTTON (`wf-heat-card-button`), not the card: a control card is a `<div>` now
+    // (a11y-heat-card-plan.md), so the card itself takes no focus. An AWAY window keeps its matrix cell
+    // as a `<div>` with no button inside (plan §3 rule 14 — a control with no visible effect is
+    // banned), and `querySelector` returns DOM order — so on a plan whose first rendered day is a
+    // travel day, focusing the card selector would be a no-op and the reader dropped at `<body>`: the
+    // exact defect this move exists to prevent. Deferred a frame because the matrix is re-rendering on this very commit, and
     // optional-CALLED because jsdom implements no layout.
     requestAnimationFrame(() => {
-      document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.();
+      document.querySelector('[data-testid="wf-heat-card-button"]')?.focus?.();
     });
   };
 
@@ -3484,14 +3485,14 @@ export default function WindowFirstShell({
                 // records: this commit unmounts BOTH dialogs, so `useDialogFocus`'s restore finds
                 // its captured trigger — a chip or a card that lived inside the popup — detached,
                 // declines to focus it, and the reader is dropped at `<body>` while the page
-                // re-frames underneath them. `button[…]` rather than `[…]`, because an away window
-                // keeps its matrix cell as a non-focusable `<div>` and `querySelector` returns DOM
+                // re-frames underneath them. The card's inner button (`wf-heat-card-button`), because
+                // the card is a `<div>` and an away window has no button: `querySelector` returns DOM
                 // order — which, since the rails restructure, lands on the first card of the
                 // SUNRISE row rather than the first day's own first window (matrix-axis plan D20).
                 // Deferred a frame because the matrix is re-rendering on this very commit, and
                 // optional-CALLED because jsdom implements no layout.
                 requestAnimationFrame(() => {
-                  document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.();
+                  document.querySelector('[data-testid="wf-heat-card-button"]')?.focus?.();
                 });
               }
               : undefined}

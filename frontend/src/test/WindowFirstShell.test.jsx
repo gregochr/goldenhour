@@ -947,7 +947,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // And the cell says so in the accessibility tree, not only in the stylesheet.
       // ⚠️ Index 0, not 1 (matrix-axis plan §6.4) — row-major DOM puts the sunrise row (this
       // fixture's tomorrow-sunrise card) before the sunset row (today's own card).
-      expect(within(strip).getAllByTestId('wf-heat-card')[0])
+      expect(within(within(strip).getAllByTestId('wf-heat-card')[0]).getByTestId('wf-heat-card-button'))
         .toHaveAttribute('aria-expanded', 'true');
     });
 
@@ -957,7 +957,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // nothing — so both had to change rather than be re-pointed.
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
       await screen.findByTestId('wf-heat-strip');
-      const cell = screen.getByTestId('wf-heat-card');
+      // The control is the card's inner button, so the dialog trigger semantics live there.
+      const cell = screen.getByTestId('wf-heat-card-button');
       expect(cell).toHaveAttribute('aria-haspopup', 'dialog');
       expect(cell).not.toHaveAttribute('aria-controls');
       expect(cell).toHaveAttribute('aria-expanded', 'false');
@@ -1287,7 +1288,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
         fireEvent.click(screen.getAllByTestId('window-first-conflict-act')[0]);
         // The fixture is frozen, so the message does not actually clear — which is exactly what
         // lets the assertion be about WHERE focus was sent rather than about React's re-render.
-        expect(document.activeElement).toBe(screen.getAllByTestId('wf-heat-card')[0]);
+        // The first card's inner BUTTON (the card is a `div`): `applyConflictAction` looks it up by
+        // `wf-heat-card-button`, so reverting that selector sends focus nowhere and fails here.
+        expect(document.activeElement).toBe(screen.getAllByTestId('wf-heat-card-button')[0]);
       } finally {
         raf.mockRestore();
       }

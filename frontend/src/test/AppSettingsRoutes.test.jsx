@@ -454,7 +454,8 @@ describe('App — every route into settings takes down the dialog it would open 
     it('the nudge over a window popup: closing settings lands on the card the popup was opened from', async () => {
       renderApp();
       await openPopup();
-      const card = screen.getAllByTestId('wf-heat-card')[0];
+      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
+      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
 
       await press(screen.getByRole('button', { name: NUDGE }));
       await closeSettings(await settingsSettled());
@@ -481,7 +482,8 @@ describe('App — every route into settings takes down the dialog it would open 
     it('the cog over a window popup lands on the same card — the landing it has had since M5', async () => {
       renderApp();
       await openPopup();
-      const card = screen.getAllByTestId('wf-heat-card')[0];
+      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
+      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
 
       await press(screen.getByRole('button', { name: 'Settings' }));
       await closeSettings(await settingsSettled());
@@ -495,7 +497,8 @@ describe('App — every route into settings takes down the dialog it would open 
       // because removing a node React still owns would break its next render of the strip.
       renderApp();
       await openPopup();
-      const card = screen.getAllByTestId('wf-heat-card')[0];
+      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
+      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
       const nudge = screen.getByRole('button', { name: NUDGE });
 
       await press(nudge);
@@ -510,7 +513,8 @@ describe('App — every route into settings takes down the dialog it would open 
       // The control for the case above: the same lost card, a route with no successor to name.
       renderApp();
       await openPopup();
-      const card = screen.getAllByTestId('wf-heat-card')[0];
+      // The card's inner button is what takes focus (the card is a `div`), so it is the opener and the one `disabled` stands in for.
+      const card = screen.getAllByTestId('wf-heat-card')[0].querySelector('[data-testid="wf-heat-card-button"]');
 
       await press(screen.getByRole('button', { name: 'Settings' }));
       const dialog = await settingsSettled();

@@ -99,7 +99,11 @@ describe('the plan view, against the mock’s `.plh`, `.figs` and `.acts`', () =
 });
 
 describe('the Plan-card highlight is a DIFFERENT mark from the open card', () => {
-  const highlight = "button.wf-hc.wf-hc[data-ask-highlight='true']";
+  // The card is a `div` marked `data-control` (a11y-heat-card-plan.md); `:where()` keeps it (0,3,1), as `button.…` was.
+  const highlight = "div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']";
+  // The forced-colours focus arm: the card's own outline is the ring, via the button's `:focus-visible`.
+  const focusedCard = "div.wf-hc.wf-hc:where([data-control]):where(:has(> .wf-hc-hit:focus-visible))[data-ask-highlight='true']";
+  const hitRing = "div.wf-hc[data-ask-highlight='true']:where([data-control]) > .wf-hc-hit:focus-visible";
 
   it('carries the spec’s border (.7) and wash (.08)', () => {
     const body = ruleBody(highlight);
@@ -111,7 +115,9 @@ describe('the Plan-card highlight is a DIFFERENT mark from the open card', () =>
   it('adds a second, inset pixel of the same gold — which the open card’s rule does not have', () => {
     expect(ruleBody(highlight)).toMatch(/box-shadow:\s*inset 0 0 0 1px rgba\(201,\s*162,\s*75,\s*\.7\)/);
     // The open card, in the stylesheet above this block: border .62, and NO ring (`box-shadow: none`).
-    const open = css.slice(css.indexOf('.wf-hc.on,\nbutton.wf-hc.on:hover,'));
+    const openAt = css.indexOf('.wf-hc.on,\ndiv.wf-hc:where([data-control]).on:hover,');
+    expect(openAt, 'the open card\'s border rule must be found, or the slice below reads from -1').toBeGreaterThanOrEqual(0);
+    const open = css.slice(openAt);
     expect(open.slice(0, 400)).toMatch(/border-color:\s*rgba\(201,\s*162,\s*75,\s*0?\.62\)/);
     expect(open.slice(0, 400)).toMatch(/box-shadow:\s*none/);
   });
@@ -121,9 +127,14 @@ describe('the Plan-card highlight is a DIFFERENT mark from the open card', () =>
   });
 
   it('beats the most specific competitor — the doubled class — and so survives a best-and-open card', () => {
-    // `button.wf-hc.best.on:hover` is (0,4,1); `button.wf-hc.wf-hc[data-…]:hover` is (0,4,1) and comes
-    // LATER in the file, which is what wins the tie.
-    expect(css.indexOf(highlight)).toBeGreaterThan(css.indexOf('button.wf-hc.best.on:hover'));
+    // `div.wf-hc:where([data-control]).best.on:hover` is (0,4,1); `div.wf-hc.wf-hc:where(…)[data-…]:hover` is
+    // (0,4,1) and comes LATER in the file, which is what wins the tie. Both must be FOUND: `indexOf` is -1
+    // for a missing selector, and `greaterThan(-1)` passes for anything.
+    const competitor = css.indexOf('div.wf-hc:where([data-control]).best.on:hover');
+    const mark = css.indexOf(highlight);
+    expect(competitor).toBeGreaterThanOrEqual(0);
+    expect(mark).toBeGreaterThanOrEqual(0);
+    expect(mark).toBeGreaterThan(competitor);
   });
 
   it('draws the rank circle in the pick colour, in the top row’s flow — never hung over the card edge', () => {
@@ -139,12 +150,17 @@ describe('the Plan-card highlight is a DIFFERENT mark from the open card', () =>
   });
 
   it('survives forced colours, where the box-shadow and the wash are stripped', () => {
-    expect(block).toMatch(/@media \(forced-colors: active\)\s*\{\s*button\.wf-hc\.wf-hc\[data-ask-highlight='true'\]\s*\{[^}]*outline:\s*2px solid Highlight/);
+    expect(block).toMatch(/@media \(forced-colors: active\)\s*\{\s*div\.wf-hc\.wf-hc:where\(\[data-control\]\)\[data-ask-highlight='true'\]\s*\{[^}]*outline:\s*2px solid Highlight/);
   });
 
   it('keeps the card’s own focus ring distinguishable from that outline in forced colours', () => {
     // The mark is an inset outline; focus must not take the same one, or focusing the card changes nothing.
-    expect(ruleBody(`${highlight}:focus-visible`)).toMatch(/outline-offset:\s*2px/);
+    expect(ruleBody(focusedCard)).toMatch(/outline-offset:\s*2px/);
+  });
+
+  it('draws ONE ring when that card is focused in forced colours: the hit button\'s own is off, and `none` rather than `transparent`', () => {
+    // A transparent outline is repainted in a system colour by forced colours, which is the double ring.
+    expect(ruleBody(hitRing)).toMatch(/outline:\s*none/);
   });
 
   it('gives the 2×2 cells and the rank circles an edge of their own where forced colours strip the fill', () => {
