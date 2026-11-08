@@ -411,6 +411,8 @@ class AuroraResultHandlerTest {
                 && event.getFormattedMessage().contains("au-MODERATE-2026-04-16")
                 && event.getFormattedMessage().contains("msgbatch_x")
                 && event.getFormattedMessage().contains("jobRunId is absent"));
+        assertThat(appender.list).noneMatch(event ->
+                event.getFormattedMessage().contains("no ResultContext was supplied"));
     }
 
     @Test
@@ -430,6 +432,8 @@ class AuroraResultHandlerTest {
         assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
                 && event.getFormattedMessage().contains("au-MODERATE-2026-04-16")
                 && event.getFormattedMessage().contains("no ResultContext was supplied"));
+        assertThat(appender.list).noneMatch(event ->
+                event.getFormattedMessage().contains("jobRunId is absent"));
     }
 
     @Test
@@ -493,21 +497,12 @@ class AuroraResultHandlerTest {
     }
 
     @Test
-    @DisplayName("handleSyncResult: a context with no job run id writes no api_call_log row")
+    @DisplayName("handleSyncResult: a context with no job run id writes no api_call_log row and says why")
     void handleSyncResult_noJobRunId_skipsLog() {
-        LocationEntity viable = loc(1L, "X");
-        EvaluationTask.Aurora task = new EvaluationTask.Aurora(
-                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
-                List.of(viable), Map.of(viable, 30),
-                SPACE_WEATHER, TriggerType.REALTIME, null);
-        ClaudeSyncOutcome outcome = ClaudeSyncOutcome.failure(
-                "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
-
         ListAppender<ILoggingEvent> appender = attachAppender();
         try {
-            handler.handleSyncResult(task, outcome,
+            handler.handleSyncResult(syncTask(), syncFailure(),
                     ResultContext.forSync(null, BatchTriggerSource.SCHEDULED));
-            handler.handleSyncResult(task, outcome, null);
         } finally {
             detachAppender(appender);
         }
@@ -515,8 +510,38 @@ class AuroraResultHandlerTest {
         verifyNoInteractions(jobRunService);
         assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
                 && event.getFormattedMessage().contains("jobRunId is absent"));
+        assertThat(appender.list).noneMatch(event ->
+                event.getFormattedMessage().contains("no ResultContext was supplied"));
+    }
+
+    @Test
+    @DisplayName("handleSyncResult: no context at all writes no api_call_log row and says why")
+    void handleSyncResult_nullContext_skipsLog() {
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            handler.handleSyncResult(syncTask(), syncFailure(), null);
+        } finally {
+            detachAppender(appender);
+        }
+
+        verifyNoInteractions(jobRunService);
         assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
                 && event.getFormattedMessage().contains("no ResultContext was supplied"));
+        assertThat(appender.list).noneMatch(event ->
+                event.getFormattedMessage().contains("jobRunId is absent"));
+    }
+
+    private EvaluationTask.Aurora syncTask() {
+        LocationEntity viable = loc(1L, "X");
+        return new EvaluationTask.Aurora(
+                AlertLevel.MODERATE, DATE, EvaluationModel.HAIKU,
+                List.of(viable), Map.of(viable, 30),
+                SPACE_WEATHER, TriggerType.REALTIME, null);
+    }
+
+    private ClaudeSyncOutcome syncFailure() {
+        return ClaudeSyncOutcome.failure(
+                "overloaded_error", "busy", EvaluationModel.HAIKU, 1500);
     }
 
     @Test

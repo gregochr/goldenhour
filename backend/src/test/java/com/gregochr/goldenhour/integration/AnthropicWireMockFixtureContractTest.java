@@ -83,8 +83,10 @@ class AnthropicWireMockFixtureContractTest {
      * Deliberately carries double quotes and a backslash: the assistant text is escaped twice
      * on its way to the wire (once into the evaluation JSON, once into the JSONL envelope), and
      * a broken escape at either layer corrupts it or produces a body that no longer
-     * deserialises. Because {@link #ARGUMENTS_BY_PARAMETER_NAME} feeds this to every
-     * reflectively-discovered factory, the sweep proves the escaping across all of them.
+     * deserialises. {@link #ARGUMENTS_BY_PARAMETER_NAME} feeds this to every
+     * reflectively-discovered factory that takes a summary, and {@code assertBodyMatchesSdkContract}
+     * parses the inner evaluation JSON of every succeeded line and checks the summary reads back
+     * unchanged, so the sweep guards both escaping layers.
      */
     private static final String SUMMARY = "Thin cirrus \"strip\" at 226 km, C:\\path far-field sample";
 
@@ -94,6 +96,16 @@ class AnthropicWireMockFixtureContractTest {
      * a parse error. See {@link #summaryContainingABackslashRoundTripsThroughTheFixtureDouble}.
      */
     private static final String BACKSLASH_SUMMARY = "Shot from C:\\temp overlook";
+
+    /**
+     * Carries a literal tab and a literal newline alongside a backslash. Unescaped control
+     * characters are illegal inside a JSON string, so a fixture that escapes only backslash and
+     * quote produces an evaluation JSON that no longer parses.
+     */
+    private static final String CONTROL_CHARACTER_SUMMARY = "Tab\there, line\nbreak, C:\\temp";
+
+    /** The summary the four-argument {@code succeededWithEvaluation} overload hardcodes. */
+    private static final String DEFAULT_FIXTURE_SUMMARY = "Stubbed evaluation summary for tests.";
 
     private static final RequestCounts COUNTS = new RequestCounts(1, 2, 3, 4, 5);
 
@@ -351,6 +363,24 @@ class AnthropicWireMockFixtureContractTest {
     }
 
     /**
+     * Control characters in the summary survive the double. {@code jsonEscape} uses the Jackson
+     * string encoder rather than a two-{@code replace} pair precisely because a raw tab or
+     * newline is illegal inside a JSON string literal: the weaker form yields an evaluation JSON
+     * that the parser rejects.
+     */
+    @Test
+    @DisplayName("tab and newline in the summary round-trip through the fixture double unchanged")
+    void summaryContainingControlCharactersRoundTripsThroughTheFixtureDouble() throws Exception {
+        BatchResultFixture fixture = AnthropicWireMockFixtures.succeededWithEvaluation(
+                CUSTOM_ID, 4, 72, 61, CONTROL_CHARACTER_SUMMARY, MODEL_ID);
+
+        MessageBatchIndividualResponse response = readIndividualResponse(fixture.toJsonLine());
+        JsonNode evaluation = MAPPER.readTree(firstTextBlock(response));
+
+        assertThat(evaluation.get("summary").asText()).isEqualTo(CONTROL_CHARACTER_SUMMARY);
+    }
+
+    /**
      * The errored branch of {@code toJsonLine} has no second escaping layer, so a backslash in
      * the error message goes straight into the JSONL envelope; unescaped, {@code C:\temp} would
      * decode to a tab and {@code C:\path} would fail the SDK parse and take the whole
@@ -484,11 +514,27 @@ class AnthropicWireMockFixtureContractTest {
                     assertThat(response.result().isSucceeded() || response.result().isErrored())
                             .as("%s produced a result that is neither succeeded nor errored", stub.label())
                             .isTrue();
+                    if (response.result().isSucceeded()) {
+                        // Inner layer: the evaluation JSON inside the text block. A factory that
+                        // takes a summary carries SUMMARY; the rest hardcode their own.
+                        JsonNode evaluation = readTree(firstTextBlock(response));
+                        assertThat(evaluation.get("summary").asText())
+                                .as("%s: the summary must survive both escaping layers", stub.label())
+                                .isIn(SUMMARY, DEFAULT_FIXTURE_SUMMARY);
+                    }
                 }
             }
             default -> fail("%s responds with content type '%s', which this contract test does not "
                     + "know how to deserialise. Register the SDK type for it.",
                     stub.label(), stub.contentType());
+        }
+    }
+
+    private static JsonNode readTree(String json) {
+        try {
+            return MAPPER.readTree(json);
+        } catch (IOException e) {
+            return fail("The evaluation JSON inside the text block does not parse: " + json, e);
         }
     }
 
