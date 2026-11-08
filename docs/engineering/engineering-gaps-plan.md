@@ -932,6 +932,153 @@ Build notes (2026-11-08), where the build chose or departed from the text above:
   never changed by a session.
 - **Owner setup:** create the environment and its secret.
 
+### Phase 5 build notes (planned 2026-11-08, from `origin/main` `e6229496`)
+
+**What exists today.**
+- **Thirteen classes are tagged `prompt-regression`.** Surefire excludes them by default; `-Pprompt-regression`
+  runs them. They need only `ANTHROPIC_API_KEY`: no database, no Docker, no Spring context. They use no batch API.
+- **Only `real-api-smoke.yml` uses the key in CI**, on a daily cron. No workflow uses a GitHub `environment:` yet.
+- **Two sky classes share one fixture registry**, `eval/SkyRatingEvalFixtures.ALL`, holding 10 observed days. Each
+  fixture's rating band is identical in both classes.
+
+| | `PromptRegressionTest` | `SkyRatingEvalTest` |
+|---|---|---|
+| Fixtures | The 8 that carry `RegressionBounds`, plus a hard-coded Angel of the North case | All 10 |
+| Runs per fixture | 1 | 8 (pass^k) |
+| What it asserts | Rating band plus fiery and golden bounds | Rating band only |
+| Monitored (non-gated) fixtures | Hard-asserted | Reported only |
+| Default model | Haiku | Sonnet 4.6 |
+
+**Owner decisions (2026-11-08):**
+- **Unify the two sky classes into one.**
+  - Each run asserts **the same things in both modes**: the rating band, plus the fixture's fiery and golden bounds
+    where it has `RegressionBounds`.
+  - **Quick mode** (`k=1`, the PR default): all **10** registry fixtures, every assertion hard.
+  - **Eval mode** (`k=8`): strict pass^k on gated fixtures. A run counts as a pass only when every check passes.
+    Monitored fixtures are reported, never failed.
+- **Retire Angel of the North.** Its input shape (observer-only, no directional cloud) is no longer produced.
+- **CI runs the sky classes on Sonnet 5.5**, the production near-term model.
+- The bounds and bands themselves are **unchanged**. This is a restructure the owner asked for, with the semantics
+  above. No assertion value is edited, and no session changes one.
+
+**PR 5a: one sky class.**
+- **The class.** `eval/SkyRatingRegressionTest` replaces both `service/evaluation/PromptRegressionTest` and
+  `eval/SkyRatingEvalTest`, and is tagged `prompt-regression`.
+- **Runs per fixture.** `sky.runs` / `SKY_RUNS` sets it, default **1**. The full eval is `-Dsky.runs=8`. `MIN_PASSES`
+  stays equal to the run count (strict).
+- **Model.** `sky.model` / `SKY_MODEL`, default **`SONNET_55`**. The old `regression.model`/`REGRESSION_MODEL` and
+  `eval.model`/`EVAL_MODEL` are still read as aliases, so nothing anyone runs today breaks. Document the precedence.
+- **One fixture.** Keep `-Deval.fixture=<substring>` (with a `sky.fixture` alias) to run a single fixture.
+- **One run** of one fixture:
+  1. `strategy.evaluate(data)`;
+  2. assert the scores are not null;
+  3. check the rating against `fixture.band()`;
+  4. if `fixture.regression()` is present, check `bounds.rating()`, which today always equals the band (the class
+     asserts that equality once, as a guard), plus `fieryMin`/`fieryMax` and `goldenMin`/`goldenMax`.
+
+  The run passes only if every check holds. Record the result per run, with direction where it applies (rating
+  above or below the band; fiery or golden above or below its bounds), through `PassRateReport`, extended if it is
+  needed to count bound misses separately.
+- **Verdict.**
+  - **k=1:** every fixture must pass (hard), monitored included, which is today's regression behaviour.
+  - **k>1:** gated fixtures need `passes >= MIN_PASSES`. Monitored fixtures print `[MONITORED]` and never fail,
+    which is today's eval behaviour.
+  - The report always prints before the assertion.
+- **What moves with it:**
+  - **`RegressionBoundsRegistryTest`** (untagged, offline) uses `PromptRegressionTest.regressionFixtures()`. Point it
+    at the new class. Its literal bounds stay byte-identical.
+  - **The pom's PIT `excludedTestClasses`** and **`PitExclusionDriftTest`**: replace the two names with the new one.
+  - **Javadoc and comment references.** `SkyRatingEvalFixtures`, `SkyRatingEvalFixture`, `RegressionBounds`,
+    `SkyRatingEvalService` and `SkyRatingEvalController` (the in-app weekly eval, which stays as it is), plus
+    `BriefingBestBetAdvisor`, `ValleyMist`, `BestBet` and the Ask classes, refer to the old names. Update the
+    references. Do **not** touch the historical "ported from PromptRegressionTest#…" fixture descriptions; they are
+    provenance.
+  - **Docs.** `reference/dev-and-testing.md` (the run command and the registry note), `backend/AGENTS.md`, and live
+    plans that give the run command: `far-cloud-lid-plan.md` and `sky-user-message-trim-plan.md`. Update the
+    commands. Leave historical plan narrative alone.
+- **Proof, offline (no API).**
+  - A unit test drives the class's per-run judgement with a fake strategy returning scripted `SunsetEvaluation`s:
+    - in band with bounds held → pass;
+    - rating out of band → fail with the direction;
+    - fiery below `fieryMin` → fail;
+    - golden above `goldenMax` → fail;
+    - k=1 with a monitored fixture out of band → fail;
+    - k=8 with a monitored fixture at 7/8 → pass with `[MONITORED]`;
+    - k=8 with a gated fixture at 7/8 → fail.
+
+    Extract the judgement into a small package-private helper so it can be tested without the API.
+  - Mutation-prove those tests.
+  - Discovery: `regressionFixtures` and its replacement return all 10, and the old classes are gone.
+- **No real API call in the build.** The owner may run `-Pprompt-regression -Dtest=SkyRatingRegressionTest` once
+  locally to confirm, but that is not required.
+
+**PR 5b: the gated workflow (`.github/workflows/prompt-regression.yml`).**
+- **Triggers:** `pull_request` (`opened`, `synchronize`, `reopened`, `ready_for_review`) and `workflow_dispatch`.
+- **A `changes` job.** No secrets, always runs. Same-repository PRs only:
+  `github.event.pull_request.head.repo.full_name == github.repository`. It computes two outputs from the PR's changed
+  files:
+  - `sky`:
+    - `backend/src/main/java/com/gregochr/goldenhour/service/evaluation/**`
+    - `…/model/**`
+    - `…/eval/**`
+    - `backend/src/main/resources/eval/**`
+    - `…/service/{ValleyMistCalculator,CoastalMistCalculator,InversionScoreCalculator,DirectionalSamplingGeometry,WoodlandVerdictEvaluator}.java`
+    - the sky test classes and fixtures;
+  - `ask`:
+    - `…/service/ask/**`
+    - `…/service/DriveTimeResolver.java`
+    - `backend/src/test/java/**/service/ask/**`
+    - `backend/src/test/resources/prompt-regression/**`;
+  - **shared, which sets both:**
+    - `…/service/evaluation/{AnthropicApiClient,ModelRequestSupport}.java`
+    - `…/entity/EvaluationModel.java`
+    - `…/service/ModelSelectionService.java`
+    - `…/config/AppConfig.java`
+    - `backend/pom.xml`, **only if** the diff touches `anthropic-sdk.version` or the `prompt-regression` profile. A
+      plain grep of the pom diff is fine.
+
+  `workflow_dispatch` takes these inputs instead: `suite` (`sky`, `ask` or `both`) and `sky_runs` (`1` or `8`).
+- **Jobs `sky` and `ask`.** Each runs only when its output is true, with `environment: prompt-regression`. **The owner
+  is the required reviewer, so nothing spends money without a click.** `ANTHROPIC_API_KEY` is an environment
+  secret, never a repository secret for this workflow. Each job:
+  - fails fast if the key is empty. The Ask classes otherwise skip silently;
+  - **sky:**
+
+    ```
+    ./mvnw -B test -Pprompt-regression \
+      -Dtest='SkyRatingRegressionTest,ValleyMistPromptRegressionTest,BestBetAuroraPromptRegressionTest,SystemPromptTokenCountTest' \
+      -DfailIfNoSpecifiedTests=true
+    ```
+
+    with `SKY_RUNS` from the input (default 1), and `SKY_MODEL`/`REGRESSION_MODEL=SONNET_55`.
+    `ValleyMistPromptRegressionTest`'s javadoc says its assertions await the owner's approval: run it, but with its
+    result reported and not failing the job (a separate step with `continue-on-error: true`), until the owner
+    approves those assertions;
+  - **ask:** `-Dtest='Ask*RegressionTest'`;
+  - **never** runs `PromptReplayHarnessTest`, which throws without its config;
+  - sets `timeout-minutes`: sky 30 (eval mode 60), ask 75;
+  - uses `concurrency: prompt-regression-${{ github.ref }}-<job>` with `cancel-in-progress: true`, so a stale run is
+    not paid for;
+  - writes a summary to `$GITHUB_STEP_SUMMARY`, one row per class (passed, failed, skipped), parsed from the surefire
+    XML;
+  - uploads the surefire reports as an artifact on every run (`if: always()`).
+- **Never required.** It is not added to branch protection. It is excluded from CLAUDE.md's "CI green" merge rule in
+  the same way as the advisory a11y workflow: an unapproved or skipped run is normal. **Add a line to CLAUDE.md
+  step 6** naming it (the owner approved this pattern for a11y; confirm it for this workflow in the PR).
+- **Tests.** A `scripts/test/` shell test or a small Node script checks the path-filter logic against fixtures of
+  changed-file lists: sky only, ask only, shared (both), pom with the sdk version (both), pom without it (neither),
+  frontend only (neither). Validate the YAML. `actionlint` too if available; otherwise note that it wasn't run.
+- **Owner setup after merge:**
+  1. **Settings → Environments → New environment `prompt-regression`.** Add yourself as required reviewer and allow
+     only `main` and PR refs.
+  2. Add the environment secret `ANTHROPIC_API_KEY`. Consider a separate, spend-capped key.
+  3. On the first prompt-changing PR, approve the run in the Actions tab.
+
+**Costs (estimates, from the research).**
+- **Sky quick:** about 25 calls on Sonnet 5.5, roughly $0.10–0.30, about 5 minutes.
+- **Sky eval (dispatch only):** 80+ calls, roughly $1–2, 20–40 minutes.
+- **Ask:** about 145 asks on Haiku, roughly $1.5–3.6, 30–50 minutes.
+
 ## Phase 6: `security.txt`
 
 Serve `/.well-known/security.txt` from the landing site and the app, with a contact address and an expiry
