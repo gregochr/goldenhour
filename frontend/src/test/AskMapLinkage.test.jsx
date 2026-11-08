@@ -387,7 +387,7 @@ describe('an answer lands on the map', () => {
     expect(two).toHaveTextContent('4★');
     expect(two).not.toHaveTextContent('5★');
     expect(two).toHaveTextContent('Tue AM');
-    expect(two).toHaveAccessibleName(/^Pick 2, Whitby, Tuesday sunrise, 4 stars$/);
+    expect(two).toHaveAccessibleName(/^Pick 2, Whitby, Tue AM, 4 stars, Tuesday sunrise$/);
     // The one other location in the pool steps back.
     expect(chips().find((c) => c.textContent.includes('Roseberry'))).toHaveAttribute('data-ask', 'fade');
     expect(screen.getByTestId('map-heat-layer')).toHaveAttribute('data-dim', '0.36');

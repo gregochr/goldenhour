@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b built on `test/e2e-nginx` (PR pending; the reliability proof is a separate, temporary tip commit that is reverted before merge). 3c next.
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b merged (#1786). Phase 3c built on `test/e2e-a11y` (advisory workflow `a11y.yml`; it lands red on three serious rules, each fixed in its own PR).
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -483,6 +483,17 @@ the proof shows it needs more.
 **Docs in the same PR.** `reference/dev-and-testing.md` ("The E2E smoke gate": the two modes, the 8082 rule, the
 script), the status line at the top of this file, and a `changelog.d/` entry.
 
+**3b post-merge finding (2026-11-08).** In a 5x proof on another PR, 2 of 5 smoke jobs failed, each time on the FIRST
+test after the nginx container started (`ask.spec.js`, then `auth.spec.js` at the start of a later repeat invocation):
+hygiene caught `Failed to load resource: net::ERR_NETWORK_CHANGED` on `/registerSW.js` and `/assets/*.js`, then the login
+form timed out at 30 s. Cause: Chromium's NetworkChangeNotifier watches the host's interfaces over netlink and aborts
+in-flight requests on any change, and `docker run` on the default bridge attaches a new veth to `docker0` (carrier up,
+IPv6 link-local, DAD), a moment AFTER the container already answers, so the change lands just after the browser launches.
+Fix: the container runs on the **host network** (`--network host`, no `-p`), so no interface is created or changed. nginx
+then listens on the host's port 80 (`listen 80` in the unedited config), so in nginx mode the web port is **80** and any
+other `E2E_WEB_PORT` is refused; the backend's CORS origin is `http://127.0.0.1` (a browser omits the default port).
+`--add-host=goldenhour-backend:127.0.0.1` is honoured with host networking. Do not switch back to `-p`.
+
 **Amendments from the plan review (2026-11-07).** These override the notes above where they differ.
 1. **Container lifecycle.** Playwright SIGKILLs a webServer that has no `gracefulShutdown`, so a trap never runs
    and the container outlives the run. The nginx entry gets `gracefulShutdown: { signal: 'SIGTERM', timeout:
@@ -521,6 +532,72 @@ script), the status line at the top of this file, and a `changelog.d/` entry.
 - **The report:** an HTML or JSON report is uploaded every run.
 - **Fixing:** existing violations are fixed in their own PRs, **never** suppressed by disabling rules. The owner makes the check required once it's clean.
 - **Landing copy is unchanged** until then, and even after it the copy never claims full accessibility.
+
+#### 3c build notes (planned 2026-11-07, stacked on the 3b commit `c8b4e4e4`)
+
+**Branching.** 3c needs 3b's nginx mode, so it is built on `test/e2e-a11y` from the 3b commit (never from 3b's
+temporary proof commit). Its PR opens once 3b has merged, with `main` merged in first.
+
+**The dependency.** `@axe-core/playwright` as a devDependency, **pinned exactly** (no caret, as `@playwright/test`
+is), at a release at least two weeks old. `npm audit --audit-level=high` must stay clean.
+
+**Config, with no change to the smoke gate.** `frontend/playwright.a11y.config.js` imports the smoke config and
+overrides only `testDir` (`./src/test/e2e/a11y`), `outputDir`, the reporter and `projects`. It keeps the same
+`webServer` list, `globalSetup`, workers, `retries: 0` and the service-worker block, so the 3b stack and its
+`E2E_WEB=nginx` switch are reused as they are. `playwright.smoke.config.js` itself is not edited, and the smoke
+`testDir` never sees the a11y specs. A script, `test:e2e:a11y`, is added beside `test:e2e:smoke`.
+
+**Projects.** `a11y-desktop` (Desktop Chrome, 1280×800) and `a11y-phone` (Pixel 7, which is Chromium and so needs no
+second browser). Both run read-only as the admin account, so `logout` and `roles-write` hazards do not apply.
+
+**What is scanned** (each as its own test, so one failure never hides another):
+- the sign-in page (signed out);
+- Map, Plan (*At a Glance*), Coming up and Operations, once each has settled (reuse the smoke helpers
+  `loginAndWaitForForecast`, `openTab` and `openMapTab`);
+- the open dialogs: the window sheet (Plan card), the location sheet, and the Map callout. On the phone, the
+  callout is the peek sheet.
+
+The specs import `test` from `smoke/fixture.js`, so the tile and Turnstile stubs and the hygiene assertion apply
+here too.
+
+**The scan.** `new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])`, scoped to the
+whole page. For a dialog, the whole page is scanned with the dialog open: axe skips inert or hidden content
+anyway. **No `disableRules` and no `exclude`**, ever, which follows from the plan's "never suppressed" rule.
+Each test:
+- attaches its full axe JSON (`testInfo.attach`);
+- writes a one-line-per-violation record (scan name, rule id, impact, node count, help URL) to
+  `test-results/a11y/<project>-<scan>.json`;
+- fails only if any violation has impact `serious` or `critical`. The failure message lists those rules and
+  targets.
+
+**The report.** A small Node script, `scripts/a11y-summary.mjs`, folds the per-scan files into a markdown table
+(rule, impact, scans affected, total nodes). It is appended to `$GITHUB_STEP_SUMMARY` and saved as
+`test-results/a11y/summary.md`. It runs with `if: always()`, and the whole `playwright-report/` and
+`test-results/` directories are uploaded with `if: always()`, which gives "uploaded every run".
+
+**The CI job.** `E2E — accessibility (advisory)`:
+- It runs on ubuntu-24.04 with the same step-level `docs_only` guards and closing "skipped" echo step as the smoke
+  job.
+- It uses the same build steps: JDK, Node, `npm ci`, the local-dev jar, `npm run build`, the cached Chromium plus
+  deps, and `docker pull nginx:alpine`.
+- It then runs `npm run test:e2e:a11y` with `E2E_WEB: nginx` and `E2E_API_PORT: '8082'`.
+- It skips the seeder unit tests and the checkstyle steps, which the smoke job already covers.
+- It is **not** added to branch protection.
+
+**How "advisory" sits with the merge rule.** CLAUDE.md merges on "CI green". Until the owner makes this job
+required, the merge decision reads the **required** checks plus Codex, and a red advisory job is reported to the
+owner in the PR summary but never blocks the merge. This exception covers this one job, by name, and the
+reference doc records it. Once it is clean and required, it is an ordinary required check.
+
+**Discovery first.** Run the scan locally in nginx mode, then report every violation by rule, impact and count
+before CI is wired. Serious or critical findings are expected (colour contrast on a dark map UI is the usual one).
+They do **not** block this PR: the job lands red, and each rule gets its own fix PR afterwards, planned from the
+discovery list.
+
+**Docs in the same PR.**
+- `reference/dev-and-testing.md`: the a11y gate, how to run it, and the advisory merge exception.
+- This file's status line.
+- A `changelog.d/` entry.
 
 ### Order and gates
 

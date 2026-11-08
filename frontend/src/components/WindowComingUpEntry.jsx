@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Fragment } from 'react';
 import PropTypes from 'prop-types';
 import { TIDE_LIGHT_LOCKED_LABEL, TIDE_LIGHT_LOCKED_BODY } from './shared/ProUpsell.jsx';
 import { TideLightLockedSketch } from './map/TideUpsell.jsx';
@@ -82,25 +82,34 @@ function DayChips({ entry, onShowOnMap }) {
     date: chip.date,
   });
 
-  // Today's chip shows the word Today in place of the weekday, so its name says Today too: the
-  // visible text is then contiguous in the name (label in name).
+  // Label in name (WCAG 2.5.3): the name opens with the chip's visible run, in visible order. Today's
+  // chip shows the word Today in place of the weekday, so its name says Today too. A chip draws its
+  // month only when the run crosses into it (`monthWord`), so a marked chip with no month on screen
+  // says "Sun 8, peak day, Nov": the month follows the marks, because the visible "Sun 8 peak" has
+  // to be contiguous in the name. An unmarked chip keeps "Mon 9 Nov" (its visible "Mon 9" is a prefix).
   const nameOf = (chip) => {
-    const label = chip.today ? chip.dateLabel.replace(/^\S+/, 'Today') : chip.dateLabel;
-    // A merged entry names each served mark in order ("peak" as ", peak day"); an unmerged one
-    // (marks null) keeps the served-action-date peak.
+    const full = chip.today ? chip.dateLabel.replace(/^\S+/, 'Today') : chip.dateLabel;
+    // A merged entry names each served mark in order ("peak" as ", peak day" when it is the last, so
+    // "peak" and the next mark stay contiguous as drawn: "peak full moon"); an unmerged one (marks
+    // null) keeps the served-action-date peak.
     const peak = !chip.marks
       ? (chip.peak ? ', peak day' : '')
-      : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
+      : chip.marks.map((m, i) => (m.label === 'peak' && i === chip.marks.length - 1
+        ? ', peak day' : `, ${m.label}`)).join('');
     // A shoulder is named by what it is, without the rank: it is not one of the run's days.
     const ranked = !chip.shoulder && labelled && chip.rangePercentile !== null
       && chip.rangePercentile !== undefined
       ? `, top ${chip.rangePercentile} percent of the year` : '';
     const nearMiss = chip.shoulder ? ', just short of spring size' : '';
+    const monthLate = Boolean(peak) && !chip.monthWord;
+    const label = monthLate ? full.replace(/ \S+$/, '') : full;
+    const month = monthLate ? `, ${chip.dateLabel.split(' ').pop()}` : '';
     const range = rangeScale && chip.rangeMetres !== null && chip.rangeMetres !== undefined
       ? `, ${chip.rangeMetres.toFixed(1)} metre range${ranked}${nearMiss}` : '';
-    if (chip.gone) return `${label}${peak}${range} — gone`;
-    if (!chip.live) return `${label}${peak}${range} — no forecast yet`;
-    return `Show ${noun} for ${label}${peak}${range}`;
+    const dated = `${label}${peak}${month}${range}`;
+    if (chip.gone) return `${dated} — gone`;
+    if (!chip.live) return `${dated} — no forecast yet`;
+    return `Show ${noun} for ${dated}`;
   };
 
   return (
@@ -142,20 +151,25 @@ function DayChips({ entry, onShowOnMap }) {
               data-live={chip.live ? 'true' : 'false'}
             >
               <span className="wf-cu-day-dow">{chip.today ? 'Today' : chip.dow}</span>
+              {/* Separators: axe glues sibling text ("Sun8peak"); the button is a flex column, so they are not drawn. */}
+              {' '}
               <span className="wf-cu-day-dn">{chip.day}</span>
+              {' '}
               {(!chip.marks ? Boolean(third) : Boolean(chip.monthWord) || chip.marks.length > 0) && (
                 <span className="wf-cu-day-sub" data-testid="coming-up-day-chip-sub">
                   {!chip.marks ? third : (
                     <>
                       {chip.monthWord && <span className="wf-cu-day-month">{chip.monthWord}</span>}
                       {chip.marks.map((m, i) => (
+                        <Fragment key={`${m.label}-${i}`}>
+                        {(i > 0 || chip.monthWord) && ' '}
                         <span
-                          key={`${m.label}-${i}`}
                           className="wf-cu-day-mark"
                           data-family={m.family}
                         >
                           {m.label}
                         </span>
+                        </Fragment>
                       ))}
                     </>
                   )}

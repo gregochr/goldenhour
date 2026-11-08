@@ -34,8 +34,17 @@ if (NGINX_MODE && process.env.E2E_API_PORT && process.env.E2E_API_PORT !== '8082
     `E2E_WEB=nginx needs E2E_API_PORT=8082 (nginx.conf's upstream is goldenhour-backend:8082), got ${process.env.E2E_API_PORT}`,
   );
 }
+// nginx mode runs the container on the HOST network (no `-p`; see scripts/e2e-smoke-nginx.sh for why), so nginx.conf's
+// `listen 80` is the host's port 80 and the web port is 80: any other E2E_WEB_PORT is refused here, at once.
+if (NGINX_MODE && process.env.E2E_WEB_PORT && process.env.E2E_WEB_PORT !== '80') {
+  throw new Error(
+    `E2E_WEB=nginx needs E2E_WEB_PORT=80 (the container uses the host network and nginx.conf says listen 80), got ${process.env.E2E_WEB_PORT}`,
+  );
+}
 const API_PORT = Number(process.env.E2E_API_PORT || (NGINX_MODE ? 8082 : 8083));
-const WEB_PORT = Number(process.env.E2E_WEB_PORT || 4173);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT || (NGINX_MODE ? 80 : 4173));
+// `new URL` drops a default port, so port 80 reads as `http://127.0.0.1` (the browser's Origin too).
+const WEB_ORIGIN = WEB_PORT === 80 ? 'http://127.0.0.1' : `http://127.0.0.1:${WEB_PORT}`;
 const LOG_DIR = path.resolve(process.env.E2E_LOG_DIR || 'test-results/e2e-logs');
 fs.mkdirSync(LOG_DIR, { recursive: true });
 // The config file the nginx container mounts. Set on this process so the workers (and the nginx spec) inherit it;
@@ -69,7 +78,7 @@ export default defineConfig({
     ? [['list'], ['html', { open: 'never' }]]
     : [['list']],
   use: {
-    baseURL: `http://127.0.0.1:${WEB_PORT}`,
+    baseURL: WEB_ORIGIN,
     serviceWorkers: 'block',
     trace: 'retain-on-failure',
   },
@@ -121,7 +130,7 @@ export default defineConfig({
     NGINX_MODE
       ? {
           command: 'bash scripts/e2e-smoke-nginx.sh',
-          url: `http://127.0.0.1:${WEB_PORT}`,
+          url: WEB_ORIGIN,
           timeout: 60_000,
           // Never reuse: a stale container (or anything else holding the port) would be driven silently.
           reuseExistingServer: false,
@@ -137,7 +146,7 @@ export default defineConfig({
         }
       : {
           command: `npx vite preview --host 127.0.0.1 --port ${WEB_PORT} --strictPort > ${LOG_DIR}/preview.log 2>&1`,
-          url: `http://127.0.0.1:${WEB_PORT}`,
+          url: WEB_ORIGIN,
           timeout: 60_000,
           reuseExistingServer: !process.env.CI,
           // `vite preview` inherits server.proxy; without this the proxy falls back to 8082 and every

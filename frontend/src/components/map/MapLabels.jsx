@@ -938,7 +938,7 @@ export default function MapLabels({
           // short window and that window's rating in its verdict colour — with no tide glyph and no
           // tooltip, because both would speak for the window on screen, which is not necessarily this
           // pick's. The accessible name is the card's own, so a pick is one thing to a screen reader
-          // on the map and in the answer. `data-compact` (set only once placed) is the bare circle.
+          // on the map and in the answer; it opens with the chip's visible run (label in name). `data-compact` (set only once placed) is the bare circle.
           return (
             <button
               key={spot.name}
@@ -976,8 +976,13 @@ export default function MapLabels({
               >
                 {rankBadge(pick)}
               </span>
+              {/* Separators for axe's label-in-name (WCAG 2.5.3), which glues sibling text ("Whitby
+                  Sat AM"); the chip is inline-flex, so they are not drawn. */}
+              {' '}
               <b className="wf-maplab-chip-n wf-maplab-pick-n" aria-hidden="true">{spot.name}</b>
+              {' '}
               <span className="wf-maplab-pick-w" aria-hidden="true">{pick.shortWindow}</span>
+              {' '}
               {Number.isFinite(pick.rating) && (
                 <em className="wf-maplab-pick-r" data-tier={pick.verdict} aria-hidden="true">
                   {`${pick.rating}★`}
@@ -1044,6 +1049,9 @@ export default function MapLabels({
               />
             )}
             <b className="wf-maplab-chip-n">{spot.name}</b>
+            {/* A text separator between the flex items: axe's label-in-name check glues sibling text
+                ("Ridge4"), and a space between flex items renders nothing. Do not remove. */}
+            {' '}
             {tideTier && (
               // A glyph, not a second number (bundle rev 2's tide-chip tweak, moved onto the
               // preference axis by T4) — the path is the design bundle's TIDEGLYPH/`missGlyph`
@@ -1058,6 +1066,7 @@ export default function MapLabels({
               />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
+            {' '}
             {!outside && hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );

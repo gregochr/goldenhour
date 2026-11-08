@@ -689,7 +689,7 @@ describe('a NIGHT pick in the phone peek (docs/engineering/ask-night-plan.md §2
     expect(screen.getByTestId('ask-pick-score-1-sky')).toHaveTextContent('4★ sky');
     expect(screen.getByTestId('ask-pick-when-1')).toHaveTextContent('Tonight · 20:40–05:10');
     await waitFor(() => expect(pickChips()).toHaveLength(1));
-    expect(pickChips()[0]).toHaveAccessibleName('Pick 1, Saltburn, Tonight astro, 4 stars');
+    expect(pickChips()[0]).toHaveAccessibleName('Pick 1, Saltburn, Mon night, 4 stars, Tonight astro');
   });
 
   it('choosing the pick moves the map to the astro night, handed up to the parent as a night', async () => {

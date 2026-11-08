@@ -93,7 +93,7 @@ describe('AskPickCard — accessibility', () => {
   it('gives the rank circle the name the map’s marker will carry', () => {
     renderCard(cardFor());
 
-    expect(screen.getByRole('img', { name: 'Pick 1, Whitby, Monday sunset, 5 stars' }))
+    expect(screen.getByRole('img', { name: 'Pick 1, Whitby, Mon PM, 5 stars, Monday sunset' }))
       .toHaveTextContent('1');
   });
 

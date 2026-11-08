@@ -16,6 +16,8 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 import MapLabels from '../components/map/MapLabels.jsx';
 import { setMode } from '../utils/scoreRamp.js';
+import { multiRankLabel } from '../utils/askPickChip.js';
+import { labelInNameResult } from './labelInNameCheck.js';
 
 /**
  * Ask PhotoCast's picks as the label layer draws them (F3, plan §2.7) — the WIRING suite, on the same
@@ -78,7 +80,7 @@ const PICK = (rank, over = {}) => ({
   shortWindow: 'Sat AM',
   rating: 4,
   verdict: 'WORTH_IT',
-  label: `Pick ${rank}, Whitby, Saturday sunrise, 4 stars`,
+  label: `Pick ${rank}, Whitby, Sat AM, 4 stars, Saturday sunrise`,
   selected: false,
   ...over,
 });
@@ -146,12 +148,12 @@ describe('a pick chip — built from the pick\'s own window', () => {
     expect(chip).not.toHaveTextContent('2★');
   });
 
-  it('names itself for a screen reader the way the card does: "Pick 1, Whitby, Saturday sunrise, 4 stars"', async () => {
+  it('names itself for a screen reader the way the card does: "Pick 1, Whitby, Sat AM, 4 stars, Saturday sunrise"', async () => {
     restoreMeasure = withMeasuredLabels(60, 14);
     currentMap = makeMap();
     await mount({ spots: [{ ...WHITBY, askPick: PICK(1) }] });
 
-    expect(screen.getByRole('button', { name: 'Pick 1, Whitby, Saturday sunrise, 4 stars' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pick 1, Whitby, Sat AM, 4 stars, Saturday sunrise' })).toBeInTheDocument();
   });
 
   it('⚠️ carries no tide glyph, no tide attribute and no tooltip, even on a coastal spot with a served tide fact', async () => {
@@ -428,5 +430,32 @@ describe('a place that won more than one pick (a ranking follow-up)', () => {
     expect(chip).not.toHaveAttribute('data-ask-ranks');
     fireEvent.click(chip);
     expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(3);
+  });
+});
+
+describe('a pick chip — label in name (WCAG 2.5.3, axe\'s own rule)', () => {
+  it.each([
+    ['a rated pick', PICK(1)],
+    ['an unrated pick (no star)', PICK(1, { rating: null, verdict: 'AWAITING', label: 'Pick 1, Whitby, Sat AM, Saturday sunrise' })],
+    ['a night pick', PICK(1, { shortWindow: 'Sat night', label: 'Pick 1, Whitby, Sat night, 4 stars, Tonight astro' })],
+    ['a chosen pick', PICK(1, { selected: true })],
+    ['a multi-rank pick', PICK(1, {
+      ranks: [1, 2],
+      selectedRank: null,
+      label: multiRankLabel({ ranks: [1, 2], shortWindow: 'Sat AM', rating: 4 }, 'Whitby', ['Pick 1, a', 'Pick 2, b']),
+    })],
+  ])('passes: %s', async (_name, askPick) => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    await mount({ spots: [{ ...WHITBY, askPick }] });
+    const chip = chips().find((c) => c.dataset.ask === 'pick');
+    expect(await labelInNameResult(chip)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
+  });
+
+  it('names a multi-rank chip with its ranks, place, window and rating first', () => {
+    expect(multiRankLabel({ ranks: [1, 2], shortWindow: 'Sat AM', rating: 5 }, 'Whitby', ['Pick 1, x', 'Pick 2, y']))
+      .toBe('Ask picks 1, 2, Whitby, Sat AM, 5 stars: Pick 1, x; Pick 2, y');
+    expect(multiRankLabel({ ranks: [1, 2], shortWindow: null, rating: null }, 'Whitby', ['a']))
+      .toBe('Ask picks 1, 2, Whitby: a');
   });
 });

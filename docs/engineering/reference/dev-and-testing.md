@@ -201,8 +201,19 @@ confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests 
 
 - **`preview`** (unset; the local default): `vite preview` on 4173, the API on 8083. No Docker needed.
 - **`nginx`** (CI sets `E2E_WEB: nginx` and `E2E_API_PORT: '8082'`): `scripts/e2e-smoke-nginx.sh` runs `nginx:alpine` as
-  `goldenhour-e2e-nginx`, publishing `127.0.0.1:4173:80`, with `frontend/dist` and the repo-root `nginx.conf` mounted
-  **read-only and unedited**, exactly as `docker-compose.yml` mounts it, and `--add-host=goldenhour-backend:host-gateway`.
+  `goldenhour-e2e-nginx` on the **host network** (`--network host`, no `-p`), with `frontend/dist` and the repo-root
+  `nginx.conf` mounted **read-only and unedited**, exactly as `docker-compose.yml` mounts it, and
+  `--add-host=goldenhour-backend:127.0.0.1` (honoured with host networking). nginx therefore listens on the host's
+  **port 80** (`listen 80` in the config), so **in nginx mode the web port is 80**: `baseURL` is `http://127.0.0.1`, the
+  backend's `--cors.extra-origins` is `http://127.0.0.1` (a browser omits the default port from `Origin`), and any other
+  `E2E_WEB_PORT` is refused at once, in the config and in the script. The script also fails fast if port 80 is taken
+  (it needs to be bindable by Docker, which runs as root on a CI runner).
+  ⚠️ **Why host networking, so nobody switches back to `-p`:** `docker run` on the default bridge attaches a veth to
+  `docker0` (carrier up, IPv6 link-local, DAD), and those interface changes land a moment AFTER the container answers,
+  just after Playwright has launched Chromium. Chromium's NetworkChangeNotifier watches the host's interfaces over
+  netlink and aborts in-flight requests on a change: `net::ERR_NETWORK_CHANGED` on `/registerSW.js` and `/assets/*.js`
+  and a 30 s wait for the login form, on the first test of a run (2 of 5 jobs in the 3b proof). With host networking no
+  interface is created or changed.
   Every journey is then also a CSP test (a blocked script or style logs a console error, which hygiene fails on), and
   `nginx.spec.js` asserts the headers, caching, fallback and SSE. **The backend must listen on 8082**, because the
   config's upstream is `goldenhour-backend:8082`: any other `E2E_API_PORT` is refused at once, in the config and in the
@@ -212,16 +223,16 @@ confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests 
   trap never runs and the container outlives the run. `reuseExistingServer` is **off** in nginx mode, even locally (a stale
   container would be reused silently). Ctrl-C (SIGINT) tears everything down cleanly (checked). ⚠️ A SIGTERM to the Playwright
   process itself (or SIGKILL) is not handled by Playwright for ANY web server: the backend JVM and the container are
-  orphaned. The next run then stops at Playwright's own "http://127.0.0.1:4173 is already used" check, before the script runs
+  orphaned. The next run then stops at Playwright's own "http://127.0.0.1:80 is already used" check (4173 in preview mode), before the script runs
   (the script's own `docker rm -f` covers a container that exists but is not answering); the fix is
   `docker rm -f goldenhour-e2e-nginx` (and stopping the orphaned backend).
   nginx's access and error logs (stdout and stderr in this image) go to `frontend/test-results/e2e-logs/nginx.log`.
 - **Locally with Docker:** `docker pull nginx:alpine`, build the jar and `npm run build` as below, then
-  `cd frontend && E2E_WEB=nginx npm run test:e2e:smoke` (port 8082 must be free; the cloud session's container can start
+  `cd frontend && E2E_WEB=nginx npm run test:e2e:smoke` (ports 8082 and 80 must be free; the cloud session's container can start
   `dockerd`, the owner's laptop has none and does not need it). CI pulls the image in its own step, so pull time is not
   charged to Playwright's 60 s server timeout.
 
-**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free, or 8082 and 4173 in nginx mode):
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free, or 8082 and 80 in nginx mode):
 
 ```bash
 cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
@@ -290,6 +301,32 @@ prints the hygiene findings below instead of failing on them, which is how to di
   `--repeat-each=10`.
 
 **After merge (owner):** "E2E — Playwright smoke" is added to the branch-protection required checks.
+
+### The accessibility scan (advisory, Phase 3c)
+
+`E2E — accessibility (advisory)` (`.github/workflows/a11y.yml`) runs `@axe-core/playwright` (pinned exactly) on the same seeded,
+nginx-served stack as the smoke gate. ⚠️ It is **its own workflow, not a job in `ci.yml`**: `deploy.yml` calls `ci.yml` through
+`workflow_call`, so a red advisory job there would block every release. It triggers on `pull_request` and pushes to `main`, with
+`paths-ignore` for `**/*.md` and `docs/**` (nothing waits on it, so a skipped run is harmless), its own `concurrency` group and a
+20 minute timeout. Config: `frontend/playwright.a11y.config.js`, which imports the smoke config and overrides only `testDir`,
+`outputDir`, `reporter` and `projects` (`a11y-desktop` 1280x800 and `a11y-phone` Pixel 7, both with `reducedMotion: 'reduce'`, never
+`bypassCSP`). The default `playwright.config.js` ignores `**/a11y/**`.
+
+- **Run it:** build the jar and `npm run build` as above, then `cd frontend && E2E_WEB=nginx E2E_API_PORT=8082 npm run test:e2e:a11y`
+  (needs Docker), or without `E2E_WEB` for `vite preview` on 8083. `npm run a11y:summary` prints the folded table
+  (`scripts/a11y-summary.mjs`, also saved as `test-results/a11y/summary.md` and appended to `$GITHUB_STEP_SUMMARY` in CI).
+- **What is scanned**, each as its own test per project: the sign-in page, Plan, Coming up, Map, Operations, the Plan window sheet,
+  the location sheet (opened over the window sheet) and the Map callout (the peek sheet on a phone). Whole page, tags `wcag2a`,
+  `wcag2aa`, `wcag21a`, `wcag21aa`, **no `disableRules` and no `exclude`**. A test fails only on `serious` or `critical`; each
+  scan writes `test-results/a11y/<project>-<scan>.json` and attaches the full axe result. The records live beside
+  `test-results/a11y-artifacts` (Playwright's outputDir, emptied at each start), never inside it.
+- **Not covered:** the basemap tiles are a stubbed 1x1 PNG, so contrast of chips over real imagery is not tested; axe's `incomplete`
+  results (what it could not decide, mostly contrast) are counted separately in the summary, never as failures.
+- **Existing violations are fixed in their own PRs, never suppressed.** The job lands red; the owner makes it required once clean.
+- ⚠️ **The advisory merge exception.** CLAUDE.md merges on "CI green". For this one job, by name (`E2E — accessibility
+  (advisory)`), a red result never blocks a merge: the merge decision reads the **required** checks plus Codex, and the red job is
+  reported in the PR summary. That includes the PR that adds the job. The exception ends when the owner adds it to branch
+  protection.
 
 ---
 
