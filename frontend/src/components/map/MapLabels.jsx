@@ -1049,6 +1049,9 @@ export default function MapLabels({
               />
             )}
             <b className="wf-maplab-chip-n">{spot.name}</b>
+            {/* A text separator between the flex items: axe's label-in-name check glues sibling text
+                ("Ridge4"), and a space between flex items renders nothing. Do not remove. */}
+            {' '}
             {tideTier && (
               // A glyph, not a second number (bundle rev 2's tide-chip tweak, moved onto the
               // preference axis by T4) — the path is the design bundle's TIDEGLYPH/`missGlyph`
@@ -1063,6 +1066,7 @@ export default function MapLabels({
               />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
+            {' '}
             {!outside && hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );

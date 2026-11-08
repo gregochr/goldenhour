@@ -17,6 +17,7 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 import MapLabels from '../components/map/MapLabels.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
+import { labelInNameResult } from './labelInNameCheck.js';
 
 /**
  * The Map tab's HTML label layer (map-tab-v2-plan.md §3 P8) — the WIRING suite. The placement
@@ -1903,5 +1904,37 @@ describe('MapLabels — the region labels of a body shaped by the reader\'s pick
     await act(async () => { runFrames(); });
 
     expect(regionsOf()).toHaveLength(0);
+  });
+});
+
+describe('MapLabels — the place chip satisfies WCAG 2.5.3 (label in name)', () => {
+  const RATED = [{
+    name: 'Simonside Ridge', lat: 55.3, lng: -2.0, rid: 'North East', rating: 4,
+  }, {
+    name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: 'match',
+  }];
+
+  it('keeps a space between the name and the star rating, so they do not glue', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ spots: RATED });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Simonside'));
+    expect(chip.textContent.trim().split(/\s+/).join(' ')).toBe('Simonside Ridge 4★');
+    expect(chip.textContent).toContain('Ridge 4★');
+    expect(chip).toHaveAttribute('aria-label', 'Simonside Ridge, 4 star');
+  });
+
+  it("passes axe's own label-content-name-mismatch check on a rated chip and a tide-glyph chip", async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ spots: RATED });
+    await act(async () => { runFrames(); });
+    const chips = document.querySelectorAll('[data-testid="map-label-chip"]');
+    expect(chips).toHaveLength(2);
+    for (const chip of chips) {
+      expect(await labelInNameResult(chip)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
+    }
   });
 });

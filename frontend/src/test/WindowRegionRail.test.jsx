@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import WindowRegionRail from '../components/WindowRegionRail.jsx';
+import { labelInNameResult } from './labelInNameCheck.js';
 
 /**
  * The open row's region rail — the accessible equivalent of the field map above it.
@@ -198,5 +199,39 @@ describe('WindowRegionRail — when there is nothing to choose between', () => {
   it('withdraws entirely when the window has no regions at all', () => {
     render(<WindowRegionRail rows={[]} windowBest={null} drawnCount={0} countNoun="spots" />);
     expect(screen.queryByTestId('wf-region-rail')).toBeNull();
+  });
+});
+
+/** What a sighted reader sees of a cell: its text minus the {@code sr-only} sentence, whitespace-collapsed. */
+function seenText(cell) {
+  const clone = cell.cloneNode(true);
+  clone.querySelectorAll('.sr-only').forEach((node) => node.remove());
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+}
+
+/** jsdom loads no stylesheet, so give {@code sr-only} the clipping Tailwind gives it (axe reads computed style). */
+function withSrOnlyCss() {
+  const style = document.createElement('style');
+  style.textContent = '.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;'
+    + 'clip:rect(0,0,0,0);white-space:nowrap;border-width:0}';
+  document.head.appendChild(style);
+  return () => style.remove();
+}
+
+describe('WindowRegionRail — the visible text satisfies WCAG 2.5.3 (label in name)', () => {
+  it('keeps a space between the name, verdict and meta of every cell, so the words do not glue', () => {
+    renderRail();
+    const [all, ...regions] = screen.getAllByTestId('wf-region-cell');
+    expect(seenText(all)).toBe('All 2 regions Showing everything best 4★ · 16 in reach');
+    expect(seenText(regions[0])).toBe('Northumberland & Tyneside Worth it best 5★ · 12 in reach');
+  });
+
+  it("passes axe's own label-content-name-mismatch check on the All cell and every region cell", async () => {
+    const removeCss = withSrOnlyCss();
+    renderRail();
+    for (const cell of screen.getAllByTestId('wf-region-cell')) {
+      expect(await labelInNameResult(cell)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
+    }
+    removeCss();
   });
 });

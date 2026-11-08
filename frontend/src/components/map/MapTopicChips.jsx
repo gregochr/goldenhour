@@ -137,7 +137,11 @@ export default function MapTopicChips({
             <span className="wf-tch-g" aria-hidden="true">
               {chip.bigSeas ? <BoltIcon /> : chip.glyph}
             </span>
+            {/* Text separators between the flex items: axe's label-in-name check glues sibling text
+                ("tidemid"), and a space between flex items renders nothing. Do not remove. */}
+            {' '}
             <span className="wf-tch-n" aria-hidden="true">{chip.name}</span>
+            {' '}
             {chip.light && (
               <span
                 className="wf-tch-l"
@@ -148,6 +152,7 @@ export default function MapTopicChips({
                 {chip.light.text}
               </span>
             )}
+            {' '}
             {chip.where && (
               <span className="wf-tch-w" aria-hidden="true" data-testid="wf-topic-where">
                 {chip.where}

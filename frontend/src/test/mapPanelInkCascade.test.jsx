@@ -79,7 +79,7 @@ describe('map panel ink — increment §6', () => {
     // 0.66 is the alpha that measures 7.24:1 on the window menu's plate and 7.15:1 on the callout's.
     const theme = ruleBody('@theme');
     expect(declared(theme, '--color-panel-ink')).toBe('rgba(242, 231, 211, 0.66)');
-    expect(declared(theme, '--color-plex-text-muted')).toBe('rgba(242, 231, 211, 0.42)');
+    expect(declared(theme, '--color-plex-text-muted')).toBe('rgba(242, 231, 211, 0.53)');
   });
 
   it('reaches the phone’s bottom sheets, which portal OUT of the map subtree', () => {
