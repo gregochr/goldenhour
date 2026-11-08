@@ -1079,6 +1079,106 @@ Build notes (2026-11-08), where the build chose or departed from the text above:
 - **Sky eval (dispatch only):** 80+ calls, roughly $1–2, 20–40 minutes.
 - **Ask:** about 145 asks on Haiku, roughly $1.5–3.6, 30–50 minutes.
 
+#### Phase 5 plan-review amendments (2026-11-08)
+
+Two lenses reviewed this plan. These amendments override the notes above where they differ.
+
+**PR 5a (the unified sky class)**
+- **A1. The registry test moves package.** `RegressionBoundsRegistryTest` (package `service.evaluation`) calls the
+  package-private `PromptRegressionTest.regressionFixtures()`, which can't be reached across packages once the new
+  class lives in `eval`. Move the registry test to `eval`.
+  - Its discovery size changes from `hasSize(8)` to **10** for the k=1 list, and its test name changes to match.
+  - The 8 literal `EXPECTED` bounds stay **byte-identical**.
+- **A2. The band-equals-bounds guard lives in the free offline test**, not the paid class. Add
+  `assertThat(f.band()).isEqualTo(f.regression().rating())` for every fixture that has bounds. Today all 8 are equal.
+  Fix the `RegressionBounds` Javadoc that says the bounds "may be wider than the eval fixture's band".
+- **A3. Null scores.** A null rating, fiery, golden or summary is recorded as a **failed run (MALFORMED)**, never an
+  `assertNotNull` or NPE inside the loop. The report prints first, then the verdict is asserted.
+- **A4. `PassRateReport` stays test-only, and its existing meaning is kept.**
+  - Keep `record(int)` and `passes()` as they are, because `PassRateReportTest` pins them.
+  - Add `record(RunOutcome)`. `RunOutcome` holds the rating direction, the fiery direction, the golden direction and
+    a malformed flag.
+  - Add counts for the new outcomes, for example `boundMisses()` and `malformed()`.
+  - The in-app `SkyRatingEvalService` does not use it and is untouched.
+- **A5. Precedence is explicit.**
+  - The model is resolved in this order: `-Dsky.model` > `SKY_MODEL` > `-Dregression.model` > `-Deval.model` >
+    `REGRESSION_MODEL` > `EVAL_MODEL` > `SONNET_55`.
+  - If two legacy settings disagree, fail fast.
+  - `@BeforeAll` prints the resolved model and where it came from.
+  - Document that a legacy `EVAL_MODEL=SONNET` still means Sonnet **4.6**.
+  - Runs and fixture follow the same pattern: `sky.runs` > `SKY_RUNS`, and `sky.fixture` > `eval.fixture`.
+- **A6. The seam.**
+  - Type the strategy field as the public `EvaluationStrategy` interface.
+  - Pure package-private helpers:
+    - `RunOutcome judge(SkyRatingEvalFixture, SunsetEvaluation)`
+    - `Verdict verdict(SkyRatingEvalFixture, PassRateReport, int k)`
+    - `List<SkyRatingEvalFixture> fixtures(String filter)`
+  - Offline tests use lambdas or fakes, never the API.
+- **A7. The reference list, corrected.**
+  - **Remove:** `BriefingBestBetAdvisor`, ValleyMist, BestBet, the Ask classes and `backend/AGENTS.md`. These only
+    matched the class names as substrings.
+  - **Update:**
+    - `LowHauxleyFixture.java` (~26), `SteelRiggFixture.java` (~22), `SkyRatingEvalFixturesTest.java` (~24),
+      `PassRateReportTest.java` (~15);
+    - `SkyRatingEvalService.java` (~41, ~78): reword `DEFAULT_RUNS_PER_FIXTURE`'s "matches the gated test's depth"
+      to "eval mode, `-Dsky.runs=8`", and note in its Javadoc that the in-app recorder checks the band only while
+      the JUnit class also checks bounds;
+    - `prompt-change-session-brief.md` (~56);
+    - the pom comment (~847);
+    - the pom's PIT `<param>` lines (~876, ~884);
+    - `reference/dev-and-testing.md`;
+    - `far-cloud-lid-plan.md` and `sky-user-message-trim-plan.md`: their run commands only.
+  - **Do NOT edit `V117__create_sky_rating_eval_tables.sql`.** Applied migrations are checksummed.
+  - **Do not edit `PitExclusionDriftTest`.** It works from tags, not class names.
+  - Leave historical narrative and the "ported from PromptRegressionTest#…" fixture descriptions alone.
+
+**PR 5b (the workflow)**
+- **B1. Manual runs.** The `changes` guard is `github.event_name == 'workflow_dispatch' || <same-repo PR test>`.
+  The step branches on the event and reads `inputs.suite` / `inputs.sky_runs` on a manual run.
+- **B2. ValleyMist** is NOT in the hard sky step's `-Dtest`. It gets its own step with `continue-on-error: true`.
+  That step, the summary and the upload all use `if: ${{ !cancelled() }}`, so a red sky step doesn't skip them. No
+  `clean` runs between the steps.
+- **B3. Key and approval.**
+  - The environment secret is **`PROMPT_REGRESSION_ANTHROPIC_API_KEY`**, a **separate, spend-capped key. This is
+    required, not optional.**
+  - The approval is a cost gate, not a sandbox. Once approved, the PR head's workflow, tests, pom plugins and
+    wrapper run with the key. Document an owner pre-approval checklist: diff `.github/**`, `backend/pom.xml`,
+    `.mvn/**`, `mvnw` and `src/test/**`.
+  - Leave deployment branches **unrestricted**: a branch rule would reject PR runs.
+  - Leave "prevent self-review" **off**, so the owner can approve PRs opened under their own account.
+- **B4. The diff is three-dot** against the merge base (`"$BASE"..."$HEAD"`), with `fetch-depth: 0`. Use plain git,
+  no third-party path action, matching `ci.yml`.
+- **B5. Globs, widened and named explicitly.** Paths are under
+  `backend/src/main/java/com/gregochr/goldenhour/` unless given in full.
+  - **sky** adds:
+    - `util/DayLabels.java`
+    - `entity/{ForecastStability,TargetType,AlertLevel}.java`
+    - `backend/src/test/java/**/TestAtmosphericData.java`
+    - `backend/src/test/java/**/eval/**`
+    - `backend/src/test/java/**/service/evaluation/*{Regression,Fixture,PromptTrims,TokenCount}*.java`
+    - `backend/src/test/resources/prompt-regression/*.txt`
+    - `backend/src/test/resources/eval/**`
+  - **ask** adds:
+    - `util/{DayLabels,PlaceNames}.java`
+    - `backend/src/test/resources/prompt-regression/ask/**`
+  - **Shared** adds `service/evaluation/{PromptUtils,RatingValidator}.java`.
+  - Name every test path explicitly in the workflow.
+  - **The pom trigger:** grep `git diff -U8 "$BASE"..."$HEAD" -- backend/pom.xml` for `anthropic|prompt-regression|surefire`.
+- **B6. The merge rule.** A run awaiting approval shows as a pending check, and expires red after 30 days. The
+  CLAUDE.md step-6 exception names the exact job names and says a run that is waiting, skipped or expired is normal
+  and is never awaited before a merge. The planner writes that line, since CLAUDE.md is a docs edit.
+- **B7. Dependabot** never runs it: `github.actor != 'dependabot[bot]'`. For an SDK bump, the owner runs it
+  manually.
+- **B8. Least privilege.** Set workflow-level `permissions: contents: read`, and `persist-credentials: false` on every
+  checkout.
+- **B9. The summary** reads `tests`, `failures`, `errors` and `skipped` from each `TEST-*.xml` `<testsuite>` root with
+  Python's `xml.etree`. Zero reports means "build failed". Any Ask `skipped > 0` is shown red.
+- **B10. Concurrency, time limits and forks.**
+  - The group is `${{ github.head_ref || github.ref }}`.
+  - Sky's `timeout-minutes` is `${{ inputs.sky_runs == '8' && 60 || 30 }}`.
+  - Pass `-DforkCount=1` on the Ask job, to avoid 429s.
+- **B11. The CI model setting** is `SKY_MODEL=SONNET_55` only.
+
 ## Phase 6: `security.txt`
 
 Serve `/.well-known/security.txt` from the landing site and the app, with a contact address and an expiry
