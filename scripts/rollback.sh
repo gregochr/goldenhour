@@ -16,6 +16,15 @@
 # Step 3 uses digests rather than :latest, because after a bad release :latest
 # is the bad release.
 #
+# THERE IS ALSO AN AUTOMATIC, IMAGE-ONLY PATH: scripts/auto-rollback.sh, run by
+# the deploy job when the post-deploy smoke check fails and SMOKE_ENFORCE is
+# "true". It reads the same manifest and writes the same pin file, but it NEVER
+# restores the database; this script is how a human does that. Both name
+# themselves in the pin's header comment, so the deploy guard can say which of
+# them wrote it. This script keeps its OWN copy of the manifest field reader below
+# (scripts/lib/release-manifest.sh holds the other); scripts/test/
+# manifest-field-parity.test.sh fails CI if the two lines differ.
+#
 # Usage:
 #   ./scripts/rollback.sh              # list what can be rolled back to
 #   ./scripts/rollback.sh v2.11.11     # roll back the release v2.11.11 introduced
@@ -173,8 +182,10 @@ echo "    schema now at ${RESTORED_SCHEMA} (expected ${SCHEMA_VERSION})"
 # rolled-back build and a stray `docker compose up` cannot silently restore the
 # broken release. Delete it when you fix forward.
 cat > "$OVERRIDE_FILE" <<OVERRIDE
-# Written by scripts/rollback.sh — production is pinned to the build that
-# preceded ${VERSION}. DELETE THIS FILE when rolling forward again.
+# Written by scripts/rollback.sh (the MANUAL rollback, database restored) for release ${VERSION}
+# at $(date -u +%Y-%m-%dT%H:%M:%SZ). Production is pinned to the build that preceded ${VERSION}.
+# DELETE THIS FILE when rolling forward again; a bare 'docker compose up' without it
+# resolves :latest, which is the bad release.
 services:
   goldenhour-backend:
     image: ${BACKEND_IMAGE}

@@ -85,7 +85,7 @@ export default defineConfig({
   projects: [
     {
       name: 'smoke',
-      testIgnore: ['**/logout.spec.js', '**/roles-write.spec.js'],
+      testIgnore: ['**/logout.spec.js', '**/roles-write.spec.js', '**/deploy-smoke.spec.js'],
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },
     // Why roles-write is its own project: it is the only spec that WRITES shared server state (the Pro reader rates
@@ -109,6 +109,19 @@ export default defineConfig({
       name: 'logout',
       testMatch: '**/logout.spec.js',
       dependencies: ['smoke', 'roles-write'],
+      workers: 1,
+      use: { ...devices['Desktop Chrome'], ...localChromium },
+    },
+    // Why deploy-smoke is its own project, and last (docs/engineering/engineering-gaps-plan.md, Phase 4, R18): it runs
+    // scripts/post-deploy-smoke.sh, the production post-deploy probe, against these servers, and that script logs in as
+    // `pro` and then LOGS OUT, which bumps the account's credentials version and cancels every other session of `pro`.
+    // So it starts only when everything else (logout included) has finished, with both servers still up, on one
+    // worker. It needs no browser; the project only shares the config. Its negative cases serve a stub site from
+    // the test process on a free port.
+    {
+      name: 'deploy-smoke',
+      testMatch: '**/deploy-smoke.spec.js',
+      dependencies: ['smoke', 'roles-write', 'logout'],
       workers: 1,
       use: { ...devices['Desktop Chrome'], ...localChromium },
     },

@@ -59,6 +59,22 @@ jobs:
     # checking. Same reasoning as ci-failure-issue.yml's own notifier running
     # on ubuntu-latest rather than the runner whose health it reports on.
     steps:
+      # A daily nudge, not a check: it never fails the run. Until the owner has created the smoke-deploy account and
+      # set SMOKE_LOGIN_REQUIRED=true, a deploy whose SMOKE_DEPLOY_PASSWORD is missing or lost skips the logged-in
+      # probes (with a warning) instead of failing, so the one probe that proves the briefing is served could vanish
+      # unnoticed. (docs/engineering/engineering-gaps-plan.md, Phase 4, R17.)
+      - name: Warn while the post-deploy smoke login is optional
+        env:
+          SMOKE_LOGIN_REQUIRED: ${{ vars.SMOKE_LOGIN_REQUIRED }}
+          HAS_SMOKE_PASSWORD: ${{ secrets.SMOKE_DEPLOY_PASSWORD != '' }}
+        run: |
+          if [ "$HAS_SMOKE_PASSWORD" != "true" ]; then
+            echo "::warning::SMOKE_DEPLOY_PASSWORD is not set: every deploy skips the post-deploy smoke's logged-in probes."
+          fi
+          if [ "$SMOKE_LOGIN_REQUIRED" != "true" ]; then
+            echo "::warning::The repository variable SMOKE_LOGIN_REQUIRED is not 'true': a missing smoke password is skipped with a warning at deploy time instead of failing it. Set it once the smoke-deploy account works."
+          fi
+
       - name: curl https://app.photocast.online/api/briefing — must answer 401
         run: |
           set -euo pipefail

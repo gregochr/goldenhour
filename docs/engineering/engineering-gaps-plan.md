@@ -1,6 +1,6 @@
 # Closing the "Where it falls short" gaps
 
-Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b merged (#1786). Phase 3c built on `test/e2e-a11y` (advisory workflow `a11y.yml`; it lands red on three serious rules, each fixed in its own PR).
+Status: planned 2026-11-07. Owner decisions recorded below. Phase 1 merged (#1761). Phase 2 merged (#1764) and is a required check. Phase 3a.1 merged (#1772). Phase 3a.2 merged (#1778). Back 2b merged (#1781). Phase 3b merged (#1786). Phase 3c built on `test/e2e-a11y` (advisory workflow `a11y.yml`; it lands red on three serious rules, each fixed in its own PR). Phase 4 built on `feature/post-deploy-smoke` (PR pending; it ships **report-only** until the owner completes the actions listed under "Phase 4: owner actions").
 
 `landing/engineering.html` (`#falls-short`) and `landing/how-its-built.html` (`#improving`) list five gaps.
 This plan closes the ones worth closing, in the order below, and changes the copy only once each fix is
@@ -870,6 +870,45 @@ override the build notes above where they differ.
 - The deploy and rollback notes live in `docs/engineering/reference/platform.md` line 18 (Deployment), and
   `scripts/rollback.sh`'s header. The builder finds the right place for a short "Automatic rollback" subsection,
   likely `platform.md` under Deployment, and updates `rollback.sh`'s header to mention the image-only path.
+
+#### Phase 4: owner actions (after merge)
+
+Nothing here can be done by a session; production is never reachable from one. Until step 4 the feature only
+**reports**: a failing check fails the deploy job and opens the issue, and nothing is rolled back.
+
+1. **Create `smoke-deploy` in Operations as a PRO account with no email address** (so it is never swept as dormant and
+   never mailed). Choose its temporary password without a `'`, `\`, `$` or backtick, which the SSH action's `envs:`
+   forwarding can mangle.
+2. **Sign in once in a browser as `smoke-deploy` and change the temporary password.** Admin-created accounts must change
+   it at first login, and until then every API call answers 403 (the script reports exit `4`, naming the cause).
+3. **Set the repository secret `SMOKE_DEPLOY_PASSWORD`** to the new password. Until it exists the logged-in probes are
+   skipped with a warning on every deploy (and the daily `prod-health` run warns too).
+4. **Later, set the repository variable `SMOKE_LOGIN_REQUIRED=true`**, once the account works, so a lost secret fails the
+   smoke (exit `4`) instead of skipping the login probes.
+5. **After a few releases have run clean through production's Cloudflare, set the repository variable
+   `SMOKE_ENFORCE=true`.** From then on a release the checks call broken (exit `1`, and only exit `1`) is rolled back to
+   the previous images automatically. Leave it unset to keep reporting only.
+
+Build notes (2026-11-08), where the build chose or departed from the text above:
+- **The login body and the `Authorization` header never reach argv.** The body is built by `jq` from the environment
+  (`$ENV.…`, not `--arg`, which would put the password in `jq`'s argv) into a mode-600 file deleted right after the
+  request; the bearer header goes through `curl -H @file`.
+- **`deploy-smoke` spawns the script asynchronously, not with `spawnSync`**, because its negative cases serve a stub
+  site from the same process and a blocking call would stop it answering. The "wrong password" case uses an account
+  that does not exist, so no real account's failed-sign-in counter (10 in 15 minutes) moves under `--repeat-each`.
+- **R9, refined.** If the rolled-back build is healthy but the smoke on it is *inconclusive* (`3` or `4`), the rollback
+  stands (exit `1`, flagged `INCONCLUSIVE`) rather than flipping back to a release already known to be broken. Only a
+  smoke `1` on the old build (it fails the probes too, so the rollback bought nothing) restores the new release and
+  exits `2`.
+- **R10 reads the tag, not the database.** The rollback may never run `psql`, so "the current schema" is the newest
+  `V…` migration in the tag (`git ls-tree`), compared with the manifest's `schema_version`.
+- **R15's commit probe will warn until the backend serves it.** The production images carry no `git.properties`
+  (`backend/Dockerfile`: `GitInfoService` falls back to environment variables), so `/actuator/info` has no
+  `git.commit.id` and the probe skips with a warning. A small `InfoContributor` publishing `GIT_COMMIT_SHA` would
+  switch it on; that is a backend change and not part of this phase.
+- **Probe ordering when they disagree:** misconfigured (4), then a Cloudflare challenge (3), then a broken release (1),
+  then any other inconclusive result (3). A probe that never ran because the deadline expired is `3` and does not
+  outrank a real failure.
 
 ## Phase 5: prompt regression on prompt-changing PRs
 

@@ -128,6 +128,8 @@ runs it through the production `nginx.conf` in an `nginx:alpine` container; a lo
 state (the admin's postcode prompt dismissal, and the Coming up "seen" mark for all three accounts). The older `src/test/e2e/forecast.spec.js` (run by
 `playwright.config.js`, which ignores `smoke/`) is manual.
 
+**The `deploy-smoke` project (Phase 4)** is the last of the four projects (`smoke`, `roles-write`, `logout`, `deploy-smoke`; it depends on all three). Its one spec, `deploy-smoke.spec.js`, runs `scripts/post-deploy-smoke.sh` (the production post-deploy probe) against the seeded stack as `pro`, and against a tiny Node stub site (`deploy-smoke-stub.js`, a free port) that breaks one thing at a time, asserting the exit codes (0 pass, 1 release broken, 3 inconclusive, 4 misconfigured). It spawns the script **asynchronously** (a blocking spawn would stop the stub answering). It logs in as `pro` and logs out, which is account-wide, hence last. The shell-script tests (`scripts/test/*.test.sh`, CI job `Shell — script tests`) are described in `platform.md`, "Automatic rollback".
+
 **The seeded fixture** (`E2eLocalFixtureSeeder` in `backend/src/local/java`, with its readiness bean
 `e2eFixtureHealthIndicator`). It gives the Map and Plan journeys data with **no network call and no Claude call**: 3
 regions of 6 places (Northumberland Coast with three coastal places, Lake District, Yorkshire Dales), rated for every

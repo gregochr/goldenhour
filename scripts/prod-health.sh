@@ -55,7 +55,8 @@
 #     an action this script can complete on its own.
 #   - A passing `--deploy` run says the new containers are healthy and the
 #     app answers from outside; it says nothing about whether the release
-#     behaves correctly, only that it is up.
+#     behaves correctly, only that it is up. scripts/post-deploy-smoke.sh is the
+#     probe that does, and the deploy job runs it right after this one.
 #   - `docker compose ps --format json` is read here against the Compose v2
 #     (Go CLI) field names `Name`/`Service`/`State`/`Health`, one JSON object
 #     per line (NDJSON) on a current Compose — verified on dockermacmini
@@ -64,7 +65,21 @@
 #     filter below (`if type=="array" then .[] else . end`) handles both
 #     shapes without needing to know which one a given host runs.
 #
-# Usage: ./prod-health.sh [--deploy|--daily]
+# CLASSIFYING FAILURES FOR THE AUTOMATIC ROLLBACK (--deploy --classify)
+#
+#   Phase 4 of docs/engineering/engineering-gaps-plan.md rolls a release back
+#   automatically, which is only safe if the script can tell "the release is
+#   broken" from "the host is unwell". With --classify (deploy mode only) every
+#   failure is counted as RELEASE or INFRA and the exit code says which:
+#       0  all checks passed
+#       1  at least one RELEASE failure: the backend or frontend container is not
+#          healthy/running while the database is
+#       3  only INFRA failures: cloudflared, Tailscale, the unreachable app, the
+#          database container, docker itself or jq. Never a reason to roll back.
+#   A release failure outranks an infra one. Without --classify the exit code is
+#   1 for any failure, exactly as before, and --daily never classifies.
+#
+# Usage: ./prod-health.sh [--deploy [--classify]|--daily]
 #   COMPOSE_DIR     Directory holding docker-compose.yml (default: $HOME/goldenhour)
 #   HEALTH_TIMEOUT  Seconds to poll compose service health (default: 180)
 #   APP_URL         URL that must answer 401 (default: https://app.photocast.online/api/briefing)
@@ -77,23 +92,47 @@ HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 APP_URL="${APP_URL:-https://app.photocast.online/api/briefing}"
 
 MODE="daily"
+CLASSIFY=false
 case "${1:-}" in
     --deploy) MODE="deploy" ;;
     --daily|"") MODE="daily" ;;
     *)
-        echo "Usage: $0 [--deploy|--daily]" >&2
+        echo "Usage: $0 [--deploy [--classify]|--daily]" >&2
+        exit 2
+        ;;
+esac
+case "${2:-}" in
+    "") ;;
+    --classify)
+        if [ "$MODE" != "deploy" ]; then
+            echo "Usage: $0 [--deploy [--classify]|--daily]" >&2
+            exit 2
+        fi
+        CLASSIFY=true
+        ;;
+    *)
+        echo "Usage: $0 [--deploy [--classify]|--daily]" >&2
         exit 2
         ;;
 esac
 
 FAILURES=0
+RELEASE_FAILURES=0
+INFRA_FAILURES=0
 
 report_ok() {
     printf 'ok  %s: %s\n' "$1" "$2"
 }
 
+# report_fail NAME MESSAGE [release|infra]. The class only matters under --classify; it defaults
+# to infra, so a check that does not name one can never cause an automatic rollback.
 report_fail() {
     FAILURES=$((FAILURES + 1))
+    if [ "${3:-infra}" = "release" ]; then
+        RELEASE_FAILURES=$((RELEASE_FAILURES + 1))
+    else
+        INFRA_FAILURES=$((INFRA_FAILURES + 1))
+    fi
     printf 'FAIL %s: %s\n' "$1" "$2"
     if [ -n "${GITHUB_ACTIONS:-}" ]; then
         printf '::error::%s: %s\n' "$1" "$2"
@@ -150,7 +189,13 @@ check_compose_services() {
         fi
 
         if [ "$(date +%s)" -ge "$deadline" ]; then
-            report_fail "$name" "timed out after ${HEALTH_TIMEOUT}s (db=${db_health:-?} backend=${backend_health:-?} frontend=${frontend_state:-?})"
+            # The database being unhealthy is the host's problem; a healthy database under an unhealthy
+            # backend or a stopped frontend is the release's.
+            local failure_class="release"
+            if [ "$db_health" != "healthy" ]; then
+                failure_class="infra"
+            fi
+            report_fail "$name" "timed out after ${HEALTH_TIMEOUT}s (db=${db_health:-?} backend=${backend_health:-?} frontend=${frontend_state:-?})" "$failure_class"
             echo "---- docker compose ps (${COMPOSE_DIR}) ----"
             (cd "$COMPOSE_DIR" && docker compose ps) || true
             echo "---------------------------------------------"
@@ -418,6 +463,17 @@ case "$MODE" in
 esac
 
 echo "prod-health: ${TOTAL_CHECKS} checks, ${FAILURES} failed (${MODE})"
+
+if [ "$CLASSIFY" = true ]; then
+    echo "prod-health: release=${RELEASE_FAILURES} infra=${INFRA_FAILURES}"
+    if [ "$RELEASE_FAILURES" -gt 0 ]; then
+        exit 1
+    fi
+    if [ "$INFRA_FAILURES" -gt 0 ]; then
+        exit 3
+    fi
+    exit 0
+fi
 
 if [ "$FAILURES" -gt 0 ]; then
     exit 1
