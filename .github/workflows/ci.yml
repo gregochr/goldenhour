@@ -395,7 +395,46 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
-            -o check-unassigned-uppercase scripts/*.sh release.sh
+            -x -o check-unassigned-uppercase scripts/*.sh scripts/lib/*.sh scripts/test/*.sh release.sh
+
+      # The deploy job's SSH script lives inside deploy.yml, where nothing linted it. It is extracted (with a
+      # shebang and the one variable the action injects) and held to the same standard as scripts/*.sh.
+      - name: ShellCheck the deploy job's SSH script
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          scripts/test/extract-deploy-script.sh --lintable > /tmp/deploy-ssh-script.sh
+          test -s /tmp/deploy-ssh-script.sh
+          bash -n /tmp/deploy-ssh-script.sh
+          docker run --rm -v /tmp:/tmp:ro koalaman/shellcheck:v0.11.0 \
+            -o check-unassigned-uppercase /tmp/deploy-ssh-script.sh
+
+      - name: Documentation-only change — suite skipped
+        if: needs.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Every changed path is documentation (*.md or docs/**)."
+          echo "The suite was skipped deliberately — see the 'Detect docs-only change' job."
+          echo "This check reports success so branch protection is satisfied."
+
+  # ── Shell script tests ───────────────────────────────────────────────────────
+  # ShellCheck proves a script parses and is tidy; it cannot prove that auto-rollback.sh pins the right digests,
+  # never touches the database, or that deploy.yml's SSH script only rolls back on a release failure with
+  # SMOKE_ENFORCE=true. These tests (scripts/test/*.test.sh) run the real scripts against stub docker, git and psql
+  # commands: no Docker, no network, a few seconds. (docs/engineering/engineering-gaps-plan.md, Phase 4.)
+  #
+  # Step-level `if:` guards and a "skipped" echo step, as in every job here.
+  shell-tests:
+    needs: changes
+    name: Shell — script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.docs_only != 'true'
+
+      - name: Run scripts/test/*.test.sh
+        if: needs.changes.outputs.docs_only != 'true'
+        run: bash scripts/test/run-all.sh
 
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'

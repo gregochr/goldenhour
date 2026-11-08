@@ -71,7 +71,41 @@ jobs:
     name: Deploy to Production
     runs-on: self-hosted
     needs: build-and-push
+    # One deploy at a time. Two tags pushed close together would otherwise interleave their pre-release
+    # backups, pulls and rollbacks on the one host. Queued, never cancelled: cancelling a deploy half way
+    # through `up` is exactly the state this job exists to avoid. (GitHub keeps at most ONE pending run
+    # per group, so a third tag pushed while one deploys and one waits replaces the waiting one.) That
+    # superseded pending run is CANCELLED, and a cancelled run files no issue (`notify-failure` only fires on
+    # failure()): its tag's images are in GHCR but never deployed, with nothing saying so. Tags are the owner's
+    # to cut, one at a time; if two ever land together, check the newer one is the one that went live.
+    concurrency:
+      group: prod-deploy
+      cancel-in-progress: false
     steps:
+      # Runs on the runner, where $GITHUB_STEP_SUMMARY exists (the SSH script below runs on the host, where it does
+      # not). Makes a silently skipped login probe and report-only mode visible on every release, not just in a log.
+      - name: Note the post-deploy smoke configuration
+        env:
+          HAS_SMOKE_PASSWORD: ${{ secrets.SMOKE_DEPLOY_PASSWORD != '' }}
+          SMOKE_PW: ${{ secrets.SMOKE_DEPLOY_PASSWORD }}
+          SMOKE_ENFORCE: ${{ vars.SMOKE_ENFORCE }}
+        run: |
+          # The SSH action forwards the secret as a shell export, so only [A-Za-z0-9._-] arrives intact. The host-side
+          # smoke refuses anything else (exit 4); this says so earlier, and never prints the value.
+          if [ -n "$SMOKE_PW" ] && printf '%s' "$SMOKE_PW" | grep -q '[^A-Za-z0-9._-]'; then
+            echo "::warning::SMOKE_DEPLOY_PASSWORD contains characters the SSH forwarding can mangle (allowed: A-Z a-z 0-9 . _ -): the post-deploy smoke will exit 4. Set a password using only those characters."
+            echo "- :warning: SMOKE_DEPLOY_PASSWORD contains characters the SSH forwarding can mangle; the smoke will exit 4." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$SMOKE_ENFORCE" = "true" ]; then
+            echo "- Post-deploy smoke: ENFORCED. A broken release is rolled back (images only; the database is never restored)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Post-deploy smoke: REPORT-ONLY (repository variable SMOKE_ENFORCE is not 'true'). A failure fails this job but nothing is rolled back." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "$HAS_SMOKE_PASSWORD" != "true" ]; then
+            echo "::warning::SMOKE_DEPLOY_PASSWORD is not set: the post-deploy smoke's logged-in probes will be SKIPPED."
+            echo "- :warning: SMOKE_DEPLOY_PASSWORD is not set, so the logged-in smoke probes are skipped." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         env:
@@ -80,11 +114,22 @@ jobs:
           # remote run too — appleboy/ssh-action only forwards variables named in
           # `envs:` below, so without this GITHUB_ACTIONS is unset on the host.
           GITHUB_ACTIONS: "true"
+          # Post-deploy smoke and rollback (docs/engineering/engineering-gaps-plan.md, Phase 4). Each of these
+          # must appear in BOTH this `env:` block and the `envs:` list below, or it never reaches the host
+          # (a CI check greps this file for SMOKE_DEPLOY_PASSWORD in both). SMOKE_ENFORCE / SMOKE_LOGIN_REQUIRED
+          # are repository VARIABLES the owner flips; the password is a SECRET and is never echoed. Do not
+          # turn on the action's `debug:`, which would print the script and these values.
+          SMOKE_ENFORCE: ${{ vars.SMOKE_ENFORCE }}
+          SMOKE_LOGIN_REQUIRED: ${{ vars.SMOKE_LOGIN_REQUIRED }}
+          SMOKE_DEPLOY_PASSWORD: ${{ secrets.SMOKE_DEPLOY_PASSWORD }}
         with:
           host: 100.76.73.16
           username: gregochr
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: RELEASE_VERSION,GITHUB_ACTIONS
+          envs: RELEASE_VERSION,GITHUB_ACTIONS,SMOKE_ENFORCE,SMOKE_LOGIN_REQUIRED,SMOKE_DEPLOY_PASSWORD
+          # The default is 10 minutes. A deploy now includes a backup, a pull, up to 180 s of health polling, the
+          # smoke probes and, when enforced, a rollback with its own health check and smoke run.
+          command_timeout: 30m
           script: |
             set -e
             cd ~/goldenhour
@@ -92,13 +137,15 @@ jobs:
 
             # Refuse to deploy over an active rollback pin.
             #
-            # scripts/rollback.sh writes docker-compose.override.yml, which Compose
-            # auto-loads — so without this guard the `docker compose up` below would
+            # scripts/rollback.sh and scripts/auto-rollback.sh write docker-compose.override.yml,
+            # which Compose auto-loads — so without this guard the `docker compose up` below would
             # silently apply the pinned OLD digests and the release would appear to
             # succeed while deploying nothing. Fail loudly instead: clearing the pin
             # is a deliberate act, not something a deploy should do behind your back.
+            # The pin's own header says which script wrote it and for which release.
             if [ -f docker-compose.override.yml ]; then
               echo "ERROR: docker-compose.override.yml exists — production is pinned by a rollback." >&2
+              echo "       $(head -n 2 docker-compose.override.yml | tr '\n' ' ')" >&2
               echo "       Deploying now would silently re-apply the pinned images." >&2
               echo "       Remove it once you are ready to roll forward:  rm ~/goldenhour/docker-compose.override.yml" >&2
               exit 1
@@ -110,6 +157,34 @@ jobs:
             # `git show <tag>:...` fails for a tag this host has never seen, which
             # is every tag.
             git fetch origin --tags --quiet
+
+            # The tag's whole scripts/ directory, in one temporary directory with its layout intact, so a
+            # script can source a sibling (auto-rollback.sh sources lib/release-manifest.sh) and call another
+            # (prod-health.sh, post-deploy-smoke.sh). The earlier one-file-at-a-time copies into /tmp could
+            # not do that. rollback.sh, the manual Plan B, deliberately does NOT depend on this: it runs from
+            # the host's own working copy and keeps its own manifest reader.
+            SCRIPTS_TMP="$(mktemp -d /tmp/goldenhour-release-scripts.XXXXXX)"
+            trap 'rm -rf "$SCRIPTS_TMP"' EXIT
+            # Two steps, not a pipe: a pipeline's status is tar's, so a failed `git archive` (an unknown tag)
+            # would surface as tar's confusing "not a tar archive" instead of this message.
+            RELEASE_SCRIPTS="${SCRIPTS_TMP}/scripts"
+            if ! git archive "${RELEASE_VERSION}" scripts > "${SCRIPTS_TMP}/scripts.tar" \
+               || ! tar -x -f "${SCRIPTS_TMP}/scripts.tar" -C "$SCRIPTS_TMP" \
+               || [ ! -f "${RELEASE_SCRIPTS}/pre-release-backup.sh" ] \
+               || [ ! -f "${RELEASE_SCRIPTS}/lib/release-manifest.sh" ]; then
+              echo "ERROR: could not extract scripts/ from ${RELEASE_VERSION}." >&2
+              exit 1
+            fi
+
+            # Back up BEFORE pulling. `docker compose pull` overwrites :latest,
+            # which is the only other handle on the outgoing build — after that
+            # there is nothing left to record, and nothing to roll back to.
+            #
+            # And before the new configuration is written below: the backup also saves the OUTGOING
+            # nginx.conf and docker-compose.yml, read from this directory, so an automatic rollback can
+            # put configuration back with the images. Run after the `git show` lines it would save the
+            # new ones. It never overwrites an existing rollback point for this tag (a re-run keeps the first).
+            COMPOSE_DIR="$HOME/goldenhour" bash "${RELEASE_SCRIPTS}/pre-release-backup.sh" "${RELEASE_VERSION}"
 
             # `docker compose` reads these from THIS directory, so a stale tree
             # ships new images against months-old config. nginx.conf matters most:
@@ -130,10 +205,12 @@ jobs:
             #
             # The compose file we just materialised from the tag decides that path, so
             # this checks the two together, immediately after writing it and before
-            # anything starts. `-d` first because the directory itself is stat-able by
-            # this user; the contents are mode 700 uid 70, so peeking inside needs a
-            # root context, hence the throwaway container. Checking `-d` first also
-            # stops `docker run -v` from creating the very empty directory we fear.
+            # anything starts (the backup above runs first, but it only reads the running
+            # database; nothing is pulled or started until this has passed). `-d` first
+            # because the directory itself is stat-able by this user; the contents are
+            # mode 700 uid 70, so peeking inside needs a root context, hence the
+            # throwaway container. Checking `-d` first also stops `docker run -v` from
+            # creating the very empty directory we fear.
             PGDATA_SRC="$(grep -oE '^[[:space:]]*-[[:space:]]*[^[:space:]]+:/var/lib/postgresql/data' docker-compose.yml \
                           | head -1 | sed 's|^[[:space:]]*-[[:space:]]*||; s|:/var/lib/postgresql/data||')"
             # Only a bind mount (absolute path) can have this failure. A named
@@ -151,37 +228,84 @@ jobs:
               echo "PGDATA verified at ${PGDATA_SRC}"
             fi
 
-            # Back up BEFORE pulling. `docker compose pull` overwrites :latest,
-            # which is the only other handle on the outgoing build — after that
-            # there is nothing left to record, and nothing to roll back to.
-            git show "${RELEASE_VERSION}:scripts/pre-release-backup.sh" > /tmp/pre-release-backup.sh
-            chmod +x /tmp/pre-release-backup.sh
-            /tmp/pre-release-backup.sh "${RELEASE_VERSION}"
-
             docker compose pull goldenhour-backend goldenhour-frontend
             docker compose up -d --no-deps goldenhour-backend goldenhour-frontend
 
-            # Verify the release actually came up: compose health, cloudflared,
-            # Tailscale and a real 401 from outside the tunnel. A failure here
-            # fails this job, which notify-failure below turns into an issue and
-            # which release.sh's own watch loop already reports (with its bell) —
-            # so release.sh needs no change for this.
-            git show "${RELEASE_VERSION}:scripts/prod-health.sh" > /tmp/prod-health.sh
-            chmod +x /tmp/prod-health.sh
-            COMPOSE_DIR="$HOME/goldenhour" /tmp/prod-health.sh --deploy
-
-            # Record what is now running, while its digest is still readable.
+            # ---- Everything from here on is AFTER `up`: only these steps can cause a rollback. ----
             #
-            # A RepoDigest survives only until a newer :latest displaces the image,
-            # at which point Docker drops it and the NEXT release cannot build a
-            # rollback manifest. This is the one moment the digest is knowable, so
-            # capture it. Non-fatal by design: the release has already succeeded by
-            # the time this runs, and a missing ledger costs only the next release's
-            # fallback, not this one's success.
-            git show "${RELEASE_VERSION}:scripts/record-deployed-images.sh" \
-              > /tmp/record-deployed-images.sh
-            chmod +x /tmp/record-deployed-images.sh
-            /tmp/record-deployed-images.sh || true
+            # Verify the release came up, then that it behaves.
+            #   1. prod-health.sh --deploy --classify: compose health, cloudflared, Tailscale and a real
+            #      401 from outside the tunnel. --classify makes its exit code say whether the RELEASE
+            #      (backend/frontend container) or the HOST (database, tunnel, Tailscale) is at fault.
+            #   2. post-deploy-smoke.sh: shell, assets, health, auth boundary, running build and a
+            #      logged-in briefing through the public URL.
+            #
+            # Exit-code contract of this function (and of both scripts): 0 passed, 1 the release is
+            # broken, 3 inconclusive or infrastructure, 4 the smoke check is misconfigured. ONLY 1 can
+            # cause a rollback, and only when SMOKE_ENFORCE is "true".
+            #
+            # Every step is `|| rc=$?` / `|| return N`, never a bare command: this function is called as
+            # `post_up_checks || check_rc=$?`, and bash ignores `set -e` inside a function called in that
+            # position, so a bare failing command would be silently skipped and the function would go on
+            # to report success.
+            #
+            # A health result of 3 (infrastructure) does NOT skip the smoke: an nginx regression that answers
+            # 404 or 502 for /api looks like "the app is unreachable" to the health check, and only the smoke's own
+            # probes can say it is the release. The two results are combined by the same precedence the smoke uses
+            # inside itself, 1 then 4 then 3, so a real break is never hidden behind an infrastructure answer. Only a
+            # health result of 1 (a backend or frontend container down while the database is up) returns at once.
+            post_up_checks() {
+              local health_rc=0 smoke_rc=0
+              COMPOSE_DIR="$HOME/goldenhour" bash "${RELEASE_SCRIPTS}/prod-health.sh" --deploy --classify || health_rc=$?
+              case "$health_rc" in
+                0|3) ;;
+                1) return 1 ;;
+                *) health_rc=3 ;;
+              esac
+              RELEASE_VERSION="${RELEASE_VERSION}" bash "${RELEASE_SCRIPTS}/post-deploy-smoke.sh" || smoke_rc=$?
+              case "$smoke_rc" in
+                0|1|3|4) ;;
+                *) smoke_rc=3 ;;
+              esac
+              if [ "$smoke_rc" -eq 1 ]; then return 1; fi
+              if [ "$smoke_rc" -eq 4 ]; then return 4; fi
+              if [ "$smoke_rc" -eq 3 ] || [ "$health_rc" -eq 3 ]; then return 3; fi
+              return 0
+            }
+
+            check_rc=0
+            post_up_checks || check_rc=$?
+
+            if [ "$check_rc" -eq 0 ]; then
+              # Record what is now running, while its digest is still readable.
+              #
+              # A RepoDigest survives only until a newer :latest displaces the image,
+              # at which point Docker drops it and the NEXT release cannot build a
+              # rollback manifest. This is the one moment the digest is knowable, so
+              # capture it. Non-fatal by design: the release has already succeeded by
+              # the time this runs, and a missing ledger costs only the next release's
+              # fallback, not this one's success. ONLY on success: a failed or rolled-back
+              # release must not be recorded as the one that is running.
+              bash "${RELEASE_SCRIPTS}/record-deployed-images.sh" || true
+              exit 0
+            fi
+
+            echo "ERROR: the post-deploy checks failed with exit ${check_rc} (1 release broken, 3 inconclusive or infrastructure, 4 smoke misconfigured)." >&2
+            if [ "$check_rc" -eq 1 ] && [ "${SMOKE_ENFORCE:-}" = "true" ]; then
+              echo "SMOKE_ENFORCE is true: rolling back to the previous images (the database is not touched)." >&2
+              rollback_rc=0
+              bash "${RELEASE_SCRIPTS}/auto-rollback.sh" "${RELEASE_VERSION}" || rollback_rc=$?
+              # auto-rollback.sh exits 1 (rolled back) or 2 (manual action needed). Neither is success, and
+              # a stray 0 must never turn a failed release into a green deploy.
+              [ "$rollback_rc" -ne 0 ] || rollback_rc=2
+              exit "$rollback_rc"
+            fi
+            if [ "$check_rc" -eq 1 ]; then
+              echo "SMOKE_ENFORCE is not 'true': this release is broken but NOT being rolled back (report-only)." >&2
+            else
+              echo "Exit ${check_rc} is never a reason to roll back." >&2
+            fi
+            exit "$check_rc"
 
   # Deploy was the only workflow in the repo with no failure notifier, which is
   # the worst place to lack one: a failed deploy leaves the tag pushed, the images

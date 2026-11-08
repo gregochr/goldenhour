@@ -18,11 +18,31 @@
 # The dump and the digests only mean anything as a PAIR: restoring one without
 # the other gives you a combination that has never been tested.
 #
+# It also saves the OUTGOING nginx.conf and docker-compose.yml beside the manifest
+# (docs/engineering/engineering-gaps-plan.md, Phase 4, R6), read from the host's
+# current files. So deploy.yml must run this BEFORE it materialises the new
+# release's copies, or it would save the new ones. scripts/auto-rollback.sh
+# restores both with the images, so configuration rolls back with the build it
+# belongs to. A file that is missing is skipped with a warning (the manifest then
+# simply has no key for it, and the automatic rollback says it is images-only).
+#
+# NEVER OVERWRITES A ROLLBACK POINT (R7). If a usable manifest already exists for
+# this version, a re-run of the same tag keeps the first and exits 0: by then the
+# first run may have started the new images, so "what is running now" is no
+# longer the outgoing build and recording it would destroy the only good
+# rollback point. An existing but unusable manifest, or a dump with no manifest,
+# is moved aside (never deleted) and a fresh point taken.
+#
 # Failure here aborts the release. That is deliberate, and differs from the
 # nightly backup's off-box copy (non-fatal there): this is the one moment the
 # backup is actually load-bearing.
 #
+# Exit codes: 0 a rollback point exists for this version (new, or kept from an
+# earlier run); 1 it could not be taken, so the release must stop.
+#
 # Usage: ./pre-release-backup.sh v2.11.11
+#   COMPOSE_DIR   Directory holding the outgoing nginx.conf and docker-compose.yml
+#                 (default: $HOME/goldenhour)
 # ============================================================================
 
 set -euo pipefail
@@ -45,8 +65,59 @@ FRONTEND_CONTAINER="${FRONTEND_CONTAINER:-goldenhour-frontend}"
 DUMP_FILE="${RELEASE_DIR}/goldenhour_pre-${RELEASE_VERSION}.sql.gz"
 MANIFEST_FILE="${RELEASE_DIR}/${RELEASE_VERSION}.json"
 
+COMPOSE_DIR="${COMPOSE_DIR:-${HOME}/goldenhour}"
+NGINX_SAVED="${RELEASE_DIR}/${RELEASE_VERSION}.nginx.conf"
+COMPOSE_SAVED="${RELEASE_DIR}/${RELEASE_VERSION}.docker-compose.yml"
+
 mkdir -p "$RELEASE_DIR"
 log() { echo "[pre-release-backup] $*"; }
+
+# --- Never overwrite an existing rollback point (R7) --------------------------
+# Checked before the docker preconditions on purpose: keeping a good point needs
+# neither docker nor a running database, and a re-run must not die on them.
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+# A manifest is only worth keeping (or writing) if it PARSES and names everything a rollback needs: the dump,
+# both digests and the schema version. A grep for the digests would accept a truncated file whose tail is gone.
+manifest_complete() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+r = d["rollback_to"]
+assert d["dump"] and r["backend"] and r["frontend"] and r["schema_version"]
+' "$1" >/dev/null 2>&1
+    else
+        jq -e '(.dump | length > 0) and (.rollback_to.backend | length > 0) and (.rollback_to.frontend | length > 0)
+               and (.rollback_to.schema_version | length > 0)' "$1" >/dev/null 2>&1
+    fi
+}
+usable_existing_manifest() {
+    [ -f "$MANIFEST_FILE" ] || return 1
+    manifest_complete "$MANIFEST_FILE" || return 1
+    [ -f "$DUMP_FILE" ] || return 1
+    gzip -t "$DUMP_FILE" 2>/dev/null || return 1
+    # STALE: record-deployed-images.sh writes the ledger after every SUCCESSFUL deploy. A ledger newer than this
+    # manifest means a release went live after the manifest was taken, so its "outgoing" digests are no longer
+    # what the next release replaces. Keeping it would roll back to a build two releases old.
+    if [ -f "$LEDGER" ] && [ "$LEDGER" -nt "$MANIFEST_FILE" ]; then
+        log "the manifest for ${RELEASE_VERSION} is older than the deploy ledger: a newer release went live since — it is stale."
+        return 1
+    fi
+    return 0
+}
+if usable_existing_manifest; then
+    log "a rollback point for ${RELEASE_VERSION} already exists (${MANIFEST_FILE}) — keeping the first and"
+    log "making no new one: this looks like a re-run of the same tag, and what is running now may already be"
+    log "the new release, so it must not be recorded as the outgoing build."
+    exit 0
+fi
+# Anything else already there is preserved under a new name, never overwritten.
+for stale in "$MANIFEST_FILE" "$DUMP_FILE" "$NGINX_SAVED" "$COMPOSE_SAVED"; do
+    if [ -e "$stale" ]; then
+        mv "$stale" "${stale}.unusable-${stamp}"
+        log "WARNING: moved an unusable earlier file aside: ${stale}.unusable-${stamp}"
+    fi
+done
 
 # --- Preconditions ------------------------------------------------------------
 # Checked separately from the container probe below, which the other two scripts
@@ -153,10 +224,11 @@ fi
 # the reassuring direction. Order on the leading integer instead.
 #
 # This constant is duplicated in scripts/rollback.sh rather than sourced from a
-# shared file, and must stay that way: deploy.yml materialises this script alone
-# out of the release tag (`git show "$TAG:scripts/pre-release-backup.sh"`), so a
-# `source` of a sibling path would resolve to nothing on the host. The
-# duplication is the cost of being standalone-extractable.
+# shared file, and must stay that way: rollback.sh is the manual Plan B and must
+# not depend on a sibling file in the host's working copy, and this script is
+# kept standalone-extractable too (deploy.yml now extracts the tag's whole
+# scripts/ directory, but this constant predates that). The duplication is the
+# cost of being standalone.
 #
 # It has already drifted once: #364 deleted this block while leaving the use
 # below, and because that use ends in `|| echo 'unknown'`, the unbound variable
@@ -214,8 +286,34 @@ fi
 mv "${DUMP_FILE}.partial" "$DUMP_FILE"
 log "dump written: ${DUMP_FILE} ($(du -h "$DUMP_FILE" | cut -f1))"
 
+# --- Outgoing configuration (R6) ------------------------------------------------
+# Copied from the host's CURRENT files, which are still the outgoing release's:
+# deploy.yml runs this before it overwrites them. Written before the manifest,
+# which is the commit marker, so a manifest never names a file that is not there.
+save_config() {
+    local src="$1" dest="$2"
+    if [ -f "$src" ] && cp "$src" "${dest}.partial" && mv "${dest}.partial" "$dest"; then
+        log "saved outgoing $(basename "$src"): ${dest}"
+        return 0
+    fi
+    rm -f "${dest}.partial"
+    log "WARNING: could not save ${src} — an automatic rollback will restore the images only."
+    return 1
+}
+CONFIG_JSON=""
+if save_config "${COMPOSE_DIR}/nginx.conf" "$NGINX_SAVED"; then
+    CONFIG_JSON="${CONFIG_JSON}  \"nginx_conf\": \"$(basename "$NGINX_SAVED")\",
+"
+fi
+if save_config "${COMPOSE_DIR}/docker-compose.yml" "$COMPOSE_SAVED"; then
+    CONFIG_JSON="${CONFIG_JSON}  \"compose_file\": \"$(basename "$COMPOSE_SAVED")\",
+"
+fi
+
 # --- Manifest -----------------------------------------------------------------
-cat > "$MANIFEST_FILE" <<JSON
+# Written beside the real name and moved into place only once it has been validated, so a crash or a failed
+# validation can never leave a truncated manifest where a rollback (or a re-run's keep-first check) would find it.
+cat > "${MANIFEST_FILE}.partial" <<JSON
 {
   "releasing": "${RELEASE_VERSION}",
   "taken_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -224,16 +322,18 @@ cat > "$MANIFEST_FILE" <<JSON
     "frontend": "${PREV_FRONTEND}",
     "schema_version": "${SCHEMA_VERSION}"
   },
-  "dump": "$(basename "$DUMP_FILE")"
+${CONFIG_JSON}  "dump": "$(basename "$DUMP_FILE")"
 }
 JSON
 
 # Validate now, while it is cheap. A manifest that only turns out to be
 # malformed on the night you need it is worth no more than no manifest at all.
-if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$MANIFEST_FILE" \
-        || { echo "ERROR: wrote an invalid manifest — aborting the release." >&2; exit 1; }
+if ! manifest_complete "${MANIFEST_FILE}.partial"; then
+    rm -f "${MANIFEST_FILE}.partial"
+    echo "ERROR: wrote an invalid or incomplete manifest — aborting the release." >&2
+    exit 1
 fi
+mv "${MANIFEST_FILE}.partial" "$MANIFEST_FILE"
 
 log "manifest written: ${MANIFEST_FILE}"
 log "rollback with: ./scripts/rollback.sh ${RELEASE_VERSION}"
