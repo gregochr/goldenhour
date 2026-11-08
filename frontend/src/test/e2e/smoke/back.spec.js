@@ -373,7 +373,7 @@ test.describe('Back closes the top dialog: the Plan surfaces', () => {
     await page.goBack();
 
     await expect(popup).toHaveCount(0);
-    await expect(card).toBeFocused();
+    await expect(card.getByTestId('wf-heat-card-button')).toBeFocused();
     await expectBaseline(page, base);
     expect(page.url(), 'the URL never changes').toBe(url);
     await expect(page.getByTestId('window-first-tab-plan')).toHaveAttribute('aria-selected', 'true');

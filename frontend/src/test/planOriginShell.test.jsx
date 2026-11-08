@@ -266,7 +266,9 @@ describe('WindowFirstShell — the origin', () => {
         // claims modality and the origin control reads as stranded. This test opens neither.
         renderHeld();
         const card = await screen.findByTestId('wf-heat-card');
-        card.focus(); // a keyboard reader opens it from the card, which becomes its return address
+        // The control is the card's inner button (the `div` takes no focus: focusing it would pass vacuously).
+        card.querySelector('[data-testid="wf-heat-card-button"]').focus(); // a keyboard reader opens it from the card, which becomes its return address
+        expect(card.querySelector('[data-testid="wf-heat-card-button"]')).toHaveFocus();
         fireEvent.click(card);
         const sheet = await screen.findByTestId('window-sheet');
         // Spend the popup's mount frame first: left pending, its focus move could land anywhere in

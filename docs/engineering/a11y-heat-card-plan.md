@@ -212,3 +212,122 @@ should come back at zero.
 ### A7. The visual check covers forced colours
 Add `forcedColors: 'active'` shots (rest, keyboard focus, and Ask highlight with focus), and confirm the
 border and the focus ring are both drawn and there is no double ring.
+
+## Build notes (2026-11-08)
+
+Built to A1 to A7. What was built, what was measured, and where the build deviated and why.
+
+### Deviations from the plan, each measured
+
+1. **The hit button is the card's FIRST child, not its last (rule 3's "above the visible spans").** Placed after the
+   canvas well, the absolutely positioned button paints above the composited canvas, the engine promotes it to its own
+   layer, and the heat field's pixels shift by one level on about 40,000 of them (a 1-in-255 difference, but not zero).
+   First in the DOM it paints below the positioned canvas well and the pick legend (tree order in the `z-index: auto`
+   layer) and above only the unpositioned text, nothing is promoted, and the card renders as before. The focus ring it
+   draws is outside the card and hidden behind the legend where they cross, which the old card ring also was (checked
+   in the zoomed screenshot). `z-index: -1` also fixed the pixels but hid the ring entirely (the card is not a stacking
+   context: `container-type: inline-size` does not make it one), so it was dropped.
+2. **`inset: 0`, radius 8px and `outline-offset: 3px`, not A4's `inset: -1px`, 9px and 2px.** The ring is in the same
+   place (the 1px border plus the card's own 2px; an outline's corner is its box's radius plus the offset, 11px either
+   way: 8 + 3 and 9 + 2 gave 0 differing pixels, 6, 7, 9 and 10 gave 184 to 266). `inset: -1px` changed the pixels of the
+   neighbouring card that peeks in at the edge of the phone's scrolling strip, about 8,000 of them by one level, and
+   `inset: 0` changes none.
+3. **A forced-colours border arm (new).** A focused `<button>` card had its 1px border drawn in `Highlight` by the
+   engine's own forced-colours focus style; the `div` card kept `CanvasText`. One rule inside the existing
+   `@media (forced-colors: active)` block restores it (`div.wf-hc.wf-hc.wf-hc.wf-hc.wf-hc:where([data-control]):where(:has(> .wf-hc-hit:focus-visible))
+   { border-color: Highlight }`; the repeated class is to out-rank the pick and open border rules).
+4. **The card's `onClick` finds the button with `event.currentTarget.querySelector('.wf-hc-hit')`, not a ref.** The card
+   is rendered in a `.map`, where a hook-based ref per card is not available, and a callback ref per card would be a
+   `Map` for one `focus()`.
+5. **`locationSheetShell.test.jsx`'s "puts focus on the plan" test now opens the sheet from search, not from a card.** The
+   click on a card now focuses its button before the popup opens, so a popup opened from the first card hands focus back
+   to that very button on close, and the test passed with the route's selector broken (found by mutation: reverting the
+   selector survived). From search there is no card in the chain, and the same mutation fails.
+6. **`--repeat-each` is per project** (`dev-and-testing.md`: it repeats only the projects it is asked for), so the
+   repeat proof is three invocations: `--project=smoke`, `--project=roles-write` and `--project=logout`.
+
+### Specificity table
+
+Every old `button.wf-hc…` selector and its replacement. `:where()` contributes nothing, and `div` takes the place of
+`button` (both one type selector), so each pair is identical. (a,b,c) = ids, classes/attributes/pseudo-classes, types.
+
+| Old | New | Old | New |
+|---|---|---|---|
+| `button.wf-hc` (cursor) | `div.wf-hc:where([data-control])` | (0,1,1) | (0,1,1) |
+| `button.wf-hc:hover` (+ the reduced-motion `transform: none`) | `div.wf-hc:where([data-control]):hover` | (0,2,1) | (0,2,1) |
+| `button.wf-hc.vg/.vm/.vp:hover` | `div.wf-hc:where([data-control]).vg/.vm/.vp:hover` | (0,3,1) | (0,3,1) |
+| `button.wf-hc.on:hover` (background, and the border rule) | `div.wf-hc:where([data-control]).on:hover` | (0,3,1) | (0,3,1) |
+| `button.wf-hc.best:hover`, `.also:hover` | `div.wf-hc:where([data-control]).best:hover`, `.also:hover` | (0,3,1) | (0,3,1) |
+| `button.wf-hc.best.on:hover`, `.also.on:hover` | `div.wf-hc:where([data-control]).best.on:hover`, `.also.on:hover` | (0,4,1) | (0,4,1) |
+| `button.wf-hc.wf-hc[data-ask-highlight='true']` | `div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']` | (0,3,1) | (0,3,1) |
+| the same, `:hover` | the same, `:hover` | (0,4,1) | (0,4,1) |
+| forced colours, rest, the same selector | the same | (0,3,1) | (0,3,1) |
+| forced colours, `…[data-ask-highlight='true']:focus-visible` (`outline-offset: 2px`) | `div.wf-hc.wf-hc:where([data-control]):where(:has(> .wf-hc-hit:focus-visible))[data-ask-highlight='true']` | (0,4,1) | (0,3,1) |
+| `button.wf-hc:focus-visible` (the ring) | `.wf-hc-hit:focus-visible`, on the button | (0,2,1) | (0,2,0) |
+
+The two changed rows, justified:
+- **The forced-colours ask-focus arm is one lower** because `:focus-visible` moved into a `:where(:has(…))`, which counts for
+  nothing. Its only competitor is the arm's own rest rule at (0,3,1) (`outline-offset: -3px`), which it ties and beats by
+  coming later, as before (the test `askPlanCss.test.js` pins the order). The old card-level focus-ring rule it also
+  beat has left the card.
+- **The ring** moved to a different element, so it competes with no card rule: the only rules on `.wf-hc-hit` are its own
+  (0,1,0) box and the ring (0,2,0), plus, in forced colours with the Ask highlight, `div.wf-hc[data-ask-highlight='true']:where([data-control]) > .wf-hc-hit:focus-visible`
+  at (0,4,1) turning the button's ring off so the card's is the only one. New rows with no old counterpart: `.wf-hc-hit` (0,1,0),
+  the forced-colours border arm (0,5,1: five `.wf-hc` classes plus `div`, `:where` ignored).
+
+### Pixel diff (Plan matrix, Chromium, deviceScaleFactor 1)
+
+The "before" shots were taken from the unmodified build before any source was changed, then re-taken from a pristine
+copy of the base commit's build on the same backend as the "after" shots (so the data cannot differ), twice (the second
+is the run-to-run noise mask). Each shot is an element clip with 14px of padding, so the focus ring and the legend
+overhang are inside it. States: resting, hover (desktop), keyboard focus, for a plain card, a best pick and an also-good
+pick; a synthetic open state (`on` + `data-open`) and a synthetic Ask highlight (the attribute, resting and focused, on a
+plain and on a best card: Ask is off in the fixture, so the rank circle is covered by the unit tests); the real open
+window sheet; and the whole strip; all at desktop 1280x800 and the phone (Pixel 7), each in normal and in forced colours
+(`forcedColors: 'active'`, resting and focused). The fixture has no unscored card and no away cell (every window is
+rated), so those two are unit-tested only.
+
+| Pair | Result |
+|---|---|
+| 16 desktop shots (normal): rest, hover, focus, open (real and synthetic), Ask (synthetic), strip | 0 differing pixels, except `desktop-plain-focus`: 2 px at (10..12, 22), the ring's top-left corner, 3 to 5 levels of 255 (anti-aliasing of an 8px+3px corner against a 9px+2px one), and `desktop-synthetic-ask-best-focus`: 1 px, one level, at the clip's corner on the neighbouring card |
+| 13 phone shots (normal): the same, no hover | 0 |
+| 12 desktop and 12 phone forced-colours shots: rest, focus, synthetic open and Ask with focus | 0 (the border and exactly one ring, the same pixels) |
+| strips (4: desktop, phone, each normal and forced) | run-to-run noise: the "Last forecast run Nm ago" text and lazily painted off-screen canvases, 49,197 px on the phone strip between two runs of the SAME old build; outside that mask: 1 px (the "ago" text), 2,063 px in the phone strip's off-screen canvases, 0 in the two forced-colours strips |
+
+Not producible: an unscored card and an away cell (not in the seeded fixture), and the Ask rank circle (the flag is
+off); the Ask highlight's attribute-driven look was checked by setting the attribute.
+
+### Mutation results
+
+Each mutation was applied to a copy-backed file, run against the named tests, and restored from the backup.
+
+| Mutation | Killed by |
+|---|---|
+| put the visible spans back inside one button (the card's `{body}` moved into the button) | the six axe tests (`WindowFirstHeatStripLabelInName`: rated, sunrise, best, also-good, unscored, Ask-highlighted) and the single-owner test: 7 |
+| drop the card's focus-the-button call | `WindowFirstHeatStripLabelInName` (2: a pointer click and a click on the card) and `AppSettingsRoutes` (the popup's return focus, 3) |
+| revert `applyConflictAction`'s selector | `WindowFirstShell.test.jsx` |
+| revert the "Plan from region" selector | `locationSheetShell.test.jsx`, after change 5 above (it survived before) |
+| remove `pointer-events: none` | `WindowFirstHeatStripLabelInName` (the stylesheet text) and, built, the e2e `pointer:` test |
+| remove `.wf-hc-hit` from the card-selector `scroll-margin-top` list | `WindowFirstShellSticky` |
+| remove `.wf-hc-hit` from the rows-mode `scroll-margin-top` rule | `WindowFirstShellSticky` (a new test) |
+
+### a11y scan
+
+```
+16 scans, 1 distinct rule/impact pairs, 1 serious or critical.
+| `label-content-name-mismatch` | serious | 2: a11y-desktop/coming-up, a11y-phone/coming-up | 16 |
+```
+
+`label-content-name-mismatch` is gone from the plan, window-sheet and location-sheet scans, at both widths (the same
+scan on the unmodified base build reports it in those and in Coming up: 8 scans failed, 6 heat-card nodes in each plan
+scan). **What remains is not the heat card**: the Coming up day chips (`button.wf-cu-day[data-date]`, 8 nodes per width),
+whose `aria-label` ("Show … for Sun 8 Nov, peak …") does not hold the visible words ("Today", "8", the month and the mark
+labels). It is present on the base build, was named as still to do in `20261108-a11y-label-in-name-glue.md`, and was not
+touched here. The scan will not be clean until that is fixed.
+
+### Gates
+
+Frontend lint: 0 warnings. Vitest with coverage: 862 files, 19,159 tests, thresholds met. `npm audit --audit-level=high`:
+4 low only. `npm run build`: ok. diff-cover against `origin/main`: 100% (6 changed source lines). Smoke: 47 passed, 8
+skipped (the nginx spec, which needs Docker); `--project=smoke --repeat-each=3`: 135 passed; `roles-write` and `logout`
+`--repeat-each=3`: green. New e2e: the keyboard path and the legend-edge click with the pointer-events probe.

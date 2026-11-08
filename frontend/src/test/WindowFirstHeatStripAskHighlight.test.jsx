@@ -97,7 +97,10 @@ async function renderStrip(props = {}) {
   await act(async () => { view = render(strip(props)); });
   return view;
 }
-const cardFor = (key) => screen.getAllByTestId('wf-heat-card').find((el) => el.getAttribute('aria-labelledby')?.endsWith(key.replace(/:/g, '-')));
+// The name is on the card's inner button, the data-* marks on the card: find the one, hand back the other.
+const cardFor = (key) => screen.getAllByTestId('wf-heat-card-button')
+  .find((el) => el.getAttribute('aria-labelledby')?.endsWith(key.replace(/:/g, '-')))
+  ?.closest('[data-testid="wf-heat-card"]');
 const tonight = () => cardFor(`${TODAY}:SUNSET`);
 /** The cards wearing the highlight — read through the cards, not the document. */
 const highlightedCards = () => screen.queryAllByTestId('wf-heat-card')
@@ -147,11 +150,11 @@ describe('the highlight', () => {
       highlightKeys: new Map([[`${TODAY}:SUNSET`, 3]]),
     });
 
-    expect(tonight()).toHaveAccessibleName(/best bet, Ask pick 3$/);
+    expect(within(tonight()).getByRole('button')).toHaveAccessibleName(/best bet, Ask pick 3$/);
     // And a card with no highlight has no such words.
     first.unmount();
     await renderStrip({});
-    expect(tonight()).not.toHaveAccessibleName(/Ask pick/);
+    expect(within(tonight()).getByRole('button')).not.toHaveAccessibleName(/Ask pick/);
   });
 
   it('is a DIFFERENT mark from the open card: both attributes can sit on one card, neither implies the other', async () => {

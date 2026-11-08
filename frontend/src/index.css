@@ -912,7 +912,7 @@
   background: rgba(143, 182, 217, 0.07);
 }
 /* Its own hover arm, because the rule above out-specifies the plain `:hover` — the same trap M1
-   recorded for `button.wf-hc:hover`, one component along. */
+   recorded for `div.wf-hc:where([data-control]):hover` (once `button.wf-hc:hover`), one component along. */
 .wf-tick-group[data-away='true']:hover {
   border-color: rgba(143, 182, 217, 0.95);
   background: rgba(143, 182, 217, 0.12);
@@ -999,7 +999,7 @@
 }
 /* The arm's own focus ring rather than the UA's, which is the convention roughly thirty-five rules
    in this file already follow (`.wf-seg-btn`, `.wf-spot`, `.wf-search-row`,
-   `button.wf-hc`, `.wf-lens-reset`). `inset`, so the ring sits inside each control's own edge: the
+   `.wf-hc-hit`, `.wf-lens-reset`). `inset`, so the ring sits inside each control's own edge: the
    origin button and ⌕ fill the bordered group edge to edge, and ⌂ has a border of its own, so a
    ring drawn outside either would run over a border. (This used to say the group CLIPS its
    children; it has no `overflow` to clip with.)
@@ -1698,7 +1698,8 @@
    own reservation property, which a sticky test locates by its own exact declaration text (deliberately
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
-.wf-hstrip.wf-hstrip-rows .wf-hc {
+.wf-hstrip.wf-hstrip-rows .wf-hc,
+.wf-hstrip.wf-hstrip-rows .wf-hc-hit {
   /* `--safe-t` for the same reason as the other two reservation sites: `scroll-margin-top` is
      measured from the scrollport edge, which `viewport-fit=cover` moves up by the inset, and
      `--wf-lens-reserve` is a height that knows nothing about the line the bar rests on. This one
@@ -1986,13 +1987,20 @@
   container-name: wf-card;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
 }
-/* Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has
-   now closed in five places. Only the BUTTON gets it: an away cell is a `<div>` and is not a
-   control, and a pointer over one would promise a press it cannot take. */
-button.wf-hc {
+/* ⚠️ THE CONTROL CARD IS A `div`, NOT A `button` (a11y-heat-card-plan.md, WCAG 2.5.3). Every rule here that
+   used to say `button.wf-hc` now says `div.wf-hc:where([data-control])`: `:where()` adds no specificity, so
+   the selector is (0,1,1) exactly as `button.wf-hc` was, and every piece of cascade arithmetic in the
+   comments below still holds. `data-control` marks a card with a control inside; an away cell is also a
+   `div.wf-hc` and has none, so it is still not matched.
+
+   Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has now
+   closed in five places. Only a CONTROL card gets it: an away cell is not a control, and a pointer over
+   one would promise a press it cannot take. The card keeps it (and the hover, and the pointer's click)
+   because the hit button below is `pointer-events: none`. */
+div.wf-hc:where([data-control]) {
   cursor: pointer;
 }
-button.wf-hc:hover {
+div.wf-hc:where([data-control]):hover {
   border-color: var(--color-plex-border-light);
   background: var(--color-plex-surface);
   transform: translateY(-2px);
@@ -2003,16 +2011,37 @@ button.wf-hc:hover {
    motion is the decoration. */
 @media (prefers-reduced-motion: reduce) {
   .wf-hc { transition: border-color 0.14s ease, background 0.14s ease; }
-  button.wf-hc:hover { transform: none; }
+  div.wf-hc:where([data-control]):hover { transform: none; }
 }
 /* Bone at 2px, for the reason this file records in four other places: `--color-plex-border-light`
    measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator, and on the OPEN card the
    resting gold border is brighter than it, so focus would read as noise beside an unfocused edge.
-   9px to match the card's own corner, so the ring traces the shape it is around. */
-button.wf-hc:focus-visible {
+   9px to match the card's own corner, so the ring traces the shape it is around.
+
+   The ring is drawn by the card's inner `.wf-hc-hit` button, which is the focus target. Its box is the card's
+   PADDING box (`inset: 0`; the card has a 1px border), so the ring sits at `outline-offset: 3px` (the 1px
+   border plus the card's own 2px) with an 8px corner (the card's 9px less that border: an outline's corner is
+   its box's radius plus the offset, 11px either way), which puts it exactly where the card's own ring was.
+   ⚠️ NOT `inset: -1px`, though that puts the box on the border box: measured in Chromium, on the phone's
+   scrolling strip it changed the pixels of the card peeking in at the edge (one level on ~8,000 of them),
+   and `inset: 0` changes none. `pointer-events: none`: a pointer lands on the card, so its `title` tooltips,
+   the pick legend's overhang and `cursor: pointer` are as they were; the keyboard and assistive tech
+   activate the button, whose click bubbles to the card's `onClick`. */
+.wf-hc-hit {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  appearance: none;
+  background: transparent;
+  cursor: inherit;
+  pointer-events: none;
+}
+.wf-hc-hit:focus-visible {
   outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 9px;
+  outline-offset: 3px;
 }
 /* ── The verdict tint ──────────────────────────────────────────────────────────────────────────
    The grade tints the whole card rather than a chip in the corner: the verdict is the surface you
@@ -2046,15 +2075,15 @@ button.wf-hc:focus-visible {
   background: linear-gradient(rgba(200, 69, 47, 0.09), rgba(200, 69, 47, 0.09)),
     var(--color-plex-panel);
 }
-button.wf-hc.vg:hover {
+div.wf-hc:where([data-control]).vg:hover {
   background: linear-gradient(rgba(138, 174, 114, 0.17), rgba(138, 174, 114, 0.17)),
     var(--color-plex-surface);
 }
-button.wf-hc.vm:hover {
+div.wf-hc:where([data-control]).vm:hover {
   background: linear-gradient(rgba(224, 165, 66, 0.15), rgba(224, 165, 66, 0.15)),
     var(--color-plex-surface);
 }
-button.wf-hc.vp:hover {
+div.wf-hc:where([data-control]).vp:hover {
   background: linear-gradient(rgba(200, 69, 47, 0.14), rgba(200, 69, 47, 0.14)),
     var(--color-plex-surface);
 }
@@ -2068,7 +2097,7 @@ button.wf-hc.vp:hover {
    border back on exactly the card most likely to be both picked and open. Nothing after this point
    sets a card background, so this half needs no such move. */
 .wf-hc.on,
-button.wf-hc.on:hover {
+div.wf-hc:where([data-control]).on:hover {
   background: linear-gradient(rgba(201, 162, 75, 0.11), rgba(201, 162, 75, 0.11)),
     var(--color-plex-panel);
 }
@@ -3067,7 +3096,7 @@ button.wf-hc.on:hover {
    would couple this legend to the three surfaces it now deliberately differs from. */
 .wf-hc-lg[data-pick="best"] { color: #B6D49F; }
 .wf-hc-lg[data-pick="also"] { color: #8CA87A; font-weight: 600; }
-/* ⚠️ EACH PICK NEEDS ITS OWN `:hover` ARM, and the reason is arithmetic. `button.wf-hc:hover` above
+/* ⚠️ EACH PICK NEEDS ITS OWN `:hover` ARM, and the reason is arithmetic. `div.wf-hc:where([data-control]):hover` above
    is (0,2,1) — two classes and a pseudo-class — where `.wf-hc.best` is (0,2,0), so without these the
    pointer landing on the one card the forecast recommends flipped its green border to the ordinary
    hover bone while the word riding that border stayed green and the inset ring stayed green: the
@@ -3075,12 +3104,12 @@ button.wf-hc.on:hover {
    test — jsdom computes a selector LIST's specificity as the maximum over the list, so a sliced
    cascade test here answers the opposite and passes. */
 .wf-hc.best,
-button.wf-hc.best:hover {
+div.wf-hc:where([data-control]).best:hover {
   border-color: var(--color-verdict-go);
   box-shadow: inset 0 0 0 1px rgba(138, 174, 114, 0.45);
 }
 .wf-hc.also,
-button.wf-hc.also:hover {
+div.wf-hc:where([data-control]).also:hover {
   border-color: rgba(138, 174, 114, 0.5);
 }
 /* ⚠️ AFTER the pick rules, and it has to be. The open state is a state the READER chose and must win
@@ -3089,9 +3118,9 @@ button.wf-hc.also:hover {
    of `.on` is fine up there (nothing later sets a card background); only the border needed moving,
    so the border lives here beside the rules it has to beat and the note above it says why. */
 .wf-hc.on,
-button.wf-hc.on:hover,
-button.wf-hc.best.on:hover,
-button.wf-hc.also.on:hover {
+div.wf-hc:where([data-control]).on:hover,
+div.wf-hc:where([data-control]).best.on:hover,
+div.wf-hc:where([data-control]).also.on:hover {
   border-color: rgba(201, 162, 75, 0.62);
   box-shadow: none;
 }
@@ -10169,6 +10198,9 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    rather than wrong (it leaves the band's own bottom edge showing above a focused tab), and because
    a phase that pins the masthead for real makes the original mechanism true again. */
 .wf-hc,
+/* Focus lands on the card's inner button now, not the card, and `scroll-margin` is read off the element
+   that is scrolled into view, so the button carries the same reservation. */
+.wf-hc-hit,
 .wf-tab,
 .wf-spot,
 .wf-film-btn,
@@ -15784,24 +15816,39 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
    alone would read as "the open one": this carries a SECOND pixel of the same gold (inset, so it moves
    nothing — the pick card's own selected rule does the same) AND the pick's rank circle, which is what
    names it. The class is doubled so the rule is (0,3,1) at rest and (0,4,1) on hover: that ties the most
-   specific competitor, `button.wf-hc.best.on:hover`, and wins it by coming later — so the highlight
+   specific competitor, `div.wf-hc:where([data-control]).best.on:hover`, and wins it by coming later — so the highlight
    survives a card that is also a pick or also open, and the two attributes then sit on one card. */
-button.wf-hc.wf-hc[data-ask-highlight='true'],
-button.wf-hc.wf-hc[data-ask-highlight='true']:hover {
+div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true'],
+div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true']:hover {
   border-color: rgba(201, 162, 75, .7);
   background: linear-gradient(rgba(201, 162, 75, .08), rgba(201, 162, 75, .08)), var(--color-plex-panel);
   box-shadow: inset 0 0 0 1px rgba(201, 162, 75, .7);
 }
 @media (forced-colors: active) {
-  button.wf-hc.wf-hc[data-ask-highlight='true'] {
+  div.wf-hc.wf-hc:where([data-control])[data-ask-highlight='true'] {
     border-color: Highlight;
     outline: 2px solid Highlight;
     outline-offset: -3px;
   }
   /* The mark above is an inset outline, which would swallow the card's own focus ring (same colour, same
-     place): focus keeps its outset ring, which is what tells the two apart. */
-  button.wf-hc.wf-hc[data-ask-highlight='true']:focus-visible {
+     place): focus keeps its outset ring, which is what tells the two apart. The focus ring is the CARD's own
+     outline here (the card's `:where(:has(> .wf-hc-hit:focus-visible))` stands in for the `:focus-visible` it
+     no longer carries, and `:where` keeps the specificity at the old (0,4,1) minus that pseudo-class, which
+     it still wins by coming after the rule above), and the hit button's own ring is switched off, or the
+     two would draw as a double ring. `none`, not `transparent`: forced colours repaint a transparent outline
+     in a system colour (the note above `.wf-tick-origin:focus-visible`), which is the very ring to avoid. */
+  div.wf-hc.wf-hc:where([data-control]):where(:has(> .wf-hc-hit:focus-visible))[data-ask-highlight='true'] {
     outline-offset: 2px;
+  }
+  /* A focused `<button>` card had its border drawn in Highlight here (the engine's own forced-colours focus
+     style for a button, measured), beside the ring; a `div` card keeps CanvasText. Said again, so the
+     focused card looks as it did. The classes are repeated to out-rank the pick and open border rules, which
+     are (0,3,1) and (0,4,1); it only applies in this mode, where a non-system colour is forced anyway. */
+  div.wf-hc.wf-hc.wf-hc.wf-hc.wf-hc:where([data-control]):where(:has(> .wf-hc-hit:focus-visible)) {
+    border-color: Highlight;
+  }
+  div.wf-hc[data-ask-highlight='true']:where([data-control]) > .wf-hc-hit:focus-visible {
+    outline: none;
   }
 }
 /* Forced colours strip the grid's background (its 1px rules) and the rank circles' fill: give the cells and

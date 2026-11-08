@@ -453,6 +453,10 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
+    // Focus lands on the card's inner `.wf-hc-hit` button, not the card (a11y-heat-card-plan.md, A4), and
+    // `scroll-margin` is read off the element scrolled into view: without it a keyboard-focused card scrolls
+    // flush under the sticky bars (SC 2.4.11).
+    expect(selectors).toContain('.wf-hc-hit,');
     expect(selectors).toContain('.wf-tab,');
     // …and it really is the list, not a comment that happens to name them.
     expect(selectors).toContain('.wf-spot,');
@@ -560,5 +564,13 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
+  });
+
+  it('carries the pinned-rows reservation on the card\'s hit button too, in the same rule as the card', () => {
+    // The rows-mode rule (`.wf-hstrip-rows .wf-hc`, three terms) is the one a desktop card is scrolled by.
+    const css = readCss();
+    const at = css.indexOf('.wf-hstrip.wf-hstrip-rows .wf-hc,\n.wf-hstrip.wf-hstrip-rows .wf-hc-hit {');
+    expect(at, 'the rows-mode card rule must list the hit button beside the card').toBeGreaterThanOrEqual(0);
+    expect(css.slice(at, css.indexOf('\n}', at))).toContain('var(--wf-dh-h, 45px)');
   });
 });

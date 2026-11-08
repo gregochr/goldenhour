@@ -629,7 +629,9 @@ describe('focus is never left to fall to <body>', () => {
     renderAskShell({ width: 1280, ctx: matrixCtx() });
     await openDock();
     const card = (await screen.findAllByTestId('wf-heat-card'))[0];
-    card.focus();
+    // The control is the card's inner button: focusing the `div` would focus nothing and pass vacuously.
+    card.querySelector('[data-testid="wf-heat-card-button"]').focus();
+    expect(card.querySelector('[data-testid="wf-heat-card-button"]')).toHaveFocus();
     await act(async () => { fireEvent.click(card); });
     await screen.findByTestId('window-sheet');
     expect(dock()).toHaveAttribute('inert');

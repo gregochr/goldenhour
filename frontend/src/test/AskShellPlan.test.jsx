@@ -52,8 +52,10 @@ const modalCount = () => document.querySelectorAll('[aria-modal="true"]').length
 const dock = () => screen.queryByTestId('ask-dock');
 const askSheet = () => screen.queryByRole('dialog', { name: 'Ask PhotoCast' });
 const locationSheet = () => screen.queryByTestId('location-sheet');
-const heatCard = (key) => screen.queryAllByTestId('wf-heat-card')
-  .find((el) => el.getAttribute('aria-labelledby')?.endsWith(key.replace(/:/g, '-')));
+// The name is on the card's inner button, the data-* marks on the card: find the one, hand back the other.
+const heatCard = (key) => screen.queryAllByTestId('wf-heat-card-button')
+  .find((el) => el.getAttribute('aria-labelledby')?.endsWith(key.replace(/:/g, '-')))
+  ?.closest('[data-testid="wf-heat-card"]');
 const highlighted = () => screen.queryAllByTestId('wf-heat-card')
   .filter((card) => card.getAttribute('data-ask-highlight') === 'true');
 const sheetRows = () => screen.getAllByTestId('location-sheet-row');
