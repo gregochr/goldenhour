@@ -116,3 +116,99 @@ Cadence*):
 - The 600-odd axe "needs review" contrast items and the other "needs review" rules. They are not failures,
   and they need imagery the tests stub out.
 - Making the advisory check required, which is the owner's call once the scan is clean.
+
+## Amendments from the plan review (2026-11-08)
+
+Three lenses (CSS cascade, a11y semantics, tests and interaction) reviewed the plan. These amendments
+override the sections above where they differ.
+
+### A1. The click stays on the card; the hit button is keyboard-only (replaces rule 3's pointer model)
+- **The card `div` keeps `onClick`.** `.wf-hc-hit` gets `pointer-events: none`, so pointer clicks and hovers
+  land on the card and its spans exactly as today. This keeps the five `title` tooltips
+  (`WindowFirstHeatStrip.jsx` ~1710, 1770, 1855, 1888, 1917: the blanked note, the Spread histogram, Best,
+  the tide chip and the clocked topic). It keeps the pick legend's overhang (`.wf-hc-lg`, `top: -8px`)
+  clickable, and keeps `cursor: pointer` coming from the card.
+- **The keyboard and assistive tech reach the card through the hit button.** Enter or Space on the focused
+  button fires a `click` on the button, which bubbles to the card's `onClick`. That happens once:
+  `pointer-events: none` means a pointer never targets the button. TalkBack and VoiceOver activate the
+  focused button the same way.
+- **A pointer click on the card focuses the hit button first** (`hitRef.current?.focus({ preventScroll: true })`),
+  then opens the window. Without that, `document.activeElement` would be `<body>` when the window sheet
+  opens, and focus restore and Back would return focus to the body. Today a click focuses the card
+  button in Chromium.
+- jsx-a11y will flag a `div` with `onClick`. Use a scoped `eslint-disable-next-line` that names the rules,
+  with the reason: "the keyboard and AT path is the inner `.wf-hc-hit` button; the div's click only
+  serves the pointer".
+- `cursor: pointer` moves from `button.wf-hc` to the rewritten card selector. Set `.wf-hc-hit` to
+  `cursor: inherit` for safety.
+
+### A2. The sentence lives only in the button (fixes a double read and a duplicate id)
+On a control card, the `sr-only` name span moves from the card body into `.wf-hc-hit` and appears nowhere
+else. An away card keeps its span in the body, as today. Test: exactly one `#nameId` in the document, and
+the card `div` has no text outside the button and the `aria-hidden` spans.
+
+### A3. Two app focus moves (blocker)
+`WindowFirstShell.jsx` ~2277 (`applyConflictAction`) and ~3494 ("Plan from region") call
+`document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.()`. That would silently match nothing
+after the change. Point both at `[data-testid="wf-heat-card-button"]`, which excludes away cards as
+before, and add a test for each route. Also grep for `focus?.(`, `querySelector('button[` and
+`` `button[data-testid` ``.
+
+### A4. Geometry and focus ring
+- `.wf-hc-hit`: `position: absolute; inset: -1px; border-radius: 9px;` so it covers the border box. The
+  card has a 1px border, and `inset: 0` would put the ring 1px inside today's ring. Also `appearance:
+  none; background: transparent; border: 0; padding: 0; margin: 0;`.
+- The ring: `.wf-hc-hit:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }`.
+- **Scroll reservation (blocker):** `scroll-margin-top` sits on `.wf-hc` (`index.css` ~1701 and ~10171-10186)
+  so that a focused card scrolls clear of the sticky bars (SC 2.4.11). Focus now lands on `.wf-hc-hit`,
+  so add `.wf-hc-hit` to both reservation rules, and keep `WindowFirstShellSticky.test.jsx` ~444-453's
+  unique-declaration check true.
+- **Forced colours:** the Ask-highlight forced-colours focus arm (`index.css` ~15803) would otherwise draw
+  two rings. In that arm set `.wf-hc-hit:focus-visible { outline: none }` (not `transparent`; see the
+  note at ~1006) and let the card's outline be the ring. Do the same anywhere else the card draws its
+  own outline.
+
+### A5. Selectors: 17, not about 15
+Rewrite the `button.wf-hc` selectors at `index.css` ~1992, 1995, 2006, 2012, 2049, 2053, 2057, 2071, 3078,
+3083, 3092-3094, 15789, 15790, 15796 and 15803, and reword the specificity comments at ~915, 1002, 3070
+and 15787. The CSS review checked every specificity in the old-to-new table and all of them hold: the
+`:where` forms tie or win on order exactly as before. Record the table in the PR.
+
+The UA properties a `button` has and a `div` lacks are `text-align`, `cursor`, `text-transform`,
+`word-spacing`, `text-indent`, `text-shadow`, `box-sizing`, `font-size` and `font-family`. Each is either
+already set on `.wf-hc`, comes from Preflight, or is not set by any ancestor. That is why the pixel check
+should come back at zero.
+
+### A6. Tests: the real counts and patterns
+- The counts are **22 Vitest files and 6 Playwright specs**: about 27 click sites, 18 aria reads, 6 focus
+  sites, 2 `disabled` sites, 2 `pointerDown` sites and 2 mixed helpers.
+- **What moves to the button:** `aria-labelledby`, `aria-expanded` and `aria-haspopup` reads, `focus()`
+  calls, `disabled` and `toHaveFocus` assertions. Click sites still work on the card under A1. Leave them
+  there unless a test is about keyboard activation, which must use the button.
+  - `AskShellDock.test.jsx` ~632 and `planOriginShell.test.jsx` ~269 would pass vacuously if the card
+    `div` were focused, so they must focus the button.
+  - `AppSettingsRoutes.test.jsx` ~457-513 (focus and `disabled`) target the button.
+- **Mixed helpers** (`WindowFirstHeatStripAskHighlight.test.jsx` ~100, `AskShellPlan.test.jsx` ~55): find the
+  button by `aria-labelledby`, then use `.closest('[data-testid="wf-heat-card"]')` for the `data-*` reads.
+  Index buttons with `within(card)`, never `getAllByTestId('wf-heat-card-button')[n]`: an away cell has no
+  button, so the indexes differ.
+- `WindowFirstHeatStrip.test.jsx` ~437-438 currently asserts the card is a `BUTTON` with no button inside.
+  Invert it deliberately: the card is a `DIV` with `data-control="true"` and exactly one button inside,
+  which is `wf-heat-card-button`.
+- `askPlanCss.test.js` ~102, 114, 126 and 142 match the selector text. Rewrite the strings, and assert that
+  both `indexOf` results are at least 0. Line 126 currently passes vacuously at -1.
+- **New guard for WCAG 2.5.3 itself:** for each variant, the button's accessible name contains the
+  visible time, the verdict word, the sun word and the pick word, case-insensitively. The fix makes axe's
+  rule inapplicable in a browser; this test keeps the conformance it stands for.
+- **The jsdom axe check** runs with `css: false`, so the `sr-only` text counts as visible and the rule
+  *passes* there. The assertion stays `violations: 0`. Run `npm ci` first, because the lockfile pins
+  axe-core 4.14.
+- **E2E:**
+  - `back.spec.js` ~376's focus assertion targets `card.getByTestId('wf-heat-card-button')`.
+  - Add a Playwright click on the legend's top edge: it must open the window.
+  - Add a keyboard path: Tab to a card, press Enter, the sheet opens, close it, and focus returns to the
+    button.
+
+### A7. The visual check covers forced colours
+Add `forcedColors: 'active'` shots (rest, keyboard focus, and Ask highlight with focus), and confirm the
+border and the focus ring are both drawn and there is no double ring.
