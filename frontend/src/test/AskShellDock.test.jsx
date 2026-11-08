@@ -632,7 +632,8 @@ describe('focus is never left to fall to <body>', () => {
     // The control is the card's inner button: focusing the `div` would focus nothing and pass vacuously.
     card.querySelector('[data-testid="wf-heat-card-button"]').focus();
     expect(card.querySelector('[data-testid="wf-heat-card-button"]')).toHaveFocus();
-    await act(async () => { fireEvent.click(card); });
+    // A keyboard press: the click lands on the BUTTON (Enter on it), which bubbles to the card.
+    await act(async () => { fireEvent.click(card.querySelector('[data-testid="wf-heat-card-button"]')); });
     await screen.findByTestId('window-sheet');
     expect(dock()).toHaveAttribute('inert');
     expect(tab('At a Glance')).not.toHaveFocus();

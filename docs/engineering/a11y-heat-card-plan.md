@@ -331,3 +331,35 @@ Frontend lint: 0 warnings. Vitest with coverage: 862 files, 19,159 tests, thresh
 4 low only. `npm run build`: ok. diff-cover against `origin/main`: 100% (6 changed source lines). Smoke: 47 passed, 8
 skipped (the nginx spec, which needs Docker); `--project=smoke --repeat-each=3`: 135 passed; `roles-write` and `logout`
 `--repeat-each=3`: green. New e2e: the keyboard path and the legend-edge click with the pointer-events probe.
+
+### Review round (2026-11-08, after the diff reviews)
+
+- **Touch takes the button.** Explore-by-touch (TalkBack, VoiceOver) resolves what is under a fingertip by layout hit
+  testing, so with the button `pointer-events: none` it would find the unnamed card `div`. Under `@media (pointer: coarse)`
+  the button is `pointer-events: auto` and `div.wf-hc:where([data-control]) > :not(.wf-hc-hit)` is `none`. `pointer-events`
+  inherits, and a grep of the stylesheet found nothing inside the card that sets it back (the label layer `.wf-tlab` is
+  already `none`; a test pins that no `.wf-hc`/`.wf-tlab`/`.wf-hm` rule sets `auto`). **The legend's choice:** it overlaps
+  the button's box (it overhangs the top edge by 8px and is about 12px tall), so it passes touches through too; a tap on
+  the 8px of it above the card now does nothing on touch (it opened the window before; a fine pointer is unchanged, and the
+  card and the legend's lower half still open it). Tooltips do not exist on touch. Nothing here paints (the phone shots
+  re-diff at 0, below). Proven in a Pixel 7 profile (`hasTouch`, `pointer: coarse`): `elementFromPoint` at the card's
+  centre, canvas, time and verdict returns the button; a real touch tap opens the window with exactly one click event;
+  on the desktop profile the same points return the card's own spans (the tooltips). Mutation: the coarse arm turned off
+  fails the e2e test and its stylesheet test.
+- **Scroll reservation, +1px.** `inset: 0` puts the button at the card's padding box, 1px below the border box the
+  reservation was sized for. The two hit-button arms are now their own rules (`.wf-hc-hit` and
+  `.wf-hstrip.wf-hstrip-rows .wf-hc-hit`, each `+ 1px`), written above the shared lists so the sticky tests' "last
+  declaration" and "unique declaration" reads still hold; the shared lists no longer name the button.
+- **Tests tightened:** the visible-words guard now covers a blanked stand-down, an UNRATED word, a STAND_DOWN word and an
+  Ask-ranked card, over every visible entry (`wf-heat-blanked` and `wf-heat-ask-rank` included), through the accessibility
+  tree, and found no word missing from the sentence. The tab-stop tests include the card itself, record every stop and
+  assert the card is never one (mutation: `tabIndex={0}` on the card fails; so does `type="submit"` on the button).
+  The stacked-sheet focus test is restored with two cards and a popup opened from the second (reverting the selector
+  fails it and the search-route one). The e2e keyboard test asserts the stop after card 1 is card 2's button, and the
+  pointer test that the probe is above the card's box and that the clicked card's button is the focused one.
+- **Accepted differences, stated plainly.** The "after" pixels are not literally 0 on one shot: `desktop-plain-focus` has
+  2 differing pixels at the ring's top-left corner (3 to 5 levels of 255, the anti-aliasing of an 8px + 3px corner against a
+  9px + 2px one), and `desktop-synthetic-ask-best-focus` has 1 (one level, on the neighbouring card's corner). The reduced-motion arm
+  (`div.wf-hc:where([data-control]):hover { transform: none }`) is correct by inspection only: the shots were taken with
+  `reducedMotion: 'reduce'`, which exercises it, but only a hover shot (which showed no `translateY`) saw it, and nothing
+  asserts it.

@@ -1698,8 +1698,7 @@
    own reservation property, which a sticky test locates by its own exact declaration text (deliberately
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
-.wf-hstrip.wf-hstrip-rows .wf-hc,
-.wf-hstrip.wf-hstrip-rows .wf-hc-hit {
+.wf-hstrip.wf-hstrip-rows .wf-hc {
   /* `--safe-t` for the same reason as the other two reservation sites: `scroll-margin-top` is
      measured from the scrollport edge, which `viewport-fit=cover` moves up by the inset, and
      `--wf-lens-reserve` is a height that knows nothing about the line the bar rests on. This one
@@ -1980,9 +1979,14 @@
      decision — a content-driven wrap would let two neighbours' Best rows land on different baselines.
      `inline-size` only: the card's height is still its content's. The tracks above are
      `minmax(0, 1fr)`, so the card's min-content width (which this containment zeroes) never set a
-     column floor in the first place. ⚠️ Layout containment makes the card a stacking context and the
-     containing block for fixed descendants; the pick legend (`top: -8px`, absolute) and the hover
-     `transform` below are both unaffected — measured in the §7 fixture, not reasoned. */
+     column floor in the first place. ⚠️ This was once recorded as "layout containment makes the card a
+     stacking context". It does not: `container-type: inline-size` applies size and style containment, not
+     layout containment, and a `position: relative` box with `z-index: auto` is no stacking context either
+     (measured: a `z-index: -1` child sank behind the strip's background). The card is one only while hovered
+     (the `transform`). That is why the hit button (`.wf-hc-hit`) is the card's FIRST child with no z-index: it
+     paints below the positioned canvas well and legend by tree order, which keeps it from being promoted to
+     its own layer over the canvas (that shifted the heat field's pixels). The pick legend (`top: -8px`,
+     absolute) is unaffected — measured in the §7 fixture, not reasoned. */
   container-type: inline-size;
   container-name: wf-card;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
@@ -2042,6 +2046,31 @@ div.wf-hc:where([data-control]):hover {
 .wf-hc-hit:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 3px;
+}
+/* Focus lands on the card's inner button, not the card, and `scroll-margin` is read off the element scrolled
+   into view, so the button carries the card's reservation (SC 2.4.11) in both places the card has one. `+ 1px`
+   because the button sits at the card's PADDING box (`inset: 0`), 1px below the border box the reservation was
+   sized for. Kept as their own rules, written above the shared list, which the sticky tests locate as the LAST
+   `scroll-margin-top` declaration in the file. */
+.wf-hc-hit {
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--safe-t) + 1px);
+}
+.wf-hstrip.wf-hstrip-rows .wf-hc-hit {
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px
+      + var(--safe-t) + 1px);
+}
+/* ⚠️ TOUCH TAKES THE BUTTON (a11y-heat-card-plan.md, review). Explore-by-touch (TalkBack, VoiceOver) resolves what
+   is under a fingertip by LAYOUT hit testing; with the button `pointer-events: none` it would resolve to the
+   unnamed card `div`. On a coarse pointer the button takes the touch, and every other child of the card passes it
+   through (`pointer-events` inherits, and no descendant of the card sets it back: the label layer `.wf-tlab` is
+   already `none`), so a tap lands on the button and its click bubbles to the card's `onClick`, once. Tooltips do not
+   exist on touch, so nothing is lost. The pick legend overhangs the button's box by its lower few pixels, so it
+   passes touches through too: a tap on the 8px of it above the card now does nothing on touch (it opened the window
+   before; the card itself, and the legend's lower half, still do). A fine pointer keeps the rule above, so its
+   tooltips, legend overhang and cursor are untouched. Nothing here paints. */
+@media (pointer: coarse) {
+  .wf-hc-hit { pointer-events: auto; }
+  div.wf-hc:where([data-control]) > :not(.wf-hc-hit) { pointer-events: none; }
 }
 /* ── The verdict tint ──────────────────────────────────────────────────────────────────────────
    The grade tints the whole card rather than a chip in the corner: the verdict is the surface you
@@ -10198,9 +10227,6 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
    rather than wrong (it leaves the band's own bottom edge showing above a focused tab), and because
    a phase that pins the masthead for real makes the original mechanism true again. */
 .wf-hc,
-/* Focus lands on the card's inner button now, not the card, and `scroll-margin` is read off the element
-   that is scrolled into view, so the button carries the same reservation. */
-.wf-hc-hit,
 .wf-tab,
 .wf-spot,
 .wf-film-btn,

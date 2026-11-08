@@ -112,6 +112,17 @@ const VARIANTS = [
   ['an also-good pick', [card(TODAY, 'SUNSET', { pickKind: 'also' })], {}],
   ['an unscored card', [card(TODAY, 'SUNSET', { bestRating: null })], {}],
   ['an Ask-highlighted card', [card(TODAY, 'SUNSET', { pickKind: 'best' })], { highlightKeys: new Map([[SUNSET, 2]]) }],
+  // The wording variants: each prints a DIFFERENT visible word than the rated card's ("unsettled", "Too few", "Poor").
+  ['a blanked stand-down (visible "unsettled")', [card(TODAY, 'SUNSET', {
+    verdict: 'STAND_DOWN', verdictLabel: 'Poor', verdictBlanked: true, verdictMean: null,
+  })], {}],
+  ['an UNRATED word (visible "Too few")', [card(TODAY, 'SUNSET', {
+    verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6,
+  })], {}],
+  ['a STAND_DOWN word (visible "Poor")', [card(TODAY, 'SUNSET', {
+    verdict: 'STAND_DOWN', verdictLabel: 'Poor', verdictMean: 2.0,
+  })], {}],
+  ['an Ask-ranked card (visible rank circle)', [card(TODAY, 'SUNSET')], { highlightKeys: new Map([[SUNSET, 3]]) }],
 ];
 
 describe('WCAG 2.5.3, by axe\'s own rule (label-content-name-mismatch)', () => {
@@ -131,15 +142,35 @@ describe('WCAG 2.5.3, by the words (the rule is inapplicable in a browser, so th
     await renderStrip(cards, props);
     const control = screen.getByTestId('wf-heat-card-button');
     const name = nameOf(control);
-    const visible = ['wf-heat-time', 'wf-heat-verdict', 'wf-heat-sun', 'wf-heat-legend']
+    const visible = ['wf-heat-time', 'wf-heat-verdict', 'wf-heat-sun', 'wf-heat-legend', 'wf-heat-blanked', 'wf-heat-ask-rank']
       .map((id) => screen.queryByTestId(id))
       .filter(Boolean)
       .map((el) => el.textContent.trim().toLowerCase());
     // The time, the verdict word and the sun word are on EVERY card; the pick word only on a pick.
     expect(visible.length).toBeGreaterThanOrEqual(3);
     visible.forEach((text) => expect(name, `"${text}"`).toContain(text));
-    // And the same through the accessibility tree, not only the IDREF's text.
-    expect(control).toHaveAccessibleName(new RegExp(visible[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    // And the same through the accessibility tree, not only the IDREF's text: for EVERY visible entry.
+    visible.forEach((text) => {
+      expect(control).toHaveAccessibleName(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    });
+  });
+});
+
+describe('the wording variants really draw the words they are meant to check', () => {
+  it.each([
+    ['a blanked stand-down', VARIANTS[6], 'wf-heat-blanked'],
+    ['an Ask-ranked card', VARIANTS[9], 'wf-heat-ask-rank'],
+  ])('%s draws its own visible element (or the guard above proves nothing)', async (_n, [, cards, props], testId) => {
+    await renderStrip(cards, props);
+    expect(screen.getByTestId(testId).textContent.trim()).not.toBe('');
+  });
+
+  it('the UNRATED variant prints the short form and the STAND_DOWN variant the word', async () => {
+    await renderStrip(VARIANTS[7][1], VARIANTS[7][2]);
+    expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent(/^Too few/);
+    cleanup();
+    await renderStrip(VARIANTS[8][1], VARIANTS[8][2]);
+    expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent(/^Poor/);
   });
 });
 
@@ -160,6 +191,8 @@ describe('the name has one owner', () => {
       // The button's own content is the sentence and nothing else.
       expect(button.textContent).toBe(document.getElementById(id).textContent);
       expect(button.children).toHaveLength(1);
+      // `type="button"`: a bare button submits a form it is ever placed in.
+      expect(button).toHaveAttribute('type', 'button');
     });
   });
 
@@ -183,8 +216,9 @@ describe('the routes into the control', () => {
 
     // One stop per control card: tabbable things inside a card are its one button and nothing else, and the
     // away cell holds none. (The strip's own lens bar and tiles are tab stops too, so this counts by card.)
-    const tabbable = (el) => [...el.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
-      .filter((n) => n.getAttribute('tabindex') !== '-1');
+    const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]';
+    const tabbable = (el) => [el, ...el.querySelectorAll(FOCUSABLE)]
+      .filter((n) => n.matches(FOCUSABLE) && n.getAttribute('tabindex') !== '-1');
     const rendered = screen.getAllByTestId('wf-heat-card');
     expect(rendered).toHaveLength(3);
     rendered.forEach((el) => {
@@ -195,11 +229,15 @@ describe('the routes into the control', () => {
     expect(buttons).toHaveLength(2);
     // And Tab really does walk onto them, in order, with the card `div`s skipped.
     const stops = [];
+    const visited = [];
     for (let i = 0; i < 80 && stops.length < 2; i += 1) {
       await user.tab();
+      visited.push(document.activeElement);
       if (buttons.includes(document.activeElement)) stops.push(document.activeElement);
     }
     expect(stops).toEqual(buttons);
+    // Every stop on the way, not only the ones that are buttons: the card `div` is never one of them.
+    expect(visited.filter((el) => el.getAttribute('data-testid') === 'wf-heat-card')).toEqual([]);
     const first = buttons[0];
     first.focus();
     await user.keyboard('{Enter}');
@@ -250,6 +288,22 @@ describe('the hit button\'s stylesheet (jsdom applies none, so it is read as tex
   it('draws the focus ring itself, in gold at 2px', () => {
     const rule = body('.wf-hc-hit:focus-visible');
     expect(rule).toMatch(/outline:\s*2px solid var\(--color-plex-gold\)/);
+  });
+
+  it('on a coarse pointer the button takes the touch and every other child of the card passes it through', () => {
+    // Explore-by-touch resolves what is under a fingertip by layout hit testing, which must land on the NAMED button.
+    const at = css.indexOf('@media (pointer: coarse) {');
+    expect(at, 'the touch rule must exist').toBeGreaterThanOrEqual(0);
+    const block = css.slice(at, css.indexOf('\n}', at));
+    expect(block).toMatch(/\.wf-hc-hit\s*\{\s*pointer-events:\s*auto/);
+    expect(block).toMatch(/div\.wf-hc:where\(\[data-control\]\) > :not\(\.wf-hc-hit\)\s*\{\s*pointer-events:\s*none/);
+  });
+
+  it('sets pointer-events back on nothing inside the card (a descendant that did would stay touchable)', () => {
+    const rules = [...css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)]
+      .filter(([, sel, decl]) => /pointer-events:\s*auto/.test(decl) && /\.wf-(hc|tlab|hm)\b/.test(sel));
+    // The one exception is the hit button itself (twice: the touch arm, and no other).
+    rules.forEach(([, sel]) => expect(sel).toContain('.wf-hc-hit'));
   });
 
   it('leaves no `button.wf-hc` selector behind: the control card is a `div`', () => {

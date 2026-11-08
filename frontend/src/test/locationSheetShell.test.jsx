@@ -251,9 +251,9 @@ describe('WindowFirstShell — the four-day location sheet', () => {
    * <p>Awaits the matrix's own lazy boundary first, so the first test in the file behaves like the
    * rest rather than like a race the module cache happens to win.
    */
-  const openPopup = async () => {
+  const openPopup = async (index = 0) => {
     await screen.findByTestId('wf-heat-strip');
-    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[index]); });
     return screen.findByTestId('window-sheet');
   };
 
@@ -266,8 +266,8 @@ describe('WindowFirstShell — the four-day location sheet', () => {
    * measurement shim to exist at all, and the walk is about the SHELL's layering, not about the
    * placer.
    */
-  const openStackedSheet = async () => {
-    await openPopup();
+  const openStackedSheet = async (index = 0) => {
+    await openPopup(index);
     fireEvent.click(screen.getByTestId('window-spot'));
     return screen.findByTestId('location-sheet');
   };
@@ -827,6 +827,43 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       // The first card's inner BUTTON (the card is a `div`): `WindowFirstShell`'s "Plan from region" route
       // looks it up by `wf-heat-card-button`, so reverting that selector sends focus nowhere and fails here.
       expect(document.activeElement).toBe(screen.getAllByTestId('wf-heat-card-button')[0]);
+      raf.mockRestore();
+    });
+
+    it('⚠️ and from a STACKED sheet whose popup was opened from a card that is not the first', async () => {
+      // The stacked case, with two cards so the popup's opener (the second, in DOM order the SUNSET after the sunrise
+      // row) differs from the card the route's move must reach (the first). Both dialogs unmount in one commit and the
+      // popup's own restore lands on its opener, the SECOND button; only the route's `wf-heat-card-button` lookup can
+      // put focus on the FIRST. Reverting that selector fails this.
+      const raf = vi.spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((cb) => { cb(); return 0; });
+      const sunrise = {
+        ...CARD, key: '2026-08-14:SUNRISE', targetType: 'SUNRISE', lead: false, kicker: 'Today', when: 'Sunrise',
+        time: '05:10', pick: null,
+      };
+      renderShell({
+        windowCards: [CARD, sunrise],
+        paneItems: [{ kind: 'card', key: CARD.key, card: CARD }, { kind: 'card', key: sunrise.key, card: sunrise }],
+        heatStripCards: [STRIP_CARD, {
+          ...STRIP_CARD, key: sunrise.key, targetType: 'SUNRISE', sunrise: true, label: 'Today Sunrise', time: '05:10',
+        }],
+        heatPointSets: new Map([
+          [CARD.key, [{ id: 1, lat: 54.58, lng: -3.14, r: [4] }]],
+          [sunrise.key, [{ id: 1, lat: 54.58, lng: -3.14, r: [4] }]],
+        ]),
+      });
+      const buttons = screen.getAllByTestId('wf-heat-card-button');
+      expect(buttons).toHaveLength(2);
+      // Row-major DOM: the sunrise row comes first, so the first button is the sunrise card's and the popup opens
+      // from the second (sunset).
+      expect(buttons[0].getAttribute('aria-labelledby')).toMatch(/SUNRISE$/);
+      const opener = 1;
+      await openStackedSheet(opener);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Plan from Lake District' }));
+      });
+      expect(document.activeElement).toBe(screen.getAllByTestId('wf-heat-card-button')[0]);
+      expect(document.activeElement).not.toBe(screen.getAllByTestId('wf-heat-card-button')[1]);
       raf.mockRestore();
     });
 

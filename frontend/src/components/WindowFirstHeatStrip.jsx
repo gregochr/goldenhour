@@ -1585,9 +1585,9 @@ export default function WindowFirstHeatStrip({
       <>
         {/* ⚠️ EVERY visible string here is aria-hidden, and the accessible name comes from the
             one `sr-only` sentence, which a control card holds in its own `.wf-hc-hit` button (the
-            control element's note, below, says why it is not in this body). That is deliberate and it is not an `aria-label` in
-            disguise — the sentence is real text built from the same values in the same render,
-            so the two cannot drift, and WCAG 2.5.3 holds because it contains the visible time,
+            control element's note, below, says why it is not in this body). That is deliberate and
+            it is not an `aria-label` in disguise — the sentence is real text built from the same
+            values in the same render, so the two cannot drift, and WCAG 2.5.3 holds because it contains the visible time,
             the visible verdict word, the visible best-reach words and the visible pick words
             verbatim.
 
