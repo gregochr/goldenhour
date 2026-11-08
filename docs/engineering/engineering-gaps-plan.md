@@ -615,6 +615,127 @@ discovery list.
   an issue.
 - **No new infrastructure.** This narrows the "one host" gap but doesn't close it.
 
+### Phase 4 build notes (planned 2026-11-08, from `origin/main` `92e928f1`)
+
+**What exists today.**
+- **The deploy job** (`deploy.yml`, run over SSH on the host) does these steps in order: the rollback-pin guard, materialise
+  `nginx.conf` and `docker-compose.yml` from the tag, the PGDATA guard, `pre-release-backup.sh <version>` (a database
+  dump plus a manifest of the **outgoing image digests**, written before the pull moves `:latest`), `pull`, `up`,
+  `prod-health.sh --deploy` (compose health, cloudflared, Tailscale, a real 401 from outside the tunnel), and finally
+  `record-deployed-images.sh`.
+- **When it fails**, `notify-failure` opens an issue.
+- **Nothing currently checks that the release behaves.** `prod-health.sh` says so itself: "says nothing about whether
+  the release behaves correctly, only that it is up".
+- **Nothing rolls back on its own.** `scripts/rollback.sh <version>` is a manual Plan B: it **restores the database**
+  (which discards everything written since), then pins the manifest's digests in `docker-compose.override.yml`. The
+  deploy job refuses to run while that pin exists.
+
+**Owner decisions this plan assumes (confirm or change before the build):**
+1. **The automatic rollback is IMAGE-ONLY and never restores the database.**
+   - It pins the manifest's previous digests, the same mechanism `rollback.sh` step 4 uses, and leaves the data alone.
+   - Restoring the database stays a human decision, through `rollback.sh`.
+   - Why this is safe enough:
+     - production runs Flyway with `validate-on-migrate: false`, so an older image starts against a newer schema;
+     - Hibernate `validate` only fails if a release dropped or renamed something the old code reads, and that case
+       shows up as a failed health check after the rollback, below.
+2. **A dedicated production smoke account**, `smoke-deploy`, as a LITE reader. You create it in Operations and put
+   its password in the repository secret `SMOKE_DEPLOY_PASSWORD`.
+   - Until the secret exists, the logged-in probe is **skipped with a warning**, never failed, so merging this phase
+     can't trigger a rollback on the next release.
+
+**The new step: `scripts/post-deploy-smoke.sh`**, run on the host right after `prod-health.sh --deploy`. Every probe
+goes through the public URL (`https://app.photocast.online`, overridable as `APP_URL_BASE`), so it covers Cloudflare,
+the tunnel, nginx and the backend together.
+1. **The shell:** `GET /` answers 200 and HTML, carries a `Content-Security-Policy` header, and contains a
+   hashed asset (`/assets/index-*.js`) that itself answers 200 with `Cache-Control` containing `immutable`. This
+   catches a broken frontend image or nginx config.
+2. **Backend health:** `GET /actuator/health/container` answers 200 with `"status":"UP"`.
+3. **Auth boundary:** `GET /api/briefing` with no token answers 401. `prod-health.sh` already checks this; it is
+   repeated here so this script stands on its own.
+4. **Logged in** (only when `SMOKE_DEPLOY_PASSWORD` is set):
+   - `POST /api/auth/login` with no Turnstile token. `TurnstileGate`'s fallback admits it: 5 per account and 20 per
+     address per 15 minutes, 60 per hour globally.
+   - `GET /api/briefing` with the token answers 200, and its JSON has the briefing's top-level shape. Check keys
+     only, never values: the forecast can legitimately be thin.
+   - `GET /api/user/settings` answers 200.
+   - Then `POST /api/auth/logout`, so no refresh tokens pile up.
+5. **Behaviour:**
+   - Each probe retries for up to about 60 s with a 5 s interval, because a fresh backend warms up.
+   - It prints one `ok` or `FAIL` line per probe, plus `::error::` annotations under Actions, as `prod-health.sh` does.
+   - It never prints the token or the password.
+   - It exits non-zero on any failure.
+   - It needs only `curl` and `jq` (what `prod-health.sh` already needs). If `jq` might be missing on the host, check
+     first.
+
+**The rollback: `scripts/auto-rollback.sh <version>`.** Deploy runs it only when the smoke check or `prod-health.sh
+--deploy` fails after `up`.
+- It reads `${BACKUP_DIR}/pre-release/<version>.json` through the same field reader as `rollback.sh`. Share it
+  through a small sourced helper, `scripts/lib/release-manifest.sh`, rather than copying it.
+  - If the digests are missing, it does nothing and says so loudly. A manifest pinning nothing is worse than leaving
+    the failed release up for a human.
+- It writes `docker-compose.override.yml` pinning the two previous digests, the same file and format `rollback.sh`
+  writes, so the existing deploy guard and the "remove it to roll forward" instruction apply unchanged. Then it runs
+  `docker compose up -d --no-deps goldenhour-backend goldenhour-frontend`.
+- It re-runs `prod-health.sh --deploy`, then the smoke script, against the rolled-back build.
+  - **If both pass**, it prints a ROLLED BACK banner (the version, the digests now running, "database NOT restored",
+    and how to roll forward), then exits **1**, so the deploy job still fails and `notify-failure` opens the issue. A
+    rolled-back release is a failed release.
+  - **If either fails**, the previous build won't come up either; the usual cause is a migration the old code can't
+    read. It prints a loud "MANUAL ACTION NEEDED" banner that points at `rollback.sh <version>` (the full restore,
+    database included). It leaves the pin in place, so the next deploy can't silently go out, and exits **2**.
+- It never runs `pg_restore` or `psql` and never touches the database. A test pins this.
+- It takes `--dry-run`, which prints the plan and runs nothing.
+
+**Wiring in `deploy.yml`.**
+- The SSH script runs `prod-health.sh --deploy`, then the smoke script, under a small function. On failure, and only
+  for steps after `up`, it runs `auto-rollback.sh "${RELEASE_VERSION}"` and exits non-zero.
+- The steps before `up` keep failing exactly as they do today, with nothing changed and nothing to roll back.
+- `record-deployed-images.sh` runs only on success, as now: a rolled-back release must not be recorded as running.
+- The smoke password reaches the host the same way `RELEASE_VERSION` does: listed in `envs:` from
+  `secrets.SMOKE_DEPLOY_PASSWORD`. It is never echoed.
+- `notify-failure` is unchanged. Optionally, its issue title says "rolled back" when the job's output contains the
+  banner; nice to have, not required.
+
+**Tests (CI, no production access).**
+- **The smoke script against the seeded e2e stack.** A new step in the `E2E — Playwright smoke` job runs, after the
+  suite:
+
+  ```
+  APP_URL_BASE=http://127.0.0.1 SMOKE_DEPLOY_USERNAME=lite SMOKE_DEPLOY_PASSWORD=<the fixture's> \
+    scripts/post-deploy-smoke.sh
+  ```
+
+  That stack is nginx on the host network on port 80 plus the seeded backend, so it is close to production. Run it
+  while the servers are still up, e.g. as a Playwright globalTeardown hook or a small spec that shells out; choose the
+  simplest reliable way. Show it fails when it should:
+  - a stopped backend;
+  - a wrong password;
+  - a missing CSP header, using an edited config copy, as `nginx.spec` does.
+- **`auto-rollback.sh` with a stub `docker`** on `PATH` and a fixture manifest, in a new `scripts/test/` shell test.
+  Run it from the ShellCheck job, or a new small job. Cover:
+  - a missing manifest, so nothing happens;
+  - a manifest with no digests, so nothing happens;
+  - the happy path: the override is written with the exact digests, and `up` is called with `--no-deps` on exactly
+    those two services;
+  - a failing post-rollback health check, so it exits 2 and the pin stays;
+  - **no database command is ever issued**, asserted on the stub's call log;
+  - `--dry-run` calls nothing.
+- ShellCheck on both scripts and the helper.
+
+**Docs.**
+- `reference/platform.md`, in the deployment paragraph and the rollback notes: the smoke step, the image-only
+  automatic rollback, what it never does, and the owner's smoke-account setup.
+- This plan's status line.
+- A `changelog.d/` entry.
+
+**Owner actions after merge.** Create the `smoke-deploy` LITE account in production, and add the
+`SMOKE_DEPLOY_PASSWORD` secret. Until then, the logged-in probe is skipped with a warning.
+
+**Not in this phase.**
+- A staging host (still the owner's decision).
+- Smoke-testing Ask, aurora or any write path.
+- A rollback that restores data.
+
 ## Phase 5: prompt regression on prompt-changing PRs
 
 - **Trigger:** a `pull_request` job with a path filter on the prompt and evaluation code (the exact paths are
