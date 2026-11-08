@@ -1187,9 +1187,10 @@ class BatchResultProcessorTest {
         StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
         when(streamResp.stream()).thenReturn(Stream.of(response));
         when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+        ArgumentCaptor<ClaudeBatchOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeBatchOutcome.class);
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
         when(auroraResultHandler.processBatchResponse(
-                eq(AlertLevel.MODERATE),
-                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                eq(AlertLevel.MODERATE), outcomeCaptor.capture(), contextCaptor.capture()))
                 .thenReturn(AuroraBatchOutcome.ok(7));
 
         ListAppender<ILoggingEvent> appender = attachAppender();
@@ -1200,6 +1201,9 @@ class BatchResultProcessorTest {
         }
 
         assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains(NO_COST_ROWS));
+        assertThat(outcomeCaptor.getValue().customId()).isEqualTo("au-MODERATE-2026-04-07");
+        assertThat(contextCaptor.getValue().jobRunId()).isEqualTo(61L);
+        assertThat(contextCaptor.getValue().batchId()).isEqualTo("msgbatch_fail");
     }
 
     @Test
