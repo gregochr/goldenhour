@@ -59,7 +59,7 @@ public class GitInfoService {
      *
      * @param environment returns the value of a named environment variable, or null when unset
      */
-    GitInfoService(UnaryOperator<String> environment) {
+    public GitInfoService(UnaryOperator<String> environment) {
         this.environment = environment;
     }
 
@@ -87,7 +87,7 @@ public class GitInfoService {
      * @param is the stream to read
      * @throws IOException if the stream cannot be read
      */
-    void load(InputStream is) throws IOException {
+    public void load(InputStream is) throws IOException {
         Properties props = new Properties();
         props.load(is);
 
