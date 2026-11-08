@@ -877,8 +877,9 @@ Nothing here can be done by a session; production is never reachable from one. U
 **reports**: a failing check fails the deploy job and opens the issue, and nothing is rolled back.
 
 1. **Create `smoke-deploy` in Operations as a PRO account with no email address** (so it is never swept as dormant and
-   never mailed). Choose its temporary password without a `'`, `\`, `$` or backtick, which the SSH action's `envs:`
-   forwarding can mangle.
+   never mailed). Use a password of **only letters, digits, `.`, `_` and `-`**: the SSH action's `envs:` forwarding turns
+   the secret into a shell export, so anything else can arrive altered. The smoke refuses any other character (exit
+   `4`, "contains characters the SSH forwarding can mangle") and the deploy's first step warns, never printing it.
 2. **Sign in once in a browser as `smoke-deploy` and change the temporary password.** Admin-created accounts must change
    it at first login, and until then every API call answers 403 (the script reports exit `4`, naming the cause).
 3. **Set the repository secret `SMOKE_DEPLOY_PASSWORD`** to the new password. Until it exists the logged-in probes are
@@ -906,9 +907,20 @@ Build notes (2026-11-08), where the build chose or departed from the text above:
   (`backend/Dockerfile`: `GitInfoService` falls back to environment variables), so `/actuator/info` has no
   `git.commit.id` and the probe skips with a warning. A small `InfoContributor` publishing `GIT_COMMIT_SHA` would
   switch it on; that is a backend change and not part of this phase.
-- **Probe ordering when they disagree:** misconfigured (4), then a Cloudflare challenge (3), then a broken release (1),
-  then any other inconclusive result (3). A probe that never ran because the deadline expired is `3` and does not
-  outrank a real failure.
+- **Probe ordering when they disagree (revised after review): `1`, then `4`, then `3`.** A real break is never hidden
+  behind a misconfiguration or an edge answer elsewhere. Every Cloudflare edge response is `3` (challenge, WAF page,
+  1015), a login that 5xx'd and is then refused is `1`, and login is tried at most 3 times.
+- **`SMOKE_PASSWORD_CHARSET_CHECK=off` is test-only.** The `deploy-smoke` Playwright project sets it because the seeded
+  `pro` password contains a `#` and that project runs the script directly, with no SSH forwarding. Never set it in
+  deploy. The `deploy-smoke` cases that need the production nginx config (the seeded stack) skip outside
+  `E2E_WEB=nginx`; the stub-site cases run in both modes.
+- **Zero served ratings is a warning, not a failure** (revised after review): a stand-down or stability skip can null
+  every rating. The failing signals are no days, no slot with a `locationName` (regioned or unregioned) and any `gated`
+  marker.
+- **The health check no longer ends the run on infrastructure.** `prod-health.sh` returning `3` still lets the smoke run
+  (an nginx regression answering 404/502 for `/api` looks like infrastructure to the health check); the results combine
+  by the same precedence. Caveat: a database outage that takes the backend with it can make the smoke report `1`, and
+  with `SMOKE_ENFORCE=true` that rolls back; the images were not at fault, and the rollback never touches data.
 
 ## Phase 5: prompt regression on prompt-changing PRs
 

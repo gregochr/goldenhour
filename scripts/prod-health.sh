@@ -73,9 +73,13 @@
 #   failure is counted as RELEASE or INFRA and the exit code says which:
 #       0  all checks passed
 #       1  at least one RELEASE failure: the backend or frontend container is not
-#          healthy/running while the database is
-#       3  only INFRA failures: cloudflared, Tailscale, the unreachable app, the
-#          database container, docker itself or jq. Never a reason to roll back.
+#          healthy/running while the database is, or the app answers a 2xx with no
+#          token
+#       3  only INFRA failures: cloudflared, Tailscale, the database container,
+#          docker itself, jq, or the app answering anything but 401 (other than a
+#          2xx: an unauthenticated 200 means auth is broken, which is RELEASE).
+#          Never a reason to roll back on its own; the deploy job still runs the
+#          smoke after a 3, and the smoke's probes decide.
 #   A release failure outranks an infra one. Without --classify the exit code is
 #   1 for any failure, exactly as before, and --daily never classifies.
 #
@@ -283,7 +287,14 @@ check_app_answers() {
         fi
     done
 
-    report_fail "$name" "${APP_URL} -> '${code}', not 401, after ${attempts} attempts — 200 would mean auth is broken, 502/530 means the tunnel or backend is down"
+    # A 2xx with NO token means auth itself is broken, which only a release can do: that is a release failure.
+    # Anything else (502/530, a timeout, a 404 from a mangled proxy rule) is ambiguous here, so it is infra for
+    # --classify; the deploy job still runs the smoke afterwards, whose own probes decide whether it is the release.
+    local failure_class="infra"
+    case "$code" in
+        2??) failure_class="release" ;;
+    esac
+    report_fail "$name" "${APP_URL} -> '${code}', not 401, after ${attempts} attempts — 200 would mean auth is broken, 502/530 means the tunnel or backend is down" "$failure_class"
 }
 
 # --- 5. Reboot required (daily only) ----------------------------------------

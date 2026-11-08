@@ -14,16 +14,19 @@
 #   0  every probe passed
 #   1  the release is broken: a probe got a real answer from the origin that is
 #      wrong (no CSP, health not UP, 204 briefing, a missing asset, 5xx, ...)
-#   3  inconclusive or infrastructure: a Cloudflare challenge, no response at all,
-#      a Cloudflare 52x/530, a missing tool, or the overall deadline ran out
-#      before a probe could run. NEVER a reason to roll back.
+#   3  inconclusive or infrastructure: ANY Cloudflare edge response (a cf-mitigated
+#      or cf-error-details header, "error code: 1xxx", "Attention Required"), a
+#      52x/530, no response at all or a curl error (a truncated body included), a
+#      missing tool, or the deadline ran out before a probe could start.
+#      NEVER a reason to roll back.
 #   4  the smoke check itself is misconfigured: the smoke login answered 400, 401,
 #      403 or 429, the account still owes a first-login password change, the
-#      password is unset while SMOKE_LOGIN_REQUIRED=true, or bad arguments.
+#      password is unset while SMOKE_LOGIN_REQUIRED=true, the password holds
+#      characters the SSH forwarding can mangle, or bad arguments.
 #      NEVER a reason to roll back.
-# When probes disagree the order is: 4, then a Cloudflare challenge (3), then 1,
-# then any other 3. A challenge outranks a failure because it means the edge, not
-# the release, is what we are looking at.
+# When probes disagree the order is 1, then 4, then 3: a real break is never hidden
+# behind a misconfiguration or an edge answer elsewhere. (A login that 5xx'd and
+# then, on retry, was refused is itself a 1: the release broke login.)
 #
 # THE PROBES
 #   1. shell          GET /?smoke=<n>: 200, text/html, a Content-Security-Policy
@@ -40,8 +43,10 @@
 #                     or an unreadable tag is a WARNING, never a failure
 #   5. logged in      only when SMOKE_DEPLOY_PASSWORD is set: POST /api/auth/login
 #                     (no Turnstile token; the gate's bounded fallback admits it),
-#                     GET /api/briefing (200, the top-level keys generatedAt and
-#                     days, and at least one served claudeRating: a 204 is a FAIL),
+#                     GET /api/briefing (200; FAIL on a 204, on no days, on no slot
+#                     carrying locationName (regioned or unregioned), or on any
+#                     "gated" marker, which a PRO reader must never see; zero
+#                     served ratings is only a WARNING, a quiet day is legitimate),
 #                     GET /api/user/settings (200), then POST /api/auth/logout
 #                     (also from an EXIT trap, so no refresh tokens pile up)
 #
@@ -111,6 +116,20 @@ for numeric in "$RETRY_SECONDS" "$RETRY_INTERVAL" "$DEADLINE_SECONDS"; do
     esac
 done
 
+# appleboy/ssh-action forwards `envs:` as shell exports, so a quote, backslash, dollar sign or backtick in the
+# secret can arrive altered. Refuse the value before it is used; it is never printed.
+#
+# SMOKE_PASSWORD_CHARSET_CHECK=off exists for ONE caller: the Playwright project, which runs this script directly
+# (no SSH forwarding) against the seeded `pro` account whose fixed password contains a '#'. Never set it in deploy.
+if [ "$PASSWORD_SET" -eq 1 ] && [ "${SMOKE_PASSWORD_CHARSET_CHECK:-on}" != off ]; then
+    case "$SMOKE_DEPLOY_PASSWORD" in
+        *[!A-Za-z0-9._-]*)
+            echo "FAIL smoke password: SMOKE_DEPLOY_PASSWORD contains characters the SSH forwarding can mangle (use only A-Z a-z 0-9 . _ -) [smoke misconfigured]"
+            [ -z "${GITHUB_ACTIONS:-}" ] || echo "::error::post-deploy-smoke: SMOKE_DEPLOY_PASSWORD contains characters the SSH forwarding can mangle (use only A-Z a-z 0-9 . _ -)"
+            exit 4 ;;
+    esac
+fi
+
 for tool in curl jq; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "post-deploy-smoke: ${tool} is not installed on this host — cannot run (inconclusive)." >&2
@@ -118,11 +137,12 @@ for tool in curl jq; do
     }
 done
 
+MIN_PROBE_SECONDS=10
 now() { date +%s; }
 START_AT="$(now)"
 DEADLINE_AT=$((START_AT + DEADLINE_SECONDS))
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d)" || exit 3
 HDR="${WORK}/headers"
 BODY="${WORK}/body"
 ERRF="${WORK}/curl-err"
@@ -136,8 +156,10 @@ FAILED=0
 HAS1=0
 HAS3=0
 HAS4=0
-CHALLENGE=0
 SKIPPED_DEADLINE=0
+LOGIN_ATTEMPTS=0
+LOGIN_SAW_5XX=0
+CURL_RC=0
 ABORT=0
 LOGGED_OUT=0
 LOGIN_OK=0
@@ -191,44 +213,53 @@ warn() {
 http() {
     local method="$1" path="$2"
     shift 2
-    local mt=20 left
-    left=$((DEADLINE_AT - $(now)))
-    [ "$left" -lt "$mt" ] && mt="$left"
-    [ "$mt" -lt 1 ] && mt=1
+    # Never clamped below 10 s by the overall deadline: a request cut short would look like a broken release.
+    # run_probe stops STARTING probes when less than MIN_PROBE_SECONDS remain instead.
+    local mt=20
     [ -n "$FORCE_MAXT" ] && mt="$FORCE_MAXT"
     : >"$HDR"; : >"$BODY"; : >"$ERRF"
-    local args=(-sS -o "$BODY" -D "$HDR" -w '%{http_code}' --max-time "$mt" -A "$UA")
+    local args=(-sS --compressed -o "$BODY" -D "$HDR" -w '%{http_code}' --max-time "$mt" -A "$UA")
     [ "$method" = GET ] || args+=(-X "$method")
-    HTTP_CODE="$(curl "${args[@]}" "$@" "${BASE}${path}" 2>"$ERRF")" || true
+    CURL_RC=0
+    HTTP_CODE="$(curl "${args[@]}" "$@" "${BASE}${path}" 2>"$ERRF")" || CURL_RC=$?
     case "$HTTP_CODE" in
         [0-9][0-9][0-9]) ;;
         *) HTTP_CODE=000 ;;
     esac
+    # Any curl failure (a timeout, a reset, a truncated or undecodable body) is transport, whatever status line
+    # arrived first: a half-read page says nothing about the release.
+    if [ "$CURL_RC" -ne 0 ]; then
+        HTTP_CODE=000
+    fi
 }
 
 # The value of a response header from the last response (case-insensitive).
 hdr() { grep -i "^$1:" "$HDR" | tail -1 | sed 's/^[^:]*: *//' | tr -d '\r'; }
 
-is_challenge() {
-    grep -qi '^cf-mitigated: *challenge' "$HDR" && return 0
+# A response that came from Cloudflare's edge rather than our origin: a challenge or mitigation header of any
+# value, an error-details header, or (only on an error status, so a JS bundle that happens to contain the
+# text cannot trip it) one of its error pages. Never a verdict on the release.
+is_edge() {
+    grep -qiE '^(cf-mitigated|cf-error-details):' "$HDR" && return 0
     case "$HTTP_CODE" in
-        403|503) grep -qiE 'cf-chl|challenge-platform|Just a moment' "$BODY" && return 0 ;;
+        2??|3??|000) return 1 ;;
     esac
+    grep -qiE 'error code: 1[0-9]{3}|Attention Required|cf-chl|challenge-platform|Just a moment' "$BODY" && return 0
     return 1
 }
 
 # Transport-level answers that say nothing about the release. Returns 0 (and sets the
 # R_ globals) when the last response is one of them, so a probe does `transport_problem && return 0`.
 transport_problem() {
-    if is_challenge; then
-        R_RC=3; R_FINAL=1; ABORT=1; CHALLENGE=1
-        R_MSG="${HTTP_CODE} Cloudflare challenge (cf-mitigated) — the edge, not the release; inconclusive"
+    if is_edge; then
+        R_RC=3; R_FINAL=1; ABORT=1
+        R_MSG="${HTTP_CODE} Cloudflare edge response (cf-mitigated, cf-error-details or an edge error page) — the edge, not the release; inconclusive"
         return 0
     fi
     case "$HTTP_CODE" in
         000)
             R_RC=3
-            R_MSG="no response from ${BASE} ($(head -c 160 "$ERRF" | tr -d '\r\n'))"
+            R_MSG="no response from ${BASE} (curl exit ${CURL_RC}: $(head -c 160 "$ERRF" | tr -d '\r\n'))"
             return 0 ;;
         52[0-9]|530)
             R_RC=3
@@ -242,9 +273,10 @@ transport_problem() {
 # (do not retry) and R_WARN; the LAST attempt decides.
 run_probe() {
     local name="$1" fn="$2" limit left
-    if [ "$(now)" -ge "$DEADLINE_AT" ]; then
+    # A probe needs a full request's worth of time (10 s), so none is started closer to the deadline than that.
+    if [ "$(now)" -ge $((DEADLINE_AT - MIN_PROBE_SECONDS)) ]; then
         SKIPPED_DEADLINE=1
-        report_probe "$name" 3 "not run: the ${DEADLINE_SECONDS}s overall deadline was reached"
+        report_probe "$name" 3 "not run: less than ${MIN_PROBE_SECONDS}s left of the ${DEADLINE_SECONDS}s overall deadline"
         return
     fi
     limit=$(($(now) + RETRY_SECONDS))
@@ -321,6 +353,12 @@ check_health() {
         path=/actuator/health
         http GET "$path"
         transport_problem && return 0
+        # The aggregate includes the third-party probes (Open-Meteo, tides, Anthropic), so DOWN here says
+        # nothing about the old build: inconclusive, never a failure.
+        if [ "$HTTP_CODE" != 200 ] || ! jq -e '.status == "UP"' "$BODY" >/dev/null 2>&1; then
+            R_RC=3; R_MSG="GET ${path} -> ${HTTP_CODE} (the aggregate, used because the previous image has no container group; it includes third-party probes) — inconclusive"
+            return 0
+        fi
     fi
     if [ "$HTTP_CODE" != 200 ]; then
         R_RC=1; R_MSG="GET ${path} -> ${HTTP_CODE}, not 200"; return 0
@@ -379,8 +417,12 @@ check_login() {
     # A file, not a pipe: `jq | http` would run http in a subshell and lose HTTP_CODE. The file is
     # mode 600 in a mode 700 directory and is removed the moment the request has been sent.
     jq -n '{username: $ENV.SMOKE_DEPLOY_USERNAME, password: $ENV.SMOKE_DEPLOY_PASSWORD}' >"$REQBODY"
+    LOGIN_ATTEMPTS=$((LOGIN_ATTEMPTS + 1))
     http POST /api/auth/login -H 'Content-Type: application/json' --data "@${REQBODY}"
     rm -f "$REQBODY"
+    # At most 3 attempts however long the retry window is: each one counts against the account's failed-sign-in
+    # budget, and the limiter is what a hammering retry loop would trip.
+    [ "$LOGIN_ATTEMPTS" -lt 3 ] || R_FINAL=1
     transport_problem && return 0
     case "$HTTP_CODE" in
         200)
@@ -400,13 +442,20 @@ check_login() {
             LOGIN_OK=1
             R_MSG="POST /api/auth/login -> 200" ;;
         400|401|403|429)
-            R_RC=4; R_FINAL=1
+            R_FINAL=1
+            if [ "$LOGIN_SAW_5XX" -eq 1 ]; then
+                # Login already failed with a 5xx on this run, so what looks like a refusal now is the release
+                # breaking login (a half-started backend rejecting everyone), not a misconfigured account.
+                R_RC=1; R_MSG="POST /api/auth/login -> ${HTTP_CODE} after an earlier 5xx on this run: the release broke login"
+                return 0
+            fi
+            R_RC=4
             case "$HTTP_CODE" in
                 401) R_MSG="POST /api/auth/login -> 401: SMOKE_DEPLOY_PASSWORD is wrong, or ${SMOKE_DEPLOY_USERNAME} does not exist or is disabled" ;;
                 429) R_MSG="POST /api/auth/login -> 429: the login rate limit is spent (not retried)" ;;
                 *)   R_MSG="POST /api/auth/login -> ${HTTP_CODE}: the smoke login was refused (not retried)" ;;
             esac ;;
-        5??) R_RC=1; R_MSG="POST /api/auth/login -> ${HTTP_CODE}" ;;
+        5??) LOGIN_SAW_5XX=1; R_RC=1; R_MSG="POST /api/auth/login -> ${HTTP_CODE}" ;;
         *)   R_RC=1; R_MSG="POST /api/auth/login -> ${HTTP_CODE}, not 200" ;;
     esac
 }
@@ -438,16 +487,29 @@ check_briefing() {
     if ! jq -e 'type == "object" and has("generatedAt") and (.days | type == "array")' "$BODY" >/dev/null 2>&1; then
         R_RC=1; R_MSG="GET /api/briefing -> 200 but without the top-level keys generatedAt and days"; return 0
     fi
-    local ratings
-    ratings="$(jq '[.days[]?.eventSummaries[]?.regions[]?.slots[]? | .claudeRating | select(. != null)] | length' "$BODY" 2>/dev/null || echo 0)"
-    if [ "${ratings:-0}" -lt 1 ]; then
-        if [ "$ROLLBACK_MODE" = 1 ]; then
-            R_WARN="the briefing carries no served rating (not enforced against the previous build)"
-        else
-            R_RC=1; R_MSG="GET /api/briefing -> 200 but no served rating is present (a PRO reader should see scores)"; return 0
-        fi
+    # What proves the briefing was built and served is STRUCTURE, not scores: a stand-down or a stability skip can
+    # legitimately leave every rating null, and rolling back a good release on a quiet day would be worse than
+    # not checking. So the FAIL signals are: no days, no slot (regioned or unregioned) carrying a locationName,
+    # and (not against the previous build, which may predate the marker) any "gated" marker, which a PRO
+    # reader must never see. Zero ratings is a warning.
+    local days slots gated ratings
+    days="$(jq '.days | length' "$BODY" 2>/dev/null || echo 0)"
+    slots="$(jq '[.days[]?.eventSummaries[]? | ((.regions[]?.slots[]?), (.unregioned[]?)) | select(.locationName != null)] | length' "$BODY" 2>/dev/null || echo 0)"
+    gated="$(jq '[.. | objects | select(.gated == true)] | length' "$BODY" 2>/dev/null || echo 0)"
+    ratings="$(jq '[.days[]?.eventSummaries[]? | ((.regions[]?.slots[]?), (.unregioned[]?)) | .claudeRating | select(. != null)] | length' "$BODY" 2>/dev/null || echo 0)"
+    if [ "${days:-0}" -lt 1 ]; then
+        R_RC=1; R_MSG="GET /api/briefing -> 200 but with no days"; return 0
     fi
-    R_MSG="GET /api/briefing -> 200, generatedAt and days present, ${ratings:-0} served rating(s)"
+    if [ "${slots:-0}" -lt 1 ]; then
+        R_RC=1; R_MSG="GET /api/briefing -> 200 but no slot carries a locationName (regioned or unregioned)"; return 0
+    fi
+    if [ "$ROLLBACK_MODE" -eq 0 ] && [ "${gated:-0}" -gt 0 ]; then
+        R_RC=1; R_MSG="GET /api/briefing -> 200 but ${gated} gated marker(s) are present: a PRO reader is being served the Lite shape"; return 0
+    fi
+    if [ "${ratings:-0}" -lt 1 ]; then
+        R_WARN="the briefing carries no served rating (a quiet day can; not a failure)"
+    fi
+    R_MSG="GET /api/briefing -> 200, ${days} day(s), ${slots} slot(s), ${ratings:-0} served rating(s)"
 }
 
 check_settings() {
@@ -488,12 +550,10 @@ skip_login() {
 
 finish() {
     local rc=0 why="all probes passed"
-    if [ "$HAS4" -eq 1 ]; then
-        rc=4; why="the smoke check is misconfigured"
-    elif [ "$CHALLENGE" -eq 1 ]; then
-        rc=3; why="a Cloudflare challenge made the run inconclusive"
-    elif [ "$HAS1" -eq 1 ]; then
+    if [ "$HAS1" -eq 1 ]; then
         rc=1; why="the release is broken"
+    elif [ "$HAS4" -eq 1 ]; then
+        rc=4; why="the smoke check is misconfigured"
     elif [ "$HAS3" -eq 1 ] || [ "$SKIPPED_DEADLINE" -eq 1 ]; then
         rc=3; why="inconclusive or infrastructure"
     fi

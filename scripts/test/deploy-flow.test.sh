@@ -222,19 +222,43 @@ run_deploy
 assert_eq "exit 1" 1 "$RC"
 assert_not_contains "no rollback" "$EV" "rollback"
 
-echo "-- AFTER up, infrastructure (health exit 3), enforced: never rolls back"
+echo "-- AFTER up, infrastructure (health exit 3), smoke clean: the smoke STILL runs, the job fails with 3, no rollback"
 new_case
 export STUB_HEALTH_RC=3 SMOKE_ENFORCE=true
 run_deploy
 assert_eq "exit 3" 3 "$RC"
+assert_contains "the smoke ran despite the health result" "$EV" "smoke version=v9"
 assert_not_contains "no rollback" "$EV" "rollback"
 assert_not_contains "no record" "$EV" "record"
 
-echo "-- AFTER up, health exit 2 (a usage error): treated as inconclusive, never a rollback"
+echo "-- health 3 (e.g. nginx answering 502 for /api) but the smoke finds the release broken (1): rolls back when enforced"
+new_case
+export STUB_HEALTH_RC=3 STUB_SMOKE_RC=1 SMOKE_ENFORCE=true
+run_deploy
+assert_eq "exit 1 (rolled back)" 1 "$RC"
+assert_contains "the smoke ran" "$EV" "smoke version=v9"
+assert_contains "auto-rollback ran" "$EV" "rollback v9"
+
+echo "-- the same without SMOKE_ENFORCE: reports only"
+new_case
+export STUB_HEALTH_RC=3 STUB_SMOKE_RC=1
+run_deploy
+assert_eq "exit 1" 1 "$RC"
+assert_not_contains "no rollback" "$EV" "rollback"
+
+echo "-- health 3 and smoke 4: precedence 1 > 4 > 3 gives 4, never a rollback"
+new_case
+export STUB_HEALTH_RC=3 STUB_SMOKE_RC=4 SMOKE_ENFORCE=true
+run_deploy
+assert_eq "exit 4" 4 "$RC"
+assert_not_contains "no rollback" "$EV" "rollback"
+
+echo "-- health 2 (a usage error): treated as infrastructure; the smoke still runs; never a rollback"
 new_case
 export STUB_HEALTH_RC=2 SMOKE_ENFORCE=true
 run_deploy
 assert_eq "exit 3" 3 "$RC"
+assert_contains "the smoke ran" "$EV" "smoke version=v9"
 assert_not_contains "no rollback" "$EV" "rollback"
 
 echo "-- AFTER up, smoke inconclusive (3), enforced: never rolls back"

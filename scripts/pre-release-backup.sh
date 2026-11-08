@@ -76,12 +76,33 @@ log() { echo "[pre-release-backup] $*"; }
 # Checked before the docker preconditions on purpose: keeping a good point needs
 # neither docker nor a running database, and a re-run must not die on them.
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+# A manifest is only worth keeping (or writing) if it PARSES and names everything a rollback needs: the dump,
+# both digests and the schema version. A grep for the digests would accept a truncated file whose tail is gone.
+manifest_complete() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+r = d["rollback_to"]
+assert d["dump"] and r["backend"] and r["frontend"] and r["schema_version"]
+' "$1" >/dev/null 2>&1
+    else
+        jq -e '(.dump | length > 0) and (.rollback_to.backend | length > 0) and (.rollback_to.frontend | length > 0)
+               and (.rollback_to.schema_version | length > 0)' "$1" >/dev/null 2>&1
+    fi
+}
 usable_existing_manifest() {
     [ -f "$MANIFEST_FILE" ] || return 1
+    manifest_complete "$MANIFEST_FILE" || return 1
     [ -f "$DUMP_FILE" ] || return 1
     gzip -t "$DUMP_FILE" 2>/dev/null || return 1
-    grep -q '"backend": *"[^"]\+"' "$MANIFEST_FILE" || return 1
-    grep -q '"frontend": *"[^"]\+"' "$MANIFEST_FILE" || return 1
+    # STALE: record-deployed-images.sh writes the ledger after every SUCCESSFUL deploy. A ledger newer than this
+    # manifest means a release went live after the manifest was taken, so its "outgoing" digests are no longer
+    # what the next release replaces. Keeping it would roll back to a build two releases old.
+    if [ -f "$LEDGER" ] && [ "$LEDGER" -nt "$MANIFEST_FILE" ]; then
+        log "the manifest for ${RELEASE_VERSION} is older than the deploy ledger: a newer release went live since — it is stale."
+        return 1
+    fi
     return 0
 }
 if usable_existing_manifest; then
@@ -290,7 +311,9 @@ if save_config "${COMPOSE_DIR}/docker-compose.yml" "$COMPOSE_SAVED"; then
 fi
 
 # --- Manifest -----------------------------------------------------------------
-cat > "$MANIFEST_FILE" <<JSON
+# Written beside the real name and moved into place only once it has been validated, so a crash or a failed
+# validation can never leave a truncated manifest where a rollback (or a re-run's keep-first check) would find it.
+cat > "${MANIFEST_FILE}.partial" <<JSON
 {
   "releasing": "${RELEASE_VERSION}",
   "taken_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -305,10 +328,12 @@ JSON
 
 # Validate now, while it is cheap. A manifest that only turns out to be
 # malformed on the night you need it is worth no more than no manifest at all.
-if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$MANIFEST_FILE" \
-        || { echo "ERROR: wrote an invalid manifest — aborting the release." >&2; exit 1; }
+if ! manifest_complete "${MANIFEST_FILE}.partial"; then
+    rm -f "${MANIFEST_FILE}.partial"
+    echo "ERROR: wrote an invalid or incomplete manifest — aborting the release." >&2
+    exit 1
 fi
+mv "${MANIFEST_FILE}.partial" "$MANIFEST_FILE"
 
 log "manifest written: ${MANIFEST_FILE}"
 log "rollback with: ./scripts/rollback.sh ${RELEASE_VERSION}"

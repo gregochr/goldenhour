@@ -37,6 +37,29 @@ export async function startStubSite(scenario = {}) {
       res.end('<html><title>Just a moment...</title></html>');
       return;
     }
+    if (scenario.edge === 'waf403') {
+      // A WAF block page: no cf-mitigated header, only the page text.
+      res.writeHead(403, { 'content-type': 'text/html' });
+      res.end('<html><title>Attention Required! | Cloudflare</title></html>');
+      return;
+    }
+    if (scenario.edge === 'cf1015') {
+      res.writeHead(429, { 'content-type': 'text/plain' });
+      res.end('error code: 1015');
+      return;
+    }
+    if (scenario.edge === 'errorDetails') {
+      res.writeHead(403, { 'content-type': 'text/plain', 'cf-error-details': 'blocked' });
+      res.end('forbidden');
+      return;
+    }
+    if (scenario.truncate && req.method === 'GET' && url.pathname === '/') {
+      // Promises 5000 bytes, sends 10, then drops the connection: curl exits 18.
+      res.writeHead(200, { 'content-type': 'text/html', 'content-length': '5000', 'content-security-policy': csp });
+      res.write('<!doctype h');
+      setTimeout(() => res.destroy(), 50);
+      return;
+    }
 
     if (req.method === 'GET' && url.pathname === '/') {
       const headers = { 'content-type': 'text/html', 'cache-control': 'no-cache' };
@@ -53,6 +76,15 @@ export async function startStubSite(scenario = {}) {
       res.end('/* stub */');
       return;
     }
+    if (scenario.legacyHealth) {
+      // An image from before the db-only health group: /container is 404, only the aggregate exists.
+      if (url.pathname === '/actuator/health/container') return json(res, 404, { error: 'Not found' });
+      if (url.pathname === '/actuator/health') {
+        return scenario.legacyHealth === 'down'
+          ? json(res, 503, { status: 'DOWN' })
+          : json(res, 200, { status: 'UP' });
+      }
+    }
     if (url.pathname === '/actuator/health/container') {
       json(res, scenario.healthStatus || 200, { status: scenario.healthStatus ? 'DOWN' : 'UP' });
       return;
@@ -64,9 +96,16 @@ export async function startStubSite(scenario = {}) {
         res.end();
         return;
       }
+      const slot = { locationName: 'Stub Beach' };
+      if (!scenario.nullRatings) slot.claudeRating = 4;
+      if (scenario.gated) slot.gated = true;
+      // `onlyUnregioned` puts the one slot in unregioned[], where the old check never looked.
+      const summary = scenario.onlyUnregioned
+        ? { regions: [], unregioned: [slot] }
+        : { regions: [{ slots: [slot] }], unregioned: [] };
       return json(res, 200, {
         generatedAt: '2026-11-08T07:00:00',
-        days: [{ date: '2026-11-08', eventSummaries: [{ regions: [{ slots: [{ claudeRating: 4 }] }] }] }],
+        days: scenario.noDays ? [] : [{ date: '2026-11-08', eventSummaries: [summary] }],
       });
     }
     if (url.pathname === '/api/user/settings') {
@@ -75,6 +114,16 @@ export async function startStubSite(scenario = {}) {
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       drain(() => {
         state.loginAttempts += 1;
+        if (scenario.loginEdge) {
+          res.writeHead(429, { 'content-type': 'text/plain' });
+          res.end('error code: 1015');
+          return;
+        }
+        if (scenario.loginSeq) {
+          // Statuses in order; the last one repeats.
+          const status = scenario.loginSeq[Math.min(state.loginAttempts, scenario.loginSeq.length) - 1];
+          return json(res, status, { error: 'stub' });
+        }
         if (scenario.login === '429') return json(res, 429, { error: 'Too many attempts' });
         return json(res, 200, {
           accessToken: 'stub-access-token',

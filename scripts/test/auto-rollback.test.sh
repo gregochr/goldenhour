@@ -40,6 +40,8 @@ EOF
 #!/bin/bash
 echo "post-deploy-smoke $*" >> "$CALL_LOG"
 echo "post-deploy-smoke: stub exits ${STUB_SMOKE_RC:-0}"
+# Jumps the fake clock far past the deadline, so the overall deadline is spent by the time this returns.
+[ -z "${STUB_SMOKE_JUMP:-}" ] || echo 100000 > "$CASE_DIR/clock.offset"
 exit "${STUB_SMOKE_RC:-0}"
 EOF
 
@@ -47,8 +49,8 @@ EOF
     cat > "$CASE/bin/docker" <<'EOF'
 #!/bin/bash
 echo "docker $*" >> "$CALL_LOG"
-case "$1 $2" in
-    "compose up")
+case " $* " in
+    *" up "*)
         n=$(( $(cat "$CASE_DIR/up.count" 2>/dev/null || echo 0) + 1 ))
         echo "$n" > "$CASE_DIR/up.count"
         cp "$COMPOSE_DIR/nginx.conf" "$CASE_DIR/up$n.nginx" 2>/dev/null || true
@@ -58,6 +60,15 @@ case "$1 $2" in
         ;;
 esac
 exit 0
+EOF
+    # A date whose epoch seconds can be moved forward, so a case can spend the deadline without waiting for it.
+    cat > "$CASE/bin/date" <<'EOF'
+#!/bin/bash
+if [ "$1" = "+%s" ]; then
+    echo $(( $(/bin/date +%s) + $(cat "$CASE_DIR/clock.offset" 2>/dev/null || echo 0) ))
+else
+    exec /bin/date "$@"
+fi
 EOF
     for db in psql pg_dump pg_restore pg_dumpall; do
         # shellcheck disable=SC2016  # $* and $CALL_LOG are meant to expand when the STUB runs
@@ -74,16 +85,19 @@ EOF
     export CASE_DIR="$CASE" CALL_LOG="$CASE/calls.log" COMPOSE_DIR="$CASE/compose"
     export BACKUP_DIR="$CASE/backups" GIT_REPO_DIR="$CASE/no-such-repo"
     export PATH="$CASE/bin:$ORIGINAL_PATH"
-    unset STUB_HEALTH_RC STUB_SMOKE_RC STUB_UP_FAIL_AT ROLLBACK_DEADLINE_SECONDS GITHUB_ACTIONS
+    unset STUB_HEALTH_RC STUB_SMOKE_RC STUB_SMOKE_JUMP STUB_UP_FAIL_AT ROLLBACK_DEADLINE_SECONDS GITHUB_ACTIONS
 }
 ORIGINAL_PATH="$PATH"
 
-# write_manifest SCHEMA [config|noconfig]
+# write_manifest SCHEMA [config|noconfig|nginxonly]
 write_manifest() {
     local cfg=""
     if [ "${2:-config}" = config ]; then
         cfg='  "nginx_conf": "v9.nginx.conf",
   "compose_file": "v9.docker-compose.yml",
+'
+    elif [ "${2:-}" = nginxonly ]; then
+        cfg='  "nginx_conf": "v9.nginx.conf",
 '
     fi
     cat > "$BACKUP_DIR/pre-release/v9.json" <<JSON
@@ -276,10 +290,21 @@ assert_contains "the release is back up as it was" "$OUT" "back up as it was"
 assert_file_missing "pin removed" "$COMPOSE_DIR/docker-compose.override.yml"
 assert_eq "NEW nginx.conf restored" "NEW nginx" "$(cat "$COMPOSE_DIR/nginx.conf")"
 assert_eq "NEW compose restored" "NEW compose" "$(cat "$COMPOSE_DIR/docker-compose.yml")"
-assert_eq "docker compose up called twice (back, then forward)" 2 "$(grep -c '^docker compose up' "$CALL_LOG")"
-assert_eq "the second up ran without the pin" "" "$(cat "$CASE/up2.override" 2>/dev/null)"
+assert_eq "docker compose up called twice (back, then forward)" 2 "$(grep -c '^docker compose.* up ' "$CALL_LOG")"
+assert_file_has "the forward up names the compose file, which makes Compose ignore the pin" "$CALL_LOG" "docker compose -f docker-compose.yml up -d --no-deps --force-recreate goldenhour-backend goldenhour-frontend"
+assert_file_has "the pin was still on disk while the forward up ran (it goes only after success)" "$CASE/up2.override" "image: ${DIGEST_B}"
 assert_eq "the second up ran with the NEW nginx.conf" "NEW nginx" "$(cat "$CASE/up2.nginx")"
 no_db_commands "restore forward"
+
+echo "-- the overall deadline is spent before the restore-forward: the forward up still runs"
+new_case
+write_manifest 5
+export STUB_SMOKE_RC=1 STUB_SMOKE_JUMP=1
+run_rollback v9
+assert_eq "exit 2" 2 "$RC"
+assert_eq "both ups ran" 2 "$(grep -c '^docker compose.* up ' "$CALL_LOG")"
+assert_contains "ROLLBACK FAILED banner (the forward up succeeded)" "$OUT" "ROLLBACK FAILED"
+assert_file_missing "pin removed after the successful forward up" "$COMPOSE_DIR/docker-compose.override.yml"
 
 echo "-- the restore-forward fails too: exit 2 and a different banner"
 new_case
@@ -288,6 +313,10 @@ export STUB_SMOKE_RC=1 STUB_UP_FAIL_AT=2
 run_rollback v9
 assert_eq "exit 2" 2 "$RC"
 assert_contains "banner says the rollback failed AND bringing the release back failed" "$OUT" "bringing v9 back up failed"
+assert_file_exists "the pin is still there" "$COMPOSE_DIR/docker-compose.override.yml"
+assert_eq "the OLD nginx.conf is back beside the pin" "OLD nginx" "$(cat "$COMPOSE_DIR/nginx.conf")"
+assert_eq "the OLD compose file is back beside the pin" "OLD compose" "$(cat "$COMPOSE_DIR/docker-compose.yml")"
+assert_contains "says the pin is still in place" "$OUT" "PIN IS STILL IN PLACE"
 
 echo "-- smoke inconclusive on the old build (3 or 4): the rollback stands, exit 1, flagged"
 new_case
@@ -298,6 +327,43 @@ assert_eq "exit 1" 1 "$RC"
 assert_contains "ROLLED BACK" "$OUT" "ROLLED BACK"
 assert_contains "flags the smoke as INCONCLUSIVE" "$OUT" "INCONCLUSIVE"
 assert_file_exists "pin stays" "$COMPOSE_DIR/docker-compose.override.yml"
+
+echo "-- smoke exit 4 on the rolled-back build is NOT a verified rollback: it is flagged INCONCLUSIVE"
+new_case
+write_manifest 5
+export STUB_SMOKE_RC=4
+run_rollback v9
+assert_eq "exit 1" 1 "$RC"
+assert_contains "flagged INCONCLUSIVE with the code" "$OUT" "INCONCLUSIVE (exit 4)"
+assert_not_contains "never claims the smoke passed" "$OUT" "smoke check against the previous build: passed"
+
+echo "-- only ONE config file was saved: the banner names exactly which was restored"
+new_case
+write_manifest 5 nginxonly
+run_rollback v9
+assert_eq "exit 1" 1 "$RC"
+assert_contains "says partial" "$OUT" "PARTIAL — restored: nginx.conf. NOT restored: docker-compose.yml"
+assert_eq "nginx.conf was restored" "OLD nginx" "$(cat "$CASE/up1.nginx")"
+assert_eq "docker-compose.yml was NOT touched" "NEW compose" "$(cat "$CASE/up1.compose")"
+assert_not_contains "does not claim both" "$OUT" "nginx.conf and docker-compose.yml restored"
+
+echo "-- a SIGTERM kills the check that is running (no orphaned prod-health left behind)"
+new_case
+write_manifest 5
+cat > "$CASE/s/prod-health.sh" <<'EOF'
+#!/bin/bash
+echo $$ > "$CASE_DIR/health.pid"
+sleep 30
+EOF
+bash "$CASE/s/auto-rollback.sh" v9 > "$CASE/term2.out" 2>&1 &
+pid=$!
+sleep 2
+kill -TERM "$pid"
+wait "$pid"
+sleep 1
+child="$(cat "$CASE/health.pid" 2>/dev/null)"
+if [ -n "$child" ] && ! kill -0 "$child" 2>/dev/null; then ok "the in-flight health check was killed with the script"; else bad "the in-flight health check ($child) outlived the script"; fi
+[ -z "$child" ] || kill -9 "$child" 2>/dev/null || true
 
 echo "-- docker compose up fails on the old images: exit 2, pin stays, nothing is verified"
 new_case

@@ -96,6 +96,12 @@ healthy; export APP_CODE=502
 run_health --deploy --classify
 assert_eq "classified: exit 3" 3 "$RC"
 
+echo "-- the app answers 200 with NO token: auth is broken, which only a release can do"
+healthy; export APP_CODE=200
+run_health --deploy --classify
+assert_eq "classified: exit 1" 1 "$RC"
+assert_contains "counted as release" "$OUT" "release=1 infra=0"
+
 echo "-- a release failure outranks an infrastructure one"
 healthy; export BE_HEALTH=unhealthy CF_STATE=failed
 run_health --deploy --classify

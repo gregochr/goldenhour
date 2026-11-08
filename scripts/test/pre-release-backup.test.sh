@@ -132,6 +132,60 @@ assert_eq "no compose_file key" "null" "$(jq -r .compose_file "$R/v9.json")"
 assert_eq "nginx_conf still recorded" "v9.nginx.conf" "$(jq -r .nginx_conf "$R/v9.json")"
 assert_file_missing "no half-written copy" "$R/v9.docker-compose.yml.partial"
 
+echo "-- a STALE manifest (the deploy ledger is newer: a later release went live) is moved aside, not kept"
+new_case
+run_backup v9
+touch -d '2 hours ago' "$R/v9.json" "$R/goldenhour_pre-v9.sql.gz"
+echo '{}' > "$DEPLOYED_IMAGES_LEDGER"
+touch -d '1 hour ago' "$DEPLOYED_IMAGES_LEDGER"
+export IMAGE_FLAVOUR=newer
+run_backup v9
+assert_eq "exit 0" 0 "$RC"
+assert_contains "says it is stale" "$OUT" "stale"
+assert_eq "the stale manifest was kept under another name" 1 "$(find "$R" -name 'v9.json.unusable-*' | wc -l)"
+assert_contains "a fresh point records the build running NOW" "$(cat "$R/v9.json")" "goldenhour-newer@sha256"
+
+echo "-- a ledger OLDER than the manifest does not make it stale"
+new_case
+run_backup v9
+echo '{}' > "$DEPLOYED_IMAGES_LEDGER"
+touch -d '2 hours ago' "$DEPLOYED_IMAGES_LEDGER"
+export IMAGE_FLAVOUR=newer
+run_backup v9
+assert_contains "kept" "$OUT" "keeping the first"
+assert_not_contains "no fresh point" "$(cat "$R/v9.json")" "goldenhour-newer"
+
+echo "-- a truncated manifest is not kept (it must PARSE)"
+new_case
+run_backup v9
+head -c 60 "$R/v9.json" > "$CASE/trunc.json"
+cp "$CASE/trunc.json" "$R/v9.json"
+export IMAGE_FLAVOUR=newer
+run_backup v9
+assert_eq "exit 0" 0 "$RC"
+assert_eq "the truncated manifest was moved aside" 1 "$(find "$R" -name 'v9.json.unusable-*' | wc -l)"
+assert_eq "a complete manifest was taken" 0 "$(jq -e '.dump and .rollback_to.backend' "$R/v9.json" >/dev/null 2>&1; echo $?)"
+
+echo "-- a manifest that parses but has no dump is not kept"
+new_case
+run_backup v9
+jq 'del(.dump)' "$R/v9.json" > "$CASE/nodump.json"
+cp "$CASE/nodump.json" "$R/v9.json"
+run_backup v9
+assert_eq "exit 0" 0 "$RC"
+assert_eq "moved aside" 1 "$(find "$R" -name 'v9.json.unusable-*' | wc -l)"
+assert_eq "the new manifest names its dump" "goldenhour_pre-v9.sql.gz" "$(jq -r .dump "$R/v9.json")"
+
+echo "-- a manifest that fails validation is never left in place (written as .partial, moved only when valid)"
+new_case
+printf '#!/bin/bash\nexit 1\n' > "$CASE/bin/python3"
+chmod +x "$CASE/bin/python3"
+run_backup v9
+assert_eq "exit 1: the release stops" 1 "$RC"
+assert_file_missing "no manifest" "$R/v9.json"
+assert_file_missing "no .partial left either" "$R/v9.json.partial"
+assert_contains "says why" "$OUT" "invalid or incomplete manifest"
+
 echo "-- no digests: still aborts the release (unchanged behaviour)"
 new_case
 cat > "$CASE/bin/docker" <<'EOF'

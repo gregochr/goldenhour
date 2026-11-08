@@ -138,8 +138,12 @@ trap 'STAGE="${STAGE} (terminated by a signal)"; exit 2' TERM INT HUP
 # the banner would come too late to be seen.
 DEADLINE_HIT=false
 CHILD_PID=""
+# A floor on what bounded() allows, for the one command that must run even after the deadline (the restore-forward
+# `up`: abandoning it half way would leave the host neither rolled back nor forward).
+BOUND_MIN=0
 bounded() {
     local left=$((DEADLINE_AT - $(date +%s)))
+    [ "$left" -ge "$BOUND_MIN" ] || left="$BOUND_MIN"
     if [ "$left" -le 0 ]; then
         DEADLINE_HIT=true
         return 124
@@ -195,11 +199,25 @@ NGINX_SAVED=""
 COMPOSE_SAVED=""
 [ -z "$NGINX_SAVED_NAME" ] || [ ! -f "${RELEASE_DIR}/${NGINX_SAVED_NAME}" ] || NGINX_SAVED="${RELEASE_DIR}/${NGINX_SAVED_NAME}"
 [ -z "$COMPOSE_SAVED_NAME" ] || [ ! -f "${RELEASE_DIR}/${COMPOSE_SAVED_NAME}" ] || COMPOSE_SAVED="${RELEASE_DIR}/${COMPOSE_SAVED_NAME}"
-if [ -n "$NGINX_SAVED" ] && [ -n "$COMPOSE_SAVED" ]; then
-    CONFIG_NOTE="nginx.conf and docker-compose.yml restored to the outgoing release's copies"
-else
-    CONFIG_NOTE="IMAGES ONLY — the outgoing nginx.conf/docker-compose.yml were not saved (a manifest from before this was added, or a file was missing), so the NEW release's configuration is still in place"
-fi
+
+# Which files WILL be (planned) and then WERE restored, each on its own: the banner names exactly those.
+NGINX_RESTORED=0
+COMPOSE_RESTORED=0
+[ -z "$NGINX_SAVED" ] || NGINX_RESTORED=1
+[ -z "$COMPOSE_SAVED" ] || COMPOSE_RESTORED=1
+CONFIG_NOTE=""
+describe_config() {
+    if [ "$NGINX_RESTORED" -eq 1 ] && [ "$COMPOSE_RESTORED" -eq 1 ]; then
+        CONFIG_NOTE="nginx.conf and docker-compose.yml restored to the outgoing release's copies"
+    elif [ "$NGINX_RESTORED" -eq 1 ]; then
+        CONFIG_NOTE="PARTIAL — restored: nginx.conf. NOT restored: docker-compose.yml (not saved, or not copyable), so the NEW release's copy is still in place"
+    elif [ "$COMPOSE_RESTORED" -eq 1 ]; then
+        CONFIG_NOTE="PARTIAL — restored: docker-compose.yml. NOT restored: nginx.conf (not saved, or not copyable), so the NEW release's copy is still in place"
+    else
+        CONFIG_NOTE="IMAGES ONLY — the outgoing nginx.conf/docker-compose.yml were not saved (a manifest from before this was added, or a file was missing), so the NEW release's configuration is still in place"
+    fi
+}
+describe_config
 
 # --- The migrations the failed release carried (R10) -----------------------------
 # Read from the tag, never from the database: this script does not touch it.
@@ -262,11 +280,15 @@ STAGE="restoring configuration"
 for f in nginx.conf docker-compose.yml; do
     [ ! -f "${COMPOSE_DIR}/${f}" ] || cp "${COMPOSE_DIR}/${f}" "${WORK}/new.${f}"
 done
-if [ -n "$NGINX_SAVED" ] && [ -n "$COMPOSE_SAVED" ]; then
-    if ! cp "$NGINX_SAVED" "${COMPOSE_DIR}/nginx.conf" || ! cp "$COMPOSE_SAVED" "${COMPOSE_DIR}/docker-compose.yml"; then
-        log "WARNING: could not restore the saved configuration — carrying on with the images only."
-    fi
+if [ "$NGINX_RESTORED" -eq 1 ] && ! cp "$NGINX_SAVED" "${COMPOSE_DIR}/nginx.conf"; then
+    NGINX_RESTORED=0
+    log "WARNING: could not restore nginx.conf."
 fi
+if [ "$COMPOSE_RESTORED" -eq 1 ] && ! cp "$COMPOSE_SAVED" "${COMPOSE_DIR}/docker-compose.yml"; then
+    COMPOSE_RESTORED=0
+    log "WARNING: could not restore docker-compose.yml."
+fi
+describe_config
 
 STAGE="writing the pin"
 cat > "${OVERRIDE_FILE}.partial" <<OVERRIDE
@@ -330,22 +352,33 @@ if [ "$UP_RC" -eq 0 ] && [ "$HEALTH_RC" -eq 0 ] && [ "$SMOKE_RC" -eq 1 ]; then
     # The previous build is up and healthy but fails the smoke check too: the rollback bought nothing, and
     # the pin only mixes the old images with a newer schema. Put the release back exactly as it was.
     STAGE="restoring the release (the previous build failed the smoke check too)"
-    rm -f "$OVERRIDE_FILE"
+    # The pin stays on disk until the forward `up` has SUCCEEDED, and `-f docker-compose.yml` makes Compose
+    # ignore it meanwhile (naming a file disables the auto-loaded override). Deleting it first would leave the
+    # host with no pin, the old containers running and nothing started if the `up` then failed.
     for f in nginx.conf docker-compose.yml; do
         [ ! -f "${WORK}/new.${f}" ] || cp "${WORK}/new.${f}" "${COMPOSE_DIR}/${f}"
     done
     FORWARD_RC=0
-    bounded docker compose up -d --no-deps --force-recreate "$BACKEND_SERVICE" "$FRONTEND_SERVICE" || FORWARD_RC=$?
+    # At least 120 s even if the overall deadline is spent: half a roll-forward is the worst state available.
+    BOUND_MIN=120
+    bounded docker compose -f docker-compose.yml up -d --no-deps --force-recreate "$BACKEND_SERVICE" "$FRONTEND_SERVICE" || FORWARD_RC=$?
+    BOUND_MIN=0
     FINISHED=true
     if [ "$FORWARD_RC" -eq 0 ]; then
+        rm -f "$OVERRIDE_FILE"
         banner "ROLLBACK FAILED — the release is back up as it was (the previous build fails the smoke check too)" \
             "The pin was removed and ${VERSION}'s configuration and images restored." \
             "The previous build was healthy but failed the same probes, so rolling back changes nothing:" \
             "the fault is probably not in the images. Investigate production directly." \
             "${SCHEMA_LINE}"
     else
+        # Put the host back as the rollback left it: the old configuration beside the pin, so the three agree.
+        [ "$NGINX_RESTORED" -ne 1 ] || cp "$NGINX_SAVED" "${COMPOSE_DIR}/nginx.conf"
+        [ "$COMPOSE_RESTORED" -ne 1 ] || cp "$COMPOSE_SAVED" "${COMPOSE_DIR}/docker-compose.yml"
         banner "MANUAL ACTION NEEDED — the rollback failed AND bringing ${VERSION} back up failed (exit ${FORWARD_RC})" \
-            "The pin was removed. Production may be DOWN. Look now:  cd ${COMPOSE_DIR} && docker compose ps" \
+            "The PIN IS STILL IN PLACE (${OVERRIDE_FILE}) and the previous configuration was put back, so the host agrees with itself." \
+            "Containers may be half-recreated. Look now:  cd ${COMPOSE_DIR} && docker compose ps" \
+            "Config:    ${CONFIG_NOTE}" \
             "${SCHEMA_LINE}"
     fi
     exit 2

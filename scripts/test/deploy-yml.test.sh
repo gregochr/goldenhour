@@ -40,6 +40,12 @@ assert_file_has "30 minute command timeout (R5)" "$DEPLOY" "command_timeout: 30m
 assert_file_has "one deploy at a time (R8): the group" "$DEPLOY" "group: prod-deploy"
 assert_file_has "one deploy at a time (R8): never cancelled" "$DEPLOY" "cancel-in-progress: false"
 
+# The runner-side step checks the secret's characters (the SSH forwarding mangles anything else) and never prints it.
+assert_file_has "runner-side step reads the secret into SMOKE_PW" "$DEPLOY" 'SMOKE_PW: ${{ secrets.SMOKE_DEPLOY_PASSWORD }}'
+assert_file_has "runner-side step tests the allowed character set" "$DEPLOY" "grep -q '[^A-Za-z0-9._-]'"
+assert_file_lacks "the runner-side step never echoes the value" "$DEPLOY" 'echo "$SMOKE_PW'
+assert_file_lacks "the runner-side step never prints it with printf either" "$DEPLOY" 'printf "%s" "$SMOKE_PW" >&'
+
 # R16: nothing that could print a secret.
 if grep -qE '^[[:space:]]*debug:' "$DEPLOY"; then bad "appleboy debug must stay off (it would print the script and the secrets)"; else ok "no appleboy debug"; fi
 SCRIPT="$(bash "$HERE/extract-deploy-script.sh" "$DEPLOY")"
@@ -80,7 +86,7 @@ assert_contains "the pin guard names who wrote the pin (R11)" "$SCRIPT" "head -n
 # R4: no bare command inside the check function.
 FUNC="$(printf '%s\n' "$SCRIPT" | awk '/^post_up_checks\(\) \{/ { on = 1 } on { print } on && /^\}/ { exit }')"
 assert_contains "the check function exists" "$FUNC" "post_up_checks()"
-BARE="$(printf '%s\n' "$FUNC" | grep -E 'bash "' | grep -vE '\|\| rc=\$\?' || true)"
+BARE="$(printf '%s\n' "$FUNC" | grep -E 'bash "' | grep -vE '\|\| [a-z_]*rc=\$\?' || true)"
 assert_eq "every command in the check function captures its rc with || rc=\$?" "" "$BARE"
 assert_contains "the caller captures the rc" "$SCRIPT" 'post_up_checks || check_rc=$?'
 assert_contains "the rollback's 1 or 2 is passed through" "$SCRIPT" 'exit "$rollback_rc"'
