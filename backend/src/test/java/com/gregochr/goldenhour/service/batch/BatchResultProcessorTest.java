@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service.batch;
 
 import com.gregochr.goldenhour.service.ServedBriefingEpoch;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
 import com.anthropic.models.messages.StopReason;
@@ -40,6 +43,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -739,8 +743,19 @@ class BatchResultProcessorTest {
                 any(ClaudeBatchOutcome.class), any(ResultContext.class)))
                 .thenReturn(AuroraBatchOutcome.ok(7));
 
-        processor.processResults(batch);
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
 
+        assertThat(appender.list).filteredOn(event -> event.getLevel() == Level.WARN)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getFormattedMessage()).contains("Aurora batch msgbatch_fail");
+                    assertThat(event.getFormattedMessage()).contains("no api_call_log cost rows");
+                });
         ArgumentCaptor<ForecastBatchEntity> captor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
         verify(batchRepository).save(captor.capture());
@@ -1112,6 +1127,117 @@ class BatchResultProcessorTest {
         when(err.isApiError()).thenReturn(true);
         when(err.asApiError()).thenReturn(typed);
         return err;
+    }
+
+    // ── Per-batch "no cost rows" WARN: once per batch, only when the job run is absent ──────
+
+    private static final String NO_COST_ROWS = "no api_call_log cost rows";
+
+    @Test
+    @DisplayName("FORECAST: a jobRunId-less batch of two results warns once per batch and drops per result")
+    void forecast_noJobRun_twoResults_warnsOncePerBatchAndDebugsPerResult() {
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        stubStream(
+                erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"),
+                erroredResponse("fc-43-2026-04-07-SUNRISE", "overloaded_error", "busy"));
+
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
+
+        assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains(NO_COST_ROWS))
+                .hasSize(1);
+        assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.DEBUG
+                        && event.getFormattedMessage().contains("jobRunId is absent"))
+                .hasSize(2);
+    }
+
+    @Test
+    @DisplayName("FORECAST: a batch with a job run never claims its cost rows are dropped")
+    void forecast_withJobRun_doesNotWarnAboutDroppedCostRows() {
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 65L);
+        stubStream(erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"));
+
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
+
+        assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains(NO_COST_ROWS));
+        assertThat(appender.list).noneMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("jobRunId is absent"));
+    }
+
+    @Test
+    @DisplayName("AURORA: a batch with a job run never claims its cost rows are dropped")
+    void aurora_withJobRun_doesNotWarnAboutDroppedCostRows() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.AURORA, "msgbatch_fail", 1, 61L);
+        MessageBatchIndividualResponse response = succeededResponse(
+                "au-MODERATE-2026-04-07", "[{\"name\":\"X\",\"stars\":4}]");
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+        ArgumentCaptor<ClaudeBatchOutcome> outcomeCaptor = ArgumentCaptor.forClass(ClaudeBatchOutcome.class);
+        ArgumentCaptor<ResultContext> contextCaptor = ArgumentCaptor.forClass(ResultContext.class);
+        when(auroraResultHandler.processBatchResponse(
+                eq(AlertLevel.MODERATE), outcomeCaptor.capture(), contextCaptor.capture()))
+                .thenReturn(AuroraBatchOutcome.ok(7));
+
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
+
+        assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains(NO_COST_ROWS));
+        assertThat(outcomeCaptor.getValue().customId()).isEqualTo("au-MODERATE-2026-04-07");
+        assertThat(contextCaptor.getValue().jobRunId()).isEqualTo(61L);
+        assertThat(contextCaptor.getValue().batchId()).isEqualTo("msgbatch_fail");
+    }
+
+    @Test
+    @DisplayName("AURORA: a refused response on a jobRunId-less batch still warns that cost rows are dropped")
+    void aurora_refusalWithoutJobRun_warnsAboutDroppedCostRows() {
+        assertRejectedAuroraWithoutJobRunWarns(StopReason.REFUSAL);
+    }
+
+    @Test
+    @DisplayName("AURORA: a truncated response on a jobRunId-less batch still warns that cost rows are dropped")
+    void aurora_maxTokensWithoutJobRun_warnsAboutDroppedCostRows() {
+        assertRejectedAuroraWithoutJobRunWarns(StopReason.MAX_TOKENS);
+    }
+
+    private void assertRejectedAuroraWithoutJobRunWarns(StopReason stopReason) {
+        ForecastBatchEntity batch = buildBatch(BatchType.AURORA);
+        stubStream(succeededResponseWithStopReason("au-MODERATE-2026-04-07", stopReason));
+
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
+
+        verify(auroraResultHandler, never()).processBatchResponse(any(), any(), any());
+        verifyNoInteractions(jobRunService);
+        assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains(NO_COST_ROWS))
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("Aurora batch msgbatch_fail"));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1592,11 +1718,27 @@ class BatchResultProcessorTest {
         ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
         stubStream(erroredResponse("fc-42-2026-04-07-SUNRISE", "overloaded_error", "busy"));
 
-        processor.processResults(batch);
+        ListAppender<ILoggingEvent> appender = attachAppender();
+        try {
+            processor.processResults(batch);
+        } finally {
+            detachAppender(appender);
+        }
 
         verifyNoInteractions(jobRunService);
         assertThat(batch.getErroredCount()).isEqualTo(1);
         assertThat(batch.getStatus()).isEqualTo(BatchStatus.FAILED);
+        // Once per batch at WARN, naming the batch and the consequence ...
+        assertThat(appender.list)
+                .filteredOn(event -> event.getLevel() == Level.WARN
+                        && event.getFormattedMessage().contains("no api_call_log cost rows"))
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("Forecast batch msgbatch_fail"));
+        // ... and at DEBUG per dropped result.
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("fc-42-2026-04-07-SUNRISE")
+                && event.getFormattedMessage().contains("jobRunId is absent"));
     }
 
     @Test
@@ -1872,5 +2014,23 @@ class BatchResultProcessorTest {
                 eq(false), eq(EvaluationFailure.TYPE_REFUSAL), any(),
                 eq(EvaluationModel.SONNET_55), any(TokenUsage.class),
                 isNull(), isNull(), eq(null), eq(EXPECTED_DIAGNOSTICS));
+    }
+
+    /** Attaches a capturing appender and opens the logger to DEBUG, which the test config filters out. */
+    private static ListAppender<ILoggingEvent> attachAppender() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(BatchResultProcessor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        return appender;
+    }
+
+    private static void detachAppender(ListAppender<ILoggingEvent> appender) {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(BatchResultProcessor.class);
+        logger.detachAppender(appender);
+        logger.setLevel(null);
     }
 }

@@ -1483,8 +1483,8 @@ class ForecastResultHandlerTest {
     // ── sky batch: absent model, absent context, tide-less locations ──────────
 
     @Test
-    @DisplayName("parseBatchResponse: no context and no model still parses; nothing is logged and "
-            + "the result carries no submission instant")
+    @DisplayName("parseBatchResponse: no context and no model still parses; no api_call_log row is "
+            + "written and the result carries no submission instant")
     void parseBatchResponse_noContextNoModel_stillParses() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
         ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
@@ -1502,6 +1502,78 @@ class ForecastResultHandlerTest {
         assertThat(result.get().result().rating()).isEqualTo(4);
         assertThat(result.get().result().submittedAt()).isNull();
         verifyNoInteractions(jobRunService);
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: a null context logs a DEBUG drop without reading the batch id")
+    void parseBatchResponse_nullContext_logsDebugDrop() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), null);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        ListAppender<ILoggingEvent> appender = attachDropAppender();
+        try {
+            handler.parseBatchResponse(location, identity, outcome, null);
+        } finally {
+            detachDropAppender(appender);
+        }
+
+        verifyNoInteractions(jobRunService);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("fc-42-2026-04-16-SUNRISE")
+                && event.getFormattedMessage().contains("no ResultContext was supplied"));
+    }
+
+    @Test
+    @DisplayName("parseBatchResponse: a context with no job run id logs a DEBUG drop naming the batch")
+    void parseBatchResponse_contextWithoutJobRunId_logsDebugDrop() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), null);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+
+        ListAppender<ILoggingEvent> appender = attachDropAppender();
+        try {
+            handler.parseBatchResponse(location, identity, outcome,
+                    ResultContext.forBatch(null, "msgbatch_nojob", BatchTriggerSource.SCHEDULED));
+        } finally {
+            detachDropAppender(appender);
+        }
+
+        verifyNoInteractions(jobRunService);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.DEBUG
+                && event.getFormattedMessage().contains("fc-42-2026-04-16-SUNRISE")
+                && event.getFormattedMessage().contains("msgbatch_nojob")
+                && event.getFormattedMessage().contains("jobRunId is absent"));
+    }
+
+    /** Attaches a capturing appender and opens the logger to DEBUG, which the test config filters out. */
+    private static ListAppender<ILoggingEvent> attachDropAppender() {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(ForecastResultHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        return appender;
+    }
+
+    private static void detachDropAppender(ListAppender<ILoggingEvent> appender) {
+        ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(ForecastResultHandler.class);
+        logger.detachAppender(appender);
+        logger.setLevel(null);
     }
 
     @Test

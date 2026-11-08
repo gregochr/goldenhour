@@ -193,6 +193,8 @@ class ForecastScoreDualWriteIntegrationTest extends IntegrationTestBase {
         return forecastResultHandler.parseBatchResponse(location, identity, outcome, context);
     }
 
+    // Callers pass ASCII-only summaries with no quote, backslash or control character by contract,
+    // so this builder needs no JSON escaping (contrast AnthropicWireMockFixtures.jsonEscape).
     private static String evalJson(int rating, int fierySky, int goldenHour, String summary) {
         return String.format(
                 "{\"rating\":%d,\"fiery_sky\":%d,\"golden_hour\":%d,\"summary\":\"%s\"}",

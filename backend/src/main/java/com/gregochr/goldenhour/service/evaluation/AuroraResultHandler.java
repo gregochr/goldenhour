@@ -207,7 +207,15 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
             com.gregochr.goldenhour.entity.EvaluationModel model) {
-        if (context == null || context.jobRunId() == null) {
+        if (context == null) {
+            LOG.debug("Aurora batch: no api_call_log row for customId={} — no ResultContext was supplied",
+                    outcome.customId());
+            return;
+        }
+        if (context.jobRunId() == null) {
+            LOG.debug("Aurora batch: no api_call_log row for customId={} batchId={} — jobRunId is absent "
+                    + "and api_call_log.job_run_id is NOT NULL",
+                    outcome.customId(), context.batchId());
             return;
         }
         try {
@@ -225,7 +233,15 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
 
     private void persistSyncLog(ResultContext context, ClaudeSyncOutcome outcome,
             EvaluationTask.Aurora task) {
-        if (context == null || context.jobRunId() == null) {
+        if (context == null) {
+            LOG.debug("Aurora sync: no api_call_log row for customId={} — no ResultContext was supplied",
+                    task.taskKey());
+            return;
+        }
+        if (context.jobRunId() == null) {
+            LOG.debug("Aurora sync: no api_call_log row for customId={} — jobRunId is absent "
+                    + "and api_call_log.job_run_id is NOT NULL",
+                    task.taskKey());
             return;
         }
         try {

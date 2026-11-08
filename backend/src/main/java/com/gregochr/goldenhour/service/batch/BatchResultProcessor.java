@@ -187,6 +187,10 @@ public class BatchResultProcessor {
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(),
                 batch.getPipelineRunId(), resolveSubmissionInstant(batch), null);
+        if (batch.getJobRunId() == null) {
+            LOG.warn("Forecast batch {} has no jobRunId: no api_call_log cost rows will be recorded "
+                    + "for it because api_call_log.job_run_id is NOT NULL", batch.getAnthropicBatchId());
+        }
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -486,6 +490,11 @@ public class BatchResultProcessor {
      * Processes a completed AURORA batch via {@link AuroraResultHandler}.
      */
     private void processAuroraBatch(ForecastBatchEntity batch) {
+        // Above every early return: the billed-but-rejected path drops its cost row too.
+        if (batch.getJobRunId() == null) {
+            LOG.warn("Aurora batch {} has no jobRunId: no api_call_log cost rows will be recorded "
+                    + "for it because api_call_log.job_run_id is NOT NULL", batch.getAnthropicBatchId());
+        }
         String rawResponse = null;
         com.gregochr.goldenhour.entity.AlertLevel level =
                 com.gregochr.goldenhour.entity.AlertLevel.QUIET;
@@ -660,7 +669,13 @@ public class BatchResultProcessor {
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType,
             EvaluationModel model, TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
+        // Deliberately one combined guard, unlike the handlers' two-arm split: every caller passes
+        // the per-batch context, so a null context is unreachable here, and not reading
+        // context.batchId() keeps this safe regardless. The batch id is named by the per-batch
+        // WARN emitted in the same run.
         if (context == null || context.jobRunId() == null) {
+            LOG.debug("Inline failure: no api_call_log row for customId={} — jobRunId is absent and "
+                    + "api_call_log.job_run_id is NOT NULL", customId);
             return;
         }
         try {
@@ -910,6 +925,8 @@ public class BatchResultProcessor {
                 customId);
         persistTokenUsage(batch, input, output, cacheRead, cacheCreate, cacheCreate1h,
                 message.model().asString());
+        // A null jobRunId skips the row silently here: that drop is announced by the per-batch
+        // WARN at the top of processAuroraBatch.
         if (batch.getJobRunId() != null) {
             try {
                 jobRunService.logBatchResult(batch.getJobRunId(), batch.getAnthropicBatchId(),
