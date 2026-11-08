@@ -907,6 +907,9 @@ Build notes (2026-11-08), where the build chose or departed from the text above:
   (`backend/Dockerfile`: `GitInfoService` falls back to environment variables), so `/actuator/info` has no
   `git.commit.id` and the probe skips with a warning. A small `InfoContributor` publishing `GIT_COMMIT_SHA` would
   switch it on; that is a backend change and not part of this phase.
+  **Now real for images built after `feature/info-git-commit`:** `GitCommitInfoContributor` publishes
+  `git.commit.id` and `git.commit.time` from `GitInfoService` when Boot has no `GitProperties`. The first deploy after
+  it merges still warns, because the outgoing image lacks it.
 - **Probe ordering when they disagree (revised after review): `1`, then `4`, then `3`.** A real break is never hidden
   behind a misconfiguration or an edge answer elsewhere. Every Cloudflare edge response is `3` (challenge, WAF page,
   1015), a login that 5xx'd and is then refused is `1`, and login is tried at most 3 times.
