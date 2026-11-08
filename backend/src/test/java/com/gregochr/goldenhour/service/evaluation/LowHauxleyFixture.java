@@ -23,7 +23,7 @@ import java.util.List;
 /**
  * Low Hauxley, 4 October 2026, SUNRISE 06:13:58 UTC — the inputs production sent for
  * {@code forecast_evaluation} id 86677, shared by the tagged regression case in
- * {@link PromptRegressionTest} and the untagged {@link LowHauxleyPromptFidelityTest}, so the numbers
+ * {@code SkyRatingRegressionTest} and the untagged {@link LowHauxleyPromptFidelityTest}, so the numbers
  * live in exactly one place.
  */
 final class LowHauxleyFixture {

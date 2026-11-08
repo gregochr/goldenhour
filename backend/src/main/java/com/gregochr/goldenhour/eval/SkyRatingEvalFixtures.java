@@ -26,7 +26,7 @@ import java.util.Set;
  * pass rate is only meaningful if both halves pass.
  *
  * <p><b>Real days, real bands.</b> Eight of the ten fixtures are real days ported verbatim from
- * {@code PromptRegressionTest}: real Open-Meteo / production input <em>and</em> the band Chris
+ * the old {@code PromptRegressionTest}: real Open-Meteo / production input <em>and</em> the band Chris
  * actually observed at that location. Real provenance is the most credible foundation, so
  * augmentation is taken as the day's reality, not forced — some real days carry full augmentation
  * (directional cloud + cloud-approach trend), others only what was persisted that run (Angel of the
@@ -45,9 +45,10 @@ import java.util.Set;
  * (strong, fully-augmented real days now exist), but the "can it return a 5?" gap is still open:
  * both bands are exactly 4, so nothing here would catch a model that never reaches a 5.
  *
- * <p><b>One registry, two suites.</b> A fixture with a non-null
- * {@link SkyRatingEvalFixture#regression()} is also a case in the paid {@code PromptRegressionTest};
- * the two hand-authored fixtures stay eval-only.
+ * <p><b>One registry, one paid class.</b> {@code SkyRatingRegressionTest} runs every fixture (quick
+ * mode, or pass^k with {@code -Dsky.runs=8}); a fixture with a non-null
+ * {@link SkyRatingEvalFixture#regression()} also has its fiery and golden bounds checked, while the
+ * two hand-authored fixtures check the band only.
  *
  * <p>A new captured-real day slots in by dropping its exported {@code atmospheric_data_json} here
  * and adding a registry line. A fully-augmented spectacular (5) day from current prod would close

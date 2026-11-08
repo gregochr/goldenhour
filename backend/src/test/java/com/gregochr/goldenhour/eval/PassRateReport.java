@@ -31,6 +31,12 @@ public final class PassRateReport {
     private int belowMisses;
     private int aboveMisses;
     private int passes;
+    private int boundMisses;
+    private int malformed;
+    private int fieryBelow;
+    private int fieryAbove;
+    private int goldenBelow;
+    private int goldenAbove;
 
     /**
      * Creates a report for one fixture.
@@ -55,6 +61,43 @@ public final class PassRateReport {
             case ABOVE -> aboveMisses++;
             case IN_BAND -> passes++;
             default -> throw new IllegalStateException("Unhandled direction");
+        }
+    }
+
+    /**
+     * Records one fully judged run: its rating direction, its Fiery Sky and Golden Hour bound
+     * directions, and whether it was malformed. The run counts as a pass only when every check held,
+     * so {@link #passes()} then means "runs where everything passed". A malformed run is counted in
+     * {@link #malformed()} only, never as a rating or bound miss.
+     *
+     * @param outcome the judged run
+     */
+    public void record(RunOutcome outcome) {
+        ratings.add(outcome.rating());
+        if (outcome.malformed()) {
+            malformed++;
+            return;
+        }
+        switch (outcome.ratingDirection()) {
+            case BELOW -> belowMisses++;
+            case ABOVE -> aboveMisses++;
+            default -> { }
+        }
+        switch (outcome.fieryDirection()) {
+            case BELOW -> fieryBelow++;
+            case ABOVE -> fieryAbove++;
+            default -> { }
+        }
+        switch (outcome.goldenDirection()) {
+            case BELOW -> goldenBelow++;
+            case ABOVE -> goldenAbove++;
+            default -> { }
+        }
+        if (outcome.boundMissed()) {
+            boundMisses++;
+        }
+        if (outcome.passed()) {
+            passes++;
         }
     }
 
@@ -87,6 +130,21 @@ public final class PassRateReport {
     }
 
     /**
+     * @return the number of well-formed runs where Fiery Sky or Golden Hour broke a bound
+     *         (only {@link #record(RunOutcome)} produces these)
+     */
+    public int boundMisses() {
+        return boundMisses;
+    }
+
+    /**
+     * @return the number of runs with a null score (only {@link #record(RunOutcome)} produces these)
+     */
+    public int malformed() {
+        return malformed;
+    }
+
+    /**
      * @return the pass rate in {@code [0.0, 1.0]}, or 0.0 if no runs were recorded
      */
     public double passRate() {
@@ -94,10 +152,10 @@ public final class PassRateReport {
     }
 
     /**
-     * @return true if every recorded run landed in band (strict pass^k) and at least one ran
+     * @return true if every recorded run passed (strict pass^k) and at least one ran
      */
     public boolean allPassed() {
-        return !ratings.isEmpty() && belowMisses == 0 && aboveMisses == 0;
+        return !ratings.isEmpty() && passes == ratings.size();
     }
 
     /**
@@ -110,10 +168,21 @@ public final class PassRateReport {
                 "Fixture: %s  band=%s%n"
                         + "  runs=%d  passes=%d  passRate=%.1f%%%n"
                         + "  misses: %d DOWN (too cautious), %d UP (too generous)%n"
+                        + "%s"
                         + "  ratings: %s",
                 fixtureName, band.label(),
                 runs(), passes(), passRate() * PERCENT,
                 belowMisses, aboveMisses,
+                boundsLine(),
                 ratings);
+    }
+
+    private String boundsLine() {
+        if (boundMisses == 0 && malformed == 0) {
+            return "";
+        }
+        return String.format(Locale.ROOT,
+                "  bound misses: %d (fiery %d DOWN/%d UP, golden %d DOWN/%d UP), malformed: %d%n",
+                boundMisses, fieryBelow, fieryAbove, goldenBelow, goldenAbove, malformed);
     }
 }
