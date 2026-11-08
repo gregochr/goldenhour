@@ -195,10 +195,10 @@ describe('Coming up range bars', () => {
     });
     expect(screen.getAllByRole('button')).toHaveLength(6);
     expect(screen.getByRole('button', {
-      name: 'Show coastal spots for Tue 27 Oct, peak day, 5.0 metre range, top 2 percent of the year',
+      name: 'Show coastal spots for Tue 27, peak day, Oct, 5.0 metre range, top 2 percent of the year',
     })).toBeInTheDocument();
     expect(screen.getByRole('button', {
-      name: 'Show coastal spots for Mon 26 Oct, full moon, 4.5 metre range, top 5 percent of the year',
+      name: 'Show coastal spots for Mon 26, full moon, Oct, 4.5 metre range, top 5 percent of the year',
     })).toBeInTheDocument();
   });
 
@@ -399,7 +399,7 @@ describe('shoulder days beside a tide run', () => {
     // The run's own days keep their rank in the name and the multiple in the tooltip.
     expect(columns[2].getAttribute('title')).toBe('5.0 m range · 1.5× average');
     expect(screen.getByRole('button', {
-      name: 'Show coastal spots for Mon 9 Nov, peak day, 5.0 metre range, top 2 percent of the year',
+      name: 'Show coastal spots for Mon 9, peak day, Nov, 5.0 metre range, top 2 percent of the year',
     })).toBeInTheDocument();
     expect(container.querySelectorAll('.wf-cu-day-range-pill')).toHaveLength(3);
   });
@@ -447,7 +447,7 @@ describe('shoulder days beside a tide run', () => {
     expect(mark.textContent).toBe('full moon');
     expect(mark).toHaveAttribute('data-family', 'sun-moon');
     expect(screen.getByRole('button', {
-      name: 'Show coastal spots for Sat 7 Nov, full moon, 4.3 metre range, just short of spring size',
+      name: 'Show coastal spots for Sat 7, full moon, Nov, 4.3 metre range, just short of spring size',
     })).toBeInTheDocument();
   });
 

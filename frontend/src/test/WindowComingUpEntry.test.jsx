@@ -379,7 +379,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
   it('names a dimmed chip, disabled, with its reason — and marks the dimmed peak', () => {
     renderEntry(RUN);
     expect(chipNamed('Mon 12 Oct — no forecast yet')).toBeDisabled();
-    const peak = chipNamed('Sun 11 Oct, peak day — no forecast yet');
+    const peak = chipNamed('Sun 11, peak day, Oct — no forecast yet');
     expect(peak).toBeDisabled();
     expect(peak).toHaveAttribute('data-peak', 'true');
     expect(peak).toHaveAttribute('data-live', 'false');
@@ -390,7 +390,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
       ...RUN,
       dayChips: RUN_CHIPS.map((c) => (c.peak ? { ...c, live: true } : c)),
     });
-    const peak = chipNamed('Show coastal spots for Sun 11 Oct, peak day');
+    const peak = chipNamed('Show coastal spots for Sun 11, peak day, Oct');
     expect(peak).toBeEnabled();
     expect(peak).toHaveAttribute('data-peak', 'true');
     expect(chipNamed('Show coastal spots for Sat 10 Oct')).toHaveAttribute('data-peak', 'false');
@@ -424,8 +424,8 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
     expect(within(chips[2]).queryByTestId('coming-up-day-chip-sub')).toBeNull();
     expect(within(chips[1]).getByTestId('coming-up-day-chip-sub').textContent).toBe('Oct · peak');
     expect(within(chips[3]).getByTestId('coming-up-day-chip-sub').textContent).toBe('Oct');
-    expect(chips[0]).toHaveTextContent(/^Wed30$/);
-    expect(chips[2]).toHaveTextContent(/^Fri2$/);
+    expect(chips[0]).toHaveTextContent(/^Wed 30$/);
+    expect(chips[2]).toHaveTextContent(/^Fri 2$/);
   });
 
   it('gives a peak chip the word peak alone, and no month word, inside one month', () => {
@@ -487,7 +487,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
       doorNoun: 'All spots',
       dayChips: RUN_CHIPS.map((c, i) => (i === 2 ? { ...c, live: false } : c)),
     });
-    expect(chipNamed('Sun 11 Oct, peak day — no forecast yet')).toBeDisabled();
+    expect(chipNamed('Sun 11, peak day, Oct — no forecast yet')).toBeDisabled();
     expect(chipNamed('Show all spots for Fri 9 Oct')).toBeEnabled();
   });
 
@@ -511,7 +511,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
 
     it('draws the dimmed chip disabled with the singular caption', () => {
       renderEntry(ONE);
-      expect(chipNamed('Wed 21 Oct, peak day — no forecast yet')).toBeDisabled();
+      expect(chipNamed('Wed 21, peak day, Oct — no forecast yet')).toBeDisabled();
       expect(screen.getByTestId('coming-up-day-chips-note'))
         .toHaveTextContent(/^no forecast for this day yet$/);
     });
@@ -521,7 +521,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
         ...ONE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true, live: true })],
       });
       expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
-      fireEvent.click(chipNamed('Show dark-sky spots for Wed 21 Oct, peak day'));
+      fireEvent.click(chipNamed('Show dark-sky spots for Wed 21, peak day, Oct'));
       expect(onShowOnMap).toHaveBeenCalledWith({
         kind: 'coming-up', filterAction: null, darkSky: true,
         label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
@@ -530,7 +530,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
 
     it('draws no caption for a gone day', () => {
       renderEntry({ ...ONE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true, gone: true })] });
-      expect(chipNamed('Wed 21 Oct, peak day — gone')).toBeDisabled();
+      expect(chipNamed('Wed 21, peak day, Oct — gone')).toBeDisabled();
       expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
     });
 
@@ -560,7 +560,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
 
       it('sends the unfiltered handoff with the entry’s date and never goes to Plan', () => {
         const { onShowOnMap, onGoToPlan } = renderEntry(ECLIPSE);
-        fireEvent.click(chipNamed('Show all spots for Wed 21 Oct, peak day'));
+        fireEvent.click(chipNamed('Show all spots for Wed 21, peak day, Oct'));
         expect(onShowOnMap).toHaveBeenCalledTimes(1);
         expect(onShowOnMap).toHaveBeenCalledWith({
           kind: 'coming-up', filterAction: null, darkSky: false,
@@ -574,7 +574,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
         renderEntry({
           ...ECLIPSE, dayChips: [chip('2026-10-21', 'Wed', '21', { peak: true })],
         });
-        expect(chipNamed('Wed 21 Oct, peak day — no forecast yet')).toBeDisabled();
+        expect(chipNamed('Wed 21, peak day, Oct — no forecast yet')).toBeDisabled();
         expect(screen.getByTestId('coming-up-day-chips-note'))
           .toHaveTextContent(/^no forecast for this day yet$/);
       });
@@ -631,7 +631,7 @@ describe('WindowComingUpEntry — a short run is a row of per-day doors (plan §
         ? { ...c, gone: true, live: false } : c)),
     });
     expect(chipNamed('Fri 9 Oct — gone')).toBeDisabled();
-    expect(chipNamed('Sun 11 Oct, peak day — gone')).toBeDisabled();
+    expect(chipNamed('Sun 11, peak day, Oct — gone')).toBeDisabled();
   });
 
   it('does not count a gone day toward the caption: a run whose only dimmed days are gone has none', () => {

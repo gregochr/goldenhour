@@ -1,3 +1,5 @@
+import { starsWord } from './askModel.js';
+
 /**
  * What one Ask chip says when its place won MORE than one pick — a ranking follow-up over the thread's
  * own picks may return one place at two windows (Bamburgh sunrise is pick 1, Bamburgh sunset pick 2;
@@ -28,6 +30,21 @@ export function isMultiRank(pick) {
 export function ranksPhrase(ranks) {
   if (ranks.length <= 1) return `${ranks[0]}`;
   return `${ranks.slice(0, -1).join(', ')} and ${ranks[ranks.length - 1]}`;
+}
+
+/**
+ * The accessible name of a multi-rank chip: its visible run first ("1 2 Bamburgh Sat am 5"), then each
+ * pick's own name. Label in name (WCAG 2.5.3): the badge reads "1·2", so the ranks are listed bare.
+ *
+ * @param {{ranks: Array<number>, shortWindow: ?string, rating: ?number}} pick the chip's shown facts
+ * @param {string} name the place
+ * @param {Array<string>} labels each pick's own accessible name, in rank order
+ * @returns {string}
+ */
+export function multiRankLabel(pick, name, labels) {
+  const stars = Number.isFinite(pick.rating) ? `${pick.rating} ${starsWord(pick.rating)}` : null;
+  const run = [`Ask picks ${pick.ranks.join(', ')}`, name, pick.shortWindow, stars].filter(Boolean).join(', ');
+  return `${run}: ${labels.join('; ')}`;
 }
 
 /**

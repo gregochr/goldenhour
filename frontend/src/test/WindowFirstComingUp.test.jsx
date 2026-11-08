@@ -661,7 +661,7 @@ describe('WindowFirstComingUp — a run’s day chips follow the reader’s fore
     });
     expect(screen.getAllByTestId('coming-up-day-chip')).toHaveLength(6);
     expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
-    expect(dayChip('Sun 11 Oct, peak day — no forecast yet')).toBeDisabled();
+    expect(dayChip('Sun 11, peak day, Oct — no forecast yet')).toBeDisabled();
     fireEvent.click(dayChip('Show coastal spots for Sat 10 Oct'));
     expect(onShowOnMap).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-10-10' }),
@@ -697,7 +697,7 @@ describe('WindowFirstComingUp — a run’s day chips follow the reader’s fore
       />,
     );
     expect(dayChip('Show coastal spots for Fri 9 Oct')).toBeEnabled();
-    expect(dayChip('Show coastal spots for Sun 11 Oct, peak day')).toBeEnabled();
+    expect(dayChip('Show coastal spots for Sun 11, peak day, Oct')).toBeEnabled();
     expect(dayChip('Sat 10 Oct — no forecast yet')).toBeDisabled();
   });
 
@@ -738,7 +738,7 @@ describe('WindowFirstComingUp — a single-day map entry draws a one-box row (pl
     renderPane({ events: METEOR_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-08'] });
     expect(screen.getByRole('group', { name: 'Dark-sky spots' })).toBeInTheDocument();
     expect(screen.getAllByTestId('coming-up-day-chip')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'Wed 21 Oct, peak day — no forecast yet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Wed 21, peak day, Oct — no forecast yet' })).toBeDisabled();
     expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent('no forecast for this day yet');
     expect(screen.queryByTestId('coming-up-action')).toBeNull();
   });
@@ -747,7 +747,7 @@ describe('WindowFirstComingUp — a single-day map entry draws a one-box row (pl
     const { onShowOnMap } = renderPane({
       events: METEOR_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-21'],
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Show dark-sky spots for Wed 21 Oct, peak day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show dark-sky spots for Wed 21, peak day, Oct' }));
     expect(onShowOnMap).toHaveBeenCalledWith({
       kind: 'coming-up', filterAction: null, darkSky: true, label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
     });
@@ -796,7 +796,7 @@ describe('WindowFirstComingUp — a single-day plan entry draws a one-box All sp
     });
     expect(screen.getByRole('group', { name: 'All spots' })).toBeInTheDocument();
     expect(screen.queryByText(/See the plan/)).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Wed 21 Oct, peak day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Wed 21, peak day, Oct' }));
     expect(onShowOnMap).toHaveBeenCalledWith({
       kind: 'coming-up', filterAction: null, darkSky: false,
       label: 'Partial eclipse · Wed 21 Oct', date: '2026-10-21',
@@ -806,7 +806,7 @@ describe('WindowFirstComingUp — a single-day plan entry draws a one-box All sp
 
   it('dims the chip with the singular caption when its day has no forecast', () => {
     renderPane({ events: ECLIPSE, todayStr: '2026-10-07', forecastDates: ['2026-10-08'] });
-    expect(screen.getByRole('button', { name: 'Wed 21 Oct, peak day — no forecast yet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Wed 21, peak day, Oct — no forecast yet' })).toBeDisabled();
     expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent('no forecast for this day yet');
   });
 });
