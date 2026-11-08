@@ -483,6 +483,17 @@ the proof shows it needs more.
 **Docs in the same PR.** `reference/dev-and-testing.md` ("The E2E smoke gate": the two modes, the 8082 rule, the
 script), the status line at the top of this file, and a `changelog.d/` entry.
 
+**3b post-merge finding (2026-11-08).** In a 5x proof on another PR, 2 of 5 smoke jobs failed, each time on the FIRST
+test after the nginx container started (`ask.spec.js`, then `auth.spec.js` at the start of a later repeat invocation):
+hygiene caught `Failed to load resource: net::ERR_NETWORK_CHANGED` on `/registerSW.js` and `/assets/*.js`, then the login
+form timed out at 30 s. Cause: Chromium's NetworkChangeNotifier watches the host's interfaces over netlink and aborts
+in-flight requests on any change, and `docker run` on the default bridge attaches a new veth to `docker0` (carrier up,
+IPv6 link-local, DAD), a moment AFTER the container already answers, so the change lands just after the browser launches.
+Fix: the container runs on the **host network** (`--network host`, no `-p`), so no interface is created or changed. nginx
+then listens on the host's port 80 (`listen 80` in the unedited config), so in nginx mode the web port is **80** and any
+other `E2E_WEB_PORT` is refused; the backend's CORS origin is `http://127.0.0.1` (a browser omits the default port).
+`--add-host=goldenhour-backend:127.0.0.1` is honoured with host networking. Do not switch back to `-p`.
+
 **Amendments from the plan review (2026-11-07).** These override the notes above where they differ.
 1. **Container lifecycle.** Playwright SIGKILLs a webServer that has no `gracefulShutdown`, so a trap never runs
    and the container outlives the run. The nginx entry gets `gracefulShutdown: { signal: 'SIGTERM', timeout:

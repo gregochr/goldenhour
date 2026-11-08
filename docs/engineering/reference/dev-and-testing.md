@@ -201,8 +201,19 @@ confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests 
 
 - **`preview`** (unset; the local default): `vite preview` on 4173, the API on 8083. No Docker needed.
 - **`nginx`** (CI sets `E2E_WEB: nginx` and `E2E_API_PORT: '8082'`): `scripts/e2e-smoke-nginx.sh` runs `nginx:alpine` as
-  `goldenhour-e2e-nginx`, publishing `127.0.0.1:4173:80`, with `frontend/dist` and the repo-root `nginx.conf` mounted
-  **read-only and unedited**, exactly as `docker-compose.yml` mounts it, and `--add-host=goldenhour-backend:host-gateway`.
+  `goldenhour-e2e-nginx` on the **host network** (`--network host`, no `-p`), with `frontend/dist` and the repo-root
+  `nginx.conf` mounted **read-only and unedited**, exactly as `docker-compose.yml` mounts it, and
+  `--add-host=goldenhour-backend:127.0.0.1` (honoured with host networking). nginx therefore listens on the host's
+  **port 80** (`listen 80` in the config), so **in nginx mode the web port is 80**: `baseURL` is `http://127.0.0.1`, the
+  backend's `--cors.extra-origins` is `http://127.0.0.1` (a browser omits the default port from `Origin`), and any other
+  `E2E_WEB_PORT` is refused at once, in the config and in the script. The script also fails fast if port 80 is taken
+  (it needs to be bindable by Docker, which runs as root on a CI runner).
+  ⚠️ **Why host networking, so nobody switches back to `-p`:** `docker run` on the default bridge attaches a veth to
+  `docker0` (carrier up, IPv6 link-local, DAD), and those interface changes land a moment AFTER the container answers,
+  just after Playwright has launched Chromium. Chromium's NetworkChangeNotifier watches the host's interfaces over
+  netlink and aborts in-flight requests on a change: `net::ERR_NETWORK_CHANGED` on `/registerSW.js` and `/assets/*.js`
+  and a 30 s wait for the login form, on the first test of a run (2 of 5 jobs in the 3b proof). With host networking no
+  interface is created or changed.
   Every journey is then also a CSP test (a blocked script or style logs a console error, which hygiene fails on), and
   `nginx.spec.js` asserts the headers, caching, fallback and SSE. **The backend must listen on 8082**, because the
   config's upstream is `goldenhour-backend:8082`: any other `E2E_API_PORT` is refused at once, in the config and in the
@@ -212,16 +223,16 @@ confirms, the aurora modals and the sub-region sheet), and `back.spec.js` tests 
   trap never runs and the container outlives the run. `reuseExistingServer` is **off** in nginx mode, even locally (a stale
   container would be reused silently). Ctrl-C (SIGINT) tears everything down cleanly (checked). ⚠️ A SIGTERM to the Playwright
   process itself (or SIGKILL) is not handled by Playwright for ANY web server: the backend JVM and the container are
-  orphaned. The next run then stops at Playwright's own "http://127.0.0.1:4173 is already used" check, before the script runs
+  orphaned. The next run then stops at Playwright's own "http://127.0.0.1:80 is already used" check (4173 in preview mode), before the script runs
   (the script's own `docker rm -f` covers a container that exists but is not answering); the fix is
   `docker rm -f goldenhour-e2e-nginx` (and stopping the orphaned backend).
   nginx's access and error logs (stdout and stderr in this image) go to `frontend/test-results/e2e-logs/nginx.log`.
 - **Locally with Docker:** `docker pull nginx:alpine`, build the jar and `npm run build` as below, then
-  `cd frontend && E2E_WEB=nginx npm run test:e2e:smoke` (port 8082 must be free; the cloud session's container can start
+  `cd frontend && E2E_WEB=nginx npm run test:e2e:smoke` (ports 8082 and 80 must be free; the cloud session's container can start
   `dockerd`, the owner's laptop has none and does not need it). CI pulls the image in its own step, so pull time is not
   charged to Playwright's 60 s server timeout.
 
-**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free, or 8082 and 4173 in nginx mode):
+**Run it locally** (JDK 25, as for any backend work; no `application.yml` needed; ports 8083 and 4173 free, or 8082 and 80 in nginx mode):
 
 ```bash
 cd backend && ./mvnw -Plocal-dev -Dmaven.test.skip=true package     # the jar, with H2 and src/local/java
