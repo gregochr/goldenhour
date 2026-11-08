@@ -5,6 +5,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.5] - 2026-11-08
+
+### Testing — the nginx smoke stack runs on the host network
+
+The `E2E — Playwright smoke` check (and the advisory a11y workflow) intermittently failed on the first test after the
+nginx container started, with `net::ERR_NETWORK_CHANGED` on `/registerSW.js` and `/assets/*.js`. `docker run` on the
+default bridge attaches a veth to `docker0` just after the container answers, and Chromium aborts in-flight requests
+when the host's interfaces change. The container now runs with `--network host`, so no interface is created or changed.
+In `E2E_WEB=nginx` mode the web port is therefore 80 (any other `E2E_WEB_PORT` is refused) and the backend allows the
+`http://127.0.0.1` CORS origin. Default `vite preview` mode on 4173 is unchanged.
+
+### Accessibility — muted text meets 4.5:1 contrast on the darkest panels
+
+`--color-plex-text-muted` was bone at 0.42 alpha, which measured 3.5:1 on `plex-bg` and `plex-surface`, so the 10-11 px Operations-tab headings failed axe `color-contrast` (WCAG 1.4.3). The token is now bone at 0.53 alpha (same hue): 4.97:1 on `plex-bg`, 4.84:1 on `plex-surface`, 4.65:1 on `plex-surface-light`. It stays well below `plex-text-secondary` (0.66), so the hierarchy holds. The Map tab's panel override is unchanged.
+
+### Accessibility — map chips, topic chips, region rail and topic-strip days say their visible text
+
+axe's `label-content-name-mismatch` rule (WCAG 2.5.3, Label in Name) glued the visible words of four controls together
+("Simonside Ridge4", "tidemid") because their sibling spans had no text separator. Each now has a real space between
+the items (invisible: they sit in flex containers; before/after screenshots are pixel-identical), and the accessible
+names are unchanged: the Map's place chips, the Map's hot-topic chips, and the window sheet's region rail cells. The
+topic strip's current-day button now leads its name with the visible day label ("SUN, On this window · Spring tide").
+The Plan heat card and the Coming up day chips are still to do. New unit tests run axe's own check in jsdom.
+
+### Accessibility — Coming up day chips and Ask picks say their visible text first
+
+Two more fixes for axe's `label-content-name-mismatch` (WCAG 2.5.3 Label in Name). A Coming up day chip drew "Sun 8 peak" but was named "Sun 8 Nov, peak day"; it is now named "Sun 8, peak day, Nov", with the month after the marks when the chip does not draw it, and the chip's weekday, day and marks are separated by spaces that are not drawn. An Ask pick chip drew rank, place, short window and star but was named "Pick 1, Whitby, Saturday sunrise, 5 stars"; it is now "Pick 1, Whitby, Sat AM, 5 stars, Saturday sunrise", the same name the pick card's rank circle carries, and a place that won two picks opens with "Ask picks 1, 2, Whitby, Sat AM, 5 stars". The checks run axe's own rule in jsdom, so a later edit that glues the text again fails in a unit test.
+
+### Accessibility — the Plan heat card's control is a stretched button holding only its spoken name
+
+axe's `label-content-name-mismatch` rule (WCAG 2.5.3, Label in Name) failed every Plan heat card in the plan, window-sheet
+and location-sheet scans, at both widths: the card was a `<button>` whose visible spans were all `aria-hidden`, which axe
+counts as visible text and wants inside the name. The card is now a `div` (same classes, `data-*` marks and placement)
+holding one transparent button, stretched over it, whose only content is the same spoken sentence, so a screen-reader
+user hears exactly what they did and the rule has no visible text to compare. The pointer still lands on the card (the
+tooltips, the pick legend's overhang and the cursor are unchanged), the keyboard and assistive tech use the button, a
+click focuses it so focus returns to it when the window sheet closes, and the two app-side focus moves look for it.
+Before and after screenshots of the matrix, at desktop and phone, resting, hovered, focused, picked and in forced colours,
+are pixel-identical apart from three anti-aliased pixels (one ring corner, one neighbouring card's corner). New tests run axe's own check on a rated card,
+both picks, an unscored card and an Ask-highlighted card, and check the visible time, verdict, sun and pick words are in
+the name.
+
+### Accessibility — the phone runs timeline can be scrolled from the keyboard
+
+On a phone-width screen the Operations Runs day timeline scrolls sideways but was not reachable by keyboard (axe
+`scrollable-region-focusable`, WCAG 2.1.1). It is now a focusable, labelled region ("Runs timeline, scrolls sideways")
+with a gold focus ring, so the arrow keys scroll it. Desktop and tablet are unchanged.
+
+### Testing — an advisory accessibility scan
+
+A new workflow, `E2E — accessibility (advisory)`, runs `@axe-core/playwright` over the sign-in page, the four tabs, the Plan window sheet, the location sheet and the Map callout at desktop and phone widths, on the same seeded nginx stack as the smoke suite. It is not a required check and not part of `ci.yml`, so a red run blocks neither a merge nor a release; serious and critical violations fail it, and a table of every rule, impact and node count is posted to the run summary. Existing violations are to be fixed in their own changes, never suppressed.
+
+### Navigation — Back no longer leaves the app from the postcode and sub-region prompts
+
+Once you have tapped or pressed a key on the page, the first press of the browser or phone Back button does nothing while the "set your home postcode" prompt or the sub-region sign-in prompt is open, instead of leaving the app mid-task. A quick second Back without a tap in between may still leave on Chrome. Before any tap Back behaves as it did, because the browser would ignore the guard anyway. Save, Not now and Continue close the prompts as before.
+
 ## [v2.39.4] - 2026-11-07
 
 ### Changed — the days-ahead lanes know when a tide run really began or continues
