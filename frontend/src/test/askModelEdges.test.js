@@ -26,7 +26,7 @@ describe('buildPickCards — night cards, edge by edge', () => {
     const [card] = buildPickCards([nightPick()], [], null, nights);
 
     expect(card.auroraStars).toBeNull();
-    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Mon night, 4 stars, Tonight astro');
   });
 
   it('drops an aurora pick when the nights object does not say the reader may see aurora', () => {
@@ -47,13 +47,13 @@ describe('buildPickCards — night cards, edge by edge', () => {
     expect(card.rating).toBeNull();
     expect(card.astroStars).toBeNull();
     expect(card.auroraStars).toBeNull();
-    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight astro');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Mon night, Tonight astro');
   });
 
   it('adds the other kind’s star to the label only when it is a usable rating', () => {
     const [card] = buildPickCards([nightPick()], [], null, nightsOf());
 
-    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars, aurora 3 stars');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Mon night, 4 stars, Tonight astro, aurora 3 stars');
   });
 
   it('trims a night summary and has none when it is blank', () => {

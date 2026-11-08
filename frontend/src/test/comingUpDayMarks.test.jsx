@@ -79,7 +79,7 @@ const draw = (entry) => render(
 const chipOn = (date) => screen.getAllByTestId('coming-up-day-chip').find((c) => c.dataset.date === date);
 
 describe('WindowComingUpEntry — day marks', () => {
-  it('draws each mark as its own family-tagged block span, with no separator text', () => {
+  it('draws each mark as its own family-tagged block span, with only a space between them', () => {
     draw(merged({
       dayMarks: [
         { date: '2026-10-26', label: 'peak', family: 'coastal' },
@@ -91,7 +91,7 @@ describe('WindowComingUpEntry — day marks', () => {
       ['peak', 'coastal'], ['full moon', 'sun-moon'],
     ]);
     expect(within(chipOn('2026-10-26')).getByTestId('coming-up-day-chip-sub').textContent)
-      .toBe('peakfull moon');
+      .toBe('peak full moon');
   });
 
   it('draws no third line on an unmarked day of a merged entry', () => {
@@ -107,19 +107,19 @@ describe('WindowComingUpEntry — day marks', () => {
         { date: '2026-10-27', label: 'full moon', family: 'sun-moon' },
       ],
     }));
-    expect(chipOn('2026-10-26')).toHaveAccessibleName('Show coastal spots for Mon 26 Oct, full moon');
-    expect(chipOn('2026-10-27')).toHaveAccessibleName('Show coastal spots for Tue 27 Oct, peak day, full moon');
+    expect(chipOn('2026-10-26')).toHaveAccessibleName('Show coastal spots for Mon 26, full moon, Oct');
+    expect(chipOn('2026-10-27')).toHaveAccessibleName('Show coastal spots for Tue 27, peak, full moon, Oct');
     expect(chipOn('2026-10-28')).toHaveAccessibleName('Show coastal spots for Wed 28 Oct');
   });
 
   it('keeps the marks in the gone and no-forecast names', () => {
     const view = buildEntryView(merged(), '2026-10-27', null, ['2026-10-27', '2026-10-28']);
     render(<WindowComingUpEntry entry={view} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} />);
-    expect(chipOn('2026-10-26')).toHaveAccessibleName('Mon 26 Oct, full moon — gone');
+    expect(chipOn('2026-10-26')).toHaveAccessibleName('Mon 26, full moon, Oct — gone');
     cleanup();
     const noForecast = buildEntryView(merged(), TODAY, null, ['2026-10-25']);
     render(<WindowComingUpEntry entry={noForecast} onGoToPlan={vi.fn()} onShowOnMap={vi.fn()} />);
-    expect(chipOn('2026-10-27')).toHaveAccessibleName('Tue 27 Oct, peak day — no forecast yet');
+    expect(chipOn('2026-10-27')).toHaveAccessibleName('Tue 27, peak day, Oct — no forecast yet');
   });
 
   it('marks the group data-marked only on a merged entry', () => {
@@ -143,7 +143,7 @@ describe('WindowComingUpEntry — day marks', () => {
     draw(unmerged());
     const peak = chipOn('2026-10-27');
     expect(within(peak).getByTestId('coming-up-day-chip-sub').textContent).toBe('peak');
-    expect(peak).toHaveAccessibleName('Show coastal spots for Tue 27 Oct, peak day');
+    expect(peak).toHaveAccessibleName('Show coastal spots for Tue 27, peak day, Oct');
     expect(peak).toHaveAttribute('data-peak', 'true');
   });
 
@@ -155,7 +155,7 @@ describe('WindowComingUpEntry — day marks', () => {
       action: { label: 'x', kind: 'coastal-spots', date: '2026-11-01' },
     }));
     expect(within(chipOn('2026-11-01')).getByTestId('coming-up-day-chip-sub').textContent)
-      .toBe('Novfull moon');
+      .toBe('Nov full moon');
   });
 
   it('styles no chip as the peak on a merged partial-coverage run, though the action date sits on one', () => {
