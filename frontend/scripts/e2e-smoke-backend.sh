@@ -14,6 +14,8 @@ LOG_DIR="${E2E_LOG_DIR:-$HERE/../test-results/e2e-logs}"
 # 8083 and 4173 in CI; a local run beside another checkout's may move them (playwright.smoke.config.js passes both).
 API_PORT="${E2E_API_PORT:-8083}"
 WEB_PORT="${E2E_WEB_PORT:-4173}"
+# A browser omits the default port from `Origin`, so the nginx mode's port 80 arrives as http://127.0.0.1.
+if [ "$WEB_PORT" = "80" ]; then WEB_ORIGIN="http://127.0.0.1"; else WEB_ORIGIN="http://127.0.0.1:$WEB_PORT"; fi
 
 # shellcheck disable=SC2206  # the glob is meant to expand
 JARS=($JAR_GLOB)
@@ -58,7 +60,7 @@ exec java \
   -Dhttp.proxyHost="$DEAD_PROXY_HOST" -Dhttp.proxyPort="$DEAD_PROXY_PORT" \
   -Dhttp.nonProxyHosts='localhost|127.0.0.1' \
   -jar "$JAR" --spring.profiles.active=local --server.port="$API_PORT" \
-  --cors.extra-origins="http://127.0.0.1:$WEB_PORT" \
+  --cors.extra-origins="$WEB_ORIGIN" \
   --photocast.e2e.seed-fixture=true \
   --photocast.sub-regions.enforce=true \
   --management.endpoint.health.group.container.include=db,ping,e2eFixture \
