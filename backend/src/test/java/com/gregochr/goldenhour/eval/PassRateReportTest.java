@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>This is the unit verification the harness build depends on: the bucketing must correctly
  * classify forced below-band and above-band ratings <em>without</em> calling real Claude. The
  * scores here are stubbed, so a CI run exercises the diagnostic logic that the gated, real-Claude
- * {@code SkyRatingEvalTest} relies on.
+ * {@code SkyRatingRegressionTest} relies on.
  */
 class PassRateReportTest {
 
@@ -90,6 +90,40 @@ class PassRateReportTest {
         assertTrue(rendered.contains("passRate=75.0%"), "shows the pass rate");
         assertTrue(rendered.contains("1 DOWN"), "shows the below-band miss count");
         assertTrue(rendered.contains("0 UP"), "shows the above-band miss count");
+    }
+
+    @Test
+    void recordOutcome_countsOnlyFullyPassingRunsAsPassesAndBucketsBoundMissesSeparately() {
+        PassRateReport report = new PassRateReport("bounded", RatingBand.exactly(4));
+        MissDirection in = MissDirection.IN_BAND;
+        report.record(new RunOutcome(4, in, in, in, false));
+        report.record(new RunOutcome(4, in, MissDirection.BELOW, in, false));
+        report.record(new RunOutcome(4, in, in, MissDirection.ABOVE, false));
+        report.record(new RunOutcome(5, MissDirection.ABOVE, in, in, false));
+        report.record(new RunOutcome(3, MissDirection.BELOW, in, in, false));
+        report.record(RunOutcome.malformedRun(null));
+
+        assertEquals(6, report.runs());
+        assertEquals(1, report.passes());
+        assertEquals(1, report.belowMisses());
+        assertEquals(1, report.aboveMisses());
+        assertEquals(2, report.boundMisses());
+        assertEquals(1, report.malformed());
+        assertFalse(report.allPassed());
+        assertTrue(report.render().contains("bound misses: 2"));
+        assertTrue(report.render().contains("fiery 1 DOWN/0 UP, golden 0 DOWN/1 UP"));
+    }
+
+    @Test
+    void recordOutcome_allPassingRunsIsAllPassedAndRendersNoBoundsLine() {
+        PassRateReport report = new PassRateReport("ok", RatingBand.exactly(4));
+        MissDirection in = MissDirection.IN_BAND;
+        report.record(new RunOutcome(4, in, in, in, false));
+        report.record(new RunOutcome(4, in, in, in, false));
+
+        assertTrue(report.allPassed());
+        assertEquals(2, report.passes());
+        assertFalse(report.render().contains("bound misses"));
     }
 
     private static void feed(PassRateReport report, int... ratings) {

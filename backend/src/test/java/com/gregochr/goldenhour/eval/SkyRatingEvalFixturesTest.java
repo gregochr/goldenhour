@@ -21,9 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>This runs in the default {@code verify} build (no {@code @Tag}, no Claude). It does <b>not</b>
  * require every fixture to be fully augmented: the fixtures are real days ported from
- * {@code PromptRegressionTest}, and augmentation is the day's reality — some carry directional cloud
- * and a cloud-approach trend, others (e.g. observer-only Angel of the North) carry only what was
- * persisted for that run. The per-fixture spot-checks assert distinctive scalar/sub-record values,
+ * the old {@code PromptRegressionTest}, and augmentation is the day's reality — some carry directional
+ * cloud and a cloud-approach trend, others carry only what was persisted for that run. The
+ * per-fixture spot-checks assert distinctive scalar/sub-record values,
  * which catches a mistyped JSON field name (it would otherwise deserialise to a silent default).
  */
 class SkyRatingEvalFixturesTest {

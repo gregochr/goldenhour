@@ -379,7 +379,7 @@ forecast deck over a good sky. So no rating change ships on P1 alone.
 - **The system prompt changes for every request.** The rules that interpret a label live in
   `SYSTEM_PROMPT`, which every call carries. Every regression case and eval fixture is therefore
   exposed, including ones whose fixtures lack the new fields.
-  - Re-run the whole `PromptRegressionTest` suite and the sky-rating eval, before and after, on each
+  - Re-run `SkyRatingRegressionTest` (quick, then `-Dsky.runs=8` for the pass^k eval), before and after, on each
     production model (`REGRESSION_MODEL`: Sonnet 5.5 for near-term, as Q5 confirmed; Haiku for far-term).
   - Regenerate the five `PromptGoldenMasterTest` goldens. Any movement in the exact-4 cases (St
     Mary's 10 Mar, Low Hauxley) is a regression.

@@ -71,8 +71,8 @@ The prompt-change brief (`docs/engineering/prompt-change-session-brief.md`) requ
 the diffs surfaced. After the PR is open, the owner runs, on the PR branch:
 
 ```
-cd backend && ANTHROPIC_API_KEY=... REGRESSION_MODEL=SONNET_55 ./mvnw test -Pprompt-regression -Dtest=PromptRegressionTest
-cd backend && ANTHROPIC_API_KEY=... REGRESSION_MODEL=HAIKU ./mvnw test -Pprompt-regression -Dtest=PromptRegressionTest
+cd backend && ANTHROPIC_API_KEY=... REGRESSION_MODEL=SONNET_55 ./mvnw test -Pprompt-regression -Dtest=SkyRatingRegressionTest
+cd backend && ANTHROPIC_API_KEY=... REGRESSION_MODEL=HAIKU ./mvnw test -Pprompt-regression -Dtest=SkyRatingRegressionTest
 ```
 
 Both must pass (9 cases each). After deploy, three Sky Eval runs each on Sonnet 5.5 and Haiku 4.5 confirm

@@ -38,11 +38,13 @@ import java.util.stream.Collectors;
 
 /**
  * The historian for the pass^k sky-rating eval: runs the same frozen fixtures the gated
- * {@code SkyRatingEvalTest} uses, but through the real production scorer
+ * {@code SkyRatingRegressionTest} uses, but through the real production scorer
  * ({@link EvaluationService#evaluateWithDetails}) on a cadence, and persists every run so
  * calibration drift can be graphed over time.
  *
- * <p>The gated JUnit test is the pass/fail gate; this is its longitudinal counterpart. Both share
+ * <p>The gated JUnit test is the pass/fail gate; this is its longitudinal counterpart. The in-app
+ * recorder checks the rating band only, while the JUnit class also checks each fixture's fiery and
+ * golden bounds. Both share
  * one fixture set ({@link SkyRatingEvalFixtures}); neither is the other's substitute.
  *
  * <p><b>Transaction shape.</b> A run makes {@code fixtures × N} real API calls over several
@@ -75,7 +77,7 @@ public class SkyRatingEvalService {
     /** Column width of {@code sky_rating_eval_run.git_commit_message}. */
     static final int MAX_COMMIT_MESSAGE_LENGTH = 500;
 
-    /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
+    /** Default runs per fixture: eval mode, i.e. {@code -Dsky.runs=8} on {@code SkyRatingRegressionTest}. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
     /** Scheduler job key — matches the seed row in V118 and the registered runnable. */
