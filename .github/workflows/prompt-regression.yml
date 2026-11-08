@@ -1,0 +1,238 @@
+name: Prompt regression (approval-gated)
+
+# Runs the real-Claude prompt-regression suites on PRs that change prompt or evaluation code
+# (docs/engineering/engineering-gaps-plan.md, Phase 5b; the owner steps are in "Prompt regression in CI" in
+# docs/engineering/reference/dev-and-testing.md).
+#
+# ⚠️ Its own workflow and NEVER a required check, like the advisory a11y workflow. The `sky` and `ask` jobs run in the
+# `prompt-regression` GitHub environment, whose required reviewer is the owner: nothing spends money without a click.
+# A run waiting for approval shows as a pending check, an unapproved run expires red after 30 days, and a skipped
+# run (no prompt code changed) is normal. None of those is ever awaited before a merge.
+#
+# ⚠️ The approval is a COST gate, not a sandbox. Once approved, the PR head's workflow file, tests, pom plugins and
+# Maven wrapper all run with the key, so the key is a separate, spend-capped one (PROMPT_REGRESSION_ANTHROPIC_API_KEY)
+# and the owner reads the pre-approval checklist before clicking. Same-repository PRs only: a fork PR never reaches
+# the paid jobs, and neither does Dependabot (for an SDK bump, run this manually).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which suite to run
+        type: choice
+        options: [sky, ask, both]
+        default: both
+      sky_runs:
+        description: Runs per sky fixture (1 is the quick check, 8 the full pass^k eval)
+        type: choice
+        options: ['1', '8']
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ── Which suites does this change need? (no secrets, no environment) ────────────────────────────────────────
+  changes:
+    name: Detect prompt-changing paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # B1 + B7: a manual run, or a same-repository PR that Dependabot did not open.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]')
+    outputs:
+      sky: ${{ steps.paths.outputs.sky }}
+      ask: ${{ steps.paths.outputs.ask }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The three-dot diff needs the merge base, which a shallow clone does not have.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: paths
+        name: Decide which suites to run
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          INPUT_SUITE: ${{ inputs.suite }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            sky=false
+            ask=false
+            case "$INPUT_SUITE" in
+              sky) sky=true ;;
+              ask) ask=true ;;
+              *) sky=true; ask=true ;;
+            esac
+            echo "Manual run, suite=$INPUT_SUITE"
+          else
+            # Three dots: the changes since the merge base, i.e. what this PR adds, not what main gained since.
+            git diff --name-only "$BASE_SHA"..."$HEAD_SHA" > /tmp/changed-files.txt
+            git diff -U8 "$BASE_SHA"..."$HEAD_SHA" -- backend/pom.xml > /tmp/pom.diff
+            echo "Changed files:"
+            sed 's/^/  /' /tmp/changed-files.txt
+            bash scripts/prompt-regression-paths.sh /tmp/changed-files.txt /tmp/pom.diff > /tmp/outputs.txt
+            sky=$(sed -n 's/^sky=//p' /tmp/outputs.txt)
+            ask=$(sed -n 's/^ask=//p' /tmp/outputs.txt)
+          fi
+          echo "sky=$sky" >> "$GITHUB_OUTPUT"
+          echo "ask=$ask" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Prompt regression: what runs"
+            echo
+            echo "- sky: \`$sky\`"
+            echo "- ask: \`$ask\`"
+            if [ "$sky" = "false" ] && [ "$ask" = "false" ]; then
+              echo
+              echo "No prompt or evaluation code changed, so no paid suite is needed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Sky rating, best-bet aurora and prompt-size tests ────────────────────────────────────────────────────────
+  sky:
+    name: Prompt regression — sky
+    needs: changes
+    if: needs.changes.outputs.sky == 'true'
+    runs-on: ubuntu-latest
+    environment: prompt-regression
+    # Eval mode (8 runs per fixture) takes 20-40 minutes; the quick check about 5.
+    timeout-minutes: ${{ inputs.sky_runs == '8' && 60 || 30 }}
+    # B10: a newer push cancels a stale run, so it is not paid for twice.
+    concurrency:
+      group: prompt-regression-${{ github.head_ref || github.ref }}-sky
+      cancel-in-progress: true
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
+      # B11: the CI model setting is SKY_MODEL only.
+      SKY_MODEL: SONNET_55
+      SKY_RUNS: ${{ inputs.sky_runs || '1' }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      # The paid classes throw or skip silently without a key; fail here, loudly, before Maven starts.
+      - name: Fail fast when the key is missing
+        id: key
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=Missing key::The prompt-regression environment has no PROMPT_REGRESSION_ANTHROPIC_API_KEY secret."
+            exit 1
+          fi
+
+      # Hard step. PromptReplayHarnessTest is deliberately absent: it throws without its own config.
+      - name: Sky rating, best-bet aurora and token-count tests
+        run: |
+          chmod +x mvnw
+          ./mvnw -B --no-transfer-progress test -Pprompt-regression \
+            -Dtest='SkyRatingRegressionTest,BestBetAuroraPromptRegressionTest,SystemPromptTokenCountTest' \
+            -DfailIfNoSpecifiedTests=true
+
+      # Reported, never failing, until the owner approves ValleyMistPromptRegressionTest's assertions (its Javadoc).
+      # No `clean` between the steps, so the first step's reports survive for the summary.
+      - name: ValleyMist (advisory, does not fail the job)
+        if: ${{ !cancelled() && steps.key.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          ./mvnw -B --no-transfer-progress test -Pprompt-regression \
+            -Dtest='ValleyMistPromptRegressionTest' \
+            -DfailIfNoSpecifiedTests=true
+
+      - name: Summarise
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          python3 -I scripts/prompt-regression-summary.py \
+            --reports backend/target/surefire-reports \
+            --title "Prompt regression: sky (SKY_RUNS=${SKY_RUNS}, ${SKY_MODEL})" \
+            --advisory ValleyMistPromptRegressionTest
+
+      - name: Upload surefire reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-regression-sky-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # ── Ask PhotoCast prompt tests ───────────────────────────────────────────────────────────────────────────────
+  ask:
+    name: Prompt regression — ask
+    needs: changes
+    if: needs.changes.outputs.ask == 'true'
+    runs-on: ubuntu-latest
+    environment: prompt-regression
+    # About 145 asks on Haiku, 30-50 minutes.
+    timeout-minutes: 75
+    concurrency:
+      group: prompt-regression-${{ github.head_ref || github.ref }}-ask
+      cancel-in-progress: true
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.PROMPT_REGRESSION_ANTHROPIC_API_KEY }}
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      # The Ask classes skip silently without a key, which would read as a green run that checked nothing.
+      - name: Fail fast when the key is missing
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error title=Missing key::The prompt-regression environment has no PROMPT_REGRESSION_ANTHROPIC_API_KEY secret."
+            exit 1
+          fi
+
+      # forkCount=1 keeps the asks sequential enough to stay clear of 429s.
+      - name: Ask regression tests
+        run: |
+          chmod +x mvnw
+          ./mvnw -B --no-transfer-progress test -Pprompt-regression \
+            -Dtest='Ask*RegressionTest' \
+            -DforkCount=1 \
+            -DfailIfNoSpecifiedTests=true
+
+      - name: Summarise
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          python3 -I scripts/prompt-regression-summary.py \
+            --reports backend/target/surefire-reports \
+            --title "Prompt regression: ask" \
+            --skipped-red
+
+      - name: Upload surefire reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-regression-ask-surefire-reports
+          path: backend/target/surefire-reports/
+          retention-days: 14
+          if-no-files-found: ignore

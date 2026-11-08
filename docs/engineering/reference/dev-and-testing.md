@@ -336,6 +336,39 @@ nginx-served stack as the smoke gate. ⚠️ It is **its own workflow, not a job
   reported in the PR summary. That includes the PR that adds the job. The exception ends when the owner adds it to branch
   protection.
 
+### Prompt regression in CI (approval-gated, never required)
+
+`Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`, Phase 5b) runs the real-Claude
+`prompt-regression` classes on pull requests that change prompt or evaluation code. It is **its own workflow**, never a job in
+`ci.yml`, and **never a required check**: a run that is waiting for approval, skipped or expired is normal and is not awaited
+before a merge (CLAUDE.md step 6 names its jobs, `Prompt regression — sky` and `Prompt regression — ask`).
+
+- **How it triggers.** `pull_request` (opened, synchronize, reopened, ready_for_review) and `workflow_dispatch`. A `changes` job
+  (no secrets, no environment) takes a three-dot `git diff` against the merge base (`fetch-depth: 0`) and feeds it to
+  `scripts/prompt-regression-paths.sh`, which prints `sky=` and `ask=`. The globs are written out in that script and pinned by
+  `scripts/test/prompt-regression-paths.test.sh`; shared files (the Anthropic client, `PromptUtils`, `AppConfig`, `DayLabels` and
+  so on) set both, and `backend/pom.xml` sets both only when its diff mentions `anthropic`, `prompt-regression` or `surefire`.
+  Fork PRs and Dependabot never reach the paid jobs; for an SDK bump the owner runs the workflow manually.
+- **What runs.** `sky`: `SkyRatingRegressionTest`, `BestBetAuroraPromptRegressionTest` and `SystemPromptTokenCountTest` with
+  `SKY_MODEL=SONNET_55` and `SKY_RUNS` (1 on a PR; 1 or 8 by the dispatch input). `ValleyMistPromptRegressionTest` runs in its own
+  `continue-on-error` step and is reported, never failing, until the owner approves its assertions. `ask`: `Ask*RegressionTest`
+  with `-DforkCount=1`; any skipped Ask test is shown red in the summary, because a skipped paid test checked nothing.
+  `PromptReplayHarnessTest` never runs. The step summary (`scripts/prompt-regression-summary.py`, read from the surefire
+  `TEST-*.xml`) and the uploaded reports use `if: ${{ !cancelled() }}`, so a red test step still produces them.
+- **Approval.** Both jobs run in the `prompt-regression` GitHub environment, whose required reviewer is the owner; nothing spends
+  money without a click. The key is the environment secret `PROMPT_REGRESSION_ANTHROPIC_API_KEY`, a separate, spend-capped key
+  (never the production or smoke key), and a run fails fast when it is empty. ⚠️ **The approval is a cost gate, not a sandbox.**
+  Once approved, the PR head's workflow, tests, pom plugins and Maven wrapper all run with the key.
+- **Owner's pre-approval checklist (B3).** Before clicking Approve, read the PR's diff of `.github/**`, `backend/pom.xml`, `.mvn/**`,
+  `mvnw` and `backend/src/test/**`. Anything there that is not obviously about the prompt under test is a reason to reject the run.
+- **Costs** (estimates): sky quick (k=1) about 25 calls on Sonnet 5.5, roughly $0.10-0.30 and 5 minutes; sky eval (k=8, dispatch
+  only) 80+ calls, roughly $1-2 and 20-40 minutes; ask about 145 asks on Haiku, roughly $1.50-3.60 and 30-50 minutes. A newer push
+  to the same branch cancels a stale run (`concurrency` per job), so an unapproved run costs nothing.
+- **Manual runs.** Actions, Prompt regression, Run workflow: choose `suite` (`sky`, `ask`, `both`) and `sky_runs` (`1` or `8`). The
+  same environment approval applies.
+- **Tests.** `scripts/test/prompt-regression-{paths,summary,workflow}.test.sh` run in `Shell — script tests`; the scripts are
+  ShellChecked by `Shell — ShellCheck`. `actionlint` is not part of CI.
+
 ---
 
 ## Dialog history tests (`utils/dialogHistory.js`)
