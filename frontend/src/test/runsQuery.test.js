@@ -77,6 +77,16 @@ describe('the Cost and Timing keys (DD-9)', () => {
     expect(window.location.hash).toBe('#manage/runs?view=cost');
   });
 
+  it('keeps range=all (any case) through normalisation and reads it as the word', () => {
+    window.location.hash = '#manage/runs?view=cost&range=all';
+    expect(readRunsQuery(NOW)).toMatchObject({ view: 'cost', range: 'all' });
+    expect(window.location.hash).toBe('#manage/runs?view=cost&range=all');
+    window.location.hash = '#manage/runs?view=cost&range=ALL';
+    expect(readRunsQuery(NOW).range).toBe('all');
+    window.location.hash = '#manage/runs?view=cost&range=allx';
+    expect(readRunsQuery(NOW).range).toBeNull();
+  });
+
   it('ignores an unknown type or measure', () => {
     window.location.hash = '#manage/runs?view=timing&type=NOPE&measure=wall';
     expect(readRunsQuery(NOW)).toMatchObject({ type: null, measure: 'ready' });

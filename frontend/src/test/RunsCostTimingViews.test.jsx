@@ -144,6 +144,20 @@ describe('Cost trends', () => {
     expect(window.location.hash).toBe('#manage/runs?view=cost&range=14');
   });
 
+  it('asks for all time from the address and from the button, and writes range=all', async () => {
+    const { costAllTime } = await import('./runsCostTimingFixtures.js');
+    fetchRunCost.mockResolvedValue(costAllTime(30));
+    await openCost('#manage/runs?view=cost&range=all');
+    expect(fetchRunCost).toHaveBeenCalledWith('all');
+    expect(screen.getByTestId('runs-cost-range-all')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('runs-cost-headline')).toHaveTextContent('spent since');
+    fireEvent.click(screen.getByTestId('runs-cost-range-90'));
+    await waitFor(() => expect(fetchRunCost).toHaveBeenCalledWith(90));
+    expect(window.location.hash).toBe('#manage/runs?view=cost&range=90');
+    fireEvent.click(screen.getByTestId('runs-cost-range-all'));
+    await waitFor(() => expect(window.location.hash).toBe('#manage/runs?view=cost&range=all'));
+  });
+
   it('shows a tooltip with each type\'s pounds and the total on hover and focus', async () => {
     await openCost();
     fireEvent.mouseEnter(screen.getByTestId('runs-cost-day-2026-11-01'));

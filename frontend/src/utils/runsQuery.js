@@ -86,7 +86,7 @@ export function normalizeRunsQuery() {
   const { path, query } = splitHash();
   // {@code range} is the Cost and Timing views' own key now (a number of days); only the old word form
   // ({@code today}, {@code week}, {@code month}) is legacy.
-  const legacyRange = query.has('range') && !/^\d+$/.test(query.get('range') ?? '');
+  const legacyRange = query.has('range') && !/^(\d+|all)$/i.test(query.get('range') ?? '');
   const legacy = legacyRange || ['kind', 'attention'].some((key) => query.has(key));
   if (!legacy) return;
   const attention = ['true', '1'].includes((query.get('attention') ?? '').toLowerCase());
@@ -102,10 +102,10 @@ export function normalizeRunsQuery() {
  * parameters are normalised first.
  *
  * @param {Date} [now] the real clock
- * <p>The Cost and Timing views' keys ride beside them (DD-9): {@code range} (days, validated by the view that reads
+ * <p>The Cost and Timing views' keys ride beside them (DD-9): {@code range} (days or {@code all}, validated by the view that reads
  * it), {@code type} (a display type, or null) and {@code measure} ({@code ready} unless {@code cycle}).
  *
- * @returns {{view: string, date: string|null, filter: string, range: number|null, type: string|null,
+ * @returns {{view: string, date: string|null, filter: string, range: number|'all'|null, type: string|null,
  *   measure: string}}
  */
 export function readRunsQuery(now = new Date()) {
@@ -114,7 +114,10 @@ export function readRunsQuery(now = new Date()) {
   const view = query.get('view');
   const date = validDate(query.get('date'));
   const filter = (query.get('filter') ?? '').toLowerCase();
-  const range = /^\d+$/.test(query.get('range') ?? '') ? Number(query.get('range')) : null;
+  const rawRange = query.get('range') ?? '';
+  let range = null;
+  if (/^\d+$/.test(rawRange)) range = Number(rawRange);
+  else if (rawRange.toLowerCase() === 'all') range = 'all';
   const type = (query.get('type') ?? '').toUpperCase();
   const measure = (query.get('measure') ?? '').toLowerCase();
   // A date that is today or later means "today": it is not written, so it is rewritten out of the address.

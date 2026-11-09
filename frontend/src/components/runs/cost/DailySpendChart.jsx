@@ -4,9 +4,10 @@ import { Chip, ChipGroup, ChipRow } from '../../data/Chips.jsx';
 import Segmented from '../../data/Segmented.jsx';
 import useMeasuredWidth from '../../../hooks/useMeasuredWidth.js';
 import useRovingSlots from '../../../hooks/useRovingSlots.js';
-import { COST_ORDER, chartSeries, costTypeLabel } from '../../../utils/runsCost.js';
+import { COST_ORDER, chartSeries, costTypeLabel, sinceLabel } from '../../../utils/runsCost.js';
 import { formatGbp, typeStyle } from '../../../utils/runsDay.js';
-import { niceScale } from '../../../utils/runsTiming.js';
+import { COST_RANGES, niceScale } from '../../../utils/runsTiming.js';
+import { useIsMobile } from '../../../hooks/useIsMobile.js';
 import { formatDay, formatDayMonth } from '../../../utils/travelDays.js';
 
 const CARD = 'rounded-xl border border-plex-border bg-plex-surface p-4 max-[639px]:px-3';
@@ -21,11 +22,20 @@ const TOOLTIP_W = 196;
 const LINE_H = 15;
 /** The share of a slot left empty between two bars. */
 const GAP_SHARE = 0.2;
+/** Below this slot width (px) the gap goes and the bars touch, so a long history keeps its bars. */
+const MIN_GAP_SLOT = 5;
+/** The widest a bar is drawn (px), so a short range does not read as blocks. */
+const MAX_BAR = 40;
 /** How faint the types other than the isolated one are drawn. */
 const DIM = 0.12;
 /** The most labels on the x axis, roughly. */
 const X_LABELS = 8;
-const RANGES = [14, 30, 60].map((days) => ({ value: String(days), label: `${days} days` }));
+/** The period buttons: the long labels, and the short ones a phone has room for (the accessible name stays long). */
+const rangeOptions = (short) => COST_RANGES.map((range) => {
+  const long = range === 'all' ? 'All time' : `${range} days`;
+  const brief = range === 'all' ? 'All' : `${range}d`;
+  return { value: String(range), label: short ? brief : long, ariaLabel: long };
+});
 
 /** The y axis label for a gridline: pence only while the scale is small. */
 const axisLabel = (value, step) => `£${value.toFixed(step < 1 ? 2 : (step % 1 !== 0 ? 1 : 0))}`;
@@ -44,13 +54,16 @@ const axisLabel = (value, step) => `£${value.toFixed(step < 1 ? 2 : (step % 1 !
  * @param {object} props.data the served {@code RunCostResponse}
  * @param {string|null} props.isolate the isolated type, or null for all
  * @param {(type: string|null) => void} props.onIsolate isolates a type (null clears)
- * @param {number} props.range the period in days (14, 30 or 60)
- * @param {(days: number) => void} props.onRangeChange picks a period
+ * @param {number|'all'} props.range the period in days (7, 14, 30, 60 or 90), or {@code 'all'}
+ * @param {(days: number|'all') => void} props.onRangeChange picks a period
  * @param {(date: string) => void} props.onOpenDay opens a day in the Day view
  */
 export default function DailySpendChart({ data, isolate, onIsolate, range, onRangeChange, onOpenDay }) {
   const [hover, setHover] = useState(null);
   const [widthRef, measured] = useMeasuredWidth();
+  const isMobile = useIsMobile();
+  const allTime = data.allTime === true;
+  const since = allTime ? sinceLabel(data.firstDay) : null;
   const { shown, average } = chartSeries(data, isolate);
   const { containerRef, slotProps } = useRovingSlots(shown.length);
   const viewW = measured > 0 ? measured : VIEW_W_FALLBACK;
@@ -60,7 +73,9 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
   const peak = Math.max(0, ...shown.map((day) => Number(day.totalGbp)));
   const scale = niceScale(peak * 1.05);
   const slot = n > 0 ? plotW / n : plotW;
-  const gap = Math.max(1, slot * GAP_SHARE);
+  const gap = slot >= MIN_GAP_SLOT ? Math.max(1, slot * GAP_SHARE) : 0;
+  const barW = Math.min(MAX_BAR, Math.max(1, slot - gap));
+  const now = new Date();
   const y = (value) => TOP + plotH - (value / scale.max) * plotH;
   const everyNth = Math.ceil(n / X_LABELS);
   const empty = peak === 0;
@@ -103,9 +118,9 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
         <span className="ml-auto">
           <Segmented
             label="Period"
-            options={RANGES}
+            options={rangeOptions(isMobile)}
             value={String(range)}
-            onChange={(value) => onRangeChange(Number(value))}
+            onChange={(value) => onRangeChange(value === 'all' ? 'all' : Number(value))}
             testId="runs-cost-range"
           />
         </span>
@@ -134,7 +149,7 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
           viewBox={`0 0 ${viewW} ${HEIGHT}`}
           className="h-auto w-full"
           role="group"
-          aria-label={`Daily spend by type over the last ${range} days`}
+          aria-label={allTime ? `Daily spend by type since ${since}` : `Daily spend by type over the last ${range} days`}
           data-testid="runs-cost-svg"
         >
           {Array.from({ length: 5 }, (_, i) => scale.step * i).map((value) => (
@@ -157,9 +172,9 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
                   return (
                     <rect
                       key={type}
-                      x={LEFT + i * slot + gap / 2}
+                      x={LEFT + i * slot + (slot - barW) / 2}
                       y={top}
-                      width={Math.max(1, slot - gap)}
+                      width={barW}
                       height={(amount / scale.max) * plotH}
                       className={typeStyle(type).fill}
                       opacity={isolate && isolate !== type ? DIM : 1}
@@ -213,14 +228,14 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
           })}
           {shown.map((day, i) => ((n - 1 - i) % everyNth === 0 ? (
             <text key={day.date} x={LEFT + i * slot + slot / 2} y={HEIGHT - 6} fontSize="10" textAnchor="middle" className="fill-plex-text-muted font-mono">
-              {formatDayMonth(day.date)}
+              {formatDayMonth(day.date, now)}
             </text>
           ) : null))}
           {tooltip}
         </svg>
         {empty && (
           <p className="mt-1 text-[12px] text-plex-text-secondary" data-testid="runs-cost-empty">
-            No spend in the last {range} days.
+            {allTime ? `No spend since ${since}.` : `No spend in the last ${range} days.`}
           </p>
         )}
       </div>
@@ -233,10 +248,12 @@ DailySpendChart.propTypes = {
     days: PropTypes.array.isRequired,
     types: PropTypes.array.isRequired,
     rangeDays: PropTypes.number.isRequired,
+    firstDay: PropTypes.string,
+    allTime: PropTypes.bool,
   }).isRequired,
   isolate: PropTypes.string,
   onIsolate: PropTypes.func.isRequired,
-  range: PropTypes.number.isRequired,
+  range: PropTypes.oneOfType([PropTypes.number, PropTypes.oneOf(['all'])]).isRequired,
   onRangeChange: PropTypes.func.isRequired,
   onOpenDay: PropTypes.func.isRequired,
 };

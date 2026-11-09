@@ -24,8 +24,8 @@ export const TIMING_TYPES = ['OVERNIGHT', 'AFTERNOON', 'EVENING', 'ASK_READY', '
 export const TIMING_RANGES = [30, 60, 120];
 export const DEFAULT_TIMING_RANGE = 60;
 
-/** The Cost view's periods, in days, and its default. */
-export const COST_RANGES = [14, 30, 60];
+/** The Cost view's periods, in days (or {@code 'all'} for the whole Runs history), and its default. */
+export const COST_RANGES = [7, 14, 30, 60, 90, 'all'];
 export const DEFAULT_COST_RANGE = 30;
 
 /** The histogram's candidate bin widths in seconds: 3s, 6s, 15s, 30s, 1m, 2m, 5m, 10m, 15m, 20m, 30m, 60m. */

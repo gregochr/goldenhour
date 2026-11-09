@@ -63,7 +63,7 @@ function useServed(key, fetcher, enabled) {
 /**
  * The Cost trends view's data ({@code GET /api/admin/runs/cost}) for a period.
  *
- * @param {number} days 14, 30 or 60
+ * @param {number|'all'} days 7, 14, 30, 60, 90 or {@code 'all'}
  * @param {{enabled?: boolean}} [options] {@code enabled: false} makes the hook inert
  * @returns {{data: object|null, loading: boolean, error: string|null, updatedAt: Date|null, refresh: () => void}}
  */

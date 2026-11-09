@@ -17,6 +17,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -38,7 +39,10 @@ import java.util.Map;
 public class RunsCostService {
 
     /** The period lengths that can be asked for, in days. */
-    static final List<Integer> RANGES = List.of(14, 30, 60);
+    static final List<Integer> RANGES = List.of(7, 14, 30, 60, 90);
+
+    /** The request value that asks for every day of the Runs history. */
+    static final String ALL_TIME = "all";
 
     /** The period length used when none is asked for. */
     static final int DEFAULT_RANGE = 30;
@@ -83,19 +87,27 @@ public class RunsCostService {
     /**
      * Serves the cost trends.
      *
-     * @param requested the period length in days (14, 30 or 60), or null for {@value #DEFAULT_RANGE}
+     * @param requested the period length in days (7, 14, 30, 60 or 90), {@code all} (case-insensitive) for the whole
+     *                  Runs history, or null for {@value #DEFAULT_RANGE}
      * @return the days, types, totals and verdict
-     * @throws RunsRequestException if the period is not one of 14, 30 or 60
+     * @throws RunsRequestException if the value is none of those
      */
-    public RunCostResponse cost(Integer requested) {
-        int n = requested == null ? DEFAULT_RANGE : requested;
-        if (!RANGES.contains(n)) {
-            throw new RunsRequestException("days must be one of " + RANGES);
-        }
+    public RunCostResponse cost(String requested) {
+        boolean allTime = requested != null && ALL_TIME.equalsIgnoreCase(requested.trim());
+        int n = allTime ? 0 : parseDays(requested);
         LocalDate today = bounds.today();
-        LocalDate firstDay = today.minusDays(2L * n);
-        LocalDate splitDay = today.minusDays(n);
         LocalDate lastDay = today.minusDays(1);
+        LocalDate firstDay;
+        LocalDate splitDay;
+        if (allTime) {
+            LocalDate earliest = bounds.earliestDay();
+            firstDay = earliest.isAfter(lastDay) ? lastDay : earliest;
+            splitDay = firstDay;
+            n = (int) ChronoUnit.DAYS.between(firstDay, lastDay) + 1;
+        } else {
+            firstDay = today.minusDays(2L * n);
+            splitDay = today.minusDays(n);
+        }
         Instant from = ForecastHorizon.ukDayStartUtc(firstDay).toInstant(ZoneOffset.UTC);
         Instant to = ForecastHorizon.ukDayStartUtc(today).toInstant(ZoneOffset.UTC);
         RunsLoader.LoadedRuns loaded = loader.load(from, to);
@@ -140,7 +152,22 @@ public class RunsCostService {
                 percent(last, prior), RunFx.dollars(lastMicro),
                 BigDecimal.valueOf(loaded.fx().rateOn(lastDay)).setScale(FX_SCALE, RoundingMode.HALF_UP),
                 RunFx.pence(last / n), RunFx.pence(prior / n), allComplete);
-        return new RunCostResponse(n, firstDay, lastDay, days, types, totals, verdict(tallies, last, prior));
+        return new RunCostResponse(n, firstDay, lastDay, allTime, days, types, totals, verdict(tallies, last, prior));
+    }
+
+    private static int parseDays(String requested) {
+        if (requested == null) {
+            return DEFAULT_RANGE;
+        }
+        try {
+            int n = Integer.parseInt(requested.trim());
+            if (RANGES.contains(n)) {
+                return n;
+            }
+        } catch (NumberFormatException e) {
+            // falls through to the same 400 as an unlisted number
+        }
+        throw new RunsRequestException("days must be one of " + RANGES + " or " + ALL_TIME);
     }
 
     private static CostDay day(LocalDate date, Map<RunDeepType, Double> spend, boolean complete) {
