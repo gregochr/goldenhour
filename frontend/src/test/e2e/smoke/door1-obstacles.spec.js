@@ -126,6 +126,13 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
         const sheet = page.getByTestId('window-sheet');
         await expect(sheet).toBeVisible();
 
+        // Playwright's click leaves the pointer parked at the card's centre. When the opened sheet puts a spot
+        // card under that point, its hover peek (`wf-peek`, fixed, z-index 60) legitimately overlays the field:
+        // that is the reader's own hover, not a placement defect, and this spec is about what the field draws on
+        // its own. Park the pointer off the sheet and wait for the peek to close before sampling.
+        await page.mouse.move(0, 0);
+        await expect(page.getByTestId('wf-peek')).toHaveCount(0);
+
         // The seeded fixture rates every place in every window the matrix serves, except the ones the
         // briefing has already let pass: a window with no field draws no door button and has nothing to sweep.
         const openButton = sheet.getByTestId('wf-row-map-open');
@@ -145,19 +152,29 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
 
         const buttonBox = await openButton.boundingBox();
         let overlapFound = false;
+        const coveredBy = new Set();
+        const chipNames = [];
         let totalSampled = 0;
         let totalHits = 0;
 
         for (let c = 0; c < chipCount; c += 1) {
           const chip = chips.nth(c);
           const chipBox = await chip.boundingBox();
-          if (buttonBox && chipBox && !disjoint(buttonBox, chipBox)) overlapFound = true;
+          if (buttonBox && chipBox && !disjoint(buttonBox, chipBox)) {
+            overlapFound = true;
+            coveredBy.add('wf-row-map-open');
+            chipNames.push((await chip.innerText()).trim());
+          }
 
           const chipHandle = await chip.elementHandle();
           const { sampled, hits, overlaps } = await sweepChip(page, chipHandle);
           totalSampled += sampled;
           totalHits += hits;
-          if (overlaps.length > 0) overlapFound = true;
+          if (overlaps.length > 0) {
+            overlapFound = true;
+            overlaps.forEach((o) => coveredBy.add(o.testid ?? o.tag ?? 'nothing (outside the viewport)'));
+            chipNames.push((await chip.innerText()).trim());
+          }
         }
 
         rows.push({
@@ -166,7 +183,11 @@ test.describe('Door 1 — the field never draws the button over a chip (doors pl
 
         // Fails loudly, per-window, rather than only in the aggregate table — a defect in window 4
         // of 6 must not be masked by five clean windows averaging it away.
-        expect(overlapFound, `window "${cardLabel}" — the door button overlaps a chip`).toBe(false);
+        expect(
+          overlapFound,
+          `window "${cardLabel}" — a chip is covered (by: ${[...coveredBy].join(', ')}; chips: ${
+            [...new Set(chipNames)].join(' | ').replace(/\s+/g, ' ')})`,
+        ).toBe(false);
 
         await page.getByTestId('window-sheet-close').click();
         await expect(sheet).toBeHidden();
