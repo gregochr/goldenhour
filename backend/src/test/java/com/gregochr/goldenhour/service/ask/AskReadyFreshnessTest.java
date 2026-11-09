@@ -206,7 +206,10 @@ class AskReadyFreshnessTest {
         AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
         AskReadyStore.Stored stored = events("RARE_EVENTS", "Any rare events coming up?", aurora());
 
-        assertThat(check(stored, withEvents(base, List.of(), List.of())).reason()).contains("no longer live");
+        // The question stays offered (another admissible event is live) but the stored aurora is gone: rule 5.
+        AskSnapshot.Topic otherEvent = new AskSnapshot.Topic("METEOR", "Perseids", "d", oct(13), List.of(), null);
+        assertThat(check(stored, withEvents(base, List.of(otherEvent), List.of())).reason())
+                .contains("no longer live");
         assertThat(check(stored, withEvents(base, List.of(auroraTopic("Aurora", oct(13), List.of(), null)),
                 List.of())).fresh()).isFalse();
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
@@ -215,6 +218,39 @@ class AskReadyFreshnessTest {
         assertThat(AskReadyFreshness.check(ReadyQuestion.RARE_EVENTS, stored,
                 withEvents(base, List.of(auroraTopic("Aurora", oct(12), List.of("Teesdale"), null)), List.of()),
                 TestScopes.of("teesdale")).fresh()).isTrue();
+    }
+
+    @Test
+    @DisplayName("an events row is withheld because its question is no longer offered when the live snapshot "
+            + "holds no event at all (rule 2), for RARE_EVENTS and SNOW_TOPS alike")
+    void eventsQuestionNoLongerOffered() {
+        AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow", oct(12), "Snow.", null);
+
+        AskReadyFreshness.Verdict rare = check(events("RARE_EVENTS", "Any rare events coming up?", aurora()),
+                withEvents(base, List.of(), List.of()));
+        AskReadyFreshness.Verdict snowRow = check(events("SNOW_TOPS", "Is there snow on the tops?", snow),
+                withEvents(base, List.of(), List.of()));
+
+        assertThat(rare.fresh()).isFalse();
+        assertThat(rare.reason()).doesNotContain("no longer live");
+        assertThat(snowRow.fresh()).isFalse();
+        assertThat(snowRow.reason()).doesNotContain("no longer live");
+    }
+
+    @Test
+    @DisplayName("a SNOW_TOPS row whose snow topic has gone while another snow topic keeps the question offered "
+            + "is withheld because the event is no longer live (rule 5)")
+    void snowEventNoLongerLive() {
+        AskSnapshot base = at(ReadyFixtures.FRIDAY_NOON, both(oct(10), northumberland()));
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow", oct(12), "Snow.", null);
+        AskSnapshot live = withEvents(base, List.of(
+                new AskSnapshot.Topic("SNOW_FRESH", "Fresh snow", "d", oct(13), List.of(), null)), List.of());
+
+        AskReadyFreshness.Verdict verdict = check(events("SNOW_TOPS", "Is there snow on the tops?", snow), live);
+
+        assertThat(verdict.fresh()).isFalse();
+        assertThat(verdict.reason()).contains("no longer live");
     }
 
     @Test

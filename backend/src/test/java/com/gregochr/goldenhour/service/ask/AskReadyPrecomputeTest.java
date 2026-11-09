@@ -195,6 +195,25 @@ class AskReadyPrecomputeTest {
     // -- what a precompute does -------------------------------------------------------------
 
     @Test
+    @DisplayName("with no live event in the snapshot RARE_EVENTS and SNOW_TOPS are not asked for any scope: no "
+            + "engine call, no stored row, and no failure")
+    void eventsQuestionsAreNotAskedWithoutALiveEvent() {
+        AskSnapshot friday = ReadyFixtures.fridaySnapshot();
+        useSnapshot(new AskSnapshot(friday.generatedAt(), friday.runLabel(), friday.today(), friday.windows(),
+                List.of(), List.of()));
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        // The pick questions alone: ALL 4, Northumberland 4, Teesdale 3.
+        assertThat(result.written()).isEqualTo(11);
+        assertThat(result.failed()).isZero();
+        assertThat(calls).extracting(c -> c.question().sanitised())
+                .doesNotContain("Any rare events coming up?", "Is there snow on the tops?");
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("a precompute runs every available question of every scope, user-less, one at a time, and "
             + "stores each answer with the question's text and windows")
     void runsEveryAvailableQuestion() {

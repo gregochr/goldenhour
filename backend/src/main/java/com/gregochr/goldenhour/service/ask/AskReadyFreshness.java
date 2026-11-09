@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -241,7 +240,6 @@ final class AskReadyFreshness {
      */
     private static Optional<LiveEvent> liveEvent(AskEvent event, AskSnapshot live,
             AskScope scope) {
-        LocalDate lastDay = live.today().plusDays(AskSnapshot.MAX_COMING_UP_DAYS - 1L);
         List<LiveEvent> matches = new ArrayList<>();
         for (AskSnapshot.Topic topic : live.hotTopics()) {
             if (AskEventType.same(topic.type(), event.type())
@@ -251,8 +249,7 @@ final class AskReadyFreshness {
         }
         for (AskSnapshot.ComingUp entry : live.comingUp()) {
             if (AskEventType.same(entry.type(), event.type())
-                    && Objects.equals(entry.startDate(), event.date())
-                    && !entry.endDate().isBefore(live.today()) && !entry.startDate().isAfter(lastDay)) {
+                    && Objects.equals(entry.startDate(), event.date()) && entry.isLiveOn(live.today())) {
                 matches.add(new LiveEvent(entry.title(), entry.safetyNote()));
             }
         }

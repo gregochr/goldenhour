@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.service.ask.ReadyQuestion.Offer;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -245,19 +246,109 @@ class ReadyQuestionTest {
         assertThat(offer(ReadyQuestion.AM_OR_PM, snapshot)).isEmpty();
     }
 
-    // -- the two that are always asked ------------------------------------------------------
+    // -- the two events questions: offered only while a live event stands in scope ------------
+
+    private static AskSnapshot withEvents(List<AskSnapshot.Topic> topics, List<AskSnapshot.ComingUp> comingUp) {
+        AskSnapshot base = at(ReadyFixtures.MONDAY_NOON);
+        return new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(), topics,
+                comingUp);
+    }
+
+    private static AskSnapshot.Topic topic(String type, List<String> regions) {
+        return new AskSnapshot.Topic(type, "label", "detail", oct(5), regions, null);
+    }
+
+    private static AskSnapshot.ComingUp entry(String type, LocalDate start, LocalDate end) {
+        return new AskSnapshot.ComingUp(type, "title", start, end, "d", null);
+    }
 
     @Test
-    @DisplayName("RARE_EVENTS and SNOW_TOPS are always asked, about no window, even with no forecast")
-    void alwaysOffered() {
+    @DisplayName("RARE_EVENTS and SNOW_TOPS are not offered when the snapshot holds no topic and no Coming up entry")
+    void eventsQuestionsNeedAnEvent() {
         AskSnapshot empty = at(ReadyFixtures.MONDAY_NOON);
 
-        assertThat(offer(ReadyQuestion.RARE_EVENTS, empty)).hasValueSatisfying(o -> {
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, empty)).isEmpty();
+        assertThat(offer(ReadyQuestion.SNOW_TOPS, empty)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("with an admissible hot topic in scope each events question is offered, under its own text, "
+            + "about no window")
+    void eventsQuestionsOfferedForALiveTopic() {
+        AskSnapshot snapshot = withEvents(List.of(topic("SNOW_TOPS", List.of())), List.of());
+
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, snapshot)).hasValueSatisfying(o -> {
             assertThat(o.text()).isEqualTo("Any rare events coming up?");
             assertThat(o.windowIds()).isEmpty();
+            assertThat(o.contextWindowId()).isNull();
         });
-        assertThat(offer(ReadyQuestion.SNOW_TOPS, empty)).hasValueSatisfying(o ->
-                assertThat(o.text()).isEqualTo("Is there snow on the tops?"));
+        assertThat(offer(ReadyQuestion.SNOW_TOPS, snapshot)).hasValueSatisfying(o -> {
+            assertThat(o.text()).isEqualTo("Is there snow on the tops?");
+            assertThat(o.windowIds()).isEmpty();
+            assertThat(o.contextWindowId()).isNull();
+        });
+    }
+
+    @Test
+    @DisplayName("a topic of a type SNOW_TOPS does not admit (an aurora) offers RARE_EVENTS only")
+    void inadmissibleTypeIsNotOfferedForSnow() {
+        AskSnapshot snapshot = withEvents(List.of(topic("AURORA", List.of())), List.of());
+
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, snapshot)).isPresent();
+        assertThat(offer(ReadyQuestion.SNOW_TOPS, snapshot)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a regional topic is live only in a scope that holds its region; a region-less topic in every one")
+    void topicScope() {
+        AskSnapshot regional = withEvents(List.of(topic("SNOW_TOPS", List.of("Teesdale"))), List.of());
+        AskSnapshot regionless = withEvents(List.of(topic("SNOW_TOPS", List.of())), List.of());
+
+        assertThat(ReadyQuestion.SNOW_TOPS.offer(regional, TestScopes.of("Northumberland"))).isEmpty();
+        assertThat(ReadyQuestion.RARE_EVENTS.offer(regional, TestScopes.of("Northumberland"))).isEmpty();
+        assertThat(ReadyQuestion.SNOW_TOPS.offer(regional, TestScopes.of("Teesdale"))).isPresent();
+        assertThat(ReadyQuestion.SNOW_TOPS.offer(regional, ALL)).isPresent();
+        assertThat(ReadyQuestion.SNOW_TOPS.offer(regionless, TestScopes.of("Northumberland"))).isPresent();
+        assertThat(ReadyQuestion.RARE_EVENTS.offer(regionless, TestScopes.of("Teesdale"))).isPresent();
+    }
+
+    @Test
+    @DisplayName("a Coming up entry counts from the day it ends to the 90-day horizon's last start day, and "
+            + "never counts for SNOW_TOPS")
+    void comingUpBoundaries() {
+        AskSnapshot base = at(ReadyFixtures.MONDAY_NOON);
+        LocalDate today = base.today();
+
+        AskSnapshot endedYesterday = withEvents(List.of(),
+                List.of(entry("SUPERMOON", today.minusDays(3), today.minusDays(1))));
+        AskSnapshot endsToday = withEvents(List.of(), List.of(entry("SUPERMOON", today.minusDays(1), today)));
+        AskSnapshot startsDay89 = withEvents(List.of(),
+                List.of(entry("SUPERMOON", today.plusDays(89), today.plusDays(89))));
+        AskSnapshot startsDay90 = withEvents(List.of(),
+                List.of(entry("SUPERMOON", today.plusDays(90), today.plusDays(90))));
+
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, endedYesterday)).isEmpty();
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, endsToday)).isPresent();
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, startsDay89)).isPresent();
+        assertThat(offer(ReadyQuestion.RARE_EVENTS, startsDay90)).isEmpty();
+        assertThat(offer(ReadyQuestion.SNOW_TOPS, startsDay89)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("hasLiveEvent and ComingUp.isLiveOn agree at their boundaries")
+    void liveEventPredicate() {
+        AskSnapshot base = at(ReadyFixtures.MONDAY_NOON);
+        LocalDate today = base.today();
+        AskSnapshot.ComingUp inside = entry("METEOR", today, today);
+
+        assertThat(inside.isLiveOn(today)).isTrue();
+        assertThat(entry("METEOR", today.minusDays(2), today.minusDays(1)).isLiveOn(today)).isFalse();
+        assertThat(entry("METEOR", today.plusDays(89), today.plusDays(89)).isLiveOn(today)).isTrue();
+        assertThat(entry("METEOR", today.plusDays(90), today.plusDays(95)).isLiveOn(today)).isFalse();
+        assertThat(withEvents(List.of(), List.of(inside)).hasLiveEvent(type -> "METEOR".equals(type), ALL)).isTrue();
+        assertThat(withEvents(List.of(), List.of(inside)).hasLiveEvent(type -> "AURORA".equals(type), ALL)).isFalse();
+        assertThat(withEvents(List.of(topic("AURORA", List.of("Teesdale"))), List.of())
+                .hasLiveEvent(type -> true, TestScopes.of("Northumberland"))).isFalse();
     }
 
     // -- the catalogue's own shape ----------------------------------------------------------
