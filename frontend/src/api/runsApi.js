@@ -82,8 +82,8 @@ export async function fetchRunCalls(runId) {
  * Fetches the Cost trends view: spend by day and by run type for the last {@code days} full UK days and the same
  * number before them, per-type changes and the verdict as structured fields. ADMIN only. Any other period is a 400.
  *
- * @param {number} [days] 14, 30 or 60 (the server defaults to 30)
- * @returns {Promise<object>} {rangeDays, firstDay, lastDay, days, types, totals, verdict}
+ * @param {number|'all'} [days] 7, 14, 30, 60, 90 or {@code 'all'} (the server defaults to 30)
+ * @returns {Promise<object>} {rangeDays, firstDay, lastDay, allTime, days, types, totals, verdict}
  */
 export async function fetchRunCost(days = undefined) {
   const params = {};

@@ -52,6 +52,7 @@ export const costResponse = (over = {}) => ({
   rangeDays: 14,
   firstDay: '2026-10-05',
   lastDay: '2026-11-01',
+  allTime: false,
   days: costDays(14, '2026-11-01', { ASK_READY: 2, SKY_EVAL: 0.5, OVERNIGHT: 1.5, AFTERNOON: 1 }),
   types: [
     costType('ASK_READY', {
@@ -162,5 +163,27 @@ export const overnightTiming = (over = {}) => timingResponse({
   readyBasis: 'ready',
   sunriseToday: '2026-11-02T06:50:00Z',
   slackAtP90Minutes: 202,
+  ...over,
+});
+
+/** An all-time answer: {@code n} consecutive days up to 2026-11-01, one period, nothing before it. */
+export const costAllTime = (n = 400, over = {}) => ({
+  rangeDays: n,
+  firstDay: shiftDateStr('2026-11-01', 1 - n),
+  lastDay: '2026-11-01',
+  allTime: true,
+  days: Array.from({ length: n }, (_, i) => costDay(shiftDateStr('2026-11-01', i - (n - 1)), { SKY_EVAL: 1, OVERNIGHT: 0.5 })),
+  types: [
+    costType('SKY_EVAL', { lastGbp: 400, priorGbp: 0, deltaGbp: 400, deltaPercent: null, priorRuns: 0 }),
+    costType('OVERNIGHT', { lastGbp: 200, priorGbp: 0, deltaGbp: 200, deltaPercent: null, priorRuns: 0 }),
+  ],
+  totals: {
+    lastGbp: 600, priorGbp: 0, deltaGbp: 600, deltaPercent: null, lastUsd: 800, fxRate: 0.75,
+    perDayLast: 1.5, perDayPrior: 0, costComplete: true,
+  },
+  verdict: {
+    direction: 'FLAT', percent: null, topType: 'SKY_EVAL', topLabel: 'Sky eval', topDeltaGbp: 400,
+    totalDeltaGbp: 600, runsAsOften: false, perRunMultiple: null, askLocations: null, skyEval: null,
+  },
   ...over,
 });

@@ -7,7 +7,8 @@ import PropTypes from 'prop-types';
  *
  * @param {object} props
  * @param {string} props.label the group's accessible name
- * @param {Array<{value: string, label: string}>} props.options the buttons, in order
+ * @param {Array<{value: string, label: string, ariaLabel?: string}>} props.options the buttons, in order; an
+ *   {@code ariaLabel} keeps the accessible name long when the visible label is a short form
  * @param {string} props.value the chosen option's value
  * @param {(value: string) => void} props.onChange called with the pressed option's value
  * @param {boolean} [props.disabled] true to make every button inert (a save in flight)
@@ -33,6 +34,7 @@ export default function Segmented({ label, options, value, onChange, testId, dis
             className={`cursor-pointer px-3 py-1.5 font-mono text-[11px] transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-plex-gold disabled:cursor-default disabled:opacity-60 max-[639px]:min-h-11 ${
               index > 0 ? 'border-l border-plex-border' : ''
             } ${on ? 'bg-plex-gold/10 text-plex-text' : 'text-plex-text-secondary hover:text-plex-text'}`}
+            aria-label={option.ariaLabel}
             data-testid={`${testId}-${option.value.toLowerCase()}`}
           >
             {option.label}
@@ -48,6 +50,7 @@ Segmented.propTypes = {
   options: PropTypes.arrayOf(PropTypes.shape({
     value: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
+    ariaLabel: PropTypes.string,
   })).isRequired,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
