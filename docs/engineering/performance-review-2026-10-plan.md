@@ -592,7 +592,8 @@ counts do not depend on load, and they are the result:
   present (checked in the screenshots).
 - **Open:** the per-redraw cost on a quiet host. The baseline was 33–35 ms (`drawTiles`) and 13–15 ms (labels) per redraw at 390 px,
   and P4b and P4c did not change the cost of one redraw; they removed nearly all of them. If the settle-time cost matters, re-run the
-  driver when the host is idle before scoping any further work.
+  driver when the host is idle before scoping any further work. The driver is committed at
+  `scripts/measurements/p4a-map-frames/measure.mjs` (its README lists the temporary `p4a:*` marks it needs).
 
 ## 11. What the review changed (draft 1 → draft 2)
 
