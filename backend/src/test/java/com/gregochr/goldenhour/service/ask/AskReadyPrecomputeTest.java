@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -209,8 +210,12 @@ class AskReadyPrecomputeTest {
         assertThat(result.failed()).isZero();
         assertThat(calls).extracting(c -> c.question().sanitised())
                 .doesNotContain("Any rare events coming up?", "Is there snow on the tops?");
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any(), any());
-        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any(), any());
+        List<Object> upsertedQuestions = mockingDetails(store).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals("upsert"))
+                .map(i -> i.getArgument(1))
+                .toList();
+        assertThat(upsertedQuestions).hasSize(11)
+                .doesNotContain(ReadyQuestion.RARE_EVENTS, ReadyQuestion.SNOW_TOPS);
     }
 
     @Test
