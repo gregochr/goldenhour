@@ -158,7 +158,7 @@ function DayRow({ row, open, selected, onToggle, onOpenDetail }) {
           id={`runs-day-detail-${row.id}`}
           role="region"
           aria-labelledby={`runs-day-row-btn-${row.id}`}
-          className="flex flex-col gap-2 px-3 pb-3 pl-[76px] max-[639px]:pl-3"
+          className="flex flex-col gap-2 px-3 pb-3 pl-[76px] max-[639px]:pl-3 @max-[480px]:pl-3"
           data-testid={`runs-day-detail-${row.id}`}
         >
           <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
