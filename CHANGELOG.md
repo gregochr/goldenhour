@@ -5,6 +5,116 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.6] - 2026-11-09
+
+### Fixed — Runs Day view: external calls table stacks when the list is narrow
+
+With a run expanded and the run-detail panel open, the Day list is narrow and the external calls table's purpose column collapsed into overlapping text. The expanded body now drops its 76px indent in a narrow list, and each service row stacks into a card (service and status, then purpose, then calls, time and cost) when the table is under 441px wide.
+
+### Docs — recover three measurement harnesses into scripts/measurements
+
+The P4a map-frame driver, the output-token split (export SQL and counter) and the Q5 pick-region
+repeat harness existed only as uncommitted files in stale worktrees and are now committed under
+`scripts/measurements/`, with READMEs and pointers from the plans that need them. The pick-region
+harness carries a fix: equal per-window regional means now tie-break on scored coverage before
+region name, as `PlanWindowProjector` does, with a new `verify.sh` fixture E that fails on the old
+tie-break. The recorded Q5 figures (47.6% repeat, silence in 8 of 10) predate that fix and are
+flagged for re-measurement.
+
+### Changed — The verdict moves onto the count line
+
+When the drive and rating bar empties the whole plan, the callout card above the matrix is gone. The count line on the bar now says it in one line, for example "0 at 4★+ this week · best is 3★, Angel of the North", with one button to fix it ("Drop to 3★+"). The days ahead move up by about 200px on a phone. Screen readers still hear the verdict announced when a chip press creates it.
+
+### Fixed — E2E door1-obstacles no longer fails on a stray hover peek
+
+The required `E2E — Playwright smoke` check went red on `door1-obstacles.spec.js` ("the door button overlaps a chip"). The door button was not the cause: Playwright's card click left the pointer at the card's centre, and when the opened sheet put a spot card under it, that card's hover peek (`wf-peek`) covered a field chip. The spec now parks the pointer off the sheet before sampling, and its failure message names the covering element. The overlap assertion, sampling and box check are unchanged.
+
+### Added — 7, 90 and all-time ranges on the Runs Cost view
+
+Operations, Runs, Cost now offers 7, 14, 30, 60 and 90 days and All time. All time runs from the earliest
+recorded run (the Runs history is capped at 400 days) to yesterday with nothing to compare against: the
+verdict card says what was spent since that day, the table shows Type, Spend and a bucketed sparkline, and
+the chart's bars touch when a slot is narrow. `GET /api/admin/runs/cost` takes `days=7|14|30|60|90|all`
+(anything else is 400) and serves a new `allTime` flag; how a cost is computed is unchanged. On a phone the
+period buttons read 7d, 14d, 30d, 60d, 90d and All (their accessible names stay long); `range=all` survives
+in the address.
+
+### Changed — Ask Ready events questions are offered only when a live event exists
+
+"Any rare events coming up?" and "Is there snow on the tops?" were asked for every scope on every precompute, even when the forecast held no event the answer could carry, so each such run was a paid conversation that could only end in "can't" or a withheld answer. Both are now offered only while the snapshot holds an admissible, live, in-scope event, using the same per-entry conditions the serve-time freshness check uses. The question text and windows are unchanged when offered.
+
+### Tests — the Anthropic WireMock fixture double no longer corrupts a backslash
+
+`AnthropicWireMockFixtures` escaped only the double quote when it interpolated a summary or an
+error message, so a backslash silently became a tab or failed the SDK parse, and its `%d` format
+was locale-sensitive. Every interpolated string now goes through one `jsonEscape` helper (backslash
+and control characters included) while the envelope stays hand-built, and the format is pinned to
+`Locale.ROOT`. The contract test that pinned the old behaviour as a known gap is now a positive
+round-trip guard, tab and newline now have their own round-trip test, and the reflective sweep
+carries an escaped summary and an escaped error message through the factories that take them.
+
+### Changed — one sky regression class for quick and pass^k runs
+
+The two paid sky test classes, `PromptRegressionTest` (single shot, Haiku, 8 fixtures plus a hard-coded
+Angel of the North case) and `SkyRatingEvalTest` (8 runs, Sonnet 4.6, rating band only), are merged into
+`eval/SkyRatingRegressionTest`. This restructure was approved by the owner on 2026-11-08; no band, bound
+or other assertion value changed.
+
+Every run of every one of the 10 registry fixtures now checks the same things: the rating band, plus the
+fixture's Fiery Sky and Golden Hour bounds where it has `RegressionBounds`. `-Dsky.runs` / `SKY_RUNS`
+sets the runs per fixture (default 1, quick mode: every assertion hard, monitored fixtures included;
+`-Dsky.runs=8` is strict pass^k on gated fixtures, with monitored fixtures reported only). The default
+model is now `SONNET_55`, the production near-term model; `-Dsky.model` / `SKY_MODEL` set it, and the
+old `regression.model`, `eval.model`, `REGRESSION_MODEL` and `EVAL_MODEL` still work (conflicting legacy
+settings fail fast). A null score is reported as a malformed run instead of throwing. The Angel of the
+North case is retired. `RegressionBoundsRegistryTest` moved to the `eval` package and now also guards
+that each fixture's bounds rating equals its band; the judgement is proven offline by
+`SkyRatingRegressionJudgementTest`. Test-only change: no behaviour change in the app.
+
+### Added — approval-gated prompt-regression runs on pull requests that change prompt code
+
+A new workflow, `Prompt regression (approval-gated)` (`.github/workflows/prompt-regression.yml`), runs the real-Claude
+prompt-regression suites on same-repository PRs that touch prompt or evaluation code. A `changes` job with no secrets reads the
+three-dot diff and `scripts/prompt-regression-paths.sh` decides whether the sky suite (`SkyRatingRegressionTest`, the best-bet
+aurora and token-count tests, on Sonnet 5.5) or the Ask suite needs to run; each paid job waits in the `prompt-regression`
+GitHub environment until the owner approves it, uses a separate spend-capped key, and writes a per-class summary
+(`scripts/prompt-regression-summary.py`) from the surefire reports. It can also be started by hand with a choice of suite and
+of 1 or 8 runs per sky fixture. It is never a required check. The path logic, the summary parser and the workflow's safety
+properties are pinned by new `scripts/test/` shell tests.
+
+### Added — post-deploy smoke check and an image-only automatic rollback (report-only until the owner turns it on)
+
+Straight after `docker compose up`, the deploy job now runs `scripts/post-deploy-smoke.sh` through the public URL
+(shell, every hashed asset, the CSP header, backend health, the 401 boundary and, once a `smoke-deploy` PRO account
+exists, a login that must serve a rated briefing), after `prod-health.sh --deploy --classify`, which now says whether a
+failure is the release (a backend or frontend container) or the host (database, tunnel, Tailscale). A failure fails the
+deploy job and opens the usual issue. With the repository variable `SMOKE_ENFORCE=true` a release the checks call
+broken is also rolled back by `scripts/auto-rollback.sh`: it restores the outgoing `nginx.conf` and
+`docker-compose.yml`, pins the previous image digests, and re-checks. It never touches the database; restoring data
+stays `scripts/rollback.sh`. Exit codes everywhere: 0 pass, 1 release broken, 3 inconclusive, 4 smoke misconfigured,
+and only 1 can roll back. The deploy job also runs one at a time, extracts the tag's whole `scripts/` directory, takes
+its pre-release backup before it writes the new configuration, never overwrites an existing rollback point, and records
+the running images only on success. New shell tests (`scripts/test/`) and a `deploy-smoke` Playwright project cover it.
+
+### Added — `/actuator/info` now reports the running build's git commit
+
+`GitCommitInfoContributor` publishes `git.commit.id` (the full sha) and `git.commit.time` from `GitInfoService`, which
+reads the `GIT_COMMIT_*` environment variables in the production image (no `git.properties`). It stays silent when
+Spring Boot already has `GitProperties`, and when no commit is known. The commit message and branch are deliberately
+not published. This switches on the post-deploy smoke's "new build is the one running" probe for images built after
+this change; the first deploy after it merges still warns, because the outgoing image lacks the field.
+
+### Fixed — a batch with no linked job run now says it will record no cost rows
+
+`api_call_log.job_run_id` is `NOT NULL`, so a batch whose `jobRunId` is absent cannot write any
+cost rows, and the result handlers dropped them without a word. `BatchResultProcessor` now logs one
+WARN per batch, forecast and aurora separately, naming the Anthropic batch id and the consequence.
+The aurora warning is emitted before that method's early returns, so a refused or truncated
+response — which is billed — is covered rather than returning ahead of the warning. Each
+per-result drop site adds a DEBUG line: the three handler sites separate "no result context was
+supplied" from "the context carries no job run id", while `inlineFailureLog` states the one case
+reachable there, since every caller passes the per-batch context.
+
 ## [v2.39.5] - 2026-11-08
 
 ### Testing — the nginx smoke stack runs on the host network
