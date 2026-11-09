@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { signedGbp, signedPercent, typeSeries, whyText } from '../../../utils/runsCost.js';
+import { bucketSeries, signedGbp, signedPercent, sinceLabel, typeSeries, whyText } from '../../../utils/runsCost.js';
 import { formatGbp, formatUsd, typeStyle } from '../../../utils/runsDay.js';
 
 const CARD = 'rounded-xl border border-plex-border bg-plex-surface p-4 max-[639px]:px-3';
@@ -10,6 +10,10 @@ const CARD = 'rounded-xl border border-plex-border bg-plex-surface p-4 max-[639p
 const GRID = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,2fr)_130px] items-center gap-x-3 @max-[640px]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1fr)]';
 const SPARK_W = 130;
 const SPARK_H = 28;
+/** The all-time grid: Type, Spend and the sparkline (under 900px of the list column the sparkline goes). */
+const GRID_ALL = 'grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_130px] items-center gap-x-3 @max-[640px]:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]';
+/** A sparkline bar is at least this wide, so a long history is summed into at most SPARK_W / this many bars. */
+const SPARK_MIN_BAR = 2;
 /** The prior period's half of a sparkline is drawn at this opacity. */
 const PRIOR_OPACITY = 0.35;
 
@@ -21,11 +25,15 @@ function deltaClass(delta) {
   return 'text-plex-text';
 }
 
-/** One type's daily sparkline: 2N bars, the prior half faint. */
-function Sparkline({ values, type }) {
+/**
+ * One type's daily sparkline: 2N bars, the prior half faint. In all time there is no prior half, and a history too
+ * long for 2px bars is summed into equal buckets first.
+ */
+function Sparkline({ values: daily, type, allTime }) {
+  const values = bucketSeries(daily, Math.floor(SPARK_W / SPARK_MIN_BAR));
   const peak = Math.max(...values, 0) || 1;
   const bar = SPARK_W / values.length;
-  const half = values.length / 2;
+  const half = allTime ? 0 : values.length / 2;
   return (
     <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden="true" className="@max-[640px]:hidden" data-testid={`runs-cost-spark-${type.toLowerCase()}`}>
       {values.map((value, i) => (
@@ -46,6 +54,7 @@ function Sparkline({ values, type }) {
 Sparkline.propTypes = {
   values: PropTypes.arrayOf(PropTypes.number).isRequired,
   type: PropTypes.string.isRequired,
+  allTime: PropTypes.bool,
 };
 
 /** The change cell: "+£7.10" with its percent beneath. */
@@ -59,6 +68,77 @@ function Change({ delta, percent, testId }) {
 }
 
 Change.propTypes = { delta: PropTypes.oneOfType([PropTypes.number, PropTypes.string]), percent: PropTypes.number, testId: PropTypes.string.isRequired };
+
+/**
+ * The all-time table: no prior period, so only Type, Spend and the daily sparkline; the total row is the spend and its
+ * dollar equivalent. The rows are served biggest spend first.
+ */
+function AllTimeTable({ data, isolate, onIsolate }) {
+  const { totals } = data;
+  return (
+    <section className={CARD} data-testid="runs-cost-table-card">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="text-[13px] font-semibold text-plex-text">Where the spend came from</h3>
+        <span className="font-mono text-[11px] text-plex-text-secondary">
+          since {sinceLabel(data.firstDay)} {'\u00b7'} click a row to isolate it in the chart
+        </span>
+      </div>
+      <div className="mt-3" role="table" aria-label="Spend by type since the first recorded run" data-testid="runs-cost-table">
+        <div className={`${GRID_ALL} border-b border-plex-border pb-2 font-mono text-[10px] uppercase tracking-[0.12em] text-plex-text-muted`} role="row">
+          <span role="columnheader">Type</span>
+          <span role="columnheader" className="text-right">Spend</span>
+          <span role="columnheader" className="@max-[640px]:hidden">Daily, {data.rangeDays} days</span>
+        </div>
+        {data.types.map((row) => {
+          const on = isolate === row.type;
+          const key = row.type.toLowerCase();
+          return (
+            <div
+              key={row.type}
+              role="row"
+              className={`${GRID_ALL} relative border-b border-plex-border/60 py-2.5 text-[12.5px] hover:bg-plex-surface-light/40 ${on ? 'bg-plex-gold/8' : ''}`}
+              data-testid={`runs-cost-row-${key}`}
+            >
+              <span role="cell" className="flex min-w-0 items-center gap-2">
+                <i className={`size-2 shrink-0 rounded-xs ${typeStyle(row.type).swatch}`} aria-hidden="true" />
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  className="min-w-0 cursor-pointer text-left font-semibold text-plex-text after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
+                  onClick={() => onIsolate(on ? null : row.type)}
+                  data-testid={`runs-cost-row-${key}-toggle`}
+                >
+                  {row.label}
+                </button>
+              </span>
+              <span role="cell" className="text-right font-mono" data-testid={`runs-cost-row-${key}-last`}>
+                {formatGbp(row.lastGbp)}
+                {row.costComplete === false && <small className="block text-[10px] text-verdict-marginal">so far</small>}
+              </span>
+              <span role="cell" className="@max-[640px]:hidden"><Sparkline values={typeSeries(data, row.type)} type={row.type} allTime /></span>
+            </div>
+          );
+        })}
+        <div className={`${GRID_ALL} py-2.5 text-[12.5px] font-semibold`} role="row" data-testid="runs-cost-total">
+          <span role="cell">Total</span>
+          <span role="cell" className="text-right font-mono" data-testid="runs-cost-total-last">
+            {formatGbp(totals.lastGbp)}
+            {totals.costComplete === false && <small className="block text-[10px] font-normal text-verdict-marginal">so far</small>}
+          </span>
+          <span role="cell" className="font-mono text-[12px] font-normal text-plex-text-secondary @max-[640px]:hidden" data-testid="runs-cost-total-usd">
+            {formatUsd(totals.lastUsd)}{Number(totals.fxRate) > 0 ? ` \u00b7 £1 = $${(1 / Number(totals.fxRate)).toFixed(2)}` : ''}
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+AllTimeTable.propTypes = {
+  data: PropTypes.object.isRequired,
+  isolate: PropTypes.string,
+  onIsolate: PropTypes.func.isRequired,
+};
 
 /**
  * The Cost view's "Where the change came from" table (the handoff's table): one row per type that ran, biggest rise
@@ -75,6 +155,7 @@ Change.propTypes = { delta: PropTypes.oneOfType([PropTypes.number, PropTypes.str
 export default function CostChangeTable({ data, isolate, onIsolate }) {
   const n = data.rangeDays;
   const { totals } = data;
+  if (data.allTime === true) return <AllTimeTable data={data} isolate={isolate} onIsolate={onIsolate} />;
   return (
     <section className={CARD} data-testid="runs-cost-table-card">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -146,6 +227,7 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
 CostChangeTable.propTypes = {
   data: PropTypes.shape({
     rangeDays: PropTypes.number.isRequired,
+    allTime: PropTypes.bool,
     types: PropTypes.array.isRequired,
     totals: PropTypes.object.isRequired,
   }).isRequired,

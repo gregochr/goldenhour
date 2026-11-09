@@ -246,16 +246,23 @@ class AdminRunsControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
-    @DisplayName("GET /api/admin/runs/cost serves the trends; any period but 14, 30 or 60 is 400")
+    @DisplayName("GET /api/admin/runs/cost serves the trends; 90 and all pass through; any other value is 400")
     void cost() throws Exception {
-        when(runsCostService.cost(14)).thenReturn(new RunCostResponse(14, LocalDate.parse("2026-10-05"),
-                LocalDate.parse("2026-11-01"), List.of(), List.of(),
+        when(runsCostService.cost("14")).thenReturn(new RunCostResponse(14, LocalDate.parse("2026-10-05"),
+                LocalDate.parse("2026-11-01"), false, List.of(), List.of(),
                 new CostTotals(new BigDecimal("10.00"), new BigDecimal("8.00"), new BigDecimal("2.00"), 25,
                         new BigDecimal("12.66"), new BigDecimal("0.7900"), new BigDecimal("0.71"),
                         new BigDecimal("0.57"), true),
                 new CostVerdict(Direction.UP, 25, RunDeepType.ASK_READY, "Ask ready answers",
                         new BigDecimal("1.50"), new BigDecimal("2.00"), true, new BigDecimal("1.3"), null, null)));
-        when(runsCostService.cost(7)).thenThrow(new RunsRequestException("days must be one of [14, 30, 60]"));
+        RunCostResponse ranged = new RunCostResponse(90, LocalDate.parse("2026-05-07"), LocalDate.parse("2026-11-01"),
+                false, List.of(), List.of(), costTotals(), null);
+        RunCostResponse everything = new RunCostResponse(120, LocalDate.parse("2026-07-05"),
+                LocalDate.parse("2026-11-01"), true, List.of(), List.of(), costTotals(), null);
+        when(runsCostService.cost("90")).thenReturn(ranged);
+        when(runsCostService.cost("all")).thenReturn(everything);
+        when(runsCostService.cost("8")).thenThrow(
+                new RunsRequestException("days must be one of [7, 14, 30, 60, 90] or all"));
 
         mockMvc.perform(get("/api/admin/runs/cost").param("days", "14"))
                 .andExpect(status().isOk())
@@ -265,9 +272,18 @@ class AdminRunsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.verdict.direction").value("UP"))
                 .andExpect(jsonPath("$.verdict.topType").value("ASK_READY"))
                 .andExpect(jsonPath("$.verdict.runsAsOften").value(true));
-        mockMvc.perform(get("/api/admin/runs/cost").param("days", "7")).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("days must be one of [14, 30, 60]"));
-        mockMvc.perform(get("/api/admin/runs/cost").param("days", "many")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "90"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.allTime").value(false));
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "all"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.allTime").value(true))
+                .andExpect(jsonPath("$.rangeDays").value(120));
+        mockMvc.perform(get("/api/admin/runs/cost").param("days", "8")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("days must be one of [7, 14, 30, 60, 90] or all"));
+    }
+
+    private static CostTotals costTotals() {
+        return new CostTotals(new BigDecimal("10.00"), BigDecimal.ZERO, new BigDecimal("10.00"), null,
+                new BigDecimal("12.66"), new BigDecimal("0.7900"), new BigDecimal("0.71"), BigDecimal.ZERO, true);
     }
 
     @Test

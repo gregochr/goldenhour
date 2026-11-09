@@ -14,6 +14,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -39,6 +40,7 @@ class RunsCostServiceTest {
     private static final String LAST_DAY = "2026-10-25T04:00:00Z";
 
     private RunsLoader loader;
+    private RunsBounds bounds;
     private RunsCostService service;
     private List<DeepRun> rows;
     private RunFx fx = new RunFx(List.of(), null);
@@ -46,7 +48,7 @@ class RunsCostServiceTest {
     @BeforeEach
     void setUp() {
         loader = mock(RunsLoader.class);
-        RunsBounds bounds = mock(RunsBounds.class);
+        bounds = mock(RunsBounds.class);
         when(bounds.today()).thenReturn(TODAY);
         service = new RunsCostService(loader, bounds);
         rows = new ArrayList<>();
@@ -80,7 +82,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.OVERNIGHT, PRIOR_DAY, prior);
         spend(RunDeepType.OVERNIGHT, LAST_DAY, last);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.verdict().direction()).isEqualTo(expected);
         assertThat(response.verdict().percent()).isEqualTo(percent);
@@ -92,7 +94,7 @@ class RunsCostServiceTest {
     void nothingToCompareWith() {
         spend(RunDeepType.OVERNIGHT, LAST_DAY, 5.0);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.verdict().direction()).isEqualTo(Direction.FLAT);
         assertThat(response.verdict().percent()).isNull();
@@ -124,7 +126,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.OVERNIGHT, PRIOR_DAY, 20.0);
         spend(RunDeepType.OVERNIGHT, LAST_DAY, 21.0);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.verdict().topType()).isEqualTo(RunDeepType.ASK_READY);
         assertThat(response.verdict().topLabel()).isEqualTo("Ask ready answers");
@@ -153,7 +155,7 @@ class RunsCostServiceTest {
             spend(RunDeepType.BRIEFING, LAST_DAY, 1.0);
         }
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.verdict().topType()).isEqualTo(RunDeepType.BRIEFING);
         assertThat(response.verdict().runsAsOften()).isFalse();
@@ -168,7 +170,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.SKY_EVAL, LAST_DAY, 5.0);
         spend(RunDeepType.SKY_EVAL, PRIOR_DAY, 4.0);
 
-        RunCostResponse above = service.cost(14);
+        RunCostResponse above = service.cost("14");
 
         assertThat(above.verdict().skyEval()).isNotNull();
         assertThat(above.verdict().skyEval().sharePercent()).isEqualTo(5);
@@ -179,7 +181,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.OVERNIGHT, LAST_DAY, 96.0);
         spend(RunDeepType.SKY_EVAL, LAST_DAY, 4.0);
 
-        assertThat(service.cost(14).verdict().skyEval()).isNull();
+        assertThat(service.cost("14").verdict().skyEval()).isNull();
     }
 
     @Test
@@ -188,7 +190,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.OVERNIGHT, LAST_DAY, 2.0);
         rows.add(run(RunDeepType.EVENING, "2026-10-26T01:00:00Z", null, null));
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         CostDay open = day(response, "2026-10-26");
         assertThat(open.costComplete()).isFalse();
@@ -207,7 +209,7 @@ class RunsCostServiceTest {
         fx = new RunFx(List.of(), null);
         spend(RunDeepType.OVERNIGHT, LAST_DAY, 7.9);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.totals().fxRate()).isEqualByComparingTo("0.7900");
         assertThat(response.totals().lastUsd()).isEqualByComparingTo("10.00");
@@ -223,7 +225,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.OVERNIGHT, "2026-10-25T23:30:00Z", 4.0);
         spend(RunDeepType.OVERNIGHT, "2026-10-26T00:10:00Z", 8.0);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(day(response, "2026-10-24").totalGbp()).isEqualByComparingTo("1.00");
         assertThat(day(response, "2026-10-25").totalGbp()).isEqualByComparingTo("6.00");
@@ -235,7 +237,7 @@ class RunsCostServiceTest {
     @Test
     @DisplayName("the period covers the 2N full days before today, oldest first, and today is left out")
     void daysCoverTwoPeriods() {
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.days()).hasSize(28);
         assertThat(response.days().get(0).date()).isEqualTo(LocalDate.parse("2026-10-05"));
@@ -244,13 +246,72 @@ class RunsCostServiceTest {
         assertThat(response.lastDay()).isEqualTo(LocalDate.parse("2026-11-01"));
     }
 
+    @ParameterizedTest(name = "{0} days loads {1} days")
+    @CsvSource({"7,14", "14,28", "30,60", "60,120", "90,180"})
+    @DisplayName("7, 14, 30, 60 and 90 days are accepted and load twice their length")
+    void validRanges(String days, int served) {
+        stubLoader(Integer.parseInt(days));
+
+        RunCostResponse response = service.cost(days);
+
+        assertThat(response.days()).hasSize(served);
+        assertThat(response.rangeDays()).isEqualTo(served / 2);
+        assertThat(response.allTime()).isFalse();
+    }
+
+    @ParameterizedTest(name = "[{0}] is rejected")
+    @ValueSource(strings = {"5", "8", "abc", "0", "", " ", "-7"})
+    @DisplayName("anything but 7, 14, 30, 60, 90 or all is a 400")
+    void invalidRange(String days) {
+        assertThatThrownBy(() -> service.cost(days)).isInstanceOf(RunsRequestException.class)
+                .hasMessage("days must be one of [7, 14, 30, 60, 90] or all");
+    }
+
+    @ParameterizedTest(name = "{0} is all time")
+    @ValueSource(strings = {"all", "ALL", "All"})
+    @DisplayName("all time runs from the earliest day to yesterday with no prior period")
+    void allTime(String value) {
+        LocalDate earliest = LocalDate.parse("2026-10-20");
+        stubAllTime(earliest);
+        spend(RunDeepType.OVERNIGHT, "2026-10-21T04:00:00Z", 3.0);
+        spend(RunDeepType.EVENING, "2026-10-30T04:00:00Z", 1.0);
+
+        RunCostResponse response = service.cost(value);
+
+        assertThat(response.allTime()).isTrue();
+        assertThat(response.firstDay()).isEqualTo(earliest);
+        assertThat(response.lastDay()).isEqualTo(LocalDate.parse("2026-11-01"));
+        assertThat(response.rangeDays()).isEqualTo(13);
+        assertThat(response.days()).hasSize(13);
+        assertThat(response.totals().lastGbp()).isEqualByComparingTo("4");
+        assertThat(response.totals().priorGbp()).isEqualByComparingTo("0");
+        assertThat(response.totals().deltaPercent()).isNull();
+        assertThat(response.totals().perDayLast()).isEqualByComparingTo("0.31");
+        assertThat(response.types()).allMatch(t -> t.priorGbp().signum() == 0 && t.priorRuns() == 0);
+        assertThat(response.verdict().direction()).isEqualTo(Direction.FLAT);
+        assertThat(response.verdict().percent()).isNull();
+    }
+
     @Test
-    @DisplayName("only 14, 30 or 60 days can be asked for")
-    void invalidRange() {
-        assertThatThrownBy(() -> service.cost(7)).isInstanceOf(RunsRequestException.class);
-        assertThatThrownBy(() -> service.cost(0)).isInstanceOf(RunsRequestException.class);
-        stubLoader(60);
-        assertThat(service.cost(60).days()).hasSize(120);
+    @DisplayName("all time with nothing run (earliest day is today) serves yesterday alone")
+    void allTimeNothingRan() {
+        stubAllTime(TODAY);
+
+        RunCostResponse response = service.cost("all");
+
+        assertThat(response.rangeDays()).isEqualTo(1);
+        assertThat(response.days()).hasSize(1);
+        assertThat(response.firstDay()).isEqualTo(LocalDate.parse("2026-11-01"));
+        assertThat(response.lastDay()).isEqualTo(LocalDate.parse("2026-11-01"));
+        assertThat(response.types()).isEmpty();
+    }
+
+    private void stubAllTime(LocalDate earliest) {
+        when(bounds.earliestDay()).thenReturn(earliest);
+        LocalDate first = earliest.isAfter(TODAY.minusDays(1)) ? TODAY.minusDays(1) : earliest;
+        Instant from = ForecastHorizon.ukDayStartUtc(first).toInstant(ZoneOffset.UTC);
+        Instant to = ForecastHorizon.ukDayStartUtc(TODAY).toInstant(ZoneOffset.UTC);
+        when(loader.load(eq(from), eq(to))).thenAnswer(i -> new RunsLoader.LoadedRuns(rows, fx));
     }
 
     @Test
@@ -259,7 +320,7 @@ class RunsCostServiceTest {
         rows.add(run(RunDeepType.ASK_READY, PRIOR_DAY, 1.0, null));
         rows.add(run(RunDeepType.ASK_READY, LAST_DAY, 2.0, null));
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         CostType ask = response.types().get(0);
         assertThat(ask.type()).isEqualTo(RunDeepType.ASK_READY);
@@ -275,7 +336,7 @@ class RunsCostServiceTest {
         rows.add(run(RunDeepType.ASK_READY, PRIOR_DAY, 1.0, null));
         rows.add(run(RunDeepType.ASK_READY, LAST_DAY, 2.0, 20));
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         CostType ask = response.types().get(0);
         assertThat(ask.avgLocationsLast()).isEqualTo(20);
@@ -292,7 +353,7 @@ class RunsCostServiceTest {
         spend(RunDeepType.EVENING, LAST_DAY, 5.0);
         spend(RunDeepType.AFTERNOON, PRIOR_DAY, 1.0);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.types()).filteredOn(t -> t.type() == RunDeepType.BRIEFING)
                 .allMatch(t -> t.perRunChangePercent() == null);
@@ -310,7 +371,7 @@ class RunsCostServiceTest {
     void skyEvalOnlyInPriorPeriod() {
         spend(RunDeepType.SKY_EVAL, PRIOR_DAY, 5.0);
 
-        RunCostResponse response = service.cost(14);
+        RunCostResponse response = service.cost("14");
 
         assertThat(response.totals().lastGbp()).isEqualByComparingTo("0");
         assertThat(response.verdict().skyEval()).isNull();

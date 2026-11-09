@@ -1,4 +1,5 @@
 import { formatGbp } from './runsDay.js';
+import { formatDayMonth } from './travelDays.js';
 import { rollingAverage } from './runsTiming.js';
 
 /**
@@ -45,6 +46,47 @@ export function signedGbp(value) {
   if (value == null) return '—';
   const n = Number(value);
   return `${n < 0 ? '−' : '+'}${formatGbp(Math.abs(n))}`;
+}
+
+/**
+ * The first day of an all-time answer as "3 Mar 2026" (the year is always there: "since" has to be unambiguous).
+ *
+ * @param {string} firstDay the served first day, an ISO date
+ * @returns {string} the label
+ */
+export function sinceLabel(firstDay) {
+  return `${formatDayMonth(firstDay)} ${firstDay.slice(0, 4)}`;
+}
+
+/**
+ * The verdict card's headline for the all-time range: the spend since the first day, with no up or down claim (there
+ * is no earlier period to compare with).
+ *
+ * @param {object} data the served {@code RunCostResponse}
+ * @returns {string} the headline
+ */
+export function allTimeHeadline(data) {
+  const since = sinceLabel(data.firstDay);
+  return Number(data.totals.lastGbp) > 0
+    ? `${formatGbp(data.totals.lastGbp)} spent since ${since}.`
+    : `No spend recorded since ${since}.`;
+}
+
+/**
+ * The verdict card's body for the all-time range, as text runs: the a-day figure and the biggest type by spend (the
+ * server serves the types biggest first, which in all time is biggest spend first).
+ *
+ * @param {object} data the served {@code RunCostResponse}
+ * @returns {Array<{text: string, bold?: boolean}>} the runs, in order
+ */
+export function allTimeBody(data) {
+  const runs = [{ text: formatGbp(data.totals.perDayLast), bold: true }, { text: ' a day on average over ' },
+    { text: `${data.rangeDays} days`, bold: true }, { text: '.' }];
+  const top = data.types[0];
+  if (top && Number(top.lastGbp) > 0) {
+    runs.push({ text: ' ' }, { text: top.label, bold: true }, { text: ` is the biggest, at ${formatGbp(top.lastGbp)}.` });
+  }
+  return runs;
 }
 
 /**
@@ -151,4 +193,22 @@ export function chartSeries(data, isolate) {
  */
 export function typeSeries(data, type) {
   return data.days.map((day) => Number(day.byType?.[type] ?? 0));
+}
+
+/**
+ * Sums a series into equal buckets when it has more values than {@code max}, so a long history still draws as bars
+ * that are wide enough to see. A series that fits is returned as is.
+ *
+ * @param {number[]} values the daily values
+ * @param {number} max the most bars to draw
+ * @returns {number[]} at most {@code max} values (the last bucket may be shorter)
+ */
+export function bucketSeries(values, max) {
+  if (values.length <= max) return values;
+  const size = Math.ceil(values.length / max);
+  const buckets = [];
+  for (let i = 0; i < values.length; i += size) {
+    buckets.push(values.slice(i, i + size).reduce((a, b) => a + b, 0));
+  }
+  return buckets;
 }
