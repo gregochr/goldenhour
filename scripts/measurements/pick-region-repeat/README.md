@@ -83,6 +83,11 @@ measurement went wrong eight times (`map-landing-plan.md` §4b.1).
 - **`rendered`.** `PlanRenderLimits.MAX_VISIBLE_EVENTS = 6` is taken here as the six earliest solar
   windows in the build. The real filter is the set the rail actually drew, which also drops elapsed
   windows — so this can admit a window production had already retired.
+- **Region verdict eligibility.** `PlanWindowProjector.BY_RANK` ranks regions on `verdictEligible()`
+  first, then mean (descending), then scored coverage, then name. `repeat.sql` models only the last three,
+  because the snapshot table stores no eligibility flag. A region the projector would rank below an
+  eligible one can therefore win a window here, so even the corrected SQL is an approximation of the
+  projector, not a replica.
 - **The window tie-break.** `BY_PICK_RANK` splits equal averages on the window's earliest **event time**;
   this uses `(date, SUNRISE before SUNSET)`, which orders identically but cannot split an exact tie
   the way a clock time would.
