@@ -26,9 +26,11 @@ import java.util.function.Predicate;
  * <p>What a question may <em>carry</em> (which events and picks it admits, and the reduction of an answer
  * to them) is {@link ReadyRelevance}, one code path for store and serve.
  *
- * <p>The predicates use only {@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)} — the
- * one definition of a pick-eligible slot in scope that {@code rank_spots} and the validator also
- * use — so a question is offered exactly when the tools could return something for it.
+ * <p>The pick questions' predicates use only {@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)}
+ * — the one definition of a pick-eligible slot in scope that {@code rank_spots} and the validator also
+ * use — and the two events questions use {@link AskSnapshot#hasLiveEvent}, the one definition of a live
+ * event in scope that {@code AskReadyFreshness} also uses — so a question is offered exactly when the
+ * tools could return something for it.
  */
 public enum ReadyQuestion {
 
@@ -135,19 +137,29 @@ public enum ReadyQuestion {
         }
     },
 
-    /** Rare events coming up. Always asked; the answer is stored only when it finds something. */
+    /**
+     * Rare events coming up. Offered only while the snapshot holds a live event in scope
+     * ({@link AskSnapshot#hasLiveEvent}); the answer is stored only when it finds something.
+     */
     RARE_EVENTS(false, false, Events.ANY, "coming-up", "map") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
-            return Optional.of(new Offer("Any rare events coming up?", List.of(), null));
+            return snapshot.hasLiveEvent(type -> ReadyRelevance.admitsEvent(this, type), scope)
+                    ? Optional.of(new Offer("Any rare events coming up?", List.of(), null))
+                    : Optional.empty();
         }
     },
 
-    /** Snow on the tops. Always asked; the answer is stored only when it finds something. */
+    /**
+     * Snow on the tops. Offered only while a live snow hot topic is in scope
+     * ({@link AskSnapshot#hasLiveEvent}); the answer is stored only when it finds something.
+     */
     SNOW_TOPS(false, false, Events.SNOW, "coming-up") {
         @Override
         Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
-            return Optional.of(new Offer("Is there snow on the tops?", List.of(), null));
+            return snapshot.hasLiveEvent(type -> ReadyRelevance.admitsEvent(this, type), scope)
+                    ? Optional.of(new Offer("Is there snow on the tops?", List.of(), null))
+                    : Optional.empty();
         }
     };
 

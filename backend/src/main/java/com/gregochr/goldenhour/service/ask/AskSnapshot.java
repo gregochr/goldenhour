@@ -530,6 +530,21 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     }
 
     /**
+     * Whether any live event of an admitted type stands in a scope: a hot topic in scope, or a Coming
+     * up entry that is live on {@link #today()}. The per-entry conditions are {@link Topic#inScope} and
+     * {@link ComingUp#isLiveOn}, the same ones {@code AskReadyFreshness} matches an event with, so the
+     * offer of an events question and the serve-time check of its answer cannot drift apart.
+     *
+     * @param typeAdmitted whether an entry's type counts
+     * @param scope        the scope
+     * @return true when at least one admitted, live, in-scope event exists
+     */
+    boolean hasLiveEvent(Predicate<String> typeAdmitted, AskScope scope) {
+        return hotTopics.stream().anyMatch(t -> typeAdmitted.test(t.type()) && t.inScope(scope))
+                || comingUp.stream().anyMatch(e -> typeAdmitted.test(e.type()) && e.isLiveOn(today));
+    }
+
+    /**
      * A served almanac ("Coming up") entry.
      *
      * @param type      the entry type
@@ -566,6 +581,19 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         public ComingUp(String type, String title, LocalDate startDate, LocalDate endDate,
                 String detail, String safetyNote) {
             this(type, title, startDate, endDate, detail, safetyNote, List.of());
+        }
+
+        /**
+         * Whether this entry is live on a date: it has not ended and starts within the
+         * {@code get_coming_up} horizon ({@link #MAX_COMING_UP_DAYS} civil dates from {@code today}).
+         * The one definition: {@code get_coming_up}'s horizon, the Ready offer gate and the serve-time
+         * freshness check all ask it.
+         *
+         * @param today the UK civil date
+         * @return true when the entry is live
+         */
+        boolean isLiveOn(LocalDate today) {
+            return !endDate.isBefore(today) && !startDate.isAfter(today.plusDays(MAX_COMING_UP_DAYS - 1L));
         }
     }
 

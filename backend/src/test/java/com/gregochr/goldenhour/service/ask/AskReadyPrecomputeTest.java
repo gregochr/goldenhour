@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -193,6 +194,29 @@ class AskReadyPrecomputeTest {
     }
 
     // -- what a precompute does -------------------------------------------------------------
+
+    @Test
+    @DisplayName("with no live event in the snapshot RARE_EVENTS and SNOW_TOPS are not asked for any scope: no "
+            + "engine call, no stored row, and no failure")
+    void eventsQuestionsAreNotAskedWithoutALiveEvent() {
+        AskSnapshot friday = ReadyFixtures.fridaySnapshot();
+        useSnapshot(new AskSnapshot(friday.generatedAt(), friday.runLabel(), friday.today(), friday.windows(),
+                List.of(), List.of()));
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        // The pick questions alone: ALL 4, Northumberland 4, Teesdale 3.
+        assertThat(result.written()).isEqualTo(11);
+        assertThat(result.failed()).isZero();
+        assertThat(calls).extracting(c -> c.question().sanitised())
+                .doesNotContain("Any rare events coming up?", "Is there snow on the tops?");
+        List<Object> upsertedQuestions = mockingDetails(store).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals("upsert"))
+                .map(i -> i.getArgument(1))
+                .toList();
+        assertThat(upsertedQuestions).hasSize(11)
+                .doesNotContain(ReadyQuestion.RARE_EVENTS, ReadyQuestion.SNOW_TOPS);
+    }
 
     @Test
     @DisplayName("a precompute runs every available question of every scope, user-less, one at a time, and "

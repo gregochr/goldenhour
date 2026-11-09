@@ -32,7 +32,7 @@ is about these windows: …" but never says a pick must be on one of them. BEST_
 evening.
 
 **C. An always-asked events question that "can't" is counted as a failure (2 of 8).**
-`SNOW_TOPS` and `RARE_EVENTS` are always asked and stored only when they find something. An OK
+`SNOW_TOPS` and `RARE_EVENTS` were always asked (since 2026-11-09 they are offered only while a live event stands in scope, `ask-ready-event-offer-gate-plan.md`) and stored only when they find something. An OK
 answer with nothing to show counts as **skipped** (`AskReadyPrecompute.runOne`). A `CANT` answer
 to the same question stores nothing either, but counts as **failed**. For these two questions that
 is a counting error, not a lost answer. The log line also hid why: `run.reason()` was null and the
