@@ -374,31 +374,20 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(screen.queryByTestId('window-first-pane-pending')).toBeNull();
   });
 
-  it('pins the conflict slot as the pane\'s empty first child', async () => {
-    // The structural fact `.wf-conflict-slot:empty`'s comment in index.css names: this slot
-    // precedes everything else in `.wf-body`, so the gap it adds when empty is the one AFTER it,
-    // which `margin-bottom` cancels. (Which margin PROPERTY does the cancelling is a naming
-    // convention, not something this position requires — a `margin-top` here would produce the
-    // identical layout, since an empty flex item is 0px tall and its next sibling lands at the same
-    // pixel either way. What position DOES determine is which gap exists to cancel at all: if a
-    // future change ever inserted something ahead of the conflict slot, this slot would gain a gap
-    // BEFORE it too, and a single margin would no longer cancel both.)
+  it('has no conflict card or slot in the pane any more — the verdict lives on the lens bar', async () => {
+    // The card (`window-first-conflict`) and its always-mounted live-region slot went with
+    // lens-verdict-line-plan.md. The slot's duty moved to the bar's always-mounted status span, which
+    // must exist and be empty whenever there is no verdict; and with the slot gone nothing in the
+    // pane is a leading empty flex child, so there is no first-child gap left to cancel.
     renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     await screen.findByTestId('wf-heat-strip');
-    const pane = screen.getByTestId('window-first-pane');
-    const slot = screen.getByTestId('window-first-conflict-slot');
-
-    // A mutant that moved the slot deeper into the pane, or inserted a new element ahead of it,
-    // fails this — `firstElementChild` is a structural fact, not a testid lookup.
-    expect(pane.firstElementChild).toBe(slot);
-    // The CSS rule keys on this class; a mutant that dropped it would silence the behaviour this
-    // change exists for while every other assertion here kept passing.
-    expect(slot).toHaveClass('wf-conflict-slot');
-    // No conflict in this fixture, so the slot must render nothing for `:empty` to match at all —
-    // a mutant that rendered stray whitespace-bearing markup here would make the CSS selector miss
-    // silently, with no other test catching it.
-    expect(slot).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('window-first-conflict-slot')).toBeNull();
+    expect(screen.queryByTestId('window-first-conflict')).toBeNull();
+    const status = screen.getByTestId('window-first-lens-verdict-status');
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByTestId('window-first-lens')).toContainElement(status);
+    expect(screen.getByTestId('window-first-lens-readout')).not.toHaveAttribute('data-variant', 'verdict');
   });
 
   it('states the forecast\'s age, and never the model that produced it', () => {
@@ -1198,14 +1187,17 @@ describe('WindowFirstShell — the strip it hosts', () => {
       };
       renderWithBriefing({
         ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
-        homePlace: 'Durham',
       });
       await screen.findByTestId('wf-heat-strip');
 
-      expect(screen.getByTestId('window-first-conflict-head'))
-        .toHaveTextContent('Nothing within 45 min of Durham.');
-      expect(screen.getByTestId('window-first-conflict-body'))
-        .toHaveTextContent('1 location in your regions, and the closest is Wastwater at 3h.');
+      const readout = screen.getByTestId('window-first-lens-readout');
+      expect(readout).toHaveAttribute('data-variant', 'verdict');
+      expect(readout).toHaveTextContent('0 within 45 min · nearest is Wastwater, 3h');
+      expect(screen.getByTestId('window-first-lens-verdict-act')).toHaveTextContent('Show any distance');
+      // The card is gone, and the announcement is one plain sentence in the bar's live region.
+      expect(screen.queryByTestId('window-first-conflict')).toBeNull();
+      expect(screen.getByTestId('window-first-lens-verdict-status'))
+        .toHaveTextContent('Nothing within 45 min. Nearest is Wastwater, 3h.');
     });
 
     it('moves the page-wide lens when the message offers the way out', async () => {
@@ -1225,7 +1217,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         reachLens: { ...LENS, selectTier },
       });
       await screen.findByTestId('wf-heat-strip');
-      fireEvent.click(screen.getByTestId('window-first-conflict-act'));
+      fireEvent.click(screen.getByTestId('window-first-lens-verdict-act'));
 
       // The BAR's control, not a per-window override: a filter that means something different on
       // each of six windows cannot be read off a sticky bar.
@@ -1234,7 +1226,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
     it('moves the RATING floor when that is the axis the message named', async () => {
       // The other arm of the same handler, and it needs its own test: with the `kind === 'rating'`
-      // branch deleted, "Or drop the floor to 3★+" renders, takes focus, and does nothing when
+      // branch deleted, "Drop to 3★+" renders, takes focus, and does nothing when
       // pressed — the inert control §6 bans. The reach test above cannot see it.
       const selectFloor = vi.fn();
       const gated = {
@@ -1254,14 +1246,14 @@ describe('WindowFirstShell — the strip it hosts', () => {
         ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, floor: { id: '4', min: 4, label: '4★+' }, selectFloor },
       });
       await screen.findByTestId('wf-heat-strip');
-      const actions = screen.getAllByTestId('window-first-conflict-act');
-      fireEvent.click(actions.at(-1));
+      expect(screen.getByTestId('window-first-lens-verdict-act')).toHaveTextContent('Drop to 3');
+      fireEvent.click(screen.getByTestId('window-first-lens-verdict-act'));
 
       expect(selectFloor).toHaveBeenCalledWith('3');
     });
 
     it('does not leave a keyboard reader at the top of the page after loosening', async () => {
-      // Every offered action unmounts the message the button sits in, so without somewhere to send
+      // Every offered action unmounts the verdict the button sits in, so without somewhere to send
       // focus `document.activeElement` becomes `<body>` — the reader asked to be shown something
       // and was dropped at the document root. Focus goes to the matrix's first card, which is what
       // they have just been shown.
@@ -1285,12 +1277,48 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       try {
-        fireEvent.click(screen.getAllByTestId('window-first-conflict-act')[0]);
-        // The fixture is frozen, so the message does not actually clear — which is exactly what
+        fireEvent.click(screen.getByTestId('window-first-lens-verdict-act'));
+        // The fixture is frozen, so the verdict does not actually clear — which is exactly what
         // lets the assertion be about WHERE focus was sent rather than about React's re-render.
         // The first card's inner BUTTON (the card is a `div`): `applyConflictAction` looks it up by
         // `wf-heat-card-button`, so reverting that selector sends focus nowhere and fails here.
         expect(document.activeElement).toBe(screen.getAllByTestId('wf-heat-card-button')[0]);
+      } finally {
+        raf.mockRestore();
+      }
+    });
+    it('falls back to the new verdict button, then the readout, when no card exists to focus', async () => {
+      // A rating fix that reveals a reach verdict leaves the plan empty, so there is no
+      // `wf-heat-card-button`; focus must still not fall to <body>.
+      const gated = {
+        ...CARD,
+        spots: [],
+        pool: [{
+          key: '9', locationId: 9, locationName: 'Wastwater', regionName: 'Lakes', rating: 3, driveMinutes: 20,
+        }],
+        allSpots: [{
+          key: '9', locationId: 9, locationName: 'Wastwater', regionName: 'Lakes', rating: 3, driveMinutes: 20,
+        }],
+        reachTotal: 1,
+        reachedTotal: 1,
+      };
+      const selectFloor = vi.fn();
+      renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00', new Map(), [gated]),
+        ratingLens: { ...RATING_LENS, floorId: '4', minRating: 4, floor: { id: '4', min: 4, label: '4★+' }, selectFloor },
+      });
+      await screen.findByTestId('wf-heat-strip');
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      try {
+        screen.getAllByTestId('wf-heat-card-button').forEach((node) => node.remove());
+        fireEvent.click(screen.getByTestId('window-first-lens-verdict-act'));
+        expect(document.activeElement).toBe(screen.getByTestId('window-first-lens-verdict-act'));
+
+        // And with the verdict button gone too, the readout (tabIndex -1 while a verdict shows).
+        selectFloor.mockImplementation(() => screen.getByTestId('window-first-lens-verdict-act').remove());
+        document.body.focus();
+        fireEvent.click(screen.getByTestId('window-first-lens-verdict-act'));
+        expect(document.activeElement).toBe(screen.getByTestId('window-first-lens-readout'));
       } finally {
         raf.mockRestore();
       }

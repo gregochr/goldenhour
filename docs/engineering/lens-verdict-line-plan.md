@@ -177,3 +177,29 @@ Layout and CSS:
   `planOriginShell.test.jsx:510`, `WindowFirstLensBar.test.jsx` (~455-475 `data-variant`),
   `WindowFirstShellPicksRail.test.jsx:231` (readout regex), plus the three planConflicts suites.
   Re-run `WindowFirstShellSticky.test.jsx` and `safeAreas.test.jsx`. No E2E spec references the card.
+
+## Build notes
+
+Where the build differs from the plan, and why.
+
+- **`homePlace` is no longer an input to `buildPlanConflict`.** With "of Chester-le-Street" gone from the
+  reach line (the drive caption already says where drives are measured from), nothing read it; the shell
+  stopped passing it. Away, `origin.baseName` is named only in the defensive no-wider-tier row.
+- **The reach line's threshold comes from `limitMinutes`, not the tier's label.** Same words for every real
+  lens (`45 min`), but a contradictory input (id `any`, limit 45, which the defensive row is tested with)
+  no longer prints "within any".
+- **Only one `:empty` gap rule remains, not two.** The plan said "three rules become two"; deleting the
+  conflict slot left `.wf-pane-status:empty` as the pane's only always-mounted slot. The comment says so, and
+  `windowFirstPaneStatusGap.test.js` now pins that `.wf-conflict-slot` and the card's `.wf-clash*` rules
+  (other than the shared `.wf-clash-act`) are gone.
+- **The ★ markup lives in `WindowFirstLensBar.jsx`** (`MarkedText`, `VerdictAction`): no existing helper
+  fit (`WindowSheetDialog` inlines the pattern). The `★ → "stars"` word is the sr-only text beside the hidden
+  glyph, so jsdom's `textContent` reads `4★ stars+`; tests assert that, and the button's accessible name
+  with `\s*` between the digit and "stars" (jsdom drops the sr-only span's leading space; browsers keep it).
+- **Focus fallback** is in `applyConflictAction` (heat card, else the verdict button, else the readout,
+  which carries `tabIndex={-1}` only in the verdict state); covered with a frozen fixture whose card
+  buttons are removed before the press.
+- **New tests**: `WindowFirstLensBarVerdict.test.jsx` (DOM and ARIA) and `lensVerdictCss.test.js` (the CSS
+  rules the classes rely on, including `scroll-margin-top: 0` and the 26px phone floor ordering).
+- **Not verified in a browser**: the phone and tablet layout (wrapping, the 1024px switch, `useLensReserve`
+  measuring the taller bar) is pinned only as CSS text; it needs the owner's or the planner's browser pass.

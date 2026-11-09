@@ -486,9 +486,9 @@ describe('WindowFirstShell — the origin', () => {
     });
   });
 
-  describe('an away plan the lens has shut offers the way home', () => {
-    it('sends the origin action to setOrigin(null), never to a lens control', () => {
-      // The page-level conflict, which is where the per-card ladder's plan-wide job went at M2.
+  describe('an away plan the lens has shut', () => {
+    it('offers the lens action only: the way home is the place picker, never a verdict action', () => {
+      // The plan-level conflict, shown as the lens bar's verdict line (it was a card at M2).
       const emptied = {
         ...CARD,
         spots: [],
@@ -507,11 +507,15 @@ describe('WindowFirstShell — the origin', () => {
       });
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       try {
-        const actions = screen.getAllByTestId('window-first-conflict-act');
-        const home = actions.find((b) => b.dataset.loosen === 'origin');
-        fireEvent.click(home);
-        expect(value.setOrigin).toHaveBeenCalledWith(null);
-        expect(LENS.selectTier).not.toHaveBeenCalled();
+        expect(screen.queryByTestId('window-first-conflict')).toBeNull();
+        const verdict = screen.getByTestId('window-first-lens-verdict-act');
+        expect(verdict.dataset.loosen).toBe('reach');
+        expect(verdict).toHaveTextContent('Widen to 2h 30min');
+        // One action, and no "plan from home" anywhere on the bar.
+        expect(screen.getByTestId('window-first-lens')).not.toHaveTextContent(/plan from home/i);
+        fireEvent.click(verdict);
+        expect(LENS.selectTier).toHaveBeenCalledWith('150');
+        expect(value.setOrigin).not.toHaveBeenCalled();
         expect(RATING_LENS.selectFloor).not.toHaveBeenCalled();
       } finally {
         raf.mockRestore();
