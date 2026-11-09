@@ -1187,23 +1187,14 @@
    puts a 10px gap on both sides of it whether or not it holds anything — and it holds nothing
    whenever there are cards to show, which is what a reader sees almost all the time. Without this
    rule the strip→doors spacing would measure 20px (one gap either side of the empty wrapper) where
-   it measured 10px before the wrapper existed. `:empty` cancels exactly the gap THIS rule's own
-   sibling declares, so the three have to travel together — change one, check the others. The wrapper
+   it measured 10px before the wrapper existed. `:empty` cancels exactly the gap `.wf-body`
+   declares, so the two have to travel together — change one, check the other. (A second always-mounted
+   slot, the conflict card's, used to sit first in the pane and carry its own rule; the card is gone.) The wrapper
    stays in the DOM and in the accessibility tree either way (`display: none`/conditional mounting
    would pull the live region out of the a11y tree and reintroduce the insert-with-content
    announcement problem it exists to avoid; `display: contents` has a history of dropping ARIA
    roles in some engines), so the fix is a margin cancelling the gap, not a display change. */
 .wf-pane-status:empty { margin-top: -10px; }
-/* The conflict slot (`window-first-conflict-slot`) is the SAME always-mounted live-region shape,
-   same `.wf-body` flex child, same gap defect — same mechanism as `.wf-pane-status:empty` above.
-   This slot is the pane's FIRST flex child, so the gap it adds when empty is the one AFTER it, and
-   this rule cancels that one. A 0px-tall item's next sibling lands at the same pixel whichever side
-   carries the cancelling margin — `margin-top: -10px` here would reach the identical result — so
-   `margin-bottom` is a naming convention (it reads as "cancel the gap after this element"), not a
-   structural requirement. What matters is that exactly ONE margin is declared: a rule carrying
-   both would cancel two gaps instead of one, which IS a visible defect. The three rules now have
-   to travel together — change one, check the others. */
-.wf-conflict-slot:empty { margin-bottom: -10px; }
 /* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
    The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
    of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.
@@ -10150,6 +10141,42 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   color: var(--color-plex-text);
   font-weight: 600;
 }
+/* The verdict state (lens-verdict-line-plan.md): the lead "0" takes the amber the conflict card's
+   headline used — `--color-badge-maybe`, the lifted variant measured to AA on this surface — and
+   ONLY here; the ordinary count keeps its ink. After `.wf-lens-count b` at the same specificity. */
+.wf-lens-count--verdict b,
+.wf-lens-res--verdict b {
+  color: var(--color-badge-maybe);
+}
+/* The verdict's one action. `flex: none` + `nowrap` so the button is never squeezed out of the box
+   (on desktop it is a SIBLING of the ellipsising span, never inside it); inline-flex with a 24px
+   floor for WCAG 2.5.8 at every width (the phone block below raises it to 26 like its siblings).
+   ⚠️ `.wf-lens .wf-lens-verdict-act` zeroes `scroll-margin-top`: the grouped `.wf-clash-act` rule
+   reserves the sticky bar's height, and this button lives INSIDE that bar, so focusing it would
+   otherwise scroll the page by the bar's own height. */
+.wf-lens-verdict-act {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: 24px;
+  font-size: inherit;
+  white-space: nowrap;
+}
+.wf-lens .wf-lens-verdict-act { scroll-margin-top: 0; }
+.wf-lens-res .wf-lens-verdict-act { margin-left: 10px; }
+/* Desktop below 1024px: the verdict takes its own row under the controls and may wrap, so the
+   button can never be squeezed out. From 1024px up it stays right-aligned on the controls' row with
+   the text ellipsised (the `title` carries the full sentence). */
+@media (max-width: 1023px) {
+  .wf-lens-res--verdict {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    align-items: baseline;
+  }
+  .wf-lens-res--verdict > span {
+    white-space: normal;
+  }
+}
 /* A sticky bar overlaps whatever the browser scrolls into view, and the browser does not know it is
    there. Measured on the running app: tabbing to a spot card sitting just above the fold parked it
    **34px underneath the bar**, taking the card's own name and the top of its focus ring with it —
@@ -10299,6 +10326,8 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
      nobody could keep straight. 26 rather than 24, because `line-height` is inherited and a bare 24
      leaves nothing for a font that renders taller. */
   .wf-clash-act { min-height: 26px; }
+  /* The verdict button is the same floor (the grouped rule above covers it; stated because its
+     base `min-height: 24px` sits in the lens-bar block and this block must win). */
 }
 
 /* ── Window-first attribute rows: the tide the light falls on, the snow underneath it ──
@@ -12915,45 +12944,11 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   .wf-loc-day { width: 34px; }
 }
 
-/* ── Page-level conflict message (plan-matrix §6 M2.6) ────────────────────────────────────────
-   The design's `.clash`, and the amber is load-bearing rather than decorative: this block is not a
-   forecast and must not read as one. The Plan pane's other quiet boxes are dashed neutrals (a slot
-   with nothing in it); this one says the reader's own controls have shut the plan, so it takes the
-   marginal channel — the same amber the verdict word uses for "Maybe" — and a solid border.
-
-   ⚠️ `--color-badge-maybe` on the headline, not `--color-verdict-marginal`. The lifted badge variant
-   is the one measured to AA on this surface; the fill is a fill and fails as ink at this size, which
-   is the correction this file has now made nine times. (An earlier cut named a
-   `--color-badge-marginal` that does not exist, and the headline rendered in inherited bone.) */
-.wf-clash {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  border: 1px solid rgba(224, 165, 66, 0.4);
-  border-radius: 11px;
-  background: rgba(224, 165, 66, 0.07);
-  padding: 11px 14px 12px;
-}
-.wf-clash b {
-  font-size: 13.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--color-badge-maybe);
-}
-.wf-clash span {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--color-plex-text-secondary);
-}
-/* The actions on one row, wrapping — they are alternatives, and the design draws them inline under
-   the sentence they answer. Teal is this arm's actionable accent, measured at 9.68:1. */
-.wf-clash-acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 5px;
-}
+/* ── The conflict action button (plan-matrix §6 M2.6; lens-verdict-line-plan.md) ──────────────
+   The callout card this section used to style (`.wf-clash` and its headline, body and action row)
+   is gone: the plan-level conflict is the lens bar's verdict line now (`.wf-lens-verdict-act`,
+   in the lens-bar block), and the window popup's "see all" action (`WindowSheetDialog`) still
+   shares this button's look. Teal is this arm's actionable accent, measured at 9.68:1. */
 .wf-clash-act {
   font-family: var(--font-mono);
   font-size: 11px;

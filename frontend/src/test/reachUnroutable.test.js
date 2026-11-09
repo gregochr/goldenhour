@@ -425,14 +425,14 @@ describe('the other gates take the same measured flag', () => {
       allSpots: [spots[1]], pool: [], spots: [],
     };
     const base = {
-      cards: [card], origin: null, homePlace: 'Durham', tierId: '45', limitMinutes: 45,
+      cards: [card], origin: null, tierId: '45', limitMinutes: 45,
       floorId: 'any', minRating: null,
     };
     // Unroutable stays dropped at every finite tier, so only "Any" would show it.
     const measured = buildPlanConflict({ ...base, reachMeasured: true });
-    expect(measured.actions.map((a) => a.id)).toEqual(['any']);
+    expect(measured.line.action.id).toBe('any');
     // Not measured: nothing is dropped as unroutable, so the very next tier would bring it back.
     const unmeasured = buildPlanConflict({ ...base, reachMeasured: false });
-    expect(unmeasured.actions.map((a) => a.id)).toEqual(['90']);
+    expect(unmeasured.line.action.id).toBe('90');
   });
 });

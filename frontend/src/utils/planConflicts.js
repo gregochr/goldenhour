@@ -3,7 +3,8 @@ import { REACH_TIERS, gateSpotsByReach } from './reachLens.js';
 import { ANY_RATING_ID, LENS_RATING_FLOORS, ratingFloorById } from './ratingLens.js';
 
 /**
- * What the whole plan says when the lens has shut it — page-level, above the matrix.
+ * What the whole plan says when the lens has shut it — page-level, shown as the verdict line on the lens
+ * bar's readout (lens-verdict-line-plan.md). It was a callout card above the matrix until 2026-11-09.
  *
  * <h2>Why this is page-level and the card's own line was not</h2>
  *
@@ -117,44 +118,39 @@ function ceilingOf(cards) {
   return { rating: best.rating, spot: null, card: best.card };
 }
 
-/** `Tomorrow sunset 20:41` → the phrase a body line can end on, lower-cased where it should be. */
+/** `Tomorrow sunset 20:41` → the phrase a line can end on, lower-cased where it should be. */
 function windowPhrase(card) {
   const label = [card?.kicker, card?.when].filter(Boolean).join(' ').toLowerCase();
   return [label, card?.time].filter(Boolean).join(' ');
 }
 
-/** The scope's own name, for a sentence that has to say where. */
-function scopeName(origin) {
-  return origin ? origin.name : 'your regions';
+/** Whether the plan's windows fall on more than one date — "this week" is only true then. */
+function spansSeveralDates(cards) {
+  const dates = new Set(cards.map((card) => card.date ?? String(card.key ?? '').split(':')[0]));
+  return dates.size > 1;
+}
+
+/** A rating the way a screen reader should hear it: the glyph is not spoken by NVDA. */
+function stars(rating) {
+  return `${rating} ${rating === 1 ? 'star' : 'stars'}`;
 }
 
 /**
- * The way back to the home origin, appended to whichever message fires.
+ * The one verdict the plan has, or null when it has none.
  *
- * <p>Away, the scope is something the reader <em>chose</em>, so it is one of the things that can be
- * wrong — and unlike the two lens axes it is not on the bar. The same action, wording and ordering
- * rule {@code windowLensEmpty.js} used per card: it goes last, because widening the lens keeps the
- * reader where they asked to be and going home abandons it.
+ * <p>The result is {@code {id, line}}. {@code line} is what the lens bar prints: {@code lead} (the
+ * amber "0"), {@code text} (the rest of the sentence, with {@code ★} glyphs and {@code ·}
+ * separators the bar marks up for assistive tech), {@code action} (one {@code {kind, id, label}} or
+ * null) and {@code announce} (one plain sentence for the live region, with ratings spelled in words).
  *
- * <p><b>The {@code false} arm is defensive and, as the two branches stand, unreachable.</b> Both
- * messages carry at least one lens action by construction — the reach ladder can always walk to
- * "Any" while the scope holds anything, and the rating message always offers "Show the week as it
- * is" — so this is never the first action. It stays because it is one ternary between correct
- * wording and an orphan "Or", and {@code planConflicts.test.js} pins the invariant that makes it
- * unreachable rather than the branch itself.
- */
-function homeAction(hasOthers) {
-  return { kind: 'origin', id: 'home', label: hasOthers ? 'Or plan from home' : 'Plan from home' };
-}
-
-/**
- * The one conflict message the plan has, or null when it has none.
+ * <p><b>There is no "plan from home" action.</b> {@code helpfulTier} can always walk to "Any" while
+ * the scope holds anything, so a lens action always exists and the way home would only ever be an
+ * alternative; the place picker at the top of the page is the route home.
  *
  * @param {object}  args
  * @param {Array}   args.cards        the window cards ({@code allSpots}, {@code pool},
  *                                    {@code spots}, {@code kicker}, {@code when}, {@code time})
  * @param {?object} [args.origin]     the away origin ({@code {name, baseName}}), or null for home
- * @param {?string} [args.homePlace]  the reader's own place name, for the home sentence's "of X"
  * @param {string}  args.tierId       the active reach tier's id
  * @param {?number} args.limitMinutes that tier's threshold, null for "Any"
  * @param {boolean} [args.reachMeasured] the reader-level answer ({@code reachIsMeasured}, computed once in
@@ -162,10 +158,10 @@ function homeAction(hasOthers) {
  *                                    for a caller with no context
  * @param {string}  args.floorId      the active rating floor's id
  * @param {?number} args.minRating    that floor's threshold, null for "Any rating"
- * @returns {?{id: string, headline: string, body: string, actions: Array}} the message
+ * @returns {?{id: string, line: {lead: string, text: string, action: ?object, announce: string}}}
  */
 export function buildPlanConflict({
-  cards, origin = null, homePlace = null, tierId, limitMinutes, floorId, minRating, reachMeasured: measuredArg,
+  cards, origin = null, tierId, limitMinutes, floorId, minRating, reachMeasured: measuredArg,
 }) {
   const list = (Array.isArray(cards) ? cards : []).filter(Boolean);
   if (list.length === 0) return null;
@@ -181,45 +177,44 @@ export function buildPlanConflict({
    * Whether the reach axis COULD have acted — is there a drive time anywhere in scope.
    *
    * <p>⚠️ §6 clause 7. A reader with no home postcode has none, and an unknown drive passes every
-   * tier (plan §2.5), so the tier gated nothing and naming it in either message below describes an
-   * act that did not happen. The reach BRANCH cannot be reached in that state — an ungated pool is
-   * never empty — but the floor-shut branch can, and it says "within 45 min" and "within reach" in
-   * its two arms. Found by an adversarial review of M5, which had fixed the same claim in the popup
-   * and in the lens readout and stopped there. Asked of the whole scope rather than of any one
-   * card's drawn set, for the reason `WindowSheetDialog` records.
+   * tier (plan §2.5), so the tier gated nothing and naming it in the line describes an act that did
+   * not happen. The reach BRANCH cannot be reached in that state — an ungated pool is never empty —
+   * but the floor-shut branch can, and it must not say "in reach" then. Asked of the whole scope
+   * rather than of any one card's drawn set, for the reason `WindowSheetDialog` records.
    */
   const reachMeasured = measuredArg ?? scope.some((spot) => spot?.driveMinutes != null);
   const tierLabel = (REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null);
-  /** The tier's word where it may be spoken at all — null collapses both clauses below. */
-  const gatingTierLabel = reachMeasured ? tierLabel : null;
 
   if (!anyPool) {
     // Reachable only while the tier has a threshold: under "Any" nothing is gated, so an empty pool
     // would mean an empty scope, which the guard above has already returned on.
     if (limitMinutes == null || !tierLabel) return null;
-    const from = origin ? origin.baseName : homePlace;
     const nearest = nearestSpot(scope);
     const wider = helpfulTier(list, tierId, reachMeasured);
-    const actions = [];
+    const within = `within ${formatDriveDuration(limitMinutes)}`;
+    let text = within;
+    let announce = `Nothing ${within}.`;
+    let action = null;
     if (wider) {
-      actions.push({ kind: 'reach', id: wider.id, label: `Widen to ${wider.label.toLowerCase()}` });
+      action = {
+        kind: 'reach',
+        id: wider.id,
+        label: wider.limitMinutes == null ? 'Show any distance' : `Widen to ${wider.label}`,
+      };
+      // The nearest drive is a fact about the roads. No measured drive anywhere is a state the gate
+      // cannot produce (an unknown drive passes every tier), so then the line just stops at the tier.
+      if (nearest) {
+        const nearestIs = `${nearest.locationName}, ${formatDriveDuration(nearest.driveMinutes)}`;
+        text = `${within} · nearest is ${nearestIs}`;
+        announce = `${announce} Nearest is ${nearestIs}.`;
+      }
+    } else if (origin?.baseName) {
+      // Defensive: with no wider tier the scope would be empty. Away, the line names where it is
+      // measured from, the one row where nothing else on the page already says.
+      text = `${within} of ${origin.baseName}`;
+      announce = `Nothing ${within} of ${origin.baseName}.`;
     }
-    if (origin) actions.push(homeAction(actions.length > 0));
-    return {
-      id: 'reach',
-      // Named only where the origin or the settings answer has one. "Nothing within 45 min of
-      // undefined" is worse than the bare threshold, and a reader with no postcode saved has no
-      // place for the sentence to name.
-      headline: from
-        ? `Nothing within ${tierLabel.toLowerCase()} of ${from}.`
-        : `Nothing within ${tierLabel.toLowerCase()}.`,
-      body: nearest
-        ? `${scope.length} location${scope.length === 1 ? '' : 's'} in ${scopeName(origin)}, and the closest is ${nearest.locationName} at ${formatDriveDuration(nearest.driveMinutes)}.`
-        // No measured drive anywhere is a state the gate cannot produce (an unknown drive passes
-        // every tier), so this is the shorter true sentence rather than a guess at a distance.
-        : `${scope.length} location${scope.length === 1 ? '' : 's'} in ${scopeName(origin)}.`,
-      actions,
-    };
+    return { id: 'reach', line: { lead: '0', text, action, announce } };
   }
 
   if (minRating == null) return null;
@@ -229,30 +224,38 @@ export function buildPlanConflict({
   const floorLabel = ratingFloorById(floorId)?.label ?? null;
   if (!floorLabel) return null;
   const ceiling = ceilingOf(list);
-  const actions = [
-    { kind: 'rating', id: ANY_RATING_ID, label: 'Show the week as it is' },
-  ];
-  // Only when the ceiling is itself a floor the bar can draw a pressed chip for. A plan topping out
-  // at 2★ has no such step, and offering "drop the floor to 2★+" would name a control that does not
-  // exist; "Show the week as it is" is then the whole of the offer, which is the true one.
-  const step = ceiling == null
-    ? null
-    : LENS_RATING_FLOORS.find((floor) => floor.min === ceiling.rating) ?? null;
-  if (step) {
-    actions.push({ kind: 'rating', id: step.id, label: `Or drop the floor to ${step.label}` });
+  const week = spansSeveralDates(list);
+  const floorSpoken = `${stars(minRating)}${floorLabel.endsWith('+') ? ' or better' : ''}`;
+  const anyRating = { kind: 'rating', id: ANY_RATING_ID, label: 'Show any rating' };
+  if (!ceiling) {
+    // Not "none good enough" — nothing has been scored at all, which is the ordinary state on a
+    // far-horizon plan and a different fact from a low ceiling.
+    return {
+      id: 'rating',
+      line: {
+        lead: '0',
+        text: `at ${floorLabel} · nothing rated yet`,
+        action: anyRating,
+        announce: `Nothing at ${floorSpoken}. Nothing rated yet.`,
+      },
+    };
   }
-  if (origin) actions.push(homeAction(true));
+  // The ceiling is read from the reach-gated pool, so a bare "best is" would overclaim where reach acted.
+  const best = reachMeasured && limitMinutes != null ? 'best in reach is' : 'best is';
+  // On a single-date plan "this week" is false, so the window itself is named instead.
+  const place = ceiling.spot ? ceiling.spot.locationName : null;
+  const tailText = (week ? [place] : [place, windowPhrase(ceiling.card)]).filter(Boolean).join(', ');
+  const weekText = week ? ' this week' : '';
+  // Only when the ceiling is itself a floor the bar can draw a pressed chip for. A plan topping out
+  // at 2★ has no such step, and "drop to 2★+" would name a control that does not exist.
+  const step = LENS_RATING_FLOORS.find((floor) => floor.min === ceiling.rating) ?? null;
   return {
     id: 'rating',
-    headline: `Nothing at ${floorLabel} anywhere in ${scopeName(origin)} this week.`,
-    body: ceiling
-      ? `The best on offer${gatingTierLabel && limitMinutes != null ? ` within ${gatingTierLabel.toLowerCase()}` : ''} is ${ceiling.rating}★ — ${ceiling.spot ? `${ceiling.spot.locationName}, ` : ''}${windowPhrase(ceiling.card)}${ceiling.spot ? '' : ', with no one place named'}.`
-      // Not "none good enough" — nothing has been scored at all, which is the ordinary state on a
-      // far-horizon plan and a different fact from a low ceiling. The distinction
-      // `windowLensEmpty.js` drew per card, kept here. The reach word only where reach acted.
-      : (reachMeasured
-        ? 'Nothing within reach has been rated yet.'
-        : 'Nothing here has been rated yet.'),
-    actions,
+    line: {
+      lead: '0',
+      text: `at ${floorLabel}${weekText} · ${best} ${ceiling.rating}★${tailText ? `, ${tailText}` : ''}`,
+      action: step ? { kind: 'rating', id: step.id, label: `Drop to ${step.label}` } : anyRating,
+      announce: `Nothing at ${floorSpoken}${weekText}. ${best.charAt(0).toUpperCase()}${best.slice(1)} ${stars(ceiling.rating)}${tailText ? `, ${tailText}` : ''}.`,
+    },
   };
 }

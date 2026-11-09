@@ -34,7 +34,7 @@ function card(overrides = {}) {
 
 function reachConflict(cards, extra = {}) {
   return buildPlanConflict({
-    cards, homePlace: 'Chester-le-Street', tierId: '45', limitMinutes: 45, floorId: 'any', minRating: null, ...extra,
+    cards, tierId: '45', limitMinutes: 45, floorId: 'any', minRating: null, ...extra,
   });
 }
 
@@ -54,14 +54,15 @@ describe('planConflicts edges — which locations make up the scope', () => {
 
   it('does not count a spot that has neither an id nor a name', () => {
     const message = reachConflict([card({ allSpots: [spot(), { driveMinutes: 80 }] })]);
-    expect(message.body).toBe('1 location in your regions, and the closest is Bamburgh Beach at 1h 40min.');
+    // The nameless 80-minute spot is no location, so it cannot be the nearest.
+    expect(message.line.text).toBe('within 45 min · nearest is Bamburgh Beach, 1h 40min');
   });
 
   it('keeps the first spot seen for a location that appears in several windows', () => {
     const first = spot({ locationName: 'First sight', driveMinutes: 100 });
     const later = spot({ locationName: 'Later sight', driveMinutes: 60 });
     const message = reachConflict([card({ allSpots: [first] }), card({ allSpots: [later] })]);
-    expect(message.body).toBe('1 location in your regions, and the closest is First sight at 1h 40min.');
+    expect(message.line.text).toBe('within 45 min · nearest is First sight, 1h 40min');
   });
 });
 
@@ -74,7 +75,7 @@ describe('planConflicts edges — the closest location', () => {
         spot({ locationId: 3, locationName: 'Middle', driveMinutes: 90 }),
       ],
     })]);
-    expect(message.body).toBe('3 locations in your regions, and the closest is Near at 1h.');
+    expect(message.line.text).toBe('within 45 min · nearest is Near, 1h');
   });
 
   it('keeps the earlier spot when two drives tie', () => {
@@ -84,7 +85,7 @@ describe('planConflicts edges — the closest location', () => {
         spot({ locationId: 2, locationName: 'Bravo', driveMinutes: 100 }),
       ],
     })]);
-    expect(message.body).toContain('the closest is Alpha at');
+    expect(message.line.text).toContain('nearest is Alpha, ');
   });
 
   it('skips a location whose drive is unknown and names one that has a drive', () => {
@@ -94,7 +95,7 @@ describe('planConflicts edges — the closest location', () => {
         spot({ locationId: 2, locationName: 'Measured', driveMinutes: 120 }),
       ],
     })], { reachMeasured: true });
-    expect(message.body).toBe('2 locations in your regions, and the closest is Measured at 2h.');
+    expect(message.line.text).toBe('within 45 min · nearest is Measured, 2h');
   });
 
   it.each([
@@ -102,21 +103,19 @@ describe('planConflicts edges — the closest location', () => {
     ['infinite', Number.POSITIVE_INFINITY],
   ])('does not name a location whose drive is %s', (_label, driveMinutes) => {
     const message = reachConflict([card({ allSpots: [spot({ driveMinutes })] })]);
-    expect(message.body).toBe('1 location in your regions.');
+    expect(message.line.text).toBe('within 45 min');
   });
 
-  it('uses the singular and plural forms in the sentence with no distance', () => {
-    const one = reachConflict([card({
-      allSpots: [spot({ driveMinutes: null, driveStatus: 'UNROUTABLE' })],
-    })], { reachMeasured: true });
-    const two = reachConflict([card({
+  it('stops at the tier, with its action and a plain announce, when no drive is measured', () => {
+    const message = reachConflict([card({
       allSpots: [
         spot({ locationId: 1, driveMinutes: null, driveStatus: 'UNROUTABLE' }),
         spot({ locationId: 2, driveMinutes: null, driveStatus: 'UNROUTABLE' }),
       ],
     })], { reachMeasured: true });
-    expect(one.body).toBe('1 location in your regions.');
-    expect(two.body).toBe('2 locations in your regions.');
+    expect(message.line.text).toBe('within 45 min');
+    expect(message.line.announce).toBe('Nothing within 45 min.');
+    expect(message.line.action).toEqual({ kind: 'reach', id: 'any', label: 'Show any distance' });
   });
 });
 
@@ -126,13 +125,13 @@ describe('planConflicts edges — the widening offered', () => {
       card({ allSpots: [spot({ driveMinutes: 100 })] }),
       card({ allSpots: [] }),
     ]);
-    expect(message.actions).toEqual([{ kind: 'reach', id: '150', label: 'Widen to 2h 30min' }]);
+    expect(message.line.action).toEqual({ kind: 'reach', id: '150', label: 'Widen to 2h 30min' });
   });
 
   it('does not let a window with no spot list help a tier', () => {
     const noList = { kicker: 'Today', when: 'sunrise', time: '06:10', pool: [] };
     const message = reachConflict([card({ allSpots: [spot({ driveMinutes: 100 })] }), noList]);
-    expect(message.actions[0]).toEqual({ kind: 'reach', id: '150', label: 'Widen to 2h 30min' });
+    expect(message.line.action).toEqual({ kind: 'reach', id: '150', label: 'Widen to 2h 30min' });
   });
 
   it('only walks tiers looser than the active one', () => {
@@ -142,23 +141,27 @@ describe('planConflicts edges — the widening offered', () => {
     const message = reachConflict([card({ allSpots: [spot({ driveMinutes: 100 })] })], {
       tierId: '150', limitMinutes: 150,
     });
-    expect(message.actions).toEqual([{ kind: 'reach', id: 'any', label: 'Widen to any' }]);
+    expect(message.line.action).toEqual({ kind: 'reach', id: 'any', label: 'Show any distance' });
   });
 
-  it('adds no way-home action at home', () => {
-    const message = reachConflict([card({ allSpots: [spot()] })]);
-    expect(message.actions.map((a) => a.kind)).toEqual(['reach']);
-  });
-
-  it('offers only the way home when the active tier has nothing looser to widen to', () => {
-    // A lens whose id says Any but whose threshold says 45: no looser tier exists, so the ladder
-    // walk finds nothing and the way home is the first action, worded as a plain offer.
+  it('⚠️ offers no action at all, and no way home, when the active tier has nothing looser', () => {
+    // Defensive and unreachable with a real lens (the ladder always walks to Any while the scope
+    // holds anything); a lens whose id says Any but whose threshold says 45 is the contradiction
+    // that reaches it. Away, the line then names where it is measured from; at home it does not.
     const cards = [card({ allSpots: [spot()] })];
     const away = reachConflict(cards, {
       tierId: 'any', limitMinutes: 45, origin: { name: 'Lakes', baseName: 'Keswick' },
     });
-    expect(away.actions).toEqual([{ kind: 'origin', id: 'home', label: 'Plan from home' }]);
-    expect(reachConflict(cards, { tierId: 'any', limitMinutes: 45 }).actions).toEqual([]);
+    expect(away.line).toEqual({
+      lead: '0',
+      text: 'within 45 min of Keswick',
+      action: null,
+      announce: 'Nothing within 45 min of Keswick.',
+    });
+    const home = reachConflict(cards, { tierId: 'any', limitMinutes: 45 });
+    expect(home.line).toEqual({
+      lead: '0', text: 'within 45 min', action: null, announce: 'Nothing within 45 min.',
+    });
   });
 
   it('says nothing when the tier is Any, even with an empty pool', () => {
@@ -233,15 +236,15 @@ describe('planConflicts edges — the ceiling sentence', () => {
   it('tolerates a window that carries no pool beside one that does', () => {
     const noPool = { kicker: 'Today', when: 'sunrise', time: '06:10', allSpots: [spot()], spots: [] };
     const outlier = spot({ rating: 3, locationName: 'Outlier Point', neighbourOutlier: true });
-    expect(ratingConflict([noPool, lowCard({})]).body)
-      .toBe('The best on offer is 3★ — Copt Hill, tomorrow sunset 20:41.');
-    expect(ratingConflict([noPool, lowCard({ pool: [outlier] })]).body)
-      .toBe('The best on offer is 3★ — tomorrow sunset 20:41, with no one place named.');
+    expect(ratingConflict([noPool, lowCard({})]).line.text)
+      .toBe('at 4★+ · best is 3★, Copt Hill, tomorrow sunset 20:41');
+    expect(ratingConflict([noPool, lowCard({ pool: [outlier] })]).line.text)
+      .toBe('at 4★+ · best is 3★, tomorrow sunset 20:41');
   });
 
   it('skips an empty entry in a pool', () => {
     const message = ratingConflict([lowCard({ pool: [null, spot({ rating: 3, locationName: 'Copt Hill' })] })]);
-    expect(message.body).toBe('The best on offer is 3★ — Copt Hill, tomorrow sunset 20:41.');
+    expect(message.line.text).toBe('at 4★+ · best is 3★, Copt Hill, tomorrow sunset 20:41');
   });
 
   it('names the earlier window when two windows share the best rating', () => {
@@ -249,7 +252,7 @@ describe('planConflicts edges — the ceiling sentence', () => {
       lowCard({ kicker: 'Today', when: 'sunrise', time: '06:10' }),
       lowCard({ kicker: 'Tomorrow', when: 'sunset', time: '20:41' }),
     ]);
-    expect(message.body).toBe('The best on offer is 3★ — Copt Hill, today sunrise 06:10.');
+    expect(message.line.text).toBe('at 4★+ · best is 3★, Copt Hill, today sunrise 06:10');
   });
 
   it('finds a non-outlier carrier in a later window and survives an empty pool entry before it', () => {
@@ -259,7 +262,7 @@ describe('planConflicts edges — the ceiling sentence', () => {
       card({ allSpots: [outlier], pool: [outlier], spots: [] }),
       card({ kicker: 'Today', when: 'sunrise', time: '06:10', allSpots: [sound], pool: [null, sound], spots: [] }),
     ]);
-    expect(message.body).toBe('The best on offer is 3★ — Sound Point, today sunrise 06:10.');
+    expect(message.line.text).toBe('at 4★+ · best is 3★, Sound Point, today sunrise 06:10');
   });
 
   it('names the window of the outlier-only ceiling, not the first window scanned', () => {
@@ -269,18 +272,18 @@ describe('planConflicts edges — the ceiling sentence', () => {
       card({ kicker: 'Today', when: 'sunrise', time: '06:10', allSpots: [modest], pool: [modest], spots: [] }),
       card({ kicker: 'Friday', when: 'sunset', time: '20:41', allSpots: [outlier], pool: [outlier], spots: [] }),
     ]);
-    expect(message.body).toBe('The best on offer is 3★ — friday sunset 20:41, with no one place named.');
+    expect(message.line.text).toBe('at 4★+ · best is 3★, friday sunset 20:41');
   });
 
   it('leaves out a missing kicker and a missing time instead of padding with spaces', () => {
     const message = ratingConflict([lowCard({ kicker: undefined, time: undefined })]);
-    expect(message.body).toBe('The best on offer is 3★ — Copt Hill, sunset.');
+    expect(message.line.text).toBe('at 4★+ · best is 3★, Copt Hill, sunset');
   });
 
   it('says nothing has been rated when every pooled spot is unrated', () => {
     const unrated = spot({ rating: null });
     const message = ratingConflict([card({ allSpots: [unrated], pool: [unrated], spots: [] })]);
-    expect(message.body).toBe('Nothing within reach has been rated yet.');
+    expect(message.line.text).toBe('at 4★+ · nothing rated yet');
   });
 
   it('names the tier only when a drive time exists somewhere in the scope', () => {
@@ -289,6 +292,6 @@ describe('planConflicts edges — the ceiling sentence', () => {
     const message = ratingConflict([
       card({ allSpots: [measured, unknown], pool: [measured, unknown], spots: [] }),
     ], { tierId: '45', limitMinutes: 45 });
-    expect(message.body).toContain('The best on offer within 45 min is 2★');
+    expect(message.line.text).toContain('best in reach is 2★');
   });
 });

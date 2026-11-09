@@ -71,6 +71,69 @@ LensSegment.propTypes = {
 };
 
 /**
+ * A verdict string with its two decorations marked up for assistive tech: each {@code N★} keeps the
+ * glyph for the eye ({@code aria-hidden}) and speaks "stars" (NVDA does not read U+2605, so
+ * "best is 3★" would announce as "best is 3" — the number stripped of its unit; the same pattern as
+ * {@code WindowSheetDialog}'s best-in-reach header), and each {@code " · "} separator is hidden so
+ * it is not read as "middle dot". Keys are the match offsets, which are stable for one string.
+ */
+function MarkedText({ text }) {
+  const out = [];
+  const re = /(\d)★| · /g;
+  let last = 0;
+  let match = re.exec(text);
+  while (match !== null) {
+    if (match.index > last) out.push(text.slice(last, match.index));
+    if (match[1] !== undefined) {
+      out.push(
+        <React.Fragment key={match.index}>
+          {match[1]}
+          <span aria-hidden="true">★</span>
+          <span className="sr-only">{match[1] === '1' ? ' star' : ' stars'}</span>
+        </React.Fragment>,
+      );
+    } else {
+      out.push(<span key={match.index} aria-hidden="true"> · </span>);
+    }
+    last = match.index + match[0].length;
+    match = re.exec(text);
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return <>{out}</>;
+}
+
+MarkedText.propTypes = { text: PropTypes.string.isRequired };
+
+/**
+ * The verdict's one action — a button inside the readout, outside the ellipsising span on desktop
+ * so it can never be clipped. Its label goes through {@code MarkedText} so "Drop to 3★+" is spoken
+ * "Drop to 3 stars+" and the accessible name contains every visible word (WCAG 2.5.3).
+ */
+function VerdictAction({ action, onAction }) {
+  return (
+    <button
+      type="button"
+      data-testid="window-first-lens-verdict-act"
+      data-loosen={action.kind}
+      className="wf-clash-act wf-lens-verdict-act"
+      onClick={() => onAction?.(action)}
+    >
+      <MarkedText text={action.label} />
+      <span aria-hidden="true">&nbsp;→</span>
+    </button>
+  );
+}
+
+VerdictAction.propTypes = {
+  action: PropTypes.shape({
+    kind: PropTypes.string.isRequired,
+    id: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+  }).isRequired,
+  onAction: PropTypes.func,
+};
+
+/**
  * The global lens bar — three controls, applied to every window on the page.
  *
  * <h2>It is sticky, and it is never suppressed</h2>
@@ -194,6 +257,10 @@ LensSegment.propTypes = {
  * @param {number}   props.spotCount    spots drawn across every window, after both gates
  * @param {number}   props.reachedCount spots the rating floor chose from — the "of N" denominator
  * @param {number}   props.windowCount  windows drawn
+ * @param {?object}  [props.verdict] the plan-level conflict line from {@code buildPlanConflict}
+ *        ({@code {lead, text, action, announce}}). Set, the readout is the verdict (amber lead, the
+ *        sentence, one action) in place of the count; null leaves the readout unchanged. It was a card
+ *        above the matrix until lens-verdict-line-plan.md moved it here.
  * @param {?string}  [props.originBase] the away origin's base town. Present, the drive caption
  *        names it — the design's {@code DRIVE FROM KESWICK} — because every figure the control
  *        gates is measured from there, and a caption still naming home would be the one thing this
@@ -201,7 +268,7 @@ LensSegment.propTypes = {
  */
 export default function WindowFirstLensBar({
   lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
-  originBase = null, stuck = false,
+  originBase = null, stuck = false, verdict = null, onVerdictAction,
 }) {
   const {
     tier, tierId, defaultTier, defaultTierId, weekend, overridden, locked, selectTier,
@@ -279,37 +346,75 @@ export default function WindowFirstLensBar({
 
       <span
         data-testid="window-first-lens-readout"
-        data-variant={isMobile ? 'count' : 'summary'}
-        className={isMobile ? 'wf-lens-count' : 'wf-lens-res'}
+        data-variant={verdict ? 'verdict' : (isMobile ? 'count' : 'summary')}
+        className={`${isMobile ? 'wf-lens-count' : 'wf-lens-res'}${verdict ? ` ${isMobile ? 'wf-lens-count--verdict' : 'wf-lens-res--verdict'}` : ''}`}
+        // Focusable (never a tab stop) so the shell has somewhere to put focus when a verdict action
+        // leaves no card or verdict button to land on.
+        tabIndex={verdict ? -1 : undefined}
       >
         {isMobile ? (
           <>
-            {count && <><b>{count.lead}</b>{` ${count.rest}`}</>}
+            {verdict ? (
+              <>
+                <b>{verdict.lead}</b>
+                {' '}
+                <MarkedText text={verdict.text} />
+                {verdict.action && (
+                  <>
+                    <span aria-hidden="true"> · </span>
+                    <VerdictAction action={verdict.action} onAction={onVerdictAction} />
+                  </>
+                )}
+              </>
+            ) : (count && <><b>{count.lead}</b>{` ${count.rest}`}</>)}
             {/* On a phone the readout owns its row, so the ? ends that line rather than starting another. */}
             <GuideLink section="lens" label="How the drive and rating bar works" />
           </>
         ) : (
-          // Wrapped, because `.wf-lens-res` is the flex BOX that right-aligns and this span is what
-          // ellipsises — see the stylesheet for why those cannot be one element.
-          <span>
-            {formatLensReadout({
-              tierLabel: tier.label,
-              // The predicate itself, not `!overridden` — those differ for a locked control, which
-              // is pinned to Any and has overridden false while sitting nowhere near the default.
-              isDefault: tierId === defaultTierId,
-              weekend,
-              // Away the default is the ORIGIN's, so the readout must not call it the day's.
-              originDefault: Boolean(defaultFromOrigin),
-              ratingLabel: ratingLens.floor?.label,
-              spotCount,
-              reachMeasured,
-              reachedCount,
-              windowCount,
-            })}
-          </span>
+          <>
+            {/* Wrapped, because `.wf-lens-res` is the flex BOX that right-aligns and this span is what
+                ellipsises — see the stylesheet for why those cannot be one element. The verdict's
+                button is a SIBLING of the span for the same reason: inside it, it would be clipped. */}
+            <span title={verdict ? `${verdict.lead} ${verdict.text}` : undefined}>
+              {verdict ? (
+                <>
+                  <b>{verdict.lead}</b>
+                  {' '}
+                  <MarkedText text={verdict.text} />
+                </>
+              ) : formatLensReadout({
+                tierLabel: tier.label,
+                // The predicate itself, not `!overridden` — those differ for a locked control, which
+                // is pinned to Any and has overridden false while sitting nowhere near the default.
+                isDefault: tierId === defaultTierId,
+                weekend,
+                // Away the default is the ORIGIN's, so the readout must not call it the day's.
+                originDefault: Boolean(defaultFromOrigin),
+                ratingLabel: ratingLens.floor?.label,
+                spotCount,
+                reachMeasured,
+                reachedCount,
+                windowCount,
+              })}
+            </span>
+            {verdict?.action && <VerdictAction action={verdict.action} onAction={onVerdictAction} />}
+          </>
         )}
       </span>
       {!isMobile && <GuideLink section="lens" label="How the drive and rating bar works" />}
+      {/* ⚠️ Always mounted, and a direct child of the bar: a `role` added to a node that mounts with
+          its content is not announced, and the verdict appears in response to a chip press right
+          above it. Outside the `isMobile` branch so a resize does not remount it, and never inside
+          `.wf-lens-res`, whose `> span` rule would clip it. The visible line is not a live region —
+          the count changes on every chip press and would be noise. */}
+      <span
+        role="status"
+        aria-live="polite"
+        data-testid="window-first-lens-verdict-status"
+        className="sr-only"
+      >
+        {verdict?.announce ?? ''}
+      </span>
     </div>
   );
 }
@@ -347,4 +452,17 @@ WindowFirstLensBar.propTypes = {
   windowCount: PropTypes.number.isRequired,
   /** Whether the bar has left its resting place — the shell's sentinel answers it (M3). */
   stuck: PropTypes.bool,
+  /** The plan-level verdict line, or null. See the component's own note. */
+  verdict: PropTypes.shape({
+    lead: PropTypes.string.isRequired,
+    text: PropTypes.string.isRequired,
+    action: PropTypes.shape({
+      kind: PropTypes.string.isRequired,
+      id: PropTypes.string.isRequired,
+      label: PropTypes.string.isRequired,
+    }),
+    announce: PropTypes.string.isRequired,
+  }),
+  /** Applies a verdict action; the shell moves the lens and focus. */
+  onVerdictAction: PropTypes.func,
 };

@@ -80,44 +80,48 @@ describe('planConflicts — when there is anything to say at all', () => {
 describe('planConflicts — reach is asked first, because it is upstream', () => {
   const far = [spot({ driveMinutes: 150 }), spot({ key: '2', locationId: 2, locationName: 'Roseberry Topping', driveMinutes: 95 })];
 
-  it('names the threshold, the place it is measured from, and the closest location', () => {
+  it('names the threshold and the closest location, and offers the tier that helps', () => {
     const message = conflict({ cards: [card(far, { limitMinutes: 45 })], tierId: '45', limitMinutes: 45 });
     expect(message.id).toBe('reach');
-    expect(message.headline).toBe('Nothing within 45 min of Chester-le-Street.');
-    expect(message.body).toBe('2 locations in your regions, and the closest is Roseberry Topping at 1h 35min.');
-  });
-
-  it('drops the "of X" clause when no home is known, rather than naming undefined', () => {
-    const message = conflict({
-      cards: [card(far, { limitMinutes: 45 })], tierId: '45', limitMinutes: 45, homePlace: null,
+    expect(message.line).toEqual({
+      lead: '0',
+      text: 'within 45 min · nearest is Roseberry Topping, 1h 35min',
+      action: { kind: 'reach', id: '150', label: 'Widen to 2h 30min' },
+      announce: 'Nothing within 45 min. Nearest is Roseberry Topping, 1h 35min.',
     });
-    expect(message.headline).toBe('Nothing within 45 min.');
   });
 
-  it('agrees with itself for one location', () => {
-    const one = [spot({ driveMinutes: 150 })];
-    const message = conflict({ cards: [card(one, { limitMinutes: 45 })], tierId: '45', limitMinutes: 45 });
-    expect(message.body).toContain('1 location in your regions');
+  it('never names the place it is measured from at home, or anywhere a wider tier helps', () => {
+    // The drive caption above the line already says "From Keswick" / "Drive from home".
+    const message = conflict({
+      cards: [card(far, { limitMinutes: 45 })],
+      tierId: '45',
+      limitMinutes: 45,
+      origin: { name: 'The Lake District', baseName: 'Keswick' },
+    });
+    expect(message.line.text).not.toContain('Keswick');
+    expect(message.line.text).not.toContain('Chester-le-Street');
   });
 
   it('counts a location once however many windows hold it', () => {
-    // Id-first, name-fallback — the arm's join policy. Two windows over one roster is one roster.
+    // Id-first, name-fallback — the arm's join policy. Two windows over one roster is one roster,
+    // and the closest is the same place either way.
     const message = conflict({
       cards: [card(far, { limitMinutes: 45 }), card(far, { limitMinutes: 45 })],
       tierId: '45',
       limitMinutes: 45,
     });
-    expect(message.body).toContain('2 locations');
+    expect(message.line.text).toBe('within 45 min · nearest is Roseberry Topping, 1h 35min');
   });
 
   it('⚠️ skips a widening that would change nothing and names the one that does', () => {
     // The nearest is 95 minutes, so 1h 30min still leaves the plan empty. Offering it would be a
     // control with no visible effect — the defect this ladder exists to prevent.
     const message = conflict({ cards: [card(far, { limitMinutes: 45 })], tierId: '45', limitMinutes: 45 });
-    expect(message.actions.map((a) => a.label)).toEqual(['Widen to 2h 30min']);
+    expect(message.line.action.label).toBe('Widen to 2h 30min');
   });
 
-  it('⚠️ walks all the way to Any when no BOUNDED tier helps', () => {
+  it('⚠️ walks all the way to Any when no BOUNDED tier helps, and says so in the chip\'s words', () => {
     // The ladder always terminates: `Any` gates nothing, so while the scope holds anything at all
     // there is a step that refills the plan. What the ladder is for is skipping the ones that do
     // not — see the case above.
@@ -125,8 +129,7 @@ describe('planConflicts — reach is asked first, because it is upstream', () =>
     const message = conflict({
       cards: [card(unreachable, { limitMinutes: 150 })], tierId: '150', limitMinutes: 150,
     });
-    expect(message.actions.map((a) => a.id)).toEqual(['any']);
-    expect(message.actions[0].label).toBe('Widen to any');
+    expect(message.line.action).toEqual({ kind: 'reach', id: 'any', label: 'Show any distance' });
   });
 
   it('⚠️ raises nothing for a LITE reader, because the tier they are pinned to gates nothing', () => {
@@ -159,7 +162,7 @@ describe('planConflicts — the rating floor shutting the week out', () => {
     spot({ key: '2', locationId: 2, locationName: 'Copt Hill', rating: 3, driveMinutes: 20 }),
   ];
 
-  it('names the floor, the scope, the ceiling and where it is', () => {
+  it('names the floor, the ceiling in reach, where it is, and the one action', () => {
     const message = conflict({
       cards: [card(reachable, { limitMinutes: 90, minRating: 4 })],
       tierId: '90',
@@ -168,16 +171,45 @@ describe('planConflicts — the rating floor shutting the week out', () => {
       minRating: 4,
     });
     expect(message.id).toBe('rating');
-    expect(message.headline).toBe('Nothing at 4★+ anywhere in your regions this week.');
-    expect(message.body).toBe('The best on offer within 1h 30min is 3★ — Copt Hill, tomorrow sunset 20:41.');
+    // A single-date plan: "this week" would be false, so the window is named instead.
+    expect(message.line).toEqual({
+      lead: '0',
+      text: 'at 4★+ · best in reach is 3★, Copt Hill, tomorrow sunset 20:41',
+      action: { kind: 'rating', id: '3', label: 'Drop to 3★+' },
+      announce: 'Nothing at 4 stars or better. Best in reach is 3 stars, Copt Hill, tomorrow sunset 20:41.',
+    });
+  });
+
+  it('says "this week" and drops the window phrase only when the windows span several dates', () => {
+    const message = conflict({
+      cards: [
+        { ...card(reachable, { minRating: 4 }), key: '2026-08-21:SUNSET' },
+        { ...card([spot({ key: '9', locationId: 9, locationName: 'Marsden Bay', rating: 2 })], { minRating: 4 }), key: '2026-08-22:SUNRISE' },
+      ],
+      floorId: '4',
+      minRating: 4,
+    });
+    expect(message.line.text).toBe('at 4★+ this week · best is 3★, Copt Hill');
+    expect(message.line.announce).toBe('Nothing at 4 stars or better this week. Best is 3 stars, Copt Hill.');
+  });
+
+  it('reads the date from the card\'s own date field when it carries one', () => {
+    const message = conflict({
+      cards: [
+        { ...card(reachable, { minRating: 4 }), key: 'x', date: '2026-08-21' },
+        { ...card(reachable, { minRating: 4 }), key: 'x', date: '2026-08-22' },
+      ],
+      floorId: '4',
+      minRating: 4,
+    });
+    expect(message.line.text).toContain('this week');
   });
 
   /**
-   * ⚠️ §6 clause 7 on the page-level message, the third of four surfaces that made the same claim.
+   * ⚠️ §6 clause 7 on the verdict line, the third of four surfaces that made the same claim.
    *
    * <p>A reader with no home postcode has no drive time at all, and an unknown drive passes every
-   * tier (plan §2.5), so the tier gated nothing. Both arms of this message named it anyway. Found by
-   * an adversarial review of M5, after the popup and the lens readout had been fixed.
+   * tier (plan §2.5), so the tier gated nothing. "Best in reach" would name a gate that did nothing.
    */
   describe('when no drive time exists for the tier to gate on', () => {
     const unmeasured = [
@@ -187,7 +219,7 @@ describe('planConflicts — the rating floor shutting the week out', () => {
       }),
     ];
 
-    it('drops the tier clause from the ceiling sentence and keeps the ceiling', () => {
+    it('says "best is", never "best in reach", and keeps the ceiling', () => {
       const message = conflict({
         cards: [card(unmeasured, { limitMinutes: 90, minRating: 4 })],
         tierId: '90',
@@ -195,10 +227,10 @@ describe('planConflicts — the rating floor shutting the week out', () => {
         floorId: '4',
         minRating: 4,
       });
-      expect(message.body).toBe('The best on offer is 3★ — Copt Hill, tomorrow sunset 20:41.');
+      expect(message.line.text).toBe('at 4★+ · best is 3★, Copt Hill, tomorrow sunset 20:41');
     });
 
-    it('says "nothing here" rather than "nothing within reach" when nothing is rated', () => {
+    it('still says "nothing rated yet" with no reach word', () => {
       const message = conflict({
         cards: [card([spot({ rating: null, driveMinutes: null })], { limitMinutes: 90, minRating: 4 })],
         tierId: '90',
@@ -206,10 +238,10 @@ describe('planConflicts — the rating floor shutting the week out', () => {
         floorId: '4',
         minRating: 4,
       });
-      expect(message.body).toBe('Nothing here has been rated yet.');
+      expect(message.line.text).toBe('at 4★+ · nothing rated yet');
     });
 
-    it('still names the tier where a drive time DOES exist', () => {
+    it('says "best in reach" where a drive time DOES exist', () => {
       // The control, so the flag cannot be deleted by making both arms unconditional.
       const message = conflict({
         cards: [card(reachable, { limitMinutes: 90, minRating: 4 })],
@@ -218,25 +250,26 @@ describe('planConflicts — the rating floor shutting the week out', () => {
         floorId: '4',
         minRating: 4,
       });
-      expect(message.body).toContain('within 1h 30min');
+      expect(message.line.text).toContain('best in reach is 3★');
+    });
+
+    it('says "best is" when reach is Any even though drives exist', () => {
+      const message = conflict({
+        cards: [card(reachable, { minRating: 4 })], floorId: '4', minRating: 4,
+      });
+      expect(message.line.text).toContain('best is 3★');
+      expect(message.line.text).not.toContain('in reach');
     });
   });
 
-  it('offers the two the design asks for: show it as it is, or drop to the measured ceiling', () => {
-    const message = conflict({
-      cards: [card(reachable, { minRating: 4 })], floorId: '4', minRating: 4,
-    });
-    expect(message.actions.map((a) => a.label))
-      .toEqual(['Show the week as it is', 'Or drop the floor to 3★+']);
-  });
-
-  it('⚠️ offers only "as it is" when the ceiling is below the lowest floor the bar can draw', () => {
-    // A plan topping out at 2★ has no 2★ chip, and "drop the floor to 2★+" would name a control
-    // that does not exist.
+  it('⚠️ offers only "Show any rating" when the ceiling is below the lowest floor the bar can draw', () => {
+    // A plan topping out at 2★ has no 2★ chip, and "drop to 2★+" would name a control that does not
+    // exist.
     const message = conflict({
       cards: [card([spot({ rating: 2 })], { minRating: 3 })], floorId: '3', minRating: 3,
     });
-    expect(message.actions.map((a) => a.id)).toEqual(['any']);
+    expect(message.line.action).toEqual({ kind: 'rating', id: 'any', label: 'Show any rating' });
+    expect(message.line.text).toBe('at 3★+ · best is 2★, Bamburgh Beach, tomorrow sunset 20:41');
   });
 
   it('⚠️ says nothing has been rated rather than that none of it is good enough', () => {
@@ -245,8 +278,12 @@ describe('planConflicts — the rating floor shutting the week out', () => {
     const message = conflict({
       cards: [card([spot({ rating: null })], { minRating: 4 })], floorId: '4', minRating: 4,
     });
-    expect(message.body).toBe('Nothing within reach has been rated yet.');
-    expect(message.actions.map((a) => a.id)).toEqual(['any']);
+    expect(message.line).toEqual({
+      lead: '0',
+      text: 'at 4★+ · nothing rated yet',
+      action: { kind: 'rating', id: 'any', label: 'Show any rating' },
+      announce: 'Nothing at 4 stars or better. Nothing rated yet.',
+    });
   });
 
   it('takes the ceiling across every window, not the first one that has any', () => {
@@ -258,7 +295,14 @@ describe('planConflicts — the rating floor shutting the week out', () => {
       floorId: '4',
       minRating: 4,
     });
-    expect(message.body).toContain('3★ — Marsden Bay');
+    expect(message.line.text).toContain('3★, Marsden Bay');
+  });
+
+  it('spells an exact-rating floor and a one-star ceiling in the singular and without "or better"', () => {
+    const message = conflict({
+      cards: [card([spot({ rating: 1 })], { minRating: 5 })], floorId: '5', minRating: 5,
+    });
+    expect(message.line.announce).toBe('Nothing at 5 stars. Best is 1 star, Bamburgh Beach, tomorrow sunset 20:41.');
   });
 
   describe('the neighbour guard (neighbour-guard-plan.md §3)', () => {
@@ -271,23 +315,25 @@ describe('planConflicts — the rating floor shutting the week out', () => {
       const message = conflict({
         cards: [card([OUTLIER, twin], { minRating: 5 })], floorId: '5', minRating: 5,
       });
-      expect(message.body).toBe('The best on offer is 4★ — Hotbank, tomorrow sunset 20:41.');
+      expect(message.line.text).toBe('at 5★ · best is 4★, Hotbank, tomorrow sunset 20:41');
     });
 
-    it('prints the figure and the window with no place when only outliers carry it', () => {
+    it('prints the figure with no place when only outliers carry it', () => {
       const lower = spot({ key: '6', locationId: 6, locationName: 'Hotbank', rating: 3 });
       const message = conflict({
         cards: [card([OUTLIER, lower], { minRating: 5 })], floorId: '5', minRating: 5,
       });
-      expect(message.body).toBe('The best on offer is 4★ — tomorrow sunset 20:41, with no one place named.');
-      expect(message.body).not.toContain('Caw Gap');
+      // Never "with no one place named": the clause is simply dropped.
+      expect(message.line.text).toBe('at 5★ · best is 4★, tomorrow sunset 20:41');
+      expect(message.line.text).not.toContain('Caw Gap');
+      expect(message.line.announce).not.toContain('Caw Gap');
     });
 
     it('still offers the drop-the-floor step for the figure when no place is named', () => {
       const message = conflict({
         cards: [card([OUTLIER], { minRating: 5 })], floorId: '5', minRating: 5,
       });
-      expect(message.actions.map((a) => a.label)).toContain('Or drop the floor to 4★+');
+      expect(message.line.action.label).toBe('Drop to 4★+');
     });
   });
 
@@ -309,58 +355,35 @@ describe('planConflicts — the rating floor shutting the week out', () => {
   });
 });
 
-describe('planConflicts — away, the origin explains and the way home is offered', () => {
+describe('planConflicts — away, the way home is the place picker, not the verdict', () => {
   const origin = { name: 'The Lake District', baseName: 'Keswick' };
 
-  it('names the region rather than "your regions", and measures from the base', () => {
-    const message = conflict({
-      cards: [card([spot({ driveMinutes: 200 })], { limitMinutes: 45 })],
-      origin,
-      tierId: '45',
-      limitMinutes: 45,
-    });
-    expect(message.headline).toBe('Nothing within 45 min of Keswick.');
-    expect(message.body).toContain('in The Lake District');
-  });
-
-  it('appends the way home after the lens action, because widening keeps the reader where they are', () => {
+  it('offers the lens action only, in the reach branch', () => {
     const message = conflict({
       cards: [card([spot({ driveMinutes: 100 })], { limitMinutes: 45 })],
       origin,
       tierId: '45',
       limitMinutes: 45,
     });
-    expect(message.actions.map((a) => a.kind)).toEqual(['reach', 'origin']);
-    expect(message.actions.at(-1).label).toBe('Or plan from home');
+    expect(message.line.action).toEqual({ kind: 'reach', id: '150', label: 'Widen to 2h 30min' });
+    expect(message.line.text).toBe('within 45 min · nearest is Bamburgh Beach, 1h 40min');
   });
 
-  it('⚠️ always has a lens action to follow, so the way home always reads as the alternative', () => {
-    // Both message kinds carry at least one lens action by construction — the reach ladder can
-    // always reach "Any" while the scope holds anything, and the rating message always offers
-    // "Show the week as it is". So the way home is never the first action, which is why
-    // `homeAction(false)`'s wording is defensive rather than a state the page can show. Pinned here
-    // so a future branch that CAN offer nothing else is caught by this file rather than by a reader.
-    const reachAway = conflict({
-      cards: [card([spot({ driveMinutes: 400 })], { limitMinutes: 150 })],
-      origin,
-      tierId: '150',
-      limitMinutes: 150,
-    });
+  it('⚠️ never offers an origin action in the rating branch either', () => {
     const ratingAway = conflict({
       cards: [card([spot({ rating: 2 })], { minRating: 4 })], origin, floorId: '4', minRating: 4,
     });
-    expect(reachAway.actions[0].kind).not.toBe('origin');
-    expect(ratingAway.actions[0].kind).not.toBe('origin');
-    expect(reachAway.actions.at(-1).label).toBe('Or plan from home');
-    expect(ratingAway.actions.at(-1).label).toBe('Or plan from home');
+    expect(ratingAway.line.action.kind).toBe('rating');
+    expect(JSON.stringify(ratingAway)).not.toContain('origin');
+    expect(JSON.stringify(ratingAway)).not.toContain('home');
   });
 
-  it('adds nothing at all at home', () => {
+  it('adds nothing about an origin at home', () => {
     const message = conflict({
       cards: [card([spot({ driveMinutes: 100 })], { limitMinutes: 45 })],
       tierId: '45',
       limitMinutes: 45,
     });
-    expect(message.actions.every((a) => a.kind !== 'origin')).toBe(true);
+    expect(message.line.action.kind).toBe('reach');
   });
 });

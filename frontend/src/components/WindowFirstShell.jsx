@@ -2251,21 +2251,18 @@ export default function WindowFirstShell({
    * screen, and a LITE reader is pinned to "Any" — so {@code buildPlanConflict} never offers them
    * one, with no role anywhere in the path.
    *
-   * <p><b>No focus move, and the difference from the card's ladder is real.</b> The per-card button
-   * destroyed itself: it sat in the empty state it was replacing, so a keyboard reader was dropped
-   * at {@code <body>} having just asked to be shown something. This message sits above the matrix
-   * and every action here also unmounts it — so the same problem, one level up, and the same
-   * remedy: focus goes to the first card of the sunrise row, which is what the reader has just been
-   * shown (matrix-axis plan D20 — the row-major DOM the rails restructure introduced means the
-   * first {@code [data-testid="wf-heat-card-button"]} in document order is the first day's sunrise
-   * card rather than the first day's own first window, but it is still the visually top-left card).
+   * <p><b>A focus move, because the pressed button unmounts.</b> The verdict's button sits in the
+   * line it is replacing, so a keyboard reader would be dropped at {@code <body>} having just asked
+   * to be shown something. Focus goes to the first card of the sunrise row, which is what the
+   * reader has just been shown (matrix-axis plan D20 — the row-major DOM the rails restructure
+   * introduced means the first {@code [data-testid="wf-heat-card-button"]} in document order is the
+   * first day's sunrise card rather than the first day's own first window, but it is still the
+   * visually top-left card). When the next state is still empty (a rating fix that reveals a reach
+   * verdict) there is no card, so focus falls back to the new verdict's button, then the readout.
    */
   const applyConflictAction = (action) => {
     if (action?.kind === 'reach') reachLens?.selectTier(action.id);
     else if (action?.kind === 'rating') ratingLens?.selectFloor(action.id);
-    // The one action that is not a lens: an away scope the reader chose. It refills the plan the
-    // same way the other two do — the home pool is a superset of any one region's.
-    else if (action?.kind === 'origin') setOrigin?.(null);
     else return;
     // ⚠️ The card's inner BUTTON (`wf-heat-card-button`), not the card: a control card is a `<div>` now
     // (a11y-heat-card-plan.md), so the card itself takes no focus. An AWAY window keeps its matrix cell
@@ -2275,27 +2272,30 @@ export default function WindowFirstShell({
     // exact defect this move exists to prevent. Deferred a frame because the matrix is re-rendering on this very commit, and
     // optional-CALLED because jsdom implements no layout.
     requestAnimationFrame(() => {
-      document.querySelector('[data-testid="wf-heat-card-button"]')?.focus?.();
+      const target = document.querySelector('[data-testid="wf-heat-card-button"]')
+        ?? document.querySelector('[data-testid="window-first-lens-verdict-act"]')
+        ?? document.querySelector('[data-testid="window-first-lens-readout"]');
+      target?.focus?.();
     });
   };
 
   /**
    * The one message the whole plan may carry, and null when it carries none.
    *
-   * <p>Above the matrix, because it is about the plan rather than one window (plan-matrix §6 M2.6).
+   * <p>The lens bar's verdict line, because it is about the plan rather than one window (plan-matrix §6 M2.6;
+   * lens-verdict-line-plan.md moved it off a card above the matrix).
    * Its per-window counterpart is the popup's quiet sentence, and the two land together: neither
    * alone covers what the deleted per-card ladder covered.
    */
   const conflict = useMemo(() => buildPlanConflict({
     cards: windowCards,
     origin: origin ?? null,
-    homePlace: homePlace || null,
     tierId: reachLens?.tierId,
     limitMinutes: reachLens?.tier?.limitMinutes ?? null,
     floorId: ratingLens?.floorId,
     minRating: ratingLens?.minRating ?? null,
     reachMeasured,
-  }), [windowCards, origin, homePlace, reachLens?.tierId, reachLens?.tier,
+  }), [windowCards, origin, reachLens?.tierId, reachLens?.tier,
     ratingLens?.floorId, ratingLens?.minRating, reachMeasured]);
 
   /**
@@ -2887,6 +2887,9 @@ export default function WindowFirstShell({
           // A reader with no pick has no spots to count: "0 spots across 4 windows" would be false of the picks (S5b-1).
           windowCount={picksFacts?.allowed === 0 ? 0 : windowCards.length}
           originBase={origin?.baseName ?? null}
+          // The plan-level conflict, as the readout's verdict line (it was a card above the matrix).
+          verdict={conflict?.line ?? null}
+          onVerdictAction={applyConflictAction}
         />
       )}
 
@@ -2941,45 +2944,6 @@ export default function WindowFirstShell({
         data-testid="window-first-pane"
         className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
-        {/* Page-level, above the pictures, because both messages are about the WHOLE plan — the
-            design's own placement and its own reason. The per-window half of what the card ladder
-            used to do is the popup's quiet sentence; the two replacements land in one phase. */}
-        {/* ⚠️ The WRAPPER is always mounted and carries `role="status"`; the message inside is what
-            comes and goes. A `role` added to a conditionally-mounted node is not announced — the
-            drill-down's own count records that trap two files away — and this message appears in
-            response to a lens change several elements up the page, so a screen-reader reader would
-            otherwise watch their whole plan empty in silence. */}
-        <div
-          role="status"
-          aria-live="polite"
-          data-testid="window-first-conflict-slot"
-          className="wf-conflict-slot"
-        >
-          {conflict && (
-          <div data-testid="window-first-conflict" data-conflict={conflict.id} className="wf-clash">
-            <b data-testid="window-first-conflict-head">{conflict.headline}</b>
-            <span data-testid="window-first-conflict-body">{conflict.body}</span>
-            {conflict.actions.length > 0 && (
-              <span className="wf-clash-acts">
-                {conflict.actions.map((action) => (
-                  <button
-                    key={`${action.kind}:${action.id}`}
-                    type="button"
-                    data-testid="window-first-conflict-act"
-                    data-loosen={action.kind}
-                    className="wf-clash-act"
-                    onClick={() => applyConflictAction(action)}
-                  >
-                    {action.label}
-                    <span aria-hidden="true"> →</span>
-                  </button>
-                ))}
-              </span>
-            )}
-          </div>
-          )}
-        </div>
-
         {/* The hazard notice, page-level for the reason the memo records: the card list that used
             to guarantee it is on screen whenever a topic is has been deleted. */}
         {safety && (
