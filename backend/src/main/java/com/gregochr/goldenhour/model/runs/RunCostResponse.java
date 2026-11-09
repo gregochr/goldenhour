@@ -12,9 +12,10 @@ import java.util.Map;
  * <p>Today is excluded because it is incomplete. A cost that is not known (a batch still open) is never counted as
  * zero: the day, type or total that contains one says {@code costComplete: false}.
  *
- * @param rangeDays N, the length of each of the two periods
- * @param firstDay  the first day of the prior period
+ * @param rangeDays N, the length of each of the two periods (in all time, the days served)
+ * @param firstDay  the first day of the prior period (in all time, the first day of the history)
  * @param lastDay   the last day of the last period (yesterday)
+ * @param allTime   true when the whole Runs history was asked for: one period, no prior
  * @param days      one entry per UK day of the two periods, ascending
  * @param types     one entry per run type that ran, biggest rise in pounds first
  * @param totals    the two periods summed
@@ -24,6 +25,7 @@ public record RunCostResponse(
         int rangeDays,
         LocalDate firstDay,
         LocalDate lastDay,
+        boolean allTime,
         List<CostDay> days,
         List<CostType> types,
         CostTotals totals,

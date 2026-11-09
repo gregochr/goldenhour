@@ -162,11 +162,11 @@ public class AdminRunsController {
     /**
      * The Cost trends view: spend by day and by run type for the last N full UK days against the N before.
      *
-     * @param days the period length, 14, 30 (default) or 60
-     * @return the cost trends, or 400 for any other period
+     * @param days the period length, 7, 14, 30 (default), 60, 90 or all
+     * @return the cost trends, or 400 for any other value
      */
     @GetMapping("/cost")
-    public ResponseEntity<?> cost(@RequestParam(required = false) Integer days) {
+    public ResponseEntity<?> cost(@RequestParam(required = false) String days) {
         return ResponseEntity.ok(costService.cost(days));
     }
 
