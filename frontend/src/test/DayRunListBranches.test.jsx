@@ -187,6 +187,7 @@ describe('DayRunList expanded rows', () => {
     const { rerender } = render(<DayRunList {...baseProps({ day: dayResponse(rows), openId: 'eval-5' })} />);
     expect(screen.queryByTestId('runs-row-eval-5')).toBeNull();
     expect(within(screen.getByTestId('runs-day-detail-eval-5')).getByTestId('runs-calls-unlogged')).toBeInTheDocument();
+    expect(screen.getByTestId('runs-day-detail-eval-5')).toHaveClass('@max-[480px]:pl-3', 'max-[639px]:pl-3');
     rerender(<DayRunList {...baseProps({ day: dayResponse(rows), openId: 'cycle-x' })} />);
     expect(screen.queryByTestId('runs-row-cycle-x')).toBeNull();
     rerender(<DayRunList {...baseProps({ day: dayResponse(rows), openId: 'job-x' })} />);

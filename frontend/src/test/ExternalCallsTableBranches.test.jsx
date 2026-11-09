@@ -81,4 +81,19 @@ describe('ExternalCallsTable branches', () => {
     expect(await screen.findByTestId('runs-calls-table')).toBeInTheDocument();
     expect(fetchRunCalls).toHaveBeenCalledTimes(2);
   });
+
+  it('carries container-query classes that stack each row as a card when the table is narrow', async () => {
+    fetchRunCalls.mockResolvedValue(callsResponse([callService({ service: 'a', label: 'Anthropic' })]));
+    render(<ExternalCallsTable runId="job-9" logged />);
+    const table = await screen.findByTestId('runs-calls-table');
+    expect(screen.getByTestId('runs-calls')).toHaveClass('@container');
+    expect(table).toHaveClass('@max-[440px]:block');
+    const row = screen.getByTestId('runs-calls-row-a');
+    expect(row).toHaveClass('@max-[440px]:flex', '@max-[440px]:flex-wrap');
+    const cells = row.querySelectorAll('td');
+    expect(cells).toHaveLength(6);
+    expect(cells[1]).toHaveClass('@max-[440px]:w-full', '@max-[440px]:order-3');
+    expect(cells[3]).toHaveClass('@min-[640px]:table-cell', '@max-[440px]:block');
+    expect(cells[5]).toHaveClass('@max-[440px]:order-2');
+  });
 });

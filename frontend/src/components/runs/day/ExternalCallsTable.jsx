@@ -69,7 +69,7 @@ export default function ExternalCallsTable({ runId, logged }) {
     body = <Note testId="runs-calls-empty">No external calls were logged for this run.</Note>;
   } else {
     body = (
-      <table className="w-full table-fixed border-collapse text-left text-[12px]" data-testid="runs-calls-table">
+      <table className="w-full table-fixed border-collapse text-left text-[12px] @max-[440px]:block" data-testid="runs-calls-table">
         <thead className="sr-only">
           <tr>
             <th scope="col">Service</th>
@@ -80,18 +80,18 @@ export default function ExternalCallsTable({ runId, logged }) {
             <th scope="col">Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="@max-[440px]:block">
           {calls.data.services.map((service) => {
             const status = CALL_STATUS[service.status] ?? CALL_STATUS.OK;
             const errorTone = service.status === 'FAILED' ? 'text-plex-coral' : 'text-verdict-marginal';
             return (
               <tr
                 key={`${service.service}-${service.purpose}-${service.batches != null}`}
-                className="border-t border-plex-border align-top first:border-t-0"
+                className="border-t border-plex-border align-top first:border-t-0 @max-[440px]:flex @max-[440px]:flex-wrap @max-[440px]:items-baseline @max-[440px]:gap-x-3 @max-[440px]:px-3 @max-[440px]:py-2"
                 data-testid={`runs-calls-row-${service.service}`}
               >
-                <td className="w-[22%] px-3 py-2 font-medium text-plex-text">{service.label}</td>
-                <td className="px-3 py-2 text-plex-text-secondary">
+                <td className="w-[22%] px-3 py-2 font-medium text-plex-text @max-[440px]:w-auto @max-[440px]:flex-1 @max-[440px]:p-0">{service.label}</td>
+                <td className="px-3 py-2 text-plex-text-secondary @max-[440px]:order-3 @max-[440px]:mt-0.5 @max-[440px]:w-full @max-[440px]:p-0">
                   {service.purpose}
                   {service.errorSummary && (
                     <span className={`mt-0.5 block break-words ${errorTone}`} data-testid="runs-calls-error-summary">
@@ -99,12 +99,12 @@ export default function ExternalCallsTable({ runId, logged }) {
                     </span>
                   )}
                 </td>
-                <td className="w-[18%] px-3 py-2 font-mono text-plex-text-secondary">{callsText(service)}</td>
-                <td className="hidden w-[11%] px-3 py-2 font-mono text-plex-text-secondary @min-[640px]:table-cell">
+                <td className="w-[18%] px-3 py-2 font-mono text-plex-text-secondary @max-[440px]:order-4 @max-[440px]:mt-1 @max-[440px]:w-auto @max-[440px]:p-0">{callsText(service)}</td>
+                <td className="hidden w-[11%] px-3 py-2 font-mono text-plex-text-secondary @min-[640px]:table-cell @max-[440px]:order-4 @max-[440px]:mt-1 @max-[440px]:block @max-[440px]:w-auto @max-[440px]:p-0">
                   {formatMs(service.durationMs)}
                 </td>
-                <td className="w-[11%] px-3 py-2 font-mono text-plex-text-secondary">{costText(service)}</td>
-                <td className="w-[11%] px-3 py-2">
+                <td className="w-[11%] px-3 py-2 font-mono text-plex-text-secondary @max-[440px]:order-4 @max-[440px]:mt-1 @max-[440px]:w-auto @max-[440px]:p-0">{costText(service)}</td>
+                <td className="w-[11%] px-3 py-2 @max-[440px]:order-2 @max-[440px]:w-auto @max-[440px]:p-0">
                   <StatusDot tone={status.tone} tintText>{status.label}</StatusDot>
                 </td>
               </tr>
