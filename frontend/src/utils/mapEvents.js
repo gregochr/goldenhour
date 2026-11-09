@@ -767,6 +767,34 @@ export function solarRowPredicate({
 }
 
 /**
+ * Whether the EV list carries a SOLAR row (a sunrise or a sunset) on ANY date: the dates
+ * {@link buildMapEvents} iterates for solar rows ({@code forecastDates} plus every served,
+ * non-{@code past} window's date), asked through the same {@link solarRowPredicate} rule. A past
+ * window only ever makes a row on a date already in {@code forecastDates}, so it adds no date.
+ *
+ * <p>It exists so {@code MapView}'s {@code visibleLocations}, which runs before {@code mapEvents}
+ * is built (above the early return), can tell "this window has no row" (the pill reads "No
+ * forecast" while solar rows exist elsewhere) from "no solar forecast exists at all" (the
+ * hides-only state, where wildlife hides must stay drawn).
+ *
+ * @param {object} args
+ * @param {(date: string, targetType: string) => boolean} args.solarRowExists a {@link solarRowPredicate}
+ * @param {string[]} [args.forecastDates] every date with a sunrise or sunset row
+ * @param {Array<{date: string, targetType: string, past?: boolean}>} [args.solarWindows] served windows
+ * @returns {boolean}
+ */
+export function anySolarRow({ solarRowExists, forecastDates = [], solarWindows = [] }) {
+  const dates = new Set(forecastDates);
+  for (const w of solarWindows) {
+    if (w?.date && w?.targetType && !w.past) dates.add(w.date);
+  }
+  for (const d of dates) {
+    if (solarRowExists(d, 'SUNRISE') || solarRowExists(d, 'SUNSET')) return true;
+  }
+  return false;
+}
+
+/**
  * Whether a stored night becomes an EV row — D-14's clip and its one exception (module doc), in one
  * place, because two things must agree on it: {@link buildMapEvents}, which offers the rows, and
  * {@code MapView}'s preview fetch, which must cover every past-dated one or that row reads "—".

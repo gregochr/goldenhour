@@ -64,7 +64,7 @@ import TideWave from './map/TideWave.jsx';
 import { fadeAt, LAND_CLIP_MAX_ZOOM } from '../utils/heatHandover.js';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
-  solarRowPredicate, isNightKind, isHighWaterRow, nightLabel,
+  solarRowPredicate, anySolarRow, isNightKind, isHighWaterRow, nightLabel,
   EVENT_KIND, HIGH_WATER, nextClockBoundary,
 } from '../utils/mapEvents.js';
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
@@ -3220,6 +3220,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       || solarRowExists(date, eventType)),
     [solarRowExists, date, eventType],
   );
+  // Whether the EV list has ANY solar row. `visibleLocations` runs above `mapEvents`, so this is how it
+  // tells a window with no row (pill "No forecast", rows elsewhere) from the hides-only state (none).
+  const anySolarRowServed = useMemo(() => anySolarRow({
+    solarRowExists, forecastDates, solarWindows: heat?.windows || [],
+  }), [solarRowExists, forecastDates, heat]);
 
   /**
    * Whether the scored-locations toast is on screen for this window — the ONE gate its render
@@ -3519,9 +3524,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       const rating = getRatingForLocation(loc);
       if (rating == null) {
         // Wildlife has no sky rating by design, so the sky-quality threshold must not
-        // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+        // hide it, but only on a window that HAS a forecast row. On a window the EV list has
+        // no row for while other solar rows exist (pill "No forecast"), hides drop out like
+        // rated places. Other unrated (not-yet-evaluated) locations stay admin-gated behind
         // the "unknown" toggle, so the default 3★+ map reads quality-first.
-        return isPureWildlife || showUnrated || named;
+        const windowHasNoForecast = anySolarRowServed && eventType !== HIGH_WATER && !solarWindowOnScreen();
+        return (isPureWildlife && !windowHasNoForecast) || showUnrated || named;
       }
       return rating >= minStars;
     });
@@ -3552,6 +3560,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     typeFiltered, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, effectiveDriveTimeFilter, driveMinutesFor,
     darkSkyFilter, isAstroMode, focusLensNames, activeStates,
+    anySolarRowServed, solarWindowOnScreen, eventType,
   ]);
 
   /**

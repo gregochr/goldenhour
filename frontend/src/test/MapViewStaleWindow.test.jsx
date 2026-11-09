@@ -48,6 +48,8 @@ vi.mock('react-leaflet', () => ({
   useMap: () => ({
     eachLayer: () => {},
     getContainer: () => ({ clientHeight: 500, clientWidth: 800 }),
+    getZoom: () => 9,
+    flyTo: () => {},
   }),
 }));
 
@@ -444,13 +446,13 @@ describe('a window the EV list has no row for', () => {
     }
   });
 
-  it('withholds the tide claim from a chip that IS drawn on a rowless window', async () => {
-    // ⚠️ The rating floor hides most locations, but not all: a pure-wildlife site has no sky
-    // rating by design and is drawn regardless (`isPureWildlife || showUnrated`). A COASTAL
-    // wildlife hide therefore still gets a chip on a window with no row — and without the tide
-    // gate that chip kept the wave glyph and the ", tide on the light" in its accessible name.
+  it('withholds the tide claim from a hide that is only on screen because it is SELECTED', async () => {
+    // ⚠️ Wildlife hides drop out of a rowless window like every rated place (the field filter), but
+    // a SELECTED place is re-appended to the label spots whatever the filters say. A COASTAL hide
+    // selected that way must not keep the wave glyph and ", tide on the light" for a window the tab
+    // has no row for.
     const wildlife = makeLocations(YESTERDAY).map((l) => ({ ...l, locationType: ['WILDLIFE'] }));
-    await renderMap({
+    const first = await renderMap({
       locations: wildlife,
       date: YESTERDAY,
       forecastDates: [YESTERDAY],
@@ -458,12 +460,28 @@ describe('a window the EV list has no row for', () => {
       tideAlignmentIndex: tideIndexFor(YESTERDAY),
     });
 
-    expect(labelSpotsSeen.last).toHaveLength(2);
-    for (const spot of labelSpotsSeen.last) {
-      expect(spot.rating).toBeNull();
-      expect(spot.onTheLight).toBe(false);
-      expect(spot.nearestSolarOffsetPhrase).toBeNull();
-    }
+    // The hides are absent from the field, and the footer agrees.
+    expect(labelSpotsSeen.last).toEqual([]);
+    expect(footer()).toHaveTextContent('0 of 2 shown');
+    first.unmount();
+
+    await renderMap({
+      locations: wildlife,
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      heat,
+      tideAlignmentIndex: tideIndexFor(YESTERDAY),
+      planHandoff: {
+        source: 'map', eventType: 'SUNSET', date: YESTERDAY, region: null,
+        minRating: null, limitMinutes: null, locationName: 'Bamburgh', nonce: 1,
+      },
+    });
+    const spots = labelSpotsSeen.last;
+    expect(spots).toHaveLength(1);
+    expect(spots[0].name).toBe('Bamburgh');
+    expect(spots[0].rating).toBeNull();
+    expect(spots[0].onTheLight).toBe(false);
+    expect(spots[0].nearestSolarOffsetPhrase).toBeNull();
   });
 
   it('says "No forecast to show." when the EV list has rows but none for this window', async () => {
@@ -553,5 +571,85 @@ describe('a window the EV list has no row for', () => {
 
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     expect(screen.getByTestId('star-filter-standdown')).toBeEnabled();
+  });
+});
+
+describe('wildlife hides on a window the EV list has no row for', () => {
+  /** Pure-wildlife hides: no sky rating by design, so only the hide exemption can draw them. */
+  const hides = () => SPOTS.map((sp) => ({
+    id: sp.id,
+    name: sp.name,
+    lat: sp.lat,
+    lon: sp.lng,
+    regionName: sp.rid,
+    bortleClass: 4,
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map(),
+  }));
+  const names = () => (labelSpotsSeen.last ?? []).map((sp) => sp.name);
+
+  it('(a) drops out on a "No forecast" window while solar rows exist elsewhere', async () => {
+    await renderMap({ locations: hides(), date: YESTERDAY, forecastDates: [YESTERDAY], heat });
+
+    expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast');
+    expect(labelSpotsSeen.last).toEqual([]);
+    expect(footer()).toHaveTextContent('0 of 2 shown');
+  });
+
+  it('(b) control: the SAME hides on a window that HAS a row are drawn', async () => {
+    await renderMap({ locations: hides(), date: TODAY, forecastDates: [TODAY], heat });
+
+    expect(screen.queryByTestId('wf-win-no-match')).not.toBeInTheDocument();
+    expect(names()).toEqual(['Bamburgh', 'Tynemouth']);
+  });
+
+  it('(d) stay on a High water window, which is not a solar window', async () => {
+    const day = {
+      date: TODAY,
+      windowStart: `${TODAY}T10:00:00`,
+      windowEnd: `${TODAY}T14:00:00`,
+      hwTime: `${TODAY}T12:00:00`,
+      daylightHighWater: true,
+      structures: [],
+    };
+    await renderMap({
+      locations: hides(), date: TODAY, forecastDates: [TODAY], heat, bigSeas: [day],
+    });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `hw:${TODAY}:HIGH_WATER`);
+    expect(row?.getAttribute('data-ev-id')).toBe(`hw:${TODAY}:HIGH_WATER`);
+    await act(async () => { fireEvent.click(row); });
+
+    expect(names()).toEqual(['Bamburgh', 'Tynemouth']);
+  });
+
+  it('(e) stay on a PAST window, which is a row', async () => {
+    await renderMap({
+      locations: hides(),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      pastSolarWindows: [{ date: YESTERDAY, targetType: 'SUNSET', earliestEventTime: `${YESTERDAY}T16:12:00` }],
+      heat,
+    });
+
+    expect(screen.queryByTestId('wf-win-no-match')).not.toBeInTheDocument();
+    expect(names()).toEqual(['Bamburgh', 'Tynemouth']);
+  });
+
+  it('(f) a hide the door NAMED stays on a no-forecast window', async () => {
+    await renderMap({
+      locations: hides(),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      heat,
+      planHandoff: {
+        source: 'plan', eventType: 'SUNSET', date: YESTERDAY, region: null, minRating: null,
+        limitMinutes: null, locationName: null, focusNames: ['Tynemouth'], nonce: 1,
+      },
+    });
+
+    expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast');
+    expect(names()).toEqual(['Tynemouth']);
   });
 });

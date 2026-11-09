@@ -304,6 +304,42 @@ describe('MapView — a forecast of wildlife hides alone (no map event at all)',
   });
 });
 
+describe('MapView — hides with no solar forecast anywhere are not a "no forecast" window', () => {
+  // (c) The regression the no-forecast hide rule must not touch: `forecastDates` holds only a PAST
+  // date and the briefing serves nothing, so no solar row exists anywhere. That is the hides-only
+  // state, not a rowless window, and the hide stays drawn with its comfort forecast.
+  const YESTERDAY = '2026-01-14';
+  const hide = () => ({
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([[TODAY, {
+      sunrise: null,
+      sunset: null,
+      hourly: [{
+        solarEventTime: `${TODAY}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+        windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+      }],
+    }]]),
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+  });
+
+  it('keeps the hide drawn, says the comfort sentence, and selecting it mounts the day-mode callout', async () => {
+    await renderMap({
+      locations: [hide()], heat: { ...heatProp(), windows: [] }, forecastDates: [YESTERDAY],
+    });
+
+    expect(mapLabelsCalls.at(-1).spots).toHaveLength(1);
+    expect(screen.getByTestId('wf-map-no-forecast'))
+      .toHaveTextContent('Wildlife hides still carry a comfort forecast.');
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-daymode')).toHaveTextContent('true');
+  });
+});
+
 describe('MapView — a selected place\'s hourly comfort rows reach the callout for the ACTIVE window\'s date', () => {
   // The callout reads them for a pure wildlife hide only; MapView's job is to hand it the rows of
   // the date on screen, straight off the per-date entry, and null when there are none.

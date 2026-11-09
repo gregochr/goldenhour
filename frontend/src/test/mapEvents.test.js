@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isNightOffered, nightLabel, nightPreviewDates, EVENT_KIND,
-  solarHorizonDates, solarRowPredicate, pastWindowBest,
+  solarHorizonDates, solarRowPredicate, pastWindowBest, anySolarRow,
 } from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset, resolveMapDate } from '../utils/mapDates.js';
 import { windowKey } from '../utils/windowKeys.js';
@@ -1379,5 +1379,53 @@ describe('pastWindowBest — the max over the PAINTED points (outcome-rating-pla
       EVENTS,
     );
     expect(pastWindowBest(spots, 0)).toBe(2);
+  });
+});
+
+describe('anySolarRow — the date set buildMapEvents iterates for solar rows', () => {
+  const YESTERDAY = '2026-09-01';
+  const shapes = {
+    empty: {},
+    'only past forecastDates': { forecastDates: [YESTERDAY] },
+    'a future forecast date': { forecastDates: [TOMORROW] },
+    'served windows': { solarWindows: [solarWindow(TOMORROW, 'SUNRISE')] },
+    'a served window flagged past': { solarWindows: [solarWindow(YESTERDAY, 'SUNSET', { past: true })] },
+    'a past window on a forecast date': {
+      forecastDates: [YESTERDAY],
+      pastSolarWindows: [{ date: YESTERDAY, targetType: 'SUNSET', earliestEventTime: `${YESTERDAY}T19:45:00` }],
+    },
+    'a past window outside the domain': {
+      pastSolarWindows: [{ date: YESTERDAY, targetType: 'SUNSET', earliestEventTime: `${YESTERDAY}T19:45:00` }],
+    },
+  };
+
+  for (const [name, extra] of Object.entries(shapes)) {
+    it(`agrees with buildMapEvents' solar rows for: ${name}`, () => {
+      const args = { ...baseArgs(), ...extra };
+      const solarRowExists = solarRowPredicate({
+        solarWindows: args.solarWindows, forecastDates: args.forecastDates,
+        pastSolarWindows: args.pastSolarWindows ?? [], todayStr: TODAY,
+      });
+      const emitted = buildMapEvents(args).some((r) => r.kind === EVENT_KIND.SOLAR);
+      expect(anySolarRow({
+        solarRowExists, forecastDates: args.forecastDates, solarWindows: args.solarWindows,
+      })).toBe(emitted);
+    });
+  }
+
+  it('is false with nothing served and true once a forecast date carries a row', () => {
+    const none = solarRowPredicate({ todayStr: TODAY });
+    expect(anySolarRow({ solarRowExists: none })).toBe(false);
+    const some = solarRowPredicate({ forecastDates: [TOMORROW], todayStr: TODAY });
+    expect(anySolarRow({ solarRowExists: some, forecastDates: [TOMORROW] })).toBe(true);
+  });
+
+  it('ignores malformed and past-flagged windows when collecting dates', () => {
+    const exists = vi.fn(() => false);
+    anySolarRow({
+      solarRowExists: exists,
+      solarWindows: [null, { date: TODAY }, solarWindow(YESTERDAY, 'SUNSET', { past: true })],
+    });
+    expect(exists).not.toHaveBeenCalled();
   });
 });
