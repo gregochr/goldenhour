@@ -1347,6 +1347,10 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   contract is warranted in principle and was deliberately not built.
 - **Q5 — Should the two picks be forced to differ in region?** A backend change to
   `PlanWindowProjector.selectPicks` that would move the Plan tab too. §4 #2.
+  ⚠️ Any frequency figure from `scripts/measurements/pick-region-repeat/` taken before 2026-11-09 (including
+  the recorded "47.6% repeat; forcing yields silence in 8 of 10") predates its region tie-break fix
+  (scored coverage before name, as `PlanWindowProjector.BY_RANK`) and should be re-measured before it is
+  relied on; see that README.
 - **Q6 — Curated region short names** (`map-tab-v2-plan.md` **O-4**). **STILL OPEN, and the
   increment added two more surfaces to it.** The pill's 9px region line was the first place the full
   names visibly truncate; the drilldown's window-panel rows and the region panel's own header are

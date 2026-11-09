@@ -108,7 +108,8 @@ Read these before re-proposing any of them.
   duplicates but are not: the labels and the mist and clearing rules read them. Only three safe user-message
   trims remain, worth ~25 tokens a request or **~$1/month**. The owner chose to build them anyway
   (`sky-user-message-trim-plan.md`). Dropping the `headline` output field would save ~6% more, but Ask
-  would have to switch to reading `summary`. Not done.
+  would have to switch to reading `summary`. Not done. Re-measure the answer-versus-thinking split with
+  `scripts/measurements/output-token-split/` before revisiting.
 - **The overnight run does far-term only: REJECTED (2026-11-04).** Measured with `short-term-looks.sql`
   (production, 45 days). The overnight's T+1 look replaces the far-term rating, and it moves it a lot:
   2★ or more for 18.5% of sunrises (3,415 pairs) and 16.8% of sunsets (2,865), and the moves are mostly
