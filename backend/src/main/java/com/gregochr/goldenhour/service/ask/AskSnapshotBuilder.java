@@ -57,8 +57,8 @@ import java.util.Set;
  * and nothing else about ratings.
  *
  * <p><b>The window set</b> is the events listed in the served briefing's {@code renderedEvents} (the
- * Plan tab's six; every summary carries a {@code window()}, so the cap is {@code renderedEvents}
- * and not window presence) whose {@code window()} is non-null, that
+ * Plan tab's whole days, today to T+3; every summary carries a {@code window()}, so the bound is
+ * {@code renderedEvents} and not window presence) whose {@code window()} is non-null, that
  * {@link PlanWindowProjector#hasPassed} has not retired, that are solar, and that are not travel
  * days. The elapsed test is the shared projector method, so Ask and the Plan tab retire a window
  * at the same minute.
@@ -287,7 +287,7 @@ public class AskSnapshotBuilder {
     // -- the later windows --------------------------------------------------------------------
 
     /**
-     * The solar windows Ask does not rate that still carry a tide: outside the Plan tab's rendered six, or a
+     * The solar windows Ask does not rate that still carry a tide: outside the Plan tab's rendered whole days, or a
      * travel day (whose tide is from tables, so it never will be "forecast later"). Built from each window's
      * {@code tideFacts} and never from its slots, which the honesty filter has emptied. Fail-soft: a roster that
      * cannot be read gives no later windows, never no snapshot.
@@ -621,8 +621,8 @@ public class AskSnapshotBuilder {
 
     /**
      * The events the Plan tab draws: {@code DailyBriefingResponse.renderedEvents}, which
-     * {@code PlanWindowProjector} publishes on every served briefing (the leading six non-past
-     * events). A null or empty list yields no keys, so a payload that was never projected offers
+     * {@code PlanWindowProjector} publishes on every served briefing (every non-past solar event dated
+     * today to T+3). A null or empty list yields no keys, so a payload that was never projected offers
      * no windows rather than every window.
      */
     private static Set<AskWindowKey> renderedKeys(DailyBriefingResponse briefing) {

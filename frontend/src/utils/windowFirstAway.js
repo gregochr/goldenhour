@@ -8,9 +8,9 @@
  * projector turns one into STAND_DOWN or AWAITING and a naive card would read "Poor" directly under
  * a rail tile reading "Not forecast" — a contradiction on one screen.
  *
- * <p>What that left behind is a quieter problem, and it is the one this module fixes. The six-event
- * cap in {@code selectUpcomingEvents} is applied <b>before</b> the travel filter, so an away day
- * spends one of the six slots and then vanishes: a reader with two away days sees four cards and no
+ * <p>What that left behind is a quieter problem, and it is the one this module fixes. The event-count
+ * cap that once bounded {@code selectUpcomingEvents} was applied <b>before</b> the travel filter, so an away day
+ * spent a rendered slot and then vanished: a reader with two away days sees four cards and no
  * account of the missing two, and the pane's own date order silently skips a day. Counting the
  * block is therefore not decoration — it is what makes the cap's arithmetic legible.
  *

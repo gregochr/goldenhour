@@ -356,7 +356,7 @@ export default function LocationFourDaySheet({
   return (
     <Modal
       // Counted, never asserted: `heatStripCards` folds `upcomingEvents`, which shortens as the day
-      // burns down and is uncapped on the degrade path — so "the next six windows" was a number the
+      // burns down and is uncapped on the degrade path — so "the next N windows" was a number the
       // payload does not guarantee, and it is this dialog's ENTIRE accessible name, invisible to a
       // sighted check. A four-window fixture was announcing six. A hide has no windows to count: it
       // names what it shows.

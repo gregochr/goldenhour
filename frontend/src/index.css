@@ -1487,7 +1487,7 @@
 }
 
 /* ── Window-first heat strip ──
-   Six solar-window thumbnails under the lens bar, replacing the day rail (plan D1, §1.1). The
+   Up to eight solar-window thumbnails under the lens bar, replacing the day rail (plan D1, §1.1). The
    design's own class names are kept (`hstrip`, `hc`, `sumfoot`) so the mock and this file can be
    read side by side; the `wf-` prefix marks the arm, as everywhere else here.
 
@@ -3630,6 +3630,11 @@ div.wf-hc:where([data-control]).also.on:hover {
   .wf-hstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 8px; }
   .wf-hstrip > * { grid-column: auto; grid-row: auto; }
   .wf-hstrip > .wf-hday { grid-column: 1 / -1; margin-top: 4px; }
+  /* The empty slot ("this morning has gone") no longer sets its row's height: the base `.wf-hgap` carries a 110px
+     minimum, which beside a short "Not forecast" card forced the whole row to 110px. It still stretches (the grid
+     default, no `align-self: start`) to its neighbour, so it is that card's height beside a short one and matches a
+     full card beside a full one. (0,2,0) beats the base (0,1,0). */
+  .wf-hstrip > .wf-hgap { min-height: 0; }
   /* Chip compaction (matrix-axis plan D13) — keeps the sunrise/sunset chip's min-content width
      inside its 2-column track; without it the chip's desktop padding/letter-spacing can push a
      narrow card wider than its column. ⚠️ (0,2,0), the same specificity as `.wf-hc-sun.am`/`.pm`

@@ -736,7 +736,7 @@ function cardPick(pick) {
  *
  * <p>What changed at P9 is that the absence is no longer silent. {@code buildPaneItems} in
  * {@code windowFirstAway.js} folds a dashed row back in where the missing windows fall, because the
- * six-event cap is applied <em>before</em> the travel filter — so an away day spends a slot and then
+ * render cap (once six events, now whole days) is applied <em>before</em> the travel filter — so an away day spends a slot and then
  * vanishes, and the pane's date order skips a day with nothing to say why. This function stays
  * unchanged: it still returns cards only, and the away rows are built from the same event array
  * beside it rather than smuggled through as a fifth card variant.

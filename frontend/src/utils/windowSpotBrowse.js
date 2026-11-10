@@ -8,7 +8,7 @@ import { compareSpots } from './windowFirstSpots.js';
  *
  * <h2>⚠️ The rating floor is no longer owned here</h2>
  *
- * <p>Plan §5f put it in this sheet and argued the scope: reach governs six windows, a floor is
+ * <p>Plan §5f put it in this sheet and argued the scope: reach governs the rendered windows, a floor is
  * "about the list you are reading now". The design handoff overrules that and the floor is now a
  * page-wide lens beside reach — {@code utils/ratingLens.js} owns the vocabulary, the storage and the
  * gate, and records why §5f's stated hazard does not fire. What is left here is the sheet's own

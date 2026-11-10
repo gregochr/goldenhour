@@ -342,7 +342,7 @@ Two consequences worth stating plainly:
 - ⚠️ **A reader that covers a whole window loads it ONCE — the rule the paragraph above got wrong the
   first time.** `BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` originally called
   `EvaluationViewService.getLiveScoresForEnrichment` per region **and** event — up to
-  `PlanRenderLimits.MAX_VISIBLE_EVENTS` (6) events × the region count × 2 call sites, each call
+  `PlanRenderLimits.MAX_VISIBLE_EVENTS` (6 then; up to 8 since the whole-day horizon) events × the region count × 2 call sites, each call
   costing three queries (the enabled roster, the latest forecast rows, the stability dispositions):
   roughly 216 queries per best-bet rollup against production's ~6 regions, where the direct in-memory
   cache read this whole feature replaced cost none. A second Codex re-review of #940 caught it.

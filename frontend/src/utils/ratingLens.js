@@ -4,7 +4,7 @@
  * <h2>It moved onto the bar, and plan §5f said not to. Here is what changed</h2>
  *
  * <p>P11 put the rating floor in the drill-down sheet and argued it on <b>scope</b>: reach is a
- * judgement about today that governs six windows, where a floor is "about the list you are reading
+ * judgement about today that governs the rendered windows, where a floor is "about the list you are reading
  * now". The design handoff that this module implements overrules that — the floor is a global lens
  * beside reach — and the one concrete hazard §5f raised turns out not to fire. Its words were: "a
  * global 4★ floor would leave a card reading {@code best 5★} over a strip its own control had
@@ -63,7 +63,7 @@ export const RATING_FLOORS = [{ id: ANY_RATING_ID, min: null, label: 'Any rating
  *
  * <p>The handoff's reason, kept because it is a fact about the data rather than about the layout:
  * "5★ nights are scarce enough that it would usually return nothing", and a page-wide control that
- * usually empties six windows at once is a control nobody presses twice. The <em>sheet</em> keeps
+ * usually empties the rendered windows at once is a control nobody presses twice. The <em>sheet</em> keeps
  * the 5★ step: one window's full list is exactly where "show me only the best" is a real question,
  * and it is a browsing choice that dies with the dialog rather than a stored preference.
  *

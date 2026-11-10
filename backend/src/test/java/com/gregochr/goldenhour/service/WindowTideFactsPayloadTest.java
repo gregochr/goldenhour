@@ -106,7 +106,7 @@ class WindowTideFactsPayloadTest {
                 List.of());
         Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts = withFacts
                 ? WindowTideFactProjector.project(days) : Map.of();
-        return PlanWindowProjector.apply(raw, LocalDateTime.of(2026, 10, 8, 4, 0), Map.of(), facts);
+        return PlanWindowProjector.apply(raw, LocalDateTime.of(2026, 10, 8, 4, 0), START, Map.of(), facts);
     }
 
     /**

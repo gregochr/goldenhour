@@ -1,5 +1,5 @@
 /**
- * The heat field's catalogue join — locations × batch scores × the six rendered windows.
+ * The heat field's catalogue join — locations × batch scores × the rendered windows.
  *
  * <p>Two contracts meet here and neither carries the other's data. {@code GET /api/locations}
  * has the geography (and is the ONLY payload that does — plan §3: the briefing and scores
@@ -173,7 +173,7 @@ function putFirst(index, key, value) {
 export function buildHeatSpots(locations, scoreRows, renderedEvents, allowedIds = null) {
   const events = Array.isArray(renderedEvents) ? renderedEvents : [];
   // Only the rendered windows can ever match, so only their rows are worth indexing. The
-  // response spans today-2..today+5 (both events, every location) while at most six pairs are on
+  // response spans today-2..today+5 (both events, every location) while at most eight pairs are on
   // screen, and the whole response is walked again whenever the window list changes. Measured on
   // a 204-location model: indexing every row costs 2.6ms per rebuild against 1.3ms filtered.
   const wanted = new Set(events.map((e) => windowKey(e.date, e.targetType)));
@@ -239,7 +239,7 @@ export function buildHeatSpots(locations, scoreRows, renderedEvents, allowedIds 
       regionName,
       // The kernel's name for the same string, set once from one value. `centroid(spots, rid,
       // project)` filters on `s.rid`, so without it P3 could only position a region label from a
-      // window's SCORED subset — and the labels would then move between the six thumbnails as
+      // window's SCORED subset — and the labels would then move between the thumbnails as
       // coverage changed.
       rid: regionName,
       skySubject,

@@ -20,9 +20,11 @@ import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -697,8 +699,7 @@ class PlanWindowProjectorTest {
         void picksNeverLandOnAnUnrenderedWindow() {
             // The briefing carries more days than the rail renders. A pick bound to a window with
             // no tile is a recommendation nobody can reach. One event per day, so the horizon here
-            // reads as 6 dates — horizonCountsSixEventsNotFourDates above is the fixture that
-            // exercises the events-vs-dates distinction itself with two events per day.
+            // is the four dates today..T+3 (T+4 and T+5 are in the payload but unrendered).
             DailyBriefingResponse out = projectDays(
                     dayOf(TODAY, region("Modest", 3, 3)),
                     dayOf(TODAY.plusDays(1), region("Modest2", 3, 3)),
@@ -744,7 +745,7 @@ class PlanWindowProjectorTest {
                     List.of(dayOf(TODAY, region("Gone", 5, 5)),
                             dayOf(TODAY.plusDays(1), region("Ahead", 4, 4))),
                     List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 0)));
+                    LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
 
             assertThat(firstWindow(out, 0).pick()).isNull();
             assertThat(firstWindow(out, 1).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
@@ -778,37 +779,38 @@ class PlanWindowProjectorTest {
                     .withSampleSufficient(true);
 
             DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+                    LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
 
             assertThat(firstWindow(out, 0).pick()).isNotNull();
         }
 
         @Test
-        @DisplayName("the horizon counts events, not dates — two events per day diverge from one")
-        void horizonCountsSixEventsNotFourDates() {
-            // horizonCountsSurvivingDates below uses dayOf(), which builds exactly one event per
-            // day — so "first 4 dates" and "first 4 events" are numerically identical there, and
-            // an 8-vs-6 (dates-vs-events) horizon bug is invisible. With two events per day the
-            // two horizons diverge: 4 dates is 8 events, the shared 6-event constant is 3 dates
-            // plus one. D3am below is the 7th event overall — inside the old 4-DATE cap, outside
-            // the shared 6-EVENT cap — which is exactly how a BEST landed on an unrendered window
-            // in prod on 2026-08-16.
+        @DisplayName("the horizon is whole dates, not an event count: the 7th event is rendered, T+4 is not")
+        void horizonIsWholeDatesNotAnEventCount() {
+            // This test pinned the opposite rule (the leading six EVENTS, which put D3am, the 7th
+            // event, outside the horizon). The rule is now whole days: every non-past event dated
+            // today..T+3, so D3am is rendered and may win a pick, while T+4 (the 9th and 10th
+            // events) never is, however well rated. The 2026-08-16 failure the old test guarded (a
+            // BEST on a window with no card) stays impossible: picks come only from the rendered set.
             DailyBriefingResponse out = projectDays(
                     twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 4, 4)),
-                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)));
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(4), region("D4am", 5, 5), region("D4pm", 5, 5)));
 
-            BriefingWindow d2pm = out.days().get(2).eventSummaries().get(1).window();
             BriefingWindow d3am = out.days().get(3).eventSummaries().get(0).window();
+            BriefingWindow d4am = out.days().get(4).eventSummaries().get(0).window();
+            BriefingWindow d4pm = out.days().get(4).eventSummaries().get(1).window();
 
-            // D3am rates highest of everyone (5.0) but sits at event index 6 — the 7th event,
-            // beyond the first 6. It must never win a pick despite the highest rating in the
-            // payload. D2pm (4.0), the highest-rated window inside the first 6 events, must win
-            // instead.
-            assertThat(d3am.pick()).isNull();
-            assertThat(d2pm.pick()).isNotNull();
-            assertThat(d2pm.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            // D3am (5.0) is the 7th event: rendered now, and the highest-rated rendered window.
+            assertThat(out.renderedEvents())
+                    .contains(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE));
+            assertThat(d3am.pick()).isNotNull();
+            assertThat(d3am.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            // T+4 ties D3am at 5.0 but is outside the horizon: it can never carry a pick.
+            assertThat(d4am.pick()).isNull();
+            assertThat(d4pm.pick()).isNull();
         }
 
         @Test
@@ -824,7 +826,7 @@ class PlanWindowProjectorTest {
                             dayOf(TODAY.plusDays(3), region("D3", 3, 3)),
                             dayOf(TODAY.plusDays(4), region("D4", 5, 5))),
                     List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+                    LocalDateTime.of(TODAY.plusDays(1), LocalTime.of(0, 30)));
 
             assertThat(firstWindow(out, 0).pick()).isNull();
             assertThat(firstWindow(out, 4).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
@@ -1193,7 +1195,7 @@ class PlanWindowProjectorTest {
     /**
      * The two derivations Phase 3 moved off the client, and the invariant that binds them.
      *
-     * <p>The client used to keep its own six-event cap, its own pastness rule and its own day-card
+     * <p>The client used to keep its own event cap, its own pastness rule and its own day-card
      * roll-up, while the backend scoped the picks to a set derived separately. Two answers to
      * "which events exist" is how a BEST pick came to name a window with no card, so these tests
      * assert the three consumers of the horizon — the published list, the pick scope and the day
@@ -1204,16 +1206,16 @@ class PlanWindowProjectorTest {
     class RenderedListAndDayPeak {
 
         @Test
-        @DisplayName("it publishes the leading six events, in payload order")
-        void publishesTheLeadingSixEventsInOrder() {
-            // Four two-event days is eight events. The 7th and 8th must not appear, and the six
-            // that do must be in the order the payload carries them, not any ranking order — the
-            // highest-rated window here is deliberately the last one published.
+        @DisplayName("it publishes every event of today..T+3, in payload order, and nothing of T+4")
+        void publishesTheWholeDaysInOrder() {
+            // Five two-event days is ten events. The two on T+4 must not appear, and the eight that
+            // do must be in the order the payload carries them, not any ranking order.
             DailyBriefingResponse out = projectDays(
                     twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 5, 5)),
-                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)));
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 5, 5), region("D3pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(4), region("D4am", 5, 5), region("D4pm", 5, 5)));
 
             assertThat(out.renderedEvents()).containsExactly(
                     new PlanRenderedEvent(TODAY, TargetType.SUNRISE),
@@ -1221,20 +1223,109 @@ class PlanWindowProjectorTest {
                     new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNRISE),
                     new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNSET),
                     new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNRISE),
-                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNSET));
+                    new PlanRenderedEvent(TODAY.plusDays(2), TargetType.SUNSET),
+                    new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE),
+                    new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNSET));
         }
 
         @Test
-        @DisplayName("a window past the rendered six still carries its own tide rollup")
+        @DisplayName("after this morning's sunrise and afterglow: seven events, today's sunset first, T+3 sunset last")
+        void sevenEventsAfterSunrise() {
+            DailyBriefingResponse out = projectAt(List.of(
+                    dawnAndDuskDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(4), region("D4am", 3, 3), region("D4pm", 3, 3))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.NOON));
+
+            assertThat(out.renderedEvents()).hasSize(7)
+                    .startsWith(new PlanRenderedEvent(TODAY, TargetType.SUNSET))
+                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNSET))
+                    .extracting(PlanRenderedEvent::date).doesNotContain(TODAY.plusDays(4));
+        }
+
+        @Test
+        @DisplayName("after today's sunset: six events, T+1..T+3, no T+4")
+        void sixEventsAfterSunset() {
+            DailyBriefingResponse out = projectAt(List.of(
+                    dawnAndDuskDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)),
+                    dawnAndDuskDayOf(TODAY.plusDays(4), region("D4am", 3, 3), region("D4pm", 3, 3))),
+                    List.of(), LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
+
+            assertThat(out.renderedEvents()).hasSize(6)
+                    .startsWith(new PlanRenderedEvent(TODAY.plusDays(1), TargetType.SUNRISE))
+                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNSET));
+        }
+
+        @Test
+        @DisplayName("an untimed event on yesterday (an aged briefing's first day) is not rendered")
+        void anUntimedYesterdayIsNotRendered() {
+            BriefingEventSummary untimed = new BriefingEventSummary(
+                    TargetType.SUNRISE, List.of(), List.of());
+            BriefingDay yesterday = new BriefingDay(TODAY.minusDays(1), List.of(untimed));
+
+            DailyBriefingResponse out = projectAt(List.of(yesterday,
+                    dayOf(TODAY, region("Today", 3, 3)),
+                    dayOf(TODAY.plusDays(1), region("Tomorrow", 3, 3))),
+                    List.of(), NOW);
+
+            assertThat(out.renderedEvents()).extracting(PlanRenderedEvent::date)
+                    .containsExactly(TODAY, TODAY.plusDays(1))
+                    .doesNotContain(TODAY.minusDays(1));
+        }
+
+        @Test
+        @DisplayName("the horizon bound is the UK date: at 23:30 UTC under BST the UTC date's day is behind it")
+        void theBoundIsTheUkDateNotTheUtcDate() {
+            // 2026-06-10 23:30 UTC is 2026-06-11 00:30 in London. The UK today is the 11th, so the
+            // 10th is behind the horizon and the 14th (T+3 in the UK) is inside it. Deriving today
+            // from now.toLocalDate() would render the 10th and drop the 14th.
+            LocalDate utcDay = LocalDate.of(2026, 6, 10);
+            LocalDateTime now = LocalDateTime.of(utcDay, LocalTime.of(23, 30));
+            BriefingEventSummary untimed = new BriefingEventSummary(
+                    TargetType.SUNSET, List.of(), List.of());
+
+            DailyBriefingResponse out = projectAt(List.of(
+                    new BriefingDay(utcDay, List.of(untimed)),
+                    new BriefingDay(utcDay.plusDays(5), List.of(untimed)),
+                    new BriefingDay(utcDay.plusDays(4), List.of(untimed))),
+                    List.of(), now);
+
+            assertThat(ukDateAt(now)).isEqualTo(utcDay.plusDays(1));
+            assertThat(out.renderedEvents()).extracting(PlanRenderedEvent::date)
+                    .containsExactly(utcDay.plusDays(4));
+        }
+
+        @Test
+        @DisplayName("a pick can bind to a T+3 window and never to a T+4 window")
+        void aPickBindsToT3NeverT4() {
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("D0", 3, 3)),
+                    dayOf(TODAY.plusDays(1), region("D1", 3, 3)),
+                    dayOf(TODAY.plusDays(2), region("D2", 3, 3)),
+                    dayOf(TODAY.plusDays(3), region("D3", 4, 4)),
+                    dayOf(TODAY.plusDays(4), region("D4", 5, 5)));
+
+            assertThat(firstWindow(out, 3).pick()).isNotNull();
+            assertThat(firstWindow(out, 3).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(firstWindow(out, 4).pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("a window past the rendered days still carries its own tide rollup")
         void anUnrenderedWindowStillCarriesItsTide() {
             // The Map tab's tide strip reads a tide for every day the briefing carries, including
-            // the events the Plan tab does not draw (the 7th and 8th here). The client relies on
+            // the events the Plan tab does not draw (T+4 here). The client relies on
             // the projector attaching the rollup to EVERY event summary, not only the rendered
             // ones: cap the tide at the render horizon and the strip vanishes for exactly those
             // windows, which is how the Sunday sunrise lost it. Each window must also carry its OWN
             // rollup, not a neighbour's.
             Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides = new java.util.HashMap<>();
-            for (int d = 0; d < 4; d++) {
+            for (int d = 0; d < 5; d++) {
                 for (TargetType type : TargetType.values()) {
                     if (type == TargetType.SUNRISE || type == TargetType.SUNSET) {
                         tides.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), type),
@@ -1247,26 +1338,28 @@ class PlanWindowProjectorTest {
                     twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
-                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3))),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(4), region("D4am", 3, 3), region("D4pm", 3, 3))),
                     List.of(), tides);
 
             PlanRenderedEvent lastDayRising = new PlanRenderedEvent(
-                    TODAY.plusDays(3), TargetType.SUNRISE);
+                    TODAY.plusDays(4), TargetType.SUNRISE);
             assertThat(out.renderedEvents()).doesNotContain(lastDayRising);
-            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            BriefingEventSummary unrendered = out.days().get(4).eventSummaries().get(0);
             assertThat(unrendered.targetType()).isEqualTo(TargetType.SUNRISE);
             assertThat(unrendered.window().tide()).isNotNull();
-            assertThat(unrendered.window().tide().nearestOffset()).isEqualTo("SUNRISE d3");
-            assertThat(out.days().get(3).eventSummaries().get(1).window().tide().nearestOffset())
-                    .isEqualTo("SUNSET d3");
+            assertThat(unrendered.window().tide().nearestOffset()).isEqualTo("SUNRISE d4");
+            assertThat(out.days().get(4).eventSummaries().get(1).window().tide().nearestOffset())
+                    .isEqualTo("SUNSET d4");
         }
 
         @Test
-        @DisplayName("one elapsed event spends no slot, so the horizon reaches one event further")
-        void anElapsedEventDoesNotSpendASlot() {
+        @DisplayName("one elapsed event is dropped and the horizon does not stretch to replace it")
+        void anElapsedEventIsDroppedAndTheHorizonDoesNotStretch() {
             // Eight events, served at 12:00 — after the 05:00 sunrise plus its 30-minute afterglow
-            // and well before the 21:11 sunset. EXACTLY ONE event is past, which is what makes the
-            // far end move by exactly one: without the pastness filter the list would end at D2pm.
+            // and well before the 21:11 sunset. EXACTLY ONE event is past, so seven remain: under
+            // the old six-event rule the far end moved by one to refill the count; under the
+            // whole-day rule it stays at T+3's sunset (the last event of the last rendered day).
             // The mixed-time fixture is load-bearing here; twoEventDayOf puts both events at 21:11,
             // so any clock past one is past both and the assertion would hold for the wrong reason.
             DailyBriefingResponse out = projectAt(List.of(
@@ -1279,8 +1372,8 @@ class PlanWindowProjectorTest {
             assertThat(out.renderedEvents())
                     .doesNotContain(new PlanRenderedEvent(TODAY, TargetType.SUNRISE))
                     .startsWith(new PlanRenderedEvent(TODAY, TargetType.SUNSET))
-                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE))
-                    .hasSize(6);
+                    .endsWith(new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNSET))
+                    .hasSize(7);
         }
 
         @Test
@@ -1309,9 +1402,9 @@ class PlanWindowProjectorTest {
         void aSlotlessWindowUsesTheSummarysOwnEventTime() {
             // The honesty filter empties a zero-coverage region's slot list while leaving the
             // summary's solarEventTime intact. A scan of slots alone then reads that window as
-            // timeless — and a timeless window counts as CURRENT, so it spends one of the six
-            // rendered slots on an event that may be hours past, and the far end of the horizon
-            // loses a day. Delete the fallback and this event is rendered.
+            // timeless — and a timeless window counts as CURRENT, so it is rendered
+            // although it may be hours past, and the horizon holds a dead event. Delete the
+            // fallback and this event is rendered.
             BriefingEventSummary blanked = new BriefingEventSummary(
                     TargetType.SUNRISE, List.of(regionWithSlots("Blanked", List.of())), List.of(),
                     LocalDateTime.of(TODAY, LocalTime.of(5, 0)), null);
@@ -1335,7 +1428,7 @@ class PlanWindowProjectorTest {
             // nothing. A forecast that has entirely passed must say the second.
             DailyBriefingResponse out = projectAt(
                     List.of(dayOf(TODAY, region("Gone", 4, 4))), List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+                    LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
 
             assertThat(out.renderedEvents()).isNotNull().isEmpty();
         }
@@ -1471,10 +1564,11 @@ class PlanWindowProjectorTest {
                     twoEventDayOf(TODAY, region("D0am", 4, 4), region("D0pm", 4, 4)),
                     twoEventDayOf(TODAY.plusDays(1), region("D1am", 4, 4), region("D1pm", 4, 4)),
                     twoEventDayOf(TODAY.plusDays(2), region("D2am", 4, 4), region("D2pm", 4, 4)),
-                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 4, 4), region("D3pm", 4, 4)));
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 4, 4), region("D3pm", 4, 4)),
+                    twoEventDayOf(TODAY.plusDays(4), region("D4am", 4, 4), region("D4pm", 4, 4)));
 
-            assertThat(out.days().get(2).peak()).isNotNull();
-            assertThat(out.days().get(3).peak()).isNull();
+            assertThat(out.days().get(3).peak()).isNotNull();
+            assertThat(out.days().get(4).peak()).isNull();
         }
     }
 
@@ -1514,10 +1608,10 @@ class PlanWindowProjectorTest {
                                 List.of())))),
                 List.of());
 
-        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of(), Map.of())
+        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, TODAY, Map.of(), Map.of())
                 .days().get(0).eventSummaries().get(0).window();
         BriefingWindow rightOrder =
-                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of(), Map.of())
+                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, TODAY, Map.of(), Map.of())
                         .days().get(0).eventSummaries().get(0).window();
 
         assertThat(wrongOrder.pick()).isNotNull();
@@ -1541,7 +1635,7 @@ class PlanWindowProjectorTest {
                             List.of())))),
                     List.of());
 
-            BriefingWindow window = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+            BriefingWindow window = PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of())
                     .days().get(0).eventSummaries().get(0).window();
 
             assertThat(window.verdict()).as("names %s/%s", names[0], names[1])
@@ -1556,7 +1650,7 @@ class PlanWindowProjectorTest {
                             List.of())))),
                     List.of());
 
-            assertThat(PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+            assertThat(PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of())
                     .days().get(0).eventSummaries().get(0).window().verdict())
                     .as("names %s/%s, stand-down listed second", names[0], names[1])
                     .isEqualTo(DisplayVerdict.STAND_DOWN);
@@ -1585,7 +1679,7 @@ class PlanWindowProjectorTest {
             BriefingWindowTide sunset = tide("LW", "19:28");
 
             DailyBriefingResponse out = PlanWindowProjector.apply(
-                    response(twoWindowDay(), List.of()), NOW,
+                    response(twoWindowDay(), List.of()), NOW, TODAY,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE), sunrise,
                             new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset),
                     Map.of());
@@ -1617,7 +1711,7 @@ class PlanWindowProjectorTest {
             // cannot arise on the serve path — but a projector that scattered unmatched entries
             // anywhere would be a hard defect to see, since every rendered window would look fine.
             DailyBriefingResponse out = PlanWindowProjector.apply(
-                    response(twoWindowDay(), List.of()), NOW,
+                    response(twoWindowDay(), List.of()), NOW, TODAY,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY.plusDays(9), TargetType.SUNSET),
                             tide("LW", "19:28")),
                     Map.of());
@@ -1643,12 +1737,13 @@ class PlanWindowProjectorTest {
                     0.8, "RISING", "4.9 m", null, "fits");
         }
 
-        private List<BriefingDay> fourDays() {
+        private List<BriefingDay> fiveDays() {
             return List.of(
                     twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
                     twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
-                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)));
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(4), region("D4am", 3, 3), region("D4pm", 3, 3)));
         }
 
         @Test
@@ -1656,18 +1751,18 @@ class PlanWindowProjectorTest {
         void factsReachAnUnrenderedWindow() {
             Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts =
                     new java.util.HashMap<>();
-            for (int d = 0; d < 4; d++) {
+            for (int d = 0; d < 5; d++) {
                 facts.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), TargetType.SUNRISE),
                         List.of(fact("sunrise d" + d)));
             }
 
-            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
-                    NOW, Map.of(), facts);
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fiveDays(), List.of()),
+                    NOW, TODAY, Map.of(), facts);
 
-            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            BriefingEventSummary unrendered = out.days().get(4).eventSummaries().get(0);
             assertThat(out.renderedEvents()).doesNotContain(
-                    new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE));
-            assertThat(unrendered.window().tideFacts()).containsExactly(fact("sunrise d3"));
+                    new PlanRenderedEvent(TODAY.plusDays(4), TargetType.SUNRISE));
+            assertThat(unrendered.window().tideFacts()).containsExactly(fact("sunrise d4"));
             assertThat(out.days().get(0).eventSummaries().get(0).window().tideFacts())
                     .containsExactly(fact("sunrise d0"));
         }
@@ -1680,8 +1775,8 @@ class PlanWindowProjectorTest {
                     List.of(fact("gone")));
             LocalDateTime tomorrowNoon = LocalDateTime.of(TODAY.plusDays(1), LocalTime.NOON);
 
-            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
-                    tomorrowNoon, Map.of(), facts);
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fiveDays(), List.of()),
+                    tomorrowNoon, ukDateAt(tomorrowNoon), Map.of(), facts);
 
             assertThat(out.renderedEvents()).doesNotContain(
                     new PlanRenderedEvent(TODAY, TargetType.SUNRISE));
@@ -1692,8 +1787,8 @@ class PlanWindowProjectorTest {
         @Test
         @DisplayName("a window with no entry carries null, never an empty list")
         void aWindowWithoutFactsCarriesNull() {
-            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
-                    NOW, Map.of(), Map.of());
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fiveDays(), List.of()),
+                    NOW, TODAY, Map.of(), Map.of());
 
             assertThat(out.days()).allSatisfy(day -> assertThat(day.eventSummaries())
                     .allSatisfy(es -> assertThat(es.window().tideFacts()).isNull()));
@@ -1887,14 +1982,14 @@ class PlanWindowProjectorTest {
 
     @Test
     void aNullResponsePassesThrough() {
-        assertThat(PlanWindowProjector.apply(null, NOW, Map.of(), Map.of())).isNull();
+        assertThat(PlanWindowProjector.apply(null, NOW, TODAY, Map.of(), Map.of())).isNull();
     }
 
     @Test
     void everyOtherComponentOfTheResponseSurvives() {
         DailyBriefingResponse in = response(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
-        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of());
+        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of());
 
         assertThat(out.headline()).isEqualTo(in.headline());
         assertThat(out.generatedAt()).isEqualTo(in.generatedAt());
@@ -1920,15 +2015,20 @@ class PlanWindowProjectorTest {
         return projectAt(days, topics, NOW);
     }
 
+    /** The UK civil date of a UTC test instant, derived exactly as the assembler derives it. */
+    private static LocalDate ukDateAt(LocalDateTime utcNow) {
+        return ForecastHorizon.civilDate(utcNow.toInstant(ZoneOffset.UTC));
+    }
+
     private static DailyBriefingResponse projectAt(List<BriefingDay> days, List<HotTopic> topics,
             LocalDateTime now) {
-        return PlanWindowProjector.apply(response(days, topics), now, Map.of(), Map.of());
+        return PlanWindowProjector.apply(response(days, topics), now, ukDateAt(now), Map.of(), Map.of());
     }
 
     /** As {@link #project}, with the per-window tide rollups the neutral badge detail reads. */
     private static DailyBriefingResponse projectWithTides(List<BriefingDay> days,
             List<HotTopic> topics, Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides) {
-        return PlanWindowProjector.apply(response(days, topics), NOW, tides, Map.of());
+        return PlanWindowProjector.apply(response(days, topics), NOW, TODAY, tides, Map.of());
     }
 
     /**
@@ -1984,7 +2084,7 @@ class PlanWindowProjectorTest {
     /**
      * One day holding both a sunrise and a sunset window, each built from its own regions and
      * re-stamped onto the given date — for fixtures where a two-events-per-day shape matters (the
-     * events-vs-dates horizon; see {@code horizonCountsSixEventsNotFourDates}).
+     * whole-day horizon; see {@code horizonIsWholeDatesNotAnEventCount}).
      */
     private static BriefingDay twoEventDayOf(LocalDate date, BriefingRegion sunrise, BriefingRegion sunset) {
         return new BriefingDay(date, List.of(

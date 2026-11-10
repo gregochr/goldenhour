@@ -38,8 +38,8 @@ import java.util.List;
  *                           are orthogonal — a withdrawal can accompany a successful advisor, and
  *                           equally a {@code FAILED} one whose stale fallback list is what got
  *                           withdrawn.
- * @param renderedEvents     the solar events the Plan tab draws, ordered and capped at
- *                           {@code PlanRenderLimits.MAX_VISIBLE_EVENTS}, with elapsed events
+ * @param renderedEvents     the solar events the Plan tab draws, ordered and bounded to the whole days
+ *                           today..T+3 ({@code PlanRenderLimits.withinHorizon}), with elapsed events
  *                           already dropped against a UTC instant. Serve-path only, published by
  *                           {@code PlanWindowProjector} as the outermost step — {@code null} on
  *                           every internal path, on every stored payload, and on any payload cached

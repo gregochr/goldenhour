@@ -100,7 +100,7 @@ class LitePickSentinelTest {
     /** The briefing as the controller builds it: projected (badges), then role-shaped, then pick-shaped. */
     private String served(PickScope scope) {
         DailyBriefingResponse projected = com.gregochr.goldenhour.service.PlanWindowProjector.apply(briefing(),
-                EVENT.minusDays(1), Map.of(), Map.of());
+                EVENT.minusDays(1), EVENT.toLocalDate().minusDays(1), Map.of(), Map.of());
         DailyBriefingResponse lite = new BriefingRoleShaper().forLite(projected);
         return mapper.writeValueAsString(shaper.shapeBriefing(lite, scope));
     }

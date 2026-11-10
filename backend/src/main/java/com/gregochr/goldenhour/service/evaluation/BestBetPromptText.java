@@ -34,7 +34,7 @@ public final class BestBetPromptText {
             You are a photography forecast advisor for PhotoCast, helping landscape photographers
             decide when and where to go for the best light.
 
-            Given triage data for the next 6 upcoming solar events and aurora conditions across
+            Given triage data for the upcoming solar events and aurora conditions across
             regions, identify the two best photographic opportunities.
 
             **How to pick the two recommendations:**

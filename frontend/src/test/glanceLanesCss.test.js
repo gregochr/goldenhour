@@ -195,6 +195,20 @@ describe('the slim empty slots', () => {
     expect(ruleBody('.wf-hgap span')).toContain('color: var(--color-plex-text-secondary);');
   });
 
+  it('drops the empty slot\'s 110px minimum on the phone only, so it takes its partner card\'s height', () => {
+    // The phone's day grid is the `.wf-hstrip` that holds "The phone transpose"; find that block, not the first one.
+    const transpose = css.indexOf('The phone transpose');
+    const block = mediaBlock('(max-width: 639px)', css.lastIndexOf('@media', transpose));
+    expect(block).toContain('The phone transpose');
+    expect(block).toContain('.wf-hstrip > .wf-hgap { min-height: 0; }');
+    // Stretch is the point: the slot must not be top-aligned on the phone.
+    expect(block.match(/\.wf-hstrip > \.wf-hgap \{[^}]*\}/)[0]).not.toContain('align-self');
+    // Nowhere outside that block (desktop and tablet keep the base minimum).
+    expect(css.replace(block, '')).not.toContain('.wf-hstrip > .wf-hgap {');
+    // The base rule still carries the 110px minimum the phone rule overrides.
+    expect(ruleBody('.wf-hgap')).toContain('min-height: 110px;');
+  });
+
   it('slims the away card in the desktop card rows only and hides its sun chip only there', () => {
     const body = ruleBody('.wf-hstrip-rows .wf-hcards > .wf-hc-away');
     expect(body).toContain('align-self: start;');

@@ -271,7 +271,7 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null,
         //
         // RAW, not the formatted string, and the formatting happens per RENDERED card instead.
         // `formatInstantUk` builds an `Intl` formatter per call (~0.09 ms against 0.002 ms cached),
-        // and this join runs over the whole roster × six windows on every poll and every window
+        // and this join runs over the whole roster × the rendered windows on every poll and every window
         // focus — 204 × 6 = 1,224 formats to serve the handful of cards actually drawn. Both
         // consumers call one pure function on these same two fields, so they cannot disagree.
         // Null renders no leave-by line at all; see `leaveBy` for why that is defensive rather

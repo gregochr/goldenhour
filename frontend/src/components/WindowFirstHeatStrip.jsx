@@ -741,7 +741,7 @@ function areaLabel(regionName, tiny) {
  * {@code card.bestRating} rather than by the point set. That distinction cost a production defect:
  * an empty point set is a fact about the JOIN behind the picture, while {@code bestRating} is the
  * payload's own "is anything in this window rated" — on 2026-08-19 the two disagreed for three of
- * six windows and a hatched plate reading "not scored" sat directly above a card reading
+ * the windows and a hatched plate reading "not scored" sat directly above a card reading
  * {@code best spot 5 stars}. One predicate, read by the plate, the per-place layer and the hidden
  * sentence. The footer no longer carries a conditional note for it: its standing swatches (hatch =
  * {@code not rated yet}, plain = {@code no places}) name the ground for every window.

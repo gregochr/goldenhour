@@ -2774,7 +2774,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * So the toolbar's selector sets the map's date and event; it does not hold a window of its own.
    *
    * <p>Null when the map is on a date the briefing does not cover. `GET /api/forecast` reaches
-   * further than the briefing's six windows, so this is an ordinary state and not an error: the
+   * further than the briefing's rendered windows (today to T+3), so this is an ordinary state and not an error: the
    * field is absent, the markers are not, and the selector shows nothing selected. The exception is
    * a PAST window with forecast rows (outcome-rating-plan.md §2 #3): the pane lists it with
    * {@code past: true} and a point set of its own, and it paints as a served one does.

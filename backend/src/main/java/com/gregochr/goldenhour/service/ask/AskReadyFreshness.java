@@ -14,7 +14,7 @@ import java.util.Set;
  * answer under stale prose. It is withheld when any of these holds:
  * <ol>
  *   <li>every window it names has passed (or has left the window set: a travel day, or past the
- *       Plan tab's six);</li>
+ *       Plan tab's rendered days);</li>
  *   <li>the question is no longer offered under the same text — which catches a day word that has
  *       gone stale ("tomorrow morning" stored on Sunday), a weekend question superseded by the
  *       next-few-days one, and a window set that has emptied;</li>

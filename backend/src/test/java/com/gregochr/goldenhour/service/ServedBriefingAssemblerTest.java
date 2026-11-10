@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -121,6 +123,34 @@ class ServedBriefingAssemblerTest {
         assertThat(cached).as("the cached snapshot is not mutated").isEqualTo(before);
         assertThat(cached.days().get(0).eventSummaries().get(0).regions().get(0).slots())
                 .containsExactly(bamburgh, whitby, durham);
+    }
+
+    @Test
+    @DisplayName("in the BST midnight hour the horizon and the BriefingVersion share the one UK date")
+    void bstMidnightHour_horizonAndVersionShareTheUkDate() {
+        // 2026-10-11 23:30 UTC is 2026-10-12 00:30 in London (BST runs to 25 October). The UK today
+        // is the 12th: the 11th is behind the horizon and the 15th (T+3) is inside it. The clock is
+        // read once, so the rendered set and the version hash agree on the same `today`.
+        Clock bstMidnight = Clock.fixed(Instant.parse("2026-10-11T23:30:00Z"), ZoneOffset.UTC);
+        ServedBriefingAssembler bst = new ServedBriefingAssembler(bestBetFallbackService,
+                regionSnapshotService, windowTideRollupBuilder, evaluationViewService, bstMidnight,
+                (days, resolver, triaged) -> days, locationPointProvider, neighbourGuardProperties,
+                new NeighbourGuardLog(line -> { }), bigSeasBuilder);
+        LocalDate ukToday = LocalDate.of(2026, 10, 12);
+        DailyBriefingResponse cached = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 11, 6, 0),
+                "headline",
+                List.of(day(D, summary(TargetType.SUNRISE,
+                                List.of(region("Dales", 0, inland(1L, "Hawes"))), List.of())),
+                        day(D.plusDays(4), summary(TargetType.SUNRISE,
+                                List.of(region("Dales", 0, inland(1L, "Hawes"))), List.of()))),
+                List.of(), null, null, false, null, List.of(), List.of());
+
+        DailyBriefingResponse served = bst.assembleForPlan(cached, 0.5);
+
+        assertThat(served.renderedEvents()).extracting(PlanRenderedEvent::date)
+                .containsExactly(D.plusDays(4));
+        assertThat(served.briefingVersion()).isEqualTo(
+                BriefingVersion.of(served.days(), served.renderedEvents(), ukToday));
     }
 
     @Test
@@ -292,7 +322,7 @@ class ServedBriefingAssemblerTest {
         DailyBriefingResponse cached = scoredSnapshot();
         DailyBriefingResponse unstripped = PlanWindowProjector.apply(
                 assembler.assembleWithoutPlan(cached, 0.5),
-                LocalDateTime.now(CLOCK), Map.of(),
+                LocalDateTime.now(CLOCK), ForecastHorizon.today(CLOCK), Map.of(),
                 WindowTideFactProjector.project(cached.days()));
 
         DailyBriefingResponse served = assembler.assembleForPlan(cached, 0.5);
