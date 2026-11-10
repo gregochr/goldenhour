@@ -133,7 +133,7 @@ function subscribeForeignModalDom(onChange) {
  * <h2>The horizon question now lives inside {@code MapView}'s window control</h2>
  *
  * <p>Before map-tab-v2-plan.md §3 P6, this pane mounted its own {@code DateStrip} beside
- * {@code MapView} because the two had different domains: the rail's is up to six briefing events,
+ * {@code MapView} because the two had different domains: the rail's is up to eight briefing events (today to T+3),
  * while the map's is every date with a sunrise or sunset row ({@code colourForecastDates}). P6 folded that browsing job
  * into {@code MapView}'s single window control (`utils/mapEvents.js`'s D-13 rows), so this pane's
  * only remaining job on that front is handing down the full domain as {@code forecastDates} — the
@@ -721,12 +721,12 @@ export default function WindowFirstMapPane({
       // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
       // Map tab's D-13 filler rows (`mapEvents.solarRow`), which would otherwise lose the strip.
       tideByWindow,
-      // Every rendered window, away days included, so the selector's six are the strip's six — one
+      // Every rendered window, away days included, so the selector's windows are the strip's windows — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
       //
       // Then the PAST windows, each flagged `past: true` (`pastHeat`'s doc says why that flag is
-      // load-bearing): appended after the served six, never interleaved, so `windows[0..5]` stay
+      // load-bearing): appended after the served windows, never interleaved, so the leading served windows stay
       // the strip's own.
       windows: [...heatStripCards.map((card) => {
         // One resolution, two readers: the kernel's haze (`conf`, a scalar) and the window

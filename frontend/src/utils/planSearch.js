@@ -11,7 +11,7 @@ import { verdictScopeText } from './reachLens.js';
  * <p>The prototype rests on a "Recent locations" group; this app has no recency store and none is
  * planned (§9.11, shipped windows-only). Regions are absent at rest on the prototype's own
  * reasoning — the map is the region picker now — but match the moment they are typed. So the
- * resting list is the six windows, which are the one group that is both small and complete: every
+ * resting list is the rendered windows (up to eight), which are the one group that is both small and complete: every
  * row is somewhere the reader can already see, so the list is a shortcut rather than a catalogue.
  *
  * <h2>Matching is a plain substring over a folded string, on purpose</h2>
@@ -402,8 +402,8 @@ export function buildSearchGroups(query, {
         glyph: GLYPH.location,
         marks: matchRange(spot.name, query),
         figure: top ? { value: starFigure(top.rating), caption: top.label } : null,
-        // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span — six rendered
-        // events fall across three days whenever today still has both its windows ahead of it — and
+        // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span — the rendered
+        // events fall across three days only once both of today's windows have passed (otherwise four) — and
         // prints it ("The next 3 days here"), so a fixed 4 in the chip above it would be a number
         // we never measured sitting beside the same number measured. The chip names the surface
         // instead, which is true at every span.

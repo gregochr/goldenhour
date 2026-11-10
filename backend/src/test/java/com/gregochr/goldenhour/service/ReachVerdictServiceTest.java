@@ -147,7 +147,7 @@ class ReachVerdictServiceTest {
                 (regionName, date, targetType) -> results);
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "headline",
                 enriched, List.of(), null, null, false, null, List.of(), List.of(), null, null, null, null, null);
-        DailyBriefingResponse projected = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0),
+        DailyBriefingResponse projected = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), TODAY,
                 Map.of(), Map.of());
         return projected.withBriefingVersion(VERSION);
     }
@@ -353,7 +353,7 @@ class ReachVerdictServiceTest {
                                 "Mystery", new BriefingEvaluationResult("Mystery", 4, 70, 60, "why"),
                                 "Place 301", rating(301, 4))),
                 List.of(), null, null, false, null, List.of(), List.of(), null, null, null, null, null);
-        DailyBriefingResponse servedOne = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0),
+        DailyBriefingResponse servedOne = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), TODAY,
                 Map.of(), Map.of()).withBriefingVersion(VERSION);
         // 301 is routable at 20 min but is the only place with an id; Mystery has none.
         home(servedOne, List.of(new ReachEntry(301L, 20, 5, DriveStatus.MEASURED)));
@@ -593,7 +593,7 @@ class ReachVerdictServiceTest {
                 (regionName, date, targetType) -> results);
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", enriched,
                 List.of(), null, null, false, null, List.of(), List.of(), null, null, null, null, null);
-        DailyBriefingResponse servedThin = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0),
+        DailyBriefingResponse servedThin = PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), TODAY,
                 Map.of(), Map.of()).withBriefingVersion(VERSION);
         List<ReachEntry> entries = new ArrayList<>();
         for (long id = 401; id <= 408; id++) {
@@ -689,7 +689,7 @@ class ReachVerdictServiceTest {
                 (regionName, date, targetType) -> triaged);
         DailyBriefingResponse base = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 1, 0, 0), "h", enriched,
                 List.of(), null, null, false, null, List.of(), List.of(), null, null, null, null, null);
-        return PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), Map.of(), Map.of())
+        return PlanWindowProjector.apply(base, LocalDateTime.of(2026, 10, 1, 0, 0), TODAY, Map.of(), Map.of())
                 .withBriefingVersion(VERSION);
     }
 

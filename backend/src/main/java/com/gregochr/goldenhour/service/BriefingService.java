@@ -112,8 +112,8 @@ public class BriefingService {
      * that had already happened. The intraday cycle showed no {@code -1} bucket at all, because
      * it reads a briefing built the same morning; that asymmetry is the mechanism, not a symptom.
      *
-     * <p>The fifth date is never rendered — the Plan tab caps the matrix at
-     * {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} solar events — and costs one extra
+     * <p>The fifth date is never rendered — the Plan tab ends at {@code today + 3}
+     * ({@link PlanRenderLimits#withinHorizon}) — and costs one extra
      * region × event round of briefing gloss. It exists purely so the window still
      * reaches T+3 after ageing overnight.
      */

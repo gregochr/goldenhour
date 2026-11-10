@@ -25,7 +25,7 @@ import { regionGlossFor } from './regionGloss.js';
 import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
 
 /**
- * The four-day location sheet — one place, its six windows, and what each of them costs to reach
+ * The four-day location sheet — one place, its rendered windows (up to eight), and what each of them costs to reach
  * (plan D10, P8).
  *
  * <h2>Three payloads meet here, and each one answers exactly one question</h2>
@@ -34,8 +34,8 @@ import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
  * places:
  *
  * <ul>
- *   <li><b>Which six windows</b>, their day and their event come from {@code buildHeatStripCards}'
- *       descriptors, unchanged — the same six the strip draws and the pane opens, so a sheet cannot
+ *   <li><b>Which windows (up to eight)</b>, their day and their event come from {@code buildHeatStripCards}'
+ *       descriptors, unchanged — the same ones the strip draws and the pane opens, so a sheet cannot
  *       name a window the page behind it does not have. Away days keep their slot here for the
  *       reason they keep it there: the sheet is a picture of the week, and a missing row would
  *       silently renumber it.</li>
@@ -664,7 +664,7 @@ function handoffRow(rows, focusKey = null) {
 }
 
 /**
- * The lead line — what the six windows add up to, or null when they add up to nothing sayable.
+ * The lead line — what the windows add up to, or null when they add up to nothing sayable.
  *
  * <p><b>It states no denominator, and that is a rule rather than a simplification.</b> The prototype
  * prints "N of 6", which is true of a demo where every window is scored and false of a real forecast

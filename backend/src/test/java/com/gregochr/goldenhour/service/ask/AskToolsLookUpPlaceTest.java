@@ -1291,6 +1291,68 @@ class AskToolsLookUpPlaceTest {
         assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
 
+    // -- eight windows: the whole-day horizon (today..T+3) can now serve eight, not six ----------------
+
+    @Test
+    @DisplayName("eight windows: the plain worst case is still cut to MAX_PLACE_ROWS rows and fits 4,500 characters")
+    void worstCasePayloadWithEightWindowsFitsHalfTheCap() {
+        AskToolResult<LookUpPlaceResult> result = tools(worstCaseSnapshot(8)).lookUpPlace(name("alnmouth estuary"));
+
+        LookUpPlaceResult payload = ok(result);
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS);
+        assertThat(payload.note()).isEqualTo("Showing 6 of 32 place-windows; pass windowIds to narrow.");
+        System.out.println("[look_up_place] worst-case payload chars (8 windows): " + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("eight windows: the detail worst case is cut to four rows and fits 4,500 characters")
+    void detailWorstCaseEightWindowsFitsHalfTheCap() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        AskSnapshot snapshot = daysOf(8, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                worstExplained(1L, place)));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmouth estuary"));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        assertThat(payload.note()).isEqualTo("Showing 4 of 8 place-windows; pass windowIds to narrow.");
+        System.out.println("[look_up_place] detail worst-case payload chars (8 windows): "
+                + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("eight windows: the correction path still fits 4,500 characters")
+    void correctionWorstCaseEightWindowsFitsHalfTheCap() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        AskSnapshot snapshot = daysOf(8, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                worstExplained(1L, place)));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmoth estuary"));
+
+        assertThat(ok(result).places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        System.out.println("[look_up_place] correction worst-case payload chars (8 windows): "
+                + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
+    @Test
+    @DisplayName("eight windows: nearestTide-only worst case is four rows and at most 4,500 characters")
+    void nearestTideWorstCaseEightWindowsFits() {
+        String place = "Alnmouth Estuary And Saltmarsh Nature Reserve Car Park";
+        AskSnapshot snapshot = daysOf(8, AskFixtures.region("The North Yorkshire Moors And Coast Region", false,
+                AskFixtures.withHeadline(AskFixtures.coastalNearest(1L, place, 4, "HIGH", false, "T".repeat(160),
+                        "N".repeat(60)), "H".repeat(200))));
+
+        AskToolResult<LookUpPlaceResult> result = tools(snapshot).lookUpPlace(name("alnmouth estuary"));
+
+        assertThat(ok(result).places()).hasSize(AskTools.MAX_PLACE_ROWS_WITH_DETAIL);
+        System.out.println("[look_up_place] nearestTide-only worst-case payload chars (8 windows): "
+                + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
+    }
+
     // -- later windows (ask-place-tide plan T2-5 to T2-10) ----------------------------------
 
     private static final String LATER_RISE_1 = "2026-10-11_sunrise";

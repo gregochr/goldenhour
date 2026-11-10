@@ -78,9 +78,9 @@ public record BriefingDigestResponse(
      *                     verdict beside it. Render it with its own label ("best spot 4★")
      * @param confidence   how provisional that verdict is, or null when unknown
      * @param pick         BEST or ALSO when this window is one of the forecast's two picks. The two
-     *                     are drawn only from the leading {@link
-     *                     com.gregochr.goldenhour.service.PlanRenderLimits#MAX_VISIBLE_EVENTS}
-     *                     windows, so a request reaching past that horizon gets tail windows that
+     *                     are drawn only from the whole-day rendered set (today to T+3, see {@link
+     *                     com.gregochr.goldenhour.service.PlanRenderLimits#withinHorizon}),
+     *                     so a request reaching past that horizon gets tail windows that
      *                     structurally cannot carry one — absence there is not evidence of a poor
      *                     window
      * @param headline     that pick's headline; null exactly when {@code pick} is null

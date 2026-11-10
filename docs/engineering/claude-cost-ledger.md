@@ -181,6 +181,22 @@ before. Query: `overnight-and-ask-daily.sql` (production, 40 days, UTC days).
   - Next: decide whether the evening needs a full Ask precompute (or only the answers about tomorrow),
     and find out why the cache prefix is written fresh on most calls. Not started.
 
+## Whole-day render horizon (2026-11-10, `whole-day-horizon-plan.md` P1)
+
+The Plan tab now renders whole days (today to T+3: up to 8 events) instead of the leading 6 events.
+No new model calls and no change to which slots are scored; two inputs carry up to two more events:
+
+- **The best-bet advisor's rollup** (one call per briefing build). Fixture measurement, not production:
+  the same six-region fixture serialises to 12,706 characters at 6 events and 16,863 at 8
+  (`BriefingBestBetAdvisorTest.rollupJsonSizeAtSixVersusEightEvents`). The two extra events are mostly
+  unscored T+3 nodes, so real growth is smaller than the fixture's +33%; estimated roughly +15-30% advisor
+  input, tens of cents a month.
+- **Ask's `list_windows`** (enlarges the Ready precomputes). Fixture measurement: the busy four-region
+  day is 2,985 characters at 6 windows and 3,973 at 8 (`AskToolsTest.listWindows_sixVersusEightWindowsSize`),
+  under the 4,500 half-cap and the 9,000 cap. `look_up_place` worst cases are row-capped, so they do not
+  grow with the window count. This adds to the open Ready-precompute item above (the evening refresh's
+  Ask precompute); re-measure with `measured-costs.sql` after the release.
+
 ## Watch items
 
 - Re-run `measured-costs.sql` about a week after each release that touches cost.

@@ -237,7 +237,7 @@ final class AskFixtures {
                 window.confidence(), window.pick(), window.badges(), window.tide(), facts);
     }
 
-    /** An event summary with no window: events past the Plan tab's six carry none. */
+    /** An event summary with no window: events past the Plan tab's whole-day horizon (T+4 and later) carry none. */
     static BriefingEventSummary summaryWithoutWindow(TargetType type, BriefingRegion... regions) {
         return new BriefingEventSummary(type, List.of(regions), List.of());
     }
@@ -248,7 +248,7 @@ final class AskFixtures {
 
     /**
      * A served briefing whose {@code renderedEvents} lists every summary that carries a window, as
-     * the projector would for a forecast of six events or fewer.
+     * the projector would for a forecast of eight events or fewer.
      */
     static DailyBriefingResponse briefing(List<BriefingDay> days, List<HotTopic> topics) {
         List<PlanRenderedEvent> rendered = days.stream()

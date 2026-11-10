@@ -6,10 +6,12 @@ import com.gregochr.goldenhour.model.BriefingDigestResponse;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -26,12 +28,14 @@ import java.util.List;
 public class BriefingDigestService {
 
     /**
-     * Windows returned when the caller names no limit — the Plan matrix's own six pictures.
+     * Windows returned when the caller names no limit — up to the Plan matrix's own eight pictures
+     * (four whole days, today to T+3). The digest itself also applies the date bound
+     * ({@link PlanRenderLimits#withinHorizon}) before this limit.
      *
      * <p>⚠️ <b>Derived, never a literal.</b> {@link PlanRenderLimits} exists because the projector
-     * once kept its own copy of this horizon and it silently diverged; writing {@code 6} here would
+     * once kept its own copy of this horizon and it silently diverged; writing a number here would
      * re-open exactly that. The divergence is not theoretical: {@code selectPicks} draws BEST and
-     * ALSO from the rendered window set, so raising the render horizon while this stayed at six
+     * ALSO from the rendered window set, so raising the render horizon while this stayed lower
      * would let the forecast's Best Bet fall outside a default digest — a widget whose whole
      * purpose is to show the best window, structurally unable to.
      */
@@ -99,9 +103,14 @@ public class BriefingDigestService {
             return null;
         }
         LocalDateTime now = freshness.now();
+        // The UK civil date, through ForecastHorizon from the same single clock read as `now`
+        // (SolarEventFreshness wraps the injected Clock, which is UTC), never now.toLocalDate().
+        LocalDate today = ForecastHorizon.civilDate(now.toInstant(ZoneOffset.UTC));
         List<BriefingDigestResponse.Window> windows = new ArrayList<>();
         for (BriefingDay day : briefing.days()) {
-            if (day == null || day.date() == null) {
+            // The Plan's whole-day horizon is applied BEFORE `limit`, or a default of eight would
+            // return T+4's sunrise every afternoon: windows the Plan tab does not render.
+            if (day == null || day.date() == null || !PlanRenderLimits.withinHorizon(day.date(), today)) {
                 continue;
             }
             for (BriefingEventSummary summary : day.eventSummaries()) {

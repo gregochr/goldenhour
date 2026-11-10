@@ -1166,7 +1166,7 @@ public class EvaluationViewService {
      *
      * <p>⚠️ <b>This is the fix for a real query-count regression, not a convenience overload.</b>
      * A caller that needs live scores for many region/date/event slots in one build — the
-     * best-bet advisor's rollup covers up to {@code MAX_VISIBLE_EVENTS} (6) events across every
+     * best-bet advisor's rollup covers up to {@code MAX_VISIBLE_EVENTS} (8) events across every
      * region, twice per slot (once to build the prompt, once to log coverage) — must call this
      * ONCE for the whole window and read the result in memory, never
      * {@link #getLiveScoresForEnrichment} in a loop: each single-key call costs three queries

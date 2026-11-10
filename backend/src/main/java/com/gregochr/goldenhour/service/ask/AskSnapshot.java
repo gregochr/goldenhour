@@ -112,7 +112,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     }
 
     /**
-     * A later window: a solar window Ask does not rate (outside the Plan tab's rendered six, or a travel day) whose
+     * A later window: a solar window Ask does not rate (outside the Plan tab's rendered days, or a travel day) whose
      * place-level tide facts are still served. Only the tide: no rating, verdict, headline or summary exists on it.
      *
      * @param id         the window id ({@link AskWindowId})

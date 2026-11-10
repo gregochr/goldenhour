@@ -14,7 +14,7 @@ import java.time.LocalDate;
  * are one derivation in two shapes rather than two derivations.
  *
  * <p><b>Why the list is published at all.</b> The client used to decide which events it drew — its
- * own copy of the six-event cap, its own pastness rule, its own ordering — while the backend picked
+ * own copy of the event cap, its own pastness rule, its own ordering — while the backend picked
  * BEST/ALSO over a set derived separately. Two answers to "which events exist" is how a pick came to
  * name a window with no card. See {@code docs/engineering/plan-verdict-consolidation-plan.md} §1 D3
  * and §4 Phase 3.

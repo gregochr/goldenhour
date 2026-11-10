@@ -3,7 +3,7 @@
  *
  * <h2>The layout IS the derivation</h2>
  *
- * <p>The v3 design (plan-matrix-plan.md §6 M1) replaces the strip's single row of six with a
+ * <p>The v3 design (plan-matrix-plan.md §6 M1) replaces the strip's single row of thumbnails with a
  * matrix: one column per distinct day, sunrise on the upper row and sunset on the lower one.
  * Reading down a column is one day; reading across a row compares the same light day to day. The
  * cells are <b>explicitly placed</b> (`--c`/`--r` custom properties) rather than flowed, which is
@@ -15,16 +15,18 @@
  *
  * <h2>Two holes are information; every other hole is silence</h2>
  *
- * <p>A six-event forecast across four days leaves two cells empty <em>by definition</em> — this
- * morning has already gone, and the last evening is past the end of what the backend renders — and
- * the design says so in the cell rather than closing the gap, because the gap is the reader's own
- * question ("why does Tuesday start at sunset?").
+ * <p>The backend renders whole days, today to T+3 (eight events before today's sunrise). Once this
+ * morning has gone that is seven events and one cell empty <em>by definition</em>: the first day's
+ * sunrise. The design says so in the cell rather than closing the gap, because the gap is the
+ * reader's own question ("why does Tuesday start at sunset?"). The OLD six-event shape also left
+ * the last evening empty ("past the end of what the backend renders"); it can still arrive from a
+ * stale cache entry or an old backend mid-deploy, which is why that second hole keeps its copy.
  *
  * <p><b>Both claims are narrow on purpose.</b> "This morning has gone" is made only for the FIRST
  * day, and only when that day is today: the backend drops elapsed events, so a missing sunrise on
  * the first day can only be one that passed — but if every one of today's windows has passed, the
  * first rendered day is tomorrow, and a missing sunrise there would mean something else entirely.
- * "Past the end of the forecast" is made only for the LAST day, where the six-event cap truncates.
+ * "Past the end of the forecast" is made only for the LAST day, where an old six-event payload truncated.
  * Any other hole — which the payload contract does not produce, and which a future one might —
  * renders as a dashed cell with <b>no words</b>. Degrade is silence, never synthesis (plan §3
  * rule 6): a cell that cannot explain itself must not guess.

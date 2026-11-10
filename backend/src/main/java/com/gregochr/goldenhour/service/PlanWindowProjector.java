@@ -153,7 +153,10 @@ public final class PlanWindowProjector {
      * Returns the response with a window attached to every event summary.
      *
      * @param response the fully filtered served briefing, or null when none has been built
-     * @param now      the request instant, used to refuse a pick on an elapsed window
+     * @param now      the request instant (UTC), used to refuse a pick on an elapsed window
+     * @param today    the UK civil date, derived once with {@code now} through {@code ForecastHorizon}; bounds the
+     *                 rendered horizon ({@link PlanRenderLimits#withinHorizon}). Never {@code now.toLocalDate()}:
+     *                 that is the UTC date, a day behind the UK date for an hour a night under BST
      * @param tides    the tide rollup per window; empty when none could be derived, and missing
      *                 individual keys for any window whose date has no drawable tide
      * @param tideFacts the per-location tide facts per window, built from the unfiltered slots by
@@ -163,7 +166,7 @@ public final class PlanWindowProjector {
      * @return the same response with windows projected, or null when given null
      */
     public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now,
-            Map<WindowKey, BriefingWindowTide> tides,
+            LocalDate today, Map<WindowKey, BriefingWindowTide> tides,
             Map<WindowKey, List<LocationTideFact>> tideFacts) {
         if (response == null) {
             return null;
@@ -183,7 +186,7 @@ public final class PlanWindowProjector {
         // peak rolls up. Two of those used to be derived independently — the client kept its own
         // copy of the cap and its own pastness rule — which is how a BEST pick came to name a window
         // with no card. See docs/engineering/plan-verdict-consolidation-plan.md §1 D3 and §4 Phase 3.
-        Set<WindowKey> rendered = renderHorizon(drafts, now);
+        Set<WindowKey> rendered = renderHorizon(drafts, now, today);
 
         // Pass 2: one fold across the whole forecast chooses the two picks, then each window is
         // emitted carrying its own or nothing.
@@ -256,24 +259,23 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The events the Plan tab draws: the leading {@link PlanRenderLimits#MAX_VISIBLE_EVENTS}
-     * non-past drafts, in payload order.
+     * The events the Plan tab draws: every non-past draft whose date is in {@code [today, today + 3]}
+     * ({@link PlanRenderLimits#withinHorizon}), in payload order. Whole days, so up to eight events
+     * before today's sunrise, seven once it has gone, six once the sunset has gone.
      *
      * <p>Order matters. The horizon is a fact about the <b>rendered event set</b>, so it is resolved
-     * chronologically <em>before</em> anything is ranked — resolving it after a rank sort let the
-     * highest-rated window claim a slot whatever its position, which is the opposite of a horizon.
-     * {@code drafts} is already in chronological (date, then payload) order, built by walking
-     * {@code response.days()} then each day's {@code eventSummaries()}, so taking the leading N
-     * non-past entries is exactly "the first N events" with no re-sort.
+     * before anything is ranked. {@code drafts} is already in chronological (date, then payload)
+     * order, built by walking {@code response.days()} then each day's {@code eventSummaries()}.
      *
      * <p>Scoped over every non-past draft, not only candidate-bearing ones: a window with no usable
-     * gloss still occupies a slot in the rendered list, and excluding it here would let the horizon
-     * stretch further than what is actually shown.
+     * gloss still occupies a slot in the rendered list.
+     *
+     * <p>The date bound uses {@code today} (the UK civil date), never {@code now.toLocalDate()}.
      */
-    private static Set<WindowKey> renderHorizon(List<Draft> drafts, LocalDateTime now) {
+    private static Set<WindowKey> renderHorizon(List<Draft> drafts, LocalDateTime now, LocalDate today) {
         return drafts.stream()
                 .filter(d -> !isPast(d, now))
-                .limit(PlanRenderLimits.MAX_VISIBLE_EVENTS)
+                .filter(d -> PlanRenderLimits.withinHorizon(d.key().date(), today))
                 .map(Draft::key)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
     }
@@ -384,11 +386,10 @@ public final class PlanWindowProjector {
      * forecast is worth planning for", so a Best Bet on Tuesday's sunrise and an Also good on
      * Thursday's sunset is the normal shape, not an anomaly.
      *
-     * <p><b>Scoped to the windows the rail actually renders</b> — the same
-     * {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} events the window-first cards show, not a
-     * date-counted approximation of them. The briefing carries more days than the rail shows, and a
-     * pick bound to a window with no tile is a recommendation the reader cannot reach — the one
-     * failure this scoping exists to prevent.
+     * <p><b>Scoped to the windows the rail actually renders</b> — the same whole-day events
+     * ({@link PlanRenderLimits#withinHorizon}) the window-first cards show. The briefing carries more
+     * days than the rail shows, and a pick bound to a window with no tile is a recommendation the
+     * reader cannot reach — the one failure this scoping exists to prevent.
      *
      * <p>The runner-up must still clear {@link AlsoGoodFloor}, exactly as it did when the two picks
      * were regions within one window: the comparands changed, the rule did not. An honest silence is
@@ -427,7 +428,7 @@ public final class PlanWindowProjector {
      * <p><b>The fallback is load-bearing since this instant began deciding what is RENDERED.</b>
      * The honesty filter empties a zero-coverage region's slot list while leaving the summary's own
      * time intact, so a slot-only scan reads that window as timeless — and a timeless window counts
-     * as current, spending one of the six rendered slots on an event that may be hours past. The
+     * as current, spending a rendered slot on an event that may be hours past. The
      * client's {@code getEventTime} has always had this fallback; before Phase 3 the two could
      * disagree without either being authoritative.
      */
@@ -443,7 +444,7 @@ public final class PlanWindowProjector {
         // decides which events are RENDERED and not merely which may hold a pick. The honesty
         // filter empties a zero-coverage region's slot list while leaving the summary's
         // solarEventTime intact, so a scan of slots alone reads that window as timeless — and a
-        // timeless window counts as current, spending one of the six rendered slots on an event
+        // timeless window counts as current, spending a rendered slot on an event
         // that may be hours past. The client's getEventTime has always had this fallback; before
         // Phase 3 the two could disagree without either being authoritative.
         return earliest != null ? earliest : summary.solarEventTime();

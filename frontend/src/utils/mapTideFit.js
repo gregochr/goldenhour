@@ -62,13 +62,13 @@ export function tideViewSignature(bounds, gatePool, stripPool) {
 
 /**
  * Every served window's {@code BriefingWindowTide}, keyed {@code "date:TARGETTYPE"} — over ALL of
- * the briefing's event summaries, not just the six the Plan tab renders.
+ * the briefing's event summaries, not just the ones the Plan tab renders.
  *
  * <p>Why this exists: {@code PlanWindowProjector} attaches a tide rollup to every event summary of
  * the briefing's four owned days (eight events), but the Map tab's window list is built from the
- * <em>rendered</em> six ({@code heat.windows}). The remaining events were turned into D-13 filler
- * rows with {@code tide: null}, so the strip vanished for them — the Sunday sunrise, seen from
- * Thursday morning, is the seventh event. Tides are deterministic and the rollup was already on the
+ * <em>rendered</em> set ({@code heat.windows}). The remaining events were turned into D-13 filler
+ * rows with {@code tide: null}, so the strip vanished for them — events beyond the horizon (T+4 on) still are; before whole days the Sunday sunrise, seen from
+ * Thursday morning, was the seventh event. Tides are deterministic and the rollup was already on the
  * wire; this just stops the fold discarding it. A lookup over served data, never a derivation —
  * nothing here reads a height, an offset or a level.
  *

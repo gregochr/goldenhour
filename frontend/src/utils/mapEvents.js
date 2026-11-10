@@ -29,7 +29,7 @@ import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
  *
  * <h2>D-13 — the browsable horizon outruns the briefing</h2>
  *
- * <p>The briefing renders at most six events (~3 days); the map's own domain is the forecast
+ * <p>The briefing renders at most eight events (whole days, today to T+3); the map's own domain is the forecast
  * endpoint's full date range. Dates beyond the briefing's horizon still produce solar rows —
  * unscored, {@code scored: false} — rather than silently shrinking how far the control can browse
  * (the pane's retired {@code DateStrip} javadoc defended exactly this ground).
@@ -354,7 +354,7 @@ function solarRow(
     // short-circuits on the kind first.
     pickRegion: null,
     // A D-13 filler has no window in the pane's list, but the briefing may still have served one:
-    // it rolls a tide up for every event of its four owned days while the pane lists only the six
+    // it rolls a tide up for every event of its four owned days while the pane lists only the rendered
     // it renders. `lent.tide` is that served rollup, forwarded verbatim; null where the briefing
     // carried none (past its owned days, or no drawable tide), and the tide is then never
     // synthesised. The row stays unscored and `served: false` — the tide and its clock time are all

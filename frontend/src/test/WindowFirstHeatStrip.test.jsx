@@ -321,6 +321,50 @@ describe('WindowFirstHeatStrip — which windows it draws', () => {
     expect(names[1]).toContain('Tomorrow sunrise');
   });
 
+  describe('the whole-day horizon (today to T+3): 8, 7 or 6 events, never a half-empty far column', () => {
+    const DAYS = ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07'];
+
+    /** One card per (day, event) in the given list, chronological as the payload is. */
+    function horizonCards(events) {
+      return events.map(([date, type]) => stripCard({
+        key: `${date}:${type}`,
+        date,
+        targetType: type,
+        sunrise: type === 'SUNRISE',
+        label: `${date} ${type}`,
+      }));
+    }
+
+    const both = (date) => [[date, 'SUNRISE'], [date, 'SUNSET']];
+
+    it('draws four full columns from eight events, with no hole and no hole copy', async () => {
+      await renderStrip({ cards: horizonCards(DAYS.flatMap(both)) });
+
+      expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(8);
+      expect(screen.queryAllByTestId('wf-heat-empty')).toHaveLength(0);
+      expect(screen.queryByText('past the end of the forecast')).toBeNull();
+    });
+
+    it('draws seven events with only the first day\'s morning hole, worded, and no end hole', async () => {
+      await renderStrip({
+        cards: horizonCards([['2026-08-04', 'SUNSET'], ...DAYS.slice(1).flatMap(both)]),
+      });
+
+      expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(7);
+      const holes = screen.getAllByTestId('wf-heat-empty');
+      expect(holes).toHaveLength(1);
+      expect(holes[0]).toHaveTextContent('this morning has gone');
+      expect(screen.queryByText('past the end of the forecast')).toBeNull();
+    });
+
+    it('draws six events on three days as three full columns', async () => {
+      await renderStrip({ cards: horizonCards(DAYS.slice(1).flatMap(both)) });
+
+      expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(6);
+      expect(screen.queryAllByTestId('wf-heat-empty')).toHaveLength(0);
+    });
+  });
+
   it('withdraws entirely when there is no catalogue to draw', async () => {
     // §7.2's named degrade: a scores fetch that failed, or a session with no roster. Six empty
     // coastlines under a header claiming to summarise them would be worse than nothing, and the

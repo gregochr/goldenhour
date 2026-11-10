@@ -15,10 +15,10 @@ import java.time.LocalDate;
  * drives Coming up eligibility (every event that has not ended is eligible,
  * coming-up-near-term-plan.md); the hot-topic window is its remaining use.
  *
- * <p>Deliberately not the last-rendered-events horizon ({@code PlanWindowProjector.renderHorizon}):
- * that figure is computable only at briefing serve time, varies with how many events have already
- * passed, and reading it here would tie the almanac cache's purity to briefing state. Plan's
- * boundary is the fixed four-day window it has always advertised.
+ * <p>This is also the owner of the rendered horizon: {@link PlanRenderLimits#withinHorizon} renders
+ * every non-past solar event dated in {@code [today, lastPlanDate(today)]}, so At a Glance, the Map
+ * and the advisor's rollup all end on the same whole day. The projector's non-past filter is the
+ * only briefing-state input; this boundary stays a pure function of the date.
  */
 public final class PlanHorizon {
 

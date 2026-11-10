@@ -107,7 +107,7 @@ function chipTitle(spot) {
  *
  * <p>This is the phase's headline change. Everything here used to live inside an accordion row
  * below the strip: opening a window pushed five other cards down the page, and the reader's place in
- * the list was gone by the time they had read it. Now the six pictures ARE the plan, they stay
+ * the list was gone by the time they had read it. Now the pictures (up to eight) ARE the plan, they stay
  * exactly where they are, and the picture you clicked opens over them. The list is deleted with this
  * dialog, not alongside it — plan §10 rule 5 is explicit that the popup beside a live list is worse
  * than either end state.
@@ -388,7 +388,7 @@ export default function WindowSheetDialog({
    * measurement behind that.
    *
    * <p>Composed from what a reader would need to re-orient rather than from everything that
-   * changed: which window, where it sits in the six, its verdict, and — on a pick — the region and
+   * changed: which window, where it sits among the windows, its verdict, and — on a pick — the region and
    * how many of its places are now listed. The star is spelled out for the reason the header's is.
    */
   const liveMessage = useMemo(() => {
@@ -489,7 +489,7 @@ export default function WindowSheetDialog({
   return (
     <Modal
       // Counted rather than asserted: the nav's own denominator is the openable window count, and a
-      // payload that renders four windows must not have its dialog announce six.
+      // payload that renders four windows must not have its dialog announce eight.
       label={`${windowLabel} — ${index + 1} of ${total}`}
       onClose={onClose}
       bare
@@ -670,9 +670,9 @@ export default function WindowSheetDialog({
                 `‹`/`›` and `←`/`→` replace the ENTIRE dialog (title, time, verdict, pick, topics,
                 best-in-reach, confidence, field, rail, prose, tide, spot strip) while focus stays on
                 the pressed button, and the dialog is not keyed, so `useDialogFocus` never re-fires
-                and its accessible name is never re-read. The one "which of six" signal on screen is
+                and its accessible name is never re-read. The one "which of N" signal on screen is
                 the counter above, which is `aria-hidden` because it is a glyph pair a reader would
-                hear as "one slash six".
+                hear as "one slash eight".
 
                 The same silence covered the popup's PRIMARY interaction: picking a region swaps the
                 prose, filters the strip and repaints the field, and the design's own selling point —

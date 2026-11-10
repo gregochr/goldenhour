@@ -26,7 +26,7 @@ import java.util.List;
  *       slot at all it falls back to the enclosing summary's own {@code solarEventTime}, which is
  *       the only clock a window whose slots the honesty filter withdrew still has — and since that
  *       instant now decides which events are <em>rendered</em>, not merely which may hold a pick, a
- *       window reading as timeless would spend one of the six rendered slots on an event that may
+ *       window reading as timeless would spend a rendered slot on an event that may
  *       be hours past.</li>
  *   <li>{@code bestRating} — nothing in the window is rated. A max over non-canopy slots whenever
  *       the window has one, so a woodland score never supplies the {@code best spot N★} number.
