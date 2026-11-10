@@ -48,6 +48,29 @@ describe('bigSeasFor: which day the line speaks of', () => {
     expect(sel.day).toBe(SATURDAY);
   });
 
+  it('names no day the Map has no solar row for: a served day past the last row gives no line', () => {
+    // The Map ends at T+3 but the backend serves `bigSeas` a day further. Rows run Thu 22 to Fri 23;
+    // Saturday is served and has no solar row (not even a night row), so the compact form would
+    // advertise a day the Map cannot show.
+    const upToFriday = weekEvents().filter((r) => r.date <= '2026-10-23');
+    const thursday = rowOf(upToFriday, 'solar:2026-10-22:SUNSET');
+    expect(bigSeasFor(DAYS, thursday, upToFriday, THURSDAY_MORNING).form).toBeNull();
+  });
+
+  it('skips a served day with no row and names the next served day that has one', () => {
+    const noSaturday = weekEvents().filter((r) => r.date !== '2026-10-24');
+    const thursday = rowOf(noSaturday, 'solar:2026-10-22:SUNSET');
+    const sel = bigSeasFor(DAYS, thursday, noSaturday, THURSDAY_MORNING);
+    expect(sel.form).toBe('compact');
+    expect(sel.day).toBe(SUNDAY);
+  });
+
+  it('a night row alone is not a solar row: a day with only a night row is not advertised', () => {
+    const nightOnly = weekEvents().filter((r) => !(r.date === '2026-10-24' && r.kind === 'solar'));
+    const thursday = rowOf(nightOnly, 'solar:2026-10-22:SUNSET');
+    expect(bigSeasFor([SATURDAY], thursday, nightOnly, THURSDAY_MORNING).form).toBeNull();
+  });
+
   it('is null after the last big-seas day', () => {
     const monday = rowOf(events, 'solar:2026-10-26:SUNRISE');
     expect(bigSeasFor(DAYS, monday, events, THURSDAY_MORNING).form).toBeNull();
@@ -119,8 +142,9 @@ describe('bigSeasFor: the jump row', () => {
   });
 
   it('is null when the list has no such row (index -1), and the line still shows', () => {
-    // Sunday has a SUNRISE alignment but this list has no 25 Oct row, as today+3 and +4 may not.
-    const short = events.filter((r) => r.date !== '2026-10-25');
+    // Sunday has a SUNRISE alignment but this list has only Sunday's SUNSET row: the day is on the Map
+    // (so the line names it) but the aligned event has no row to jump to.
+    const short = events.filter((r) => r.id !== 'solar:2026-10-25:SUNRISE');
     const thursday = rowOf(short, 'solar:2026-10-22:SUNSET');
     const sel = bigSeasFor([SUNDAY], thursday, short, THURSDAY_MORNING);
     expect(sel.form).toBe('compact');

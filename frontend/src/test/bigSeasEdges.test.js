@@ -38,10 +38,13 @@ describe('bigSeasFor edges', () => {
     const d24 = makeDay({ date: '2026-10-24' });
     const d25 = makeDay({ date: '2026-10-25', windowEnd: '2026-10-25T17:15:00' });
     const row = makeRow({ date: '2026-10-23', id: 'solar:2026-10-23:SUNSET' });
-    expect(bigSeasFor([d26, d24, d25], row, [], NOW).day).toBe(d24);
-    expect(bigSeasFor([d24, d25, d26], row, [], NOW).day).toBe(d24);
-    expect(bigSeasFor([d25, d26, d24], row, [], NOW).day).toBe(d24);
-    expect(bigSeasFor([d26, d25], row, [], NOW).day).toBe(d25);
+    // The Map carries a solar row on each served day (a day with none is not named).
+    const rows = ['2026-10-24', '2026-10-25', '2026-10-26']
+      .map((date) => makeRow({ date, id: `solar:${date}:SUNSET` }));
+    expect(bigSeasFor([d26, d24, d25], row, rows, NOW).day).toBe(d24);
+    expect(bigSeasFor([d24, d25, d26], row, rows, NOW).day).toBe(d24);
+    expect(bigSeasFor([d25, d26, d24], row, rows, NOW).day).toBe(d24);
+    expect(bigSeasFor([d26, d25], row, rows, NOW).day).toBe(d25);
   });
 
   it('keeps served order between two days of the same date', () => {

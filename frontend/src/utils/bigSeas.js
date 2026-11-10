@@ -23,13 +23,15 @@ const NO_LINE = Object.freeze({ form: null, day: null, aligned: false, jumpRow: 
  * <ul>
  *   <li>{@code 'full'}: the row's UK date has a served day whose window has not yet ended. Any row
  *       of that date counts, solar or night.</li>
- *   <li>{@code 'compact'}: otherwise, the first LATER served day whose window has not yet ended.</li>
+ *   <li>{@code 'compact'}: otherwise, the first LATER served day whose window has not yet ended
+ *       and for which the Map carries a solar row (the Map ends at T+3; a served day beyond its last
+ *       row is not advertised here, and Coming up still carries it).</li>
  *   <li>{@code null}: nothing served, nothing ahead, no row, or a past row.</li>
  * </ul>
  *
  * <p>{@code aligned} is true on the full form when the reader is already on the day's aligned solar
  * event (the gap clause is printed there). {@code jumpRow} is the EV row that event sits on, and is
- * null when the day is not aligned, the list has no such row (today+3 and +4 may have none), or the
+ * null when the day is not aligned, the list has no such row (a served day the Map has no row for), or the
  * reader is already on it.
  *
  * @param {?Array<object>} bigSeas the served {@code briefing.bigSeas}, or nullish
@@ -44,12 +46,16 @@ export function bigSeasFor(bigSeas, evRow, events, now = appNow()) {
     .filter((d) => d?.date && bigSeasWindowAhead(d, now))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const today = days.find((d) => d.date === evRow.date);
-  const day = today ?? days.find((d) => d.date > evRow.date);
+  const list = Array.isArray(events) ? events : [];
+  // The Map must not advertise a day it cannot show: a LATER day is named only when the Map carries a
+  // solar row for it (the backend serves `bigSeas` a day further than the Map's T+3 window control
+  // ends). Coming up still carries that day. The reader's own date is always theirs to read.
+  const hasSolarRow = (date) => list.some((e) => e.kind === 'solar' && e.date === date);
+  const day = today ?? days.find((d) => d.date > evRow.date && hasSolarRow(d.date));
   if (!day) return NO_LINE;
   const form = today ? 'full' : 'compact';
   const aligned = form === 'full' && evRow.kind === 'solar' && day.alignedEvent === evRow.eventType;
   let jumpRow = null;
-  const list = Array.isArray(events) ? events : [];
   if (day.alignedEvent && !aligned) {
     const idx = findEvIndex(list, day.alignedEvent, day.date);
     // A PAST row is not a place to jump to (a sunset-aligned day read from its night row, after the

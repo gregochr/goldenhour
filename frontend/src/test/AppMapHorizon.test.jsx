@@ -64,9 +64,10 @@ vi.mock('../components/ManageView.jsx', () => ({
   default: () => <div data-testid="manage-stub" />,
 }));
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
-  default: ({ dates }) => (
-    <div data-testid="map-pane-stub">
+  default: ({ dates, selectedDate, onSelectDate }) => (
+    <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
       <span data-testid="map-pane-dates">{(dates ?? []).join(',')}</span>
+      <button type="button" onClick={() => onSelectDate(mockPick.date)}>pick the T+4 sunset</button>
     </div>
   ),
 }));
@@ -81,6 +82,9 @@ import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
+
+/** The date the stub pane's pick button sends (`mock` prefix lets the hoisted factory close over it). */
+const mockPick = { date: '' };
 
 const LOCATION_META = [{
   id: 1, name: 'Derwentwater', lat: 54.58, lon: -3.14, enabled: true,
@@ -118,10 +122,10 @@ const forecastsFor = (dates) => dates.flatMap((targetDate) => ['SUNRISE', 'SUNSE
 /** T-2 .. T+5 relative to the app clock: the served span, past days included. */
 const servedSpan = () => [-2, -1, 0, 1, 2, 3, 4, 5].map((n) => ukDateStrOffset(n));
 
-function renderApp() {
+function renderApp(overrides = {}) {
   localStorage.setItem('goldenhour_token', 'test-token');
   localStorage.setItem('goldenhour_role', 'ADMIN');
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({ ...ctx(), ...overrides });
   return render(<App />);
 }
 
@@ -162,6 +166,37 @@ describe('App — the Map ends at T+3', () => {
     renderApp();
 
     expect(await mapDates()).toEqual(span.slice(0, 6));
+  });
+
+  it('never cuts a date the briefing SERVES a window for: a device behind the server still selects it', async () => {
+    // The device's UK date is a day behind the server's, so the server's T+3 is this client's T+4. The
+    // briefing serves windows through that date; the client cut must not drop its row, and picking its
+    // sunset must land the Map on it (it used to be listed but refused by `resolveMapDate`).
+    const span = servedSpan();
+    const t4 = ukDateStrOffset(4);
+    mockPick.date = t4;
+    fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+    renderApp({
+      upcomingEvents: [
+        { date: ukDateStrOffset(3), targetType: 'SUNSET' },
+        { date: t4, targetType: 'SUNRISE' },
+        { date: t4, targetType: 'SUNSET' },
+      ],
+    });
+
+    expect(await mapDates()).toEqual(span.slice(0, 7));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'pick the T+4 sunset' })); });
+    expect(screen.getByTestId('map-pane-stub')).toHaveAttribute('data-selected-date', t4);
+  });
+
+  it('still cuts T+5 when only T+4 is served (the exemption is per served date)', async () => {
+    const span = servedSpan();
+    fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+    renderApp({ upcomingEvents: [{ date: ukDateStrOffset(4), targetType: 'SUNSET' }] });
+
+    expect(await mapDates()).toEqual(span.slice(0, 7));
   });
 
   it('keeps a T+3 that is the last served date (nothing to drop)', async () => {

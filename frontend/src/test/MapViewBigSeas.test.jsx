@@ -122,13 +122,13 @@ function makeLocation() {
 }
 
 /** The pane owns the date; this stands in for it, so a forwarded pick moves the map. */
-function Pane({ bigSeas, onDate }) {
+function Pane({ bigSeas, onDate, forecastDates = [TODAY, SAT] }) {
   const [date, setDate] = React.useState(TODAY);
   return (
     <MapView
       locations={[makeLocation()]}
       date={date}
-      forecastDates={[TODAY, SAT]}
+      forecastDates={forecastDates}
       autoEventType="SUNSET"
       heat={heatProp()}
       bigSeas={bigSeas}
@@ -173,6 +173,11 @@ describe('MapView — the big-seas line', () => {
 
   it('draws nothing when the briefing serves no big-seas day', async () => {
     await renderMap({ bigSeas: undefined });
+    expect(screen.queryByTestId('wf-big-seas')).toBeNull();
+  });
+
+  it('names no day the Map has no row for (the Map ends at T+3; the backend serves big seas a day further)', async () => {
+    await renderMap({ forecastDates: [TODAY] });
     expect(screen.queryByTestId('wf-big-seas')).toBeNull();
   });
 
@@ -238,6 +243,13 @@ describe('MapView — the week menu\'s bolt', () => {
 });
 
 describe('MapView — on a phone (owner Q11: the line shows, the menu bolt stays out)', () => {
+  it('draws no line for a served day with no row, so nothing there can suppress the topic chips', async () => {
+    mockIsMobile = true;
+    await renderMap({ forecastDates: [TODAY] });
+    // `topicsSuppressed` is `isMobile && bigSeasSelection.form != null`; with no line, no form.
+    expect(screen.queryByTestId('wf-big-seas')).toBeNull();
+  });
+
   it('shows the line, but the peek sheet\'s window rows carry no bolt and no ", big seas" clause', async () => {
     mockIsMobile = true;
     await renderMap();

@@ -1433,9 +1433,10 @@ describe('anySolarRow — the date set buildMapEvents iterates for solar rows', 
 /**
  * The Map ends at T+3 (whole-day-horizon-plan.md §5). `App.allDates` hands this builder
  * `colourForecastDates` bounded at `lastPlanDateStr(today)`; with T+4 and later out of
- * `forecastDates` (and so out of the served windows, which the backend now renders only to T+3) there is
- * no solar row past T+3 and no daylight High-water row to orphan, while a night that far out still has
- * its row, outside the forecast domain, so it is kept local rather than forwarded.
+ * `forecastDates`, and with no served window on those dates (this builder does not cut served windows;
+ * `App` never cuts a date the briefing serves, see `AppMapHorizon.test.jsx`), there is no solar row
+ * past T+3 and no daylight High-water row to orphan, while a night that far out still has its row,
+ * outside the forecast domain, so it is kept local rather than forwarded.
  */
 describe('buildMapEvents — the Map ends at T+3', () => {
   const CUT_TODAY = '2026-09-02';

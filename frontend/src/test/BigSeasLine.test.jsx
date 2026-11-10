@@ -70,7 +70,8 @@ describe('BigSeasLine: the compact form (a later day in the horizon)', () => {
   });
 
   it('draws no action when the list has no row for the aligned event', () => {
-    const short = EVENTS.filter((r) => r.date !== '2026-10-25');
+    // Sunday stays on the Map (its SUNSET row) so the line names it, but its aligned SUNRISE has no row.
+    const short = EVENTS.filter((r) => r.id !== 'solar:2026-10-25:SUNRISE');
     render(
       <BigSeasLine bigSeas={[SUNDAY]} evRow={short[0]} events={short} onSelectEv={vi.fn()} />,
     );
