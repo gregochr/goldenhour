@@ -24,6 +24,7 @@ import useModalPresent from './hooks/useModalPresent.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import { resolveInitialTab } from './utils/initialTab.js';
 import { appNow } from './utils/rewind.js';
+import { lastPlanDateStr } from './utils/comingUpHandoff.js';
 import { useRewind } from './hooks/useRewind.js';
 import { setRewind } from './utils/rewind.js';
 import { clearForecastDetailCache } from './api/forecastApi.js';
@@ -517,9 +518,17 @@ function AppInner() {
   // map's forecast-date domain. ⚠️ Not simply every `forecastsByDate` key: a wildlife hide's hourly
   // comfort rows reach a day further than the colour pipeline evaluates, and a date holding only
   // those would otherwise become a Sunrise/Sunset window nothing rates (`colourForecastDates`).
+  //
+  // ⚠️ Bounded above at the last day At a Glance shows (T+3, `lastPlanDateStr`, the client mirror of
+  // backend `PlanHorizon`): `GET /api/forecast` runs to T+5, but nothing rates T+4 or T+5 (Gate 4 scores
+  // to T+3), so those rows would only show star chips over an empty field (whole-day-horizon-plan.md §5).
+  // Past dates are kept, exactly as before: past windows and the older-day loader live below today. The
+  // date is read from the app clock (Rewind-safe) and is a dependency, so a tab left open across UK
+  // midnight widens by itself. Night rows are not built from this list and are untouched.
+  const lastPlanDate = lastPlanDateStr(ukDateStr());
   const allDates = useMemo(
-    () => colourForecastDates(visibleLocations),
-    [visibleLocations],
+    () => colourForecastDates(visibleLocations).filter((d) => d <= lastPlanDate),
+    [visibleLocations, lastPlanDate],
   );
   // ⚠️ Two different questions, kept apart. `allDates` answers "which dates get a window"; this
   // answers "did `GET /api/forecast` return ANYTHING for a visible location" — what gates the Map

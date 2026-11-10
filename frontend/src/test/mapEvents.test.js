@@ -1429,3 +1429,71 @@ describe('anySolarRow — the date set buildMapEvents iterates for solar rows', 
     expect(exists).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The Map ends at T+3 (whole-day-horizon-plan.md §5). `App.allDates` hands this builder
+ * `colourForecastDates` bounded at `lastPlanDateStr(today)`; with T+4 and later out of
+ * `forecastDates` (and so out of the served windows, which the backend now renders only to T+3) there is
+ * no solar row past T+3 and no daylight High-water row to orphan, while a night that far out still has
+ * its row, outside the forecast domain, so it is kept local rather than forwarded.
+ */
+describe('buildMapEvents — the Map ends at T+3', () => {
+  const CUT_TODAY = '2026-09-02';
+  const CUT_TOMORROW = '2026-09-03';
+  const T3 = '2026-09-05';
+  const T4 = '2026-09-06';
+  const T5 = '2026-09-07';
+  const WITHIN = [CUT_TODAY, CUT_TOMORROW, '2026-09-04', T3];
+  const cutArgs = () => ({
+    ...baseArgs(),
+    todayStr: CUT_TODAY,
+    tomorrowStr: CUT_TOMORROW,
+    forecastDates: WITHIN,
+    solarWindows: WITHIN.flatMap((d) => [solarWindow(d, 'SUNRISE'), solarWindow(d, 'SUNSET')]),
+    now: new Date('2026-09-02T09:00:00Z'),
+  });
+
+  it('lists solar rows through T+3 and none after it', () => {
+    const events = buildMapEvents(cutArgs());
+    const solar = events.filter((e) => e.kind === EVENT_KIND.SOLAR);
+
+    expect(solar).toHaveLength(8);
+    expect(solar.at(-1)).toMatchObject({ date: T3, eventType: 'SUNSET' });
+    expect(events.some((e) => e.date === T4 || e.date === T5)).toBe(false);
+  });
+
+  it('still lists a T+4 night, outside the forecast domain, so a pick of it is kept local', () => {
+    const events = buildMapEvents({
+      ...cutArgs(),
+      astroAvailableDates: [T4],
+      auroraAvailableDates: [T4],
+    });
+    const nights = events.filter((e) => e.date === T4);
+
+    expect(nights.map((e) => e.kind)).toEqual([EVENT_KIND.ASTRO, EVENT_KIND.AURORA]);
+    expect(events.some((e) => e.date === T4 && e.kind === EVENT_KIND.SOLAR)).toBe(false);
+    for (const night of nights) {
+      expect(night.inForecastDomain).toBe(false);
+      expect(isForwardableRow(night, { todayStr: CUT_TODAY })).toBe(false);
+    }
+  });
+
+  it('leaves no orphan daylight High-water row on T+4: with its solar rows gone the row goes too', () => {
+    const events = buildMapEvents({
+      ...cutArgs(),
+      astroAvailableDates: [T4],
+      bigSeas: [{
+        date: T4,
+        windowStart: `${T4}T10:30:00`,
+        windowEnd: `${T4}T13:00:00`,
+        hwTime: `${T4}T11:40:00`,
+        daylightHighWater: true,
+        daylightStart: `${T4}T06:20:00`,
+        daylightEnd: `${T4}T16:40:00`,
+      }],
+    });
+
+    expect(events.some((e) => e.kind === EVENT_KIND.HW)).toBe(false);
+    expect(events.filter((e) => e.date === T4).map((e) => e.kind)).toEqual([EVENT_KIND.ASTRO]);
+  });
+});
