@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
+
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
@@ -10,6 +11,9 @@ import { setRewind } from '../utils/rewind.js';
  * The Map's date domain ends at T+3 (whole-day-horizon-plan.md §5), the last day At a Glance shows.
  * `App.allDates` is `colourForecastDates` bounded above at `lastPlanDateStr(today)`; the pane stub here
  * prints the `dates` it is handed. The shape is `AppPastSelection.test.jsx`'s.
+ *
+ * The shell is stubbed (it prints its `forecastDates` and mounts the `mapPane`), so the same harness also
+ * pins that the shell, which feeds the Coming up and day-tile Map doors, gets the BOUNDED list.
  *
  * What is proven: forecast dates after today + 3 are dropped; today + 3 and every earlier date, past
  * dates included, are kept; and the same holds under a rewound clock (today is `appNow()`, never the
@@ -26,7 +30,6 @@ vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.f
 vi.mock('../api/settingsApi.js', () => ({
   getSettings: vi.fn(),
   getReach: vi.fn(),
-  getDriveTimes: vi.fn(),
   lookupPostcode: vi.fn(),
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
@@ -60,6 +63,18 @@ vi.mock('../components/MapView.jsx', () => ({
 vi.mock('../hooks/useHealthStatus.js', () => ({
   useHealthStatus: () => ({ status: 'UP', degraded: false, services: [], checkedAt: null }),
 }));
+// The shell is stubbed to print its `forecastDates` prop and to mount the `mapPane` it is handed, so
+// one harness proves both the Map pane's `dates` and the shell's (Coming up and day-tile doors).
+vi.mock('../components/WindowFirstShell.jsx', () => ({
+  default: ({ forecastDates, mapPane }) => (
+    <div>
+      <span data-testid="shell-forecast-dates">
+        {forecastDates === null ? 'null' : forecastDates.join(',')}
+      </span>
+      {mapPane}
+    </div>
+  ),
+}));
 vi.mock('../components/ManageView.jsx', () => ({
   default: () => <div data-testid="manage-stub" />,
 }));
@@ -75,7 +90,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
 import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
+import { getSettings, getReach } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
@@ -130,10 +145,15 @@ function renderApp(overrides = {}) {
 }
 
 async function mapDates() {
-  const tab = await screen.findByRole('tab', { name: 'Map' });
-  await act(async () => { fireEvent.click(tab); });
   await screen.findByTestId('map-pane-stub');
   return screen.getByTestId('map-pane-dates').textContent.split(',').filter(Boolean);
+}
+
+/** The shell's own `forecastDates` prop (what the Coming up and day-tile Map doors withhold on). */
+async function shellDates() {
+  const el = await screen.findByTestId('shell-forecast-dates');
+  await act(async () => {});
+  return el.textContent.split(',').filter(Boolean);
 }
 
 describe('App — the Map ends at T+3', () => {
@@ -144,7 +164,6 @@ describe('App — the Map ends at T+3', () => {
     getAllEvaluationScores.mockResolvedValue([]);
     getSettings.mockResolvedValue(SETTINGS);
     getReach.mockResolvedValue({ reach: [] });
-    getDriveTimes.mockResolvedValue([]);
     fetchTravelDayRanges.mockResolvedValue([]);
     getAuroraStatus.mockResolvedValue(null);
     getNlcSighting.mockResolvedValue(null);
@@ -197,6 +216,24 @@ describe('App — the Map ends at T+3', () => {
     renderApp({ upcomingEvents: [{ date: ukDateStrOffset(4), targetType: 'SUNSET' }] });
 
     expect(await mapDates()).toEqual(span.slice(0, 7));
+  });
+
+  it('hands the shell the BOUNDED list: no T+4 or T+5 reaches the Coming up and day-tile Map doors', async () => {
+    const span = servedSpan();
+    fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+    renderApp();
+
+    // The unbounded `colourForecastDates` would end at T+5; the doors withhold on membership.
+    expect(await shellDates()).toEqual(span.slice(0, 6));
+  });
+
+  it('hands the shell null (not known yet), not an empty list, while the forecast is outstanding', async () => {
+    fetchForecasts.mockReturnValue(new Promise(() => {}));
+
+    renderApp();
+
+    expect(await screen.findByTestId('shell-forecast-dates')).toHaveTextContent('null');
   });
 
   it('keeps a T+3 that is the last served date (nothing to drop)', async () => {
