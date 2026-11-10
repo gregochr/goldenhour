@@ -219,6 +219,20 @@ describe('the slim empty slots', () => {
     // The phone has no rails and needs the chip: the base `.wf-hc-top` rule must not hide it.
     expect(ruleBody('.wf-hc-top')).not.toContain('display: none');
   });
+
+  it('stretches the away card to the row only when a rated card sits beside it, on desktop and tablet', () => {
+    const selector = '.wf-hstrip-rows .wf-hcards:has(> .wf-hc:not(.wf-hc-away)) > .wf-hc-away';
+    expect(ruleBody(selector)).toContain('align-self: stretch;');
+    // The all-away row keeps the slim rule.
+    expect(ruleBody('.wf-hstrip-rows .wf-hcards > .wf-hc-away')).toContain('align-self: start;');
+    // Desktop / tablet only: it is declared in no phone block.
+    let from = 0;
+    while (css.indexOf('@media (max-width: 639px) {', from) !== -1) {
+      const block = mediaBlock('(max-width: 639px)', from);
+      expect(block).not.toContain(selector);
+      from = css.indexOf(block, from) + block.length;
+    }
+  });
 });
 
 describe('the best-location name', () => {
