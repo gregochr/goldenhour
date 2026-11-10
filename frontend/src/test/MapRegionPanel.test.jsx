@@ -168,7 +168,7 @@ describe('MapRegionPanel — the location rows', () => {
     const row = screen.getByTestId('wf-reg-panel-row');
     const glyph = within(row).getByTestId('wf-reg-panel-tide');
     expect(glyph).toHaveAttribute('data-wide', 'true');
-    expect(glyph.querySelector('text')).toHaveTextContent('M');
+    expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'M');
     expect(row).toHaveTextContent('mid tide, right here');
   });
 

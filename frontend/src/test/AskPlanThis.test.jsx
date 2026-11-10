@@ -454,8 +454,11 @@ describe('the four figures and the note, as the view prints them', () => {
     await planThis(2);
 
     const glyph = screen.getByTestId('ask-plan-tide').querySelector('svg');
-    expect(glyph.querySelector('text')).toHaveTextContent('H');
-    expect(glyph.querySelectorAll('path')).toHaveLength(1);
+    expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'H');
+    // One wave path and one letter path, and no arrow.
+    expect(glyph.querySelectorAll('path:not([data-letter])')).toHaveLength(1);
+    expect(glyph.querySelectorAll('path[data-letter]')).toHaveLength(1);
+    expect(glyph.querySelector('text')).toBeNull();
   });
 
   it('gives an inland spot a dash for the tide — a missing fact is not a miss', async () => {
