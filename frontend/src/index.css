@@ -2150,6 +2150,13 @@ div.wf-hc:where([data-control]).on:hover {
   min-height: 0;
   padding: 9px 10px;
 }
+/* Slim only when the WHOLE row is away: beside a rated card (a `.wf-hc` that is not `.wf-hc-away`) the away card
+   stretches to that card's height instead (owner, 2026-11-10); its content stays at the top. Desktop / tablet only:
+   the phone renders a plain `.wf-hstrip`, which has no `.wf-hstrip-rows .wf-hcards`. Specificity (0,5,0 with :has)
+   beats the base rule (0,3,0), so it wins by weight, not source order. */
+.wf-hstrip-rows .wf-hcards:has(> .wf-hc:not(.wf-hc-away)) > .wf-hc-away {
+  align-self: stretch;
+}
 .wf-hstrip-rows .wf-hcards > .wf-hc-away .wf-hc-top {
   display: none;
 }
