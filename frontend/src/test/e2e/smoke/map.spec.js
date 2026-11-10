@@ -48,15 +48,23 @@ test.describe('Map tab', () => {
     await first.click();
     await expect(callout).toBeVisible();
     await expect(callout).toContainText(firstName);
+    // The callout's `panInside` animates the map for ~300 ms and the labels re-place only at `moveend`, so a
+    // chip sampled mid-pan can be removed by the placer once the pan lands. Wait for the pan to finish first.
+    await expect(page.locator('.leaflet-map-pane')).not.toHaveClass(/leaflet-pan-anim/);
     await expect(page.getByTestId('map-callout-score')).toHaveText(new RegExp(`^${oracle.get(firstName)}★ `));
     await page.getByTestId('map-callout-close').click();
     await expect(callout).toHaveCount(0);
 
     // A different chip: open, then Escape. The first callout is closed before the second chip is pressed.
-    const chips = await chipStars(page);
-    const other = chips.find((chip) => chip.name !== firstName);
-    expect(other, 'a second, different visible chip').toBeDefined();
-    await page.getByRole('button', { name: new RegExp(`^${other.name}, \\d star`) }).click();
+    // Re-read the chips on each attempt, so a stale sample (a chip the placer has since removed) is retried
+    // against fresh state rather than clicked.
+    let other;
+    await expect(async () => {
+      const chips = await chipStars(page);
+      other = chips.find((chip) => chip.name !== firstName);
+      expect(other, 'a second, different visible chip').toBeDefined();
+      await page.getByRole('button', { name: new RegExp(`^${other.name}, \\d star`) }).click({ timeout: 2000 });
+    }).toPass();
     await expect(callout).toBeVisible();
     await expect(page.getByTestId('map-callout-score')).toHaveText(new RegExp(`^${oracle.get(other.name)}★ `));
     await page.keyboard.press('Escape');
