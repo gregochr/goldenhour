@@ -1348,7 +1348,7 @@ describe('WindowFirstHeatStrip — the best you could actually reach', () => {
       });
       const glyph = screen.getByTestId('wf-heat-best-tide');
       expect(glyph).toHaveAttribute('data-wide', 'true');
-      expect(glyph.querySelector('text')).toHaveTextContent('M');
+      expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'M');
       expect(screen.getByRole('button', {
         name: 'Tonight Sunset, 21:11, Worth it, 1 location within 45 min, 1 of 1 rated, best Bamburgh Beach, 4 stars, '
           + 'Northumberland & Tyneside, 40 min, leave 20:11, mid tide, right here',
