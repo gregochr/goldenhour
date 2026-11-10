@@ -185,10 +185,22 @@ class BriefingDigestServiceTest {
     @Test
     @DisplayName("a limit above the maximum is clamped, and the horizon still bounds the list")
     void digest_limitAboveMax_clampedToMax() {
-        // The date bound now runs before the limit, so a briefing can no longer supply MAX_LIMIT
-        // windows: 26 days in, only today..T+3 survive, whatever the limit. The clamp itself is
-        // exercised (an oversized limit must not throw or over-read), and the horizon is the
-        // binding constraint.
+        // At most eight windows exist inside the horizon in production, so the cap is a guard only.
+        // To reach it, one in-horizon day carries MAX_LIMIT + 2 unelapsed summaries (the digest does
+        // not dedupe), and an over-large limit must be clamped down to exactly MAX_LIMIT.
+        BriefingEventSummary[] summaries = new BriefingEventSummary[BriefingDigestService.MAX_LIMIT + 2];
+        for (int i = 0; i < summaries.length; i++) {
+            summaries[i] = summary(TargetType.SUNSET, windowAt(DAY_TWO, 19, 0));
+        }
+        stubBriefing(day(DAY_TWO, summaries));
+
+        assertThat(service.digest(BriefingDigestService.MAX_LIMIT + 1).windows())
+                .hasSize(BriefingDigestService.MAX_LIMIT);
+    }
+
+    @Test
+    @DisplayName("days beyond T+3 are dropped before the limit, whatever the limit")
+    void digest_horizonBoundsTheListBeforeTheLimit() {
         BriefingDay[] days = new BriefingDay[BriefingDigestService.MAX_LIMIT + 2];
         for (int i = 0; i < days.length; i++) {
             days[i] = day(DAY_ONE.plusDays(i),
@@ -196,7 +208,7 @@ class BriefingDigestServiceTest {
         }
         stubBriefing(days);
 
-        assertThat(service.digest(BriefingDigestService.MAX_LIMIT + 1).windows())
+        assertThat(service.digest(BriefingDigestService.MAX_LIMIT).windows())
                 .extracting(BriefingDigestResponse.Window::date)
                 .containsExactly(DAY_ONE, DAY_ONE.plusDays(1), DAY_ONE.plusDays(2), DAY_ONE.plusDays(3));
     }

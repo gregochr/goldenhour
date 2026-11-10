@@ -25,7 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class PlanWindowProjectorNeighbourGuardTest {
 
-    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 17, 4, 0);
+    private static final java.time.LocalDate TODAY = java.time.LocalDate.of(2026, 10, 17);
+    private static final LocalDateTime NOW = TODAY.atTime(4, 0);
 
     private static BriefingSlot flagged(BriefingSlot slot) {
         return slot.withNeighbourOutlier(Boolean.TRUE);
@@ -35,7 +36,7 @@ class PlanWindowProjectorNeighbourGuardTest {
         DailyBriefingResponse in = new DailyBriefingResponse(LocalDateTime.of(2026, 10, 17, 3, 0),
                 "headline", List.of(day(D, TargetType.SUNRISE, region("North", slots))), List.of(), null,
                 null, false, null, List.of(), List.of());
-        return PlanWindowProjector.apply(in, NOW, NOW.toLocalDate(), Map.of(), Map.of())
+        return PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of())
                 .days().get(0).eventSummaries().get(0)
                 .window().pick();
     }
@@ -100,7 +101,7 @@ class PlanWindowProjectorNeighbourGuardTest {
                         flagged(sky(1L, "A", 4)), sky(2L, "B", 3), sky(3L, "C", 3)))), List.of(), null,
                 null, false, null, List.of(), List.of());
 
-        BriefingWindow window = PlanWindowProjector.apply(in, NOW, NOW.toLocalDate(), Map.of(), Map.of())
+        BriefingWindow window = PlanWindowProjector.apply(in, NOW, TODAY, Map.of(), Map.of())
                 .days().get(0)
                 .eventSummaries().get(0).window();
 

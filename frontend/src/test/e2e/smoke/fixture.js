@@ -358,6 +358,32 @@ export async function chipStars(page) {
 }
 
 /**
+ * Every visible chip, read only once the label layer has re-placed after whatever just changed it.
+ *
+ * ⚠️ `data-placed` cannot say this: the layer measures and places in one layout effect, so it is never observed
+ * false. Closing a callout changes `bottomInset`/`chromeKey`, which re-places the labels a frame or two LATER (a
+ * passive effect, then a rAF-throttled repaint), so a read straight after the close sees the previous frame's
+ * chips, one of which the repaint can then take away. This polls until the chip list is identical across three
+ * animation frames, which is longer than that effect-then-rAF chain.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<Array<{name: string, star: number}>>}
+ */
+export async function settledChipStars(page) {
+  let previous = null;
+  await expect.poll(async () => {
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    }));
+    const current = JSON.stringify(await chipStars(page));
+    const unchanged = current === previous;
+    previous = current;
+    return unchanged;
+  }, { message: 'the Map labels to settle after the last change' }).toBe(true);
+  return chipStars(page);
+}
+
+/**
  * The window rows from the pill's menu (desktop): ids in order and which is active. Opens the menu once and
  * closes it with Escape.
  *

@@ -745,7 +745,7 @@ class PlanWindowProjectorTest {
                     List.of(dayOf(TODAY, region("Gone", 5, 5)),
                             dayOf(TODAY.plusDays(1), region("Ahead", 4, 4))),
                     List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 0)));
+                    LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
 
             assertThat(firstWindow(out, 0).pick()).isNull();
             assertThat(firstWindow(out, 1).pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
@@ -1428,7 +1428,7 @@ class PlanWindowProjectorTest {
             // nothing. A forecast that has entirely passed must say the second.
             DailyBriefingResponse out = projectAt(
                     List.of(dayOf(TODAY, region("Gone", 4, 4))), List.of(),
-                    LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
+                    LocalDateTime.of(TODAY, LocalTime.of(22, 0)));
 
             assertThat(out.renderedEvents()).isNotNull().isEmpty();
         }

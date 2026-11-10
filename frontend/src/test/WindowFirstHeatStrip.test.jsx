@@ -361,6 +361,7 @@ describe('WindowFirstHeatStrip — which windows it draws', () => {
       await renderStrip({ cards: horizonCards(DAYS.slice(1).flatMap(both)) });
 
       expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(6);
+      expect(screen.getAllByTestId('wf-heat-day')).toHaveLength(3);
       expect(screen.queryAllByTestId('wf-heat-empty')).toHaveLength(0);
     });
   });

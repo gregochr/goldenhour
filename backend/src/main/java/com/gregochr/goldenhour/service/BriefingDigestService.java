@@ -44,9 +44,10 @@ public class BriefingDigestService {
     /**
      * The most windows one request may ask for.
      *
-     * <p>Deliberately above anything the briefing can currently produce (five days × two solar
-     * events = ten), so it is a guard against a caller asking for something absurd rather than a
-     * horizon of its own. It must never be read as "the digest returns up to 24 windows".
+     * <p>Deliberately above anything the digest can produce: it lists only windows inside the Plan
+     * horizon (today to T+3), so at most eight exist and this cap is a guard only, against a caller
+     * asking for something absurd, rather than a horizon of its own. It must never be read as
+     * "the digest returns up to 24 windows".
      */
     public static final int MAX_LIMIT = 24;
 
@@ -84,7 +85,8 @@ public class BriefingDigestService {
      * exists for are unattended background refreshes, and a widget that fails to draw because it
      * asked for one window too many is a worse outcome than one that draws a shorter list.
      *
-     * @param limit how many windows to return, clamped into range
+     * @param limit how many windows to return, clamped into range (the horizon holds at most eight
+     *              windows, so the upper clamp is a guard only)
      * @return the digest, or null when no briefing has been generated yet
      */
     public BriefingDigestResponse digest(int limit) {

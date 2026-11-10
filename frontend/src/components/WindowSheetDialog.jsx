@@ -489,7 +489,7 @@ export default function WindowSheetDialog({
   return (
     <Modal
       // Counted rather than asserted: the nav's own denominator is the openable window count, and a
-      // payload that renders four windows must not have its dialog announce eight.
+      // payload that renders four windows must not have its dialog announce the wrong count.
       label={`${windowLabel} — ${index + 1} of ${total}`}
       onClose={onClose}
       bare
@@ -672,7 +672,7 @@ export default function WindowSheetDialog({
                 the pressed button, and the dialog is not keyed, so `useDialogFocus` never re-fires
                 and its accessible name is never re-read. The one "which of N" signal on screen is
                 the counter above, which is `aria-hidden` because it is a glyph pair a reader would
-                hear as "one slash eight".
+                hear as "one slash N".
 
                 The same silence covered the popup's PRIMARY interaction: picking a region swaps the
                 prose, filters the strip and repaints the field, and the design's own selling point —

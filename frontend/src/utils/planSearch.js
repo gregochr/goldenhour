@@ -161,7 +161,7 @@ const GLYPH = { location: '◇', region: '◎', window: '◷' };
  * The best rated window this ONE location has, and which window it is.
  *
  * <p>⚠️ It aggregates nothing across locations, which is what keeps it inside P8's recorded licence
- * rather than reopening Rule 1: it is a max over one place's own six windows, the same shape
+ * rather than reopening Rule 1: it is a max over one place's own windows, the same shape
  * {@code buildLocationSheet} computes for the sheet this row opens. Ties break earliest, because
  * the walk is in render order and the comparison is strict.
  *
@@ -331,7 +331,7 @@ export function buildSearchGroups(query, {
       // It has no card — `buildWindowCards` drops travel days, because a "Poor" card under a tile
       // reading "Not forecast" is a contradiction — so choosing one would close the dialog having
       // silently done nothing. The strip already draws it as a non-interactive cell; hiding it here
-      // instead would make the search's six windows a different six from the strip's.
+      // instead would make the search's windows a different set from the strip's.
       disabled: Boolean(card.away),
       reason: card.away ? 'Not forecast — away this day' : null,
     }));
