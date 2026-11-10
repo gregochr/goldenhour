@@ -218,7 +218,7 @@ export function tokenOf(page) {
 }
 
 /**
- * The served forecast: `/api/forecast` (T-2..T+4), or one older day (`?date=`). Always the oracle for a star.
+ * The served forecast: `/api/forecast` (T-2..T+4; the Map lists to T+3), or one older day (`?date=`). Always the oracle for a star.
  *
  * @param {import('@playwright/test').Page} page
  * @param {string} [date] an ISO date for the older-day read

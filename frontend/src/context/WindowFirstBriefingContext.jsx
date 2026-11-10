@@ -27,6 +27,7 @@ import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { reachIsMeasured } from '../utils/reachLens.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { lastPlanDateStr } from '../utils/comingUpHandoff.js';
 import { buildGroundSets, isShaped } from '../utils/pickScope.js';
 import { regionPickSummaries } from '../utils/pickGeography.js';
 import { SubRegionStatusProvider } from './SubRegionStatusContext.jsx';
@@ -250,7 +251,8 @@ const WindowFirstBriefingContext = createContext({
  * cached before the field existed and from one served by an older backend mid-deploy; returning
  * nothing there would blank the pane. Uncapped on purpose — the cap is the backend's to own, and
  * restoring a client-side copy for the degrade would reintroduce exactly the constant this phase
- * deleted. The next fetch fixes it within seconds. Absent and empty are different answers, and the
+ * deleted — but it IS bounded at the last Plan date (T+3, `lastPlanDateStr`), the one date filter the
+ * client keeps. The next fetch fixes it within seconds. Absent and empty are different answers, and the
  * payload contract keeps them apart: empty means the projector ran and found no live window.
  *
  * @param {?object} briefing the briefing payload
@@ -261,8 +263,11 @@ function selectUpcomingEvents(briefing) {
   const summaryFor = (date, targetType) => days
     .find((d) => d.date === date)?.eventSummaries
     ?.find((es) => es.targetType === targetType);
+  // The degrade walk stops at the last day Plan renders (T+3), so a briefing that still carries T+4
+  // cannot put a card the served path would never show on screen for the seconds before the refetch.
+  const lastDate = lastPlanDateStr(ukDateStr());
   const listed = briefing?.renderedEvents
-    ?? days.flatMap((d) => (d.eventSummaries || [])
+    ?? days.filter((d) => d.date <= lastDate).flatMap((d) => (d.eventSummaries || [])
       .map((es) => ({ date: d.date, targetType: es.targetType })));
 
   return listed.filter(({ date, targetType }) => {

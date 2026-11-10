@@ -201,6 +201,20 @@ describe('buildEntryView — a map door needs a colour forecast for its date', (
     expect(view.actionNote).toBe('Dark-sky spots: no forecast for 21 Oct');
   });
 
+  it('withholds a T+4 door against the Map\'s bounded list (today to T+3), with the existing wording', () => {
+    // The Map ends at T+3 (whole-day-horizon-plan.md §5): `App` hands the shell that bounded list, so a
+    // door dated T+4 is withheld rather than opening onto a date with no row.
+    const bounded = ['2026-08-09', '2026-08-10', '2026-08-11', '2026-08-12'];
+    const t4Door = { ...COASTAL, date: '2026-08-13' };
+    const view = buildEntryView(overCap(t4Door), TODAY, null, bounded);
+    expect(view.interactive).toBe(false);
+    expect(view.actionWithheld).toBe(true);
+    expect(view.actionNote).toBe('Coastal spots: no forecast for 13 Aug');
+    // T+3, the last bounded day, stays live.
+    expect(buildEntryView(overCap({ ...COASTAL, date: '2026-08-12' }), TODAY, null, bounded).interactive)
+      .toBe(true);
+  });
+
   it('withholds on membership of the exact date — a gap in the list is not covered by its neighbours', () => {
     // Separates `includes(date)` from "some listed date is on or after it" and "from a range".
     const view = buildEntryView(overCap(COASTAL), TODAY, null, ['2026-10-10', '2026-10-12']);

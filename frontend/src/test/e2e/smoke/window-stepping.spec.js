@@ -63,6 +63,19 @@ test.describe('Map window control: stepping through the windows', () => {
     const startIndex = rows.findIndex((row) => row.active);
     expect(startIndex, 'an active window').toBeGreaterThanOrEqual(0);
 
+    // ---- the list ends at T+3 ----------------------------------------------------------------------
+    // The fixture serves forecast rows to T+4, but nothing rates T+4, so the Map must not list it: the
+    // menu's last window is a day earlier than the served forecast's last sunrise/sunset date, and it is
+    // the sunset of that day (whole days, like At a Glance).
+    const lastServedDate = forecast
+      .filter((row) => row.targetType === 'SUNRISE' || row.targetType === 'SUNSET')
+      .map((row) => row.targetDate).sort().at(-1);
+    expect(lastServedDate, 'the forecast carries sunrise/sunset rows').toBeTruthy();
+    const lastListed = SOLAR_ID.exec(rows.at(-1).id);
+    expect(lastListed[1] < lastServedDate, 'the menu ends before the last served forecast date').toBe(true);
+    expect(lastListed[2], 'the last listed window is a sunset').toBe('SUNSET');
+    expect(rows.every((row) => SOLAR_ID.exec(row.id)[1] <= lastListed[1])).toBe(true);
+
     // ---- forward, to the last window --------------------------------------------------------------
     let activeId = rows[startIndex].id;
     let chips = await expectChipsMatch(page, starsOf(forecast, activeId), activeId);
@@ -71,7 +84,7 @@ test.describe('Map window control: stepping through the windows', () => {
       const id = await stepWith(page, () => next(page).click());
       expect(id, `the window after ${activeId}`).toBe(rows[i].id);
       const oracle = starsOf(forecast, id);
-      // The two latest windows are outside the rated horizon (the menu shows a dash): nothing to compare.
+      // A window with no served rows (the menu shows a dash) has nothing to compare.
       if (oracle.size > 0) {
         const after = await expectChipsMatch(page, oracle, id);
         expectChangedStars(chips, after, `${activeId} to ${id}`);
@@ -104,7 +117,7 @@ test.describe('Map window control: stepping through the windows', () => {
     expect(afterLeft, 'ArrowLeft steps back').toBe(keyStart);
 
     // ---- the oldest loaded window: ‹ now LOADS the next older day, twice -------------------------------
-    // The initial list covers T-2..T+4, so exactly two older days exist: T-3 (rows) and T-4 (empty on purpose).
+    // The initial list covers T-2..T+3, so exactly two older days exist: T-3 (rows) and T-4 (empty on purpose).
     expect((await readWindowRows(page)).find((row) => row.active).id, 'at the oldest loaded window').toBe(rows[0].id);
 
     const loadOlderDay = async () => {

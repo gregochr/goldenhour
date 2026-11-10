@@ -24,13 +24,14 @@ import useModalPresent from './hooks/useModalPresent.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import { resolveInitialTab } from './utils/initialTab.js';
 import { appNow } from './utils/rewind.js';
+import { lastPlanDateStr } from './utils/comingUpHandoff.js';
 import { useRewind } from './hooks/useRewind.js';
 import { setRewind } from './utils/rewind.js';
 import { clearForecastDetailCache } from './api/forecastApi.js';
 import RewindPill from './components/RewindPill.jsx';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
-import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
+import { WindowFirstBriefingProvider, useWindowFirstBriefing } from './context/WindowFirstBriefingContext.jsx';
 import { AskProvider } from './context/AskContext.jsx';
 import { GuideProvider } from './context/GuideContext.jsx';
 import { takeLinkToken } from './utils/oneTimeLinkToken.js';
@@ -271,6 +272,34 @@ function AskWhenLive({ rewound, children }) {
 AskWhenLive.propTypes = {
   rewound: PropTypes.bool.isRequired,
   children: PropTypes.node,
+};
+
+/**
+ * Lifts the dates the briefing SERVES a window for out of the provider, to `AppInner`'s Map date
+ * domain. Renders nothing. The server's rendered set is the authority; the client's T+3 cut exists
+ * only to drop unserved filler days, so a date the briefing serves is never cut — which matters when
+ * the device's UK date is behind the server's and the server's T+3 is the client's T+4. The key is the
+ * sorted, comma-joined date list, so a poll that changes nothing does not re-render the app.
+ *
+ * @param {object} props
+ * @param {(dates: string[]) => void} props.onChange receives the served dates, ascending
+ */
+function ServedDatesReporter({ onChange }) {
+  const { upcomingEvents } = useWindowFirstBriefing();
+  const key = [...new Set((upcomingEvents ?? []).map((e) => e.date))]
+    .sort((a, b) => {
+      if (a < b) return -1;
+      return a > b ? 1 : 0;
+    })
+    .join(',');
+  useEffect(() => {
+    onChange(key ? key.split(',') : []);
+  }, [key, onChange]);
+  return null;
+}
+
+ServedDatesReporter.propTypes = {
+  onChange: PropTypes.func.isRequired,
 };
 
 /**
@@ -517,10 +546,23 @@ function AppInner() {
   // map's forecast-date domain. ⚠️ Not simply every `forecastsByDate` key: a wildlife hide's hourly
   // comfort rows reach a day further than the colour pipeline evaluates, and a date holding only
   // those would otherwise become a Sunrise/Sunset window nothing rates (`colourForecastDates`).
-  const allDates = useMemo(
-    () => colourForecastDates(visibleLocations),
-    [visibleLocations],
-  );
+  //
+  // ⚠️ Bounded above at the last day At a Glance shows (T+3, `lastPlanDateStr`, the client mirror of
+  // backend `PlanHorizon`): `GET /api/forecast` runs to T+5, but nothing rates T+4 or T+5 (Gate 4 scores
+  // to T+3), so those rows would only show star chips over an empty field (whole-day-horizon-plan.md §5).
+  // Past dates are kept, exactly as before: past windows and the older-day loader live below today. The
+  // date is read from the app clock (Rewind-safe) and is a dependency, so a tab left open across UK
+  // midnight widens by itself. Night rows are not built from this list and are untouched.
+  const lastPlanDate = lastPlanDateStr(ukDateStr());
+  //
+  // ⚠️ The cut never drops a date the briefing SERVES a window for (`servedDates`, lifted by
+  // `ServedDatesReporter`): the server's rendered set is the authority, and a device whose UK date is
+  // behind the server's would otherwise list the server's T+3 as a Map row `resolveMapDate` refuses.
+  const [servedDates, setServedDates] = useState([]);
+  const allDates = useMemo(() => {
+    const served = new Set(servedDates);
+    return colourForecastDates(visibleLocations).filter((d) => d <= lastPlanDate || served.has(d));
+  }, [visibleLocations, lastPlanDate, servedDates]);
   // ⚠️ Two different questions, kept apart. `allDates` answers "which dates get a window"; this
   // answers "did `GET /api/forecast` return ANYTHING for a visible location" — what gates the Map
   // tab and the "open the full map" doors. It must not follow `allDates`: a hides-only forecast (a
@@ -889,6 +931,7 @@ function AppInner() {
           setComingUpLastSeenAt={setComingUpLastSeenDate}
           locations={visibleLocations}
         >
+          <ServedDatesReporter onChange={setServedDates} />
       {/* A natural-height, non-shrinking flex item on the Map tab — `flex-shrink-0` so a tight
           column never squeezes a banner instead of the map panel, which is the one element with
           `flex-1` and so the one meant to absorb the difference. Inert on every other tab (the
