@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { ukDateStrOffset } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { setRewind } from '../utils/rewind.js';
 
 /**
  * The past-window provenance flag at the app root (outcome-rating-plan.md §2 #2, §3 O3a step 3):
@@ -29,7 +30,6 @@ vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.f
 vi.mock('../api/settingsApi.js', () => ({
   getSettings: vi.fn(),
   getReach: vi.fn(),
-  getDriveTimes: vi.fn(),
   lookupPostcode: vi.fn(),
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
@@ -68,7 +68,24 @@ vi.mock('../components/ManageView.jsx', () => ({
 }));
 
 /** The dates the stub pane's buttons send, filled in below once the clock-relative dates exist (the `mock` prefix is what lets the hoisted factory close over it). */
-const mockDates = { yesterday: '', twoAgo: '', tomorrow: '' };
+const mockDates = { yesterday: '', twoAgo: '', tomorrow: '', t4: '' };
+// The real shell, plus a probe printing the `forecastDates` it is handed (the Coming up and day-tile
+// Map doors withhold on it). Wrapping leaves what every other test here sees untouched.
+vi.mock('../components/WindowFirstShell.jsx', async (importActual) => {
+  const actual = await importActual();
+  const RealShell = actual.default;
+  return {
+    ...actual,
+    default: (props) => (
+      <>
+        <span data-testid="shell-forecast-dates">
+          {props.forecastDates === null ? 'null' : props.forecastDates.join(',')}
+        </span>
+        <RealShell {...props} />
+      </>
+    ),
+  };
+});
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({ selectedDate, onSelectDate, dates }) => (
     <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
@@ -85,6 +102,9 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
       <button type="button" onClick={() => onSelectDate(mockDates.tomorrow, { isNight: false, isPast: false })}>
         pick live tomorrow
       </button>
+      <button type="button" onClick={() => onSelectDate(mockDates.t4)}>
+        pick the T+4 sunset
+      </button>
     </div>
   ),
 }));
@@ -92,7 +112,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
 import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
+import { getSettings, getReach } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
@@ -165,7 +185,6 @@ describe('App — the past-window selection licence (selectedDateIsPast)', () =>
     getAllEvaluationScores.mockResolvedValue([]);
     getSettings.mockResolvedValue(SETTINGS);
     getReach.mockResolvedValue({ reach: [] });
-    getDriveTimes.mockResolvedValue([]);
     fetchTravelDayRanges.mockResolvedValue([]);
     getAuroraStatus.mockResolvedValue(null);
     getNlcSighting.mockResolvedValue(null);
@@ -228,5 +247,139 @@ describe('App — the past-window selection licence (selectedDateIsPast)', () =>
 
     expect(pane).not.toHaveAttribute('data-selected-date', TWO_AGO);
     expect(pane).toHaveAttribute('data-selected-date', TOMORROW);
+  });
+
+  /**
+   * The Map ends at T+3 (whole-day-horizon-plan.md §5), the last day At a Glance shows. `App.allDates`
+   * is `colourForecastDates` bounded above at `lastPlanDateStr(today)` (past dates kept), except that
+   * it never cuts a date the briefing SERVES a window for. The pane stub prints the `dates` it is
+   * handed and the wrapped shell prints its own `forecastDates` (what the Coming up and day-tile Map
+   * doors withhold on), so the one harness pins both lists. Nested here for this file's mocks and
+   * `beforeEach`; each test supplies its own forecast span.
+   */
+  describe('the Map ends at T+3', () => {
+    afterEach(() => { act(() => setRewind(null)); });
+
+    /** Sunrise and sunset rows for each date, as `GET /api/forecast` serves them. */
+    const forecastsFor = (dates) => dates.flatMap((targetDate) => ['SUNRISE', 'SUNSET']
+      .map((targetType) => ({
+        locationName: 'Derwentwater', locationLat: '54.58', locationLon: '-3.14',
+        targetDate, targetType, forecastRunAt: '2026-01-01T06:00:00', rating: 3,
+      })));
+
+    /** T-2 .. T+5 relative to the app clock: the served span, past days included. */
+    const servedSpan = () => [-2, -1, 0, 1, 2, 3, 4, 5].map((n) => ukDateStrOffset(n));
+
+    /** Renders with the briefing context overridden (e.g. the windows the server serves). */
+    const renderWith = (overrides = {}) => {
+      localStorage.setItem('goldenhour_token', 'test-token');
+      localStorage.setItem('goldenhour_role', 'ADMIN');
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({ ...ctx(), ...overrides });
+      return render(<App />);
+    };
+
+    const mapDates = async () => {
+      await openMapTab();
+      return screen.getByTestId('map-pane-dates').textContent.split(',').filter(Boolean);
+    };
+
+    const shellDates = async () => {
+      const el = await screen.findByTestId('shell-forecast-dates');
+      await act(async () => {});
+      return el.textContent.split(',').filter(Boolean);
+    };
+
+    it('drops T+4 and T+5, keeps T+3 and every earlier date, past included', async () => {
+      const span = servedSpan();
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith();
+
+      expect(await mapDates()).toEqual(span.slice(0, 6));
+    });
+
+    it('never cuts a date the briefing SERVES a window for: a device behind the server still selects it', async () => {
+      // The device's UK date is a day behind the server's, so the server's T+3 is this client's T+4. The
+      // briefing serves windows through that date; the client cut must not drop its row, and picking its
+      // sunset must land the Map on it (it used to be listed but refused by `resolveMapDate`).
+      const span = servedSpan();
+      const t4 = ukDateStrOffset(4);
+      mockDates.t4 = t4;
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith({
+        upcomingEvents: [
+          { date: ukDateStrOffset(3), targetType: 'SUNSET' },
+          { date: t4, targetType: 'SUNRISE' },
+          { date: t4, targetType: 'SUNSET' },
+        ],
+      });
+
+      expect(await mapDates()).toEqual(span.slice(0, 7));
+      await press('pick the T+4 sunset');
+      expect(screen.getByTestId('map-pane-stub')).toHaveAttribute('data-selected-date', t4);
+    });
+
+    it('still cuts T+5 when only T+4 is served (the exemption is per served date)', async () => {
+      const span = servedSpan();
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith({ upcomingEvents: [{ date: ukDateStrOffset(4), targetType: 'SUNSET' }] });
+
+      expect(await mapDates()).toEqual(span.slice(0, 7));
+    });
+
+    it('hands the shell the BOUNDED list: no T+4 or T+5 reaches the Coming up and day-tile Map doors', async () => {
+      const span = servedSpan();
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith();
+
+      // The unbounded `colourForecastDates` would end at T+5; the doors withhold on membership.
+      expect(await shellDates()).toEqual(span.slice(0, 6));
+    });
+
+    it('hands the shell null (not known yet), not an empty list, while the forecast is outstanding', async () => {
+      fetchForecasts.mockReturnValue(new Promise(() => {}));
+
+      renderWith();
+
+      expect(await screen.findByTestId('shell-forecast-dates')).toHaveTextContent('null');
+    });
+
+    it('keeps a T+3 that is the last served date (nothing to drop)', async () => {
+      const span = servedSpan().slice(0, 6);
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith();
+
+      expect(await mapDates()).toEqual(span);
+    });
+
+    it('keeps only the past when every served date is after T+3 (the domain is empty above, not past)', async () => {
+      const span = [ukDateStrOffset(-1), ukDateStrOffset(4), ukDateStrOffset(5)];
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith();
+
+      expect(await mapDates()).toEqual([span[0]]);
+    });
+
+    it('reads today from the app clock: a rewound clock moves the cut with it', async () => {
+      // A fixed instant far from the real today, so the test cannot pass by reading the wall clock.
+      const rewoundTo = '2026-03-10T12:00:00Z';
+      act(() => setRewind(rewoundTo));
+      const today = ukDateStr();
+      expect(today).toBe('2026-03-10');
+      const span = [-2, -1, 0, 1, 2, 3, 4, 5].map((n) => ukDateStrOffset(n));
+      fetchForecasts.mockResolvedValue(forecastsFor(span));
+
+      renderWith();
+
+      // T-2..T+3 of the rewound day; T+4 and T+5 (2026-03-14, 2026-03-15) are gone.
+      expect(await mapDates()).toEqual([
+        '2026-03-08', '2026-03-09', '2026-03-10', '2026-03-11', '2026-03-12', '2026-03-13',
+      ]);
+    });
   });
 });
