@@ -5,8 +5,16 @@ const ARROW_UP = 'M17.5 6.8V1.2M15.4 3.3L17.5 1.2L19.6 3.3';
 /** Down arrow — the spot wants the water LOWER than the light gives it (`map-tide-v5.js:160`). */
 const ARROW_DOWN = 'M17.5 1.2V6.8M15.4 4.7L17.5 6.8L19.6 4.7';
 
-/** The match side's own letter, drawn in the arrow's slot — see the header doc's new paragraph. */
+/**
+ * The match side's own letter, drawn in the arrow's slot as a stroked PATH (see the header doc: an SVG
+ * `<text>` would be read by axe as visible label text). Centred on x=17.5, y 2.1 to 6.4.
+ */
 const STATE_LETTER = { HIGH: 'H', MID: 'M', LOW: 'L' };
+const LETTER_PATH = {
+  H: 'M16.2 2.1V6.4M18.9 2.1V6.4M16.2 4.2H18.9',
+  M: 'M16.1 6.4V2.1L17.55 4.6L19 2.1V6.4',
+  L: 'M16.5 2.1V6.4H18.9',
+};
 
 /**
  * The tide-alignment glyph — the served preference-axis tier for this window and this spot
@@ -38,6 +46,12 @@ const STATE_LETTER = { HIGH: 'H', MID: 'M', LOW: 'L' };
  * class's one wide slot cannot hold both. A match with {@code state} null (should not happen for a
  * served match, but this component stays defensive) draws the ordinary plain 14×8 wave, exactly as
  * before this letter existed.
+ *
+ * <p><b>The letter is a stroked {@code <path>} (with {@code data-letter}), never SVG {@code <text>}.</b>
+ * axe's {@code label-content-name-mismatch} rule (WCAG 2.5.3) counts SVG text as visible label text
+ * even inside {@code aria-hidden}, so a text letter made the chip's visible string "Bamburgh M 4"
+ * while its accessible name says "mid tide, right here". The letter is symbolic, drawn as an icon
+ * stroke, and the name carries its meaning. This is the map chip's label-in-name fix.
  *
  * <p><b>Always `aria-hidden`.</b> It is a glyph, not a label: every mount states the fact in words
  * beside it — the callout's block heading, the chip/Pins tooltip line, the panel row's `sr-only`
@@ -91,17 +105,15 @@ export default function TideWave({
       {letter && (
         // The arrow's own slot (x centred on 17.5, the arrow's own axis) — the two never draw
         // together, so sharing the position keeps a fourth mount from having to choose one.
-        <text
-          x="17.5"
-          y="4.4"
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontSize="7.2"
-          fontWeight="700"
-          fill="currentColor"
-        >
-          {letter}
-        </text>
+        <path
+          d={LETTER_PATH[letter]}
+          data-letter={letter}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       )}
     </svg>
   );

@@ -594,8 +594,29 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
       // The letter widens the box exactly as the arrow does — one wide-box hook for both marks.
       expect(glyph).toHaveAttribute('data-wide', 'true');
-      expect(glyph.querySelector('text')).toHaveTextContent('M');
+      expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'M');
       expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, mid tide, right here');
+    });
+
+    it.each([
+      ['HIGH', 'high water'],
+      ['MID', 'mid tide'],
+      ['LOW', 'low water'],
+    ])('a %s match chip passes axe label-in-name: the letter is a path, so the visible text stays the name and star (WCAG 2.5.3)', async (tideState, words) => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 4,
+          tideTier: 'match', tideState,
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('data-tide', 'match');
+      expect(chip).toHaveAttribute('aria-label', `Bamburgh, 4 star, ${words}, right here`);
+      expect(chip.querySelector('svg text')).toBeNull();
+      expect(await labelInNameResult(chip)).toEqual({ violations: 0, passes: 1, incomplete: 0 });
     });
 
     it('a MISS wanting HIGHER water draws the up-arrow variant and the matching aria clause', async () => {

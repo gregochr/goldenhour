@@ -454,7 +454,7 @@ describe('the four figures and the note, as the view prints them', () => {
     await planThis(2);
 
     const glyph = screen.getByTestId('ask-plan-tide').querySelector('svg');
-    expect(glyph.querySelector('text')).toHaveTextContent('H');
+    expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'H');
     expect(glyph.querySelectorAll('path')).toHaveLength(1);
   });
 

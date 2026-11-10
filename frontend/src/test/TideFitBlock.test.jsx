@@ -66,7 +66,7 @@ describe('TideFitBlock — the match tier', () => {
     render(<TideFitBlock fact={MATCH} want={['HIGH']} />);
     const glyph = screen.getByTestId('tide-fit-block').querySelector('svg');
     expect(glyph).toHaveAttribute('data-wide', 'true');
-    expect(glyph.querySelector('text')).toHaveTextContent('H');
+    expect(glyph.querySelector('path[data-letter]')).toHaveAttribute('data-letter', 'H');
   });
 });
 

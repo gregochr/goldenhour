@@ -40,6 +40,7 @@ describe('TideWave — the miss arrow', () => {
     expect(svg.querySelectorAll('path')[1]).toHaveAttribute('d', expect.stringContaining('M17.5 6.8V1.2'));
     // The arrow always wins — a miss has nothing to letter (§4 #21).
     expect(svg.querySelector('text')).toBeNull();
+    expect(svg.querySelector('[data-letter]')).toBeNull();
   });
 
   it('draws the down-arrow for LOWER, still with no letter', () => {
@@ -47,6 +48,7 @@ describe('TideWave — the miss arrow', () => {
     const svg = container.querySelector('[data-testid="tw"]');
     expect(svg.querySelectorAll('path')[1]).toHaveAttribute('d', expect.stringContaining('M17.5 1.2V6.8'));
     expect(svg.querySelector('text')).toBeNull();
+    expect(svg.querySelector('[data-letter]')).toBeNull();
   });
 });
 
@@ -61,10 +63,14 @@ describe('TideWave — the match letter (tide-window-plan.md §4 #21)', () => {
     expect(svg).toHaveAttribute('data-wide', 'true');
     expect(svg).toHaveAttribute('viewBox', '0 0 21 8');
     // The wave path only — no arrow path alongside the letter.
-    expect(svg.querySelectorAll('path')).toHaveLength(1);
-    const text = svg.querySelector('text');
-    expect(text).toHaveTextContent(letter);
-    expect(text).toHaveAttribute('fill', 'currentColor');
+    expect(svg.querySelectorAll('path:not([data-letter])')).toHaveLength(1);
+    // The letter is a stroked path, never SVG text (axe reads text as visible label text).
+    expect(svg.querySelector('text')).toBeNull();
+    const glyph = svg.querySelectorAll('path[data-letter]');
+    expect(glyph).toHaveLength(1);
+    expect(glyph[0]).toHaveAttribute('data-letter', letter);
+    expect(glyph[0]).toHaveAttribute('stroke', 'currentColor');
+    expect(glyph[0]).toHaveAttribute('fill', 'none');
   });
 });
 
