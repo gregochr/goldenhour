@@ -5,6 +5,9 @@ const ARROW_UP = 'M17.5 6.8V1.2M15.4 3.3L17.5 1.2L19.6 3.3';
 /** Down arrow — the spot wants the water LOWER than the light gives it (`map-tide-v5.js:160`). */
 const ARROW_DOWN = 'M17.5 1.2V6.8M15.4 4.7L17.5 6.8L19.6 4.7';
 
+/** Stroke widths of the slot's mark: the arrow's own, and the letter's (tuned to the old 7.2px bold glyph). */
+const ARROW_STROKE = '1.4';
+const LETTER_STROKE = '1.2';
 /**
  * The match side's own letter, drawn in the arrow's slot as a stroked PATH (see the header doc: an SVG
  * `<text>` would be read by axe as visible label text). Centred on x=17.5, y 2.1 to 6.4.
@@ -92,25 +95,15 @@ export default function TideWave({
         strokeWidth="1.5"
         strokeLinecap="round"
       />
-      {arrow && (
+      {(arrow || letter) && (
+        // The arrow's own slot (x centred on 17.5, the arrow's own axis) — the arrow and the letter
+        // never draw together, so one element serves both and a fourth mount never has to choose.
         <path
-          d={arrow}
+          d={arrow ?? LETTER_PATH[letter]}
+          data-letter={letter ?? undefined}
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
-      {letter && (
-        // The arrow's own slot (x centred on 17.5, the arrow's own axis) — the two never draw
-        // together, so sharing the position keeps a fourth mount from having to choose one.
-        <path
-          d={LETTER_PATH[letter]}
-          data-letter={letter}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.2"
+          strokeWidth={arrow ? ARROW_STROKE : LETTER_STROKE}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
