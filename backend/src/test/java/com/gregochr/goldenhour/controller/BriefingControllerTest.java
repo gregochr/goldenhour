@@ -593,9 +593,12 @@ class BriefingControllerTest extends AbstractControllerTest {
     // endpoint is the flat wire shape a memory-constrained client decodes — which a service-level
     // test on the Jackson 2 graph cannot prove (CLAUDE.md's two-object-graphs warning).
     //
-    // The fixture sits in the year 2999 deliberately. The wired SolarEventFreshness carries the
-    // real system clock, so a fixture near today would retire its own windows partway through an
-    // afternoon and the suite would fail by the hour. The afterglow rule itself has a fixed-clock
+    // The fixture sits one and two days after today (DIGEST_DAY_ONE / DIGEST_DAY_TWO) deliberately:
+    // inside the digest's whole-day horizon (today to T+3), so the date filter keeps it, yet never
+    // elapsed. The wired SolarEventFreshness carries the real system clock, so a fixture on today
+    // would retire its own windows partway through an afternoon and the suite would fail by the
+    // hour, while a far-future one (the old year-2999 fixture) is now outside the horizon. The
+    // afterglow rule itself has a fixed-clock
     // boundary pair in BriefingDigestServiceTest, which is where it belongs.
 
     @Test
@@ -608,15 +611,15 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 // ⚠️ Both timestamps pinned as ISO STRINGS, not just `.exists()`. This is the one
                 // endpoint built for a foreign decoder, and CLAUDE.md's two-Jackson-graphs warning
-                // is exactly about a `LocalDateTime` that reaches the wire as [2999,3,25,18,30]
+                // is exactly about a `LocalDateTime` that reaches the wire as [2026,3,25,18,30]
                 // instead. `JsonDateFormatContractTest` covers /api/forecast and /api/user/settings
                 // and would not have noticed this one. `eventTime` is the field a widget puts on
                 // screen, so it is pinned on the window too, below.
-                .andExpect(jsonPath("$.generatedAt").value("2999-03-25T09:00:00"))
+                .andExpect(jsonPath("$.generatedAt").value(DIGEST_DAY_ONE + "T09:00:00"))
                 .andExpect(jsonPath("$.windows.length()").value(2))
-                .andExpect(jsonPath("$.windows[0].date").value("2999-03-25"))
+                .andExpect(jsonPath("$.windows[0].date").value(DIGEST_DAY_ONE.toString()))
                 .andExpect(jsonPath("$.windows[0].event").value("SUNSET"))
-                .andExpect(jsonPath("$.windows[0].eventTime").value("2999-03-25T18:30:00"))
+                .andExpect(jsonPath("$.windows[0].eventTime").value(DIGEST_DAY_ONE + "T18:30:00"))
                 .andExpect(jsonPath("$.windows[0].verdict").value("WORTH_IT"))
                 .andExpect(jsonPath("$.windows[0].bestRating").value(4))
                 // ⚠️ LOWERCASE, and pinned here on purpose. `Confidence` carries a
@@ -664,7 +667,7 @@ class BriefingControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/briefing/digest").param("limit", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.windows.length()").value(1))
-                .andExpect(jsonPath("$.windows[0].date").value("2999-03-25"));
+                .andExpect(jsonPath("$.windows[0].date").value(DIGEST_DAY_ONE.toString()));
     }
 
     @Test
@@ -743,22 +746,26 @@ class BriefingControllerTest extends AbstractControllerTest {
     /**
      * Two windows on consecutive days: a sunset carrying a pick, and a sunrise carrying none.
      */
+    private static final LocalDate DIGEST_DAY_ONE =
+            com.gregochr.goldenhour.util.ForecastHorizon.today(java.time.Clock.systemUTC()).plusDays(1);
+    private static final LocalDate DIGEST_DAY_TWO = DIGEST_DAY_ONE.plusDays(1);
+
     private static DailyBriefingResponse buildDigestBriefing() {
         BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
                 "Lake District", "A long clear run to the west", null, 4.25, "Keswick", 7L);
         BriefingEventSummary sunset = new BriefingEventSummary(
                 TargetType.SUNSET, List.of(), List.of())
-                .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 25, 18, 30),
+                .withWindow(new BriefingWindow(DIGEST_DAY_ONE.atTime(18, 30),
                         DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null));
         BriefingEventSummary sunrise = new BriefingEventSummary(
                 TargetType.SUNRISE, List.of(), List.of())
-                .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 26, 6, 0),
+                .withWindow(new BriefingWindow(DIGEST_DAY_TWO.atTime(6, 0),
                         DisplayVerdict.MAYBE, 2, Confidence.LOW, null, List.of(), null));
 
         return new DailyBriefingResponse(
-                LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
-                List.of(new BriefingDay(LocalDate.of(2999, 3, 25), List.of(sunset)),
-                        new BriefingDay(LocalDate.of(2999, 3, 26), List.of(sunrise))),
+                DIGEST_DAY_ONE.atTime(9, 0), "headline",
+                List.of(new BriefingDay(DIGEST_DAY_ONE, List.of(sunset)),
+                        new BriefingDay(DIGEST_DAY_TWO, List.of(sunrise))),
                 List.of(), null, null, false, "Opus", List.of(), List.of());
     }
 

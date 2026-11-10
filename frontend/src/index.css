@@ -1487,7 +1487,7 @@
 }
 
 /* ── Window-first heat strip ──
-   Six solar-window thumbnails under the lens bar, replacing the day rail (plan D1, §1.1). The
+   Up to eight solar-window thumbnails under the lens bar, replacing the day rail (plan D1, §1.1). The
    design's own class names are kept (`hstrip`, `hc`, `sumfoot`) so the mock and this file can be
    read side by side; the `wf-` prefix marks the arm, as everywhere else here.
 

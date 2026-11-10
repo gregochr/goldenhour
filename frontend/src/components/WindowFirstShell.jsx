@@ -2039,7 +2039,7 @@ export default function WindowFirstShell({
    * The four-day sheet's two derived inputs, both gated on the sheet being open (P8).
    *
    * <p>Neither is cheap enough to build unconditionally. {@code buildSlotTimeIndex} walks every
-   * slot of every event summary of every day — the roster times six windows — and
+   * slot of every event summary of every day — the roster times the rendered windows — and
    * {@code scopeRegions} walks the whole heat catalogue against the reach map. Both rebuild on
    * every poll, and no other surface reads either, so the null-until-open guard is what keeps a
    * reader who never searches for a place from paying for a dialog they never opened.
@@ -2337,7 +2337,7 @@ export default function WindowFirstShell({
    * reader cannot see. Modified arrows are somebody else's shortcut — Alt+Left is the browser's
    * Back — and a text field's own caret keys are never taken.
    *
-   * <p>It WRAPS, which the visible {@code ‹ n/6 ›} control also does: six windows on a ring is how
+   * <p>It WRAPS, which the visible {@code ‹ n/N ›} control also does: a ring of windows is how
    * the design's own prototype steps them, and a disabled arrow at each end would be two controls
    * that do nothing on the two windows a reader is most often in.
    */

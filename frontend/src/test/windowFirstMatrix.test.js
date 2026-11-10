@@ -4,10 +4,12 @@ import { buildWindowMatrix, EMPTY_CELL_COPY, MATRIX_ROW } from '../utils/windowF
 /**
  * The Plan matrix's grid maths — day columns, the two rows, and which holes get words.
  *
- * <p>Every fixture here is a shape the payload can actually produce: the backend caps the rendered
- * events at six, orders them chronologically and drops the ones that have already elapsed, so a
- * four-day span with a missing first sunrise and a missing last sunset is the ORDINARY week rather
- * than an edge case. The dates are fixed and deliberately not today's — a clock-derived fixture is
+ * <p>Every fixture here is a shape the payload can actually produce. The backend now renders whole
+ * days, today to T+3 (eight, seven or six events), orders them chronologically and drops the ones
+ * that have already elapsed. The six-events-over-four-days {@code ORDINARY} fixture is the OLD
+ * shape (a four-day span with a missing first sunrise and a missing last sunset); it stays because
+ * it is still reachable from a stale SWR cache entry or an old backend mid-deploy, which is why the
+ * "past the end of the forecast" copy survives. The dates are fixed and deliberately not today's — a clock-derived fixture is
  * how this suite has been bitten twice.
  */
 
@@ -136,6 +138,48 @@ describe('buildWindowMatrix — the holes, and which of them get words', () => {
     expect(days[0].amEmpty).toBeNull();
     // Both windows present on the last day, so the trailing claim is withheld too.
     expect(days[1].pmEmpty).toBeNull();
+  });
+});
+
+describe('buildWindowMatrix — the whole-day horizon (today to T+3)', () => {
+  const both = (date) => [card(date, 'SUNRISE'), card(date, 'SUNSET')];
+
+  it('draws eight events on four days with no hole and no hole copy at all', () => {
+    const eight = ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07'].flatMap(both);
+    const { days, columns } = buildWindowMatrix(eight, TODAY);
+
+    expect(columns).toBe(4);
+    expect(days).toHaveLength(4);
+    days.forEach((d) => {
+      expect(d.am).not.toBeNull();
+      expect(d.pm).not.toBeNull();
+      expect(d.amEmpty).toBeNull();
+      expect(d.pmEmpty).toBeNull();
+    });
+  });
+
+  it('draws seven events with only the first day\'s morning hole, worded, and no end hole', () => {
+    const seven = [
+      card('2026-08-04', 'SUNSET'),
+      ...['2026-08-05', '2026-08-06', '2026-08-07'].flatMap(both),
+    ];
+    const { days } = buildWindowMatrix(seven, TODAY);
+
+    expect(days).toHaveLength(4);
+    expect(days[0].am).toBeNull();
+    expect(days[0].amEmpty).toBe(EMPTY_CELL_COPY.morningGone);
+    expect(days.some((d) => d.pmEmpty !== null)).toBe(false);
+    expect(days.slice(1).every((d) => d.am && d.pm)).toBe(true);
+  });
+
+  it('draws six events on three days as three full columns', () => {
+    const six = ['2026-08-05', '2026-08-06', '2026-08-07'].flatMap(both);
+    const { days, columns } = buildWindowMatrix(six, TODAY);
+
+    expect(columns).toBe(3);
+    expect(days.every((d) => d.am && d.pm && d.amEmpty === null && d.pmEmpty === null)).toBe(true);
+    // Today has no rendered window left, so no column is marked today.
+    expect(days.some((d) => d.today)).toBe(false);
   });
 });
 

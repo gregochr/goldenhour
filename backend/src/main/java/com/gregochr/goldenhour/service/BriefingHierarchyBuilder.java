@@ -106,7 +106,7 @@ public class BriefingHierarchyBuilder {
         // already happened" a question only a populated region could answer — and BriefingHonestyFilter
         // empties the slot list of any region with zero Claude coverage. A travel day therefore
         // served with no time anywhere in the event, the client's "no time means it has not happened
-        // yet" guard classified a long-past sunrise as upcoming, and it spent one of the six event
+        // yet" guard classified a long-past sunrise as upcoming, and it spent one of the rendered event
         // slots the Plan grid renders. Two travel days at the front of the window cost the last day
         // in it. The time is almanac data and is true regardless of coverage, so it belongs here
         // rather than being reconstructible only from a slot that may be withdrawn.

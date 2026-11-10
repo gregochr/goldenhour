@@ -1,5 +1,5 @@
 import {
-  test, expect, loginAndWaitForForecast, openMapTab, visibleChips, chipStars, fetchForecast, starsOf,
+  test, expect, loginAndWaitForForecast, openMapTab, visibleChips, chipStars, settledChipStars, fetchForecast, starsOf,
   activeWindowId, CHIP_NAME,
 } from './fixture.js';
 
@@ -53,7 +53,7 @@ test.describe('Map tab', () => {
     await expect(callout).toHaveCount(0);
 
     // A different chip: open, then Escape. The first callout is closed before the second chip is pressed.
-    const chips = await chipStars(page);
+    const chips = await settledChipStars(page);
     const other = chips.find((chip) => chip.name !== firstName);
     expect(other, 'a second, different visible chip').toBeDefined();
     await page.getByRole('button', { name: new RegExp(`^${other.name}, \\d star`) }).click();

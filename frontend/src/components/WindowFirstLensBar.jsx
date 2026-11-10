@@ -148,12 +148,12 @@ VerdictAction.propTypes = {
  * <h2>The drive caption names its origin, never a time</h2>
  *
  * <p>It read {@code HOW FAR TONIGHT} until 2026-09-05, which is a claim this control does not
- * honour. The gate runs over <em>every</em> window the shell draws — up to six of them
- * ({@code PlanRenderLimits.MAX_VISIBLE_EVENTS}), so sunrise and sunset across three or four days —
+ * honour. The gate runs over <em>every</em> window the shell draws — up to eight of them
+ * ({@code PlanRenderLimits.MAX_VISIBLE_EVENTS}), so sunrise and sunset across up to four whole days —
  * and the readout on this same row says so out loud, in the "N spots across M windows" clause.
  * Tomorrow's sunrise card is gated by these chips exactly as tonight's sunset is.
  * {@code reachLens.defaultTierIdFor} had already written the mismatch down while explaining why
- * Friday counts as a weekday: "the bar is one control over up to six windows spanning four days".
+ * Friday counts as a weekday: "the bar is one control over up to eight windows spanning four days".
  *
  * <p><b>What "tonight" was reaching for is the setting's lifetime, not the gate's scope.</b> Two
  * things here really are day-bound — the default tier is a pure function of today's date, and a

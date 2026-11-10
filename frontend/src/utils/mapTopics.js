@@ -8,8 +8,8 @@
  * is {@link topicInScope}. This module joins and groups; it tests no weather and re-derives no
  * verdict (CLAUDE.md, "Backend-heavy").
  *
- * <p>⚠️ <b>Never {@code row.badges}.</b> Plan renders six windows and the Map's served rows are the
- * same six; filler and past rows carry {@code badges: []}, and a night row carries none at all. A
+ * <p>⚠️ <b>Never {@code row.badges}.</b> Plan renders up to eight windows (today to T+3) and the Map's served rows are the
+ * same set; filler and past rows carry {@code badges: []}, and a night row carries none at all. A
  * chip list read from badges would say "no hot topics" on a window a topic fires on, which is the
  * two-question rule broken (hot topics are never silenced) and would make the Map contradict the
  * Coming up lanes. Topics come from the index.

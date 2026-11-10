@@ -127,8 +127,12 @@ public final class BriefingRollupBuilder {
         root.put("currentTime", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")));
 
         ArrayNode eventsNode = objectMapper.createArrayNode();
-        int eventCount = 0;
         for (BriefingDay day : days) {
+            // The rendered horizon, one date rule shared with PlanWindowProjector: events outside
+            // [today, today + 3] (T+4, or a yesterday carried by an aged briefing) are never named.
+            if (!PlanRenderLimits.withinHorizon(day.date(), today)) {
+                continue;
+            }
             // Travel-day gate: the operator is away on this date, so its events can never be a
             // best bet. Excluding them here keeps invalid candidates out of the prompt entirely —
             // an all-travel window yields an empty rollup and an honest "stay home" no-picks result.
@@ -139,10 +143,6 @@ public final class BriefingRollupBuilder {
                 if (day.date().equals(today) && isEventPast(es, now)) {
                     continue;
                 }
-                if (eventCount >= PlanRenderLimits.MAX_VISIBLE_EVENTS) {
-                    break;
-                }
-                eventCount++;
                 // The id is built by AskWindowId, the one codec, with Locale.ROOT, not the default
                 // locale: it is matched key-for-key by BriefingHonestyFilter's Best Bet withdrawal.
                 // Under a Turkish default locale SUNRISE lowercases with a dotless i, the keys stop
@@ -170,9 +170,6 @@ public final class BriefingRollupBuilder {
                     validRegions.add(region.regionName());
                     coverageByKey.put(BestBetRanker.coverageKey(eventId, region.regionName()), coverage);
                 }
-            }
-            if (eventCount >= PlanRenderLimits.MAX_VISIBLE_EVENTS) {
-                break;
             }
         }
 
@@ -238,14 +235,14 @@ public final class BriefingRollupBuilder {
      * {@link EvaluationViewService#getLiveScoresForEnrichment} per region/event.
      *
      * <p>⚠️ <b>Measured regression this closes.</b> Production runs roughly six regions; the rollup
-     * covers up to {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} (6) events, each iterating every one
+     * covers up to {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} (8) events, each iterating every one
      * of that event's regions. Before this fix, {@code computeRegionStats} and
      * {@code logCacheCoverage} each called the single-key retraction-aware read once per
-     * region/event — up to 6 events × 6 regions × 2 call sites = 72 calls, each costing three
-     * queries (the enabled roster, the latest forecast rows, the stability dispositions), for
-     * roughly 216 queries per best-bet rollup where the cache read this replaced (a direct,
-     * in-memory {@code BriefingEvaluationService} lookup) issued none. This method costs the same
-     * small, constant number of queries as {@link EvaluationViewService
+     * region/event — up to 6 events × 6 regions × 2 call sites = 72 calls (six was the cap then;
+     * whole days now allow eight), each costing three queries (the enabled roster, the latest
+     * forecast rows, the stability dispositions), for roughly 216 queries per best-bet rollup where
+     * the cache read this replaced (a direct, in-memory {@code BriefingEvaluationService} lookup)
+     * issued none. This method costs the same small, constant number of queries as {@link EvaluationViewService
      * #getScoresForEnrichmentBulk} regardless of how many regions or events the window covers.
      *
      * @param days the briefing days this rollup covers

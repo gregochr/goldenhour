@@ -130,7 +130,7 @@ export function isWeekend(dateStr) {
 /**
  * Today's default tier id — the pure function of the date plan §2.5 specifies.
  *
- * <p>Friday is deliberately a weekday. The bar is one control over up to six windows spanning four
+ * <p>Friday is deliberately a weekday. The bar is one control over up to eight windows spanning four
  * days, so an evening-versus-morning judgement would have to be made per window and could not be
  * expressed by a single default; the readout states which of the two it landed on so the choice is
  * never silent.

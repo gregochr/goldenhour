@@ -110,7 +110,7 @@ function persistenceNote({ rating, type, reach }) {
  * this component reads or writes storage any more.
  *
  * <p>Its option list is one step longer than the bar's — the 5★ step lives here and nowhere else.
- * A floor that usually empties six windows at once is no use on a sticky bar; over one window's
+ * A floor that usually empties the rendered windows at once is no use on a sticky bar; over one window's
  * whole list "show me only the best" is a real question, and it is a browsing choice that dies with
  * the dialog rather than a stored preference the bar could not then draw a pressed chip for.
  *

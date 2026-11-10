@@ -235,7 +235,7 @@ const WindowFirstBriefingContext = createContext({
  * elapsed since the payload was built.
  *
  * <p><b>The list is the backend's answer and this function does not second-guess it.</b> Ordering
- * and the six-event cap left the client at Phase 3 (`PlanRenderLimits.MAX_VISIBLE_EVENTS`), because
+ * and the event cap left the client at Phase 3 (`PlanRenderLimits.MAX_VISIBLE_EVENTS`), because
  * the backend scopes the BEST/ALSO picks to exactly this set — and while the two were derived
  * independently a pick could name a window with no card. Re-applying a cap here would be a second
  * opinion about the same question, which is the defect, not the fix.
@@ -873,7 +873,7 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
-   * The heat strip's six thumbnails, chronological and travel days included.
+   * The heat strip's thumbnails (up to eight), chronological and travel days included.
    *
    * <p>Derived after the cards and FROM them, because every word a thumbnail prints about a window
    * is already on that window's card — deriving them independently would give the strip and the
@@ -1013,11 +1013,11 @@ export function WindowFirstBriefingProvider({
   );
 
   /**
-   * Each region's served mean across every rendered window, for the open row's six-dot strip.
+   * Each region's served mean across every rendered window, for the open row's dot strip.
    *
    * <p>Built here rather than per card because it is a CROSS-window quantity: a card holds one
-   * event summary and the band's dots are about all six. Deriving it in the card would mean handing
-   * every card the whole day list so that one open row could walk it — six walks for one answer,
+   * event summary and the band's dots are about all of them. Deriving it in the card would mean handing
+   * every card the whole day list so that one open row could walk it — one walk per card for one answer,
    * rebuilt on every poll.
    *
    * <p>Off {@code briefing.days} and {@code upcomingEvents}, which is exactly the pair the window

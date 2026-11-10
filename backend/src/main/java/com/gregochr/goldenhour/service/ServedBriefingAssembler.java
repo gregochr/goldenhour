@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -175,9 +176,17 @@ class ServedBriefingAssembler {
         // which declared a window past up to an hour early — see plan-verdict-consolidation-plan.md
         // §1 D4. This is the "one clock, two calendars" rule from the daysAhead work: DATES are
         // London, INSTANT comparisons are UTC, and this is an instant comparison.
+        //
+        // The clock is read ONCE: the same instant gives the UTC "now" and the UK civil "today" that bounds the
+        // rendered horizon, and the same "today" stamps the BriefingVersion below, so the rendered set and the
+        // version hash cannot disagree across UK midnight.
+        Instant instant = clock.instant();
+        LocalDateTime now = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+        LocalDate today = ForecastHorizon.civilDate(instant);
         DailyBriefingResponse projected = PlanWindowProjector.apply(
                 filtered,
-                LocalDateTime.now(clock.withZone(ZoneOffset.UTC)),
+                now,
+                today,
                 filtered == null ? Map.of()
                         : windowTideRollupBuilder.build(filtered.days()),
                 tideFacts);
@@ -195,7 +204,7 @@ class ServedBriefingAssembler {
         // echoes so a client can tell both were computed from one briefing (reach-scoped-card-plan R2 step 5).
         return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas)
                 .withBriefingVersion(BriefingVersion.of(stripped.days(), stripped.renderedEvents(),
-                        ForecastHorizon.today(clock)));
+                        today));
     }
 
     /**

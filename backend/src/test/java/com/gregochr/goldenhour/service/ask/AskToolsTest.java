@@ -1469,8 +1469,13 @@ class AskToolsTest {
 
     /** A busy four-region day: six windows, every region holding game-on places. */
     private static AskSnapshot busyDaySnapshot() {
+        return busyDaySnapshot(6);
+    }
+
+    /** The busy four-region day over the given number of windows (the whole-day horizon can serve eight). */
+    private static AskSnapshot busyDaySnapshot(int windows) {
         List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
-        for (int d = 0; d < 6; d++) {
+        for (int d = 0; d < windows; d++) {
             LocalDate date = TODAY.plusDays(d);
             BriefingRegion[] regions = new BriefingRegion[4];
             String[] names = {"Northumberland", "North York Moors & Coast", "Lake District", "Yorkshire Dales"};
@@ -1486,9 +1491,47 @@ class AskToolsTest {
     @DisplayName("on one conversation: the busy-day list_windows first, then look_up_place for a name matching two "
             + "places in every window with no windowIds, is not cut off by the shared character cap")
     void lookUpPlace_afterABusyDayListWindowsIsNotCutOff() {
+        assertBusyDayLookUpIsNotCutOff(6);
+    }
+
+    @Test
+    @DisplayName("the same conversation over the whole-day horizon's eight windows is not cut off either")
+    void lookUpPlace_afterAnEightWindowListWindowsIsNotCutOff() {
+        assertBusyDayLookUpIsNotCutOff(8);
+    }
+
+    @Test
+    @DisplayName("measured: the busy-day list_windows at six and at eight windows stays under half the cap")
+    void listWindows_sixVersusEightWindowsSize() {
+        String six = tools(busyDaySnapshot(6)).listWindows().content();
+        String eight = tools(busyDaySnapshot(8)).listWindows().content();
+
+        System.out.println("WHOLE-DAY budget: busy-day list_windows = " + six.length() + " chars at 6 windows, "
+                + eight.length() + " chars at 8 windows (half cap " + AskTools.RESULT_CHAR_CAP / 2 + ", cap "
+                + AskTools.RESULT_CHAR_CAP + ")");
+        assertThat(six.length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(eight.length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(eight.length()).isGreaterThan(six.length());
+    }
+
+    @Test
+    @DisplayName("the busy-day list_windows at eight windows fits under half the cap, with a five-spot rank_spots")
+    void listWindows_busyDayEightWindowsStaysUnderHalfTheCap() {
+        AskTools tools = tools(busyDaySnapshot(8));
+
+        AskToolResult listed = tools.listWindows();
+        AskToolResult ranked = tools.rankSpots(rank(5));
+
+        assertThat(listed.error()).isFalse();
+        assertThat(listed.content().length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(ranked.error()).isFalse();
+        assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
+    }
+
+    private void assertBusyDayLookUpIsNotCutOff(int windows) {
         List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
         String[] names = {"Northumberland", "North York Moors & Coast", "Lake District", "Yorkshire Dales"};
-        for (int d = 0; d < 6; d++) {
+        for (int d = 0; d < windows; d++) {
             BriefingRegion[] regions = new BriefingRegion[5];
             for (int r = 0; r < 4; r++) {
                 regions[r] = AskFixtures.bandedRegion(names[r], 1_000L * (d * 4 + r + 1), 2, 8, 20, 25 + r, 6);

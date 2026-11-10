@@ -406,6 +406,18 @@ class AskToolsNamedAreaTest {
     }
 
     @Test
+    @DisplayName("the window cap with the horizon's eight windows: four are listed and the note says 4 of 8")
+    void windowCapAtEightWindows() {
+        BriefingRegion north = AskFixtures.region("Northumberland", true, AskFixtures.slot(1L, "Walltown Crags", 4));
+        AskSnapshot snapshot = withWall(manyWindows(8, north), 1L);
+
+        LookUpPlaceResult capped = ok(tools(snapshot).lookUpPlace(new LookUpPlaceArgs(WALL, null)));
+
+        assertThat(capped.area().windows()).hasSize(AskTools.MAX_AREA_WINDOWS);
+        assertThat(capped.note()).startsWith("Showing 4 of 8 windows; pass windowIds to narrow.");
+    }
+
+    @Test
     @DisplayName("the window cap: six windows list four and say so; windowIds narrows to the asked ones")
     void windowCap() {
         BriefingRegion north = AskFixtures.region("Northumberland", true, AskFixtures.slot(1L, "Walltown Crags", 4));
@@ -519,9 +531,14 @@ class AskToolsNamedAreaTest {
      * wall", so the 'also matched' note is present.
      */
     private static AskSnapshot areaWorstCase() {
+        return areaWorstCase(6);
+    }
+
+    /** The area worst case over the given number of windows (the horizon can now serve up to eight). */
+    private static AskSnapshot areaWorstCase(int windowCount) {
         List<Long> ids = new ArrayList<>();
         List<BriefingDay> days = new ArrayList<>();
-        for (int d = 0; d < 6; d++) {
+        for (int d = 0; d < windowCount; d++) {
             boolean crowded = d < 2;
             List<BriefingSlot> good = new ArrayList<>();
             good.add(longSlot(1L, sixtyChars("Walltown Crags " + d), 5, false, false));
@@ -547,6 +564,20 @@ class AskToolsNamedAreaTest {
             ids.add(id);
         }
         return withWall(AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of())), ids.toArray(Long[]::new));
+    }
+
+    @Test
+    @DisplayName("worst case over the horizon's eight windows: still four windows of six places, at most 4,500 chars")
+    void areaWorstCaseEightWindowsFitsHalfTheCap() {
+        AskToolResult<LookUpPlaceResult> result = tools(areaWorstCase(8)).lookUpPlace(
+                new LookUpPlaceArgs("Roman Wall", null));
+        LookUpPlaceResult payload = ok(result);
+
+        assertThat(payload.area().windows()).hasSize(AskTools.MAX_AREA_WINDOWS);
+        assertThat(payload.note()).contains("Showing 4 of 8 windows").endsWith(AskTools.AREA_SUGGEST_NOTE);
+        System.out.println("[look_up_place] named-area worst-case payload chars (8 windows): "
+                + result.content().length());
+        assertThat(result.content().length()).isLessThanOrEqualTo(WORST_CASE_CHARS);
     }
 
     @Test

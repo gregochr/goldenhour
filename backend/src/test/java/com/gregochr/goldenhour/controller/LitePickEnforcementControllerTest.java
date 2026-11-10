@@ -382,12 +382,14 @@ class LitePickEnforcementControllerTest extends AbstractControllerTest {
 
     // ------------------------------------------------------------------ GET /api/briefing/digest
 
+    /** One window tomorrow evening: inside the digest's whole-day horizon, and never elapsed at any hour. */
     private static DailyBriefingResponse digestBriefing() {
+        LocalDate tomorrow = today().plusDays(1);
         BriefingEventSummary sunset = new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of())
-                .withWindow(new BriefingWindow(EVENT, DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, null,
-                        List.of(), null));
-        return new DailyBriefingResponse(LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
-                List.of(new BriefingDay(DAY, List.of(sunset))), List.of(), null, null, false, "Opus",
+                .withWindow(new BriefingWindow(tomorrow.atTime(18, 30), DisplayVerdict.WORTH_IT, 4,
+                        Confidence.HIGH, null, List.of(), null));
+        return new DailyBriefingResponse(today().atTime(9, 0), "headline",
+                List.of(new BriefingDay(tomorrow, List.of(sunset))), List.of(), null, null, false, "Opus",
                 List.of(), List.of());
     }
 

@@ -40,7 +40,7 @@ import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../../utils/postcodeNudge
  * are solar — Best light and Tide — for the served dark window and the served sky (Bortle, moon). The
  * note is the served astro (or aurora) summary and, when it says something else, the served cloud line.
  * ⚠️ <b>"Open in Plan ›" is NOT drawn for a night pick</b>: it opens the location sheet at the pick's window,
- * and that sheet's six windows are solar — no row of it is a night, so the press would open a place's
+ * and that sheet's windows are solar — no row of it is a night, so the press would open a place's
  * sunrises and sunsets under a pick about its sky. The pick's night is reached through "Show on map ›", the
  * door that does hold it (the Map's night rows). A control whose door goes somewhere else is not offered.
  *

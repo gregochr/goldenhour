@@ -1,29 +1,52 @@
 package com.gregochr.goldenhour.service;
 
+import java.time.LocalDate;
+
 /**
- * The Plan tab's rendered-event horizon — how many of the forecast's leading solar events the
- * window-first cards show.
+ * The Plan tab's rendered-event horizon: which of the forecast's solar events the window-first
+ * cards, the Map's heat field and every picker of a window may name.
  *
- * <p>One number, one owner, referenced everywhere the horizon matters: {@link PlanWindowProjector}
- * (which windows the forecast-wide picks may land on) and
- * {@link com.gregochr.goldenhour.service.evaluation.BriefingRollupBuilder} (which events the
- * best-bet advisor's prompt may name). Before this, the projector kept its own, date-counted copy
- * — 4 <em>dates</em>, up to 8 events — which silently diverged from this event-counted 6 the
- * moment a day carried two events instead of one. See
- * {@code docs/engineering/plan-verdict-consolidation-plan.md} §1 D3.
+ * <p>The rule is a <b>date bound over whole days</b>: every non-past solar event whose date lies in
+ * {@code [today, today + 3]} is rendered, in payload order ({@link #withinHorizon}). The day count
+ * is owned by {@link PlanHorizon} ({@link PlanHorizon#PLAN_OWNED_DAYS}); this class only reads it,
+ * so there is no second day constant to drift. It used to be an event count (the leading six),
+ * which was three whole days before today's sunrise and three and a half after it, so At a Glance
+ * grew a half-empty fourth column once the morning had gone and the Map painted no field for a
+ * window outside the six. See {@code docs/engineering/whole-day-horizon-plan.md}.
  *
- * <p><b>The client keeps no copy of this.</b> Phase 3 of the same plan retired
- * {@code WindowFirstBriefingContext.jsx MAX_VISIBLE_EVENTS} and the ordering beside it: the
- * projector now publishes {@code DailyBriefingResponse.renderedEvents} and the client renders that
- * list, so this constant is the only place the horizon is decided for every surface that reads the
- * projection. The last hand-kept copy went with {@code DailyBriefing.jsx} when the v1 Plan tab was
- * retired.
+ * <p>One owner, referenced everywhere the horizon matters: {@link PlanWindowProjector} (which
+ * windows the forecast-wide picks may land on), {@link
+ * com.gregochr.goldenhour.service.evaluation.BriefingRollupBuilder} (which events the best-bet
+ * advisor's prompt may name) and {@link BriefingDigestService} (the digest's default list).
+ *
+ * <p><b>The client keeps no copy of this.</b> The projector publishes
+ * {@code DailyBriefingResponse.renderedEvents} and the client renders that list.
  */
 public final class PlanRenderLimits {
 
-    /** How many of the forecast's leading solar events are rendered. */
-    public static final int MAX_VISIBLE_EVENTS = 6;
+    /**
+     * The most events the horizon can ever hold: two solar events (sunrise and sunset) on each of
+     * {@link PlanHorizon#PLAN_OWNED_DAYS} days. A compile-time constant, because it is used in an
+     * annotation; it is a ceiling, not a rule: the rule is {@link #withinHorizon}.
+     */
+    public static final int MAX_VISIBLE_EVENTS = PlanHorizon.PLAN_OWNED_DAYS * 2;
 
     private PlanRenderLimits() {
+    }
+
+    /**
+     * Whether a date is inside the rendered horizon: today or later, and no later than
+     * {@link PlanHorizon#lastPlanDate(LocalDate)}.
+     *
+     * <p>The lower bound is part of the rule: an aged briefing's first day is yesterday, and an
+     * untimed event on it counts as current, so an upper bound alone would render it.
+     *
+     * @param date  the event's date
+     * @param today the UK civil date, derived through {@code ForecastHorizon} (never from a UTC
+     *              {@code LocalDateTime})
+     * @return true when {@code date} is in {@code [today, today + 3]}
+     */
+    public static boolean withinHorizon(LocalDate date, LocalDate today) {
+        return !date.isBefore(today) && !date.isAfter(PlanHorizon.lastPlanDate(today));
     }
 }

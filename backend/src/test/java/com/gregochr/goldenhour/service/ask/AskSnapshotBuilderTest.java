@@ -129,19 +129,24 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
-    @DisplayName("events 7-8 carry a window but are not in renderedEvents: they are not in the window set")
-    void build_eventsBeyondTheRenderedSix_areExcluded() {
-        // PlanWindowProjector attaches a window to EVERY summary; the six-event cap is
-        // renderedEvents. Eight sunsets over eight days, the last two outside renderedEvents.
+    @DisplayName("events 9-10 (T+4) carry a window but are not in renderedEvents: they are not in the window set")
+    void build_eventsBeyondTheRenderedDays_areExcluded() {
+        // PlanWindowProjector attaches a window to EVERY summary; the whole-day horizon (today..T+3,
+        // eight events at most) is renderedEvents. Sunrise and sunset over five days, the two on T+4
+        // outside renderedEvents: the most the server can now produce.
         BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "A", 4));
         List<com.gregochr.goldenhour.model.BriefingDay> days = new java.util.ArrayList<>();
         List<PlanRenderedEvent> rendered = new java.util.ArrayList<>();
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 5; i++) {
             LocalDate date = TODAY.plusDays(i);
-            BriefingWindow w = AskFixtures.window(date.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null);
-            days.add(AskFixtures.day(date, AskFixtures.summary(TargetType.SUNSET, w, region)));
+            BriefingWindow sunrise = AskFixtures.window(date.atTime(6, 0), DisplayVerdict.WORTH_IT, 4, null);
+            BriefingWindow sunset = AskFixtures.window(date.atTime(18, 0), DisplayVerdict.WORTH_IT, 4, null);
+            days.add(AskFixtures.day(date,
+                    AskFixtures.summary(TargetType.SUNRISE, sunrise, region),
+                    AskFixtures.summary(TargetType.SUNSET, sunset, region)));
             assertThat(days.getLast().eventSummaries().getFirst().window()).isNotNull();
-            if (i < 6) {
+            if (i < 4) {
+                rendered.add(new PlanRenderedEvent(date, TargetType.SUNRISE));
                 rendered.add(new PlanRenderedEvent(date, TargetType.SUNSET));
             }
         }
@@ -149,10 +154,11 @@ class AskSnapshotBuilderTest {
 
         AskSnapshot snapshot = builder.build().orElseThrow();
 
-        assertThat(snapshot.windows()).hasSize(6);
+        // The fixture clock is after today's 06:00 sunrise, so seven of the eight rendered events are live.
+        assertThat(snapshot.windows()).hasSize(7);
         assertThat(snapshot.windows()).extracting(AskSnapshot.Window::id)
-                .doesNotContain("2026-10-11_sunset", "2026-10-12_sunset")
-                .contains("2026-10-10_sunset");
+                .doesNotContain("2026-10-09_sunrise", "2026-10-09_sunset")
+                .contains("2026-10-08_sunset");
     }
 
     @Test
@@ -788,7 +794,7 @@ class AskSnapshotBuilderTest {
     }
 
     @Test
-    @DisplayName("a travel day inside the rendered six becomes a later window and is still not in windows()")
+    @DisplayName("a travel day inside the rendered days becomes a later window and is still not in windows()")
     void build_travelDayIsALaterWindow() {
         BriefingEventSummary away = blankedWithFacts(TargetType.SUNRISE, TOMORROW.atTime(5, 40),
                 AskFixtures.fact(3L, "Bamburgh", "HIGH", true, "high water"));

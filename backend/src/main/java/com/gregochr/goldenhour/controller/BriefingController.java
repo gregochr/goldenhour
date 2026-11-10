@@ -117,7 +117,9 @@ public class BriefingController {
      * from the body, so the two variants never share a validator.
      *
      * @param limit how many windows to return, clamped into
-     *              [1, {@value BriefingDigestService#MAX_LIMIT}]
+     *              [1, {@value BriefingDigestService#MAX_LIMIT}]. The digest only lists windows inside the
+     *              Plan horizon (today to T+3), of which there are at most eight, so the upper clamp is a
+     *              guard against absurd requests and not a range a caller can reach
      * @param auth the caller's authentication
      * @return the digest, shaped for the caller's role, or 204 when there is no briefing
      */

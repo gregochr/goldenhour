@@ -41,7 +41,7 @@ import { eventWord } from '../../utils/windowFirstCards.js';
  * the next-fit row needs the served alignment INDEX and the location's own key, neither of which
  * a pure-render component should be reaching into a briefing-shaped index to compute (and this
  * component is mounted by two hosts with two different "the rest of the rows" shapes — the map's
- * {@code evRows} and the sheet's own six windows — so a single {@code evRows} shape here would
+ * {@code evRows} and the sheet's own windows — so a single {@code evRows} shape here would
  * force one host to pretend it is the other). Matching T3's own precedent for {@code stripModel}'s
  * three extra params, this component takes the ALREADY-RESOLVED {@code nextFitRow} and the
  * location's OWN wanted set ({@code want}) instead of {@code evRow}/{@code evRows}: the CALLER

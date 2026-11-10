@@ -270,7 +270,7 @@ model. The report does not say how many builds a prompt spans; group the JSON yo
 > `BriefingDigestResponse.Window.withoutPick()`, which nulls `pick`, `headline`, `regionName`,
 > `locationName` and `locationId` (all five are the forecast-wide pick's, so they are absent from the
 > JSON for LITE); the date, event, time, verdict, `bestRating` and `confidence` stay. The ETag is
-> hashed from the shaped body, so LITE and PRO never share a validator. `limit` defaults to `PlanRenderLimits.MAX_VISIBLE_EVENTS`
+> hashed from the shaped body, so LITE and PRO never share a validator. `limit` defaults to `PlanRenderLimits.MAX_VISIBLE_EVENTS` (eight: two events on each of today..T+3), and the digest applies the same date bound (`PlanRenderLimits.withinHorizon`) before the limit, so it never lists a T+4 window
 > and is **clamped** to [1, 24] rather than rejected, because the intended caller is an unattended
 > background refresh and a widget that draws a short list beats one that fails to draw. 204 when no
 > briefing exists, matching `GET /api/briefing`.

@@ -183,8 +183,24 @@ class BriefingDigestServiceTest {
     }
 
     @Test
-    @DisplayName("a limit above the maximum is clamped down")
+    @DisplayName("a limit above the maximum is clamped, and the horizon still bounds the list")
     void digest_limitAboveMax_clampedToMax() {
+        // At most eight windows exist inside the horizon in production, so the cap is a guard only.
+        // To reach it, one in-horizon day carries MAX_LIMIT + 2 unelapsed summaries (the digest does
+        // not dedupe), and an over-large limit must be clamped down to exactly MAX_LIMIT.
+        BriefingEventSummary[] summaries = new BriefingEventSummary[BriefingDigestService.MAX_LIMIT + 2];
+        for (int i = 0; i < summaries.length; i++) {
+            summaries[i] = summary(TargetType.SUNSET, windowAt(DAY_TWO, 19, 0));
+        }
+        stubBriefing(day(DAY_TWO, summaries));
+
+        assertThat(service.digest(BriefingDigestService.MAX_LIMIT + 1).windows())
+                .hasSize(BriefingDigestService.MAX_LIMIT);
+    }
+
+    @Test
+    @DisplayName("days beyond T+3 are dropped before the limit, whatever the limit")
+    void digest_horizonBoundsTheListBeforeTheLimit() {
         BriefingDay[] days = new BriefingDay[BriefingDigestService.MAX_LIMIT + 2];
         for (int i = 0; i < days.length; i++) {
             days[i] = day(DAY_ONE.plusDays(i),
@@ -192,8 +208,69 @@ class BriefingDigestServiceTest {
         }
         stubBriefing(days);
 
-        assertThat(service.digest(BriefingDigestService.MAX_LIMIT + 1).windows())
-                .hasSize(BriefingDigestService.MAX_LIMIT);
+        assertThat(service.digest(BriefingDigestService.MAX_LIMIT).windows())
+                .extracting(BriefingDigestResponse.Window::date)
+                .containsExactly(DAY_ONE, DAY_ONE.plusDays(1), DAY_ONE.plusDays(2), DAY_ONE.plusDays(3));
+    }
+
+    @Test
+    @DisplayName("the default limit is the horizon's own ceiling: two events on each Plan day")
+    void digest_defaultLimitIsTheHorizonCeiling() {
+        assertThat(BriefingDigestService.DEFAULT_LIMIT).isEqualTo(PlanHorizon.PLAN_OWNED_DAYS * 2);
+        assertThat(BriefingDigestService.DEFAULT_LIMIT).isEqualTo(PlanRenderLimits.MAX_VISIBLE_EVENTS);
+    }
+
+    @Test
+    @DisplayName("seven rendered windows plus a T+4 summary: the default returns the seven, never T+4")
+    void digest_defaultLimit_excludesT4() {
+        // NOW is 12:00 on DAY_ONE: today's sunrise has gone (not in the tree), its sunset has not.
+        stubBriefing(
+                day(DAY_ONE, summary(TargetType.SUNSET, windowAt(DAY_ONE, 18, 30))),
+                dayBoth(DAY_ONE.plusDays(1)),
+                dayBoth(DAY_ONE.plusDays(2)),
+                dayBoth(DAY_ONE.plusDays(3)),
+                day(DAY_ONE.plusDays(4), summary(TargetType.SUNRISE, windowAt(DAY_ONE.plusDays(4), 6, 0))));
+
+        List<BriefingDigestResponse.Window> windows = service.digest(BriefingDigestService.DEFAULT_LIMIT)
+                .windows();
+
+        assertThat(windows).hasSize(7);
+        assertThat(windows).extracting(BriefingDigestResponse.Window::date)
+                .doesNotContain(DAY_ONE.plusDays(4));
+        assertThat(windows.getLast().date()).isEqualTo(DAY_ONE.plusDays(3));
+    }
+
+    @Test
+    @DisplayName("a day before today is not a window, even one with no event time")
+    void digest_dayBeforeToday_excluded() {
+        BriefingWindow timeless = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
+                null, List.of(), null);
+        stubBriefing(day(DAY_ONE.minusDays(1), summary(TargetType.SUNSET, timeless)),
+                day(DAY_ONE, summary(TargetType.SUNSET, windowAt(DAY_ONE, 18, 30))));
+
+        assertThat(service.digest(BriefingDigestService.DEFAULT_LIMIT).windows())
+                .extracting(BriefingDigestResponse.Window::date)
+                .containsExactly(DAY_ONE);
+    }
+
+    @Test
+    @DisplayName("under BST at 23:30 UTC the UK date is tomorrow, so the UTC date's day is excluded")
+    void digest_bstMidnightHour_usesTheUkDate() {
+        LocalDate utcDay = LocalDate.of(2026, 6, 10);
+        BriefingWindow timeless = new BriefingWindow(null, DisplayVerdict.AWAITING, null, null,
+                null, List.of(), null);
+        when(freshness.now()).thenReturn(LocalDateTime.of(2026, 6, 10, 23, 30));
+        when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 6, 10, 9, 0), "headline",
+                List.of(day(utcDay, summary(TargetType.SUNSET, timeless)),
+                        day(utcDay.plusDays(5), summary(TargetType.SUNSET, timeless)),
+                        day(utcDay.plusDays(4), summary(TargetType.SUNSET, timeless))),
+                List.of(), null, null, false, "Opus", List.of(), List.of()));
+
+        // UK today is 2026-06-11: the 10th is behind it, the 14th is T+3, the 15th is T+4.
+        assertThat(service.digest(BriefingDigestService.DEFAULT_LIMIT).windows())
+                .extracting(BriefingDigestResponse.Window::date)
+                .containsExactly(utcDay.plusDays(4));
     }
 
     @Test
@@ -250,6 +327,11 @@ class BriefingDigestServiceTest {
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 9, 0), "headline", List.of(days), List.of(),
                 null, null, false, "Opus", List.of(), List.of()));
+    }
+
+    private static BriefingDay dayBoth(LocalDate date) {
+        return day(date, summary(TargetType.SUNRISE, windowAt(date, 6, 0)),
+                summary(TargetType.SUNSET, windowAt(date, 18, 30)));
     }
 
     private static BriefingDay day(LocalDate date, BriefingEventSummary... summaries) {

@@ -39,7 +39,9 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
+import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.service.ask.AskWindowId;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -1505,64 +1507,122 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.validRegions()).containsExactly("Northumberland", "The Lake District");
         }
 
+        private BriefingDay bothEvents(LocalDate date) {
+            return new BriefingDay(date, List.of(
+                    new BriefingEventSummary(TargetType.SUNRISE, List.of(
+                            region("Region " + date, Verdict.GO, 1, 0, 0)), List.of()),
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Region " + date, Verdict.GO, 1, 0, 0)), List.of())));
+        }
+
         @Test
-        @DisplayName("Limits rollup to 6 non-past events")
-        void limitsToSixEvents() throws Exception {
+        @DisplayName("Renders whole days to T+3 and never T+4, however many days the briefing holds")
+        void limitsToWholeDaysThroughT3() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = FIXED_NOW;
-            // 4 days × 2 events = 8 total → should be limited to 6
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 4; i++) {
-                LocalDate date = FIXED_TODAY.plusDays(i);
-                days.add(new BriefingDay(date, List.of(
-                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
-                        new BriefingEventSummary(TargetType.SUNSET, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
-                )));
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
             }
 
-            RollupResult result = advisor.buildRollupJson(days, now);
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            // T+1..T+3 are in the horizon (6 events); T+4 is not.
             assertThat(result.validEvents()).hasSize(6);
-            // Events from day 4 sunset should not be included
             LocalDate day4 = FIXED_TODAY.plusDays(4);
-            assertThat(result.validEvents()).doesNotContain(day4.toString() + "_sunset");
+            assertThat(result.validEvents()).doesNotContain(day4 + "_sunrise", day4 + "_sunset");
+            assertThat(result.validEvents()).contains(
+                    FIXED_TODAY.plusDays(3) + "_sunrise", FIXED_TODAY.plusDays(3) + "_sunset");
         }
 
         @Test
-        @DisplayName("Exactly 6 events all pass through — no truncation")
+        @DisplayName("Before today's sunrise the rollup names all eight events of T+0..T+3")
+        void eightEventsBeforeSunrise() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 0; i <= 4; i++) {
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
+            }
+
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            assertThat(result.validEvents()).hasSize(8);
+            assertThat(result.validEvents()).contains(FIXED_TODAY + "_sunrise", FIXED_TODAY + "_sunset");
+            assertThat(result.validEvents()).doesNotContain(
+                    FIXED_TODAY.plusDays(4) + "_sunrise", FIXED_TODAY.plusDays(4) + "_sunset");
+        }
+
+        @Test
+        @DisplayName("Fixture measurement: the rollup JSON for the same six-region fixture at six and at eight events")
+        void rollupJsonSizeAtSixVersusEightEvents() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            String six = sixRegionRollupJson(1, 3);
+            String eight = sixRegionRollupJson(0, 3);
+
+            System.out.println("WHOLE-DAY budget: advisor rollup JSON = " + six.length() + " chars at 6 events, "
+                    + eight.length() + " chars at 8 events (same six-region fixture)");
+            assertThat(eight.length()).isGreaterThan(six.length());
+        }
+
+        private String sixRegionRollupJson(int firstOffset, int lastOffset) throws Exception {
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = firstOffset; i <= lastOffset; i++) {
+                LocalDate date = FIXED_TODAY.plusDays(i);
+                List<BriefingEventSummary> summaries = new java.util.ArrayList<>();
+                for (TargetType type : List.of(TargetType.SUNRISE, TargetType.SUNSET)) {
+                    List<com.gregochr.goldenhour.model.BriefingRegion> regions = new java.util.ArrayList<>();
+                    for (int r = 0; r < 6; r++) {
+                        regions.add(region("Region " + r, Verdict.GO, 1, 0, 0));
+                    }
+                    summaries.add(new BriefingEventSummary(type, regions, List.of()));
+                }
+                days.add(new BriefingDay(date, summaries));
+            }
+            return advisor.buildRollupJson(days, FIXED_NOW).json();
+        }
+
+        @Test
+        @DisplayName("At one today, every solar event the rollup names is inside the projector's rendered set")
+        void everyRollupEventIsInsideTheProjectorsRenderedSet() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 0; i <= 5; i++) {
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
+            }
+            com.gregochr.goldenhour.model.DailyBriefingResponse response =
+                    new com.gregochr.goldenhour.model.DailyBriefingResponse(FIXED_NOW, "headline", days,
+                            List.of(), null, null, false, null, List.of(), List.of());
+
+            Set<String> rendered = PlanWindowProjector.apply(response, FIXED_NOW, FIXED_TODAY, Map.of(), Map.of())
+                    .renderedEvents().stream()
+                    .map(e -> AskWindowId.format(e.date(), e.targetType()))
+                    .collect(java.util.stream.Collectors.toSet());
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            assertThat(result.validEvents()).isNotEmpty();
+            assertThat(rendered).containsAll(result.validEvents());
+        }
+
+        @Test
+        @DisplayName("Exactly T+1..T+3 (6 events) all pass through — no truncation")
         void exactlySixEvents_allPassThrough() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
-            LocalDateTime now = FIXED_NOW;
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 3; i++) {
-                LocalDate date = FIXED_TODAY.plusDays(i);
-                days.add(new BriefingDay(date, List.of(
-                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
-                        new BriefingEventSummary(TargetType.SUNSET, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
-                )));
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
             }
 
-            RollupResult result = advisor.buildRollupJson(days, now);
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
             assertThat(result.validEvents()).hasSize(6);
         }
 
         @Test
-        @DisplayName("5 events all pass through — below cap")
+        @DisplayName("5 events all pass through — below the horizon")
         void fiveEvents_allPassThrough() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDateTime now = FIXED_NOW;
             List<BriefingDay> days = new java.util.ArrayList<>();
             for (int i = 1; i <= 2; i++) {
-                LocalDate date = FIXED_TODAY.plusDays(i);
-                days.add(new BriefingDay(date, List.of(
-                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
-                        new BriefingEventSummary(TargetType.SUNSET, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
-                )));
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
             }
             LocalDate day3 = FIXED_TODAY.plusDays(3);
             days.add(new BriefingDay(day3, List.of(
@@ -1575,14 +1635,13 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Past events on today are skipped before counting the 6-event limit")
-        void pastEventsSkippedBeforeCounting() throws Exception {
+        @DisplayName("Past events on today are skipped, leaving seven events through T+3")
+        void pastEventsSkippedLeavesSeven() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             // Fixed clock: the day, "now" and the advisor's "today" all share one instant.
             LocalDate today = FIXED_TODAY;
             LocalDateTime now = FIXED_NOW;
             LocalDateTime pastTime = now.minusHours(2);
-            // Today has 1 past event + 1 future event, then 3 more days × 2
             List<BriefingDay> days = new java.util.ArrayList<>();
             days.add(new BriefingDay(today, List.of(
                     new BriefingEventSummary(TargetType.SUNRISE, List.of(
@@ -1590,23 +1649,64 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
                             region("TodayRegion", Verdict.GO, 1, 0, 0)), List.of())
             )));
-            for (int i = 1; i <= 3; i++) {
-                LocalDate date = today.plusDays(i);
-                days.add(new BriefingDay(date, List.of(
-                        new BriefingEventSummary(TargetType.SUNRISE, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of()),
-                        new BriefingEventSummary(TargetType.SUNSET, List.of(
-                                region("Region" + i, Verdict.GO, 1, 0, 0)), List.of())
-                )));
+            for (int i = 1; i <= 4; i++) {
+                days.add(bothEvents(today.plusDays(i)));
             }
 
             RollupResult result = advisor.buildRollupJson(days, now);
-            // 1 past (skipped) + 1 today + 6 from future = 7, capped at 6
-            assertThat(result.validEvents()).hasSize(6);
-            // The past sunrise should be excluded
-            assertThat(result.validEvents()).doesNotContain(today.toString() + "_sunrise");
-            // Today sunset should be included
-            assertThat(result.validEvents()).contains(today.toString() + "_sunset");
+            // 1 past (skipped) + today's sunset + T+1..T+3 (6) = 7; T+4 is outside the horizon.
+            assertThat(result.validEvents()).hasSize(7);
+            assertThat(result.validEvents()).doesNotContain(today + "_sunrise");
+            assertThat(result.validEvents()).contains(today + "_sunset");
+        }
+
+        @Test
+        @DisplayName("Travel on T+0..T+2 leaves only T+3's events, each inside the horizon")
+        void travelDaysLeaveOnlyT3() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 0; i <= 4; i++) {
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
+            }
+            when(travelDayService.isTravelDay(FIXED_TODAY)).thenReturn(true);
+            when(travelDayService.isTravelDay(FIXED_TODAY.plusDays(1))).thenReturn(true);
+            when(travelDayService.isTravelDay(FIXED_TODAY.plusDays(2))).thenReturn(true);
+            when(travelDayService.isTravelDay(FIXED_TODAY.plusDays(3))).thenReturn(false);
+
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            LocalDate day3 = FIXED_TODAY.plusDays(3);
+            assertThat(result.validEvents()).containsExactly(day3 + "_sunrise", day3 + "_sunset");
+        }
+
+        @Test
+        @DisplayName("Travel on T+0..T+3 yields an empty rollup: T+4 is never a substitute")
+        void travelOnEveryHorizonDayLeavesNothing() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            List<BriefingDay> days = new java.util.ArrayList<>();
+            for (int i = 0; i <= 4; i++) {
+                days.add(bothEvents(FIXED_TODAY.plusDays(i)));
+            }
+            for (int i = 0; i <= 3; i++) {
+                when(travelDayService.isTravelDay(FIXED_TODAY.plusDays(i))).thenReturn(true);
+            }
+
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            assertThat(result.validEvents()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("A day before today (an aged briefing's first day) is excluded")
+        void dayBeforeTodayExcluded() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate yesterday = FIXED_TODAY.minusDays(1);
+            List<BriefingDay> days = List.of(bothEvents(yesterday), bothEvents(FIXED_TODAY.plusDays(1)));
+
+            RollupResult result = advisor.buildRollupJson(days, FIXED_NOW);
+
+            assertThat(result.validEvents()).doesNotContain(yesterday + "_sunrise", yesterday + "_sunset");
+            assertThat(result.validEvents()).hasSize(2);
         }
 
     }

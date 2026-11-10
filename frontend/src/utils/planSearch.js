@@ -11,7 +11,7 @@ import { verdictScopeText } from './reachLens.js';
  * <p>The prototype rests on a "Recent locations" group; this app has no recency store and none is
  * planned (§9.11, shipped windows-only). Regions are absent at rest on the prototype's own
  * reasoning — the map is the region picker now — but match the moment they are typed. So the
- * resting list is the six windows, which are the one group that is both small and complete: every
+ * resting list is the rendered windows (up to eight), which are the one group that is both small and complete: every
  * row is somewhere the reader can already see, so the list is a shortcut rather than a catalogue.
  *
  * <h2>Matching is a plain substring over a folded string, on purpose</h2>
@@ -161,7 +161,7 @@ const GLYPH = { location: '◇', region: '◎', window: '◷' };
  * The best rated window this ONE location has, and which window it is.
  *
  * <p>⚠️ It aggregates nothing across locations, which is what keeps it inside P8's recorded licence
- * rather than reopening Rule 1: it is a max over one place's own six windows, the same shape
+ * rather than reopening Rule 1: it is a max over one place's own windows, the same shape
  * {@code buildLocationSheet} computes for the sheet this row opens. Ties break earliest, because
  * the walk is in render order and the comparison is strict.
  *
@@ -331,7 +331,7 @@ export function buildSearchGroups(query, {
       // It has no card — `buildWindowCards` drops travel days, because a "Poor" card under a tile
       // reading "Not forecast" is a contradiction — so choosing one would close the dialog having
       // silently done nothing. The strip already draws it as a non-interactive cell; hiding it here
-      // instead would make the search's six windows a different six from the strip's.
+      // instead would make the search's windows a different set from the strip's.
       disabled: Boolean(card.away),
       reason: card.away ? 'Not forecast — away this day' : null,
     }));
@@ -402,8 +402,8 @@ export function buildSearchGroups(query, {
         glyph: GLYPH.location,
         marks: matchRange(spot.name, query),
         figure: top ? { value: starFigure(top.rating), caption: top.label } : null,
-        // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span — six rendered
-        // events fall across three days whenever today still has both its windows ahead of it — and
+        // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span — the rendered
+        // events fall across three days only once both of today's windows have passed (otherwise four) — and
         // prints it ("The next 3 days here"), so a fixed 4 in the chip above it would be a number
         // we never measured sitting beside the same number measured. The chip names the surface
         // instead, which is true at every span.
