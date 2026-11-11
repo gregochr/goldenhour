@@ -124,7 +124,7 @@ export default function RunsView({
   });
   // The Cost and Timing views' own parameters (DD-9): an unknown or missing one falls back to the view's default.
   const costRange = COST_RANGES.includes(query.range) ? query.range : DEFAULT_COST_RANGE;
-  const costIsolate = query.type;
+  const costSelected = query.type;
   const timingRange = TIMING_RANGES.includes(query.range) ? query.range : DEFAULT_TIMING_RANGE;
   const timingType = TIMING_TYPES.includes(query.type) ? query.type : 'AFTERNOON';
   // Until answers ready is for the three cycles only; any other type measures the run itself.
@@ -421,8 +421,8 @@ export default function RunsView({
         cost={cost}
         range={costRange}
         onRangeChange={(range) => handleParams({ range })}
-        isolate={costIsolate}
-        onIsolate={(type) => handleParams({ type })}
+        selected={costSelected}
+        onSelect={(type) => handleParams({ type })}
         onOpenDay={handleOpenDay}
       />
     );

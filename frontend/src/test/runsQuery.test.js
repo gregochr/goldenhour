@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  normalizeRunsQuery, readRunsQuery, runsDayHref, runsTimingHref, writeRunsQuery,
+  normalizeRunsQuery, parseTypeSet, readRunsQuery, runsDayHref, runsTimingHref, toggleType, writeRunsQuery,
 } from '../utils/runsQuery.js';
 
 // The Runs tab's address helper (runs-deep-dive-plan.md DD-9, F4): read, merge and write the hash query.
@@ -12,6 +12,51 @@ beforeEach(() => {
   window.location.hash = '#manage/runs';
   window.localStorage.clear();
   vi.restoreAllMocks();
+});
+
+describe('the Cost view type list', () => {
+  it('reads a list in canonical order, upper-cased, de-duplicated and without unknown members', () => {
+    window.location.hash = '#manage/runs?view=cost&type=overnight,EVENING,bogus,EVENING';
+    expect(readRunsQuery(NOW)).toMatchObject({ view: 'cost', type: 'OVERNIGHT,EVENING' });
+    window.location.hash = '#manage/runs?view=cost&type=EVENING,SKY_EVAL,OVERNIGHT';
+    expect(readRunsQuery(NOW).type).toBe('OVERNIGHT,EVENING,SKY_EVAL');
+  });
+
+  it('reads the encoded comma as well as the literal one', () => {
+    window.location.hash = '#manage/runs?view=cost&type=OVERNIGHT%2CAFTERNOON';
+    expect(readRunsQuery(NOW).type).toBe('OVERNIGHT,AFTERNOON');
+  });
+
+  it('reads a single type as before and an all-unknown list as null', () => {
+    window.location.hash = '#manage/runs?view=cost&type=EVENING';
+    expect(readRunsQuery(NOW).type).toBe('EVENING');
+    window.location.hash = '#manage/runs?view=cost&type=bogus,nope';
+    expect(readRunsQuery(NOW).type).toBeNull();
+  });
+
+  it('writes the list with a literal comma, not %2C, and leaves other keys encoded as they were', () => {
+    writeRunsQuery({ view: 'cost', range: 30, type: 'OVERNIGHT,AFTERNOON,EVENING' });
+    expect(window.location.hash).toBe('#manage/runs?view=cost&range=30&type=OVERNIGHT,AFTERNOON,EVENING');
+    expect(window.location.hash).not.toContain('%2C');
+    expect(readRunsQuery(NOW).type).toBe('OVERNIGHT,AFTERNOON,EVENING');
+    writeRunsQuery({ type: null });
+    expect(window.location.hash).toBe('#manage/runs?view=cost&range=30');
+  });
+
+  it('parseTypeSet keeps the known members in canonical order', () => {
+    expect(parseTypeSet('evening, overnight ,x')).toEqual(['OVERNIGHT', 'EVENING']);
+    expect(parseTypeSet(null)).toEqual([]);
+    expect(parseTypeSet('')).toEqual([]);
+  });
+
+  it('toggleType adds, removes, and returns null for none or for every type', () => {
+    expect(toggleType(null, 'EVENING')).toBe('EVENING');
+    expect(toggleType('EVENING', 'OVERNIGHT')).toBe('OVERNIGHT,EVENING');
+    expect(toggleType('OVERNIGHT,EVENING', 'EVENING')).toBe('OVERNIGHT');
+    expect(toggleType('OVERNIGHT', 'OVERNIGHT')).toBeNull();
+    const six = 'OVERNIGHT,AFTERNOON,EVENING,ASK_READY,BRIEFING,SKY_EVAL';
+    expect(toggleType(six, 'OTHER')).toBeNull();
+  });
 });
 
 describe('readRunsQuery', () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  chartSeries, signedGbp, signedPercent, typeSeries, verdictBody, verdictHeadline, whyText,
+  chartSeries, costSelection, selectionSummary, signedGbp, signedPercent, typeSeries, verdictBody, verdictHeadline, whyText,
 } from '../utils/runsCost.js';
 import { formatGbp } from '../utils/runsDay.js';
 import { costDay, costResponse, costType } from './runsCostTimingFixtures.js';
@@ -143,16 +143,53 @@ describe('chartSeries', () => {
     expect(average[13]).toBe(8);
   });
 
-  it('follows the isolated type', () => {
+  it('follows the selected type', () => {
     const base = costResponse();
     const days = base.days.map((d) => costDay(d.date, { ASK_READY: 2, OVERNIGHT: 3 }));
     expect(chartSeries({ ...base, days }, null).average[13]).toBe(5);
-    expect(chartSeries({ ...base, days }, 'ASK_READY').average[13]).toBe(2);
+    expect(chartSeries({ ...base, days }, ['ASK_READY']).average[13]).toBe(2);
+  });
+
+  it('follows the per-day sum of several selected types', () => {
+    const base = costResponse();
+    const days = base.days.map((d) => costDay(d.date, { ASK_READY: 2, OVERNIGHT: 3, EVENING: 4 }));
+    expect(chartSeries({ ...base, days }, ['ASK_READY', 'OVERNIGHT']).average[13]).toBe(5);
+    expect(chartSeries({ ...base, days }, ['OVERNIGHT', 'EVENING']).average[13]).toBe(7);
+    expect(chartSeries({ ...base, days }, []).average[13]).toBe(9);
   });
 
   it('gives a type\'s daily series over both periods', () => {
     const base = costResponse();
     expect(typeSeries(base, 'ASK_READY')).toHaveLength(28);
     expect(typeSeries(base, 'ASK_READY')[0]).toBe(2);
+  });
+});
+
+describe('selectionSummary', () => {
+  it('sums the selected types\' served lastGbp, with their labels in the order given', () => {
+    const summary = selectionSummary(costResponse(), ['OVERNIGHT', 'AFTERNOON']);
+    expect(summary.labels).toEqual(['Overnight cycle', 'Afternoon refresh']);
+    expect(summary.gbp).toBeCloseTo(38.31 + 22.94);
+    expect(summary.costComplete).toBe(true);
+  });
+
+  it('flags a selection with a type still accruing cost, and counts a type with no row as zero', () => {
+    const data = costResponse();
+    data.types = data.types.map((t) => (t.type === 'AFTERNOON' ? { ...t, costComplete: false } : t));
+    const summary = selectionSummary(data, ['AFTERNOON', 'EVENING']);
+    expect(summary.costComplete).toBe(false);
+    expect(summary.gbp).toBeCloseTo(22.94);
+  });
+
+  it('is null for an empty or missing selection', () => {
+    expect(selectionSummary(costResponse(), [])).toBeNull();
+    expect(selectionSummary(costResponse(), null)).toBeNull();
+  });
+});
+
+describe('costSelection', () => {
+  it('drops unknown members, never the whole list', () => {
+    expect(costSelection('evening,bogus,OVERNIGHT')).toEqual(['OVERNIGHT', 'EVENING']);
+    expect(costSelection(null)).toEqual([]);
   });
 });

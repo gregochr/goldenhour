@@ -106,7 +106,7 @@ describe('Cost trends', () => {
     expect(screen.getByTestId('runs-cost-average').getAttribute('points').split(' ')).toHaveLength(14);
   });
 
-  it('isolates a type from its legend chip: the others drop to 12% and the line follows it', async () => {
+  it('picks a type from its legend chip: the others drop to 12% and the line follows it', async () => {
     await openCost();
     const all = screen.getByTestId('runs-cost-average').getAttribute('points');
     fireEvent.click(screen.getByTestId('runs-cost-iso-sky_eval'));
@@ -121,7 +121,27 @@ describe('Cost trends', () => {
     expect(window.location.hash).toBe('#manage/runs?view=cost');
   });
 
-  it('isolates from a table row and clears on a second press', async () => {
+  it('picks several types from chips and rows, writing a literal comma list to the address', async () => {
+    await openCost();
+    fireEvent.click(screen.getByTestId('runs-cost-iso-evening'));
+    fireEvent.click(screen.getByTestId('runs-cost-iso-overnight'));
+    fireEvent.click(screen.getByTestId('runs-cost-row-afternoon-toggle'));
+    expect(window.location.hash).toBe('#manage/runs?view=cost&type=OVERNIGHT,AFTERNOON,EVENING');
+    ['overnight', 'afternoon', 'evening'].forEach((key) => {
+      expect(screen.getByTestId(`runs-cost-iso-${key}`)).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(screen.getByTestId('runs-cost-selection-total')).toHaveTextContent('Overnight cycle + Afternoon refresh + Evening refresh');
+    fireEvent.click(screen.getByTestId('runs-cost-iso-evening'));
+    expect(window.location.hash).toBe('#manage/runs?view=cost&type=OVERNIGHT,AFTERNOON');
+  });
+
+  it('restores a type list from the address', async () => {
+    await openCost('#manage/runs?view=cost&type=OVERNIGHT,AFTERNOON,EVENING');
+    expect(screen.getByTestId('runs-cost-iso-afternoon')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('runs-cost-iso-sky_eval')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('picks from a table row and clears on a second press', async () => {
     await openCost();
     fireEvent.click(screen.getByTestId('runs-cost-row-ask_ready-toggle'));
     expect(screen.getByTestId('runs-cost-iso-ask_ready')).toHaveAttribute('aria-pressed', 'true');
@@ -130,7 +150,7 @@ describe('Cost trends', () => {
     expect(screen.getByTestId('runs-cost-iso-all')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('restores an isolate and a period from the address', async () => {
+  it('restores a selection and a period from the address', async () => {
     await openCost('#manage/runs?view=cost&range=60&type=ASK_READY');
     expect(fetchRunCost).toHaveBeenCalledWith(60);
     expect(screen.getByTestId('runs-cost-range-60')).toHaveAttribute('aria-pressed', 'true');
@@ -243,7 +263,7 @@ describe('Cost trends', () => {
 
   it('has single-line legend chips', async () => {
     await openCost();
-    expect(screen.getByRole('group', { name: 'Isolate a type' }).className).toContain(' flex-wrap');
+    expect(screen.getByRole('group', { name: 'Show types' }).className).toContain(' flex-wrap');
     expect(screen.getByTestId('runs-cost-iso-evening').className).toContain('whitespace-nowrap');
   });
 

@@ -208,14 +208,14 @@ describe('chartSeries and typeSeries', () => {
   });
 
   it('draws the isolated type, treating a day without it as zero', () => {
-    const { average } = chartSeries({ rangeDays: 4, days: days() }, 'ASK_READY');
+    const { average } = chartSeries({ rangeDays: 4, days: days() }, ['ASK_READY']);
     expect(average).toHaveLength(4);
     expect(average[0]).toBeCloseTo(4 / 7);
     expect(average[1]).toBeCloseTo(3 / 7);
   });
 
   it('treats a day without any per-type breakdown as zero for an isolated type', () => {
-    const { average } = chartSeries({ rangeDays: 2, days: [{ totalGbp: 3 }, { totalGbp: 5 }] }, 'EVENING');
+    const { average } = chartSeries({ rangeDays: 2, days: [{ totalGbp: 3 }, { totalGbp: 5 }] }, ['EVENING']);
     expect(average).toEqual([0, 0]);
   });
 
