@@ -29,12 +29,20 @@ env:
   # One missed night is a blip; two consecutive is a trend worth an issue.
   MAX_AGE_HOURS: 48
   SCRATCH_DB: backup-verify-db
+  # Named, labelled volume for the scratch Postgres data directory. Without it
+  # the image's VOLUME declaration makes an anonymous ~1 GB volume holding a
+  # restored copy of production on every run (30 had piled up by 2026-11-11,
+  # ~24 GB). The label is how cleanup finds this job's volumes and nobody
+  # else's: the host is shared with other projects, so never prune by anything
+  # broader.
+  SCRATCH_VOLUME: backup-verify-pgdata
+  SCRATCH_LABEL: com.gregochr.goldenhour.job=backup-verify
 
 jobs:
   verify:
     name: Verify latest backup restores
     runs-on: self-hosted
-    # The scratch-Postgres readiness loop above is capped at 60×2s=2min, and
+    # The scratch-Postgres readiness loop below is capped at 60×2s=2min, and
     # restoring a production-sized dump takes a few minutes at worst — thirty
     # is several times the slowest honest run, so anything longer is a hung
     # `docker` call, not a slow one. Without this, a hang leaves the job
@@ -70,8 +78,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
+          # -v on rm so a leftover container takes its volumes with it, then
+          # clear any volume a previous run of THIS job left behind (by label
+          # only; busy or missing must not fail the job).
+          docker rm -fv "$SCRATCH_DB" >/dev/null 2>&1 || true
+          docker volume ls -q --filter "label=${SCRATCH_LABEL}" | xargs -r docker volume rm >/dev/null 2>&1 || true
+          docker volume create --label "$SCRATCH_LABEL" "$SCRATCH_VOLUME" >/dev/null
+
+          # No --rm: a container that dies during initdb must survive so its
+          # logs can be read.
           docker run -d --name "$SCRATCH_DB" \
+            --label "$SCRATCH_LABEL" \
+            -v "${SCRATCH_VOLUME}:/var/lib/postgresql/data" \
             -e POSTGRES_DB=goldenhour \
             -e POSTGRES_USER=goldenhour \
             -e POSTGRES_PASSWORD=verify-only \
@@ -153,7 +171,18 @@ jobs:
 
       - name: Tear down scratch database
         if: always()
-        run: docker rm -f "$SCRATCH_DB" >/dev/null 2>&1 || true
+        run: |
+          # -v plus the explicit volume removal: plain `rm -f` leaves the
+          # volume (and a copy of production) behind.
+          docker rm -fv "$SCRATCH_DB" >/dev/null 2>&1 || true
+          docker volume rm "$SCRATCH_VOLUME" >/dev/null 2>&1 || true
+
+          # Warning, not error: a cleanup hiccup must not mask a good backup
+          # verification.
+          LEFT="$(docker volume ls -q --filter "label=${SCRATCH_LABEL}" 2>/dev/null || true)"
+          if [ -n "$LEFT" ]; then
+            echo "::warning::Scratch volume(s) still present after teardown: $(echo "$LEFT" | tr '\n' ' ')"
+          fi
 
   # "A component cannot be relied on to report its own failure" (see this file's
   # own header) applies to the self-hosted RUNNER itself, not only to the backup
