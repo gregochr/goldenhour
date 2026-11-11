@@ -31,7 +31,24 @@
 # first run may have started the new images, so "what is running now" is no
 # longer the outgoing build and recording it would destroy the only good
 # rollback point. An existing but unusable manifest, or a dump with no manifest,
-# is moved aside (never deleted) and a fresh point taken.
+# is moved aside (not deleted at that moment; it ages out under the retention rule below) and a fresh point taken.
+#
+# RETENTION. Nothing used to delete from pre-release/, so it grew by one full production dump per release for
+# ever. After a NEW point has been written and its manifest validated and moved into place (and only then:
+# not on the keep-first early exit, not on any failure path), the script keeps the newest PRE_RELEASE_KEEP
+# usable rollback points (default 5, a whole number >= 1; anything else logs a WARNING and deletes nothing).
+#   - A point is a version V and its WHOLE set: V.json, goldenhour_pre-V.sql.gz, V.nginx.conf,
+#     V.docker-compose.yml, and any of those with an .unusable-<stamp> suffix. Sets go whole or not at all.
+#   - USABLE = V.json passes manifest_complete and the dump exists (no gzip -t: too slow over several dumps).
+#   - Sets are ranked by the newest mtime among their files. Every set strictly older than the Nth-newest
+#     usable point is deleted. With fewer than N usable points nothing is deleted.
+#   - Moved-aside (.unusable-*) files and unusable sets do NOT count toward N, so repeated failed re-runs
+#     cannot push good rollback points out. They survive while they are newer than the Nth usable point and
+#     age out with it.
+#   - Never deleted: this release's own set, any file a kept manifest names (dump, nginx_conf, compose_file),
+#     rollback.sh's goldenhour_pre-rollback-* safety dumps, *.partial files, directories, and anything that
+#     does not match the shapes above (versions must look like v<digit>...).
+#   - A retention failure is a WARNING only: the new rollback point exists, so the script still exits 0.
 #
 # Failure here aborts the release. That is deliberate, and differs from the
 # nightly backup's off-box copy (non-fatal there): this is the one moment the
@@ -41,6 +58,7 @@
 # earlier run); 1 it could not be taken, so the release must stop.
 #
 # Usage: ./pre-release-backup.sh v2.11.11
+#   PRE_RELEASE_KEEP  How many usable rollback points to keep (default 5)
 #   COMPOSE_DIR   Directory holding the outgoing nginx.conf and docker-compose.yml
 #                 (default: $HOME/goldenhour)
 # ============================================================================
@@ -57,6 +75,7 @@ BACKUP_DIR="${BACKUP_DIR:-${HOME}/goldenhour-backups}"
 # Deliberately NOT daily/: that directory rotates at 7 days, which would delete
 # the dump you want after a regression that took a fortnight to notice.
 RELEASE_DIR="${BACKUP_DIR}/pre-release"
+PRE_RELEASE_KEEP="${PRE_RELEASE_KEEP:-5}"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-goldenhour-backend}"
 # Written by scripts/record-deployed-images.sh after each successful deploy.
 LEDGER="${DEPLOYED_IMAGES_LEDGER:-${HOME}/goldenhour-data/deployed-images.json}"
@@ -118,6 +137,149 @@ for stale in "$MANIFEST_FILE" "$DUMP_FILE" "$NGINX_SAVED" "$COMPOSE_SAVED"; do
         log "WARNING: moved an unusable earlier file aside: ${stale}.unusable-${stamp}"
     fi
 done
+
+# --- Retention ----------------------------------------------------------------
+# Reads one top-level string field of a manifest (empty when absent or unreadable).
+manifest_field() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json, sys
+print(json.load(open(sys.argv[1])).get(sys.argv[2]) or "")
+' "$1" "$2" 2>/dev/null || true
+    else
+        jq -r --arg k "$2" '.[$k] // empty' "$1" 2>/dev/null || true
+    fi
+}
+
+# Fills SET_FILES with every existing file of version $1's set (see RETENTION in the header).
+set_files_of() {
+    local v="$1" name f
+    SET_FILES=()
+    for name in "${v}.json" "goldenhour_pre-${v}.sql.gz" "${v}.nginx.conf" "${v}.docker-compose.yml"; do
+        for f in "${RELEASE_DIR}/${name}" "${RELEASE_DIR}/${name}".unusable-*; do
+            case "$f" in *.partial) continue ;; esac
+            if [ -f "$f" ] && [ ! -L "$f" ]; then SET_FILES+=("$f"); fi
+        done
+    done
+}
+
+# Deletes whole rollback-point sets older than the Nth-newest usable point. Bash 3.2 safe (no associative
+# arrays, no GNU stat/sort); mtimes are compared with -nt. Returns non-zero only to be reported as a warning.
+prune_old_rollback_points() {
+    local keep="$PRE_RELEASE_KEEP" f name base v i j n seen newest failed=0 remaining=0 del protect="" mf pf
+    case "$keep" in
+        ''|*[!0-9]*) log "WARNING: PRE_RELEASE_KEEP='${keep}' is not a whole number >= 1 — pruning nothing."; return 0 ;;
+    esac
+    [ "${#keep}" -le 6 ] || keep=999999
+    if [ "$keep" -lt 1 ]; then
+        log "WARNING: PRE_RELEASE_KEEP='${keep}' is not a whole number >= 1 — pruning nothing."
+        return 0
+    fi
+
+    # Discover versions from every filename shape in the set.
+    local versions=()
+    for f in "${RELEASE_DIR}"/*; do
+        if [ -f "$f" ] && [ ! -L "$f" ]; then :; else continue; fi
+        name="${f##*/}"
+        case "$name" in *.partial) continue ;; esac
+        base="${name%.unusable-*}"
+        case "$base" in
+            goldenhour_pre-rollback-*) continue ;;
+            goldenhour_pre-*.sql.gz) v="${base#goldenhour_pre-}"; v="${v%.sql.gz}" ;;
+            *.nginx.conf) v="${base%.nginx.conf}" ;;
+            *.docker-compose.yml) v="${base%.docker-compose.yml}" ;;
+            *.json) v="${base%.json}" ;;
+            *) continue ;;
+        esac
+        case "$v" in v[0-9]*) ;; *) continue ;; esac
+        seen=0
+        if [ "${#versions[@]}" -gt 0 ]; then
+            for i in "${versions[@]}"; do
+                if [ "$i" = "$v" ]; then seen=1; fi
+            done
+        fi
+        if [ "$seen" -eq 0 ]; then versions+=("$v"); fi
+    done
+    n="${#versions[@]}"
+    [ "$n" -gt 0 ] || return 0
+
+    # Per version: newest file (by mtime) and whether the point is usable.
+    local newest_of=() usable_of=()
+    for ((i = 0; i < n; i++)); do
+        v="${versions[$i]}"
+        set_files_of "$v"
+        newest=""
+        if [ "${#SET_FILES[@]}" -gt 0 ]; then
+            for f in "${SET_FILES[@]}"; do
+                if [ -z "$newest" ] || [ "$f" -nt "$newest" ]; then newest="$f"; fi
+            done
+        fi
+        newest_of[i]="$newest"
+        usable_of[i]=0
+        if [ -f "${RELEASE_DIR}/${v}.json" ] && manifest_complete "${RELEASE_DIR}/${v}.json" \
+            && [ -f "${RELEASE_DIR}/goldenhour_pre-${v}.sql.gz" ]; then
+            usable_of[i]=1
+        fi
+    done
+
+    # A usable point is KEPT when fewer than $keep usable points are strictly newer than it.
+    local kept=() usable_count=0 newer
+    for ((i = 0; i < n; i++)); do
+        [ "${usable_of[$i]}" -eq 1 ] || continue
+        usable_count=$((usable_count + 1))
+        newer=0
+        for ((j = 0; j < n; j++)); do
+            [ "${usable_of[$j]}" -eq 1 ] || continue
+            if [ "${newest_of[$j]}" -nt "${newest_of[$i]}" ]; then newer=$((newer + 1)); fi
+        done
+        if [ "$newer" -lt "$keep" ]; then
+            kept+=("$i")
+            # Files a kept manifest names must survive even if they sit in an otherwise old set.
+            mf="${RELEASE_DIR}/${versions[$i]}.json"
+            for pf in dump nginx_conf compose_file; do
+                name="$(manifest_field "$mf" "$pf")"
+                if [ -n "$name" ]; then protect="${protect}
+${name##*/}"; fi
+            done
+        fi
+    done
+    if [ "$usable_count" -le "$keep" ]; then
+        log "retention: ${usable_count} usable rollback point(s), keeping up to ${keep} — nothing to prune."
+        return 0
+    fi
+
+    remaining="$usable_count"
+    for ((i = 0; i < n; i++)); do
+        v="${versions[$i]}"
+        [ "$v" != "$RELEASE_VERSION" ] || continue
+        # Strictly older than EVERY kept point, i.e. older than the Nth-newest usable one.
+        del=1
+        for j in "${kept[@]}"; do
+            if ! [ "${newest_of[$j]}" -nt "${newest_of[$i]}" ]; then del=0; break; fi
+        done
+        [ "$del" -eq 1 ] || continue
+        set_files_of "$v"
+        [ "${#SET_FILES[@]}" -gt 0 ] || continue
+        for f in "${SET_FILES[@]}"; do
+            case "
+${protect}
+" in
+                *"
+${f##*/}
+"*) log "retention: keeping ${f##*/} (named by a kept manifest)"; continue ;;
+            esac
+            if rm -f -- "$f"; then
+                log "pruned old rollback point: ${f}"
+            else
+                log "WARNING: could not delete ${f}"
+                failed=1
+            fi
+        done
+        if [ "${usable_of[$i]}" -eq 1 ]; then remaining=$((remaining - 1)); fi
+    done
+    log "retention: ${remaining} usable rollback point(s) remain (keep ${keep})."
+    return "$failed"
+}
 
 # --- Preconditions ------------------------------------------------------------
 # Checked separately from the container probe below, which the other two scripts
@@ -337,3 +499,8 @@ mv "${MANIFEST_FILE}.partial" "$MANIFEST_FILE"
 
 log "manifest written: ${MANIFEST_FILE}"
 log "rollback with: ./scripts/rollback.sh ${RELEASE_VERSION}"
+
+# Retention runs last, and only now that the new point is complete. A failure here must never fail the release:
+# the rollback point exists. (`||` also keeps set -e from firing inside the function.)
+prune_old_rollback_points || log "WARNING: pre-release retention hit a problem; some old rollback points were not removed."
+exit 0
