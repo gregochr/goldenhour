@@ -203,8 +203,8 @@ panels all stay. "Open run detail →" in an expanded Day row opens the existing
 
 ### D4 — Cost trends and Timing views (frontend)
 
-- `RunsCostView`: verdict card, `DailySpendChart` (stacked SVG bars per README order, isolate chips, 7-day line,
-  hover tooltip, click a day → Day view for that date), `CostChangeTable` (rows isolate on click, sparklines, total
+- `RunsCostView`: verdict card, `DailySpendChart` (stacked SVG bars per README order, legend chips (multi-select since 2026-11-11), 7-day line,
+  hover tooltip, click a day → Day view for that date), `CostChangeTable` (rows toggle a type on click, sparklines, total
   row with USD at the served rate).
 - `RunsTimingView`: type chips with served medians, range and measure segmented controls, stat strip,
   `DurationHistogram` (binning + KDE + staggered markers + skew note), `SunsetPlanner` (AFTERNOON only; slider

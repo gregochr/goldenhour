@@ -18,8 +18,8 @@ vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mobile.value }));
 
 const props = (over = {}) => ({
   data: costResponse(),
-  isolate: null,
-  onIsolate: vi.fn(),
+  selected: null,
+  onSelect: vi.fn(),
   range: 14,
   onRangeChange: vi.fn(),
   onOpenDay: vi.fn(),
@@ -157,7 +157,7 @@ describe('all-time wording', () => {
 
   it('shows no up or down claim on the verdict card', () => {
     render(<RunsCostView cost={{ data: costAllTime(400), loading: false, error: null, refresh: vi.fn() }}
-      range="all" onRangeChange={vi.fn()} isolate={null} onIsolate={vi.fn()} onOpenDay={vi.fn()} />);
+      range="all" onRangeChange={vi.fn()} selected={null} onSelect={vi.fn()} onOpenDay={vi.fn()} />);
     expect(screen.getByTestId('runs-cost-headline')).toHaveTextContent('£600.00 spent since 28 Sept 2025.');
     expect(screen.getByTestId('runs-cost-body')).toHaveTextContent('Sky eval is the biggest');
     expect(screen.getByTestId('runs-cost-headline').textContent).not.toMatch(/Yes|No\./);
@@ -177,7 +177,7 @@ describe('bucketSeries', () => {
 
 describe('CostChangeTable in all time', () => {
   const renderAll = (data = costAllTime(400)) => render(
-    <CostChangeTable data={data} isolate={null} onIsolate={vi.fn()} />,
+    <CostChangeTable data={data} selected={null} onSelect={vi.fn()} />,
   );
 
   it('shows only Type, Spend and the daily sparkline, and a since subline', () => {
@@ -185,7 +185,7 @@ describe('CostChangeTable in all time', () => {
     expect(screen.getAllByRole('columnheader').map((h) => h.textContent))
       .toEqual(['Type', 'Spend', 'Daily, 400 days']);
     expect(screen.getByTestId('runs-cost-table-card'))
-      .toHaveTextContent('since 28 Sept 2025 · click a row to isolate it in the chart');
+      .toHaveTextContent('since 28 Sept 2025 · click rows to pick types in the chart');
     expect(screen.queryByTestId('runs-cost-row-sky_eval-change')).toBeNull();
     expect(screen.queryByTestId('runs-cost-row-sky_eval-why')).toBeNull();
     expect(screen.getByTestId('runs-cost-row-sky_eval-last')).toHaveTextContent('£400.00');
@@ -207,22 +207,24 @@ describe('CostChangeTable in all time', () => {
     expect(Number(last.getAttribute('x')) + Number(last.getAttribute('width'))).toBeLessThanOrEqual(130.001);
   });
 
-  it('isolates a row and flags a type whose cost is still accruing', () => {
+  it('toggles a row into the selection and flags a type whose cost is still accruing', () => {
     const data = costAllTime(30);
     data.types[0].costComplete = false;
     data.totals.costComplete = false;
-    const onIsolate = vi.fn();
-    render(<CostChangeTable data={data} isolate="SKY_EVAL" onIsolate={onIsolate} />);
+    const onSelect = vi.fn();
+    render(<CostChangeTable data={data} selected="SKY_EVAL" onSelect={onSelect} />);
     fireEvent.click(screen.getByTestId('runs-cost-row-sky_eval-toggle'));
-    expect(onIsolate).toHaveBeenCalledWith(null);
+    expect(onSelect).toHaveBeenCalledWith(null);
     fireEvent.click(screen.getByTestId('runs-cost-row-overnight-toggle'));
-    expect(onIsolate).toHaveBeenCalledWith('OVERNIGHT');
+    expect(onSelect).toHaveBeenCalledWith('OVERNIGHT,SKY_EVAL');
+    expect(screen.getByTestId('runs-cost-row-sky_eval-toggle')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('runs-cost-row-overnight-toggle')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('runs-cost-row-sky_eval-last')).toHaveTextContent('so far');
     expect(screen.getByTestId('runs-cost-total-last')).toHaveTextContent('so far');
   });
 
   it('keeps the two-period sparkline faint half for a numeric range', () => {
-    render(<CostChangeTable data={costResponse()} isolate={null} onIsolate={vi.fn()} />);
+    render(<CostChangeTable data={costResponse()} selected={null} onSelect={vi.fn()} />);
     const rects = [...screen.getByTestId('runs-cost-spark-ask_ready').querySelectorAll('rect')];
     expect(rects).toHaveLength(28);
     expect(rects[0].getAttribute('opacity')).toBe('0.35');

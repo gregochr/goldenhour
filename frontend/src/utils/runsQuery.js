@@ -38,7 +38,8 @@ function splitHash() {
 
 /** Rewrites the current history entry's hash (no new entry, no hashchange). */
 function replaceHash(path, query) {
-  const text = query.toString();
+  // The type list's commas are written literally (URLSearchParams would write %2C); reading takes either form.
+  const text = query.toString().replace(/(^|&)(type=[^&]*)/, (m, lead, pair) => lead + pair.replace(/%2C/gi, ','));
   window.history.replaceState(window.history.state, '', `#${path}${text === '' ? '' : `?${text}`}`);
 }
 
@@ -97,13 +98,41 @@ export function normalizeRunsQuery() {
 }
 
 /**
+ * Reads a {@code type} value as a set of display types: a comma-separated list is split, upper-cased, cut down to the
+ * known {@link RUN_TYPES} (an unknown member is dropped, never the whole list), de-duplicated and put in that
+ * canonical order. A single type reads as a list of one.
+ *
+ * @param {string|null|undefined} value the raw {@code type} value, e.g. {@code overnight,EVENING}
+ * @returns {string[]} the known types, in canonical order (empty when none)
+ */
+export function parseTypeSet(value) {
+  const named = new Set(String(value ?? '').split(',').map((part) => part.trim().toUpperCase()));
+  return RUN_TYPES.filter((type) => named.has(type));
+}
+
+/**
+ * Adds a type to the selection, or removes it when it is already there. A selection that ends up empty, or that holds
+ * every type, is the same as "All types" and comes back as null.
+ *
+ * @param {string|null} value the current {@code type} value
+ * @param {string} type the display type to toggle
+ * @returns {string|null} the new comma-separated value, or null for all types
+ */
+export function toggleType(value, type) {
+  const current = parseTypeSet(value);
+  const next = current.includes(type) ? current.filter((t) => t !== type) : [...current, type];
+  const ordered = parseTypeSet(next.join(','));
+  return ordered.length === 0 || ordered.length === RUN_TYPES.length ? null : ordered.join(',');
+}
+
+/**
  * Reads the Runs query: the view (the hash's, else the remembered one, else Day), the Day's date (an ISO date not
  * after today and not malformed, else null meaning "today") and the filter ({@code all} when unknown). Legacy
  * parameters are normalised first.
  *
  * @param {Date} [now] the real clock
  * <p>The Cost and Timing views' keys ride beside them (DD-9): {@code range} (days or {@code all}, validated by the view that reads
- * it), {@code type} (a display type, or null) and {@code measure} ({@code ready} unless {@code cycle}).
+ * it), {@code type} (a display type, or in the Cost view a comma-separated list of them, or null) and {@code measure} ({@code ready} unless {@code cycle}).
  *
  * @returns {{view: string, date: string|null, filter: string, range: number|'all'|null, type: string|null,
  *   measure: string}}
@@ -118,7 +147,7 @@ export function readRunsQuery(now = new Date()) {
   let range = null;
   if (/^\d+$/.test(rawRange)) range = Number(rawRange);
   else if (rawRange.toLowerCase() === 'all') range = 'all';
-  const type = (query.get('type') ?? '').toUpperCase();
+  const type = query.get('type') ?? '';
   const measure = (query.get('measure') ?? '').toLowerCase();
   // A date that is today or later means "today": it is not written, so it is rewritten out of the address.
   if (date && date >= ukDateStr(now)) writeRunsQuery({ date: null });
@@ -129,7 +158,7 @@ export function readRunsQuery(now = new Date()) {
     date: date && date < ukDateStr(now) ? date : null,
     filter: DAY_FILTERS.includes(filter) ? filter : 'all',
     range,
-    type: RUN_TYPES.includes(type) ? type : null,
+    type: parseTypeSet(type).join(',') || null,
     measure: TIMING_MEASURES.includes(measure) ? measure : DEFAULT_MEASURE,
   };
 }

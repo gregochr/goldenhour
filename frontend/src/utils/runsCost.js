@@ -1,6 +1,7 @@
 import { formatGbp } from './runsDay.js';
 import { formatDayMonth } from './travelDays.js';
 import { rollingAverage } from './runsTiming.js';
+import { parseTypeSet } from './runsQuery.js';
 
 /**
  * Pure view-model helpers for the Runs Cost trends view (runs-deep-dive-plan.md §4 D4). The server serves every
@@ -169,19 +170,52 @@ export function whyText(row) {
 }
 
 /**
- * The daily series the chart and the sparklines draw: one row per served day with the value of the isolated type (or
- * the day's total), and the 7-day rolling average of it taken over all the served days (so the first bars of the
- * shown period average the days just before them, not a shrinking window), then the last {@code rangeDays} of each.
+ * The Cost view's selected types from the address's {@code type} value: the members the chart can draw
+ * ({@link COST_ORDER}), in the canonical order; an unknown member is dropped, never the whole list.
+ *
+ * @param {string|null|undefined} value the {@code type} value, e.g. {@code OVERNIGHT,EVENING}
+ * @returns {string[]} the selected display types (empty means all)
+ */
+export function costSelection(value) {
+  return parseTypeSet(value).filter((type) => COST_ORDER.includes(type));
+}
+
+/**
+ * The daily series the chart and the sparklines draw: one row per served day with the value of the selected types
+ * summed (or the day's total when none is selected), and the 7-day rolling average of it taken over all the served
+ * days (so the first bars of the shown period average the days just before them, not a shrinking window), then the
+ * last {@code rangeDays} of each. Sums of served per-day figures only.
  *
  * @param {object} data the served {@code RunCostResponse}
- * @param {string|null} isolate the isolated type, or null for all
+ * @param {string[]|null} selected the selected display types, or null or empty for all
  * @returns {{shown: Array<object>, average: number[]}} the shown days (the last N) and their averages
  */
-export function chartSeries(data, isolate) {
-  const value = (day) => (isolate ? Number(day.byType?.[isolate] ?? 0) : Number(day.totalGbp));
+export function chartSeries(data, selected) {
+  const picked = selected?.length ? selected : null;
+  const value = (day) => (picked
+    ? picked.reduce((sum, type) => sum + Number(day.byType?.[type] ?? 0), 0)
+    : Number(day.totalGbp));
   const average = rollingAverage(data.days.map(value));
   const n = data.rangeDays;
   return { shown: data.days.slice(-n), average: average.slice(-n) };
+}
+
+/**
+ * The selected types' spend together over the period: the sum of the served {@code lastGbp} of each selected type's
+ * row (the figures the table shows), their labels in the order given, and whether every one is complete.
+ *
+ * @param {object} data the served {@code RunCostResponse}
+ * @param {string[]|null} selected the selected display types
+ * @returns {{labels: string[], gbp: number, costComplete: boolean}|null} null when nothing is selected
+ */
+export function selectionSummary(data, selected) {
+  if (!selected?.length) return null;
+  const rows = selected.map((type) => data.types.find((t) => t.type === type));
+  return {
+    labels: selected.map((type) => costTypeLabel(type, data.types)),
+    gbp: rows.reduce((sum, row) => sum + Number(row?.lastGbp ?? 0), 0),
+    costComplete: rows.every((row) => row?.costComplete !== false),
+  };
 }
 
 /**

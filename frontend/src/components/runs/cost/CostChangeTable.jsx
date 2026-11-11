@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
-import { bucketSeries, signedGbp, signedPercent, sinceLabel, typeSeries, whyText } from '../../../utils/runsCost.js';
+import { bucketSeries, costSelection, signedGbp, signedPercent, sinceLabel, typeSeries, whyText } from '../../../utils/runsCost.js';
+import { toggleType } from '../../../utils/runsQuery.js';
 import { formatGbp, formatUsd, typeStyle } from '../../../utils/runsDay.js';
 
 const CARD = 'rounded-xl border border-plex-border bg-plex-surface p-4 max-[639px]:px-3';
@@ -73,14 +74,15 @@ Change.propTypes = { delta: PropTypes.oneOfType([PropTypes.number, PropTypes.str
  * The all-time table: no prior period, so only Type, Spend and the daily sparkline; the total row is the spend and its
  * dollar equivalent. The rows are served biggest spend first.
  */
-function AllTimeTable({ data, isolate, onIsolate }) {
+function AllTimeTable({ data, selected, onSelect }) {
+  const picked = costSelection(selected);
   const { totals } = data;
   return (
     <section className={CARD} data-testid="runs-cost-table-card">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 className="text-[13px] font-semibold text-plex-text">Where the spend came from</h3>
         <span className="font-mono text-[11px] text-plex-text-secondary">
-          since {sinceLabel(data.firstDay)} {'\u00b7'} click a row to isolate it in the chart
+          since {sinceLabel(data.firstDay)} {'\u00b7'} click rows to pick types in the chart
         </span>
       </div>
       <div className="mt-3" role="table" aria-label="Spend by type since the first recorded run" data-testid="runs-cost-table">
@@ -90,7 +92,7 @@ function AllTimeTable({ data, isolate, onIsolate }) {
           <span role="columnheader" className="@max-[640px]:hidden">Daily, {data.rangeDays} days</span>
         </div>
         {data.types.map((row) => {
-          const on = isolate === row.type;
+          const on = picked.includes(row.type);
           const key = row.type.toLowerCase();
           return (
             <div
@@ -105,7 +107,7 @@ function AllTimeTable({ data, isolate, onIsolate }) {
                   type="button"
                   aria-pressed={on}
                   className="min-w-0 cursor-pointer text-left font-semibold text-plex-text after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
-                  onClick={() => onIsolate(on ? null : row.type)}
+                  onClick={() => onSelect(toggleType(selected, row.type))}
                   data-testid={`runs-cost-row-${key}-toggle`}
                 >
                   {row.label}
@@ -136,32 +138,33 @@ function AllTimeTable({ data, isolate, onIsolate }) {
 
 AllTimeTable.propTypes = {
   data: PropTypes.object.isRequired,
-  isolate: PropTypes.string,
-  onIsolate: PropTypes.func.isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
 };
 
 /**
  * The Cost view's "Where the change came from" table (the handoff's table): one row per type that ran, biggest rise
  * first as served, with the last period, the prior period, the change, why ({@code Runs +0% · £/run +31%}) and a
  * daily sparkline over both periods (the prior half faint); then a total row with the dollar equivalent at the served
- * exchange rate. A row's name is a toggle that isolates that type in the chart above (pressing it again clears), and the
- * button stretches over the whole row, so a pointer anywhere on it does the same.
+ * exchange rate. A row's name is a toggle that adds the type to, or removes it from, the types picked in the chart above,
+ * and the button stretches over the whole row, so a pointer anywhere on it does the same.
  *
  * @param {object} props
  * @param {object} props.data the served {@code RunCostResponse}
- * @param {string|null} props.isolate the isolated type, or null
- * @param {(type: string|null) => void} props.onIsolate isolates a type (null clears)
+ * @param {string|null} props.selected the picked types as a comma-separated list, or null
+ * @param {(types: string|null) => void} props.onSelect picks types (the new list; null clears)
  */
-export default function CostChangeTable({ data, isolate, onIsolate }) {
+export default function CostChangeTable({ data, selected, onSelect }) {
   const n = data.rangeDays;
   const { totals } = data;
-  if (data.allTime === true) return <AllTimeTable data={data} isolate={isolate} onIsolate={onIsolate} />;
+  const picked = costSelection(selected);
+  if (data.allTime === true) return <AllTimeTable data={data} selected={selected} onSelect={onSelect} />;
   return (
     <section className={CARD} data-testid="runs-cost-table-card">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 className="text-[13px] font-semibold text-plex-text">Where the change came from</h3>
         <span className="font-mono text-[11px] text-plex-text-secondary">
-          last {n} days vs the {n} before {'·'} click a row to isolate it in the chart
+          last {n} days vs the {n} before {'·'} click rows to pick types in the chart
         </span>
       </div>
       <div className="mt-3" role="table" aria-label="Spend by type, last period against the one before" data-testid="runs-cost-table">
@@ -174,7 +177,7 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
           <span role="columnheader" className="@max-[640px]:hidden">Daily, {2 * n} days</span>
         </div>
         {data.types.map((row) => {
-          const on = isolate === row.type;
+          const on = picked.includes(row.type);
           const key = row.type.toLowerCase();
           return (
             <div
@@ -189,7 +192,7 @@ export default function CostChangeTable({ data, isolate, onIsolate }) {
                   type="button"
                   aria-pressed={on}
                   className="min-w-0 cursor-pointer text-left font-semibold text-plex-text after:absolute after:inset-0 focus-visible:outline-2 focus-visible:outline-plex-gold max-[639px]:min-h-11"
-                  onClick={() => onIsolate(on ? null : row.type)}
+                  onClick={() => onSelect(toggleType(selected, row.type))}
                   data-testid={`runs-cost-row-${key}-toggle`}
                 >
                   {row.label}
@@ -231,6 +234,6 @@ CostChangeTable.propTypes = {
     types: PropTypes.array.isRequired,
     totals: PropTypes.object.isRequired,
   }).isRequired,
-  isolate: PropTypes.string,
-  onIsolate: PropTypes.func.isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
 };

@@ -49,11 +49,11 @@ VerdictCard.propTypes = { data: PropTypes.object.isRequired };
  * @param {{data: object|null, loading: boolean, error: string|null, refresh: () => void}} props.cost the served data
  * @param {number|'all'} props.range the period in days, or {@code 'all'}
  * @param {(days: number|'all') => void} props.onRangeChange picks a period
- * @param {string|null} props.isolate the isolated type, or null
- * @param {(type: string|null) => void} props.onIsolate isolates a type
+ * @param {string|null} props.selected the picked types as a comma-separated list, or null for all
+ * @param {(types: string|null) => void} props.onSelect picks types (the new list; null clears)
  * @param {(date: string) => void} props.onOpenDay opens a day in the Day view
  */
-export default function RunsCostView({ cost, range, onRangeChange, isolate, onIsolate, onOpenDay }) {
+export default function RunsCostView({ cost, range, onRangeChange, selected, onSelect, onOpenDay }) {
   const { data } = cost;
   if (cost.error && !data) return <ViewError message={cost.error} onRetry={cost.refresh} testId="runs-cost-error" />;
   if (cost.loading || !data) return <ViewSkeleton testId="runs-cost-loading" />;
@@ -63,13 +63,13 @@ export default function RunsCostView({ cost, range, onRangeChange, isolate, onIs
       <VerdictCard data={data} />
       <DailySpendChart
         data={data}
-        isolate={isolate}
-        onIsolate={onIsolate}
+        selected={selected}
+        onSelect={onSelect}
         range={range}
         onRangeChange={onRangeChange}
         onOpenDay={onOpenDay}
       />
-      <CostChangeTable data={data} isolate={isolate} onIsolate={onIsolate} />
+      <CostChangeTable data={data} selected={selected} onSelect={onSelect} />
     </div>
   );
 }
@@ -83,7 +83,7 @@ RunsCostView.propTypes = {
   }).isRequired,
   range: PropTypes.oneOfType([PropTypes.number, PropTypes.oneOf(['all'])]).isRequired,
   onRangeChange: PropTypes.func.isRequired,
-  isolate: PropTypes.string,
-  onIsolate: PropTypes.func.isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
   onOpenDay: PropTypes.func.isRequired,
 };

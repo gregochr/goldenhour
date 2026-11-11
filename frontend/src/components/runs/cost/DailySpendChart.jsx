@@ -4,7 +4,8 @@ import { Chip, ChipGroup, ChipRow } from '../../data/Chips.jsx';
 import Segmented from '../../data/Segmented.jsx';
 import useMeasuredWidth from '../../../hooks/useMeasuredWidth.js';
 import useRovingSlots from '../../../hooks/useRovingSlots.js';
-import { COST_ORDER, chartSeries, costTypeLabel, sinceLabel } from '../../../utils/runsCost.js';
+import { COST_ORDER, chartSeries, costSelection, costTypeLabel, selectionSummary, sinceLabel } from '../../../utils/runsCost.js';
+import { toggleType } from '../../../utils/runsQuery.js';
 import { formatGbp, typeStyle } from '../../../utils/runsDay.js';
 import { COST_RANGES, niceScale } from '../../../utils/runsTiming.js';
 import { useIsMobile } from '../../../hooks/useIsMobile.js';
@@ -26,7 +27,7 @@ const GAP_SHARE = 0.2;
 const MIN_GAP_SLOT = 5;
 /** The widest a bar is drawn (px), so a short range does not read as blocks. */
 const MAX_BAR = 40;
-/** How faint the types other than the isolated one are drawn. */
+/** How faint the types that are not selected are drawn. */
 const DIM = 0.12;
 /** The most labels on the x axis, roughly. */
 const X_LABELS = 8;
@@ -43,28 +44,31 @@ const axisLabel = (value, step) => `£${value.toFixed(step < 1 ? 2 : (step % 1 !
 /**
  * The Cost view's "Daily spend by type" card (the handoff's Daily spend chart): a hand-rolled SVG of one stacked bar
  * per full UK day (today is left out: it is incomplete), in the handoff's stack order, with a 7-day average line, the
- * legend chips that isolate one type (the others drop to 12%, and the line follows the isolated type), a hover and
- * focus tooltip with each type's pounds and the total, and a click or Enter on a day that opens that day in the Day
- * view. Tooltips live inside the SVG (no positioned overlay, no inline style).
+ * legend chips that pick any number of types (the others drop to 12%, the line follows the picked types' sum, and a
+ * line under the chips totals them), a hover and focus tooltip with each type's pounds, the picked types' subtotal
+ * (when two or more are picked) and the total, and a click or Enter on a day that opens that day in the Day view. Tooltips live inside the SVG (no positioned overlay, no inline style).
  *
  * <p>The bars, their order and every figure are served; the 7-day average is the licensed derivation in
  * {@code utils/runsTiming.js}.
  *
  * @param {object} props
  * @param {object} props.data the served {@code RunCostResponse}
- * @param {string|null} props.isolate the isolated type, or null for all
- * @param {(type: string|null) => void} props.onIsolate isolates a type (null clears)
+ * @param {string|null} props.selected the picked types as a comma-separated list, or null for all
+ * @param {(types: string|null) => void} props.onSelect picks types (the new list; null clears)
  * @param {number|'all'} props.range the period in days (7, 14, 30, 60 or 90), or {@code 'all'}
  * @param {(days: number|'all') => void} props.onRangeChange picks a period
  * @param {(date: string) => void} props.onOpenDay opens a day in the Day view
  */
-export default function DailySpendChart({ data, isolate, onIsolate, range, onRangeChange, onOpenDay }) {
+export default function DailySpendChart({ data, selected, onSelect, range, onRangeChange, onOpenDay }) {
   const [hover, setHover] = useState(null);
   const [widthRef, measured] = useMeasuredWidth();
   const isMobile = useIsMobile();
   const allTime = data.allTime === true;
   const since = allTime ? sinceLabel(data.firstDay) : null;
-  const { shown, average } = chartSeries(data, isolate);
+  const picked = costSelection(selected);
+  const { shown, average } = chartSeries(data, picked);
+  const summary = selectionSummary(data, picked);
+  const subtotal = (day) => picked.reduce((sum, type) => sum + Number(day.byType?.[type] ?? 0), 0);
   const { containerRef, slotProps } = useRovingSlots(shown.length);
   const viewW = measured > 0 ? measured : VIEW_W_FALLBACK;
   const plotW = viewW - LEFT - RIGHT;
@@ -84,7 +88,10 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
   let tooltip = null;
   if (hovered) {
     const lines = COST_ORDER.filter((type) => Number(hovered.byType?.[type] ?? 0) > 0);
-    const height = (lines.length + 2) * LINE_H + 12;
+    const showSelected = picked.length > 1;
+    const rows = lines.length + (showSelected ? 3 : 2);
+    const height = rows * LINE_H + 12;
+    const totalY = 18 + (rows - 1) * LINE_H;
     const left = hover > n * 0.6;
     const rawX = left ? LEFT + hover * slot - TOOLTIP_W - 4 : LEFT + (hover + 1) * slot + 4;
     const tx = Math.max(LEFT, Math.min(rawX, viewW - TOOLTIP_W - 2));
@@ -100,8 +107,16 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
             <text x={TOOLTIP_W - 20} fontSize="11" textAnchor="end" className="fill-plex-text font-mono">{formatGbp(hovered.byType[type])}</text>
           </g>
         ))}
-        <text x="10" y={18 + (lines.length + 1) * LINE_H} fontSize="11" className="fill-plex-text font-semibold">Total</text>
-        <text x={TOOLTIP_W - 20} y={18 + (lines.length + 1) * LINE_H} fontSize="11" textAnchor="end" className="fill-plex-text font-mono font-semibold">
+        {showSelected && (
+          <>
+            <text x="10" y={totalY - LINE_H} fontSize="11" className="fill-plex-text-secondary">Selected</text>
+            <text x={TOOLTIP_W - 20} y={totalY - LINE_H} fontSize="11" textAnchor="end" className="fill-plex-text font-mono" data-testid="runs-cost-tooltip-selected">
+              {formatGbp(subtotal(hovered))}
+            </text>
+          </>
+        )}
+        <text x="10" y={totalY} fontSize="11" className="fill-plex-text font-semibold">Total</text>
+        <text x={TOOLTIP_W - 20} y={totalY} fontSize="11" textAnchor="end" className="fill-plex-text font-mono font-semibold">
           {formatGbp(hovered.totalGbp)}{hovered.costComplete === false ? ' so far' : ''}
         </text>
       </g>
@@ -127,21 +142,27 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
       </div>
       <div className="mt-3">
         <ChipRow testId="runs-cost-legend">
-          <ChipGroup label="Isolate a type" wrap>
-            <Chip label="All types" nowrap on={isolate == null} onClick={() => onIsolate(null)} testId="runs-cost-iso-all" />
+          <ChipGroup label="Show types" wrap>
+            <Chip label="All types" nowrap on={picked.length === 0} onClick={() => onSelect(null)} testId="runs-cost-iso-all" />
             {COST_ORDER.map((type) => (
               <Chip
                 key={type}
                 nowrap
                 label={costTypeLabel(type, data.types)}
                 swatchClass={typeStyle(type).swatch}
-                on={isolate === type}
-                onClick={() => onIsolate(isolate === type ? null : type)}
+                on={picked.includes(type)}
+                onClick={() => onSelect(toggleType(selected, type))}
                 testId={`runs-cost-iso-${type.toLowerCase()}`}
               />
             ))}
           </ChipGroup>
         </ChipRow>
+        {summary && (
+          <p className="mt-2 text-[12px] text-plex-text-secondary" aria-live="polite" data-testid="runs-cost-selection-total">
+            {summary.labels.join(' + ')}: <span className="font-mono text-plex-text">{formatGbp(summary.gbp)}</span>
+            {allTime ? ` since ${since}` : ` over the last ${range} days`}{summary.costComplete ? '' : ' so far'}
+          </p>
+        )}
       </div>
       <div ref={widthRef} className="mt-3" data-testid="runs-cost-chart">
         <svg
@@ -177,7 +198,7 @@ export default function DailySpendChart({ data, isolate, onIsolate, range, onRan
                       width={barW}
                       height={(amount / scale.max) * plotH}
                       className={typeStyle(type).fill}
-                      opacity={isolate && isolate !== type ? DIM : 1}
+                      opacity={picked.length > 0 && !picked.includes(type) ? DIM : 1}
                       data-type={type}
                     />
                   );
@@ -251,8 +272,8 @@ DailySpendChart.propTypes = {
     firstDay: PropTypes.string,
     allTime: PropTypes.bool,
   }).isRequired,
-  isolate: PropTypes.string,
-  onIsolate: PropTypes.func.isRequired,
+  selected: PropTypes.string,
+  onSelect: PropTypes.func.isRequired,
   range: PropTypes.oneOfType([PropTypes.number, PropTypes.oneOf(['all'])]).isRequired,
   onRangeChange: PropTypes.func.isRequired,
   onOpenDay: PropTypes.func.isRequired,
