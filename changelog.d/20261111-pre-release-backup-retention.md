@@ -1,3 +1,0 @@
-### Changed — pre-release backups keep the newest five rollback points
-
-`scripts/pre-release-backup.sh` wrote one full production dump per release into `pre-release/` and never removed any, so the folder grew for ever. Once a new rollback point is validated it now keeps the newest `PRE_RELEASE_KEEP` (default 5) usable points and deletes older points whole (manifest, dump, saved nginx and compose files). Moved-aside `.unusable-*` files do not count toward the five and age out with their set; `goldenhour_pre-rollback-*` safety dumps are never touched; a retention failure is only a warning and the release goes on.
