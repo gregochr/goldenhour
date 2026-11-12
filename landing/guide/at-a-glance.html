@@ -63,10 +63,16 @@
 <p>Each card is one sunrise or sunset. It shows:</p>
 <ul><li>the time of the sunrise or sunset and a <a href="reading-the-forecast.html#verdicts">verdict</a>: Worth it, Maybe or Poor</li>
 <li>the best rating within your selected drive time</li>
+<li>the <span class="ui">Spread</span>: how many locations within your selected drive time have each star rating</li>
 <li>a small map of the area in the forecast colours, with a few place names so you can get your bearings</li>
 <li>a note when the forecast has changed since the last update</li>
 <li>on coastal days, how many coastal locations have their preferred tide level at sunrise or sunset, such as "∿ 4 on tide" <span class="pro">Pro</span></li></ul>
 <p>Colours fade where the forecast's confidence is lower, which is often, but not always, on later dates. The lowest confidence is marked provisional.</p>
+<h3 id="spread">The spread</h3>
+<p>The spread shows how the ratings within your selected drive time are shared out, from one star on the left to five stars on the right, with the number of locations under each bar. Bars that lean to the right mean much of the area looks promising. A short bar on its own at the right means only a few locations do.</p>
+<p>A hatched bar on the far left counts locations not yet rated. The spread ignores the <span class="ui">Rated</span> filter, so it always counts every location within your drive time. When too few locations are rated to give a fair picture, the spread shows how many are rated instead, such as "3/12 rated".</p>
+<p>Each card counts only the locations set up for that sunrise or sunset. Some locations are set up for sunrise, some for sunset and some for both. Woodland is forecast at sunrise only, when mist is most likely. This means the sunrise and sunset cards for the same day often count a different number of locations.</p>
+<p>A location set up for sunrise only is never rated at sunset. It isn't hidden or given a low score. PhotoCast simply doesn't forecast it for sunset, so it doesn't appear anywhere in that sunset card's spread.</p>
 </section>
 <section class="g-sec" id="open"><h2>Opening a sunrise or sunset</h2>
 <p>Tap a card to open it. You get a larger map, the regions ranked from best to worst, and cards for the individual locations with their rating and drive time. Use <span class="ui">‹</span> and <span class="ui">›</span> to step to the previous or next sunrise or sunset without closing it.</p>
