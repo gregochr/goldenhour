@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   bbox, drawGeo, drawTiles, load, paintStandDown, paintUnknown,
 } from '../utils/heatField.js';
+import { installCanvasStub, PATH_METHODS } from './heatFieldCanvasStub.js';
 
 /**
  * The stand-down layer (big-seas-plan.md F3; docs/design/big-seas/README.md "Stand-down hatch"):
@@ -10,63 +11,16 @@ import {
  * recording stub, as in heatFieldUnknown.test.js (jsdom has no 2d context).
  */
 
-const PATH_METHODS = ['moveTo', 'lineTo', 'closePath', 'arc'];
 const STAND_FILL = 'rgba(16,15,19,.66)';
 const STAND_INK = 'rgba(184,197,220,.5)';
 const UNKNOWN_INK = 'rgba(242,231,211,.18)';
 
-function makeContext() {
-  const calls = [];
-  const record = (name) => (...args) => {
-    calls.push({
-      name,
-      args,
-      fillStyle: ctx.fillStyle,
-      strokeStyle: ctx.strokeStyle,
-      lineWidth: ctx.lineWidth,
-      globalAlpha: ctx.globalAlpha,
-    });
-  };
-  const ctx = {
-    calls,
-    filter: 'none',
-    globalAlpha: 1,
-    globalCompositeOperation: 'source-over',
-    imageSmoothingEnabled: false,
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-  };
-  ['putImageData', 'clearRect', 'fillRect', 'save', 'restore', 'drawImage', 'beginPath', 'fill',
-    'stroke', 'clip', 'setTransform', 'translate', ...PATH_METHODS].forEach((name) => {
-    ctx[name] = record(name);
-  });
-  return ctx;
-}
-
-let contexts;
-let allContexts;
-let originalGetContext;
-
-beforeEach(() => {
-  contexts = new WeakMap();
-  allContexts = [];
-  originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function getContextStub() {
-    if (!contexts.has(this)) {
-      const ctx = makeContext();
-      ctx.canvas = this;
-      contexts.set(this, ctx);
-      allContexts.push(ctx);
-    }
-    return contexts.get(this);
-  };
-});
-
-afterEach(() => {
-  HTMLCanvasElement.prototype.getContext = originalGetContext;
-});
+const stub = installCanvasStub((c) => ({
+  fillStyle: c.fillStyle,
+  strokeStyle: c.strokeStyle,
+  lineWidth: c.lineWidth,
+  globalAlpha: c.globalAlpha,
+}));
 
 function canvasWithContext(w = 100, h = 40) {
   const cv = document.createElement('canvas');
@@ -79,7 +33,7 @@ const names = (ctx) => ctx.calls.map((c) => c.name).filter((n) => !PATH_METHODS.
 
 /** The mask the layer built: the alpha channel of the one `putImageData` on its small canvas. */
 function maskAlphaAt(x, y, gp = 4) {
-  const put = allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData');
+  const put = stub.allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData');
   const img = put.args[0];
   const cols = img.width;
   return img.data[((Math.round(y / gp)) * cols + Math.round(x / gp)) * 4 + 3];
@@ -87,7 +41,7 @@ function maskAlphaAt(x, y, gp = 4) {
 
 /** Which layer each host `drawImage` carries, read off the source canvas's own recorded calls. */
 function layerOf(sourceCanvas) {
-  const calls = contexts.get(sourceCanvas)?.calls ?? [];
+  const calls = stub.contexts.get(sourceCanvas)?.calls ?? [];
   if (calls.some((c) => c.name === 'fillRect' && c.fillStyle === STAND_FILL)) return 'stood';
   if (calls.some((c) => c.name === 'stroke' && c.strokeStyle === UNKNOWN_INK)) return 'unknown';
   return 'field';
@@ -131,10 +85,10 @@ describe('paintStandDown', () => {
   it('rules a dark veil, then an 8px pitch of 1.2px lines in the cool ink', () => {
     const { ctx } = canvasWithContext();
     paintStandDown(ctx, 100, 40, STOOD, [], { radius: 20 });
-    const veil = allContexts.flatMap((c) => c.calls).find((c) => c.name === 'fillRect');
+    const veil = stub.allContexts.flatMap((c) => c.calls).find((c) => c.name === 'fillRect');
     expect(veil.fillStyle).toBe(STAND_FILL);
     expect(veil.args).toEqual([0, 0, 100, 40]);
-    const rules = allContexts.find((c) => c.calls.some((k) => k.name === 'stroke'));
+    const rules = stub.allContexts.find((c) => c.calls.some((k) => k.name === 'stroke'));
     const stroke = rules.calls.find((k) => k.name === 'stroke');
     expect(stroke.strokeStyle).toBe(STAND_INK);
     expect(stroke.lineWidth).toBe(1.2);
@@ -145,7 +99,7 @@ describe('paintStandDown', () => {
   it('is textured differently from the thin-sample hatch (7px, 0.6px, bone, no veil)', () => {
     const { ctx } = canvasWithContext();
     paintUnknown(ctx, 100, 40, STOOD, [], { radius: 20 });
-    const unknown = allContexts.flatMap((c) => c.calls);
+    const unknown = stub.allContexts.flatMap((c) => c.calls);
     expect(unknown.some((c) => c.name === 'fillRect')).toBe(false);
     expect(unknown.find((c) => c.name === 'stroke').strokeStyle).toBe(UNKNOWN_INK);
   });
@@ -212,10 +166,10 @@ describe('drawGeo — the stood option', () => {
   it('lets a rated place at the same spot suppress the stood layer there', () => {
     const over = [{ lat: 54.5, lng: -2.5, rid: 'north' }];
     const peak = (spots) => {
-      allContexts.length = 0;
+      stub.allContexts.length = 0;
       const { cv } = canvasWithContext(200, 140);
       drawGeo(cv, 200, 140, spots, 0, { fit: FIT, stood: over, standRadius: 20 });
-      const put = allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData').args[0];
+      const put = stub.allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData').args[0];
       return Math.max(...Array.from({ length: put.width * put.height }, (_, i) => put.data[i * 4 + 3]));
     };
     expect(peak([])).toBe(255);

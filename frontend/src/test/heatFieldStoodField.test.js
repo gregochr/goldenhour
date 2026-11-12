@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { drawGeo, drawTiles, bbox, load } from '../utils/heatField.js';
+import { installCanvasStub, PATH_METHODS } from './heatFieldCanvasStub.js';
 import { rampRgb } from '../utils/scoreRamp.js';
 import { STOOD_FIELD_SCORE } from '../utils/heatSpots.js';
 
@@ -12,54 +13,9 @@ import { STOOD_FIELD_SCORE } from '../utils/heatSpots.js';
  * The context is a local recording stub (jsdom has no 2d context), as in heatFieldStandDown.test.js.
  */
 
-const PATH_METHODS = ['moveTo', 'lineTo', 'closePath', 'arc'];
 const STAND_FILL = 'rgba(16,15,19,.66)';
 
-function makeContext() {
-  const calls = [];
-  const record = (name) => (...args) => {
-    calls.push({ name, args, fillStyle: ctx.fillStyle });
-  };
-  const ctx = {
-    calls,
-    filter: 'none',
-    globalAlpha: 1,
-    globalCompositeOperation: 'source-over',
-    imageSmoothingEnabled: false,
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-  };
-  ['putImageData', 'clearRect', 'fillRect', 'save', 'restore', 'drawImage', 'beginPath', 'fill',
-    'stroke', 'clip', 'setTransform', 'translate', ...PATH_METHODS].forEach((name) => {
-    ctx[name] = record(name);
-  });
-  return ctx;
-}
-
-let contexts;
-let allContexts;
-let originalGetContext;
-
-beforeEach(() => {
-  contexts = new WeakMap();
-  allContexts = [];
-  originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function getContextStub() {
-    if (!contexts.has(this)) {
-      const ctx = makeContext();
-      ctx.canvas = this;
-      contexts.set(this, ctx);
-      allContexts.push(ctx);
-    }
-    return contexts.get(this);
-  };
-});
-
-afterEach(() => {
-  HTMLCanvasElement.prototype.getContext = originalGetContext;
-});
+const stub = installCanvasStub((c) => ({ fillStyle: c.fillStyle }));
 
 function canvasWithContext(w = 300, h = 200) {
   const cv = document.createElement('canvas');
@@ -153,10 +109,10 @@ describe('the stood field colours the field (the Sunday 15 November case)', () =
 
 describe('the stand-down mask still paints with stoodField given (regression)', () => {
   const layerOf = (sourceCanvas) => {
-    const calls = contexts.get(sourceCanvas)?.calls ?? [];
+    const calls = stub.contexts.get(sourceCanvas)?.calls ?? [];
     return calls.some((c) => c.name === 'fillRect' && c.fillStyle === STAND_FILL) ? 'stood' : 'other';
   };
-  const firstPutImage = () => allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData').args[0];
+  const firstPutImage = () => stub.allContexts.flatMap((c) => c.calls).find((c) => c.name === 'putImageData').args[0];
 
   describe('drawTiles', () => {
     const RATED = [at(30, 100, { r: [4] })];
@@ -167,7 +123,7 @@ describe('the stand-down mask still paints with stoodField given (regression)', 
       const a = canvasWithContext();
       drawTiles(a.cv, fakeMap(300, 200), RATED, 0, OPTS);
       const plain = Array.from(firstPutImage().data);
-      allContexts.length = 0;
+      stub.allContexts.length = 0;
       const b = canvasWithContext();
       drawTiles(b.cv, fakeMap(300, 200), RATED, 0, { ...OPTS, stoodField: STOOD });
       const layers = b.ctx.calls.filter((c) => c.name === 'drawImage').map((c) => layerOf(c.args[0]));
@@ -190,7 +146,7 @@ describe('the stand-down mask still paints with stoodField given (regression)', 
       const a = canvasWithContext(200, 140);
       drawGeo(a.cv, 200, 140, SPOTS, 0, { fit: FIT, stood: STOOD, standRadius: 20 });
       const plain = Array.from(firstPutImage().data);
-      allContexts.length = 0;
+      stub.allContexts.length = 0;
       const b = canvasWithContext(200, 140);
       drawGeo(b.cv, 200, 140, SPOTS, 0, { fit: FIT, stood: STOOD, standRadius: 20, stoodField: STOOD });
       const layers = b.ctx.calls.filter((c) => c.name === 'drawImage').map((c) => layerOf(c.args[0]));

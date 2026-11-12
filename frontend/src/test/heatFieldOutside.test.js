@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   contourLines, coverageGrid, drawTiles, paintOutline, paintVeil, planOutsidePicks,
 } from '../utils/heatField.js';
+import { installCanvasStub } from './heatFieldCanvasStub.js';
 
 /**
  * The outside-your-sub-regions layers (sub-regions-plan S5a-1): the veil under the field, the dashed
@@ -13,55 +14,9 @@ import {
 const VEIL_INK = 'rgba(156,158,160,.18)';
 const OUTLINE_INK = 'rgba(242,231,211,.85)';
 
-function makeContext() {
-  const calls = [];
-  const record = (name) => (...args) => {
-    calls.push({
-      name, args, strokeStyle: ctx.strokeStyle, lineWidth: ctx.lineWidth, dash: ctx.dash, alpha: ctx.globalAlpha,
-    });
-  };
-  const ctx = {
-    calls,
-    filter: 'none',
-    globalAlpha: 1,
-    globalCompositeOperation: 'source-over',
-    imageSmoothingEnabled: false,
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    dash: null,
-    createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-  };
-  ctx.setLineDash = (d) => { ctx.dash = d; calls.push({ name: 'setLineDash', args: [d] }); };
-  ['putImageData', 'clearRect', 'fillRect', 'save', 'restore', 'drawImage', 'beginPath', 'fill',
-    'stroke', 'clip', 'setTransform', 'translate', 'moveTo', 'lineTo', 'closePath', 'arc'].forEach((name) => {
-    ctx[name] = record(name);
-  });
-  return ctx;
-}
-
-let contexts;
-let allContexts;
-let originalGetContext;
-
-beforeEach(() => {
-  contexts = new WeakMap();
-  allContexts = [];
-  originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function getContextStub() {
-    if (!contexts.has(this)) {
-      const ctx = makeContext();
-      ctx.canvas = this;
-      contexts.set(this, ctx);
-      allContexts.push(ctx);
-    }
-    return contexts.get(this);
-  };
-});
-
-afterEach(() => {
-  HTMLCanvasElement.prototype.getContext = originalGetContext;
-});
+const stub = installCanvasStub((c) => ({
+  strokeStyle: c.strokeStyle, lineWidth: c.lineWidth, dash: c.dash, alpha: c.globalAlpha,
+}));
 
 const point = (x, y, rid = 'A') => ({ x, y, rid });
 
@@ -245,7 +200,7 @@ describe('paintVeil and paintOutline', () => {
     const drew = paintVeil(ctx, 200, 120, plan, { blur: 4 });
 
     expect(drew).toBe(true);
-    const tempCtx = allContexts.find((c) => c.fillStyle === VEIL_INK);
+    const tempCtx = stub.allContexts.find((c) => c.fillStyle === VEIL_INK);
     expect(tempCtx).toBeTruthy();
     expect(tempCtx.calls.some((c) => c.name === 'fillRect')).toBe(true);
     expect(tempCtx.calls.some((c) => c.name === 'drawImage')).toBe(true);
@@ -256,7 +211,7 @@ describe('paintVeil and paintOutline', () => {
     const plan = planOutsidePicks([], [point(60, 60)], 200, 120, { radius: 24, grid: 4 });
 
     expect(paintVeil(ctx, 200, 120, plan, {})).toBe(false);
-    expect(allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
+    expect(stub.allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
   });
 
   it('strokes the outline dashed 5/3 in bone at the given width, clipped, with the given opacity', () => {
@@ -311,7 +266,7 @@ describe('drawTiles with the outside layers', () => {
   it('draws no veil, no outline and no dash for a host that never passes `outside`', () => {
     const ctx = run({});
 
-    expect(allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
+    expect(stub.allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
     expect(callNames(ctx)).not.toContain('setLineDash');
     expect(callNames(ctx)).not.toContain('stroke');
   });
@@ -330,7 +285,7 @@ describe('drawTiles with the outside layers', () => {
       clip: () => {},
     });
 
-    const veilCtx = allContexts.find((c) => c.fillStyle === VEIL_INK);
+    const veilCtx = stub.allContexts.find((c) => c.fillStyle === VEIL_INK);
     expect(veilCtx).toBeTruthy();
     // The target context sees the veil's drawImage before the field's, and the stroke last.
     const names = callNames(ctx);
@@ -343,14 +298,14 @@ describe('drawTiles with the outside layers', () => {
   it('treats an empty `outside` as shaped: an outline for the allowed places, no veil', () => {
     const ctx = run({ outside: [], allowed: [spot(55, -2)], clip: () => {} });
 
-    expect(allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
+    expect(stub.allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(false);
     expect(callNames(ctx)).toContain('stroke');
   });
 
   it('draws the veil but no outline for a reader with no picks', () => {
     const ctx = run({ outside: [spot(55, -2)], allowed: [], clip: () => {} });
 
-    expect(allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(true);
+    expect(stub.allContexts.some((c) => c.fillStyle === VEIL_INK)).toBe(true);
     expect(callNames(ctx)).not.toContain('stroke');
   });
 });
