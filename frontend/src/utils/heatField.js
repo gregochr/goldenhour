@@ -34,6 +34,7 @@
 import { geoMercator, geoPath } from 'd3-geo';
 import { feature } from 'topojson-client';
 import { rampRgb, rgb } from './scoreRamp.js';
+import { STOOD_FIELD_SCORE } from './heatSpots.js';
 import {
   aspect, BBOX, bbox, clamp, latLngBounds, mean,
 } from './heatGeometry.js';
@@ -850,6 +851,24 @@ function maskPoints(spots, project) {
 }
 
 /**
+ * The field's paint input: the rated points plus, when a host passes {@code opts.stoodField}, the
+ * weather-stood places projected and scored {@link STOOD_FIELD_SCORE}. Used ONLY as the list
+ * {@link paint} receives, never as the rated mask ({@code ratedMaskPoints}), so the stand-down and
+ * unrated hatches still see only the places that were rated. Absent or empty returns {@code pts}
+ * itself, so every host that never passes it paints exactly what it always did.
+ *
+ * @param {Array<object>} pts the projected rated points
+ * @param {?Array<{lng: number, lat: number, rid: *}>} stoodField the stood places, or absent
+ * @param {Function} project a place to {@code [x, y]}
+ * @returns {Array<object>} the points to paint
+ */
+function withStoodField(pts, stoodField, project) {
+  if (!Array.isArray(stoodField) || !stoodField.length) return pts;
+  const stoodPts = maskPoints(stoodField, project).map((p) => ({ ...p, sc: STOOD_FIELD_SCORE }));
+  return pts.concat(stoodPts);
+}
+
+/**
  * The rated points' mask projection — only a place with a finite score takes part, because a
  * null-scored point is not a rating however it got into the point set.
  *
@@ -1152,6 +1171,8 @@ export function paintOutline(ctx, plan, opts) {
  *        over the plate, so colour wins where a rated place is near — absent, nothing is drawn.
  *        `stood` (with `standRadius`, the disc radius in px) does the same for the weather-stood
  *        places ({@link paintStandDown}), painted straight after the unrated hatch.
+ *        `stoodField` (same shape) blends those places into the colour at {@link STOOD_FIELD_SCORE}
+ *        and nowhere else: never the rated mask, so the hatches are unchanged.
  *        `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
  *        it is the CALLER's claim that this window carries no scores, never inferred from an
  *        empty field — {@link field} also returns null when every point is culled outside the
@@ -1213,7 +1234,11 @@ export function drawGeo(cv, w, h, spots, win, opts) {
       { ...opts, clip },
     );
   }
-  paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip });
+  paint(
+    ctx, w, h,
+    withStoodField(pts, opts.stoodField, (s) => projection([s.lng, s.lat])),
+    { ...opts, alpha: opts.focus ? 238 : 206, clip },
+  );
   if (ground) paintOutline(ctx, ground, { ...opts, clip });
   // After the field and before the coastline: the mark belongs to the plate, so it sits under the
   // edge that defines the plate. Ordinary callers never set it, so every existing host's paint
@@ -1278,7 +1303,7 @@ export function drawTiles(cv, map, spots, win, opts) {
   }
   // After the unrated hatch, before the field (big-seas plan F3): rated colour wins.
   paintStoodOnTiles(ctx, w, h, map, opts, pts);
-  const painted = paint(ctx, w, h, pts, opts);
+  const painted = paint(ctx, w, h, withStoodField(pts, opts.stoodField, project), opts);
   if (ground) paintOutline(ctx, ground, opts);
   return painted;
 }

@@ -1,0 +1,3 @@
+### Fixed — weather stand-downs colour the heat field
+
+A window where most places were stood down by the weather could paint solid amber off the few that were rated (Sunday 15 Nov sunrise: 6 of 25 rated, 19 stood down, and the card said `Too few · 6/25 rated`). The heat field now blends the weather-stood places in at one star, drawn only (never counted, and the stand-down hatch is unchanged), on the Plan thumbnails, the window popup map and the Map tab. A window whose verdict is "Too few rated" is also muted: its haze is capped at the low tier and its temperature bloom is withheld. Frontend only; no served field changes.

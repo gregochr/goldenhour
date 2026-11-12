@@ -725,6 +725,7 @@ export default function WindowSheetDialog({
               windowKey={card.key}
               date={card.date}
               confidence={card.confidence}
+              verdict={card.verdict}
               spots={field.spots}
               points={field.points}
               unrated={fieldUnrated}

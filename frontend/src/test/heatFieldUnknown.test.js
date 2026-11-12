@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   bbox, drawGeo, drawTiles, load, paintUnknown, unknownMask,
 } from '../utils/heatField.js';
+import { installCanvasStub, PATH_METHODS } from './heatFieldCanvasStub.js';
 
 /**
  * The unknown-ground layer (thin-sample-plan.md F1; docs/design/thin-sample/README.md): a hatch
@@ -11,55 +12,8 @@ import {
  * global polyfill goes into setup.js).
  */
 
-const PATH_METHODS = ['moveTo', 'lineTo', 'closePath', 'arc'];
 
-function makeContext() {
-  const calls = [];
-  const record = (name) => (...args) => {
-    calls.push({
-      name, args, filter: ctx.filter, globalCompositeOperation: ctx.globalCompositeOperation,
-    });
-  };
-  const ctx = {
-    calls,
-    filter: 'none',
-    globalAlpha: 1,
-    globalCompositeOperation: 'source-over',
-    imageSmoothingEnabled: false,
-    fillStyle: '',
-    strokeStyle: '',
-    lineWidth: 0,
-    createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
-  };
-  ['putImageData', 'clearRect', 'fillRect', 'save', 'restore', 'drawImage', 'beginPath', 'fill',
-    'stroke', 'clip', 'setTransform', 'translate', ...PATH_METHODS].forEach((name) => {
-    ctx[name] = record(name);
-  });
-  return ctx;
-}
-
-let contexts;
-let allContexts;
-let originalGetContext;
-
-beforeEach(() => {
-  contexts = new WeakMap();
-  allContexts = [];
-  originalGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function getContextStub() {
-    if (!contexts.has(this)) {
-      const ctx = makeContext();
-      ctx.canvas = this;
-      contexts.set(this, ctx);
-      allContexts.push(ctx);
-    }
-    return contexts.get(this);
-  };
-});
-
-afterEach(() => {
-  HTMLCanvasElement.prototype.getContext = originalGetContext;
-});
+const stub = installCanvasStub((c) => ({ filter: c.filter, globalCompositeOperation: c.globalCompositeOperation }));
 
 function canvasWithContext() {
   const cv = document.createElement('canvas');
@@ -233,7 +187,7 @@ describe('drawGeo — the unrated option', () => {
   it('masks the hatch with one destination-in on its own surface', () => {
     const { cv } = canvasWithContext();
     drawGeo(cv, 200, 140, SPOTS, 0, { fit: FIT, unrated: UNRATED });
-    const masked = allContexts.filter((c) => c.calls.some(
+    const masked = stub.allContexts.filter((c) => c.calls.some(
       (k) => k.name === 'drawImage' && k.globalCompositeOperation === 'destination-in',
     ));
     expect(masked).toHaveLength(1);

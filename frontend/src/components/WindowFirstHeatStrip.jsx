@@ -22,7 +22,7 @@ import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
 import { getMode, rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
-import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import { buildFourDayTiles, buildGlanceLanes } from '../utils/fourDayTiles.js';
@@ -37,7 +37,7 @@ import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
 import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
 import { tideRun } from '../utils/windowFirstTideRun.js';
-import { stoodPhrase } from '../utils/mapStandDown.js';
+import { stoodFieldPointsFor, stoodPhrase } from '../utils/mapStandDown.js';
 import TideWave from './map/TideWave.jsx';
 import WindowGlanceLanes from './WindowGlanceLanes.jsx';
 import ProUpsellDoor, {
@@ -1146,7 +1146,8 @@ export default function WindowFirstHeatStrip({
         line: THUMB_LINE,
         // One scalar for the haze and the badge decay, so the picture cannot look more certain
         // than the word beside it (plan D3).
-        conf: confidenceScalar(tier),
+        // An UNRATED ("too few rated") window is capped at the low tier's haze (stood-down-field plan D3).
+        conf: fieldConfidence(tier, card.verdict),
         // Off the same Set the markup reads, rather than off `points.length` here: one predicate,
         // so a hatched plate and an unmarked cell can never describe the same window.
         // ...except where the window stood places down: the plate's "not rated yet" would then lie
@@ -1164,6 +1165,10 @@ export default function WindowFirstHeatStrip({
         // down has no rating, and is the one this exists for. Disc radius = the field's `radius`.
         ...(card.away || !stoodSets?.get?.(card.key)?.length
           ? null : { stood: stoodSets.get(card.key) }),
+        // The same list, same guards, blended into the colour at 1 star (draw time only; stood-down-field
+        // plan D2): the field then agrees with the hatch and the count instead of reading the rated few alone.
+        ...(card.away || !stoodSets?.get?.(card.key)?.length
+          ? null : { stoodField: stoodFieldPointsFor(stoodSets.get(card.key)) }),
         fit: fitTo,
         // Outside the reader's sub-regions (S5b-1, handoff task 6): the veil under the field and a 1px dashed outline
         // after it, the same layers the Map draws, from the window's own two grounds. Spread only on a shaped body
@@ -1180,7 +1185,7 @@ export default function WindowFirstHeatStrip({
         // whole rationale is the temp ramp's luminance inversion, and the verdict ramp has none —
         // an ember glow over a green "go" would be a false signal. In verdict mode this spreads NO
         // keys at all, not falsy ones, so `drawGeo` sees today's exact options object.
-        ...(getMode() === 'temp' ? {
+        ...(getMode() === 'temp' && fieldBloomAllowed(card.verdict) ? {
           bloom: THUMB_BLOOM,
           bloomFrom: THUMB_BLOOM_FROM,
           bloomA: THUMB_BLOOM_A,

@@ -10,6 +10,7 @@ import {
 } from '../utils/heatField.js';
 import { createLandMask } from '../utils/landMask.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
+import { stoodFieldPointsFor } from '../utils/mapStandDown.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
@@ -296,7 +297,7 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
  */
 export default function MapHeatLayer({
   points, unrated = null, stood = null, outside = null, allowed = null, conf = null, colourMode = null,
-  homeCoords = null, rings = false, dim = 1, ramp = null, bloom = null,
+  homeCoords = null, rings = false, dim = 1, ramp = null, bloom = null, bloomAllowed = true,
 }) {
   const map = useMap();
 
@@ -430,7 +431,7 @@ export default function MapHeatLayer({
       // colour, gate and strength whatever the persisted colour scale is.
       ...(bloom
         ? { bloom: FIELD_BLOOM, bloomFrom: bloom.from, bloomA: bloom.a, bloomRGB: bloom.rgb }
-        : getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        : getMode() === 'temp' && bloomAllowed ? { bloom: FIELD_BLOOM } : null),
       ...(ramp ? { ramp } : null),
       // Absence, not an empty array: `drawTiles` then sees today's exact options object.
       // `opacity` above is the hatch's too: `paintUnknown` reads it from these same options, so the
@@ -439,6 +440,9 @@ export default function MapHeatLayer({
       // The stand-down hatch (big-seas plan F3), the same absence rule; it fades and dims with the
       // field through the same `opacity`.
       ...(stood?.length ? { stood, standRadius: standRadius() } : null),
+      // The same list blended into the colour at 1 star (stood-down-field plan D2): draw time only, never
+      // a point set, so every count and the hatch's rated mask are unchanged.
+      ...(stood?.length ? { stoodField: stoodFieldPointsFor(stood) } : null),
       // Outside the picks (sub-regions-plan S5a): only for a shaped body, and only where the land clip
       // is live (below LAND_CLIP_MAX_ZOOM, with the land path in hand) — the veil and the outline are
       // statements about LAND, and unclipped they would wash the sea. Absence, not an empty array.
@@ -492,7 +496,7 @@ export default function MapHeatLayer({
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
   }, [map, points, unrated, stood, outside, allowed, conf, colourMode, landMask, rings, homeCoords,
-    dim, ramp, bloom]);
+    dim, ramp, bloom, bloomAllowed]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -698,6 +702,8 @@ MapHeatLayer.propTypes = {
   dim: PropTypes.number,
   /** An injected `(score) => [r, g, b]` ramp (aurora); null keeps the scoreRamp module state. */
   ramp: PropTypes.func,
+  /** False withholds the temperature-mode bloom (an UNRATED window); the aurora bloom is untouched. */
+  bloomAllowed: PropTypes.bool,
   /** An injected bloom `{rgb, from, a}` (aurora's `AURORA_BLOOM`); null keeps the temp-only rule. */
   bloom: PropTypes.shape({
     rgb: PropTypes.arrayOf(PropTypes.number).isRequired,

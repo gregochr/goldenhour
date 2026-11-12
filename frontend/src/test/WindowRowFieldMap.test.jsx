@@ -232,6 +232,64 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     expect(drawGeo.mock.calls.at(-1)[5].focus).toBeUndefined();
   });
 
+  describe('the stood field (stood-down-field plan D2/D3)', () => {
+    afterEach(() => {
+      setMode('verdict');
+    });
+
+    it('passes the cropped stood list as stoodField, and none for an off-frame place', async () => {
+      const inside = { lat: 7, lng: 5, reason: 'HIGH_CLOUD', rid: 'Coast', key: '#1' };
+      const outside = { lat: 7, lng: 25, reason: 'HIGH_CLOUD', rid: 'Dales', key: '#2' };
+      await withMeasuredMap(600, async () => {
+        await renderMap({ origin: { name: 'Coast' }, stood: [inside, outside] });
+      });
+      const [, , , points, , opts] = drawGeo.mock.calls.at(-1);
+      expect(opts.stoodField).toEqual([inside]);
+      expect(points).toBe(POINTS);
+      drawGeo.mockClear();
+      await withMeasuredMap(600, async () => {
+        cleanup();
+        await renderMap({ origin: { name: 'Coast' }, stood: [outside] });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stoodField');
+    });
+
+    it('leaves a tide stand-down out, and carries no key for an empty list', async () => {
+      const tide = { lat: 7, lng: 5, reason: 'TIDE_MISALIGNED', rid: 'Coast', key: '#3' };
+      await withMeasuredMap(600, async () => {
+        await renderMap({ stood: [tide] });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5].stoodField).toEqual([]);
+      drawGeo.mockClear();
+      await withMeasuredMap(600, async () => {
+        cleanup();
+        await renderMap({ stood: [] });
+      });
+      expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stoodField');
+    });
+
+    it('caps the haze and withholds the bloom for an UNRATED verdict; MAYBE and none keep both', async () => {
+      setMode('temp');
+      const optsFor = async (verdict) => {
+        drawGeo.mockClear();
+        await withMeasuredMap(600, async () => {
+          cleanup();
+          await renderMap({ verdict });
+        });
+        return drawGeo.mock.calls.at(-1)[5];
+      };
+      const maybe = await optsFor('MAYBE');
+      const none = await optsFor(undefined);
+      const unrated = await optsFor('UNRATED');
+      expect(maybe.conf).toBe(1);
+      expect(maybe.bloom).toBe(1);
+      expect(none.conf).toBe(1);
+      expect(none.bloom).toBe(1);
+      expect(unrated.conf).toBe(0.5);
+      expect(unrated).not.toHaveProperty('bloom');
+    });
+  });
+
   it('ignores stood places outside the frame: the plate hatch stays and nothing says "stood down"', async () => {
     // Framed to the Coast origin, a stand-down in Dales is cropped out of shot.
     const outside = [{ lat: 7, lng: 25, reason: 'HIGH_CLOUD', rid: 'Dales', key: '#2' }];

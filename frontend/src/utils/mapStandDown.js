@@ -23,6 +23,18 @@ export function weatherStoodOf(stood) {
   return (Array.isArray(stood) ? stood : []).filter((p) => p.reason !== TIDE_STAND_DOWN_REASON);
 }
 
+/**
+ * The stood places a window's field blends at {@code STOOD_FIELD_SCORE}: exactly the places its
+ * stand-down hatch is drawn around, so hatch and colour agree. Passed to the kernel as
+ * {@code stoodField}; never merged into a point set.
+ *
+ * @param {?Array<{reason: ?string}>} stood the window's {@code stood} list
+ * @returns {Array<object>} the weather stand-downs (a new array; the input is not mutated)
+ */
+export function stoodFieldPointsFor(stood) {
+  return weatherStoodOf(stood);
+}
+
 /** The solar events a stand-down hatch is ever drawn for (never an astro or aurora night). */
 const SOLAR_TARGETS = new Set(['SUNRISE', 'SUNSET']);
 

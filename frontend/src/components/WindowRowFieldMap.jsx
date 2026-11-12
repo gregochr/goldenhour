@@ -11,7 +11,8 @@ import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
-import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
+import { stoodFieldPointsFor } from '../utils/mapStandDown.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
@@ -376,7 +377,7 @@ export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood: stoodAll = EMPTY_STOOD, bestRating = null, unscored = null, shaped = false, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
-  reachMeasured = false, colourMode = null,
+  reachMeasured = false, colourMode = null, verdict = null,
 }) {
   const isMobile = useIsMobile();
   /**
@@ -528,7 +529,8 @@ export default function WindowRowFieldMap({
       radius: Math.max(MAP_RADIUS_MIN, width * MAP_RADIUS_FACTOR),
       blur: MAP_BLUR,
       line: MAP_LINE,
-      conf: confidenceScalar(tier),
+      // An UNRATED ("too few rated") window is capped at the low tier's haze (stood-down-field plan D3).
+      conf: fieldConfidence(tier, verdict),
       // The hatch is the caller's claim, never inferred from an empty field — `drawGeo`'s own note
       // says why (a null field also answers a framing question).
       hatch: plateHatched,
@@ -539,6 +541,10 @@ export default function WindowRowFieldMap({
       // unscored window, whose absence of a rating is the stand-down. The disc radius is the
       // field's own (`radius` above), the way the unrated hatch is sized.
       ...(stood.length ? { stood } : null),
+      // The same cropped list blended into the colour at 1 star (stood-down-field plan D2). Edge effect:
+      // a stood place outside the frame does not tint the edge (it is cropped away here); rated ones
+      // still do, because `points` is not cropped.
+      ...(stood.length ? { stoodField: stoodFieldPointsFor(stood) } : null),
       fit: fitTo,
       // The kernel raises its own alpha to 238 when a focus is set, so a focused field reads as
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
@@ -548,7 +554,7 @@ export default function WindowRowFieldMap({
       // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
       // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
       // all, not falsy ones, so `drawGeo` sees today's exact options object.
-      ...(getMode() === 'temp' ? {
+      ...(getMode() === 'temp' && fieldBloomAllowed(verdict) ? {
         bloom: MAP_BLOOM, bloomFrom: MAP_BLOOM_FROM, bloomA: MAP_BLOOM_A, bloomBlur: MAP_BLOOM_BLUR,
       } : null),
     });
@@ -623,7 +629,7 @@ export default function WindowRowFieldMap({
     // state. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
   }, [windowKey, date, confidence, points, unrated, stood, plateHatched, fitTo, framed, regionNames, focusRegion,
-    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode]);
+    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode, verdict]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -1107,6 +1113,8 @@ WindowRowFieldMap.propTypes = {
   windowKey: PropTypes.string.isRequired,
   date: PropTypes.string.isRequired,
   confidence: PropTypes.string,
+  /** The served verdict word printed beside this map; {@code UNRATED} mutes the haze and the bloom. */
+  verdict: PropTypes.string,
   spots: PropTypes.array.isRequired,
   /** The away origin ({@code {name}}), or null for home. Framing only. */
   origin: PropTypes.shape({ name: PropTypes.string.isRequired }),

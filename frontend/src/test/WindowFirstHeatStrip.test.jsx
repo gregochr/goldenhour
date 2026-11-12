@@ -2442,6 +2442,57 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
       expect(opts.hatch).toBe(false);
     });
 
+    describe('the stood field (stood-down-field plan D2/D3)', () => {
+      afterEach(() => {
+        setMode('verdict');
+      });
+
+      it('hands the kernel the weather-stood places as stoodField, leaving points untouched', async () => {
+        const pointSets = scoredWindows([stripCard({ bestRating: 4 })]);
+        await withMeasuredThumbs(160, async () => {
+          await renderStrip({
+            cards: [stripCard({ bestRating: 4 })], pointSets, stoodSets: new Map([[KEY, STOOD]]),
+          });
+        });
+        const [, , , points, , opts] = drawGeo.mock.calls.at(-1);
+        expect(opts.stoodField).toEqual(STOOD);
+        expect(points).toBe(pointSets.get(KEY));
+      });
+
+      it('drops a tide stand-down that reached the list from the field, as from the hatch', async () => {
+        const tide = { lat: 55.6, lng: -1.8, reason: 'TIDE_MISALIGNED', rid: 'Northumberland & Tyneside', key: '#11' };
+        await withMeasuredThumbs(160, async () => {
+          await renderStrip({ cards: [UNSCORED], stoodSets: new Map([[UNSCORED.key, [...STOOD, tide]]]) });
+        });
+        expect(drawGeo.mock.calls.at(-1)[5].stoodField).toEqual(STOOD);
+      });
+
+      it('carries no stoodField key when nothing stood', async () => {
+        await withMeasuredThumbs(160, async () => {
+          await renderStrip({ cards: [stripCard({ bestRating: 4 })] });
+        });
+        expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('stoodField');
+      });
+
+      it('caps the haze and withholds the bloom for an UNRATED window; MAYBE keeps both', async () => {
+        setMode('temp');
+        const render = async (verdict) => {
+          drawGeo.mockClear();
+          await withMeasuredThumbs(160, async () => {
+            await renderStrip({ cards: [stripCard({ verdict, confidence: 'high' })] });
+          });
+          cleanup();
+          return drawGeo.mock.calls.at(-1)[5];
+        };
+        const maybe = await render('MAYBE');
+        const unrated = await render('UNRATED');
+        expect(maybe.conf).toBe(1);
+        expect(maybe.bloom).toBe(1);
+        expect(unrated.conf).toBe(0.5);
+        expect(unrated).not.toHaveProperty('bloom');
+      });
+    });
+
     it('keeps the plate hatch when nothing stood in frame (none, or tide-only so no entry)', async () => {
       await withMeasuredThumbs(160, async () => {
         await renderStrip({ cards: [UNSCORED] });
@@ -2952,7 +3003,10 @@ describe('WindowFirstHeatStrip — the confidence channel', () => {
       });
     });
     const inferred = drawGeo.mock.calls[0][5].conf;
-    expect(served).toBeLessThan(inferred);
+    // Since stood-down-field plan D3 an UNRATED window is capped at the low tier whatever its tier, so the
+    // inferred (capped-medium) fallback no longer draws a thin sample stronger than the served 'low'.
+    expect(served).toBe(0.5);
+    expect(inferred).toBe(served);
   });
 
   it('renders no confidence MARK anywhere — the haze is the whole of it', async () => {
