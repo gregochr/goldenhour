@@ -5,6 +5,75 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.7] - 2026-11-12
+
+### Fixed — weather stand-downs colour the heat field
+
+A window where most places were stood down by the weather could paint solid amber off the few that were rated (Sunday 15 Nov sunrise: 6 of 25 rated, 19 stood down, and the card said `Too few · 6/25 rated`). The heat field now blends the weather-stood places in at one star, drawn only (never counted, and the stand-down hatch is unchanged), on the Plan thumbnails, the window popup map and the Map tab. A window whose verdict is "Too few rated" is also muted: its haze is capped at the low tier and its temperature bloom is withheld. Frontend only; no served field changes.
+
+### Docs — the guide explains a card's spread and which locations it counts
+
+The At a Glance guide page now lists the spread among what a card shows, and a new "The spread"
+section explains the bars, the hatched not-yet-rated bar and the "3/12 rated" text. It also says
+plainly that a card counts only the locations set up for that sunrise or sunset: a sunrise-only
+location is never rated at sunset, so the sunrise and sunset cards for the same day often count a
+different number of locations.
+
+### Changed — pre-release backups keep the newest five rollback points
+
+`scripts/pre-release-backup.sh` wrote one full production dump per release into `pre-release/` and never removed any, so the folder grew for ever. Once a new rollback point is validated it now keeps the newest `PRE_RELEASE_KEEP` (default 5) usable points and deletes older points whole (manifest, dump, saved nginx and compose files). Moved-aside `.unusable-*` files do not count toward the five and age out with their set; `goldenhour_pre-rollback-*` safety dumps are never touched; a retention failure is only a warning and the release goes on.
+
+### Changed — Cost trends: pick several types at once
+
+The legend chips and table rows under Operations, Runs, Cost trends now pick any number of types instead of one, so Overnight cycle, Afternoon refresh and Evening refresh can be shown together to see what forecasting costs. The bars for the other types fade, the 7-day line follows the picked types, and a line under the chips totals them (with a "Selected" row in the day tooltip once two or more are picked).
+
+The address carries the picked types as a comma-separated list, for example `type=OVERNIGHT,AFTERNOON,EVENING`; old single-type links still work.
+
+### Fixed — backup verification no longer leaves a Postgres volume behind every run
+
+The daily backup-verification job started its scratch Postgres with no data volume, so the
+image created an anonymous one (about 1 GB, a restored copy of production), and both the
+pre-clean and the teardown used `docker rm -f` without `-v`. Thirty had built up on the
+shared Docker host by 2026-11-11. The job now uses one labelled, named volume, removes it
+in teardown, clears leftovers from earlier runs by its own label only, and warns if any
+labelled volume remains.
+
+### Changed — At a Glance renders whole days, today to T+3
+
+The Plan tab used to render the leading six solar events, which is three whole days before today's
+sunrise and a half-empty fourth column after it. It now renders every non-past solar event dated
+today to T+3 (eight events before sunrise, seven after it, six after sunset), so the matrix always
+ends on a whole day. A pick can now land on a T+3 window all day. The best-bet advisor's rollup, the
+digest's default list and Ask's window set follow the same date rule, and the advisor's system prompt
+no longer names a count ("the upcoming solar events"). No new model calls; the advisor rollup and
+Ask's `list_windows` carry up to two more events.
+
+### Fixed — Plan: the phone's empty day boxes are no longer taller than they need to be
+
+On a phone, the dashed empty boxes in the day grid ("this morning has gone", "past the end of the forecast" and the blank one) forced their whole row to at least 110px, so they were much taller than the short "Not forecast" cards beside them and stretched those cards too. Each is now only as tall as the card beside it. Desktop and tablet are unchanged.
+
+### Fixed — "Not forecast" card matches the rated card beside it
+
+On the desktop and tablet At a Glance rows, a "Not forecast" card now stretches to the height of a rated card
+in the same row instead of sitting short at the top. A row made only of "Not forecast" cards stays slim.
+The phone is unchanged.
+
+### Fixed — map tide chip passes the label-in-name check
+
+A map location chip with a matched tide showed an H, M or L letter that screen-reader tooling counted as visible text, so the chip's visible words ("Bamburgh M 4") did not appear in its spoken name. The letter is now drawn as a shape instead of text, so the visible label and the spoken name agree. The spoken name ("mid tide, right here") is unchanged.
+
+### Changed — the Map's window control ends at T+3, like At a Glance
+
+The Map listed a sunrise and sunset row for every date `GET /api/forecast` returns, out to T+5, but
+nothing rates T+4 or T+5, so those rows showed star chips over an empty field. The window control now
+stops at the last day At a Glance shows (today plus three), and the Plan's degrade walk (used while a
+briefing carries no `renderedEvents`) stops there too. Past windows, the older-day loader and every
+night row are unchanged; a night on T+4 or later still opens, as a local selection.
+
+### Fixed — Map: wildlife hides no longer linger on a window with no forecast
+
+On a Map window the forecast has no row for (the pill reads "No forecast") while other sunrise and sunset windows exist, wildlife hides now drop out like every rated place instead of staying as labels that opened nothing. A day with no sunrise or sunset forecast anywhere still shows the hides and their comfort forecast, and High water, night and past windows are unchanged.
+
 ## [v2.39.6] - 2026-11-09
 
 ### Fixed — Runs Day view: external calls table stacks when the list is narrow
