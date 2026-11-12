@@ -37,6 +37,12 @@ const MIN_RATING = 1;
 const MAX_RATING = 5;
 
 /**
+ * The score a weather-stood place is blended at in the heat field's colour (draw time only: never in
+ * a point set, never counted). See {@code stoodFieldPointsFor} in {@code mapStandDown.js}.
+ */
+export const STOOD_FIELD_SCORE = 1;
+
+/**
  * The index into a point's {@code r} at which {@link heatPointsFor} writes its score.
  *
  * <p>Points carry a one-element {@code r}, so a kernel host is always called as

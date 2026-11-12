@@ -6801,7 +6801,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
                 conf={isAstroMode ? astroConfidenceScalar
                   : isAuroraMode ? auroraConfidenceScalar
-                    : (heatWindow?.conf ?? null)}
+                    : (heatWindow?.conf == null ? null
+                      : (activeWindowTier === 'UNRATED'
+                        // "Too few rated" (stood-down-field plan D3): capped at the low tier's haze, the Map's
+                        // own word (`mapVerdict`, scope and drive tier included), never `card.verdict`.
+                        ? Math.min(heatWindow.conf, confidenceScalar('low')) : heatWindow.conf))}
+                bloomAllowed={activeWindowTier !== 'UNRATED'}
                 // An aurora night is an event-type override of the colour preference, never a
                 // persisted mode (plan §4 #1): the ramp and bloom ride down as props.
                 ramp={isAuroraMode ? AURORA_RAMP.rgb : null}

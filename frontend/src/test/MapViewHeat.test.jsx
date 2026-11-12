@@ -2242,6 +2242,16 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
     await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(unratedDays) });
 
     expect(pillVerdict()).toEqual({ word: 'Too few rated', region: 'The Lakes', tier: 'UNRATED' });
+    // The field beside that word is muted (stood-down-field plan D3): the haze is capped at the low tier's
+    // scalar and the temperature bloom is withheld, off the Map's own tier, not a card verdict.
+    expect(heatLayerProps.last.conf).toBe(0.5);
+    expect(heatLayerProps.last.bloomAllowed).toBe(false);
+  });
+
+  it('leaves the field unmuted when the Map\'s word is not UNRATED (stood-down-field plan D3)', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(heatLayerProps.last.conf).toBe(1);
+    expect(heatLayerProps.last.bloomAllowed).toBe(true);
   });
 
   it('would MOVE if the verdict were computed from a filtered pool — the mutation these guard', async () => {

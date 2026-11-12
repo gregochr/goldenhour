@@ -132,6 +132,32 @@ export function confidenceScalar(tier) {
 }
 
 /**
+ * The kernel's {@code conf} for a field beside a served verdict: a window the server judged
+ * {@code UNRATED} ("too few rated") is capped at the low tier's scalar so a handful of rated places
+ * cannot paint it as solid as a judged one. Never raises a scalar; any other verdict is
+ * {@link confidenceScalar} unchanged.
+ *
+ * @param {string} tier confidence tier
+ * @param {?string} verdict the served verdict word
+ * @returns {number} the 0-1 scalar
+ */
+export function fieldConfidence(tier, verdict) {
+  const scalar = confidenceScalar(tier);
+  return verdict === 'UNRATED' ? Math.min(scalar, confidenceScalar('low')) : scalar;
+}
+
+/**
+ * Whether a field's temperature-mode bloom may be drawn beside this verdict: not for an
+ * {@code UNRATED} window.
+ *
+ * @param {?string} verdict the served verdict word
+ * @returns {boolean} false only for UNRATED
+ */
+export function fieldBloomAllowed(verdict) {
+  return verdict !== 'UNRATED';
+}
+
+/**
  * Multiplies the alpha channel of an {@code rgba(r,g,b,a)} string by {@code scale} (clamped to
  * [0,1]). Returns the input unchanged when scale ≥ 1 or the string is not an rgba() literal, so
  * it is safe to apply blindly.

@@ -323,6 +323,44 @@ describe('MapHeatLayer — the "not rated yet" hatch (thin-sample plan F4)', () 
   });
 });
 
+describe('MapHeatLayer — the stood field (stood-down-field plan D2/D3)', () => {
+  const STOOD = [
+    { lat: 54.9, lng: -2.1, rid: 'North East', reason: 'HIGH_CLOUD' },
+    { lat: 55.1, lng: -2.0, rid: 'North East', reason: 'TIDE_MISALIGNED' },
+  ];
+
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it('hands the kernel the weather-stood places as stoodField, leaving points identical', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ stood: STOOD });
+    const [, , points, , opts] = drawTiles.mock.calls.at(-1);
+    expect(opts.stood).toBe(STOOD);
+    expect(opts.stoodField).toEqual([STOOD[0]]);
+    expect(points).toBe(POINTS);
+  });
+
+  it.each([[null], [[]], [undefined]])('leaves the options object as it was for stood %j', async (stood) => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ stood });
+    expect('stoodField' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+
+  it('withholds the temperature bloom when bloomAllowed is false, and keeps the aurora bloom', async () => {
+    setMode('temp');
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount({ bloomAllowed: false });
+    expect('bloom' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    await mount({ bloomAllowed: true });
+    expect(drawTiles.mock.calls.at(-1)[4].bloom).toBe(1);
+    await mount({ bloomAllowed: false, bloom: { rgb: [1, 2, 3], from: 3.4, a: 99 } });
+    expect(drawTiles.mock.calls.at(-1)[4].bloom).toBe(1);
+    expect(drawTiles.mock.calls.at(-1)[4].bloomFrom).toBe(3.4);
+  });
+});
+
 describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
   // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets
   // to undo it leaks into every case that runs after it, in this file or another.
