@@ -471,6 +471,42 @@
   body {
     @apply bg-plex-bg text-plex-text min-h-screen;
   }
+
+  /* Themed scrollbars (owner, 2026-11-13: the default grey bars clashed with the warm dark palette).
+     Layered in `base` so the hidden-scrollbar scrollers' own unlayered rules (`.wf-tabs`,
+     `.wf-spots`, `.wf-sheet-seg`) still win. `scrollbar-color` inherits, `scrollbar-width` does not. */
+  :root {
+    scrollbar-color: var(--color-plex-text-faint) transparent;
+  }
+
+  * {
+    scrollbar-width: thin;
+  }
+
+  /* Engines without `scrollbar-color` (older Safari) get the same look from the webkit pseudo-elements.
+     Kept inside the @supports: Chrome 121+ ignores them once `scrollbar-color` is set. */
+  @supports not (scrollbar-color: auto) {
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: var(--color-plex-text-faint);
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background-clip: padding-box;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: var(--color-plex-text-muted);
+    }
+  }
 }
 
 @layer components {
@@ -8336,11 +8372,12 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   z-index: 1500;
   width: 318px;
   max-width: calc(100vw - 32px);
-  /* The design's 420px, or the room left in the map frame below the chip if that is less —
-     `--wf-fit-room` is measured by `useFitToFrame` while the panel is open (a short frame
-     used to clip the Sky and Scope rows with nothing to scroll). `overscroll-behavior` keeps a
-     wheel that reaches the end of the rows from scrolling the page behind. */
-  max-height: min(420px, var(--wf-fit-room, 420px));
+  /* The panel grows to the room the map frame has below the chip, with no fixed cap (the owner
+     saw it scroll with space to spare, 2026-11-13). `--wf-fit-room` is measured by `useFitToFrame`
+     while the panel is open; 420px is only the unmeasured fallback. A genuinely short frame still
+     scrolls. `overscroll-behavior` keeps a wheel that reaches the end of the rows from scrolling
+     the page behind. */
+  max-height: var(--wf-fit-room, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
   /* A control Tabbed to at the panel's edge is scrolled in far enough to show its 2px + 1px focus
@@ -8661,7 +8698,7 @@ button.wf-tl-b:hover { background: color-mix(in srgb, var(--wf-tc) 40%, transpar
   z-index: 1500;
   width: 262px;
   max-width: calc(100vw - 32px);
-  max-height: min(420px, var(--wf-fit-room, 420px));
+  max-height: var(--wf-fit-room, 420px);
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: 6px;

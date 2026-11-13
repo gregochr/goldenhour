@@ -1,6 +1,6 @@
 /**
  * `useFitToFrame` and the four Map tab panels that use it (the Filters popover, the Regions menu,
- * the window menu and the legend). Each of them used to keep a fixed `max-height: 420px`, which on
+ * the window menu and the legend). Each of them used to keep a fixed `max-height: 420px` (the content-bounded Filters and legend panels now grow to the measured room; the list menus keep the 420px cap), which on
  * a short map frame ran past the frame's edge, was clipped by it, and left its last rows
  * unreachable. jsdom has no layout, so the rects are stubbed; the real geometry is a browser check
  * recorded in the PR.
@@ -160,14 +160,28 @@ describe('stylesheet', () => {
     return blocks[0][2];
   };
 
-  it.each(['.wf-win-menu', '.wf-jump-menu', '.wf-legend-panel', '.wf-filters-panel'])(
-    '%s is capped at the measured room and scrolls inside it',
+  const scrollsInside = (body) => {
+    expect(body).toMatch(/overflow-y:\s*auto;/);
+    expect(body).toMatch(/overscroll-behavior:\s*contain;/);
+    expect(body).toMatch(/scroll-padding-block:\s*6px;/);
+  };
+
+  it.each(['.wf-win-menu', '.wf-jump-menu'])(
+    '%s (a list that can be long) is capped at 420px or the measured room, whichever is less',
     (cls) => {
       const body = blockOf(cls);
       expect(body).toMatch(/max-height:\s*min\(420px,\s*var\(--wf-fit-room,\s*420px\)\);/);
-      expect(body).toMatch(/overflow-y:\s*auto;/);
-      expect(body).toMatch(/overscroll-behavior:\s*contain;/);
-      expect(body).toMatch(/scroll-padding-block:\s*6px;/);
+      scrollsInside(body);
+    },
+  );
+
+  it.each(['.wf-legend-panel', '.wf-filters-panel'])(
+    '%s grows to the measured room (420px only when unmeasured) and scrolls inside it',
+    (cls) => {
+      const body = blockOf(cls);
+      expect(body).toMatch(/max-height:\s*var\(--wf-fit-room,\s*420px\);/);
+      expect(body).not.toMatch(/min\(420px/);
+      scrollsInside(body);
     },
   );
 

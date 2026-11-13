@@ -466,14 +466,15 @@ describe('FiltersPopover — the panel fits the map frame', () => {
     expect(everywhere).toHaveFocus();
   });
 
-  it('the stylesheet caps the panel at the measured room and scrolls inside it', () => {
+  it('the stylesheet lets the panel grow to the measured room and scrolls inside it', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '');
     const blocks = [...css.matchAll(/(^|})\s*([^{}]+)\{([^{}]*)\}/g)]
       .filter(([, , selector]) => selector.split(',').some((s) => s.trim().split(/\s+/).pop() === '.wf-filters-panel'));
     expect(blocks).toHaveLength(1);
     const body = blocks[0][3];
-    expect(body).toMatch(/max-height:\s*min\(420px,\s*var\(--wf-fit-room,\s*420px\)\);/);
+    expect(body).toMatch(/max-height:\s*var\(--wf-fit-room,\s*420px\);/);
+    expect(body).not.toMatch(/min\(420px/);
     expect(body).toMatch(/overflow-y:\s*auto;/);
     expect(body).toMatch(/overscroll-behavior:\s*contain;/);
     expect(body).toMatch(/scroll-padding-block:\s*6px;/);
