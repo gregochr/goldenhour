@@ -295,6 +295,22 @@ export function isUnroutableDropped(spot, limitMinutes, measured) {
 }
 
 /**
+ * Whether one spot is within a tier: the predicate {@link gateSpotsByReach} filters with, extracted so the
+ * At a Glance field's reach split reads the same test as {@code card.pool}.
+ *
+ * @param {object}  spot         a descriptor with {@code driveMinutes} and {@code driveStatus}
+ * @param {?number} limitMinutes the tier's threshold, null for "Any" (everything passes)
+ * @param {boolean} measured     the reader-level {@link reachIsMeasured}
+ * @returns {boolean} true when the spot is within the tier (or its drive is unknown)
+ */
+export function spotPassesReach(spot, limitMinutes, measured) {
+  if (limitMinutes == null) return true;
+  return spot.driveMinutes == null
+    ? !isUnroutableDropped(spot, limitMinutes, measured)
+    : spot.driveMinutes <= limitMinutes;
+}
+
+/**
  * The spots a tier leaves on screen.
  *
  * <p>Inclusive at the boundary: a 45-minute drive is within "45 min". A null limit returns the input
@@ -314,9 +330,7 @@ export function isUnroutableDropped(spot, limitMinutes, measured) {
  */
 export function gateSpotsByReach(spots, limitMinutes, { measured = false } = {}) {
   if (limitMinutes == null) return spots;
-  return spots.filter((spot) => (spot.driveMinutes == null
-    ? !isUnroutableDropped(spot, limitMinutes, measured)
-    : spot.driveMinutes <= limitMinutes));
+  return spots.filter((spot) => spotPassesReach(spot, limitMinutes, measured));
 }
 
 /**

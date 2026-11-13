@@ -22,17 +22,31 @@ vi.mock('../utils/mapDoors.js', async (importOriginal) => {
  */
 // Thin-sample F2: the row map is stubbed to print the unrated set the shell hands the open card, so
 // "the OPEN window's own set" is observable without a canvas.
+// The reach-field wiring is read off the props the shell hands these two children; the strip still
+// renders for real, the row map stays the stub below.
+const seen = vi.hoisted(() => ({ strip: null, rowMap: null }));
+
+vi.mock('../components/WindowFirstHeatStrip.jsx', async (importOriginal) => {
+  const actual = await importOriginal();
+  const Real = actual.default;
+  return { ...actual, default: (props) => { seen.strip = props; return <Real {...props} />; } };
+});
+
 vi.mock('../components/WindowRowFieldMap.jsx', async (importOriginal) => ({
   ...(await importOriginal()),
-  default: ({ windowKey, unrated, stood }) => (
-    <div
-      data-testid="stub-row-map"
-      data-window={windowKey}
-      data-stood={(stood || []).map((p) => p.key).join(',') || '-'}
-    >
-      {(unrated || []).map((p) => p.name).join(',') || '-'}
-    </div>
-  ),
+  default: (props) => {
+    seen.rowMap = props;
+    const { windowKey, unrated, stood } = props;
+    return (
+      <div
+        data-testid="stub-row-map"
+        data-window={windowKey}
+        data-stood={(stood || []).map((p) => p.key).join(',') || '-'}
+      >
+        {(unrated || []).map((p) => p.name).join(',') || '-'}
+      </div>
+    );
+  },
 }));
 
 const TODAY = '2026-08-08';
@@ -204,6 +218,8 @@ const openSheet = async () => {
 };
 
 beforeEach(() => {
+  seen.strip = null;
+  seen.rowMap = null;
   localStorage.clear();
   window.matchMedia = (query) => ({
     matches: false,
@@ -219,6 +235,33 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('WindowFirstShell — the drill-down', () => {
+  describe('the reach field wiring', () => {
+    const HOME_MAP = new Map([[1, { driveMinutes: 20 }]]);
+    const EFFECTIVE_MAP = new Map([[1, { driveMinutes: 200 }]]);
+    const away = () => ({
+      reachById: HOME_MAP,
+      effectiveReachById: EFFECTIVE_MAP,
+      windowCards: [card({ reachLimitMinutes: 45, reachMeasured: true })],
+    });
+
+    it('gives the strip the effective map as fieldReachById and keeps reachById home', async () => {
+      renderShell(away());
+      await screen.findByTestId('wf-heat-strip');
+      expect(seen.strip.fieldReachById).toBe(EFFECTIVE_MAP);
+      expect(seen.strip.reachById).toBe(HOME_MAP);
+    });
+
+    it('gives the popup\'s row map the effective map and the card\'s tier', async () => {
+      renderShell(away());
+      await openPopup();
+      await screen.findByTestId('stub-row-map');
+      expect(seen.rowMap.fieldReachById).toBe(EFFECTIVE_MAP);
+      expect(seen.rowMap.reachById).toBe(HOME_MAP);
+      expect(seen.rowMap.reachLimitMinutes).toBe(45);
+      expect(seen.rowMap.reachMeasured).toBe(true);
+    });
+  });
+
   it('opens on the window whose trigger was pressed', async () => {
     renderShell();
     await openSheet();

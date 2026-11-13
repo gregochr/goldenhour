@@ -730,6 +730,37 @@ describe('WindowSheetDialog — picking a region swaps words, and moves nothing'
     expect(drawGeo.mock.calls.at(-1)[5].focus).toBe('Coast');
   });
 
+  it('hands the field the effective reach map and the tier, so the thumbnail split reaches the kernel', () => {
+    // `card.reachLimitMinutes` + `field.fieldReachById` are the whole of the popup's reach split: the
+    // map splits `points` by them, so a place beyond the tier lands in `beyond.points`.
+    const near = { id: 1, name: 'Bamburgh Beach', lat: 6, lng: 4, rid: 'Coast', r: [5] };
+    const far = { id: 2, name: 'Malham Cove', lat: 6, lng: 24, rid: 'Dales', r: [4] };
+    drawGeo.mockClear();
+    withMeasured(() => {
+      renderDialog({
+        card: card({ reachLimitMinutes: 45 }),
+        field: field({
+          points: [near, far],
+          fieldReachById: new Map([[1, { driveMinutes: 20 }], [2, { driveMinutes: 90 }]]),
+        }),
+      });
+    });
+    const [, , , points, , opts] = drawGeo.mock.calls.at(-1);
+    expect(points).toEqual([near]);
+    expect(opts.beyond.points).toEqual([far]);
+  });
+
+  it('adds no beyond key when the card carries no tier (Any)', () => {
+    drawGeo.mockClear();
+    withMeasured(() => {
+      renderDialog({
+        card: card(),
+        field: field({ fieldReachById: new Map([[1, { driveMinutes: 900 }]]) }),
+      });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('beyond');
+  });
+
   it('⚠️ moves nothing below the prose when a region is picked', () => {
     // The design's requirement in one assertion: a pick swaps words and repaints, it does not
     // re-order the dialog. Compared by the SEQUENCE of sections, so a row appearing, disappearing

@@ -13,6 +13,7 @@ import { scopeSpots } from '../utils/planOrigin.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { daysOut, fieldBloomAllowed, fieldConfidence, resolveConfidence } from '../utils/confidenceUtils.js';
 import { stoodFieldPointsFor } from '../utils/mapStandDown.js';
+import { splitByReach } from '../utils/heatSpots.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
@@ -353,6 +354,8 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {Array}    props.regionNames the rail's regions, in rank order — the labellable set
  * @param {?string}  props.selectedRegion the focused region, or null
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
+ * @param {?Map}     [props.fieldReachById] the effective reach map, for the field's within/beyond split only
+ * @param {?number}  [props.reachLimitMinutes] the drive tier ({@code card.reachLimitMinutes}); null is Any
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {Function} [props.onSelectRegion] called with a region name, or null to clear
  * @param {Function} [props.onOpenLocation] called with the clicked chip. Its ABSENCE is what keeps
@@ -377,7 +380,7 @@ export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, unrated = EMPTY_UNRATED, stood: stoodAll = EMPTY_STOOD, bestRating = null, unscored = null, shaped = false, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
-  reachMeasured = false, colourMode = null, verdict = null,
+  reachMeasured = false, colourMode = null, verdict = null, fieldReachById = null, reachLimitMinutes = null,
 }) {
   const isMobile = useIsMobile();
   /**
@@ -524,7 +527,16 @@ export default function WindowRowFieldMap({
     const canvas = canvases.get(windowKey);
     if (!canvas) return;
     const tier = resolveConfidence({ confidence }, daysOut(date, todayStr));
-    const project = drawGeo(canvas, width, height, points, POINT_SCORE_INDEX, {
+    // The reach split (reach-field plan): the already-guarded lists, split by the drive tier. Tier Any,
+    // unmeasured or nothing beyond hands back the input lists, so the options below are today's.
+    const split = (list) => splitByReach(list, fieldReachById, reachLimitMinutes, reachMeasured);
+    const pointSplit = split(points);
+    const unratedList = plateHatched || !unrated.length ? null : unrated;
+    const unratedSplit = unratedList ? split(unratedList) : { within: null, beyond: [] };
+    const stoodSplit = stood.length ? split(stood) : { within: null, beyond: [] };
+    const hasBeyond = pointSplit.beyond.length > 0 || unratedSplit.beyond.length > 0
+      || stoodSplit.beyond.length > 0;
+    const project = drawGeo(canvas, width, height, pointSplit.within, POINT_SCORE_INDEX, {
       grid: MAP_GRID,
       radius: Math.max(MAP_RADIUS_MIN, width * MAP_RADIUS_FACTOR),
       blur: MAP_BLUR,
@@ -536,15 +548,25 @@ export default function WindowRowFieldMap({
       hatch: plateHatched,
       // The per-place "not rated yet" layer: skipped when the whole plate is hatched (the window's
       // own unscored predicate, never an empty set). `focus` is passed above and fades it too.
-      ...(plateHatched || !unrated.length ? null : { unrated }),
+      ...(unratedSplit.within?.length ? { unrated: unratedSplit.within } : null),
       // Stood-down ground (big-seas plan F4): the same list the Map hatches. Not withheld on an
       // unscored window, whose absence of a rating is the stand-down. The disc radius is the
       // field's own (`radius` above), the way the unrated hatch is sized.
-      ...(stood.length ? { stood } : null),
+      ...(stoodSplit.within?.length ? { stood: stoodSplit.within } : null),
       // The same cropped list blended into the colour at 1 star (stood-down-field plan D2). Edge effect:
       // a stood place outside the frame does not tint the edge (it is cropped away here); rated ones
       // still do, because `points` is not cropped.
-      ...(stood.length ? { stoodField: stoodFieldPointsFor(stood) } : null),
+      ...(stoodSplit.within?.length ? { stoodField: stoodFieldPointsFor(stoodSplit.within) } : null),
+      // The places beyond the drive tier, faded under the within layer (heatField `beyond`); spread only
+      // when something is beyond.
+      ...(hasBeyond ? {
+        beyond: {
+          points: pointSplit.beyond,
+          ...(unratedSplit.beyond.length ? { unrated: unratedSplit.beyond } : null),
+          ...(stoodSplit.beyond.length
+            ? { stood: stoodSplit.beyond, stoodField: stoodFieldPointsFor(stoodSplit.beyond) } : null),
+        },
+      } : null),
       fit: fitTo,
       // The kernel raises its own alpha to 238 when a focus is set, so a focused field reads as
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
@@ -629,7 +651,8 @@ export default function WindowRowFieldMap({
     // state. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
   }, [windowKey, date, confidence, points, unrated, stood, plateHatched, fitTo, framed, regionNames, focusRegion,
-    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode, verdict]);
+    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode, verdict,
+    fieldReachById, reachLimitMinutes, reachMeasured]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -1148,6 +1171,10 @@ WindowRowFieldMap.propTypes = {
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedRegion: PropTypes.string,
   reachById: PropTypes.instanceOf(Map),
+  /** The effective reach map, for the field's reach split only. Absent means no split. */
+  fieldReachById: PropTypes.instanceOf(Map),
+  /** The drive tier in minutes ({@code card.reachLimitMinutes}); null is Any. */
+  reachLimitMinutes: PropTypes.number,
   todayStr: PropTypes.string.isRequired,
   onSelectRegion: PropTypes.func,
   onOpenLocation: PropTypes.func,
