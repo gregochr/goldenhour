@@ -4,7 +4,10 @@ import { MAP_PANE_SELECTOR } from '../utils/mapForeignModal.js';
 /** The gap kept between a panel's far edge and the frame's — the chrome's own 8px inset. */
 export const FRAME_GAP_PX = 8;
 
-/** The custom property the stylesheet's `max-height: min(420px, var(--wf-fit-room, 420px))` reads. */
+/**
+ * The custom property the stylesheet's `max-height` reads: `var(--wf-fit-room, 420px)` on the content-bounded
+ * panels (Filters, legend) and `min(420px, var(--wf-fit-room, 420px))` on the list menus.
+ */
 export const FIT_ROOM_PROPERTY = '--wf-fit-room';
 
 /** The 36px window control, the top-left group's height while its own height is unpublished. */
@@ -28,7 +31,7 @@ const TL_CLEARANCE_PX = 16;
  * (`top: calc(100% + 6px)` / `bottom: calc(100% + 6px)`), so its height never moves the edge measured.
  *
  * <p>No floor: a panel given more than the room would be clipped again, which is the bug itself.
- * Nothing is written outside a map pane or with no panel mounted, leaving the stylesheet's 420px.
+ * Nothing is written outside a map pane or with no panel mounted, leaving the stylesheet's 420px fallback.
  *
  * @param {{current: HTMLElement|null}} panelRef the panel element (mounted only while open)
  * @param {{current: HTMLElement|null}} anchorRef the control's root; its parent is the map chrome
