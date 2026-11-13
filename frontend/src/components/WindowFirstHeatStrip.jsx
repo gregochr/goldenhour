@@ -7,7 +7,7 @@ import {
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
-import { POINT_SCORE_INDEX, heatSpotKey } from '../utils/heatSpots.js';
+import { POINT_SCORE_INDEX, heatSpotKey, splitByReach } from '../utils/heatSpots.js';
 import {
   badgeChannel,
   BLANKED_STAND_DOWN_SPOKEN,
@@ -764,6 +764,8 @@ function areaLabel(regionName, tiny) {
  *                                    {@code buildUnratedPointSets} — the "not rated yet" hatch
  * @param {Array}    props.spots      the whole heat catalogue, for framing and the beyond line
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
+ * @param {?Map}     [props.fieldReachById] the effective reach map (the one {@code card.pool} was gated
+ *                                    with) — the field's within/beyond split only, never framing
  * @param {Array}    [props.hotTopics] the served {@code briefing.hotTopics}, for the scope filter
  *                                    and (at M2) the science notes. Absent simply means no topic is
  *                                    scope-filtered — see {@code windowFirstTopics.js}
@@ -794,7 +796,7 @@ function areaLabel(regionName, tiny) {
  *                                    drawn under an away origin, even when set.
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, unratedSets, stoodSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, unratedSets, stoodSets, spots, reachById, fieldReachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
   origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
   picksLocked = false, groundSets = null, picks = null,
   comingUpEntries = null, renderedEntryIds = null, openableKeys = null, forecastDates = null,
@@ -1133,7 +1135,25 @@ export default function WindowFirstHeatStrip({
       // The point sets are KEYED, never positional (heatSpots.js): the integer the kernel takes
       // does not exist at this call site, and every point carries its one score at
       // POINT_SCORE_INDEX.
-      const points = pointSets?.get?.(card.key) || [];
+      const allPoints = pointSets?.get?.(card.key) || [];
+      // The reach split (reach-field plan): each already-guarded list is split by the drive tier, the
+      // within halves going where today's lists go and the beyond halves into one faded `beyond` option.
+      // Tier Any, unmeasured, nothing beyond, or an away card: every half is the input, so the options
+      // object below is exactly today's.
+      const splitOf = (list) => (card.away || !list
+        ? { within: list, beyond: [] }
+        : splitByReach(list, fieldReachById, card.reachLimitMinutes, card.reachMeasured));
+      const unratedList = card.away || plateHatched(card) || !unratedFor(card)?.length
+        ? null : unratedFor(card);
+      const stoodList = card.away || !stoodSets?.get?.(card.key)?.length
+        ? null : stoodSets.get(card.key);
+      const pointSplit = splitOf(allPoints);
+      const unratedSplit = splitOf(unratedList);
+      const stoodSplit = splitOf(stoodList);
+      const points = pointSplit.within;
+      const beyondStoodField = stoodSplit.beyond.length ? stoodFieldPointsFor(stoodSplit.beyond) : null;
+      const hasBeyond = pointSplit.beyond.length > 0 || unratedSplit.beyond.length > 0
+        || stoodSplit.beyond.length > 0;
       const tier = resolveConfidence(
         { confidence: card.confidence }, daysOut(card.date, todayStr),
       );
@@ -1158,17 +1178,23 @@ export default function WindowFirstHeatStrip({
         // already hatched — the same predicate, not an empty set), nor on an away cell.
         // A shaped, unscored window (S5b-1) has no evidence to hatch from (`unratedSets` needs a rated or stood place),
         // so it hatches around the reader's own unrated places alone, from the grounds below.
-        ...(card.away || plateHatched(card) || !unratedFor(card)?.length
-          ? null : { unrated: unratedFor(card) }),
+        ...(unratedSplit.within?.length ? { unrated: unratedSplit.within } : null),
         // Stood-down ground (big-seas plan F4): the Map's list, never on an away cell. Unlike the
         // unrated layer it is NOT withheld on an unscored window: a window where every place stood
         // down has no rating, and is the one this exists for. Disc radius = the field's `radius`.
-        ...(card.away || !stoodSets?.get?.(card.key)?.length
-          ? null : { stood: stoodSets.get(card.key) }),
+        ...(stoodSplit.within?.length ? { stood: stoodSplit.within } : null),
         // The same list, same guards, blended into the colour at 1 star (draw time only; stood-down-field
         // plan D2): the field then agrees with the hatch and the count instead of reading the rated few alone.
-        ...(card.away || !stoodSets?.get?.(card.key)?.length
-          ? null : { stoodField: stoodFieldPointsFor(stoodSets.get(card.key)) }),
+        ...(stoodSplit.within?.length ? { stoodField: stoodFieldPointsFor(stoodSplit.within) } : null),
+        // The places beyond the drive tier, painted faded under the within layer (heatField `beyond`).
+        // Spread only when something is beyond, so tier Any / no postcode / all within add no key.
+        ...(hasBeyond ? {
+          beyond: {
+            points: pointSplit.beyond,
+            ...(unratedSplit.beyond.length ? { unrated: unratedSplit.beyond } : null),
+            ...(stoodSplit.beyond.length ? { stood: stoodSplit.beyond, stoodField: beyondStoodField } : null),
+          },
+        } : null),
         fit: fitTo,
         // Outside the reader's sub-regions (S5b-1, handoff task 6): the veil under the field and a 1px dashed outline
         // after it, the same layers the Map draws, from the window's own two grounds. Spread only on a shaped body
@@ -1232,7 +1258,7 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, stoodSets, plateHatched, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+  }, [cards, pointSets, stoodSets, fieldReachById, plateHatched, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
     origin, homeCoords, shaped, groundSets, unratedFor]);
 
   /**
@@ -2525,6 +2551,8 @@ WindowFirstHeatStrip.propTypes = {
   stoodSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
   reachById: PropTypes.instanceOf(Map),
+  /** The effective reach map, for the field's reach split only. Absent means no split. */
+  fieldReachById: PropTypes.instanceOf(Map),
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
   hotTopics: PropTypes.array,
   openKeys: PropTypes.instanceOf(Set),

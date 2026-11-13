@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, buildUnratedPointSets, forecastScoreRows, heatPointsFor, unratedPointsFor,
+  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, buildUnratedPointSets, forecastScoreRows, heatPointsFor, splitByReach, unratedPointsFor,
 } from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
 
@@ -431,5 +431,67 @@ describe('unratedPointsFor — no evidence, no hatch', () => {
       [location(), location({ id: 2, name: 'Alnmouth' })], [row({ rating: 4 })], EVENTS,
     );
     expect(unratedPointsFor(spots, 0).map((p) => p.name)).toEqual(['Alnmouth']);
+  });
+});
+
+describe('splitByReach', () => {
+  const pt = (id) => ({ id, name: `P${id}`, r: [3] });
+  const REACH = new Map([
+    [1, { driveMinutes: 20, driveStatus: null }],
+    [2, { driveMinutes: 45, driveStatus: null }],
+    [3, { driveMinutes: 90, driveStatus: null }],
+    [4, { driveMinutes: null, driveStatus: null }],
+    [5, { driveMinutes: null, driveStatus: 'UNROUTABLE' }],
+  ]);
+
+  it('splits in and out, inclusive at the boundary, order preserved', () => {
+    const points = [pt(3), pt(1), pt(2), pt(5)];
+    const { within, beyond } = splitByReach(points, REACH, 45, true);
+    expect(within.map((p) => p.id)).toEqual([1, 2]);
+    expect(beyond.map((p) => p.id)).toEqual([3, 5]);
+  });
+
+  it('treats a missing entry, null minutes and a missing id as unknown (within)', () => {
+    const points = [pt(4), pt(99), { name: 'no id', r: [2] }, pt(3)];
+    const { within, beyond } = splitByReach(points, REACH, 45, true);
+    expect(within).toHaveLength(3);
+    expect(beyond.map((p) => p.id)).toEqual([3]);
+  });
+
+  it('treats an unroutable place as beyond for a measured reader only', () => {
+    expect(splitByReach([pt(5), pt(1)], REACH, 45, true).beyond.map((p) => p.id)).toEqual([5]);
+    const unmeasured = [pt(5), pt(1)];
+    expect(splitByReach(unmeasured, REACH, 45, false).within).toBe(unmeasured);
+  });
+
+  it('returns the same array reference for Any, unmeasured, empty and all-within', () => {
+    const points = [pt(1), pt(3)];
+    expect(splitByReach(points, REACH, null, true).within).toBe(points);
+    expect(splitByReach(points, REACH, 45, false).within).toBe(points);
+    expect(splitByReach(points, REACH, 45, false).beyond).toHaveLength(0);
+    const near = [pt(1), pt(2)];
+    const all = splitByReach(near, REACH, 45, true);
+    expect(all.within).toBe(near);
+    expect(all.beyond).toHaveLength(0);
+    const none = [];
+    expect(splitByReach(none, REACH, 45, true).within).toBe(none);
+    expect(splitByReach(null, REACH, 45, true).within).toBeNull();
+  });
+
+  it('reads the map it is given, so an away map can decide where the home map would not', () => {
+    const away = new Map([[3, { driveMinutes: 10, driveStatus: null }]]);
+    const points = [pt(3)];
+    expect(splitByReach(points, REACH, 45, true).beyond).toHaveLength(1);
+    expect(splitByReach(points, away, 45, true).within).toBe(points);
+  });
+
+  it('does not coerce ids: the string "5" against a Map keyed 5 is unknown and passes', () => {
+    const points = [{ id: '5', r: [3] }];
+    expect(splitByReach(points, REACH, 45, true).within).toBe(points);
+  });
+
+  it('copes with no map at all', () => {
+    const points = [pt(3)];
+    expect(splitByReach(points, undefined, 45, true).within).toBe(points);
   });
 });

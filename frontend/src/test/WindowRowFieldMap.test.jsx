@@ -1762,3 +1762,90 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
     expect(onSelectRegion).toHaveBeenCalledWith('Coast');
   });
 });
+
+describe('WindowRowFieldMap — the reach split (reach-field plan)', () => {
+  const NEAR = { id: 1, lat: 6, lng: 4, rid: 'Coast', r: [4] };
+  const FAR = { id: 2, lat: 6, lng: 24, rid: 'Dales', r: [3] };
+  const HOME = new Map([[1, { driveMinutes: 20 }], [2, { driveMinutes: 20 }]]);
+  const EFFECTIVE = new Map([[1, { driveMinutes: 20 }], [2, { driveMinutes: 90 }]]);
+  const SPLIT = { reachMeasured: true, reachLimitMinutes: 45, fieldReachById: EFFECTIVE };
+  const paint = async (props) => {
+    await withMeasuredMap(600, async () => {
+      await renderMap(props);
+    });
+    return drawGeo.mock.calls.at(-1);
+  };
+
+  it('hands drawGeo today\'s exact points and options under Any, unmeasured or without a map', async () => {
+    const points = [NEAR, FAR];
+    const cases = [
+      { ...SPLIT, reachLimitMinutes: null },
+      { ...SPLIT, reachMeasured: false },
+      { ...SPLIT, fieldReachById: undefined },
+      { ...SPLIT, fieldReachById: HOME },
+    ];
+    for (const props of cases) {
+      drawGeo.mockClear();
+      cleanup();
+      const call = await paint({ points, ...props });
+      expect(call[3]).toBe(points);
+      expect(call[5]).not.toHaveProperty('beyond');
+    }
+  });
+
+  it('splits points, unrated and stood by the effective map under a tier', async () => {
+    const unrated = [
+      { id: 1, lat: 5, lng: 5, rid: 'Coast', r: [0] }, { id: 2, lat: 5, lng: 25, rid: 'Dales', r: [0] },
+    ];
+    const stood = [
+      { id: 1, lat: 4, lng: 4, rid: 'Coast', key: '#1' }, { id: 2, lat: 4, lng: 24, rid: 'Dales', key: '#2' },
+    ];
+    const [, , , points, , opts] = await paint({ points: [NEAR, FAR], unrated, stood, ...SPLIT });
+    expect(points).toEqual([NEAR]);
+    expect(opts.unrated).toEqual([unrated[0]]);
+    expect(opts.stood).toEqual([stood[0]]);
+    expect(opts.stoodField).toEqual([stood[0]]);
+    expect(opts.beyond).toEqual({
+      points: [FAR], unrated: [unrated[1]], stood: [stood[1]], stoodField: [stood[1]],
+    });
+  });
+
+  it('lets the effective map decide, not the home map framing reads', async () => {
+    const [, , , , , opts] = await paint({
+      points: [NEAR, FAR], reachById: HOME, ...SPLIT,
+    });
+    expect(opts.beyond.points).toEqual([FAR]);
+  });
+
+  it('keeps the focus on a region whose places are all beyond, the faded layer carrying it', async () => {
+    const [, , , points, , opts] = await paint({ points: [FAR], selectedRegion: 'Dales', ...SPLIT });
+    expect(opts.focus).toBe('Dales');
+    expect(points).toEqual([]);
+    expect(opts.beyond.points).toEqual([FAR]);
+  });
+
+  it('repaints when the tier changes and not on an identical re-render', async () => {
+    const points = [NEAR, FAR];
+    const map = (extra) => (
+      <WindowRowFieldMap
+        windowKey={KEY} date={TODAY} confidence="high" spots={SPOTS} points={points} bestRating={4}
+        regionNames={REGIONS} selectedRegion={null} todayStr={TODAY} {...SPLIT} {...extra}
+      />
+    );
+    let view;
+    await withMeasuredMap(600, async () => {
+      await act(async () => {
+        view = render(map());
+      });
+      const calls = drawGeo.mock.calls.length;
+      await act(async () => {
+        view.rerender(map());
+      });
+      expect(drawGeo.mock.calls.length).toBe(calls);
+      await act(async () => {
+        view.rerender(map({ reachLimitMinutes: null }));
+      });
+    });
+    expect(drawGeo.mock.calls.at(-1)[5]).not.toHaveProperty('beyond');
+  });
+});

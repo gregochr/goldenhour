@@ -31,6 +31,7 @@
 
 import { isSkyPromptCandidate } from './locationTypes.js';
 import { windowKey } from './windowKeys.js';
+import { spotPassesReach } from './reachLens.js';
 
 /** Ratings are 1–5; the backend's {@code RatingValidator} bounds them and so does this. */
 const MIN_RATING = 1;
@@ -496,4 +497,39 @@ export function forecastScoreRows(locations, windows) {
     }
   }
   return rows;
+}
+
+const NO_POINTS = Object.freeze([]);
+
+/**
+ * Splits a point list by the drive tier, for the At a Glance field's draw-only fade.
+ *
+ * <p>Reads the same predicate {@code card.pool} is gated with ({@link spotPassesReach}) over the same
+ * effective drive map, so a place a card's words count as within is painted within. A point with no id or
+ * no entry is unknown and passes. Ids are matched exactly (no coercion). When there is nothing to split
+ * (Any, unmeasured, empty, or nothing beyond) {@code within} is the input array itself and {@code beyond}
+ * a shared empty array, so a caller's options and memo identity are today's.
+ *
+ * @param {?Array<{id: *}>} points      heat, unrated or stood points
+ * @param {?Map<*, {driveMinutes: ?number, driveStatus: ?string}>} reachById effective drive map
+ * @param {?number} limitMinutes        the tier's threshold, null for "Any"
+ * @param {boolean} measured            the reader-level measured flag
+ * @returns {{within: Array<object>, beyond: Array<object>}} the two halves, order preserved
+ */
+export function splitByReach(points, reachById, limitMinutes, measured) {
+  if (limitMinutes == null || measured !== true || !points?.length) {
+    return { within: points, beyond: NO_POINTS };
+  }
+  const within = [];
+  const beyond = [];
+  for (const point of points) {
+    const entry = point.id != null ? reachById?.get(point.id) : null;
+    const passes = spotPassesReach({
+      driveMinutes: entry?.driveMinutes ?? null,
+      driveStatus: entry?.driveStatus ?? null,
+    }, limitMinutes, measured);
+    (passes ? within : beyond).push(point);
+  }
+  if (beyond.length === 0) return { within: points, beyond: NO_POINTS };
+  return { within, beyond };
 }

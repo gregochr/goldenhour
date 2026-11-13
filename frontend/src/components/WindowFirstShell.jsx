@@ -1485,6 +1485,8 @@ export default function WindowFirstShell({
       windows: heatStripCards,
       series: regionSeries,
       reachById,
+      // The effective map (away-aware), for the field's reach split only; `reachById` frames and rings.
+      fieldReachById: effectiveReachById,
       lens: fieldLens,
       onSelectRegion: setFocusedRegion,
       // ⚠️ FORCED NULL under an away origin, and that is a defect fix rather than tidiness. The
@@ -1507,7 +1509,7 @@ export default function WindowFirstShell({
       homeCoords,
     };
   }, [openCard, heatSpots, heatPointSets, heatUnratedSets, heatStoodSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords, regionPicks, heatGroundSets]);
+    effectiveReachById, eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords, regionPicks, heatGroundSets]);
 
   // Lifted to App for the Map tab's doors. Without this a tile handed to the map lands on a map that
   // has filtered out every unrated pin - see the provider's note on why this arm fetches them at all.
@@ -2969,6 +2971,7 @@ export default function WindowFirstShell({
             picks={picksFacts}
             spots={heatSpots}
             reachById={reachById}
+            fieldReachById={effectiveReachById}
             /* The served topics, for the matrix's scope filter (plan-matrix A8). Read straight off
                the briefing rather than through a derivation, because the join key is the topic's
                OWN `eventType` + `date` and any client re-shaping is a chance to lose the NIGHT

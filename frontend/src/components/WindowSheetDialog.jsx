@@ -740,6 +740,8 @@ export default function WindowSheetDialog({
               chips={chips}
               selectedRegion={field.selectedRegion || null}
               reachById={field.reachById}
+              fieldReachById={field.fieldReachById}
+              reachLimitMinutes={card.reachLimitMinutes ?? null}
               origin={field.origin || null}
               todayStr={todayStr}
               onSelectRegion={field.onSelectRegion}
@@ -899,6 +901,8 @@ WindowSheetDialog.propTypes = {
      * field's own note for why it is a claim about the reader rather than about the survivors.
      */
     reachMeasured: PropTypes.bool,
+    /** The drive tier in minutes the field splits at; null is Any. */
+    reachLimitMinutes: PropTypes.number,
     // The per-window tide-fit summary this dialog reads for the tide row's trailing fact
     // (tide-plan-card-plan.md §3 C3) — `{coastal, matched, live, meanQuality}`, `windowFirstCards.js`.
     tideFit: PropTypes.shape({

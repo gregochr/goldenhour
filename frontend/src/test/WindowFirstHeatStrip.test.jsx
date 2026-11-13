@@ -5148,3 +5148,170 @@ describe('WindowFirstHeatStrip — the reach-scoped headline (reach-scoped-card-
     });
   });
 });
+
+describe('WindowFirstHeatStrip — the reach split (reach-field plan)', () => {
+  const KEY = `${TODAY}:SUNSET`;
+  const NEAR = { id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'Northumberland & Tyneside', r: [4] };
+  const FAR = { id: 2, name: 'Ladybower', lat: 53.4, lng: -1.7, rid: 'Peak District', r: [3] };
+  const POINTS = [NEAR, FAR];
+  const HOME = new Map([[1, { driveMinutes: 20 }], [2, { driveMinutes: 20 }]]);
+  const EFFECTIVE = new Map([[1, { driveMinutes: 20 }], [2, { driveMinutes: 90 }]]);
+  const U_NEAR = { id: 1, name: 'A', lat: 55.5, lng: -1.6, rid: 'Northumberland & Tyneside', r: [0] };
+  const U_FAR = { id: 2, name: 'B', lat: 53.5, lng: -1.8, rid: 'Peak District', r: [0] };
+  const S_NEAR = { id: 1, lat: 55.4, lng: -1.6, reason: 'HIGH_CLOUD', rid: 'Northumberland & Tyneside', key: '#1' };
+  const S_FAR = { id: 2, lat: 53.6, lng: -1.8, reason: 'PRECIPITATION', rid: 'Peak District', key: '#2' };
+  const CARD = stripCard({ bestRating: 4 });
+  const lastOpts = () => drawGeo.mock.calls.at(-1)[5];
+  const lastPoints = () => drawGeo.mock.calls.at(-1)[3];
+  const nameOf = () => screen.getAllByRole('button').map((b) => b.getAttribute('aria-label')
+    ?? b.getAttribute('aria-labelledby'));
+
+  async function paintWith(props = {}) {
+    const pointSets = props.pointSets ?? new Map([[KEY, POINTS]]);
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({
+        cards: [CARD], pointSets, reachById: HOME, fieldReachById: EFFECTIVE, ...props,
+      });
+    });
+    return pointSets;
+  }
+
+  const strip = (props) => (
+    <WindowFirstHeatStrip
+      spots={[spot()]} todayStr={TODAY} onOpenWindow={vi.fn()} cards={[CARD]}
+      pointSets={new Map([[KEY, POINTS]])} reachById={HOME} fieldReachById={EFFECTIVE} {...props}
+    />
+  );
+
+  it('under tier Any hands drawGeo today\'s exact points and options (no beyond key)', async () => {
+    const pointSets = await paintWith({ cards: [stripCard({ bestRating: 4, reachLimitMinutes: null })] });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+    expect(lastPoints()).toBe(pointSets.get(KEY));
+  });
+
+  it('adds no beyond key when the reader has no measured drive', async () => {
+    const pointSets = await paintWith({ cards: [stripCard({ bestRating: 4, reachMeasured: false })] });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+    expect(lastPoints()).toBe(pointSets.get(KEY));
+  });
+
+  it('adds no beyond key without a field reach map, or when everything is within the tier', async () => {
+    await paintWith({ fieldReachById: undefined });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+    drawGeo.mockClear();
+    cleanup();
+    const pointSets = await paintWith({ fieldReachById: HOME });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+    expect(lastPoints()).toBe(pointSets.get(KEY));
+  });
+
+  it('under a tier, the within places are the points and the rest are beyond.points', async () => {
+    await paintWith();
+    expect(lastPoints()).toEqual([NEAR]);
+    expect(lastOpts().beyond).toEqual({ points: [FAR] });
+  });
+
+  it('splits by the effective map, never the home map framing uses', async () => {
+    // Home says both are 20 min away; the away-origin map says FAR is 90. The effective map decides.
+    await paintWith({ reachById: HOME, fieldReachById: EFFECTIVE });
+    expect(lastOpts().beyond.points).toEqual([FAR]);
+    drawGeo.mockClear();
+    cleanup();
+    await paintWith({ reachById: EFFECTIVE, fieldReachById: HOME });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+  });
+
+  it('splits the unrated and stood lists, and the stood field per half', async () => {
+    await paintWith({
+      unratedSets: new Map([[KEY, [U_NEAR, U_FAR]]]),
+      stoodSets: new Map([[KEY, [S_NEAR, S_FAR]]]),
+    });
+    const opts = lastOpts();
+    expect(opts.unrated).toEqual([U_NEAR]);
+    expect(opts.stood).toEqual([S_NEAR]);
+    expect(opts.stoodField).toEqual([S_NEAR]);
+    expect(opts.beyond.unrated).toEqual([U_FAR]);
+    expect(opts.beyond.stood).toEqual([S_FAR]);
+    expect(opts.beyond.stoodField).toEqual([S_FAR]);
+  });
+
+  it('carries a beyond key for a stood place alone, and drops the empty within keys', async () => {
+    await paintWith({
+      pointSets: new Map([[KEY, [NEAR]]]),
+      stoodSets: new Map([[KEY, [S_FAR]]]),
+    });
+    const opts = lastOpts();
+    expect(opts).not.toHaveProperty('stood');
+    expect(opts).not.toHaveProperty('stoodField');
+    expect(opts.beyond).toEqual({ points: [], stood: [S_FAR], stoodField: [S_FAR] });
+  });
+
+  it('repaints without the split when the lens moves to Any', async () => {
+    const pointSets = new Map([[KEY, POINTS]]);
+    let rerenderRoot;
+    await withMeasuredThumbs(160, async () => {
+      await act(async () => {
+        rerenderRoot = render(strip({ pointSets })).rerender;
+      });
+      expect(lastOpts()).toHaveProperty('beyond');
+      await act(async () => {
+        rerenderRoot(strip({ pointSets, cards: [stripCard({ bestRating: 4, reachLimitMinutes: null })] }));
+      });
+    });
+    expect(lastOpts()).not.toHaveProperty('beyond');
+    expect(lastPoints()).toBe(pointSets.get(KEY));
+  });
+
+  it('repaints when the effective reach map changes', async () => {
+    const pointSets = new Map([[KEY, POINTS]]);
+    let rerenderRoot;
+    await withMeasuredThumbs(160, async () => {
+      await act(async () => {
+        rerenderRoot = render(strip({ pointSets, fieldReachById: HOME })).rerender;
+      });
+      expect(lastOpts()).not.toHaveProperty('beyond');
+      await act(async () => {
+        rerenderRoot(strip({ pointSets, fieldReachById: EFFECTIVE }));
+      });
+    });
+    expect(lastOpts().beyond.points).toEqual([FAR]);
+  });
+
+  it('leaves the card text and accessible name unchanged by the split', async () => {
+    await paintWith();
+    const withSplit = screen.getByTestId('wf-heat-card').textContent;
+    const nameWith = nameOf();
+    cleanup();
+    await paintWith({ fieldReachById: undefined });
+    expect(screen.getByTestId('wf-heat-card').textContent).toBe(withSplit);
+    expect(nameOf()).toEqual(nameWith);
+  });
+
+  it('gives a plate-hatched card no beyond.unrated', async () => {
+    const hatched = stripCard({
+      key: '2026-08-07:SUNRISE', date: '2026-08-07', targetType: 'SUNRISE', bestRating: null,
+    });
+    await paintWith({
+      cards: [hatched],
+      pointSets: new Map([[hatched.key, POINTS]]),
+      unratedSets: new Map([[hatched.key, [U_NEAR, U_FAR]]]),
+    });
+    expect(lastOpts().hatch).toBe(true);
+    expect(lastOpts()).not.toHaveProperty('unrated');
+    expect(lastOpts().beyond).not.toHaveProperty('unrated');
+  });
+
+  it('never gives an away card a beyond key', async () => {
+    const away = stripCard({
+      key: '2026-08-06:SUNSET', date: '2026-08-06', bestRating: null, away: true,
+      verdict: null, verdictLabel: 'Not forecast',
+    });
+    await paintWith({
+      cards: [away],
+      pointSets: new Map([[away.key, POINTS]]),
+      unratedSets: new Map([[away.key, [U_FAR]]]),
+      stoodSets: new Map([[away.key, [S_FAR]]]),
+    });
+    drawGeo.mock.calls.forEach((c) => expect(c[5]).not.toHaveProperty('beyond'));
+  });
+});

@@ -153,7 +153,7 @@ function forNeighbours(grid, px, py, visit) {
  * @param {Array<{x: number, y: number, sc: number, rid: *}>} pts points in CSS px of the target surface
  * @param {number} w  surface width in CSS px
  * @param {number} h  surface height in CSS px
- * @param {{radius?: number, grid?: number, conf?: number, focus?: *, alpha?: number, bloom?: *,
+ * @param {{radius?: number, grid?: number, conf?: number, focus?: *, alpha?: number, desat?: number, bloom?: *,
  *          bloomFrom?: number, bloomA?: number, ramp?: function(number): number[],
  *          bloomRGB?: number[]}} [opts] dials. `ramp` maps a blended score to [r, g, b] (default
  *          the active `scoreRamp` mode's `rampRgb`); `bloomRGB` is the bloom's colour (default the
@@ -226,6 +226,10 @@ export function field(pts, w, h, opts) {
         const g = (c[0] + c[1] + c[2]) / 3;
         const d = 0.6 * unc;
         c = [c[0] + (g - c[0]) * d, c[1] + (g - c[1]) * d, c[2] + (g - c[2]) * d];
+      }
+      if (opts.desat > 0) {
+        const g = (c[0] + c[1] + c[2]) / 3;
+        c = [c[0] + (g - c[0]) * opts.desat, c[1] + (g - c[1]) * opts.desat, c[2] + (g - c[2]) * opts.desat];
       }
       img.data[k] = c[0];
       img.data[k + 1] = c[1];
@@ -1156,6 +1160,11 @@ export function paintOutline(ctx, plan, opts) {
   return true;
 }
 
+/** How much of a place's strength survives beyond the drive tier: the field's alpha and the hatches' opacity. */
+export const REACH_FADE = 0.3;
+/** How far a beyond-reach place's colour is mixed toward its grey mean (0-1). */
+export const REACH_DESAT = 0.5;
+
 /**
  * Host A: a static canvas with a d3 projection, clipped to real coastline (the Plan thumbnails
  * and the open row's field map).
@@ -1173,6 +1182,10 @@ export function paintOutline(ctx, plan, opts) {
  *        places ({@link paintStandDown}), painted straight after the unrated hatch.
  *        `stoodField` (same shape) blends those places into the colour at {@link STOOD_FIELD_SCORE}
  *        and nowhere else: never the rated mask, so the hatches are unchanged.
+ *        `beyond` ({@code {points, unrated?, stood?, stoodField?}}, same shapes) is the faded layer of the
+ *        places beyond the drive tier: its hatches ({@link REACH_FADE} opacity) go under the within
+ *        hatches and its field (alpha x {@link REACH_FADE}, {@link REACH_DESAT}, no bloom) under the
+ *        within field; the within lists are then the within places only. Absent, nothing changes.
  *        `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
  *        it is the CALLER's claim that this window carries no scores, never inferred from an
  *        empty field — {@link field} also returns null when every point is culled outside the
@@ -1214,6 +1227,26 @@ export function drawGeo(cv, w, h, spots, win, opts) {
       w, h, opts,
     ) : null;
   if (ground) paintVeil(ctx, w, h, ground, { ...opts, clip });
+  const bey = opts.beyond;
+  const toXY = (s) => projection([s.lng, s.lat]);
+  const beyPts = bey
+    ? (bey.points || []).map((s) => {
+      const p = projection([s.lng, s.lat]);
+      return { x: p[0], y: p[1], sc: s.r[win], rid: s.rid };
+    }) : null;
+  if (bey) {
+    // Beyond the tier: faded hatches under the within ones. They yield to every rated place, within or
+    // beyond; the within hatches below yield only to the within rated places.
+    const allRated = ratedMaskPoints(pts.concat(beyPts));
+    // `opacity` is the hatch factor only; the beyond field's paint options below carry none.
+    const fadedOpts = { ...opts, clip, opacity: (opts.opacity ?? 1) * REACH_FADE };
+    if (bey.unrated && bey.unrated.length) {
+      paintUnknown(ctx, w, h, maskPoints(bey.unrated, toXY), allRated, fadedOpts);
+    }
+    if (bey.stood && bey.stood.length) {
+      paintStandDown(ctx, w, h, maskPoints(bey.stood, toXY), allRated, fadedOpts);
+    }
+  }
   // Above the plate, under the field: colour wins where a rated place is near. Absent by default,
   // so every existing host's output is exactly what it was.
   if (opts.unrated && opts.unrated.length) {
@@ -1232,6 +1265,23 @@ export function drawGeo(cv, w, h, spots, win, opts) {
       maskPoints(opts.stood, (s) => projection([s.lng, s.lat])),
       ratedMaskPoints(pts),
       { ...opts, clip },
+    );
+  }
+  if (bey) {
+    // The faded field, under the within one. No `opacity` key: blitField reads it (default .92) and
+    // the fade is in the alpha.
+    const fieldOpts = { ...opts };
+    delete fieldOpts.opacity;
+    paint(
+      ctx, w, h,
+      withStoodField(beyPts, bey.stoodField, toXY),
+      {
+        ...fieldOpts,
+        alpha: (opts.focus ? 238 : 206) * REACH_FADE,
+        desat: REACH_DESAT,
+        bloom: null,
+        clip,
+      },
     );
   }
   paint(

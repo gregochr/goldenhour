@@ -12,6 +12,7 @@ import {
   isFarSpot,
   isWeekend,
   readStoredTierId,
+  spotPassesReach,
   tierById,
   writeStoredTierId,
 } from '../utils/reachLens.js';
@@ -317,5 +318,35 @@ describe('reachLens — the readout', () => {
       expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 }).rest)
         .toContain('within reach');
     });
+  });
+});
+
+describe('spotPassesReach', () => {
+  const at = (driveMinutes, driveStatus = null) => ({ driveMinutes, driveStatus });
+
+  it('passes within the tier and at the boundary, fails beyond', () => {
+    expect(spotPassesReach(at(30), 45, true)).toBe(true);
+    expect(spotPassesReach(at(45), 45, true)).toBe(true);
+    expect(spotPassesReach(at(46), 45, true)).toBe(false);
+  });
+
+  it('passes everything under Any', () => {
+    expect(spotPassesReach(at(500), null, true)).toBe(true);
+    expect(spotPassesReach(at(null, 'UNROUTABLE'), null, true)).toBe(true);
+  });
+
+  it('passes an unknown drive, but not an unroutable one for a measured reader', () => {
+    expect(spotPassesReach(at(null), 45, true)).toBe(true);
+    expect(spotPassesReach(at(null, 'PENDING'), 45, true)).toBe(true);
+    expect(spotPassesReach(at(null, 'UNROUTABLE'), 45, true)).toBe(false);
+    expect(spotPassesReach(at(null, 'UNROUTABLE'), 45, false)).toBe(true);
+  });
+
+  it('agrees with gateSpotsByReach for every case', () => {
+    const spots = [at(10), at(45), at(90), at(null), at(null, 'UNROUTABLE')];
+    for (const measured of [true, false]) {
+      expect(gateSpotsByReach(spots, 45, { measured }))
+        .toEqual(spots.filter((s) => spotPassesReach(s, 45, measured)));
+    }
   });
 });
