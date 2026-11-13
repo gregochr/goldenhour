@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.8] - 2026-11-13
+
+### Fixed — Filters panel no longer scrolls when the map has room; scrollbars match the app's palette
+
+The Map tab's Filters popover (and the legend) now grow to the room the map frame has instead of stopping at a fixed 420px, so the Scope row and the "N of M shown / Clear all" footer are no longer hidden below the fold on a tall screen. Scrollbars everywhere now use a thin, faint warm thumb on a transparent track rather than the default grey.
+
+### Changed — the At a Glance field fades places beyond the drive tier
+
+Under a finite drive tier, the Plan tab's thumbnails and the window popup's map now paint the places within
+reach at full strength and the places beyond it faded (a third of the strength, half the colour, no glow, and
+their "not rated yet" and "stood down" hatches faded to match), so the picture follows the words beside it
+instead of glowing over somewhere two hours away. Tier Any, a reader with no measured drive times, and
+windows with nothing beyond reach paint exactly as before. The framing, the card text and the Map tab are
+unchanged. The split reads the same drive map the card's own count does, so an away origin is honoured.
+
 ## [v2.39.7] - 2026-11-12
 
 ### Fixed — weather stand-downs colour the heat field
