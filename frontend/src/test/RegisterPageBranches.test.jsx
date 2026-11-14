@@ -105,13 +105,16 @@ describe('RegisterPage branches', () => {
       answer(widgets, 0, 'reg-token');
       fireEvent.click(screen.getByTestId('reg-submit'));
       await screen.findByTestId('waitlist-step');
+      // The waitlist widget renders from TurnstileWidget's useEffect, which can flush after the commit
+      // findByTestId saw; until it has, widgets[1] does not exist and widgets[0] is the unmounted one.
+      await waitFor(() => expect(widgets.length).toBe(2));
     }
 
     it('lets the reader edit the email, drops the token on expiry, and speaks a generic failure', async () => {
       const widgets = installCapturingTurnstile();
       AuthApi.submitWaitlist.mockRejectedValue(new Error('boom'));
       await toWaitlist(widgets);
-      const waitlistWidget = widgets.length - 1;
+      const waitlistWidget = 1;
 
       fireEvent.change(screen.getByTestId('waitlist-email'), { target: { value: 'other@example.com' } });
       expect(screen.getByTestId('waitlist-email')).toHaveValue('other@example.com');
