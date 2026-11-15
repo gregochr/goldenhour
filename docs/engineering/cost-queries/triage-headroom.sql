@@ -3,6 +3,9 @@
 -- (claude-cost-ledger.md, "Triage headroom"). Run with:
 --   docker exec -i goldenhour-db psql -U goldenhour -d goldenhour < docs/engineering/cost-queries/triage-headroom.sql
 --
+-- The one TEMP VIEW below (triage_cyc) is session-local: nothing persists in the database and it vanishes
+-- when the psql session ends, so the file stays read-only against production.
+--
 -- Today's triage (WeatherTriageEvaluator) stands a slot down, free, when ANY of:
 --   rule 1  solar-horizon low cloud > 80%   (directional; observer low cloud when no directional data)
 --   rule 2  precipitation > 2 mm
@@ -24,9 +27,7 @@
 -- final_ge_4_hidden is under 1% of skippable_requests, over at least 30 days that include both settled
 -- and unsettled spells. Re-read the "Rejected or shelved" entries in the ledger before proposing it.
 
--- 1. Star outcome by solar-horizon low cloud band, for rows that passed today's triage.
---    Read the 50-80 bands: if >= 4 is rare there, rule 1 has headroom.
-WITH cyc AS (
+CREATE TEMP VIEW triage_cyc AS
     SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
            substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
            p.cycle_type, a.cost_micro_dollars
@@ -35,16 +36,18 @@ WITH cyc AS (
     JOIN pipeline_run p   ON p.id = b.pipeline_run_id
     WHERE a.is_batch AND a.succeeded AND a.custom_id LIKE 'fc-%'
       AND a.called_at >= now() - interval '45 days'
-    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
-),
-s AS (
+    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC;
+
+-- 1. Star outcome by solar-horizon low cloud band, for rows that passed today's triage.
+--    Read the 50-80 bands: if >= 4 is rare there, rule 1 has headroom.
+WITH s AS (
     SELECT f.target_type,
            CASE WHEN f.days_ahead <= 1 THEN 'near (T+0/1)' ELSE 'far (T+2/3)' END AS horizon,
            COALESCE(f.solar_low_cloud, f.low_cloud) AS sun_low,
            COALESCE(c.cost_micro_dollars, 0) AS cost_micro,
            COALESCE(f.sky_rating, f.rating) AS stars
     FROM forecast_evaluation f
-    LEFT JOIN cyc c ON c.eval_id = f.id
+    LEFT JOIN triage_cyc c ON c.eval_id = f.id
     WHERE f.forecast_run_at >= now() - interval '45 days'
       AND f.target_type IN ('SUNRISE', 'SUNSET')
       AND COALESCE(f.sky_rating, f.rating) IS NOT NULL
@@ -67,18 +70,7 @@ ORDER BY 1, 2, 3;
 
 -- 2. Candidate thresholds, one row each: what a stricter rule would have skipped and hidden, last 45 days,
 --    dollars also scaled to 30 days. Candidates are independent (each row alone added to today's rules).
-WITH cyc AS (
-    SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
-           substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
-           p.cycle_type, a.cost_micro_dollars
-    FROM api_call_log a
-    JOIN forecast_batch b ON b.anthropic_batch_id = a.batch_id
-    JOIN pipeline_run p   ON p.id = b.pipeline_run_id
-    WHERE a.is_batch AND a.succeeded AND a.custom_id LIKE 'fc-%'
-      AND a.called_at >= now() - interval '45 days'
-    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
-),
-s AS (
+WITH s AS (
     SELECT f.location_id, f.target_date, f.target_type, f.forecast_run_at,
            COALESCE(f.solar_low_cloud, f.low_cloud) AS sun_low,
            f.precipitation, f.visibility,
@@ -87,7 +79,7 @@ s AS (
            ROW_NUMBER() OVER (PARTITION BY f.location_id, f.target_date, f.target_type
                               ORDER BY f.forecast_run_at DESC) AS rn_desc
     FROM forecast_evaluation f
-    LEFT JOIN cyc c ON c.eval_id = f.id
+    LEFT JOIN triage_cyc c ON c.eval_id = f.id
     WHERE f.forecast_run_at >= now() - interval '45 days'
       AND f.target_type IN ('SUNRISE', 'SUNSET')
       AND COALESCE(f.sky_rating, f.rating) IS NOT NULL
@@ -124,24 +116,13 @@ ORDER BY c.candidate;
 
 -- 3. Where the saving would land: the best candidate from section 2 split by cycle.
 --    Edit the WHERE to the candidate you are judging (default: sun low cloud > 60).
-WITH cyc AS (
-    SELECT DISTINCT ON (substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint)
-           substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint AS eval_id,
-           p.cycle_type, a.cost_micro_dollars
-    FROM api_call_log a
-    JOIN forecast_batch b ON b.anthropic_batch_id = a.batch_id
-    JOIN pipeline_run p   ON p.id = b.pipeline_run_id
-    WHERE a.is_batch AND a.succeeded AND a.custom_id LIKE 'fc-%'
-      AND a.called_at >= now() - interval '45 days'
-    ORDER BY substring(a.custom_id FROM '-r([0-9]+)(-f)?$')::bigint, a.called_at DESC
-)
 SELECT COALESCE(c.cycle_type, 'UNKNOWN')                         AS cycle_type,
        CASE WHEN f.days_ahead <= 1 THEN 'near' ELSE 'far' END    AS horizon,
        count(*)                                                  AS skippable_requests,
        round(sum(COALESCE(c.cost_micro_dollars, 0)) / 1e6, 2)    AS usd_45d,
        count(*) FILTER (WHERE COALESCE(f.sky_rating, f.rating) >= 4) AS hidden_ge_4
 FROM forecast_evaluation f
-LEFT JOIN cyc c ON c.eval_id = f.id
+LEFT JOIN triage_cyc c ON c.eval_id = f.id
 WHERE f.forecast_run_at >= now() - interval '45 days'
   AND f.target_type IN ('SUNRISE', 'SUNSET')
   AND COALESCE(f.sky_rating, f.rating) IS NOT NULL
