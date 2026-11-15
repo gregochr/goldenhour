@@ -1187,6 +1187,50 @@ class BriefingSlotBuilderTest {
             assertThat(slot.weather().sunSideLowCloudPercent()).isEqualTo(80);
         }
 
+        private BriefingSlot clearOverheadSlot(OpenMeteoForecastResponse sunSide,
+                OpenMeteoForecastResponse antiSun) {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(SOLAR_TIME.toLocalDate())))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            OpenMeteoForecastResponse clear = buildForecastResponse();
+            clear.getHourly().getCloudCoverLow().replaceAll(ignored -> 5);
+            clear.getHourly().getCloudCoverMid().replaceAll(ignored -> 8);
+            clear.getHourly().getCloudCoverHigh().replaceAll(ignored -> 10);
+            return slotBuilder.buildSlot(new BriefingSlotBuilder.LocationWeather(loc, clear),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET, sunSide, antiSun, null);
+        }
+
+        @Test
+        @DisplayName("Clear overhead + sun-side canvas 70: stays GO, no clear-all-layers flag")
+        void clearOverheadSunwardCanvas_staysGo() {
+            BriefingSlot slot = clearOverheadSlot(layers(5, 10, 70), layers(0, 0, 0));
+
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+            assertThat(slot.flags()).doesNotContain("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("Clear overhead + anti-sun-only canvas: still MARGINAL with the flag")
+        void clearOverheadAntiSunCanvasOnly_marginal() {
+            BriefingSlot slot = clearOverheadSlot(layers(5, 0, 0), layers(0, 0, 90));
+
+            assertThat(slot.verdict()).isEqualTo(Verdict.MARGINAL);
+            assertThat(slot.flags()).contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("Clear overhead + sun-side low 45 + canvas: MARGINAL (horizon stage), flag per the rule")
+        void clearOverheadSunwardLowCloud_marginal() {
+            BriefingSlot slot = clearOverheadSlot(layers(45, 10, 70), layers(0, 0, 0));
+
+            // Sun-side low >= 15 means no sunward canvas exemption, so the clear-sky test still
+            // fires (demoting, and flagging), and the horizon stage keeps it at MARGINAL.
+            assertThat(slot.verdict()).isEqualTo(Verdict.MARGINAL);
+            assertThat(slot.flags()).contains("Clear all layers");
+        }
+
         @Test
         @DisplayName("No horizon responses: all five values null")
         void noHorizon_allNull() {

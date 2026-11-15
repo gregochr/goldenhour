@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
-import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -22,6 +21,7 @@ import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
+import com.gregochr.goldenhour.service.SlotCloud;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -409,16 +409,16 @@ public class BriefingGlossService {
 
         // Horizon figures are used only when every slot feeding the medians has them, so a median
         // never mixes the two sampling points.
-        boolean cloudSampledOnHorizons = medianSource.stream().allMatch(BriefingGlossService::isDirectional);
-        List<EffectiveCloud> layers = medianSource.stream()
-                .map(s -> cloudSampledOnHorizons ? horizonCloud(s.weather()) : observerCloud(s.weather()))
+        boolean cloudSampledOnHorizons = medianSource.stream().allMatch(s -> SlotCloud.isDirectional(s.weather()));
+        List<SlotCloud.Layers> layers = medianSource.stream()
+                .map(s -> cloudSampledOnHorizons ? SlotCloud.horizon(s.weather()) : SlotCloud.observer(s.weather()))
                 .toList();
 
-        int cloudLow = median(layers.stream().mapToInt(EffectiveCloud::low).sorted().toArray());
-        int cloudMid = median(layers.stream().mapToInt(EffectiveCloud::mid).sorted().toArray());
-        int cloudHigh = median(layers.stream().mapToInt(EffectiveCloud::high).sorted().toArray());
+        int cloudLow = median(layers.stream().mapToInt(SlotCloud.Layers::low).sorted().toArray());
+        int cloudMid = median(layers.stream().mapToInt(SlotCloud.Layers::mid).sorted().toArray());
+        int cloudHigh = median(layers.stream().mapToInt(SlotCloud.Layers::high).sorted().toArray());
 
-        long clearSlots = layers.stream().filter(EffectiveCloud::isClear).count();
+        long clearSlots = layers.stream().filter(SlotCloud.Layers::isClear).count();
         boolean clearAllLayers = clearSlots * MAJORITY_DIVISOR > layers.size();
         boolean buildingTrend = region.slots().stream()
                 .anyMatch(s -> s.flags().contains("Cloud building"));
@@ -466,41 +466,6 @@ public class BriefingGlossService {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build gloss user message", e);
         }
-    }
-
-    /** The three cloud layers one slot contributes to the gloss, from whichever sampling applies. */
-    private record EffectiveCloud(int low, int mid, int high) {
-
-        /** True when every layer is below the clear-sky threshold. */
-        boolean isClear() {
-            return low < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX
-                    && mid < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX
-                    && high < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX;
-        }
-    }
-
-    /** A slot is directional when all three sun-side horizon layers were sampled. */
-    private static boolean isDirectional(BriefingSlot slot) {
-        BriefingSlot.WeatherConditions w = slot.weather();
-        return w.sunSideLowCloudPercent() != null && w.sunSideMidCloudPercent() != null
-                && w.sunSideHighCloudPercent() != null;
-    }
-
-    /** The observer point's own layers. */
-    private static EffectiveCloud observerCloud(BriefingSlot.WeatherConditions w) {
-        return new EffectiveCloud(w.lowCloudPercent(), w.midCloudPercent(), w.highCloudPercent());
-    }
-
-    /**
-     * Horizon layers: low cloud on the sun side is the blocker; the larger of the two sides' mid and
-     * high cloud is the canvas — the same reading the full evaluation scores by.
-     */
-    private static EffectiveCloud horizonCloud(BriefingSlot.WeatherConditions w) {
-        int antiMid = w.antiSunSideMidCloudPercent() == null ? 0 : w.antiSunSideMidCloudPercent();
-        int antiHigh = w.antiSunSideHighCloudPercent() == null ? 0 : w.antiSunSideHighCloudPercent();
-        return new EffectiveCloud(w.sunSideLowCloudPercent(),
-                Math.max(w.sunSideMidCloudPercent(), antiMid),
-                Math.max(w.sunSideHighCloudPercent(), antiHigh));
     }
 
     /**

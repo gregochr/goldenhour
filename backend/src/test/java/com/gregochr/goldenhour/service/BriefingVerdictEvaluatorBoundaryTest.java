@@ -312,9 +312,9 @@ class BriefingVerdictEvaluatorBoundaryTest {
     @DisplayName("GO summary pluralises on one versus many")
     void goSummaryPlural() {
         assertThat(evaluator.buildRegionSummary(Verdict.GO, List.of(vslot(Verdict.GO)), List.of()))
-                .isEqualTo("Clear at 1 of 1 location");
+                .isEqualTo("Go at 1 of 1 location");
         assertThat(evaluator.buildRegionSummary(Verdict.GO, List.of(vslot(Verdict.GO), vslot(Verdict.GO)),
-                List.of())).isEqualTo("Clear at 2 of 2 locations");
+                List.of())).isEqualTo("Go at 2 of 2 locations");
     }
 
     @Test
