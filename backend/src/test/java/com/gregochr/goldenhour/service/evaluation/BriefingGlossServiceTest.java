@@ -7,6 +7,7 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.RunType;
@@ -662,10 +663,9 @@ class BriefingGlossServiceTest {
     // ── clearAllLayers flag ─────────────────────────────────────────────────
 
     @Test
-    @DisplayName("buildUserMessage sets clearAllLayers:true when slot has 'Clear all layers' flag")
-    void buildUserMessage_clearAllLayers_trueWhenFlagPresent() {
-        BriefingRegion clearRegion = regionWithFlags("Northumberland", Verdict.MARGINAL,
-                List.of("Clear all layers"));
+    @DisplayName("buildUserMessage sets clearAllLayers:true when the slot's layers are all clear")
+    void buildUserMessage_clearAllLayers_trueWhenLayersClear() {
+        BriefingRegion clearRegion = clearLayersRegion("Northumberland", Verdict.MARGINAL);
         BriefingDay day = dayWith(clearRegion);
         BriefingEventSummary es = day.eventSummaries().getFirst();
         BriefingGlossService.GlossWorkItem item =
@@ -677,8 +677,8 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("buildUserMessage sets clearAllLayers:false when no flag present")
-    void buildUserMessage_clearAllLayers_falseWhenNoFlag() {
+    @DisplayName("buildUserMessage sets clearAllLayers:false when the layers are not clear")
+    void buildUserMessage_clearAllLayers_falseWhenLayersNotClear() {
         BriefingRegion goRegion = region("Northumberland", Verdict.GO);
         BriefingDay day = dayWith(goRegion);
         BriefingEventSummary es = day.eventSummaries().getFirst();
@@ -698,8 +698,7 @@ class BriefingGlossServiceTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
                 .thenReturn(response);
 
-        BriefingRegion clearRegion = regionWithFlags("Northumberland", Verdict.MARGINAL,
-                List.of("Clear all layers"));
+        BriefingRegion clearRegion = clearLayersRegion("Northumberland", Verdict.MARGINAL);
         List<BriefingDay> days = List.of(dayWith(clearRegion));
         glossService.generateGlosses(days, 1L);
 
@@ -1249,6 +1248,257 @@ class BriefingGlossServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("Horizon cloud and the ratings gate in the gloss input")
+    class HorizonGlossInputTests {
+
+        private static final LocalDateTime AT = LocalDateTime.of(2026, 11, 16, 16, 0);
+
+        /** Observer-only weather: low, mid, high. */
+        private BriefingSlot.WeatherConditions observer(int low, int mid, int high) {
+            return new BriefingSlot.WeatherConditions(low, BigDecimal.ZERO, 20000, 65,
+                    10.0, 8.0, 0, BigDecimal.valueOf(3.5), mid, high);
+        }
+
+        /** Directional weather: observer figures plus sun-side and anti-sun-side horizon layers. */
+        private BriefingSlot.WeatherConditions directional(int obsLow, int obsMid, int obsHigh,
+                Integer sunLow, Integer sunMid, Integer sunHigh, Integer antiMid, Integer antiHigh) {
+            return new BriefingSlot.WeatherConditions(obsLow, BigDecimal.ZERO, 20000, 65,
+                    10.0, 8.0, 0, BigDecimal.valueOf(3.5), obsMid, obsHigh,
+                    sunLow, sunMid, sunHigh, antiMid, antiHigh);
+        }
+
+        private BriefingSlot slot(String name, Verdict verdict, BriefingSlot.WeatherConditions w,
+                List<String> flags) {
+            return new BriefingSlot(name, AT, verdict, w, BriefingSlot.TideInfo.NONE, flags);
+        }
+
+        private BriefingSlot rated(BriefingSlot slot, int rating) {
+            return slot.withClaudeScores(rating, 80, 70, "Good light");
+        }
+
+        private BriefingRegion regionOf(BriefingSlot... slots) {
+            return new BriefingRegion("Northumberland", Verdict.GO, "Summary", List.of(),
+                    List.of(slots), 10.0, 8.0, 3.5, 0, null, null);
+        }
+
+        private JsonNode message(BriefingRegion region) throws Exception {
+            BriefingDay day = dayWith(region);
+            BriefingEventSummary es = day.eventSummaries().getFirst();
+            return new ObjectMapper().readTree(glossService.buildUserMessage(
+                    new BriefingGlossService.GlossWorkItem(0, 0, 0, day, es, region)));
+        }
+
+        @Test
+        @DisplayName("All median-source slots directional: effective medians, flag true, canvas not clear")
+        void allDirectional_effectiveMedians() throws Exception {
+            // Illustrative numbers: observer 18/0/0, sun side 15/0/10, anti-sun high 90.
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, directional(18, 0, 0, 15, 0, 10, 0, 90), List.of())));
+
+            assertThat(n.get("cloudSampledOnHorizons").asBoolean()).isTrue();
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(15);
+            assertThat(n.get("cloudMid").asInt()).isZero();
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(90);
+            assertThat(n.get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("No horizon data: observer medians and flag false")
+        void noHorizon_observerMedians() throws Exception {
+            JsonNode n = message(regionOf(slot("A", Verdict.GO, observer(18, 22, 30), List.of())));
+
+            assertThat(n.get("cloudSampledOnHorizons").asBoolean()).isFalse();
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(18);
+            assertThat(n.get("cloudMid").asInt()).isEqualTo(22);
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(30);
+        }
+
+        @Test
+        @DisplayName("One non-directional median-source slot: observer medians for all")
+        void oneNonDirectional_observerForAll() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, directional(18, 20, 30, 15, 0, 10, 0, 90), List.of()),
+                    slot("B", Verdict.GO, observer(40, 50, 60), List.of())));
+
+            assertThat(n.get("cloudSampledOnHorizons").asBoolean()).isFalse();
+            // Median of a two-element array is its upper element, so these are slot B's observer figures.
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(40);
+            assertThat(n.get("cloudMid").asInt()).isEqualTo(50);
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(60);
+        }
+
+        @Test
+        @DisplayName("A slot with one null sun-side layer is treated as non-directional")
+        void oneNullSunSideLayer_nonDirectional() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, directional(18, 20, 30, 15, null, 10, 0, 90), List.of())));
+
+            assertThat(n.get("cloudSampledOnHorizons").asBoolean()).isFalse();
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(18);
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(30);
+        }
+
+        @Test
+        @DisplayName("A missing anti-sun side counts as zero canvas on that side")
+        void missingAntiSun_sunSideOnly() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, directional(18, 20, 30, 5, 3, 8, null, null), List.of())));
+
+            assertThat(n.get("cloudSampledOnHorizons").asBoolean()).isTrue();
+            assertThat(n.get("cloudMid").asInt()).isEqualTo(3);
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(8);
+            assertThat(n.get("clearAllLayers").asBoolean()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Anti-sun-only canvas (sun side 5/0/0, anti-sun high 70) is not clear")
+        void antiSunOnlyCanvas_notClear() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, directional(0, 0, 0, 5, 0, 0, 0, 70), List.of())));
+
+            assertThat(n.get("cloudHigh").asInt()).isEqualTo(70);
+            assertThat(n.get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Strict majority decides clearAllLayers: 1 of 5 false, 3 of 5 true, 2 of 4 false")
+        void strictMajority() throws Exception {
+            assertThat(message(clearOf(1, 4)).get("clearAllLayers").asBoolean()).isFalse();
+            assertThat(message(clearOf(3, 2)).get("clearAllLayers").asBoolean()).isTrue();
+            assertThat(message(clearOf(2, 2)).get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        private BriefingRegion clearOf(int clear, int cloudy) {
+            List<BriefingSlot> slots = new java.util.ArrayList<>();
+            for (int i = 0; i < clear; i++) {
+                slots.add(slot("C" + i, Verdict.GO, observer(2, 0, 0), List.of()));
+            }
+            for (int i = 0; i < cloudy; i++) {
+                slots.add(slot("X" + i, Verdict.GO, observer(2, 0, 60), List.of()));
+            }
+            return regionOf(slots.toArray(new BriefingSlot[0]));
+        }
+
+        @Test
+        @DisplayName("The 'Clear all layers' flag is no longer read: a flagged slot with canvas is not clear")
+        void flagNoLongerRead() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, observer(2, 0, 60), List.of("Clear all layers"))));
+
+            assertThat(n.get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("A canopy slot is excluded from the medians and the clear count")
+        void canopyExcluded() throws Exception {
+            BriefingSlot wood = BriefingSlot.canopySlot("Wood", AT, Verdict.GO, observer(90, 90, 90), List.of());
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.GO, observer(2, 0, 0), List.of()), wood));
+
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(2);
+            assertThat(n.get("clearAllLayers").asBoolean()).isTrue();
+            assertThat(n.get("totalLocations").asInt()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("A region of only canopy slots falls back to all slots")
+        void onlyCanopy_fallsBack() throws Exception {
+            BriefingSlot wood = BriefingSlot.canopySlot("Wood", AT, Verdict.GO, observer(90, 80, 70), List.of());
+            JsonNode n = message(regionOf(wood));
+
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(90);
+            assertThat(n.get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Non-GO sky slots are the median source when no sky slot is GO")
+        void noGoSlots_usesAllSky() throws Exception {
+            JsonNode n = message(regionOf(
+                    slot("A", Verdict.MARGINAL, observer(40, 0, 0), List.of())));
+
+            assertThat(n.get("cloudLow").asInt()).isEqualTo(40);
+        }
+
+        @Test
+        @DisplayName("Ratings gate: clear majority + average 3.6 + normal coverage forces clearAllLayers false")
+        void ratingsGate_forcesFalse() throws Exception {
+            JsonNode n = message(regionOf(
+                    rated(slot("A", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    rated(slot("B", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    rated(slot("C", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    rated(slot("D", Verdict.GO, observer(2, 0, 0), List.of()), 3),
+                    rated(slot("E", Verdict.GO, observer(2, 0, 0), List.of()), 3)));
+
+            assertThat(n.get("claudeAverageRating").asDouble()).isEqualTo(3.6);
+            assertThat(n.get("lowCoverage").asBoolean()).isFalse();
+            assertThat(n.get("clearAllLayers").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Ratings gate does not fire when coverage is low")
+        void ratingsGate_lowCoverage_staysTrue() throws Exception {
+            JsonNode n = message(regionOf(
+                    rated(slot("A", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    slot("B", Verdict.GO, observer(2, 0, 0), List.of()),
+                    slot("C", Verdict.GO, observer(2, 0, 0), List.of()),
+                    slot("D", Verdict.GO, observer(2, 0, 0), List.of())));
+
+            assertThat(n.get("lowCoverage").asBoolean()).isTrue();
+            assertThat(n.get("clearAllLayers").asBoolean()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Ratings gate does not fire when the average is 3.4")
+        void ratingsGate_belowThreshold_staysTrue() throws Exception {
+            JsonNode n = message(regionOf(
+                    rated(slot("A", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    rated(slot("B", Verdict.GO, observer(2, 0, 0), List.of()), 4),
+                    rated(slot("C", Verdict.GO, observer(2, 0, 0), List.of()), 3),
+                    rated(slot("D", Verdict.GO, observer(2, 0, 0), List.of()), 3),
+                    rated(slot("E", Verdict.GO, observer(2, 0, 0), List.of()), 3)));
+
+            assertThat(n.get("claudeAverageRating").asDouble()).isEqualTo(3.4);
+            assertThat(n.get("clearAllLayers").asBoolean()).isTrue();
+        }
+
+        @Test
+        @DisplayName("Ratings gate does not fire when there are no ratings")
+        void ratingsGate_noRatings_staysTrue() throws Exception {
+            JsonNode n = message(regionOf(slot("A", Verdict.GO, observer(2, 0, 0), List.of())));
+
+            assertThat(n.has("claudeAverageRating")).isFalse();
+            assertThat(n.get("clearAllLayers").asBoolean()).isTrue();
+        }
+
+        @Test
+        @DisplayName("A gloss that echoes cloudSampledOnHorizons has that half dropped")
+        void leakedFieldName_dropped() {
+            stubModelSelection();
+            Message response = mockResponse("{\"headline\": \"Clear skies\","
+                    + " \"detail\": \"With cloudSampledOnHorizons true the sky is open.\"}");
+            when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+            List<BriefingDay> enriched = glossService.generateGlosses(
+                    List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+
+            BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+            assertThat(r.glossHeadline()).isEqualTo("Clear skies");
+            assertThat(r.glossDetail()).isNull();
+        }
+
+        @Test
+        @DisplayName("The prompt carries the horizon and never-explain-away sentences (wiring only,"
+                + " not a test of model behaviour)")
+        void promptContainsNewSentences() {
+            String prompt = BriefingGlossService.systemPrompt();
+
+            assertThat(prompt).contains("When cloudSampledOnHorizons is true, cloudLow is low cloud about 110 km");
+            assertThat(prompt).contains("Never say the ratings are mistaken or explain them away");
+            assertThat(prompt).contains("a claudeAverageRating above 3.5 justifies");
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void stubModelSelection() {
@@ -1264,6 +1514,17 @@ class BriefingGlossServiceTest {
 
     private static BriefingRegion region(String name, Verdict verdict) {
         return regionWithFlags(name, verdict, List.of());
+    }
+
+    /** A one-slot region whose observer layers are all clear (below the clear-sky threshold). */
+    private static BriefingRegion clearLayersRegion(String name, Verdict verdict) {
+        BriefingSlot slot = new BriefingSlot(
+                "Location1", LocalDateTime.of(2026, 4, 10, 18, 30), verdict,
+                new BriefingSlot.WeatherConditions(5, BigDecimal.ZERO, 20000, 65,
+                        10.0, 8.0, 0, BigDecimal.valueOf(3.5), 0, 0),
+                BriefingSlot.TideInfo.NONE, List.of("Clear all layers"));
+        return new BriefingRegion(name, verdict, "Summary", List.of(), List.of(slot),
+                10.0, 8.0, 3.5, 0, null, null);
     }
 
     private static BriefingRegion regionWithFlags(String name, Verdict verdict,

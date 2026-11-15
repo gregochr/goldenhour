@@ -49,12 +49,18 @@ class BriefingGlossReuseTest {
                 10.0, 8.0, 0, BigDecimal.valueOf(3.5), 25, 40);
     }
 
+    /** Clear effective layers, so the region's clearAllLayers reads true without the flag. */
+    private static BriefingSlot.WeatherConditions clearWeather() {
+        return new BriefingSlot.WeatherConditions(5, BigDecimal.ZERO, 20000, 65,
+                10.0, 8.0, 0, BigDecimal.valueOf(3.5), 0, 0);
+    }
+
     private static BriefingRegion richRegion() {
         BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo("HIGH", true,
                 LocalDateTime.of(2026, 4, 10, 18, 5), BigDecimal.valueOf(5.2), true, true,
                 LunarTideType.KING_TIDE, "FULL_MOON", true);
         BriefingSlot coastal = new BriefingSlot("Bamburgh", LocalDateTime.of(2026, 4, 10, 18, 30),
-                Verdict.GO, weather(15), tide, List.of("Cloud building"))
+                Verdict.GO, clearWeather(), tide, List.of("Cloud building"))
                 .withClaudeScores(4, 80, 70, "Good light");
         BriefingSlot inland = new BriefingSlot("Inland", LocalDateTime.of(2026, 4, 10, 18, 30),
                 Verdict.MARGINAL, weather(60), BriefingSlot.TideInfo.NONE,

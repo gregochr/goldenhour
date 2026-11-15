@@ -118,7 +118,7 @@ public class BriefingSlotBuilder {
      */
     public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
             OpenMeteoForecastResponse horizonForecast) {
-        return buildSlot(lw, date, eventType, horizonForecast, null);
+        return buildSlot(lw, date, eventType, horizonForecast, null, null);
     }
 
     /**
@@ -155,6 +155,24 @@ public class BriefingSlotBuilder {
      */
     public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
             OpenMeteoForecastResponse horizonForecast, TideExtremeSnapshot snapshot) {
+        return buildSlot(lw, date, eventType, horizonForecast, null, snapshot);
+    }
+
+    /**
+     * Builds a briefing slot as the five-argument form does, also carrying the cloud layers of the
+     * opposite event's horizon point so the region gloss can see the canvas on either side.
+     *
+     * @param lw                   the location and its fetched forecast data
+     * @param date                 the target date
+     * @param eventType            SUNRISE or SUNSET
+     * @param horizonForecast      cloud-only forecast at the event's own horizon point (nullable)
+     * @param antiSunHorizonForecast cloud-only forecast at the opposite horizon point (nullable)
+     * @param snapshot             the build's tide snapshot, or {@code null} to query per slot
+     * @return the briefing slot, or null if the solar event time cannot be determined
+     */
+    public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
+            OpenMeteoForecastResponse horizonForecast, OpenMeteoForecastResponse antiSunHorizonForecast,
+            TideExtremeSnapshot snapshot) {
         LocationEntity loc = lw.location();
         OpenMeteoForecastResponse forecast = lw.forecast();
 
@@ -234,7 +252,8 @@ public class BriefingSlotBuilder {
                 preClearSkyVerdict, verdict);
 
         // Demote for solar horizon low cloud
-        Integer horizonLowCloud = extractHorizonLowCloud(horizonForecast, idx);
+        Integer horizonLowCloud = extractLayer(horizonForecast,
+                OpenMeteoForecastResponse.Hourly::getCloudCoverLow, idx);
         if (horizonLowCloud != null) {
             verdict = verdictEvaluator.applyHorizonCloudDemotion(verdict, horizonLowCloud);
         }
@@ -271,7 +290,11 @@ public class BriefingSlotBuilder {
 
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
-                midCloud, highCloud);
+                midCloud, highCloud, horizonLowCloud,
+                extractLayer(horizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx),
+                extractLayer(horizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx),
+                extractLayer(antiSunHorizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx),
+                extractLayer(antiSunHorizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx));
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
@@ -634,21 +657,24 @@ public class BriefingSlotBuilder {
     }
 
     /**
-     * Extracts low cloud cover at a given hour index from a horizon forecast response.
+     * Extracts one cloud layer at a given hour index from a horizon forecast response.
      *
      * @param horizonForecast the cloud-only horizon forecast (nullable)
+     * @param layer           the hourly list getter for the layer wanted
      * @param idx             the hourly index to extract
-     * @return low cloud percentage, or null if unavailable
+     * @return the layer's percentage, or null if the response, its hourly block, the list, the
+     *         index or the element is missing
      */
-    static Integer extractHorizonLowCloud(OpenMeteoForecastResponse horizonForecast, int idx) {
+    static Integer extractLayer(OpenMeteoForecastResponse horizonForecast,
+            java.util.function.Function<OpenMeteoForecastResponse.Hourly, List<Integer>> layer, int idx) {
         if (horizonForecast == null || horizonForecast.getHourly() == null) {
             return null;
         }
-        List<Integer> cloudLow = horizonForecast.getHourly().getCloudCoverLow();
-        if (cloudLow == null || idx >= cloudLow.size()) {
+        List<Integer> values = layer.apply(horizonForecast.getHourly());
+        if (values == null || idx >= values.size()) {
             return null;
         }
-        return cloudLow.get(idx);
+        return values.get(idx);
     }
 
     /**

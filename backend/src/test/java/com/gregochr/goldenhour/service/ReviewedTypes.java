@@ -47,7 +47,10 @@ final class ReviewedTypes {
         entry("BriefingSlot$WeatherConditions", Set.of(
                 "apparentTemperatureCelsius", "highCloudPercent", "humidityPercent", "lowCloudPercent",
                 "midCloudPercent", "precipitationMm", "temperatureCelsius", "visibilityMetres", "weatherCode",
-                "windSpeedMs")),
+                "windSpeedMs",
+                // Horizon cloud percentages: plain weather figures, no rating or prose to strip.
+                "sunSideLowCloudPercent", "sunSideMidCloudPercent", "sunSideHighCloudPercent",
+                "antiSunSideMidCloudPercent", "antiSunSideHighCloudPercent")),
         entry("BriefingSlot$TideInfo", Set.of(
                 "heightAboveP95", "heightAboveSpringThreshold", "lunarPhase", "lunarTideType", "moonAtPerigee",
                 "nearestExtremeKind", "nearestHighTideHeight", "nearestHighTideTime",

@@ -61,7 +61,7 @@ public class BriefingVerdictEvaluator {
     static final int BUILDING_TREND_MIN_PEAK = 40;
 
     /** Maximum cloud percentage at any layer for the clear-all-layers demotion. */
-    static final int CLEAR_ALL_LAYERS_MAX = 15;
+    public static final int CLEAR_ALL_LAYERS_MAX = 15;
 
     /** Horizon low cloud percentage at or above which conditions are STANDDOWN (sun blocked). */
     static final int HORIZON_CLOUD_STANDDOWN = 70;

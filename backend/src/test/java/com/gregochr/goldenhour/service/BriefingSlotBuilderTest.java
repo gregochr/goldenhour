@@ -1066,46 +1066,169 @@ class BriefingSlotBuilderTest {
         }
     }
 
-    // ── extractHorizonLowCloud static method ──
+    // ── extractLayer static method ──
 
     @Nested
-    @DisplayName("extractHorizonLowCloud")
-    class ExtractHorizonTests {
+    @DisplayName("extractLayer")
+    class ExtractLayerTests {
+
+        private final java.util.function.Function<OpenMeteoForecastResponse.Hourly, List<Integer>> low =
+                OpenMeteoForecastResponse.Hourly::getCloudCoverLow;
 
         @Test
-        @DisplayName("Extracts low cloud at specified index")
+        @DisplayName("Extracts the layer at the specified index")
         void validExtraction() {
             OpenMeteoForecastResponse response = buildCloudOnlyResponse(75);
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(response, 0)).isEqualTo(75);
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(response, 10)).isEqualTo(75);
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 0)).isEqualTo(75);
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 10)).isEqualTo(75);
         }
 
         @Test
         @DisplayName("Returns null for null response")
         void nullResponse() {
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(null, 0)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(null, low, 0)).isNull();
         }
 
         @Test
         @DisplayName("Returns null when hourly data is null")
         void nullHourly() {
             OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(response, 0)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 0)).isNull();
         }
 
         @Test
-        @DisplayName("Returns null when cloudCoverLow is null")
+        @DisplayName("Returns null when the layer's list is null")
         void nullCloudList() {
             OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
             response.setHourly(new OpenMeteoForecastResponse.Hourly());
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(response, 0)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 0)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response,
+                    OpenMeteoForecastResponse.Hourly::getCloudCoverMid, 0)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response,
+                    OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, 0)).isNull();
         }
 
         @Test
         @DisplayName("Returns null when index exceeds available hours")
         void indexOutOfBounds() {
             OpenMeteoForecastResponse response = buildCloudOnlyResponse(50);
-            assertThat(BriefingSlotBuilder.extractHorizonLowCloud(response, 999)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 999)).isNull();
+        }
+
+        @Test
+        @DisplayName("Returns null when the element at the index is null")
+        void nullElement() {
+            OpenMeteoForecastResponse response = buildCloudOnlyResponse(50);
+            response.getHourly().getCloudCoverLow().set(3, null);
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 3)).isNull();
+            assertThat(BriefingSlotBuilder.extractLayer(response, low, 4)).isEqualTo(50);
+        }
+    }
+
+    // ── Horizon layers carried on the slot ──
+
+    @Nested
+    @DisplayName("Horizon cloud layers on the slot")
+    class HorizonLayersOnSlotTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity inlandLoc() {
+            return LocationEntity.builder()
+                    .id(11L).name("Durham").lat(54.8).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+        }
+
+        private OpenMeteoForecastResponse layers(int low, int mid, int high) {
+            OpenMeteoForecastResponse response = buildCloudOnlyResponse(low);
+            int hours = response.getHourly().getTime().size();
+            response.getHourly().setCloudCoverMid(new ArrayList<>(java.util.Collections.nCopies(hours, mid)));
+            response.getHourly().setCloudCoverHigh(new ArrayList<>(java.util.Collections.nCopies(hours, high)));
+            return response;
+        }
+
+        @Test
+        @DisplayName("Both horizon responses present: all five values set, demotion unchanged")
+        void bothSides_allFiveSet() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(SOLAR_TIME.toLocalDate())))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET,
+                    layers(15, 5, 10), layers(1, 20, 90), null);
+
+            assertThat(slot.weather().sunSideLowCloudPercent()).isEqualTo(15);
+            assertThat(slot.weather().sunSideMidCloudPercent()).isEqualTo(5);
+            assertThat(slot.weather().sunSideHighCloudPercent()).isEqualTo(10);
+            assertThat(slot.weather().antiSunSideMidCloudPercent()).isEqualTo(20);
+            assertThat(slot.weather().antiSunSideHighCloudPercent()).isEqualTo(90);
+            assertThat(slot.verdict()).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Horizon demotion still reads sun-side low cloud")
+        void demotionUnchanged() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(SOLAR_TIME.toLocalDate())))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET,
+                    layers(80, 0, 0), layers(0, 0, 0), null);
+
+            assertThat(slot.verdict()).isEqualTo(Verdict.STANDDOWN);
+            assertThat(slot.weather().sunSideLowCloudPercent()).isEqualTo(80);
+        }
+
+        @Test
+        @DisplayName("No horizon responses: all five values null")
+        void noHorizon_allNull() {
+            LocationEntity loc = inlandLoc();
+            when(solarService.sunsetUtc(eq(54.8), eq(-1.6), eq(SOLAR_TIME.toLocalDate())))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(false);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET, null, null, null);
+
+            assertThat(slot.weather().sunSideLowCloudPercent()).isNull();
+            assertThat(slot.weather().sunSideMidCloudPercent()).isNull();
+            assertThat(slot.weather().sunSideHighCloudPercent()).isNull();
+            assertThat(slot.weather().antiSunSideMidCloudPercent()).isNull();
+            assertThat(slot.weather().antiSunSideHighCloudPercent()).isNull();
+        }
+
+        @Test
+        @DisplayName("A canopy slot carries no horizon layers even when responses are supplied")
+        void canopySlot_allNull() {
+            LocationEntity wood = LocationEntity.builder()
+                    .id(20L).name("Houghall Woods").lat(54.76).lon(-1.56)
+                    .locationType(Set.of(LocationType.WOODLAND))
+                    .tideType(Set.of()).solarEventType(Set.of())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            LocalDateTime sunrise = LocalDateTime.of(2026, 10, 12, 7, 30);
+            when(solarService.sunriseUtc(eq(54.76), eq(-1.56), eq(sunrise.toLocalDate())))
+                    .thenReturn(sunrise);
+
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(wood, buildForecastResponse()),
+                    sunrise.toLocalDate(), TargetType.SUNRISE,
+                    layers(15, 5, 10), layers(1, 20, 90), null);
+
+            assertThat(slot.canopy()).isTrue();
+            assertThat(slot.weather().sunSideLowCloudPercent()).isNull();
+            assertThat(slot.weather().sunSideMidCloudPercent()).isNull();
+            assertThat(slot.weather().sunSideHighCloudPercent()).isNull();
+            assertThat(slot.weather().antiSunSideMidCloudPercent()).isNull();
+            assertThat(slot.weather().antiSunSideHighCloudPercent()).isNull();
         }
     }
 

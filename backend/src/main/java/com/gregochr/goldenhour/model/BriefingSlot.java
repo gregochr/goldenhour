@@ -590,7 +590,9 @@ public record BriefingSlot(
     }
 
     /**
-     * Weather conditions at the observer point for a briefing slot.
+     * Weather conditions for a briefing slot: the observer point's own figures, plus, on a sky slot
+     * built with horizon data, the cloud layers about 110 km out on the sun side and the opposite
+     * side (the briefing's horizon points).
      *
      * @param lowCloudPercent             low cloud cover (%)
      * @param precipitationMm             precipitation in mm
@@ -602,6 +604,11 @@ public record BriefingSlot(
      * @param windSpeedMs                 wind speed in m/s
      * @param midCloudPercent             mid-level cloud cover (%)
      * @param highCloudPercent            high-level cloud cover (%)
+     * @param sunSideLowCloudPercent      low cloud on the event's own horizon point, or null
+     * @param sunSideMidCloudPercent      mid cloud on the event's own horizon point, or null
+     * @param sunSideHighCloudPercent     high cloud on the event's own horizon point, or null
+     * @param antiSunSideMidCloudPercent  mid cloud on the opposite horizon point, or null
+     * @param antiSunSideHighCloudPercent high cloud on the opposite horizon point, or null
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record WeatherConditions(
@@ -614,7 +621,34 @@ public record BriefingSlot(
             Integer weatherCode,
             BigDecimal windSpeedMs,
             int midCloudPercent,
-            int highCloudPercent) {
+            int highCloudPercent,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunSideLowCloudPercent,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunSideMidCloudPercent,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer sunSideHighCloudPercent,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer antiSunSideMidCloudPercent,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer antiSunSideHighCloudPercent) {
+
+        /**
+         * Observer-point-only form: the five horizon layers are all null.
+         *
+         * @param lowCloudPercent            low cloud cover (%)
+         * @param precipitationMm            precipitation in mm
+         * @param visibilityMetres           visibility in metres
+         * @param humidityPercent            relative humidity (%)
+         * @param temperatureCelsius         temperature in degrees Celsius
+         * @param apparentTemperatureCelsius feels-like temperature in degrees Celsius
+         * @param weatherCode                WMO weather code, or null
+         * @param windSpeedMs                wind speed in m/s
+         * @param midCloudPercent            mid-level cloud cover (%)
+         * @param highCloudPercent           high-level cloud cover (%)
+         */
+        public WeatherConditions(int lowCloudPercent, BigDecimal precipitationMm, int visibilityMetres,
+                int humidityPercent, Double temperatureCelsius, Double apparentTemperatureCelsius,
+                Integer weatherCode, BigDecimal windSpeedMs, int midCloudPercent, int highCloudPercent) {
+            this(lowCloudPercent, precipitationMm, visibilityMetres, humidityPercent, temperatureCelsius,
+                    apparentTemperatureCelsius, weatherCode, windSpeedMs, midCloudPercent, highCloudPercent,
+                    null, null, null, null, null);
+        }
     }
 
     /**
