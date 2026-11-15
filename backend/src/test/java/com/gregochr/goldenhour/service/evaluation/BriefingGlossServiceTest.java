@@ -1477,7 +1477,13 @@ class BriefingGlossServiceTest {
             stubModelSelection();
             Message response = mockResponse("{\"headline\": \"Clear skies\","
                     + " \"detail\": \"With cloudSampledOnHorizons true the sky is open.\"}");
-            when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+            when(anthropicApiClient.createMessage(argThat(
+                    params -> params != null
+                            && params.model().asString().equals(EvaluationModel.HAIKU.getModelId())
+                            && requestNamesRegion(params, "Northumberland")
+                            && params.system().get().asTextBlockParams().get(0).text()
+                                    .equals(BriefingGlossService.systemPrompt()))))
+                    .thenReturn(response);
 
             List<BriefingDay> enriched = glossService.generateGlosses(
                     List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
