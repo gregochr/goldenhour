@@ -63,6 +63,12 @@ public class BriefingVerdictEvaluator {
     /** Maximum cloud percentage at any layer for the clear-all-layers demotion. */
     public static final int CLEAR_ALL_LAYERS_MAX = 15;
 
+    /**
+     * Sun-side mid or high cloud percentage at or above which a clear-overhead sky still has a
+     * canvas for colour (clear-sky-demotion-plan.md, Phase A follow-up).
+     */
+    static final int SUNWARD_CANVAS_MIN = 40;
+
     /** Horizon low cloud percentage at or above which conditions are STANDDOWN (sun blocked). */
     static final int HORIZON_CLOUD_STANDDOWN = 70;
 
@@ -79,9 +85,30 @@ public class BriefingVerdictEvaluator {
      * @param midCloud      mid-level cloud cover percentage (nullable if unavailable)
      * @param highCloud     high-level cloud cover percentage (nullable if unavailable)
      * @param buildingTrend true if a BUILDING cloud trend was detected
+     * @param sunSideLow    low cloud 113 km toward the sun (nullable if the horizon was not sampled)
+     * @param sunSideMid    mid-level cloud 113 km toward the sun (nullable)
+     * @param sunSideHigh   high-level cloud 113 km toward the sun (nullable)
      */
     public record WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity,
-            Integer midCloud, Integer highCloud, boolean buildingTrend) {
+            Integer midCloud, Integer highCloud, boolean buildingTrend,
+            Integer sunSideLow, Integer sunSideMid, Integer sunSideHigh) {
+
+        /**
+         * Observer-point-only form: the three sun-side horizon layers are null.
+         *
+         * @param lowCloud      low cloud cover percentage
+         * @param precip        precipitation in mm
+         * @param visibility    visibility in metres
+         * @param humidity      relative humidity percentage
+         * @param midCloud      mid-level cloud cover percentage (nullable if unavailable)
+         * @param highCloud     high-level cloud cover percentage (nullable if unavailable)
+         * @param buildingTrend true if a BUILDING cloud trend was detected
+         */
+        public WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity,
+                Integer midCloud, Integer highCloud, boolean buildingTrend) {
+            this(lowCloud, precip, visibility, humidity, midCloud, highCloud, buildingTrend,
+                    null, null, null);
+        }
 
         /**
          * Convenience constructor without mid-cloud, high-cloud, or trend data.
@@ -92,7 +119,22 @@ public class BriefingVerdictEvaluator {
          * @param humidity   relative humidity percentage
          */
         public WeatherMetrics(int lowCloud, BigDecimal precip, int visibility, int humidity) {
-            this(lowCloud, precip, visibility, humidity, null, null, false);
+            this(lowCloud, precip, visibility, humidity, null, null, false, null, null, null);
+        }
+
+        /**
+         * Whether this slot has a strong colour canvas toward the sun: it is directional (all three
+         * sun-side layers sampled), the sun-side low cloud is below
+         * {@link BriefingVerdictEvaluator#CLEAR_ALL_LAYERS_MAX}, and the sun-side mid or high cloud
+         * reaches {@link BriefingVerdictEvaluator#SUNWARD_CANVAS_MIN}. Anti-sun cloud is deliberately
+         * not counted.
+         *
+         * @return true when a sunward canvas stops an overhead-clear sky reading as cloudless
+         */
+        boolean hasSunwardCanvas() {
+            return sunSideLow != null && sunSideMid != null && sunSideHigh != null
+                    && sunSideLow < CLEAR_ALL_LAYERS_MAX
+                    && Math.max(sunSideMid, sunSideHigh) >= SUNWARD_CANVAS_MIN;
         }
     }
 
@@ -191,7 +233,10 @@ public class BriefingVerdictEvaluator {
      * for colour.
      *
      * <p>Null mid/high cloud values are treated as 0 (clear). Only demotes GO → MARGINAL;
-     * does not affect MARGINAL or STANDDOWN verdicts.
+     * does not affect MARGINAL or STANDDOWN verdicts. A directional slot with sun-side low cloud
+     * below the threshold and a sun-side mid or high canvas of at least
+     * {@value #SUNWARD_CANVAS_MIN}% is not demoted: clear overhead is not clear sky when the
+     * sun's own horizon carries a canvas.
      *
      * @param verdict the current verdict
      * @param weather the weather metrics including all three cloud layers
@@ -201,14 +246,21 @@ public class BriefingVerdictEvaluator {
         if (verdict != Verdict.GO) {
             return verdict;
         }
-        int low = weather.lowCloud();
-        int mid = weather.midCloud() != null ? weather.midCloud() : 0;
-        int high = weather.highCloud() != null ? weather.highCloud() : 0;
-        if (low < CLEAR_ALL_LAYERS_MAX && mid < CLEAR_ALL_LAYERS_MAX
-                && high < CLEAR_ALL_LAYERS_MAX) {
+        if (isClearSky(weather)) {
             return Verdict.MARGINAL;
         }
         return verdict;
+    }
+
+    /**
+     * The one clear-sky test shared by the demotion and the "Clear all layers" flag, so they cannot
+     * drift: every observer layer is below the threshold and there is no sunward canvas.
+     */
+    private static boolean isClearSky(WeatherMetrics weather) {
+        int mid = weather.midCloud() != null ? weather.midCloud() : 0;
+        int high = weather.highCloud() != null ? weather.highCloud() : 0;
+        return weather.lowCloud() < CLEAR_ALL_LAYERS_MAX && mid < CLEAR_ALL_LAYERS_MAX
+                && high < CLEAR_ALL_LAYERS_MAX && !weather.hasSunwardCanvas();
     }
 
     /**
@@ -286,10 +338,7 @@ public class BriefingVerdictEvaluator {
         if (weather.buildingTrend()) {
             flags.add("Cloud building");
         }
-        int effectiveMid = weather.midCloud() != null ? weather.midCloud() : 0;
-        int effectiveHigh = weather.highCloud() != null ? weather.highCloud() : 0;
-        if (weather.lowCloud() < CLEAR_ALL_LAYERS_MAX && effectiveMid < CLEAR_ALL_LAYERS_MAX
-                && effectiveHigh < CLEAR_ALL_LAYERS_MAX) {
+        if (isClearSky(weather)) {
             flags.add("Clear all layers");
         }
         String combinedLabel = combinedTideLabel(tide);
@@ -449,7 +498,7 @@ public class BriefingVerdictEvaluator {
 
         String conditionText;
         if (verdict == Verdict.GO) {
-            conditionText = "Clear at " + goCount + " of " + total + " location"
+            conditionText = "Go at " + goCount + " of " + total + " location"
                     + (total != 1 ? "s" : "");
         } else if (verdict == Verdict.STANDDOWN) {
             long standdownCount = slots.stream()

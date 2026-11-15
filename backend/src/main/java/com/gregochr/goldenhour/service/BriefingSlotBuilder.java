@@ -242,18 +242,27 @@ public class BriefingSlotBuilder {
         verdict = verdictEvaluator.applyCloudTrendDemotion(verdict, lowCloudTrend);
         buildingDetected = buildingDetected && verdict == Verdict.MARGINAL;
 
-        // Demote for clear all layers (GO → MARGINAL only)
-        BriefingVerdictEvaluator.WeatherMetrics clearSkyMetrics =
-                new BriefingVerdictEvaluator.WeatherMetrics(
-                        lowCloud, precip, visibility, humidity, midCloud, highCloud, false);
-        Verdict preClearSkyVerdict = verdict;
-        verdict = verdictEvaluator.applyClearSkyDemotion(verdict, clearSkyMetrics);
-        logClearAllLayersDiagnostic(loc.getName(), eventType, lowCloud, midCloud, highCloud,
-                preClearSkyVerdict, verdict);
-
-        // Demote for solar horizon low cloud
+        // Horizon layers: sun side (toward the sun) and anti-sun mid/high, sampled once and reused
+        // for the clear-sky test, the horizon demotion and the slot's WeatherConditions.
         Integer horizonLowCloud = extractLayer(horizonForecast,
                 OpenMeteoForecastResponse.Hourly::getCloudCoverLow, idx);
+        Integer horizonMidCloud = extractLayer(horizonForecast,
+                OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx);
+        Integer horizonHighCloud = extractLayer(horizonForecast,
+                OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx);
+        Integer antiSunMidCloud = extractLayer(antiSunHorizonForecast,
+                OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx);
+        Integer antiSunHighCloud = extractLayer(antiSunHorizonForecast,
+                OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx);
+
+        // Demote for clear all layers (GO → MARGINAL only), unless the sun's horizon carries a canvas
+        BriefingVerdictEvaluator.WeatherMetrics clearSkyMetrics =
+                new BriefingVerdictEvaluator.WeatherMetrics(
+                        lowCloud, precip, visibility, humidity, midCloud, highCloud, false,
+                        horizonLowCloud, horizonMidCloud, horizonHighCloud);
+        verdict = verdictEvaluator.applyClearSkyDemotion(verdict, clearSkyMetrics);
+
+        // Demote for solar horizon low cloud
         if (horizonLowCloud != null) {
             verdict = verdictEvaluator.applyHorizonCloudDemotion(verdict, horizonLowCloud);
         }
@@ -281,7 +290,7 @@ public class BriefingSlotBuilder {
         BriefingVerdictEvaluator.WeatherMetrics weatherMetrics =
                 new BriefingVerdictEvaluator.WeatherMetrics(
                         lowCloud, precip, visibility, humidity, midCloud, highCloud,
-                        buildingDetected);
+                        buildingDetected, horizonLowCloud, horizonMidCloud, horizonHighCloud);
         BriefingVerdictEvaluator.TideContext tideContext = new BriefingVerdictEvaluator.TideContext(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.heightAboveP95(), tideResult.heightAboveSpringThreshold(),
@@ -291,10 +300,7 @@ public class BriefingSlotBuilder {
         BriefingSlot.WeatherConditions weather = new BriefingSlot.WeatherConditions(
                 lowCloud, precip, visibility, humidity, temp, apparentTemp, weatherCode, windSpeed,
                 midCloud, highCloud, horizonLowCloud,
-                extractLayer(horizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx),
-                extractLayer(horizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx),
-                extractLayer(antiSunHorizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverMid, idx),
-                extractLayer(antiSunHorizonForecast, OpenMeteoForecastResponse.Hourly::getCloudCoverHigh, idx));
+                horizonMidCloud, horizonHighCloud, antiSunMidCloud, antiSunHighCloud);
         BriefingSlot.TideInfo tideInfo = new BriefingSlot.TideInfo(
                 tideResult.tideState(), tideResult.tideAligned(),
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
@@ -675,39 +681,6 @@ public class BriefingSlotBuilder {
             return null;
         }
         return values.get(idx);
-    }
-
-    /**
-     * Diagnostic logging for clear-all-layers demotion check. Temporary — remove once root cause
-     * is identified.
-     */
-    private void logClearAllLayersDiagnostic(String locationName, TargetType eventType,
-            int lowCloud, int midCloud, int highCloud,
-            Verdict before, Verdict after) {
-        int threshold = BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX;
-        if (before != Verdict.GO) {
-            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
-                            + "fired=false verdict={}→{} reason=already_demoted",
-                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
-            return;
-        }
-        if (lowCloud >= threshold) {
-            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
-                            + "fired=false verdict={}→{} reason=low_cloud_above_threshold",
-                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
-        } else if (midCloud >= threshold) {
-            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
-                            + "fired=false verdict={}→{} reason=mid_cloud_above_threshold",
-                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
-        } else if (highCloud >= threshold) {
-            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
-                            + "fired=false verdict={}→{} reason=high_cloud_above_threshold",
-                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
-        } else {
-            LOG.debug("[CLEAR-ALL-LAYERS] location={} {} low={} mid={} high={} "
-                            + "fired=true verdict={}→{}",
-                    locationName, eventType, lowCloud, midCloud, highCloud, before, after);
-        }
     }
 
     /**

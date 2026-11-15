@@ -350,6 +350,102 @@ class BriefingVerdictEvaluatorTest {
                     .contains("Clear all layers");
         }
 
+        private BriefingVerdictEvaluator.WeatherMetrics horizon(
+                int observerLow, Integer observerMid, Integer observerHigh,
+                Integer sunLow, Integer sunMid, Integer sunHigh) {
+            return new BriefingVerdictEvaluator.WeatherMetrics(
+                    observerLow, BigDecimal.ZERO, 15000, 70, observerMid, observerHigh, false,
+                    sunLow, sunMid, sunHigh);
+        }
+
+        private List<String> flagsOf(BriefingVerdictEvaluator.WeatherMetrics metrics) {
+            var noTide = new BriefingVerdictEvaluator.TideContext(
+                    null, false, false, false, null, false);
+            return evaluator.buildFlags(metrics, noTide);
+        }
+
+        @Test
+        @DisplayName("Clear overhead + sun-side low 5 + sun-side high 70 keeps GO, no flag")
+        void sunwardCanvas_keepsGo() {
+            var metrics = horizon(5, 8, 10, 5, 0, 70);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics)).isEqualTo(Verdict.GO);
+            assertThat(flagsOf(metrics)).doesNotContain("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("Sun-side mid canvas counts as well as high")
+        void sunwardMidCanvas_keepsGo() {
+            var metrics = horizon(5, 8, 10, 5, 60, 0);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics)).isEqualTo(Verdict.GO);
+        }
+
+        @Test
+        @DisplayName("Anti-sun canvas is ignored: sun-side clear + anti-sun high 90 is still demoted")
+        void antiSunCanvasOnly_stillDemoted() {
+            var metrics = horizon(5, 8, 10, 5, 0, 0);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(flagsOf(metrics)).contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("Clear overhead + clear horizons is demoted with the flag")
+        void clearEverywhere_demoted() {
+            var metrics = horizon(5, 8, 10, 0, 0, 0);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(flagsOf(metrics)).contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("No horizon data: today's behaviour, demoted with the flag")
+        void noHorizonData_demoted() {
+            var metrics = horizon(5, 8, 10, null, null, null);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(flagsOf(metrics)).contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("Sun-side low 25 with a canvas stays demoted")
+        void sunwardLow25_demoted() {
+            var metrics = horizon(5, 8, 10, 25, 0, 70);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(flagsOf(metrics)).contains("Clear all layers");
+        }
+
+        @Test
+        @DisplayName("A missing sun-side layer is not directional: demoted")
+        void partialHorizon_demoted() {
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 5, 70, null)))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 5, null, 70)))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, null, 70, 70)))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Canvas boundary: 39 demoted, 40 kept; sun-side low 14 kept-eligible, 15 demoted")
+        void sunwardCanvasBoundaries() {
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 5, 0, 39)))
+                    .isEqualTo(Verdict.MARGINAL);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 5, 0, 40)))
+                    .isEqualTo(Verdict.GO);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 14, 0, 70)))
+                    .isEqualTo(Verdict.GO);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, horizon(5, 8, 10, 15, 0, 70)))
+                    .isEqualTo(Verdict.MARGINAL);
+        }
+
+        @Test
+        @DisplayName("Overhead cloud with clear horizons is not a new demotion")
+        void observerCloudy_notDemoted() {
+            var metrics = horizon(5, 8, 60, 0, 0, 0);
+            assertThat(evaluator.applyClearSkyDemotion(Verdict.GO, metrics)).isEqualTo(Verdict.GO);
+            assertThat(flagsOf(metrics)).doesNotContain("Clear all layers");
+        }
     }
 
     // ── Horizon cloud demotion ──
@@ -829,7 +925,7 @@ class BriefingVerdictEvaluatorTest {
                     slot("A", Verdict.GO), slot("B", Verdict.GO),
                     slot("C", Verdict.GO), slot("D", Verdict.MARGINAL));
             assertThat(evaluator.buildRegionSummary(Verdict.GO, slots, List.of()))
-                    .startsWith("Clear at 3 of 4");
+                    .startsWith("Go at 3 of 4");
         }
 
         @Test
