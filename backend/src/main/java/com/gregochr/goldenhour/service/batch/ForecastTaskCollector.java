@@ -454,7 +454,8 @@ public class ForecastTaskCollector {
                 // bluebell carpet — would otherwise stand them down as a poor sky). Every other
                 // candidate still respects the triage verdict.
                 // The woodland lane needs the same exemption for the same reason, and it is not
-                // optional: sky triage stands a slot down at >80% low cloud and <5 km visibility,
+                // optional: sky triage stands a slot down at heavy low cloud (over 60% today and
+                // tomorrow, over 80% beyond) and under 5 km visibility,
                 // which are precisely the overcast and the mist a wood wants. Without this the
                 // feature is born inverted — every good woodland morning triaged out.
                 if (preEval.triaged() && !bluebellWoodInSeason && !woodlandTask) {

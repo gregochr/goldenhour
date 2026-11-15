@@ -359,7 +359,8 @@ public class ForecastService {
         }
 
         // Apply weather triage heuristic
-        Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
+        Optional<TriageResult> triageResult =
+                weatherTriageEvaluator.evaluate(forecastData, daysAhead);
         if (triageResult.isPresent()) {
             TriageResult tr = triageResult.get();
             String reason = tr.reason();

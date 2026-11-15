@@ -197,7 +197,7 @@ No new model calls and no change to which slots are scored; two inputs carry up 
   grow with the window count. This adds to the open Ready-precompute item above (the evening refresh's
   Ask precompute); re-measure with `measured-costs.sql` after the release.
 
-## Open: triage headroom (2026-11-15, run on production, decision pending)
+## Built: triage headroom (2026-11-15, run on production; P1 built, re-measure pending)
 
 The owner's question (14 Nov: £2.30 for a day where one window of six was worth a look): why pay Claude to
 say "poor"? Stood-down and unscored windows already cost nothing. The free weather triage
@@ -231,6 +231,11 @@ A **T+0/1-only rule at over 60%** skips ~8.2k requests per 45 days, **~$14/30 da
 T+0/1 only**, with thin strips exempt (`triage-cost-cut-plan.md` P1). `triage-60-thin-strip.sql` (45 days):
 the blanket shape is 5,347 requests, $13.55, 7 at 4★+ (0.13%), 77 at 3★; the exempt thin strips are 2,831
 requests, $7.89, 9 at 4★+, 1,430 at 3★. **Net saving ~$9/30 days**, hiding 8 good and ~87 Maybe ratings.
+
+**Built (P1):** `WeatherTriageEvaluator.evaluate(data, daysAhead)` stands T+0/1 down over 60% sun-side low cloud
+unless the horizon is a thin strip (`DirectionalCloudData.isThinStrip`, the one shared definition), keeps 80% at
+T+2 and beyond, and a retried slot that triages is no longer submitted. **Re-measure** with `triage-headroom.sql`
+after 14 days: T+0/1 requests in the 61–80% band should be about the thin-strip count only.
 
 ## Cost per call and shared cells (2026-11-15, production, 30 days)
 

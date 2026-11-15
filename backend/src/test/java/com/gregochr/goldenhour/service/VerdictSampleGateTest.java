@@ -200,4 +200,32 @@ class VerdictSampleGateTest {
                     .isEqualTo(2);
         }
     }
+    @Nested
+    @DisplayName("isExaminedAndUnrated — a region looked at and found uniformly unrateable")
+    class ExaminedAndUnrated {
+
+        @Test
+        @DisplayName("nothing rated and exactly half the roster examined — true")
+        void noneRated_halfExamined_isTrue() {
+            assertThat(VerdictSampleGate.isExaminedAndUnrated(0, 2, 4)).isTrue();
+        }
+
+        @Test
+        @DisplayName("nothing rated and under half examined — false")
+        void noneRated_underHalfExamined_isFalse() {
+            assertThat(VerdictSampleGate.isExaminedAndUnrated(0, 2, 5)).isFalse();
+        }
+
+        @Test
+        @DisplayName("any rating at all — false, however much was examined")
+        void anyRated_isFalse() {
+            assertThat(VerdictSampleGate.isExaminedAndUnrated(1, 5, 5)).isFalse();
+        }
+
+        @Test
+        @DisplayName("an empty roster with nothing examined — false, not vacuously true")
+        void emptyRoster_isFalse() {
+            assertThat(VerdictSampleGate.isExaminedAndUnrated(0, 0, 0)).isFalse();
+        }
+    }
 }

@@ -267,7 +267,7 @@ class BatchRetryServiceTest {
             TargetType targetType, boolean triaged) {
         return new ForecastPreEvalResult(
                 triaged, triaged ? "triaged" : null,
-                triaged ? null : TestAtmosphericData.defaults(),
+                TestAtmosphericData.defaults(),
                 loc, date, targetType, null, 100, 0, EvaluationModel.HAIKU, Set.of(),
                 loc.getName() + "|" + date + "|" + targetType, null);
     }
@@ -462,8 +462,8 @@ class BatchRetryServiceTest {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
         when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
-        // atmosphericData() == null models "this retry's weather triaged the slot away" — the
-        // fixture convention this file already uses for "cannot be reconstructed".
+        // A real triaged result keeps its data (ForecastService attaches it), so the slot must
+        // be stopped on triaged(), not on null data.
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
                 any(), any(), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
@@ -480,6 +480,39 @@ class BatchRetryServiceTest {
         assertThat(submitted).isZero();
         verify(forecastService, never()).persistPendingEvaluation(any());
         verify(forecastService, never()).markAbandoned(any());
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("a retried slot that triages with its weather data attached is recorded and "
+            + "never submitted for rating")
+    void submitRetry_triagedWithDataAttached_notSubmitted() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        ForecastPreEvalResult triaged = preEval(loc, DATE, TargetType.SUNRISE, true);
+        assertThat(triaged.atmosphericData()).isNotNull();
+        assertThat(triaged.triaged()).isTrue();
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), isNull())).thenReturn(triaged);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        ForecastBatchEntity first = precursor("msgbatch_first");
+        first.setJobRunId(555L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(first));
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+        assertThat(result.submittedCount()).isZero();
+        verify(dispositionService).persist(555L, List.of(new CandidateDisposition(
+                42L, "Bamburgh", DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "triaged")));
+        verify(forecastService, never()).persistPendingEvaluation(any());
         verifyNoInteractions(evaluationService);
     }
 

@@ -16,8 +16,11 @@ import java.util.Map;
 /**
  * Stateless evaluator for briefing slot verdicts, region rollups, and flag generation.
  *
- * <p>All thresholds mirror those used by {@link WeatherTriageEvaluator} in the full
- * forecast pipeline so that briefing and evaluation agree on weather condition boundaries.
+ * <p>The rain and visibility thresholds mirror those of {@link WeatherTriageEvaluator} in the
+ * full forecast pipeline. The cloud thresholds do <b>not</b>: this is the briefing's own heuristic
+ * verdict, not the gate in front of Claude. It stands down at 80% observer low cloud (70% horizon
+ * cloud) at every horizon, while triage stands down at over 60% solar-horizon low cloud for today
+ * and tomorrow (a thin strip keeps 80%) and over 80% beyond.
  */
 @Component
 public class BriefingVerdictEvaluator {

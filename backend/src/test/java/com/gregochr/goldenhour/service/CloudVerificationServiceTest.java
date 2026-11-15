@@ -532,7 +532,7 @@ class CloudVerificationServiceTest {
                         "farClearer&fcstBlocked&stripSeen", "farClearer&fcstBlocked&stripMissed",
                         "fcstBlanket", "fcstBlanket&corridorOpen(obs<=30)",
                         "fcstBlanket&corridorBlanketed(obs>=50)",
-                        "fcstBlanket&underTriageCut(<=80)",
+                        "fcstBlanket&underTriageCut",
                         "fcstBlanket&underTriageCut&corridorOpen(obs<=30)");
         // Each canvas cut both holds a sample and excludes the other's: the two clearer pairs
         // split 1/1 by dominance, and the sole cloudier pair is mid-dominant so &highCanvas is 0.
@@ -729,7 +729,7 @@ class CloudVerificationServiceTest {
                 .contains(tuple("fcstBlanket", 11),
                         tuple("fcstBlanket&corridorOpen(obs<=30)", 7),
                         tuple("fcstBlanket&corridorBlanketed(obs>=50)", 2),
-                        tuple("fcstBlanket&underTriageCut(<=80)", 5),
+                        tuple("fcstBlanket&underTriageCut", 5),
                         tuple("fcstBlanket&underTriageCut&corridorOpen(obs<=30)", 4),
                         tuple("farClearer&fcstBlocked(>60)", 0));
         // The whole vector, counted by hand. Thirteen pairs sit in farSimilar (|drop| of 25, 25,
@@ -758,10 +758,10 @@ class CloudVerificationServiceTest {
         // corridorOpen a strict subset of it — so neither can be an alias of what it hangs off.
         // Both ratios are readable: 7/11 over the whole parent, 4/5 over the members that could
         // have been prompted, and they differ, which is the reason the sub-cut exists.
-        assertThat(bucketCount(report, "fcstBlanket&underTriageCut(<=80)"))
+        assertThat(bucketCount(report, "fcstBlanket&underTriageCut"))
                 .isLessThan(bucketCount(report, "fcstBlanket"));
         assertThat(bucketCount(report, "fcstBlanket&underTriageCut&corridorOpen(obs<=30)"))
-                .isLessThan(bucketCount(report, "fcstBlanket&underTriageCut(<=80)"));
+                .isLessThan(bucketCount(report, "fcstBlanket&underTriageCut"));
     }
 
     @Test
@@ -832,10 +832,10 @@ class CloudVerificationServiceTest {
         CloudVerificationReport report = service.report(FROM, TO);
 
         assertThat(report.byTriageCut()).extracting(CloudVerificationBucket::key)
-                .containsExactly("vetoFired&underTriageCut(<=80)",
-                        "vetoNotFired&underTriageCut(<=80)",
-                        "farClearer&fcstBlocked&underTriageCut(<=80)",
-                        "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)");
+                .containsExactly("vetoFired&underTriageCut",
+                        "vetoNotFired&underTriageCut",
+                        "farClearer&fcstBlocked&underTriageCut",
+                        "farClearer&fcstBlocked&stripMissed&underTriageCut");
         // The whole vector, counted by hand. Eleven of the fifteen pairs carry a forecast gap at
         // or under 80 (50, 80, 50, 50, 50, 70, 70, 80, 60, 70 and 70); the other four are
         // firedOverCut (81), notFiredOverCut (90), blockedOverCut (90) and nullGapFired (no
@@ -851,28 +851,28 @@ class CloudVerificationServiceTest {
         // The veto pair partitions the under-cut population exactly: every pair under the cut is
         // in one variant or the other, so a member cannot be lost between them — which is also
         // what makes their sum the denominator for reading the two blocked variants' share.
-        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)")
-                + triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"))
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut")
+                + triageCutCount(report, "vetoNotFired&underTriageCut"))
                 .isEqualTo(11);
 
         // Every variant is a STRICT subset of its parent, read from the report's own values — so
         // none can be an alias of what it hangs off, and the cut is doing work in all four.
-        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)"))
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut"))
                 .isLessThan(report.vetoFired().sampleCount());
-        assertThat(triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"))
+        assertThat(triageCutCount(report, "vetoNotFired&underTriageCut"))
                 .isLessThan(report.vetoNotFired().sampleCount());
-        assertThat(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"))
+        assertThat(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut"))
                 .isLessThan(bucketCount(report, "farClearer&fcstBlocked(>60)"));
-        assertThat(triageCutCount(report, "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)"))
+        assertThat(triageCutCount(report, "farClearer&fcstBlocked&stripMissed&underTriageCut"))
                 .isLessThan(bucketCount(report, "farClearer&fcstBlocked&stripMissed"))
-                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"));
+                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut"));
 
         // The under-cut veto separation is the reader's own subtraction — no scalar is served for
         // it — so both means must be present and populated: (90+70+80)/3 against (20+0+80x6)/8,
         // a separation of 17.5.
-        assertThat(triageCutBucket(report, "vetoFired&underTriageCut(<=80)").meanObservedGapLow())
+        assertThat(triageCutBucket(report, "vetoFired&underTriageCut").meanObservedGapLow())
                 .isEqualTo(80.0);
-        assertThat(triageCutBucket(report, "vetoNotFired&underTriageCut(<=80)").meanObservedGapLow())
+        assertThat(triageCutBucket(report, "vetoNotFired&underTriageCut").meanObservedGapLow())
                 .isEqualTo(62.5);
         // And it is not the same number as the served whole-window scalar (76.0 - 60.0), which is
         // the entire reason for cutting: the window's figure is diluted by slots never prompted.
@@ -959,13 +959,13 @@ class CloudVerificationServiceTest {
         // from the same report: the two wrongly-counted fired rows (rained off, fogged off) are
         // in the old cut's variant and not in this one. A promptable count exceeding its
         // namesake's is a predicate bug, never a finding.
-        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)")).isEqualTo(6);
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut")).isEqualTo(6);
         assertThat(promptableCount(report, "vetoFired&promptable")).isEqualTo(4)
-                .isLessThan(triageCutCount(report, "vetoFired&underTriageCut(<=80)"));
+                .isLessThan(triageCutCount(report, "vetoFired&underTriageCut"));
         assertThat(promptableCount(report, "vetoNotFired&promptable"))
-                .isLessThan(triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"));
+                .isLessThan(triageCutCount(report, "vetoNotFired&underTriageCut"));
         assertThat(promptableCount(report, "farClearer&fcstBlocked&promptable"))
-                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"));
+                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut"));
         assertThat(promptableCount(report, "fcstBlanket&promptable"))
                 .isLessThan(bucketCount(report, "fcstBlanket"));
         // No scalar is served: the promptable veto separation is the reader's own subtraction of
@@ -1047,6 +1047,74 @@ class CloudVerificationServiceTest {
 
     private int triageCutCount(CloudVerificationReport report, String key) {
         return triageCutBucket(report, key).sampleCount();
+    }
+
+    // ── The horizon-aware triage mirror (near-term 60% line from TRIAGE_60_ROLLOUT) ──────────
+
+    private static final LocalDateTime BEFORE_ROLLOUT = CloudVerificationService.TRIAGE_60_ROLLOUT
+            .atStartOfDay().minusMinutes(1);
+    private static final LocalDateTime AT_ROLLOUT = CloudVerificationService.TRIAGE_60_ROLLOUT
+            .atStartOfDay();
+
+    private CloudVerificationPair horizonPair(int daysAhead, int forecastGapLow,
+            Integer forecastFarLow, LocalDateTime forecastRunAt) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, daysAhead, 2,
+                forecastGapLow, 80, 70, 30, 55, 40, false, 20, 120, 240, 250,
+                forecastFarLow, null, null, null, null, null, forecastRunAt);
+    }
+
+    /** How many of the given pair land in the under-the-triage-cut veto bucket. */
+    private int underCutCount(CloudVerificationPair pair) {
+        when(repository.findVerifiedPairs(FROM, TO)).thenReturn(List.of(pair));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(1L);
+        return triageCutCount(service.report(FROM, TO), "vetoNotFired&underTriageCut");
+    }
+
+    @Test
+    @DisplayName("triage mirror: a T+0 pair run on or after the rollout is over the cut at 61%, "
+            + "under it at 60%")
+    void triageMirror_nearTermAfterRollout_usesSixty() {
+        assertThat(underCutCount(horizonPair(0, 61, 60, AT_ROLLOUT))).isZero();
+        assertThat(underCutCount(horizonPair(0, 60, 60, AT_ROLLOUT))).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("triage mirror: T+1 follows the near-term line as well")
+    void triageMirror_tPlusOneAfterRollout_usesSixty() {
+        assertThat(underCutCount(horizonPair(1, 70, 60, AT_ROLLOUT))).isZero();
+    }
+
+    @Test
+    @DisplayName("triage mirror: T+2 keeps the 80% line after the rollout")
+    void triageMirror_tPlusTwoAfterRollout_usesEighty() {
+        assertThat(underCutCount(horizonPair(2, 70, 60, AT_ROLLOUT))).isEqualTo(1);
+        assertThat(underCutCount(horizonPair(2, 81, 60, AT_ROLLOUT))).isZero();
+    }
+
+    @Test
+    @DisplayName("triage mirror: a T+0 pair run before the rollout keeps the 80% line, since it "
+            + "did reach Claude at 61-80%")
+    void triageMirror_nearTermBeforeRollout_usesEighty() {
+        assertThat(underCutCount(horizonPair(0, 70, 60, BEFORE_ROLLOUT))).isEqualTo(1);
+        assertThat(underCutCount(horizonPair(0, 81, 60, BEFORE_ROLLOUT))).isZero();
+    }
+
+    @Test
+    @DisplayName("triage mirror: a pair with no run time or no horizon reads as history (80%)")
+    void triageMirror_unknownRunTimeOrHorizon_usesEighty() {
+        assertThat(underCutCount(horizonPair(0, 70, 60, null))).isEqualTo(1);
+        CloudVerificationPair noHorizon = new CloudVerificationPair("Durham UK", DATE,
+                TargetType.SUNSET, null, 2, 70, 80, 70, 30, 55, 40, false, 20, 120, 240, 250,
+                60, null, null, null, null, null, AT_ROLLOUT);
+        assertThat(underCutCount(noHorizon)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("triage mirror: a near-term thin strip after the rollout keeps the 80% line")
+    void triageMirror_nearTermThinStrip_keepsEighty() {
+        assertThat(underCutCount(horizonPair(0, 70, 40, AT_ROLLOUT))).isEqualTo(1);
+        assertThat(underCutCount(horizonPair(0, 70, 41, AT_ROLLOUT))).isZero();
+        assertThat(underCutCount(horizonPair(0, 85, 40, AT_ROLLOUT))).isZero();
     }
 
     @Test

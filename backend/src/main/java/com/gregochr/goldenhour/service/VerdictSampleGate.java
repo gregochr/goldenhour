@@ -111,6 +111,27 @@ public final class VerdictSampleGate {
     }
 
     /**
+     * Whether a region below the sample gate was looked at, found uniformly unrateable, and so
+     * deserves "Stand down" rather than the heuristic fallback's "Unrated".
+     *
+     * <p>True when NONE of the voting slots carries a rating and at least
+     * {@link #MIN_EXAMINED_COVERAGE} of the voting roster was examined, which with no rated slot
+     * means batch-triaged: the pipeline looked and the weather ruled the places out. It is the
+     * same {@link #examinedCount} notion the gate's coverage half uses, not a new definition.
+     * A region whose examined places are a minority (the rest never looked at this cycle), or
+     * that has any rating at all, keeps the heuristic fallback.
+     *
+     * @param rated        count of voting slots carrying a usable Claude rating
+     * @param examined     count of voting slots rated or batch-triaged, see {@link #examinedCount}
+     * @param votingRoster size of the region's voting roster
+     * @return {@code true} when the region was examined at least to the coverage half and nothing
+     *         examined was rated
+     */
+    public static boolean isExaminedAndUnrated(int rated, int examined, int votingRoster) {
+        return rated == 0 && examined > 0 && examined >= votingRoster * MIN_EXAMINED_COVERAGE;
+    }
+
+    /**
      * Counts how many of the given voting slots the BATCH has actually <b>examined</b> this cycle —
      * rated by Claude, or triaged by the batch itself (its latest non-{@code SKIPPED_CACHED}
      * {@code forecast_run_disposition} recorded {@code SKIPPED_TRIAGED}). An unrated slot the batch

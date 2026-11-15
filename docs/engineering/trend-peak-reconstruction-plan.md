@@ -100,7 +100,7 @@ Rows in the verified window with the veto's two triggers AND promptable gap: mir
 re-derive — the predicates the report already uses (`CloudVerificationPair.vetoFired()`'s
 two-trigger logic and the ≤80 triage cut; see `CloudVerificationService.forecastGapUnderTriageCut`
 and `TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT`). Cross-check: the selected count for 2026-02-01→2026-08-06
-must land at ~545 (the report's `vetoFired&underTriageCut(<=80)` count for that window) — assert
+must land at ~545 (the report's `vetoFired&underTriageCut` count for that window) — assert
 the query against that number in a test with fixtures, and log the production count at run time.
 Also reconstruct the not-fired promptable population? NO — the baseline (32.9 observed) is
 already served by the report; only fired rows need peaks.

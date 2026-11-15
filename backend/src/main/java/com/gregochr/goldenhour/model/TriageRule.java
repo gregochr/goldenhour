@@ -5,7 +5,7 @@ package com.gregochr.goldenhour.model;
  */
 public enum TriageRule {
 
-    /** Solar low cloud cover exceeds 80%, blocking the sun completely. */
+    /** Solar low cloud cover exceeds the horizon's cut (60% today and tomorrow, 80% beyond), blocking the sun. */
     HIGH_CLOUD,
 
     /** Precipitation exceeds 2 mm, indicating active rain or heavy drizzle. */
