@@ -225,7 +225,7 @@ force-eval spend and roll-ups is small.
   - boundary: sun-side canvas 39 ⇒ MARGINAL + flag, 40 ⇒ GO; sun-side low 14 vs 15;
   - observer high 60 + horizons clear ⇒ not demoted (no new demotion).
 - `BriefingSlotBuilderTest`: end to end, including observer clear + sun-side low 45 + canvas ⇒ MARGINAL via
-  stage 5 and **no** `"Clear all layers"` flag.
+  stage 5, with the `"Clear all layers"` flag, since sun-side low ≥ 15 is never exempt.
 - Gloss: all existing tests pass unmodified, plus the mixed-region test.
 
 ### 4. Docs and changelog

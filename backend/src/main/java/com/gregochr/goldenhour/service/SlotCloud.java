@@ -6,8 +6,9 @@ import com.gregochr.goldenhour.model.BriefingSlot;
  * Reads a slot's cloud from either sampling point: the observer's own hourly layers, or the two
  * horizon points (113 km toward and away from the sun).
  *
- * <p>Shared by the region gloss and the triage clear-sky test so the two cannot drift on what
- * "directional" or "clear" means. It is a static helper rather than methods on
+ * <p>This is the region gloss's reading of slot cloud. Triage's clear-sky test does not use it: it
+ * reads only the sun-side layers, through {@code WeatherMetrics.hasSunwardCanvas}
+ * (clear-sky-demotion-plan.md, Phase A follow-up). It is a static helper rather than methods on
  * {@link BriefingSlot.WeatherConditions} because that record is serialised: a method there would
  * leak onto the wire.
  */
