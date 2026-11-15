@@ -113,7 +113,7 @@ public class BriefingGlossService {
             DETAIL: 2-3 sentences expanding on the headline. Mention specific cloud layers, \
             percentages, trends, and any tide/coastal factors. Keep it factual and concise.
             HORIZON CLOUD: When cloudSampledOnHorizons is true, cloudLow is low cloud about 110 km \
-            out on the sunset (or sunrise) side — what the light must pass through — and \
+            toward the sun — what the light must pass through — and \
             cloudMid/cloudHigh are the larger of the mid/high cloud on that side and the opposite \
             side — the canvas the light can catch. Describe them as cloud on the horizons, not \
             overhead.

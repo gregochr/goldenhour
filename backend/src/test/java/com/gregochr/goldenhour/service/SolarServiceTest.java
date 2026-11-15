@@ -91,6 +91,14 @@ class SolarServiceTest {
     }
 
     @Test
+    @DisplayName("Sunset azimuth at the Angel of the North in mid-November is well south of due west (about 238)")
+    void sunsetAzimuthDeg_angelOfTheNorthInNovember_isSouthOfWest() {
+        int azimuth = solarService.sunsetAzimuthDeg(54.914, -1.590, LocalDate.of(2026, 11, 16));
+
+        assertThat(azimuth).isBetween(230, 245);
+    }
+
+    @Test
     @DisplayName("Sunrise azimuth is north of East in summer and south of East in winter")
     void sunriseAzimuthDeg_isNorthOfEastInSummer_southOfEastInWinter() {
         int summer = solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, LocalDate.of(2026, 6, 21));

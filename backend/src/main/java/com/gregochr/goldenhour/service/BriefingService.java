@@ -645,7 +645,7 @@ public class BriefingService {
 
         // Fetch horizon cloud data (one batch call for all unique horizon grid cells)
         BriefingWeatherLoader.HorizonCloudData horizonData =
-                weatherLoader.fetchHorizonCloud(colourLocations, jobRun);
+                weatherLoader.fetchHorizonCloud(colourLocations, dates.getFirst(), jobRun);
 
         // Fetch + persist coastal sea-state (waves) for the enriched king/spring/surge pills.
         // Isolated like the NLC refresh below — an optional enrichment source must never abort the
@@ -684,10 +684,8 @@ public class BriefingService {
                     }
                     OpenMeteoForecastResponse horizonForecast =
                             horizonData.getForLocation(lw.location().getId(), eventType);
-                    TargetType oppositeEvent = eventType == TargetType.SUNRISE
-                            ? TargetType.SUNSET : TargetType.SUNRISE;
                     OpenMeteoForecastResponse antiSunForecast =
-                            horizonData.getForLocation(lw.location().getId(), oppositeEvent);
+                            horizonData.getAntiSunForLocation(lw.location().getId(), eventType);
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,
                             horizonForecast, antiSunForecast, tideSnapshot);
                     if (slot != null) {

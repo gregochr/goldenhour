@@ -160,13 +160,13 @@ public class BriefingSlotBuilder {
 
     /**
      * Builds a briefing slot as the five-argument form does, also carrying the cloud layers of the
-     * opposite event's horizon point so the region gloss can see the canvas on either side.
+     * anti-sun horizon point so the region gloss can see the canvas on either side.
      *
      * @param lw                   the location and its fetched forecast data
      * @param date                 the target date
      * @param eventType            SUNRISE or SUNSET
      * @param horizonForecast      cloud-only forecast at the event's own horizon point (nullable)
-     * @param antiSunHorizonForecast cloud-only forecast at the opposite horizon point (nullable)
+     * @param antiSunHorizonForecast cloud-only forecast at the anti-sun horizon point (nullable)
      * @param snapshot             the build's tide snapshot, or {@code null} to query per slot
      * @return the briefing slot, or null if the solar event time cannot be determined
      */
