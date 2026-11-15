@@ -289,7 +289,7 @@ class BriefingServiceTest {
      */
     private BriefingWeatherLoader weatherLoader() {
         return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService,
-                loaderEpoch);
+                loaderEpoch, new SolarService());
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -464,6 +464,54 @@ class BriefingServiceTest {
         assertThat(cached).isNotNull();
         assertThat(cached.days()).hasSize(5);
         assertThat(cached.headline()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("Each event's slot carries its own anti-sun horizon response, not the other event's sun point")
+    void refresh_slotsCarryEachEventsOwnAntiSunHorizon() {
+        LocationEntity loc = location("Durham", "North East");
+        when(locationService.findAllEnabled()).thenReturn(List.of(loc));
+        when(jobRunService.startRun(eq(RunType.BRIEFING), anyBoolean(), any()))
+                .thenReturn(JobRunEntity.builder().id(1L).runType(RunType.BRIEFING).build());
+        when(solarService.sunriseUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(FIXED_NOW.withHour(6).withMinute(0));
+        when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any(LocalDate.class)))
+                .thenReturn(FIXED_NOW.withHour(18).withMinute(0));
+        when(openMeteoClient.fetchForecastBriefingBatch(anyList()))
+                .thenAnswer(inv -> {
+                    List<?> coords = inv.getArgument(0);
+                    return coords.stream().map(c -> buildForecastResponse()).toList();
+                });
+        // Order the loader requests: sunrise sun, sunrise anti-sun, sunset sun, sunset anti-sun.
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenAnswer(inv -> {
+            List<?> coords = inv.getArgument(0);
+            List<OpenMeteoForecastResponse> responses = new ArrayList<>();
+            int[] highCloud = {11, 22, 33, 44};
+            for (int i = 0; i < coords.size(); i++) {
+                OpenMeteoForecastResponse r = buildForecastResponse();
+                r.getHourly().setCloudCoverHigh(new ArrayList<>(
+                        java.util.Collections.nCopies(r.getHourly().getTime().size(), highCloud[i])));
+                responses.add(r);
+            }
+            return responses;
+        });
+
+        briefingService.refreshBriefing();
+
+        BriefingSlot sunrise = firstSlotFor(TargetType.SUNRISE);
+        BriefingSlot sunset = firstSlotFor(TargetType.SUNSET);
+        assertThat(sunrise.weather().sunSideHighCloudPercent()).isEqualTo(11);
+        assertThat(sunrise.weather().antiSunSideHighCloudPercent()).isEqualTo(22);
+        assertThat(sunset.weather().sunSideHighCloudPercent()).isEqualTo(33);
+        assertThat(sunset.weather().antiSunSideHighCloudPercent()).isEqualTo(44);
+    }
+
+    private BriefingSlot firstSlotFor(TargetType eventType) {
+        return briefingService.getCachedBriefing().days().stream()
+                .flatMap(d -> d.eventSummaries().stream())
+                .filter(es -> es.targetType() == eventType)
+                .flatMap(es -> es.regions().stream()).flatMap(r -> r.slots().stream())
+                .findFirst().orElseThrow();
     }
 
     @Test

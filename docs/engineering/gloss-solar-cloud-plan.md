@@ -149,6 +149,15 @@ the PR body.
 
 ## Phase 2 — the briefing's horizon point follows the sun
 
+**Status: implemented.** One bearing per location and event from the first briefing date (`dates.getFirst()`),
+reused for every date; the anti-sun point is each event's own azimuth + 180 (`HorizonCloudData.getAntiSunForLocation`),
+replacing the old opposite-event lookup, which is no longer antisolar once the azimuths are real. If the azimuth
+call throws, that event falls back to 90/270. The gloss prompt now says "toward the sun". The verdict delta was
+**not measured**: a session cannot read a production build, and a local briefing build calls Haiku for glosses,
+which costs real money. The change aligns triage's horizon reading (`applyHorizonCloudDemotion`) with the
+evaluation's; Go/Marginal can move where cloud differs between due west/east and the true direction. A real-calculator
+test pins Angel of the North's 16 Nov sunset azimuth at about 238 degrees (the plan's 225 was an estimate).
+
 `BriefingWeatherLoader` samples at the event's solar azimuth instead of 90°/270°.
 
 - Compute the azimuth with the project's solar utilities for each location and event on the **first**

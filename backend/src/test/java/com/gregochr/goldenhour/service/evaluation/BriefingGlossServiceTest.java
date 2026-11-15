@@ -1499,7 +1499,8 @@ class BriefingGlossServiceTest {
         void promptContainsNewSentences() {
             String prompt = BriefingGlossService.systemPrompt();
 
-            assertThat(prompt).contains("When cloudSampledOnHorizons is true, cloudLow is low cloud about 110 km");
+            assertThat(prompt).contains(
+                    "When cloudSampledOnHorizons is true, cloudLow is low cloud about 110 km toward the sun");
             assertThat(prompt).contains("Never say the ratings are mistaken or explain them away");
             assertThat(prompt).contains("a claudeAverageRating above 3.5 justifies");
         }

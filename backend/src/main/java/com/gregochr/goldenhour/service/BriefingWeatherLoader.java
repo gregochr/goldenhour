@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -37,16 +38,17 @@ public class BriefingWeatherLoader {
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
     private static final double HORIZON_OFFSET_METRES = 113_000.0;
 
-    /** Sunrise bearing (due east). */
-    private static final double SUNRISE_BEARING = 90.0;
+    /** Fallback sunrise bearing (due east), used only when the solar azimuth cannot be computed. */
+    private static final double FALLBACK_SUNRISE_BEARING = 90.0;
 
-    /** Sunset bearing (due west). */
-    private static final double SUNSET_BEARING = 270.0;
+    /** Fallback sunset bearing (due west), used only when the solar azimuth cannot be computed. */
+    private static final double FALLBACK_SUNSET_BEARING = 270.0;
 
     private final OpenMeteoClient openMeteoClient;
     private final LocationRepository locationRepository;
     private final JobRunService jobRunService;
     private final ServedBriefingEpoch servedEpoch;
+    private final SolarService solarService;
 
     /**
      * Constructs a {@code BriefingWeatherLoader}.
@@ -55,14 +57,16 @@ public class BriefingWeatherLoader {
      * @param locationRepository repository for persisting grid coordinates discovered in responses
      * @param jobRunService      service for job run and API-call metrics tracking
      * @param servedEpoch        bumped after each grid-cell write
+     * @param solarService       supplies the real sunrise and sunset azimuths for the horizon points
      */
     public BriefingWeatherLoader(OpenMeteoClient openMeteoClient,
             LocationRepository locationRepository, JobRunService jobRunService,
-            ServedBriefingEpoch servedEpoch) {
+            ServedBriefingEpoch servedEpoch, SolarService solarService) {
         this.openMeteoClient = openMeteoClient;
         this.locationRepository = locationRepository;
         this.jobRunService = jobRunService;
         this.servedEpoch = servedEpoch;
+        this.solarService = solarService;
     }
 
     /**
@@ -185,37 +189,41 @@ public class BriefingWeatherLoader {
     /**
      * Fetches cloud-only data at the solar horizon point for each location+event combination.
      *
-     * <p>Computes horizon points at 113 km east (sunrise) and west (sunset) for each location,
-     * de-duplicates by Open-Meteo grid cell (nearest 0.25°), then makes a single batch fetch
-     * for all unique grid cells. With ~50 locations × 2 events → ~100 raw points → typically
-     * 30–40 unique grid cells after de-duplication.
+     * <p>Per location and event it samples 113 km toward the sun (the real sunrise or sunset
+     * azimuth) and 113 km toward the anti-sun point (azimuth + 180°), so four points per
+     * location. They are de-duplicated by Open-Meteo grid cell (nearest 0.25°) and fetched in a
+     * single batch. With ~50 locations × 4 points → ~200 raw points → typically 80–120 unique
+     * grid cells after de-duplication.
      *
-     * @param locations the colour locations to compute horizon points for
-     * @param jobRun    the job run for API call tracking
+     * <p>The azimuth is computed once per location and event on {@code referenceDate} (the first
+     * briefing date) and reused for every date in the window: it drifts by under 1° a day, and a
+     * per-date point would multiply the fetch. If the azimuth cannot be computed, that event falls
+     * back to due east (sunrise) or due west (sunset).
+     *
+     * @param locations     the colour locations to compute horizon points for
+     * @param referenceDate the first briefing date, used to compute the solar azimuths
+     * @param jobRun        the job run for API call tracking
      * @return horizon cloud data lookup
      */
-    HorizonCloudData fetchHorizonCloud(List<LocationEntity> locations, JobRunEntity jobRun) {
+    HorizonCloudData fetchHorizonCloud(List<LocationEntity> locations, LocalDate referenceDate,
+            JobRunEntity jobRun) {
 
         // Collect phase: compute horizon points and de-duplicate by grid key
         Map<String, double[]> uniqueCoords = new LinkedHashMap<>();
         Map<Long, Map<TargetType, String>> locationKeys = new HashMap<>();
+        Map<Long, Map<TargetType, String>> antiSunKeys = new HashMap<>();
 
         for (LocationEntity loc : locations) {
-            Map<TargetType, String> eventKeys = new HashMap<>();
-
-            double[] sunrisePoint = GeoUtils.offsetPoint(
-                    loc.getLat(), loc.getLon(), SUNRISE_BEARING, HORIZON_OFFSET_METRES);
-            String sunriseKey = horizonGridKey(sunrisePoint);
-            uniqueCoords.putIfAbsent(sunriseKey, sunrisePoint);
-            eventKeys.put(TargetType.SUNRISE, sunriseKey);
-
-            double[] sunsetPoint = GeoUtils.offsetPoint(
-                    loc.getLat(), loc.getLon(), SUNSET_BEARING, HORIZON_OFFSET_METRES);
-            String sunsetKey = horizonGridKey(sunsetPoint);
-            uniqueCoords.putIfAbsent(sunsetKey, sunsetPoint);
-            eventKeys.put(TargetType.SUNSET, sunsetKey);
-
-            locationKeys.put(loc.getId(), eventKeys);
+            Map<TargetType, String> sunKeys = new HashMap<>();
+            Map<TargetType, String> antiKeys = new HashMap<>();
+            for (TargetType event : List.of(TargetType.SUNRISE, TargetType.SUNSET)) {
+                double sunBearing = sunBearing(loc, event, referenceDate);
+                sunKeys.put(event, registerPoint(uniqueCoords, loc, sunBearing));
+                antiKeys.put(event, registerPoint(uniqueCoords, loc,
+                        GeoUtils.antisolarBearing(sunBearing)));
+            }
+            locationKeys.put(loc.getId(), sunKeys);
+            antiSunKeys.put(loc.getId(), antiKeys);
         }
 
         // Single batch fetch for all unique horizon grid cells
@@ -248,7 +256,28 @@ public class BriefingWeatherLoader {
                     durationMs, null, null, false, e.getMessage());
         }
 
-        return new HorizonCloudData(locationKeys, responseMap);
+        return new HorizonCloudData(locationKeys, antiSunKeys, responseMap);
+    }
+
+    private double sunBearing(LocationEntity loc, TargetType event, LocalDate date) {
+        try {
+            return event == TargetType.SUNRISE
+                    ? solarService.sunriseAzimuthDeg(loc.getLat(), loc.getLon(), date)
+                    : solarService.sunsetAzimuthDeg(loc.getLat(), loc.getLon(), date);
+        } catch (RuntimeException e) {
+            LOG.debug("Solar azimuth unavailable for location {} {} — using fallback bearing: {}",
+                    loc.getId(), event, e.getMessage());
+            return event == TargetType.SUNRISE ? FALLBACK_SUNRISE_BEARING : FALLBACK_SUNSET_BEARING;
+        }
+    }
+
+    private static String registerPoint(Map<String, double[]> uniqueCoords, LocationEntity loc,
+            double bearing) {
+        double[] point = GeoUtils.offsetPoint(
+                loc.getLat(), loc.getLon(), bearing, HORIZON_OFFSET_METRES);
+        String key = horizonGridKey(point);
+        uniqueCoords.putIfAbsent(key, point);
+        return key;
     }
 
     /**
@@ -267,6 +296,7 @@ public class BriefingWeatherLoader {
      * Lookup container for horizon cloud forecast data, keyed by location ID and event type.
      */
     record HorizonCloudData(Map<Long, Map<TargetType, String>> locationKeys,
+            Map<Long, Map<TargetType, String>> antiSunKeys,
             Map<String, OpenMeteoForecastResponse> responseMap) {
 
         /**
@@ -277,7 +307,24 @@ public class BriefingWeatherLoader {
          * @return the horizon forecast response, or null if unavailable
          */
         OpenMeteoForecastResponse getForLocation(Long locationId, TargetType eventType) {
-            Map<TargetType, String> keys = locationKeys.get(locationId);
+            return lookup(locationKeys, locationId, eventType);
+        }
+
+        /**
+         * Returns the anti-sun horizon forecast for a given location and event type: the point
+         * 113 km directly away from where that event's sun is.
+         *
+         * @param locationId the location ID
+         * @param eventType  SUNRISE or SUNSET
+         * @return the anti-sun horizon forecast response, or null if unavailable
+         */
+        OpenMeteoForecastResponse getAntiSunForLocation(Long locationId, TargetType eventType) {
+            return lookup(antiSunKeys, locationId, eventType);
+        }
+
+        private OpenMeteoForecastResponse lookup(Map<Long, Map<TargetType, String>> keyMap,
+                Long locationId, TargetType eventType) {
+            Map<TargetType, String> keys = keyMap.get(locationId);
             if (keys == null) {
                 return null;
             }
