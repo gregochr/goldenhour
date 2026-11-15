@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.service.BriefingRatingStats;
+import com.gregochr.goldenhour.service.BriefingVerdictEvaluator;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -67,7 +68,7 @@ public class BriefingGlossService {
      * response and the headline and detail that are kept. A change to {@code SYSTEM_PROMPT}, the
      * model id or the user message needs no bump: those are hashed into the key directly.
      */
-    static final String GLOSS_VERSION = "1";
+    static final String GLOSS_VERSION = "2";
 
     /** Maximum concurrent Haiku calls. */
     private static final int MAX_CONCURRENCY = 10;
@@ -82,7 +83,17 @@ public class BriefingGlossService {
             "\\b(cloudLow|cloudMid|cloudHigh|clearAllLayers|buildingTrend|tideAlignedCount|hasKingTide"
                     + "|hasSpringTide|coastalLocationCount|goCount|marginalCount|totalLocations"
                     + "|claudeRatedCount|claudeHighRatedCount|claudeMediumRatedCount|claudeAverageRating"
-                    + "|claudeCoverageRatio|lowCoverage)\\b");
+                    + "|claudeCoverageRatio|lowCoverage|cloudSampledOnHorizons)\\b");
+
+    /**
+     * The average rating above which the prompt invites optimistic language, and at or above which
+     * a well-covered region cannot be described as clear sky: the evaluation caps a cloudless sky at
+     * three stars, so an average this high means the full analysis saw a cloud canvas.
+     */
+    static final double OPTIMISTIC_AVERAGE_RATING = 3.5;
+
+    /** A strict majority needs more than this share of the median source slots. */
+    private static final int MAJORITY_DIVISOR = 2;
 
     private static final String SYSTEM_PROMPT = """
             You are a photography forecast assistant. Given weather and tide data for a \
@@ -101,6 +112,11 @@ public class BriefingGlossService {
             "High cloud with good canvas potential at" (ends with "at").
             DETAIL: 2-3 sentences expanding on the headline. Mention specific cloud layers, \
             percentages, trends, and any tide/coastal factors. Keep it factual and concise.
+            HORIZON CLOUD: When cloudSampledOnHorizons is true, cloudLow is low cloud about 110 km \
+            out on the sunset (or sunrise) side — what the light must pass through — and \
+            cloudMid/cloudHigh are the larger of the mid/high cloud on that side and the opposite \
+            side — the canvas the light can catch. Describe them as cloud on the horizons, not \
+            overhead.
             EVENT TYPE: The "event" field in the input will be "sunrise" or "sunset". \
             Always refer to the event as "sunrise" or "sunset" — never use "solar event".
             CRITICAL RULE: If clearAllLayers is true, BOTH headline and detail MUST be \
@@ -113,8 +129,10 @@ public class BriefingGlossService {
             PHOTOCAST SCORES: The input may include claudeRatedCount, claudeHighRatedCount, \
             claudeMediumRatedCount, and claudeAverageRating fields. When present, these \
             are per-location PhotoCast evaluation scores from the full atmospheric analysis. \
-            Use them to calibrate your language: a claudeAverageRating above 3.5 justifies \
+            Use them to calibrate your language: a claudeAverageRating above @OPTIMISTIC_AVERAGE@ justifies \
             optimistic language; below 2.5 warrants caution even if the triage verdict is GO. \
+            Never say the ratings are mistaken or explain them away; if the cloud figures and the \
+            ratings seem to disagree, describe the cloud plainly and let the ratings stand. \
             When absent, base your assessment on the cloud and tide data alone.
             COVERAGE: The input may include claudeCoverageRatio and lowCoverage, indicating what \
             fraction of the region's totalLocations were PhotoCast-evaluated (claudeRatedCount of \
@@ -141,7 +159,8 @@ public class BriefingGlossService {
             Example: {"headline": "High cirrus canvas — colour potential", \
             "detail": "40% high cloud provides a canvas for colour at sunset. \
             Low cloud is minimal at 15%, keeping the horizon clear. \
-            The clear horizon favours warm tones."}""";
+            The clear horizon favours warm tones."}"""
+            .replace("@OPTIMISTIC_AVERAGE@", String.valueOf(OPTIMISTIC_AVERAGE_RATING));
 
     private final AnthropicApiClient anthropicApiClient;
     private final ObjectMapper objectMapper;
@@ -379,23 +398,28 @@ public class BriefingGlossService {
      */
     String buildUserMessage(GlossWorkItem item) {
         BriefingRegion region = item.region;
-        // The "candidate" slot set is every slot in the region — including weather-STANDDOWN,
-        // which reaches Claude like any other.
-        List<BriefingSlot> evaluableSlots = region.slots();
-        List<BriefingSlot> goSlots = region.slots().stream()
+        // Only sky slots speak for the sky: a woodland slot's cloud figures mean the opposite of a
+        // sky slot's (heavy cloud is its ideal), so they must not move the medians or the clear count.
+        List<BriefingSlot> skySlots = region.slots().stream().filter(s -> !s.canopy()).toList();
+        List<BriefingSlot> evaluableSlots = skySlots.isEmpty() ? region.slots() : skySlots;
+        List<BriefingSlot> goSlots = evaluableSlots.stream()
                 .filter(s -> s.verdict() == Verdict.GO)
                 .toList();
         List<BriefingSlot> medianSource = goSlots.isEmpty() ? evaluableSlots : goSlots;
 
-        int cloudLow = median(medianSource.stream()
-                .mapToInt(s -> s.weather().lowCloudPercent()).sorted().toArray());
-        int cloudMid = median(medianSource.stream()
-                .mapToInt(s -> s.weather().midCloudPercent()).sorted().toArray());
-        int cloudHigh = median(medianSource.stream()
-                .mapToInt(s -> s.weather().highCloudPercent()).sorted().toArray());
+        // Horizon figures are used only when every slot feeding the medians has them, so a median
+        // never mixes the two sampling points.
+        boolean cloudSampledOnHorizons = medianSource.stream().allMatch(BriefingGlossService::isDirectional);
+        List<EffectiveCloud> layers = medianSource.stream()
+                .map(s -> cloudSampledOnHorizons ? horizonCloud(s.weather()) : observerCloud(s.weather()))
+                .toList();
 
-        boolean clearAllLayers = region.slots().stream()
-                .anyMatch(s -> s.flags().contains("Clear all layers"));
+        int cloudLow = median(layers.stream().mapToInt(EffectiveCloud::low).sorted().toArray());
+        int cloudMid = median(layers.stream().mapToInt(EffectiveCloud::mid).sorted().toArray());
+        int cloudHigh = median(layers.stream().mapToInt(EffectiveCloud::high).sorted().toArray());
+
+        long clearSlots = layers.stream().filter(EffectiveCloud::isClear).count();
+        boolean clearAllLayers = clearSlots * MAJORITY_DIVISOR > layers.size();
         boolean buildingTrend = region.slots().stream()
                 .anyMatch(s -> s.flags().contains("Cloud building"));
 
@@ -417,6 +441,7 @@ public class BriefingGlossService {
             node.put("cloudLow", cloudLow);
             node.put("cloudMid", cloudMid);
             node.put("cloudHigh", cloudHigh);
+            node.put("cloudSampledOnHorizons", cloudSampledOnHorizons);
             node.put("clearAllLayers", clearAllLayers);
             node.put("buildingTrend", buildingTrend);
             node.put("hasKingTide", hasKingTide);
@@ -429,10 +454,53 @@ public class BriefingGlossService {
             // Append Claude evaluation scores when available
             appendClaudeScores(node, region, item.day.date(), item.eventSummary.targetType());
 
+            // A well-covered region averaging at or above the optimism threshold was rated by an
+            // evaluation that caps a cloudless sky at three stars, so it did see a cloud canvas.
+            if (clearAllLayers && node.has("claudeAverageRating")
+                    && node.get("claudeAverageRating").asDouble() >= OPTIMISTIC_AVERAGE_RATING
+                    && !node.path("lowCoverage").asBoolean(false)) {
+                node.put("clearAllLayers", false);
+            }
+
             return objectMapper.writeValueAsString(node);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to build gloss user message", e);
         }
+    }
+
+    /** The three cloud layers one slot contributes to the gloss, from whichever sampling applies. */
+    private record EffectiveCloud(int low, int mid, int high) {
+
+        /** True when every layer is below the clear-sky threshold. */
+        boolean isClear() {
+            return low < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX
+                    && mid < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX
+                    && high < BriefingVerdictEvaluator.CLEAR_ALL_LAYERS_MAX;
+        }
+    }
+
+    /** A slot is directional when all three sun-side horizon layers were sampled. */
+    private static boolean isDirectional(BriefingSlot slot) {
+        BriefingSlot.WeatherConditions w = slot.weather();
+        return w.sunSideLowCloudPercent() != null && w.sunSideMidCloudPercent() != null
+                && w.sunSideHighCloudPercent() != null;
+    }
+
+    /** The observer point's own layers. */
+    private static EffectiveCloud observerCloud(BriefingSlot.WeatherConditions w) {
+        return new EffectiveCloud(w.lowCloudPercent(), w.midCloudPercent(), w.highCloudPercent());
+    }
+
+    /**
+     * Horizon layers: low cloud on the sun side is the blocker; the larger of the two sides' mid and
+     * high cloud is the canvas — the same reading the full evaluation scores by.
+     */
+    private static EffectiveCloud horizonCloud(BriefingSlot.WeatherConditions w) {
+        int antiMid = w.antiSunSideMidCloudPercent() == null ? 0 : w.antiSunSideMidCloudPercent();
+        int antiHigh = w.antiSunSideHighCloudPercent() == null ? 0 : w.antiSunSideHighCloudPercent();
+        return new EffectiveCloud(w.sunSideLowCloudPercent(),
+                Math.max(w.sunSideMidCloudPercent(), antiMid),
+                Math.max(w.sunSideHighCloudPercent(), antiHigh));
     }
 
     /**

@@ -684,8 +684,12 @@ public class BriefingService {
                     }
                     OpenMeteoForecastResponse horizonForecast =
                             horizonData.getForLocation(lw.location().getId(), eventType);
+                    TargetType oppositeEvent = eventType == TargetType.SUNRISE
+                            ? TargetType.SUNSET : TargetType.SUNRISE;
+                    OpenMeteoForecastResponse antiSunForecast =
+                            horizonData.getForLocation(lw.location().getId(), oppositeEvent);
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,
-                            horizonForecast, tideSnapshot);
+                            horizonForecast, antiSunForecast, tideSnapshot);
                     if (slot != null) {
                         allSlots.add(slot);
                     }
