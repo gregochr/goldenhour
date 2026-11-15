@@ -197,6 +197,57 @@ No new model calls and no change to which slots are scored; two inputs carry up 
   grow with the window count. This adds to the open Ready-precompute item above (the evening refresh's
   Ask precompute); re-measure with `measured-costs.sql` after the release.
 
+## Open: triage headroom (2026-11-15, run on production, decision pending)
+
+The owner's question (14 Nov: £2.30 for a day where one window of six was worth a look): why pay Claude to
+say "poor"? Stood-down and unscored windows already cost nothing. The free weather triage
+(`WeatherTriageEvaluator`) stands a slot down before any model call, at solar-horizon low cloud over 80%,
+rain over 2 mm or visibility under 5 km, and Gate 4 skips T+2/T+3 in unsettled weather. The money is the
+places that pass triage for today and tomorrow, at about $0.0028 each on Sonnet 5.5, rated by all three
+cycles. The candidate lever is a stricter triage line, which cuts requests in every cycle without changing
+the model or cadence. Query: `triage-headroom.sql` (section 1: stars by sun-side low cloud band;
+section 2: requests, dollars and good ratings hidden for low cloud over 50/60/70%, rain over 0.5/1 mm,
+visibility 5–10 km; section 3: the saving by cycle). Decision rule: adopt a candidate only if
+`final_ge_4_hidden` is under 1% of `skippable_requests` over at least 30 days spanning settled and
+unsettled weather.
+
+**Result (2026-11-15, production, 45 days, ~43.7k rated requests):** today and tomorrow (T+0/1, Sonnet 5.5),
+4★+ by sun-side low cloud band:
+
+| Band | Sunrise requests | Sunrise 4★+ | Sunset requests | Sunset 4★+ | $ (both) |
+|---|---|---|---|---|---|
+| 41–50% | 1,806 | 41 (2.3%) | 2,272 | 47 (2.1%) | 11.04 |
+| 51–60% | 1,967 | 10 (0.5%) | 2,221 | 19 (0.9%) | 11.43 |
+| 61–70% | 2,290 | 2 (0.1%) | 2,036 | 7 (0.3%) | 11.47 |
+| 71–80% | 1,901 | 1 (0.1%) | 1,984 | 7 (0.4%) | 10.07 |
+
+The days further out (T+2/3, Haiku 4.5) keep 2–5% 4★+ up to 80% (82 of 2,510 over 60%). They cost $3.21 of
+that rule's $23.91, so leave them at 80%. Candidates against the decision rule (`pct_final_ge_4_hidden`):
+low cloud over 50% 0.37%, over 60% 0.28%, over 70% 0.29% (all pass); rain over 0.5 mm 0.73% (passes, ~$3/month);
+rain over 1 mm 1.12% and visibility 5–10 km 1.78% (fail). The cost is "Maybe" ratings: about 18% of the
+skipped near-term requests over 60% were 3★, and they would show as stood down instead.
+A **T+0/1-only rule at over 60%** skips ~8.2k requests per 45 days, **~$14/30 days**, hiding 17 4★+ ratings
+(0.2%). At over 50% it is **~$22/30 days**, hiding 46 (0.37%). **Owner decision (2026-11-15): over 60%,
+T+0/1 only**, with thin strips exempt (`triage-cost-cut-plan.md` P1). `triage-60-thin-strip.sql` (45 days):
+the blanket shape is 5,347 requests, $13.55, 7 at 4★+ (0.13%), 77 at 3★; the exempt thin strips are 2,831
+requests, $7.89, 9 at 4★+, 1,430 at 3★. **Net saving ~$9/30 days**, hiding 8 good and ~87 Maybe ratings.
+
+## Cost per call and shared cells (2026-11-15, production, 30 days)
+
+Query: `per-call-and-shared-cells.sql`.
+
+- **Thinking is not a hidden cost.** Sonnet 5.5 sky calls average 213–233 output tokens, p50 ~222, p90 ~255,
+  max ~830, in every cycle. That is the answer itself, so a cap on output or thinking has nothing to cut.
+  The cached system prompt is now ~7.8k tokens a call (cache reads), against the ~4.6k this ledger recorded
+  earlier; trimming it stays rejected for calibration risk (see "Prompt trims").
+- **Places sharing a weather cell.** 266 enabled places sit in 212 Open-Meteo cells (54 extra). Over 30 days of
+  T+0/1 ratings, 3,451 same-cell same-run groups held 8,509 rated places: one call per cell would have saved
+  **5,058 of ~28.2k Sonnet calls (18%), up to ~$14/30 days**. 2,354 groups (68%) had identical stored weather,
+  2,560 (74%) gave every place the same stars, and only 16 (0.5%) spread 2★ or more. The prompt still differs
+  by place (the location name, orientation, coastal and woodland prompt builders), so only same-lane,
+  same-orientation, same-weather places could share, and the shared `summary` would name one place.
+  A realistic saving is ~$8–14/30 days. Not designed; owner decision pending.
+
 ## Watch items
 
 - Re-run `measured-costs.sql` about a week after each release that touches cost.
