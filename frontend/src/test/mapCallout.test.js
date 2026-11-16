@@ -11,6 +11,7 @@
  * gloss index join.
  */
 import { describe, it, expect } from 'vitest';
+import { SETUP_MINUTES } from '../utils/leaveBy.js';
 import {
   anchorCallout, buildRegionGlossIndex, calloutBand, calloutFacts, calloutLeaveBy,
   CALLOUT_GAP, CALLOUT_MARGIN, CALLOUT_MIN_BAND, filterCalloutTopics, isCoastalTidalLocation,
@@ -361,6 +362,47 @@ describe('calloutFacts', () => {
     it('a past window with no Bortle class has no facts at all', () => {
       expect(calloutFacts({ ...FULL, bortleClass: null, past: true })).toEqual([]);
     });
+  });
+});
+
+describe('calloutLeaveBy — arrival', () => {
+  it('carries the UK arrival time, SETUP_MINUTES before the event (GMT)', () => {
+    expect(calloutLeaveBy('2026-11-16T16:02:00', 22)).toMatchObject({ time: '15:20', arrive: '15:42' });
+  });
+
+  it('reads the arrival on the UK clock in summer (BST)', () => {
+    // 20:11 UTC on 14 August is 21:11 BST; 20 minutes earlier is 20:51 BST.
+    expect(calloutLeaveBy('2026-08-14T20:11:00', 66).arrive).toBe('20:51');
+  });
+
+  it('is null (no leave-by at all) for a null event', () => {
+    expect(calloutLeaveBy(null, 22)).toBeNull();
+  });
+});
+
+describe('calloutFacts — the arrival detail on the leave fact', () => {
+  const EVENT = '2026-11-16T16:02:00';
+  const leaveFact = (args) => calloutFacts({ driveMinutes: 22, eventTimeIso: EVENT, ...args })
+    .find((f) => f.key === 'leave');
+
+  it('names the arrival and the sunset', () => {
+    expect(leaveFact({ eventType: 'SUNSET' }).detail).toBe('arrive 15:42, 20 min before sunset');
+  });
+
+  it('names the sunrise for a sunrise window, with the buffer from the constant', () => {
+    expect(leaveFact({ eventType: 'SUNRISE' }).detail)
+      .toBe(`arrive 15:42, ${SETUP_MINUTES} min before sunrise`);
+  });
+
+  it('carries no detail for a null or non-solar event type', () => {
+    expect(leaveFact({ eventType: null })).not.toHaveProperty('detail');
+    expect(leaveFact({ eventType: 'ASTRO' })).not.toHaveProperty('detail');
+    expect(leaveFact({})).not.toHaveProperty('detail');
+  });
+
+  it('has no leave fact for a past window or an unmeasured drive', () => {
+    expect(leaveFact({ eventType: 'SUNSET', past: true })).toBeUndefined();
+    expect(leaveFact({ eventType: 'SUNSET', driveMinutes: null })).toBeUndefined();
   });
 });
 

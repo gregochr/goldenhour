@@ -754,6 +754,7 @@ export default function MapCallout({
     eventTimeIso,
     bortleClass: location.bortleClass ?? null,
     past: Boolean(event?.past),
+    eventType: event?.kind === 'solar' ? event?.eventType : null,
   });
 
   const coastalTidal = isCoastalTidalLocation(location);
@@ -1170,6 +1171,14 @@ export default function MapCallout({
               <span key={fact.key}>
                 <i>{fact.label}</i>
                 {fact.value}
+                {fact.detail && (
+                  <>
+                    {' · '}
+                    <span className="wf-callout-fact-detail" data-testid="map-callout-leave-detail">
+                      {fact.detail}
+                    </span>
+                  </>
+                )}
               </span>
             ))}
           </div>

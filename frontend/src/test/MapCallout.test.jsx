@@ -532,6 +532,19 @@ describe('MapCallout — facts row (reachMeasured discipline)', () => {
     expect(screen.getByTestId('map-callout-facts')).toHaveTextContent('Leave by');
   });
 
+  it('says when you arrive, beside Leave-by, for a scored solar window with a drive', async () => {
+    const scoreIndex = buildScoreIndex([scoreRow()]);
+    await mount({ driveMinutes: 30, scoreIndex });
+    expect(screen.getByTestId('map-callout-leave-detail'))
+      .toHaveTextContent(/^arrive \d{2}:\d{2}, 20 min before sunset$/);
+  });
+
+  it('shows no arrival detail without a drive', async () => {
+    const scoreIndex = buildScoreIndex([scoreRow()]);
+    await mount({ driveMinutes: null, scoreIndex });
+    expect(screen.queryByTestId('map-callout-leave-detail')).not.toBeInTheDocument();
+  });
+
   it('omits Leave-by for a night row, which carries no recoverable event instant', async () => {
     await mount({ event: ASTRO_EVENT, driveMinutes: 30 });
     expect(screen.queryByTestId('map-callout-facts')?.textContent ?? '').not.toMatch(/Leave by/);
