@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class BatchShareKeysTest {
 
-    private static final LocalDate DATE = LocalDate.of(2026, 11, 16);
-    private static final LocalDateTime TIME = LocalDateTime.of(2026, 11, 16, 7, 23, 45);
+    private static final LocalDate DATE = LocalDate.of(2031, 3, 10);
+    private static final LocalDateTime TIME = LocalDateTime.of(2031, 3, 10, 7, 23, 45);
     private static final String SETTINGS = "true|false|true";
 
     private static String message(String name, LocalDateTime time, String tail) {
@@ -69,7 +69,7 @@ class BatchShareKeysTest {
     @Test
     @DisplayName("a whole-minute time renders without seconds and still matches its minute")
     void wholeMinuteTime_matchesSecondsVariantOnMinuteKey() {
-        LocalDateTime whole = LocalDateTime.of(2026, 11, 16, 7, 23);
+        LocalDateTime whole = LocalDateTime.of(2031, 3, 10, 7, 23);
         Keys a = keys(input("Bamburgh", whole, "x"));
         Keys b = keys(input("Dunstanburgh", TIME, "x"));
 

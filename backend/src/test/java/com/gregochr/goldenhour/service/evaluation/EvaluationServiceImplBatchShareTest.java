@@ -46,8 +46,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class EvaluationServiceImplBatchShareTest {
 
-    private static final LocalDate TODAY = LocalDate.of(2026, 11, 16);
-    private static final LocalDateTime TIME = LocalDateTime.of(2026, 11, 16, 7, 23, 45);
+    private static final LocalDate TODAY = LocalDate.of(2031, 3, 10);
+    private static final LocalDateTime TIME = LocalDateTime.of(2031, 3, 10, 7, 23, 45);
     private static final EvaluationModel MODEL = EvaluationModel.SONNET_55;
     private static final String SUBMIT_DESCRIPTION = "EvaluationService forecast (SCHEDULED)";
 
@@ -70,7 +70,7 @@ class EvaluationServiceImplBatchShareTest {
 
     @BeforeEach
     void setUp() {
-        Clock clock = Clock.fixed(Instant.parse("2026-11-16T12:00:00Z"), ZoneOffset.UTC);
+        Clock clock = Clock.fixed(Instant.parse("2031-03-10T12:00:00Z"), ZoneOffset.UTC);
         service = new EvaluationServiceImpl(batchSubmissionService, batchRequestFactory,
                 anthropicApiClient, claudeAuroraInterpreter, jobRunService, List.of(),
                 forecastPromptStore, clock);
