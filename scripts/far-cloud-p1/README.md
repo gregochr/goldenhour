@@ -444,6 +444,54 @@ python3 canopyreplay.py report --manifest ~/goldenhour-p1/canopy-replay/manifest
 
 Add the JDK flags from section 0 on a Mac with JDK 23. Writes `out/canopyreplay.md`. Tests: `python3 -m unittest tests.test_canopyreplay`.
 
+## 8d. Broken low cloud, Phase A (no network, no spend)
+
+Plan: [docs/engineering/broken-low-canvas-plan.md](../../docs/engineering/broken-low-canvas-plan.md) section 2. It asks
+whether a gappy low deck (solar cone low 20-39% with no mid or high cloud anywhere) is forecast as a clear sky
+often enough, and wrongly enough, to be worth a prompt rule. Phase A only reads exports.
+
+**Export first.** Stored prompts are pruned after 30 days; the 31 Oct 2026 ones go about 30 Nov to 1 Dec, so run
+section 1's three prompt, forecast and summary exports before then, and keep a durable copy. The new ratings
+export adds a non-personal `by_admin` flag (the rating's account has the ADMIN role) and never exports a user id,
+username or email:
+
+```
+ssh gregochr@<host> 'docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -f -' < bl_export_ratings.sql > bl_ratings.csv
+```
+
+**Size it.** Run on `p1_forecasts.csv` alone for the frequency, E1 and E2 numbers, or add the ratings and the
+protocol start date:
+
+```
+python3 bl_size.py p1_forecasts.csv --out out/
+python3 bl_size.py p1_forecasts.csv --ratings bl_ratings.csv --protocol-start 2026-11-20 --out out/
+```
+
+It writes `out/bl.md` and `out/bl_slots.csv`, prints which run it chose for the 31 Oct Angel of the North sunset
+(expected evaluation 137844 or a later one) and prints the A5 gate as a decision block. The outcome is `proceed`,
+`stop` (naming the criterion) or `waiting for protocol ratings`. The 31 Oct case and the `far-cloud-lid-plan.md`
+section 1 training cases are excluded from every count. Only ratings on or after `--protocol-start` are protocol
+evidence; without it nothing is, so with criteria 1 and 2 met the outcome is "waiting". The decision uses your own
+(`by_admin`) ratings; other readers are reported beside them. An optional `--locations 1,2,3` restricts the
+population to those location ids (criterion 2 is then "at your usual locations"; without it, it is all sky
+locations, a looser test). Every path (the inputs and `--out`) must be inside the directory you run the script from, after symlinks and `..` are resolved, and the inputs must be existing `.csv` files; anything else is refused with exit code 2 before anything is read or written. Check the 20 example summaries in `out/bl.md` section 3 by eye: they show whether the E2
+phrase matcher is reading the summaries the way you would.
+
+**The protocol (A4).** Historic ratings are descriptive only: broken low cloud is mostly noticed when it lights up.
+Each day, list today's broken-low (BL) and clear control (CL) slots at the locations you will actually be near.
+Replace the ids in `locs` with your location ids (comma-separated, no spaces); the variable is required:
+
+```
+ssh gregochr@<host> "docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -v locs='1,2,3' -f -" < bl_today.sql
+```
+
+It lists, from the latest T+0 batch run for today's UK date, each BL or CL slot with its cone low, mid and high,
+antisolar mid and high, far low, observer low and sky_rating. Rate **every listed evening you observe, whatever
+happened, including "nothing"**, for BL and CL alike, in "How was it?" on the Map tab; a "didn't see it" is dropped
+from the counts. Pick the date you start doing this, pass it as `--protocol-start`, and re-export the ratings as
+you go. The gate needs at least 8 BL and 8 CL evenings and a matched-forecast-star BL minus CL difference whose
+lower bound is above 0. Tests: `python3 -m unittest tests.test_bl_size`.
+
 ## 9. Send back to Claude
 
 `out/part_b.md`, `out/part_d.md`, `out/case_2026-10-13.md` (plus what you saw on Meteosat), `out/pilot.md`,
