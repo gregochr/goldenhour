@@ -764,3 +764,58 @@ per-top corridors, refracted edges, the seasonal azimuth sweep). Verdicts:
   (3) The review's grazing-path extinction scale (airmass ~38 at the horizon; direct-beam
   transmission ~0.15 at AOD 0.05) is a reminder that every corridor here is geometry about
   *reachability*, not a claim of photographic sufficiency — consistent with soften-never-confirm.
+
+## 11. Program closed — the post-deploy tallies (2026-09-11, recorded 2026-11-16)
+
+The instrument that #684 (prompted-row persistence) existed to build came alive on schedule, and
+the demotion's post-deploy check is **passed**. Pull of 2026-09-11 over the first post-deploy
+window (2026-08-30 → 2026-09-08): 10,477 verified rows, **7,205 rated** (69%, against ~25% in the
+stand-down-only era), and `vetoFired` finally measurable: **1,103 rated firings at
+[138, 544, 381, 40, 0]** — mean 2.29 against the sync-era 1.87, the 1–2★ share down from 78% to
+62% with the freed mass landing on 3★ (34.5%), which is the cap working as a cap rather than a
+floor. Zero 5★.
+
+**The 40 fours (3.6%) are not prompt breaches, and the pre-registered "zero above 3★" criterion
+was mis-specified.** The persisted rating is `RatingCombiner`'s half-up average of sky and tide —
+its own javadoc: *"a 3★ sky + 4★ aligned tide combines to 4★"* — so a capped sky-3 on a coastal
+slot legitimately rounds to 4 downstream of the prompt. The control proves it: under the
+**absolute** veto, the sync era produced 6/207 fours (2.9%) by the same arithmetic. 3.6% against
+a 2.9% floor under an absolute rule is the combiner's signature. The pure sky-cap test, if ever
+wanted, is a read-side join of `forecast_score`'s SKY component for veto-fired rows — not built,
+not needed for this verdict.
+
+**Fresh-data replications, all in the designed direction:** the blanket false-rate on the healed
+population is 62% (1,208 of 1,945 promptable blanket calls over an observed-open corridor,
+`meanFarError` 67.2 — §9's ~68pp failure mode reproduced on data that did not exist when it was
+measured); `stripMissed`'s rated mean moved 1.06 → 1.98 with mass spreading into 2–3★ (the
+soften-never-confirm rewording doing what it shipped to do); and the promptable predicate is
+production-validated — `vetoFired&promptable` 1,106 members, 1,102 rated (99.6%): "a prompt could
+have been built" now demonstrably means "a prompt ran".
+
+**Open residuals, each with a home, none blocking closure:**
+
+- **Does the bounded penalty earn its keep at all?** The post-window promptable veto separation
+  was **−2.9pp** (fired skies marginally *clearer*; pre-window +4.7pp). The signal barely
+  discriminates in either direction — already priced into the demotion, but removal-vs-keep is
+  now answerable any time with one deep windowed pull of this report. A removal would be its own
+  measured change through the current workflow.
+- **The engine changed after the tallies.** These figures were measured under Haiku; since
+  2026-11-02 Batch Near-Term runs Sonnet 5.5 (Far-Term Haiku 4.5), gated by the Sky Eval. The
+  cap's field-constraint treatment (§9's tier rule) was Haiku-measured; a one-pull spot check
+  over `?from=2026-11-02` re-confirms the cap under the new engine whenever wanted.
+- **The triage-corridor lever** (§9: 4,228 above-cut blanket calls, 26%, stood down over an
+  observed-open corridor) remains the largest unbuilt opportunity of the program — a
+  `WeatherTriageEvaluator` design question needing its own plan.
+- **§10's evidence-gated questions** (swept-azimuth cone, terrain line-of-sight, the ~319 km
+  sixth archive point) stand as recorded; `trend-peak-reconstruction-plan.md` (F6) is stale —
+  written for the Haiku-era fixtures and never started. F7's degenerate-rate question stays open:
+  the "post-deploy tallies answer it for free" line above overstated — rating tallies measure
+  ratings, not summary degeneracy, so that question needs parse-failure telemetry, not this
+  report.
+
+**The successor instrument exists.** This program's standing caveat — *nothing here says a sunset
+was beautiful* — was structural: `actual_outcome` had zero rows ever. It now has a successor:
+`outcome_rating` (V195) with a real recording UI (the Map tab's "How was it?"). As ratings
+accumulate, the calibration gate — not ERA5 — becomes the decision instrument for scoring rules;
+ERA5 verification remains the cloud-claims checker it was built to be. The program measured cloud
+because beauty could not be measured. Now it can.
