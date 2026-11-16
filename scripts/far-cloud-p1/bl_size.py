@@ -28,8 +28,9 @@ Interpretations of the plan (also printed in the report):
    is the average of the per-stratum differences weighted by nBL*nCL/(nBL+nCL) over strata holding both arms.
    The interval is a 5-calendar-day block bootstrap over evenings (stats.bootstrap_counts_ex); the gate needs
    the 2.5% bound above 0. More than 5% of draws undefined (no stratum with both arms) is "waiting".
- * Evenings counted for the 8 + 8 gate are those that enter the matched comparison (a decision-usable rating on a
-   slot with forecast_rating 1-3).
+ * Evenings counted for the 8 + 8 gate are counted only in strata holding both arms (a decision-usable rating on a
+   slot with forecast_rating 1-3, in a stratum with at least one BL and one CL evening); units in other strata are
+   neither counted nor resampled.
 """
 from __future__ import annotations
 
@@ -267,15 +268,26 @@ def strata_table(units: Sequence[tuple]) -> List[dict]:
             row[cls + '_n'] = len(vals)
             row[cls + '_mean'] = sum(vals) / len(vals) if vals else None
         row['diff'] = (row['BL_mean'] - row['CL_mean']) if row['BL_n'] and row['CL_n'] else None
+        row['matched'] = bool(row['BL_n'] and row['CL_n'])
         out.append(row)
     return out
 
 
+def matched_strata(units: Sequence[tuple]) -> Set[int]:
+    """Strata holding at least one BL unit and at least one CL unit: the only ones a difference can come from."""
+    return {st for st in STRATA
+            if any(u[3] == st and u[2] == 'BL' for u in units) and any(u[3] == st and u[2] == 'CL' for u in units)}
+
+
 def evaluate_matched(units: Sequence[tuple], draws: int) -> Dict[str, object]:
-    """Evening counts, the weighted difference and its block-bootstrap interval for the A5.3 gate."""
-    bl_ev = {(u[0], u[1]) for u in units if u[2] == 'BL'}
-    cl_ev = {(u[0], u[1]) for u in units if u[2] == 'CL'}
-    dc = unit_counts(units)
+    """Evening counts, the weighted difference and its block-bootstrap interval for the A5.3 gate. Only units in
+    strata holding both arms (the matched units) are counted, estimated and resampled, so the 8 + 8 evening gate
+    and the bootstrap population are the same evenings. ``strata`` still reports every stratum (descriptive)."""
+    ms = matched_strata(units)
+    mu = [u for u in units if u[3] in ms]
+    bl_ev = {(u[0], u[1]) for u in mu if u[2] == 'BL'}
+    cl_ev = {(u[0], u[1]) for u in mu if u[2] == 'CL'}
+    dc = unit_counts(mu)
     point = matched_diff([sum(v[i] for v in dc.values()) for i in range(4 * len(STRATA))]) if dc else None
     lo = hi = None
     dropped = 0.0
@@ -286,7 +298,7 @@ def evaluate_matched(units: Sequence[tuple], draws: int) -> Dict[str, object]:
         if iv:
             lo, hi = iv
     return {'bl_evenings': len(bl_ev), 'cl_evenings': len(cl_ev), 'point': point, 'lo': lo, 'hi': hi,
-            'dropped': dropped, 'strata': strata_table(units)}
+            'dropped': dropped, 'strata': strata_table(units), 'matched_strata': sorted(ms)}
 
 
 # ------------------------------------------------------------------ A3 measures
@@ -558,10 +570,7 @@ def render(units: Dict[str, object], g: Dict[str, object], by_slot: Optional[Dic
             us = matched_units(bl, cl, by_slot, admin_only, None, before)
             A('**%s:**' % label)
             A('')
-            L += premise.md_table(['forecast stars', 'BL evenings', 'BL mean outcome', 'CL evenings',
-                                   'CL mean outcome', 'BL - CL'],
-                                  [[t['stratum'], t['BL_n'], _f(t['BL_mean']), t['CL_n'], _f(t['CL_mean']),
-                                    _f(t['diff'], True)] for t in strata_table(us)])
+            L += strata_md(strata_table(us))
 
     # ---- A3.5 splits
     A('## 5. Splits (A3 item 5)')
@@ -601,14 +610,11 @@ def render(units: Dict[str, object], g: Dict[str, object], by_slot: Optional[Dic
                                          else 'no `--protocol-start`, so no rating counts as protocol evidence'))
         A('')
     else:
-        A('Ratings on or after %s, by_admin only, valid ratings only. Evenings counted are those entering the matched '
-          'comparison (forecast star 1-3). %d BL and %d CL evenings; %d draws, 5-day blocks by evening.'
+        A('Ratings on or after %s, by_admin only, valid ratings only. Evenings are counted only in strata '
+          'holding both a BL and a CL unit (matched = yes; forecast star 1-3). %d BL and %d CL evenings; %d draws, 5-day blocks by evening.'
           % (protocol_start, protocol['bl_evenings'], protocol['cl_evenings'], draws))
         A('')
-        L += premise.md_table(['forecast stars', 'BL evenings', 'BL mean outcome', 'CL evenings',
-                               'CL mean outcome', 'BL - CL'],
-                              [[t['stratum'], t['BL_n'], _f(t['BL_mean']), t['CL_n'], _f(t['CL_mean']),
-                                _f(t['diff'], True)] for t in protocol['strata']])
+        L += strata_md(protocol['strata'])
         if protocol['point'] is not None:
             A('Matched BL - CL: %+.2f stars%s.' % (protocol['point'], ('; 95%% interval [%+.2f, %+.2f]; %.1f%% of '
                                                                    'draws undefined' % (protocol['lo'], protocol['hi'],
@@ -618,10 +624,7 @@ def render(units: Dict[str, object], g: Dict[str, object], by_slot: Optional[Dic
         A('Every reader, beside the decision (not used in it):')
         A('')
         us = matched_units(bl, cl, by_slot, False, protocol_start)
-        L += premise.md_table(['forecast stars', 'BL evenings', 'BL mean outcome', 'CL evenings', 'CL mean outcome',
-                               'BL - CL'],
-                              [[t['stratum'], t['BL_n'], _f(t['BL_mean']), t['CL_n'], _f(t['CL_mean']),
-                                _f(t['diff'], True)] for t in strata_table(us)])
+        L += strata_md(strata_table(us))
 
     # ---- decision
     A('## 8. The A5 gate')
@@ -631,6 +634,14 @@ def render(units: Dict[str, object], g: Dict[str, object], by_slot: Optional[Dic
     A('```')
     A('')
     return '\n'.join(L)
+
+
+def strata_md(strata: Sequence[dict]) -> List[str]:
+    """The per-stratum table. Only strata holding both arms (matched = yes) count toward the gate."""
+    return premise.md_table(['forecast stars', 'BL evenings', 'BL mean outcome', 'CL evenings', 'CL mean outcome',
+                             'BL - CL', 'counts toward gate'],
+                            [[t['stratum'], t['BL_n'], _f(t['BL_mean']), t['CL_n'], _f(t['CL_mean']),
+                              _f(t['diff'], True), 'yes' if t['matched'] else 'no'] for t in strata])
 
 
 def _f(x: Optional[float], signed: bool = False) -> str:

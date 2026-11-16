@@ -333,6 +333,55 @@ class MatchedComparisonTest(unittest.TestCase):
         self.assertLessEqual(ev['lo'], 0)
 
 
+def staged(spec, bl_sky=2):
+    """spec: list of (class, forecast star, outcome), one evening per entry on consecutive days. Returns
+    (rows, ratings), every rating by the admin."""
+    rows, ratings = [], []
+    for i, (cls, fr, out) in enumerate(spec):
+        low = 25 if cls == 'BL' else 5
+        rows.append(slot_row(i, solar_low_cloud=low, sky_rating=bl_sky, rating=bl_sky, summary='Plain.'))
+        ratings.append(rating(1, i, out, fr=fr))
+    return rows, ratings
+
+
+class MatchedStrataGateTest(unittest.TestCase):
+    def test_unmatched_strata_cannot_meet_the_evening_gate(self):
+        # 7 BL only in stratum 1, 7 CL only in stratum 3, one of each in stratum 2
+        spec = [('BL', 1, 5)] * 7 + [('CL', 3, 1)] * 7 + [('BL', 2, 5), ('CL', 2, 1)]
+        rows, ratings = staged(spec)
+        a = bl_size.analyse(rows, ratings, DAY0, 300)
+        self.assertEqual((a['protocol']['bl_evenings'], a['protocol']['cl_evenings']), (1, 1))
+        self.assertEqual(a['protocol']['matched_strata'], [2])
+        self.assertEqual(a['gate']['outcome'], 'waiting')
+
+    def test_counts_are_matched_evenings_only_and_outcome_follows_the_bound(self):
+        spec = []
+        for k in range(5):
+            spec += [('BL', 2, 4), ('CL', 2, 2), ('BL', 3, 4), ('CL', 3, 2)]     # 10 + 10 across two shared strata
+        spec += [('BL', 1, 5)] * 3 + [('CL', 3, 2)] * 0                         # unmatched extras
+        rows, ratings = staged(spec)
+        a = bl_size.analyse(rows, ratings, DAY0, 400)
+        p = a['protocol']
+        self.assertEqual((p['bl_evenings'], p['cl_evenings']), (10, 10))
+        self.assertEqual(p['matched_strata'], [2, 3])
+        self.assertEqual(a['gate']['outcome'], 'proceed')
+        flat = [('BL', 2, 3), ('CL', 2, 3), ('BL', 3, 3), ('CL', 3, 3)] * 5 + [('BL', 1, 5)] * 3
+        rows, ratings = staged(flat)
+        self.assertEqual(bl_size.analyse(rows, ratings, DAY0, 400)['gate']['outcome'], 'stop')
+
+    def test_unmatched_stratum_does_not_enter_the_estimate(self):
+        base = [('BL', 2, 4), ('CL', 2, 2)] * 6
+        r1, g1 = staged(base)
+        r2, g2 = staged(base + [('BL', 1, 5), ('BL', 1, 5)])
+        e1 = bl_size.evaluate_matched(bl_size.matched_units(*[bl_size.build_units(r1)[k] for k in ('bl', 'cl')],
+                                                           bl_size.ratings_by_slot(g1), True), 200)
+        e2 = bl_size.evaluate_matched(bl_size.matched_units(*[bl_size.build_units(r2)[k] for k in ('bl', 'cl')],
+                                                           bl_size.ratings_by_slot(g2), True), 200)
+        self.assertEqual(e1['point'], e2['point'])
+        self.assertEqual((e1['lo'], e1['hi']), (e2['lo'], e2['hi']))
+        self.assertFalse([t for t in e2['strata'] if t['stratum'] == 1][0]['matched'])
+
+
 class GateOutcomeTest(unittest.TestCase):
     def test_proceed_via_e1(self):
         rows, ratings = scenario(10, 10, bl_sky=2, bl_summary='A modest low deck.')
