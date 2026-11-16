@@ -253,6 +253,30 @@ Query: `per-call-and-shared-cells.sql`.
   same-orientation, same-weather places could share, and the shared `summary` would name one place.
   A realistic saving is ~$8–14/30 days. Not designed; owner decision pending.
 
+## Sun-side change gate and the afternoon's looks (2026-11-16, production, 30 days)
+
+Query: `sun-side-change-gate.sql`. Pairs are a Sonnet T+0/1 rating and the previous Sonnet rating of the
+same slot: 16,233 re-ratings, $44.36.
+
+- **The weather a rating turns on rarely holds still.** In 55% of re-ratings (8,985) the sun-side cloud moved by
+  more than 25 points, and in 2,974 more the rain or visibility moved. Even with sun-side cloud identical (238
+  pairs) the stars moved 1★ 16.4% of the time and crossed the 4★ line 13.5%: the model's wobble on real inputs
+  (other fields still move) is about twice the eval noise floor.
+- **A gate (skip when sun-side cloud moved ≤ N points and rain and visibility held):** ≤5 skips 713 ($1.84),
+  ≤10 skips 1,333 ($3.53), ≤15 skips 2,182 ($5.85). Moves of 2★+ stay at 0.3–0.6% (passes); 4★-line crossings
+  run 7–9%, at the wobble level above, so they are mostly noise rather than hidden signal. Worth ~$3.50–6/30 days.
+  Not decided.
+- **The afternoon is not just today's sunset.** Its Sonnet re-ratings: today's sunset 2,671 ($7.12), tomorrow's
+  sunrise 1,979 ($5.84), tomorrow's sunset 1,018 ($2.91). When the afternoon changed **tomorrow's sunrise**, the
+  next look kept the change only **47.7%** of the time: a coin flip, so that look mostly adds churn. For tomorrow's
+  sunset it was 58.1%. Today's sunset has no later look; it is the freshest rating a reader acts on.
+  **Already done, mostly before this window's end.** Per day (same query family, 2026-11-16), the afternoon's
+  looks at tomorrow cost $0.34–1.11 a day until 1 November and $0.03–0.21 a day from 2 November, when #1601
+  (tomorrow's sunrise left to a due evening refresh) and #1662 (tomorrow's sunset too, 4 November) landed. The
+  30-day figures above are mostly the old regime; the coin-flip result confirms those two changes were right.
+  What remains is ~$2.85/30 days for both events, mostly places with no rating yet for tomorrow (a first rating,
+  which stays). Nothing to build. Note: the afternoon rated nothing on 19 October and 9–11 November.
+
 ## Watch items
 
 - Re-run `measured-costs.sql` about a week after each release that touches cost.
