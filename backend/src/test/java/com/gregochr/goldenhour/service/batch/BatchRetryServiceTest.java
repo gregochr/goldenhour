@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.CandidateDisposition;
@@ -267,7 +268,7 @@ class BatchRetryServiceTest {
             TargetType targetType, boolean triaged) {
         return new ForecastPreEvalResult(
                 triaged, triaged ? "triaged" : null,
-                triaged ? null : TestAtmosphericData.defaults(),
+                TestAtmosphericData.defaults(),
                 loc, date, targetType, null, 100, 0, EvaluationModel.HAIKU, Set.of(),
                 loc.getName() + "|" + date + "|" + targetType, null);
     }
@@ -278,9 +279,9 @@ class BatchRetryServiceTest {
     void submitRetryReconstructsAndSubmits() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -318,9 +319,9 @@ class BatchRetryServiceTest {
     void submitRetry_precursorWasForced_reconstructedTaskIsForcedToo() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -358,9 +359,9 @@ class BatchRetryServiceTest {
         try {
             LocationEntity loc = location(42L, "Bamburgh");
             when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-            when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+            when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
             when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                    any(), any(), isNull()))
+                    eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                     .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
             when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                     .thenReturn(List.of());
@@ -427,9 +428,9 @@ class BatchRetryServiceTest {
     void submitRetry_insertsNewPendingRow_andAbandonsPrecursorById() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastService.persistPendingEvaluation(any())).thenReturn(4242L);
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
@@ -461,11 +462,11 @@ class BatchRetryServiceTest {
     void submitRetry_triagedAway_leavesPrecursorForSweep() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
-        // atmosphericData() == null models "this retry's weather triaged the slot away" — the
-        // fixture convention this file already uses for "cannot be reconstructed".
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
+        // A real triaged result keeps its data (ForecastService attaches it), so the slot must
+        // be stopped on triaged(), not on null data.
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -484,15 +485,48 @@ class BatchRetryServiceTest {
     }
 
     @Test
+    @DisplayName("a retried slot that triages with its weather data attached is recorded and "
+            + "never submitted for rating")
+    void submitRetry_triagedWithDataAttached_notSubmitted() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
+        ForecastPreEvalResult triaged = preEval(loc, DATE, TargetType.SUNRISE, true);
+        assertThat(triaged.atmosphericData()).isNotNull();
+        assertThat(triaged.triaged()).isTrue();
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull())).thenReturn(triaged);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        ForecastBatchEntity first = precursor("msgbatch_first");
+        first.setJobRunId(555L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryFalse(RUN_ID))
+                .thenReturn(List.of(first));
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        RetrySubmitResult result = service().submitRetry(RUN_ID, selection);
+
+        assertThat(result.submittedCount()).isZero();
+        verify(dispositionService).persist(555L, List.of(new CandidateDisposition(
+                42L, "Bamburgh", DATE, TargetType.SUNRISE, 0,
+                DispositionCategory.SKIPPED_TRIAGED, "triaged")));
+        verify(forecastService, never()).persistPendingEvaluation(any());
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
     @DisplayName("a retry that triages the slot away writes a SKIPPED_TRIAGED disposition on the "
             + "cycle's first precursor job run, in the collector's shape, so the location "
             + "auto-disable rule sees the place was answered rather than still failed")
     void submitRetry_triagedAway_recordsTriagedDisposition() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -518,9 +552,9 @@ class BatchRetryServiceTest {
     void submitRetry_triageDispositionWriteFails_propagates() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
                 .thenReturn(List.of());
@@ -569,9 +603,9 @@ class BatchRetryServiceTest {
     void submitRetry_oldFormatCustomId_doesNotCallMarkAbandoned() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM)).thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
-                any(), any(), isNull()))
+                eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
                 .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
         when(forecastService.persistPendingEvaluation(any())).thenReturn(4343L);
         when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
@@ -721,7 +755,7 @@ class BatchRetryServiceTest {
     void submitRetry_noDataNotTriaged_recordsNothingAndSubmitsNothing() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         ForecastPreEvalResult noData = new ForecastPreEvalResult(false, null, null, loc, DATE,
                 TargetType.SUNRISE, null, 100, 0, EvaluationModel.HAIKU, Set.of(), "k", null);
@@ -745,7 +779,7 @@ class BatchRetryServiceTest {
     void submitRetry_reconstructionThrows_staysFailed() {
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
                 eq(loc.getTideType()), eq(EvaluationModel.HAIKU), isNull()))
@@ -769,9 +803,9 @@ class BatchRetryServiceTest {
         LocalDate nearDate = LocalDate.of(2026, 4, 15);
         LocationEntity loc = location(42L, "Bamburgh");
         when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
-        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_NEAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM))
                 .thenReturn(EvaluationModel.SONNET);
-        when(modelSelectionService.getActiveModel(com.gregochr.goldenhour.entity.RunType.BATCH_FAR_TERM))
+        when(modelSelectionService.getActiveModel(RunType.BATCH_FAR_TERM))
                 .thenReturn(EvaluationModel.HAIKU);
         ForecastPreEvalResult nearPre = preEval(loc, nearDate, TargetType.SUNSET, false);
         ForecastPreEvalResult farPre = preEval(loc, DATE, TargetType.SUNRISE, false);

@@ -44,6 +44,9 @@ class FarCloudCaptureInvarianceTest {
 
     private final WeatherTriageEvaluator triage = new WeatherTriageEvaluator();
 
+    /** Today: the near-term triage cut applies. */
+    private static final int NEAR_TERM_DAYS_AHEAD = 0;
+
     // ---- positive controls ----
 
     @Test
@@ -81,9 +84,10 @@ class FarCloudCaptureInvarianceTest {
 
     @Test
     void triagePositiveControl_quietStandDownStateIsAStandDownAndQuietClearStateIsNot() {
-        // WeatherTriageEvaluator stands down when solar low cloud exceeds 80%: 85 does, 10 does not.
-        assertTrue(triage.evaluate(quiet(85, 20)).isPresent());
-        assertTrue(triage.evaluate(quiet(10, 5)).isEmpty());
+        // WeatherTriageEvaluator stands down when solar low cloud exceeds its cut (60% today): 85 does,
+        // 10 does not.
+        assertTrue(triage.evaluate(quiet(85, 20), NEAR_TERM_DAYS_AHEAD).isPresent());
+        assertTrue(triage.evaluate(quiet(10, 5), NEAR_TERM_DAYS_AHEAD).isEmpty());
     }
 
     // ---- invariance ----
@@ -148,7 +152,8 @@ class FarCloudCaptureInvarianceTest {
     void triageResultIgnoresRecordedFarFields() {
         for (int[] s : STATES) {
             for (int v : LOUD_VALUES) {
-                assertEquals(triage.evaluate(quiet(s[0], s[1])), triage.evaluate(loud(s[0], s[1], v)),
+                assertEquals(triage.evaluate(quiet(s[0], s[1]), NEAR_TERM_DAYS_AHEAD),
+                        triage.evaluate(loud(s[0], s[1], v), NEAR_TERM_DAYS_AHEAD),
                         "state solarLow=" + s[0] + " farLow=" + s[1] + " loud=" + v);
             }
         }

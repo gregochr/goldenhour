@@ -294,10 +294,20 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
         // old WORTH_IT / MAYBE reading let 38 ratings that failed the gate claim "Worth
         // it" on weather alone (unrated-verdict-plan.md U1). verdictEligible() is
         // unchanged, so an UNRATED region is never a BEST BET / ALSO GOOD candidate.
-        DisplayVerdict freshVerdict = sufficientForVerdict
-                ? BriefingRatingStats.resolveRegionDisplayVerdict(
-                        votingStats, region.verdict())
-                : DisplayVerdict.resolve(null, region.verdict());
+        // The one exception to that fallback: a region the pipeline examined to at least the
+        // coverage half and rated NOTHING in was ruled out by the weather (triaged), so it reads
+        // STAND_DOWN. The heuristic verdict would say UNRATED, which implies nobody looked; with
+        // the near-term triage line at 60% its own 70% horizon stand-down no longer lines up.
+        DisplayVerdict freshVerdict;
+        if (sufficientForVerdict) {
+            freshVerdict = BriefingRatingStats.resolveRegionDisplayVerdict(
+                    votingStats, region.verdict());
+        } else if (VerdictSampleGate.isExaminedAndUnrated(
+                votingStats.count(), examined, roster.voting())) {
+            freshVerdict = DisplayVerdict.STAND_DOWN;
+        } else {
+            freshVerdict = DisplayVerdict.resolve(null, region.verdict());
+        }
         // A gloss is Claude prose written against the verdict that held when the
         // briefing was built. When read-time re-enrichment moves the verdict —
         // a batch re-scored the region after build — that prose can now contradict

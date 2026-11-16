@@ -125,7 +125,7 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.byCorridor[0].meanFarDrop").value(48.0))
                 // Additive: the under-the-cut variants ride the same payload, and both means are
                 // served, since the under-cut veto separation is the reader's own subtraction.
-                .andExpect(jsonPath("$.byTriageCut[0].key").value("vetoFired&underTriageCut(<=80)"))
+                .andExpect(jsonPath("$.byTriageCut[0].key").value("vetoFired&underTriageCut"))
                 .andExpect(jsonPath("$.byTriageCut[0].meanObservedGapLow").value(68.0))
                 .andExpect(jsonPath("$.byTriageCut[1].meanObservedGapLow").value(51.0))
                 .andExpect(jsonPath("$.byPromptable[0].key").value("vetoFired&promptable"))
@@ -179,10 +179,10 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
         // pair because the under-cut separation is derived from their two meanObservedGapLow
         // values — 68.0 - 51.0 — rather than served as a scalar of its own.
         CloudVerificationBucket firedUnderCut =
-                new CloudVerificationBucket("vetoFired&underTriageCut(<=80)", 11, -9.0, 21.0, 1.7,
+                new CloudVerificationBucket("vetoFired&underTriageCut", 11, -9.0, 21.0, 1.7,
                         70.0, 68.0, null, null, null, 0, null, noRatings);
         CloudVerificationBucket notFiredUnderCut =
-                new CloudVerificationBucket("vetoNotFired&underTriageCut(<=80)", 62, -1.0, 15.0,
+                new CloudVerificationBucket("vetoNotFired&underTriageCut", 62, -1.0, 15.0,
                         3.4, 48.0, 51.0, null, null, null, 0, null, noRatings);
         // The same split under the full three-rule cut — a strict subset of the one above.
         CloudVerificationBucket firedPromptable =

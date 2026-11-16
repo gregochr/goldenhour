@@ -290,7 +290,7 @@ public class BatchRetryService {
             ForecastPreEvalResult pre = forecastService.fetchWeatherAndTriage(
                     location, failure.date(), failure.targetType(), location.getTideType(),
                     model, null);
-            if (pre.atmosphericData() == null) {
+            if (pre.atmosphericData() == null || pre.triaged()) {
                 LOG.warn("RETRY_FAILED: {} could not be reconstructed (triaged={}) "
                         + "— stays failed", failure.customId(), pre.triaged());
                 if (pre.triaged()) {

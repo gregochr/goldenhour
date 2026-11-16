@@ -37,7 +37,7 @@ commit): the raw ratio's denominator is not the label's printing population.
 `WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud *before any prompt
 is built*, and most blanket-band members sit above that cut — so the label never printed for
 them, and the prompt rule below cannot be what stood them down. The cut therefore also ships
-`fcstBlanket&underTriageCut(<=80)` and its `corridorOpen` sub-bucket. Two consequences:
+`fcstBlanket&underTriageCut` and its `corridorOpen` sub-bucket. Two consequences:
 
 1. **The decision rule below keys on the `underTriageCut` ratio** — the false-blanket rate over
    members the prompt could actually have seen — not the raw one, which is biased down by triage

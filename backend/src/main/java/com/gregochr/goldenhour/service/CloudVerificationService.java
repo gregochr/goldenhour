@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.BackfillBatch;
 import com.gregochr.goldenhour.model.CloudVerificationBucket;
 import com.gregochr.goldenhour.model.CloudVerificationPair;
 import com.gregochr.goldenhour.model.CloudVerificationReport;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.VerificationCandidate;
 import com.gregochr.goldenhour.repository.CloudVerificationRepository;
@@ -143,19 +144,6 @@ public class CloudVerificationService {
     private static final int PROMPT_IDEAL_HIGH_MIN_PCT = 20;
 
     /**
-     * Forecast near-minus-far drop (percentage points) at or above which the prompt's THIN STRIP
-     * override applies, lifting the BLOCKED ceiling.
-     *
-     * <p>Mirrors {@code PromptBuilder.THIN_STRIP_DROP_POINTS} / {@code isThinStrip} and must track
-     * them if either moves. Deliberately mirrors the <em>label logic</em> (drop-only) rather than
-     * the prompt prose's additional "far low cloud &le;30%" clause: the label is what this bucket's
-     * conditioning quantity — the forecast data block — actually carries. The text/label
-     * discrepancy is a known, separately-tracked issue in {@code PromptBuilder} itself; observed
-     * here, not fixed.
-     */
-    private static final int PROMPT_STRIP_DROP_PP = 30;
-
-    /**
      * Forecast low cloud (%) at or above which both arms of the prompt's EXTENSIVE BLANKET label
      * are satisfied.
      *
@@ -190,7 +178,7 @@ public class CloudVerificationService {
 
     /**
      * Forecast solar-horizon low cloud (%) above which triage stands the slot down before any
-     * prompt is built.
+     * prompt is built, on the far horizon and for any slot before {@link #TRIAGE_60_ROLLOUT}.
      *
      * <p>Mirrors {@code WeatherTriageEvaluator.CLOUD_THRESHOLD}, whose rule 1 reads
      * {@code directionalCloud().solarLowCloudPercent()} — the same reading projected here as
@@ -198,11 +186,30 @@ public class CloudVerificationService {
      * {@code PROMPT_*} constants this mirrors a <em>gate in front of</em> the prompt rather than a
      * band inside it, which is why it is named for triage and not for a label.
      *
-     * <p>At or below it a slot <em>may</em> have reached Claude; above it, it did not. Neither
-     * direction is exact — see {@link #corridorBuckets} — so the bucket keyed on it names the cut
-     * rather than claiming a prompt was or was not built.
+     * <p>At or below the cut a slot <em>may</em> have reached Claude; above it, it did not.
+     * Neither direction is exact — see {@link #corridorBuckets} — so the bucket keyed on it names
+     * the cut rather than claiming a prompt was or was not built.
      */
-    private static final int TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT = 80;
+    private static final int TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT = WeatherTriageEvaluator.CLOUD_THRESHOLD;
+
+    /**
+     * Forecast solar-horizon low cloud (%) above which triage stands a near-term slot down
+     * ({@code daysAhead <= } {@link #TRIAGE_NEAR_TERM_MAX_DAYS}) that is not a thin strip, for a
+     * forecast run on or after {@link #TRIAGE_60_ROLLOUT}.
+     */
+    private static final int TRIAGE_NEAR_TERM_SOLAR_LOW_CLOUD_MAX_PCT =
+            WeatherTriageEvaluator.NEAR_TERM_CLOUD_THRESHOLD;
+
+    /** Last {@code daysAhead} that triage treats as near-term. */
+    private static final int TRIAGE_NEAR_TERM_MAX_DAYS = WeatherTriageEvaluator.NEAR_TERM_MAX_DAYS;
+
+    /**
+     * First forecast-run date on which the near-term 60% triage line was live. The report runs
+     * over stored history, and a T+0/1 pair with 61-80% low cloud from before this date did reach
+     * Claude, so the 60% line applies only to pairs run on or after it. The owner sets it to the
+     * release date.
+     */
+    static final LocalDate TRIAGE_60_ROLLOUT = LocalDate.of(2026, 11, 16);
 
     /**
      * Forecast precipitation (mm) above which triage stands the slot down — rule 2.
@@ -768,7 +775,7 @@ public class CloudVerificationService {
      *       before {@code PromptBuilder} runs, while candidate selection filters on none of that.
      *       So a member above the cut was never prompted on the nightly path, and those are the
      *       heaviest-cloud members, likeliest to have been genuinely blanketed — which
-     *       <em>depletes</em> {@code corridorOpen}. {@code fcstBlanket&underTriageCut(<=80)} and
+     *       <em>depletes</em> {@code corridorOpen}. {@code fcstBlanket&underTriageCut} and
      *       its {@code corridorOpen} sub-bucket are the same ratio over the members that could
      *       have been prompted; read them beside the pre-registered pair. The cut is neither
      *       necessary nor sufficient, which is why it is named for itself rather than for
@@ -842,7 +849,7 @@ public class CloudVerificationService {
                                 .filter(p -> p.observedFarLow() != null
                                         && p.observedFarLow() >= OBS_CORRIDOR_BLANKET_MIN_PCT)
                                 .toList()),
-                CloudVerificationBucket.of("fcstBlanket&underTriageCut(<=80)", underTriageCut),
+                CloudVerificationBucket.of("fcstBlanket&underTriageCut", underTriageCut),
                 CloudVerificationBucket.of("fcstBlanket&underTriageCut&corridorOpen(obs<=30)",
                         underTriageCut.stream()
                                 .filter(CloudVerificationService::corridorWasOpen).toList()));
@@ -891,14 +898,14 @@ public class CloudVerificationService {
                 .filter(CloudVerificationService::forecastWasBlocked)
                 .toList();
         return List.of(
-                CloudVerificationBucket.of("vetoFired&underTriageCut(<=80)", underCut.stream()
+                CloudVerificationBucket.of("vetoFired&underTriageCut", underCut.stream()
                         .filter(CloudVerificationPair::vetoFired).toList()),
-                CloudVerificationBucket.of("vetoNotFired&underTriageCut(<=80)", underCut.stream()
+                CloudVerificationBucket.of("vetoNotFired&underTriageCut", underCut.stream()
                         .filter(p -> !p.vetoFired()).toList()),
-                CloudVerificationBucket.of("farClearer&fcstBlocked&underTriageCut(<=80)",
+                CloudVerificationBucket.of("farClearer&fcstBlocked&underTriageCut",
                         blockedUnderCut),
                 CloudVerificationBucket.of(
-                        "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)",
+                        "farClearer&fcstBlocked&stripMissed&underTriageCut",
                         blockedUnderCut.stream()
                                 .filter(p -> !thinStripPreconditionsHeld(p)).toList()));
     }
@@ -908,7 +915,7 @@ public class CloudVerificationService {
      * stand-down rules — the faithful version of {@link #triageCutBuckets}.
      *
      * <p>That list's cut reproduces only {@code WeatherTriageEvaluator}'s first rule, so a slot
-     * stood down for rain or fog under an 80% horizon still counts as "promptable" there — a
+     * stood down for rain or fog under the horizon cut still counts as "promptable" there — a
      * cross-vendor review finding (2026-08-27, `promptable-cut-plan.md`). These buckets apply
      * {@link #promptable}, which reproduces all three rules, and add the blanket-precision pair
      * so every §9 headline figure has a fully-cut counterpart. The old list stays untouched as
@@ -1021,7 +1028,7 @@ public class CloudVerificationService {
      *
      * <p>This mirrors the label's <em>arms</em>, not its printing — the label sits in an
      * {@code else} after {@code PromptBuilder.isThinStrip}, so a forecast satisfying both arms
-     * with a near-minus-far drop of at least {@link #PROMPT_STRIP_DROP_PP} (which takes near
+     * with a near-minus-far drop of at least 30 points (which takes near
      * &ge; 80) prints THIN STRIP and is counted here regardless. See {@link #corridorBuckets} for
      * why that is left in and how to size it.
      *
@@ -1074,30 +1081,45 @@ public class CloudVerificationService {
      */
     private static boolean forecastGapUnderTriageCut(CloudVerificationPair pair) {
         return pair.forecastGapLow() != null
-                && pair.forecastGapLow() <= TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT;
+                && pair.forecastGapLow() <= triageCutFor(pair);
+    }
+
+    /**
+     * Rule 1's cut for one pair, as triage applied it when the forecast ran: 60% for a near-term
+     * slot run on or after {@link #TRIAGE_60_ROLLOUT} unless the horizon reads as a thin strip
+     * (which keeps 80%), and 80% for everything else, including a pair with no run time or no
+     * horizon, which can only be read as history.
+     *
+     * @param pair one verified pair, already known to carry a non-null {@code forecastGapLow}
+     * @return the solar-horizon low cloud (%) above which triage stood the slot down
+     */
+    private static int triageCutFor(CloudVerificationPair pair) {
+        boolean nearTermUnderNewLine = pair.daysAhead() != null
+                && pair.daysAhead() <= TRIAGE_NEAR_TERM_MAX_DAYS
+                && pair.forecastRunAt() != null
+                && !pair.forecastRunAt().toLocalDate().isBefore(TRIAGE_60_ROLLOUT);
+        if (nearTermUnderNewLine
+                && !DirectionalCloudData.isThinStrip(pair.forecastGapLow(), pair.forecastFarLow())) {
+            return TRIAGE_NEAR_TERM_SOLAR_LOW_CLOUD_MAX_PCT;
+        }
+        return TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT;
     }
 
     /**
      * Returns whether the forecast's own near-vs-far pair meets the THIN STRIP override's
      * preconditions.
      *
-     * <p>Mirrors {@code PromptBuilder.isThinStrip}'s <em>label logic</em> — a non-null far reading
-     * and a near-minus-far drop of at least {@link #PROMPT_STRIP_DROP_PP} — not the prompt prose's
-     * additional "far low cloud &le;30%" clause, because the label is what the forecast data block
-     * this report reads actually carries.
-     *
-     * <p>The override's other precondition, near low cloud &ge;50%
-     * ({@code SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT}), is implied rather than re-checked here: every
-     * caller passes pairs already filtered to the BLOCKED band (&gt;60%), which sits strictly
-     * inside the &ge;50% arm.
+     * <p>Calls {@link DirectionalCloudData#isThinStrip(int, Integer)}, the one definition the
+     * prompt label and the near-term triage exemption also read: near low cloud at least 50% and
+     * a non-null far reading at least 30 points lower. It is the <em>label logic</em>, not the
+     * prompt prose's additional "far low cloud &le;30%" clause, because the label is what the
+     * forecast data block this report reads actually carries.
      *
      * @param pair one verified pair, already known to carry a non-null {@code forecastGapLow}
-     * @return true when a non-null far reading dropped at least {@link #PROMPT_STRIP_DROP_PP} below
-     *         the forecast gap reading
+     * @return true when the pair's near and far forecast readings read as a thin strip
      */
     private static boolean thinStripPreconditionsHeld(CloudVerificationPair pair) {
-        return pair.forecastFarLow() != null
-                && pair.forecastGapLow() - pair.forecastFarLow() >= PROMPT_STRIP_DROP_PP;
+        return DirectionalCloudData.isThinStrip(pair.forecastGapLow(), pair.forecastFarLow());
     }
 
     /**

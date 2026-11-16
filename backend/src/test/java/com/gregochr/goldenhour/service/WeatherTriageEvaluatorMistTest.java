@@ -34,6 +34,9 @@ class WeatherTriageEvaluatorMistTest {
 
     private static final LocalDateTime SUNRISE = LocalDateTime.of(2026, 10, 22, 6, 41);
 
+    /** A horizon beyond the near term, where rule 1 keeps its 80% cut. */
+    private static final int FAR_DAYS_AHEAD = 3;
+
     private final WeatherTriageEvaluator evaluator = new WeatherTriageEvaluator();
     private ListAppender<ILoggingEvent> appender;
     private Logger logger;
@@ -72,7 +75,7 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("LIKELY at 3,000 m visibility is not stood down: rule 3 is not consulted")
     void likelyBelowFiveKm_proceeds() {
-        Optional<TriageResult> result = evaluator.evaluate(slot(3000, MistPotential.LIKELY).build());
+        Optional<TriageResult> result = evaluator.evaluate(slot(3000, MistPotential.LIKELY).build(), FAR_DAYS_AHEAD);
 
         assertThat(result).isEmpty();
     }
@@ -80,7 +83,7 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("the exemption logs one [MIST CANDIDATE] line naming the site, date, event and visibility")
     void likelyBelowFiveKm_logsCandidateLine() {
-        evaluator.evaluate(slot(3000, MistPotential.LIKELY).build());
+        evaluator.evaluate(slot(3000, MistPotential.LIKELY).build(), FAR_DAYS_AHEAD);
 
         assertThat(infoMessages()).containsExactly(
                 "[MIST CANDIDATE] River Brathay 2026-10-22 SUNRISE: visibility 3000 m, mist LIKELY"
@@ -91,7 +94,7 @@ class WeatherTriageEvaluatorMistTest {
     @EnumSource(value = MistPotential.class, names = {"POSSIBLE", "FOGBOUND", "NONE"})
     @DisplayName("only LIKELY is exempt: POSSIBLE, FOGBOUND and NONE keep rule 3")
     void otherBands_keepRuleThree(MistPotential band) {
-        Optional<TriageResult> result = evaluator.evaluate(slot(3000, band).build());
+        Optional<TriageResult> result = evaluator.evaluate(slot(3000, band).build(), FAR_DAYS_AHEAD);
 
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.LOW_VISIBILITY);
@@ -101,7 +104,7 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("an unflagged site (no band) keeps rule 3 unchanged")
     void unflaggedSite_keepsRuleThree() {
-        Optional<TriageResult> result = evaluator.evaluate(slot(3000, null).build());
+        Optional<TriageResult> result = evaluator.evaluate(slot(3000, null).build(), FAR_DAYS_AHEAD);
 
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.LOW_VISIBILITY);
@@ -111,7 +114,7 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("a LIKELY slot with visibility above 5 km passes quietly: no candidate line")
     void likelyAboveFiveKm_noLine() {
-        assertThat(evaluator.evaluate(slot(9000, MistPotential.LIKELY).build())).isEmpty();
+        assertThat(evaluator.evaluate(slot(9000, MistPotential.LIKELY).build(), FAR_DAYS_AHEAD)).isEmpty();
         assertThat(infoMessages()).isEmpty();
     }
 
@@ -120,7 +123,7 @@ class WeatherTriageEvaluatorMistTest {
     void likelyWithBlockedSolarHorizon_isStillRefused() {
         AtmosphericData data = slot(3000, MistPotential.LIKELY).lowCloud(90).build();
 
-        Optional<TriageResult> result = evaluator.evaluate(data);
+        Optional<TriageResult> result = evaluator.evaluate(data, FAR_DAYS_AHEAD);
 
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
@@ -132,12 +135,29 @@ class WeatherTriageEvaluatorMistTest {
     }
 
     @Test
+    @DisplayName("the near-term 60% cut: a LIKELY slot at 65% low cloud today is refused by rule 1 "
+            + "and logs the [BATCH DIAG] mist-candidate line")
+    void likelyAtSixtyFivePercentToday_isRefusedAndLogged() {
+        AtmosphericData data = slot(3000, MistPotential.LIKELY).lowCloud(65).build();
+
+        Optional<TriageResult> result = evaluator.evaluate(data, 0);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().rule()).isEqualTo(TriageRule.HIGH_CLOUD);
+        assertThat(infoMessages()).hasSize(1);
+        assertThat(infoMessages().getFirst())
+                .startsWith("[BATCH DIAG] MIST CANDIDATE River Brathay | date=2026-10-22 event=SUNRISE")
+                .contains("refused by rule 1 (HIGH_CLOUD)")
+                .contains("65%");
+    }
+
+    @Test
     @DisplayName("rule 2 still stands a LIKELY slot down, and logs one [BATCH DIAG] line naming the rule")
     void likelyInRain_isStillRefused() {
         AtmosphericData data = slot(3000, MistPotential.LIKELY)
                 .precipitation(new BigDecimal("3.0")).build();
 
-        Optional<TriageResult> result = evaluator.evaluate(data);
+        Optional<TriageResult> result = evaluator.evaluate(data, FAR_DAYS_AHEAD);
 
         assertThat(result).isPresent();
         assertThat(result.get().rule()).isEqualTo(TriageRule.PRECIPITATION);
@@ -148,7 +168,7 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("a refused slot that is not a LIKELY mist candidate logs nothing")
     void ordinaryRefusal_logsNothing() {
-        evaluator.evaluate(slot(30000, null).lowCloud(90).build());
+        evaluator.evaluate(slot(30000, null).lowCloud(90).build(), FAR_DAYS_AHEAD);
 
         assertThat(infoMessages()).isEmpty();
     }
@@ -156,7 +176,8 @@ class WeatherTriageEvaluatorMistTest {
     @Test
     @DisplayName("the rule 3 reason text is untouched, so the 'Fog forecast' wording still recognises it")
     void ruleThreeReason_roundTripsThroughTheRecogniser() {
-        TriageResult result = evaluator.evaluate(slot(3000, MistPotential.FOGBOUND).build()).orElseThrow();
+        TriageResult result = evaluator.evaluate(
+                slot(3000, MistPotential.FOGBOUND).build(), FAR_DAYS_AHEAD).orElseThrow();
 
         assertThat(WeatherTriageEvaluator.isLowVisibilityReason(result.reason())).isTrue();
     }

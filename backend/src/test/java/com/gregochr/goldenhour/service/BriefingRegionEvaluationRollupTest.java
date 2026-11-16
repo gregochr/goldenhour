@@ -340,6 +340,64 @@ class BriefingRegionEvaluationRollupTest {
         }
 
         @Test
+        @DisplayName("4 places triaged at 65% low cloud and 0 rated: the pipeline looked and the "
+                + "weather ruled it out, so the region reads STAND_DOWN, not UNRATED")
+        void fourTriagedZeroRated_readsStandDown() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+
+            // The briefing's own heuristic stands down horizon cloud only at 70%, so a 65% region
+            // carries MARGINAL here; the heuristic fallback alone would say UNRATED.
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(triagedNames));
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("2 places triaged and 3 never examined, 0 rated: under half examined, so the "
+                + "heuristic fallback stands and the region reads UNRATED")
+        void twoTriagedThreeUntouched_staysUnrated() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            List<String> triagedNames = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                String name = "Triaged" + i;
+                slots.add(triaged(name));
+                triagedNames.add(name);
+            }
+            slots.addAll(untouchedSlots("Untouched", 3));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(triagedNames));
+
+            // examined = 2 of 5 = 40% < 50%.
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+        }
+
+        @Test
+        @DisplayName("4 rated and 1 triaged: a rating exists, so the stand-down override does not "
+                + "apply and today's fallback to the heuristic verdict holds")
+        void fourRatedOneTriaged_keepsHeuristicFallback() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("R" + i, 5));
+            }
+            slots.add(triaged("Triaged"));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.MARGINAL, noOpResolver(),
+                    triagedResolver(List.of("Triaged")));
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+        }
+
+        @Test
         @DisplayName("5 rated of 5 voting — meets MIN_RATED with full coverage: sufficient, the "
                 + "rated average sets the verdict")
         void fiveRatedOfFive_sufficient() {

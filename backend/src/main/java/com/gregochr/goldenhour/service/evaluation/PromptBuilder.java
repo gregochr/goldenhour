@@ -371,18 +371,6 @@ public class PromptBuilder {
     private static final int SOLAR_MID_CLOUD_THICK_PERCENT = 80;
 
     /**
-     * Solar-horizon low cloud (%) at or above which the low-cloud penalty is in play, and above
-     * which the far-field sample is worth comparing for strip-vs-blanket.
-     */
-    private static final int SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT = 50;
-
-    /**
-     * Percentage-point drop in low cloud between the horizon sample and the far-field sample that
-     * marks a thin strip on the horizon (rather than an extensive blanket).
-     */
-    private static final int THIN_STRIP_DROP_POINTS = 30;
-
-    /**
      * Horizon sampling distance in km, derived from the sampling geometry so the distance quoted
      * to Claude can never drift from the distance actually sampled.
      */
@@ -549,8 +537,8 @@ public class PromptBuilder {
                         FAR_SAMPLE_KM, far));
                 if (isThinStrip(dc)) {
                     sb.append(" [THIN STRIP — soften low-cloud penalty]");
-                } else if (near >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
-                        && far >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT) {
+                } else if (near >= DirectionalCloudData.SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
+                        && far >= DirectionalCloudData.SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT) {
                     sb.append(" [FAR CORRIDOR ALSO CLOUDY — corroboration, not confirmation]");
                 }
             }
@@ -1011,9 +999,6 @@ public class PromptBuilder {
      * @return true if the horizon low cloud reads as a thin strip
      */
     static boolean isThinStrip(DirectionalCloudData dc) {
-        return dc != null && dc.farSolarLowCloudPercent() != null
-                && dc.solarLowCloudPercent() >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
-                && (dc.solarLowCloudPercent() - dc.farSolarLowCloudPercent())
-                        >= THIN_STRIP_DROP_POINTS;
+        return dc != null && dc.isThinStrip();
     }
 }

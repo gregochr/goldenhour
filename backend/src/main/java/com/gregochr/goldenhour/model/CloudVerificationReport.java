@@ -44,7 +44,7 @@ import java.util.List;
  *   <li>{@code byPromptable} — the same contamination question, asked properly. The triage cut
  *       reproduces only the first of {@code WeatherTriageEvaluator}'s three stand-down rules;
  *       these buckets also reproduce the precipitation and visibility rules, so a slot stood
- *       down for rain or fog under an 80% horizon no longer counts as promptable. Read beside
+ *       down for rain or fog under the horizon cut no longer counts as promptable. Read beside
  *       {@code byTriageCut}: the counts can only shrink relative to it, and any increase is a
  *       predicate bug rather than a finding.</li>
  * </ul>

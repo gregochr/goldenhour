@@ -66,10 +66,10 @@ import java.util.Optional;
  * rejects T+2 unless SETTLED or TRANSITIONAL, and T+3 unless SETTLED.
  *
  * <p>The failure modes are also <b>correlated</b>, which is what makes this more than a
- * theoretical gap: triage stands a slot down at &gt;80% low cloud, and that weather persists — so
- * the days following a triaged slot are likely to be triaged too. A stale row can therefore
- * outlive its event. Treat reconciliation as an open trade-off on this evidence, not as something
- * already dismissed.
+ * theoretical gap: triage stands a slot down at heavy low cloud (&gt;60% today and tomorrow,
+ * &gt;80% beyond), and that weather persists — so the days following a triaged slot are likely to
+ * be triaged too. A stale row can therefore outlive its event. Treat reconciliation as an open
+ * trade-off on this evidence, not as something already dismissed.
  *
  * <p><b>Feature flag.</b> {@code photocast.forecast-score.dual-write} (default {@code true}).
  * Flag off = no rows written; the rollback path for the whole pass is the flag, no redeploy.

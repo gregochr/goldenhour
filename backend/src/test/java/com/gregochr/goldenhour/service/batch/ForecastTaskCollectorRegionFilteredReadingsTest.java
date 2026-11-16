@@ -239,7 +239,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         passCoastalMist(location, today);
-        when(weatherTriageEvaluator.evaluate(any()))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(forecastEvaluationRepository.save(any()))
                 .thenReturn(ForecastEvaluationEntity.builder().id(10L).build());
@@ -265,7 +265,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(farOut, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         passCoastalMist(location, farOut);
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0)).thenReturn(Optional.empty());
 
         RegionFilteredBatchTasks result =
                 collector.collectRegionFilteredBatches(null);
@@ -290,7 +290,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         passCoastalMist(location, today);
         // Clear day — colour triage would pass this candidate through if it were ever asked.
-        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0)).thenReturn(Optional.empty());
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
 
@@ -317,7 +317,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         // ignores this verdict entirely (a wood wants exactly this weather); this path must
         // reach the identical outcome: excluded from the sky bucket regardless of what colour
         // triage says, never BECAUSE of what it says.
-        when(weatherTriageEvaluator.evaluate(any()))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
 
         RegionFilteredBatchTasks result = collector.collectRegionFilteredBatches(null);
@@ -338,7 +338,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         passCoastalMist(location, today);
-        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today))).thenReturn(tideSnapshot);
 
@@ -360,7 +360,7 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
         when(briefingService.getCachedBriefing()).thenReturn(briefingWithSlot(today, "Durham UK"));
         when(locationService.findAllEnabled()).thenReturn(List.of(location));
         passCoastalMist(location, today);
-        when(weatherTriageEvaluator.evaluate(sharedWeatherData))
+        when(weatherTriageEvaluator.evaluate(sharedWeatherData, 0))
                 .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
         when(augmentor.tideSnapshotFor(List.of(location), List.of(today)))
                 .thenThrow(new IllegalStateException("db down"));

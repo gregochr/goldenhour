@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * One past forecast's cloud claims paired with the analysed (reanalysis) cloud for the same
@@ -53,6 +54,9 @@ import java.time.LocalDate;
  *                              the reading behind triage's rain rule
  * @param visibilityMetres      forecast visibility (m) at the scored slot, or {@code null} —
  *                              the reading behind triage's fog rule
+ * @param forecastRunAt         when the forecast ran, or {@code null} when unknown; the report
+ *                              reads it to tell pairs rated before the near-term 60% triage line
+ *                              from pairs the line stood down
  */
 public record CloudVerificationPair(
         String locationName,
@@ -76,7 +80,48 @@ public record CloudVerificationPair(
         Integer observedGapLowMax,
         Integer observedFarLow,
         BigDecimal precipitationMm,
-        Integer visibilityMetres) {
+        Integer visibilityMetres,
+        LocalDateTime forecastRunAt) {
+
+    /**
+     * Creates a pair with no forecast run time, which the report reads as pre-60%-line history.
+     *
+     * @param locationName          the location
+     * @param targetDate            date of the solar event
+     * @param targetType            SUNRISE or SUNSET
+     * @param daysAhead             forecast horizon (0 = same day)
+     * @param rating                the rating given, or {@code null} if triaged
+     * @param forecastGapLow        predicted coned solar-horizon low cloud (%)
+     * @param observedGapLow        analysed low cloud at the solar horizon (%)
+     * @param forecastCanvasMid     predicted mid cloud overhead (%)
+     * @param forecastCanvasHigh    predicted high cloud overhead (%)
+     * @param observedCanvasMid     analysed mid cloud overhead (%)
+     * @param observedCanvasHigh    analysed high cloud overhead (%)
+     * @param solarTrendBuilding    whether the [BUILDING] trigger fired
+     * @param upwindCurrentLowCloud current low cloud at the upwind point (%), or {@code null}
+     * @param upwindDistanceKm      how far upwind the sample was taken, or {@code null}
+     * @param windDirection         wind-from bearing in degrees, or {@code null}
+     * @param azimuthDeg            solar azimuth in degrees, or {@code null}
+     * @param forecastFarLow        predicted low cloud at the 226 km far-solar point (%)
+     * @param observedGapLowMin     lowest analysed low cloud across the cone bearings (%)
+     * @param observedGapLowMax     highest analysed low cloud across the cone bearings (%)
+     * @param observedFarLow        analysed low cloud at the 226 km far-solar point (%)
+     * @param precipitationMm       forecast precipitation (mm) at the scored slot
+     * @param visibilityMetres      forecast visibility (m) at the scored slot
+     */
+    public CloudVerificationPair(String locationName, LocalDate targetDate, TargetType targetType,
+            Integer daysAhead, Integer rating, Integer forecastGapLow, Integer observedGapLow,
+            Integer forecastCanvasMid, Integer forecastCanvasHigh, Integer observedCanvasMid,
+            Integer observedCanvasHigh, Boolean solarTrendBuilding, Integer upwindCurrentLowCloud,
+            Integer upwindDistanceKm, Integer windDirection, Integer azimuthDeg,
+            Integer forecastFarLow, Integer observedGapLowMin, Integer observedGapLowMax,
+            Integer observedFarLow, BigDecimal precipitationMm, Integer visibilityMetres) {
+        this(locationName, targetDate, targetType, daysAhead, rating, forecastGapLow,
+                observedGapLow, forecastCanvasMid, forecastCanvasHigh, observedCanvasMid,
+                observedCanvasHigh, solarTrendBuilding, upwindCurrentLowCloud, upwindDistanceKm,
+                windDirection, azimuthDeg, forecastFarLow, observedGapLowMin, observedGapLowMax,
+                observedFarLow, precipitationMm, visibilityMetres, null);
+    }
 
     /** Upwind low cloud (%) at or above which the veto's second trigger is satisfied. */
     private static final int UPWIND_TRIGGER_PERCENT = 60;

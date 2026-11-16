@@ -18,7 +18,13 @@ import java.util.Optional;
  *
  * <p>Rules are checked in priority order (first match wins):
  * <ol>
- *   <li>Solar low cloud &gt; 80% (falls back to observer low cloud if no directional data)</li>
+ *   <li>Solar low cloud over the horizon's cut (falls back to observer low cloud if no directional
+ *       data): &gt; 60% for today and tomorrow ({@code daysAhead <= 1}), &gt; 80% beyond. For
+ *       today and tomorrow a thin strip on the horizon
+ *       ({@link com.gregochr.goldenhour.model.DirectionalCloudData#isThinStrip()}) keeps the 80%
+ *       line, since it is the one case where light gets under the cloud. This is the gate in front
+ *       of Claude; {@code BriefingVerdictEvaluator} is a separate heuristic that does not mirror
+ *       it.</li>
  *   <li>Precipitation &gt; 2 mm</li>
  *   <li>Visibility &lt; 5000 m &mdash; <b>not consulted</b> when the slot's valley-mist band is
  *       {@code LIKELY} (a {@code mist_prone} site, valley-mist-plan M2)</li>
@@ -29,7 +35,14 @@ public class WeatherTriageEvaluator {
 
     private static final Logger LOG = LoggerFactory.getLogger(WeatherTriageEvaluator.class);
 
-    private static final int CLOUD_THRESHOLD = 80;
+    /** Last {@code daysAhead} (UK civil date) treated as near-term: today and tomorrow. */
+    static final int NEAR_TERM_MAX_DAYS = 1;
+
+    /** Rule 1 cut (%) for the near term: over this, a slot that is not a thin strip stands down. */
+    static final int NEAR_TERM_CLOUD_THRESHOLD = 60;
+
+    /** Rule 1 cut (%) for the far horizon, and for a near-term thin strip. */
+    static final int CLOUD_THRESHOLD = 80;
     private static final BigDecimal PRECIP_THRESHOLD = new BigDecimal("2.0");
     private static final int VISIBILITY_THRESHOLD = 5000;
 
@@ -56,17 +69,20 @@ public class WeatherTriageEvaluator {
     /**
      * Evaluates atmospheric data against triage heuristics.
      *
-     * @param data the atmospheric data to evaluate
+     * @param data      the atmospheric data to evaluate
+     * @param daysAhead days from today to the event (UK civil date); a negative value (a retried
+     *                  past slot) counts as near-term
      * @return a triage result if conditions are unsuitable, or empty if evaluation should proceed
      */
-    public Optional<TriageResult> evaluate(AtmosphericData data) {
+    public Optional<TriageResult> evaluate(AtmosphericData data, int daysAhead) {
         boolean mistCandidate = data.mistPotential() == MistPotential.LIKELY;
-        // Rule 1: Solar low cloud > 80% (prefer directional, fall back to observer)
+        // Rule 1: Solar low cloud over the horizon's cut (prefer directional, fall back to observer)
         boolean usedDirectional = data.directionalCloud() != null;
         int lowCloud = usedDirectional
                 ? data.directionalCloud().solarLowCloudPercent()
                 : data.cloud().lowCloudPercent();
-        if (lowCloud > CLOUD_THRESHOLD) {
+        int cut = cloudCut(data, daysAhead);
+        if (lowCloud > cut) {
             String source = usedDirectional ? "Solar horizon low cloud" : "Low cloud cover";
             TriageResult refusal = new TriageResult(
                     source + " " + lowCloud + "% — sun blocked", TriageRule.HIGH_CLOUD);
@@ -102,6 +118,20 @@ public class WeatherTriageEvaluator {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Rule 1's cut for this slot: 60% for today and tomorrow, 80% beyond, and 80% for a near-term
+     * thin strip (the prompt already softens the low-cloud penalty for one).
+     */
+    private static int cloudCut(AtmosphericData data, int daysAhead) {
+        if (daysAhead > NEAR_TERM_MAX_DAYS) {
+            return CLOUD_THRESHOLD;
+        }
+        if (data.directionalCloud() != null && data.directionalCloud().isThinStrip()) {
+            return CLOUD_THRESHOLD;
+        }
+        return NEAR_TERM_CLOUD_THRESHOLD;
     }
 
     /**

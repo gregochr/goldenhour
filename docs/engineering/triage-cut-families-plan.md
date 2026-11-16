@@ -12,7 +12,7 @@ not extend it beyond what is specified.**
 ## Why (all the context you need)
 
 #528 established that `WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low
-cloud before any prompt is built, and gave the EXTENSIVE BLANKET family `&underTriageCut(<=80)`
+cloud before any prompt is built, and gave the EXTENSIVE BLANKET family `&underTriageCut`
 variants so its precision could be read over slots the prompt could actually have seen. Two other
 report families have the same contamination and were not treated:
 
@@ -47,14 +47,14 @@ constructor call sites the compiler finds — do not reorder existing components
 Build them in a new private `triageCutBuckets(List<CloudVerificationPair> pairs)` beside
 `corridorBuckets`:
 
-- `vetoFired&underTriageCut(<=80)` — the pair's own veto predicate AND
+- `vetoFired&underTriageCut` — the pair's own veto predicate AND
   `forecastGapUnderTriageCut`. **Reuse whatever predicate the existing `vetoFired` bucket uses**
   (it lives on `CloudVerificationPair` or in the service's veto-bucket builder — find it and call
   it; re-deriving `[BUILDING] && upwind ≥60` inline is how the parent and variant drift).
-- `vetoNotFired&underTriageCut(<=80)` — NOT the veto predicate, AND under the cut.
-- `farClearer&fcstBlocked&underTriageCut(<=80)` — the existing shared `forecastWasBlocked`
+- `vetoNotFired&underTriageCut` — NOT the veto predicate, AND under the cut.
+- `farClearer&fcstBlocked&underTriageCut` — the existing shared `forecastWasBlocked`
   predicate over `clearer`, AND under the cut.
-- `farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)` — the above AND NOT
+- `farClearer&fcstBlocked&stripMissed&underTriageCut` — the above AND NOT
   `thinStripPreconditionsHeld`.
 
 Javadoc on the method: the under-cut veto separation is **derived by the reader** as

@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * Cloud cover sampled at the solar and antisolar horizon points, 113 km from the observer.
  *
@@ -80,6 +82,46 @@ public record DirectionalCloudData(
         Integer farSolarCloud300hPa,
         Integer farSolarCloud250hPa,
         Integer farSolarCloud200hPa) {
+
+    /**
+     * Solar-horizon low cloud (%) at or above which the low-cloud penalty is in play, and above
+     * which the far-field sample is worth comparing for strip-vs-blanket.
+     */
+    public static final int SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT = 50;
+
+    /**
+     * Percentage-point drop in low cloud between the horizon sample and the far-field sample that
+     * marks a thin strip on the horizon (rather than an extensive blanket).
+     */
+    public static final int THIN_STRIP_DROP_POINTS = 30;
+
+    /**
+     * The one definition of a thin strip: significant low cloud at the horizon that drops sharply
+     * by the far-field sample. The prompt's label, the near-term triage exemption and the cloud
+     * verification report all read this, so they cannot disagree.
+     *
+     * @param nearLowPct low cloud (%) at the solar horizon point
+     * @param farLowPct  low cloud (%) at the far-solar point, or {@code null} when unavailable
+     * @return true when the horizon low cloud reads as a thin strip
+     */
+    public static boolean isThinStrip(int nearLowPct, Integer farLowPct) {
+        return nearLowPct >= SOLAR_LOW_CLOUD_SIGNIFICANT_PERCENT
+                && farLowPct != null
+                && (nearLowPct - farLowPct) >= THIN_STRIP_DROP_POINTS;
+    }
+
+    /**
+     * Whether this sample reads as a thin strip on the horizon.
+     *
+     * <p>{@code @JsonIgnore}: a derived reading, never part of the serialised record, so the stored
+     * and served JSON shape is unchanged.
+     *
+     * @return true when {@link #isThinStrip(int, Integer)} holds for the solar and far readings
+     */
+    @JsonIgnore
+    public boolean isThinStrip() {
+        return isThinStrip(solarLowCloudPercent, farSolarLowCloudPercent);
+    }
 
     /**
      * Creates directional cloud data without the recorded pressure-level values, which are all

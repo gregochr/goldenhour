@@ -106,7 +106,7 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
             + " e.cloudApproach.solarTrendBuilding, e.cloudApproach.upwindCurrentLowCloud,"
             + " e.cloudApproach.upwindDistanceKm, e.windDirection, e.azimuthDeg,"
             + " e.directionalCloud.farSolarLow, v.horizonLowMin, v.horizonLowMax, v.farLowCloud,"
-            + " e.precipitation, e.visibility)"
+            + " e.precipitation, e.visibility, e.forecastRunAt)"
             + " FROM ForecastEvaluationEntity e, CloudVerificationEntity v"
             + " WHERE v.forecastEvaluationId = e.id"
             + " AND e.targetDate BETWEEN :from AND :to")
