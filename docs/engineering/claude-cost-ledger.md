@@ -274,6 +274,13 @@ same slot: 16,233 re-ratings, $44.36.
   ≤10 skips 1,333 ($3.53), ≤15 skips 2,182 ($5.85). Moves of 2★+ stay at 0.3–0.6% (passes); 4★-line crossings
   run 7–9%, at the wobble level above, so they are mostly noise rather than hidden signal. Worth ~$3.50–6/30 days.
   Not decided.
+  **Replayed as specified: REJECTED (2026-11-16).** The figures above compare consecutive ratings; the gate
+  compares against the last rating actually made, which ages with each skip, and this window predates the 60%
+  rule and the afternoon's T+1 deferral. `sun-side-gate-replay.sql` replays the gate (anchor chains, an 18 h
+  anchor-age limit, today's pool from 5 November): at 10 points it skips 230 of 2,712 re-ratings, **$1.48/30
+  days**, under the $2 bar set before running (`sun-side-gate-plan.md`, Gate 0). 15 points gives $2.10. The skipped
+  looks would have hidden a 1★ move 27–30% of the time and a 4★-line crossing 16–17%, above the wobble on
+  identical sun-side inputs, so the kept stars hide real change. Not built.
 - **The afternoon is not just today's sunset.** Its Sonnet re-ratings: today's sunset 2,671 ($7.12), tomorrow's
   sunrise 1,979 ($5.84), tomorrow's sunset 1,018 ($2.91). When the afternoon changed **tomorrow's sunrise**, the
   next look kept the change only **47.7%** of the time: a coin flip, so that look mostly adds churn. For tomorrow's
