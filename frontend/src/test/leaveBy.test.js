@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SETUP_MINUTES, leaveBy } from '../utils/leaveBy.js';
+import { SETUP_MINUTES, arrivalTime, leaveBy } from '../utils/leaveBy.js';
 
 /**
  * When to leave, on the UK clock.
@@ -115,5 +115,25 @@ describe('leaveBy', () => {
     // Two Java types on the other side serialise the same instant two ways, and this field has
     // been both. `parseUtcInstant` reconciles them; the point here is that neither is shifted.
     expect(leaveBy('2026-08-14T20:11:00Z', 66)).toBe(leaveBy(AUGUST_SUNSET, 66));
+  });
+});
+
+describe('arrivalTime', () => {
+  it('is the event instant minus the setup buffer, on the UK clock', () => {
+    // 21:11 BST sunset, 20 minutes of setup.
+    expect(arrivalTime(AUGUST_SUNSET)).toBe('20:51');
+    expect(arrivalTime(JANUARY_SUNRISE)).toBe('07:50');
+    expect(arrivalTime(AUGUST_SUNSET, 0)).toBe('21:11');
+    expect(arrivalTime(AUGUST_SUNSET, 5)).toBe('21:06');
+  });
+
+  it('is the same moment the leave-by reaches after a zero-minute drive', () => {
+    expect(arrivalTime(AUGUST_SUNSET)).toBe(leaveBy(AUGUST_SUNSET, 0));
+    expect(SETUP_MINUTES).toBe(20);
+  });
+
+  it('is null for an absent or unparseable event', () => {
+    expect(arrivalTime(null)).toBeNull();
+    expect(arrivalTime('not a time')).toBeNull();
   });
 });

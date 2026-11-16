@@ -151,6 +151,19 @@ function departure(eventTimeUtc, driveMinutes, setupMinutes) {
 }
 
 /**
+ * When you arrive: the event instant minus the setup buffer, on the UK clock.
+ *
+ * @param {string|Date|null} eventTimeUtc the slot's own {@code solarEventTime}
+ * @param {number} [setupMinutes] minutes allowed on arrival; defaults to {@link SETUP_MINUTES}
+ * @returns {?string} `HH:mm` on {@code Europe/London}, or null for an absent or unparseable event
+ */
+export function arrivalTime(eventTimeUtc, setupMinutes = SETUP_MINUTES) {
+  const event = parseUtcInstant(eventTimeUtc);
+  if (!event) return null;
+  return formatInstantUk(new Date(event.getTime() - setupMinutes * 60000), HH_MM);
+}
+
+/**
  * The departure, with the UK day it falls on — for the one surface that can outrun the ceiling
  * {@link leaveBy}'s bare {@code HH:mm} rests on.
  *

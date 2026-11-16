@@ -1,5 +1,5 @@
 import { clamp } from './heatGeometry.js';
-import { leaveByParts } from './leaveBy.js';
+import { SETUP_MINUTES, arrivalTime, leaveByParts } from './leaveBy.js';
 import { shortDow } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { DARK_SKY_THRESHOLD } from './darkSky.js';
@@ -164,15 +164,23 @@ export function anchorCallout({
  *
  * @param {?string} eventTimeIso  the window's event instant, UTC as served
  * @param {?number} driveMinutes  this user's drive to the spot; null/unmeasured yields no fact at all
- * @returns {?{time: string, dayWord: ?string}} the clock time, plus a short weekday word ONLY when
- *          the departure falls on a different UK day than the event — null when the drive or the
- *          event time is unknown
+ * @returns {?{time: string, dayWord: ?string, arrive: ?string}} the clock time, plus a short weekday
+ *          word ONLY when the departure falls on a different UK day than the event, plus the UK
+ *          arrival time ({@code SETUP_MINUTES} before the event) — null when the drive or the event
+ *          time is unknown
  */
 export function calloutLeaveBy(eventTimeIso, driveMinutes) {
   const parts = leaveByParts(eventTimeIso, driveMinutes);
   if (!parts) return null;
-  return { time: parts.time, dayWord: parts.sameDay ? null : shortDow(parts.date) };
+  return {
+    time: parts.time,
+    dayWord: parts.sameDay ? null : shortDow(parts.date),
+    arrive: arrivalTime(eventTimeIso),
+  };
 }
+
+/** The word the leave-by detail uses for each solar event type. */
+const EVENT_WORDS = { SUNRISE: 'sunrise', SUNSET: 'sunset' };
 
 /**
  * The facts row — Drive, Leave by, Dark sky — each one honouring the {@code reachMeasured}
@@ -192,10 +200,14 @@ export function calloutLeaveBy(eventTimeIso, driveMinutes) {
  * @param {boolean} [args.past] whether the window has gone (outcome-rating-plan.md §2 #2) — Drive
  *        and Leave by are about a trip still to make, so a past window hides both (the design: "Past
  *        windows hide Drive / Leave by"); Dark sky is a fact of the place and stays
- * @returns {Array<{key: string, label: string, value: string}>} the facts to render, in order
+ * @param {?string} [args.eventType] {@code 'SUNRISE'} or {@code 'SUNSET'} for a solar window; names the
+ *        event in the leave-by fact's arrival detail (anything else yields no detail)
+ * @returns {Array<{key: string, label: string, value: string, detail: ?string}>} the facts to render, in
+ *          order; the leave fact alone may carry {@code detail} ("arrive 15:42, 20 min before sunset")
  */
 export function calloutFacts({
   driveMinutes, distanceMiles = null, driveTo = null, eventTimeIso = null, bortleClass = null, past = false,
+  eventType = null,
 }) {
   const facts = [];
   if (!past && Number.isFinite(driveMinutes)) {
@@ -213,11 +225,16 @@ export function calloutFacts({
     facts.push({ key: 'drive', label: 'Drive', value: driveValue });
     const leave = calloutLeaveBy(eventTimeIso, driveMinutes);
     if (leave) {
-      facts.push({
+      const eventWord = EVENT_WORDS[eventType];
+      const fact = {
         key: 'leave',
         label: 'Leave by',
         value: leave.dayWord ? `${leave.time} (${leave.dayWord})` : leave.time,
-      });
+      };
+      if (eventWord && leave.arrive) {
+        fact.detail = `arrive ${leave.arrive}, ${SETUP_MINUTES} min before ${eventWord}`;
+      }
+      facts.push(fact);
     }
   }
   if (bortleClass != null) {

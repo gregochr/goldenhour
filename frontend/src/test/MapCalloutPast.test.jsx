@@ -142,6 +142,7 @@ describe('MapCallout — a past window', () => {
     expect(facts).toHaveTextContent('Dark sky');
     expect(facts.textContent).not.toMatch(/Drive/);
     expect(facts.textContent).not.toMatch(/Leave by/);
+    expect(screen.queryByTestId('map-callout-leave-detail')).not.toBeInTheDocument();
   });
 
   it('control: the same card on a LIVE window shows BOTH Drive and Leave by (so the absences above are the flag)', async () => {
