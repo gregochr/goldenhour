@@ -17,10 +17,13 @@ import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionService;
 import com.gregochr.goldenhour.service.batch.BatchSubmitResult;
 import com.gregochr.goldenhour.service.batch.BatchTriggerSource;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +59,7 @@ public class EvaluationServiceImpl implements EvaluationService {
     private final JobRunService jobRunService;
     private final ForecastPromptStore forecastPromptStore;
     private final Map<Class<? extends EvaluationTask>, ResultHandler<?>> handlersByType;
+    private final Clock clock;
 
     /**
      * Constructs the engine.
@@ -77,6 +81,34 @@ public class EvaluationServiceImpl implements EvaluationService {
             JobRunService jobRunService,
             List<ResultHandler<?>> resultHandlers,
             ForecastPromptStore forecastPromptStore) {
+        this(batchSubmissionService, batchRequestFactory, anthropicApiClient,
+                claudeAuroraInterpreter, jobRunService, resultHandlers, forecastPromptStore,
+                Clock.systemUTC());
+    }
+
+    /**
+     * Constructs the engine with an explicit clock (used only for the {@code [BATCH SHARE]}
+     * near/far bucket label).
+     *
+     * @param batchSubmissionService     unified Anthropic batch submitter
+     * @param batchRequestFactory        builds forecast batch requests
+     * @param anthropicApiClient         resilient sync Anthropic client
+     * @param claudeAuroraInterpreter    aurora system prompt + user message + parser
+     * @param jobRunService              creates job runs for the sync path
+     * @param resultHandlers             all available {@link ResultHandler} beans
+     * @param forecastPromptStore        records each batch sky request's user message
+     * @param clock                      supplies "today" for the horizon bucket
+     */
+    @Autowired
+    public EvaluationServiceImpl(BatchSubmissionService batchSubmissionService,
+            BatchRequestFactory batchRequestFactory,
+            AnthropicApiClient anthropicApiClient,
+            ClaudeAuroraInterpreter claudeAuroraInterpreter,
+            JobRunService jobRunService,
+            List<ResultHandler<?>> resultHandlers,
+            ForecastPromptStore forecastPromptStore,
+            Clock clock) {
+        this.clock = clock;
         this.forecastPromptStore = forecastPromptStore;
         this.batchSubmissionService = batchSubmissionService;
         this.batchRequestFactory = batchRequestFactory;
@@ -164,6 +196,8 @@ public class EvaluationServiceImpl implements EvaluationService {
         Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
         // system-prompt hash -> the evalRowIds whose request carried that prompt (V182).
         Map<String, List<Long>> skyPromptHashes = new java.util.LinkedHashMap<>();
+        // [BATCH SHARE] shadow measurement only: bucket label -> sky tasks with their keys.
+        Map<String, List<BatchShareKeys.Candidate>> shareBuckets = new java.util.LinkedHashMap<>();
         for (EvaluationTask.Forecast task : tasks) {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
@@ -187,6 +221,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                                     task.model(), task.data(), task.model().getMaxTokens(),
                                     warmedPrefixes);
                     requests.add(built.request());
+                    recordShareCandidate(shareBuckets, task, built);
                     if (task.evalRowId() != null) {
                         skyPrompts.put(task.evalRowId(), built.userMessage());
                         skyPromptHashes.computeIfAbsent(built.promptHash(), k -> new ArrayList<>())
@@ -195,6 +230,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                 }
             }
         }
+        logBatchShare(shareBuckets, trigger, isRetry);
         // V182: stamped BEFORE the batch exists. submit() publishes its SUBMITTED row before it
         // returns, so a batch that completes quickly (or an adopted one that already has) can be
         // polled and its row scored by ForecastResultHandler (a full-entity save) before any
@@ -213,6 +249,61 @@ public class EvaluationServiceImpl implements EvaluationService {
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(result.jobRunId(), result.batchId(),
                         result.requestCount());
+    }
+
+    /**
+     * Records one sky task's equivalence keys for the {@code [BATCH SHARE]} line. Measurement only:
+     * any failure is logged and swallowed, and nothing it touches reaches a request.
+     */
+    private void recordShareCandidate(Map<String, List<BatchShareKeys.Candidate>> buckets,
+            EvaluationTask.Forecast task, BatchRequestFactory.ForecastRequest built) {
+        try {
+            String prefixKey = batchRequestFactory.cachePrefixKey(task.model(), task.data());
+            int maxTokens = task.model().getMaxTokens();
+            String settings = ModelRequestSupport.usesLowEffort(task.model()) + "|"
+                    + ModelRequestSupport.disablesThinking(task.model()) + "|"
+                    + ModelRequestSupport.thinksAdaptively(task.model());
+            BatchShareKeys.Keys keys = BatchShareKeys.keysFor(new BatchShareKeys.Input(
+                    task.promptKind(), task.forced(), task.evalRowId(), task.data().locationName(),
+                    task.date(), task.targetType(), task.data().solarEventTime(),
+                    task.model().getModelId(), maxTokens, settings, prefixKey,
+                    built.userMessage())).orElse(null);
+            String bucket = (prefixKey != null && prefixKey.endsWith("|coastal")
+                    ? "coastal" : "inland")
+                    + (ForecastHorizon.daysAhead(task.date(), clock) <= 1 ? "-near" : "-far");
+            buckets.computeIfAbsent(bucket, k -> new ArrayList<>()).add(
+                    new BatchShareKeys.Candidate(task.location().getId(),
+                            task.location().getName(), keys));
+        } catch (RuntimeException e) {
+            LOG.warn("[BATCH SHARE] key computation failed for task {}; submission unaffected",
+                    task.taskKey(), e);
+        }
+    }
+
+    /** Logs one {@code [BATCH SHARE]} INFO line per bucket; never throws. */
+    private void logBatchShare(Map<String, List<BatchShareKeys.Candidate>> buckets,
+            BatchTriggerSource trigger, boolean isRetry) {
+        try {
+            buckets.forEach((bucket, candidates) -> {
+                BatchShareKeys.Summary s = BatchShareKeys.summarise(candidates);
+                LOG.info("[BATCH SHARE] trigger={} retry={} bucket={} tasks={} eligible={} "
+                                + "strictShareable={} minuteShareable={} strictGroups={} "
+                                + "minuteGroups={}",
+                        trigger, isRetry, bucket, s.tasks(), s.eligible(), s.strictShareable(),
+                        s.minuteShareable(), s.strictGroups().size(), s.minuteGroups().size());
+                s.strictGroups().forEach(g -> LOG.debug("[BATCH SHARE] bucket={} strict group {}",
+                        bucket, describe(g)));
+                s.minuteGroups().forEach(g -> LOG.debug("[BATCH SHARE] bucket={} minute group {}",
+                        bucket, describe(g)));
+            });
+        } catch (RuntimeException e) {
+            LOG.warn("[BATCH SHARE] summary failed; submission unaffected", e);
+        }
+    }
+
+    private static String describe(List<BatchShareKeys.Candidate> group) {
+        return group.stream().map(c -> c.locationId() + "=" + c.locationName())
+                .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
     }
 
     private EvaluationHandle submitAurora(List<EvaluationTask.Aurora> tasks,
