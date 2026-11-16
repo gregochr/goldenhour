@@ -26,7 +26,8 @@ assume it. The missed high veil belongs to `model-disagreement-sizing-plan.md`.
 **What this plan must fix, stated plainly.** The trigger was forecast 3★, and a rule capped at 3★ would
 not have changed its stars, only its fiery score and summary. So the rule earns its place only if Phase A
 finds one of two user-visible errors at a useful rate:
-- **(E1) stars**: broken-low evenings forecast 1–2★ that readers rate 3★ or better;
+- **(E1) stars**: broken-low evenings forecast 1–2★ (sky_rating ≤ 2; A3 measures this from forecasts
+  alone, and whether readers would have rated them higher is A5's protocol question);
 - **(E2) words**: summaries that tell readers there is "no canvas" or "no cloud to catch colour" on
   evenings that had a broken low deck.
 
