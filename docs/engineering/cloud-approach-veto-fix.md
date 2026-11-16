@@ -794,15 +794,26 @@ have been built" now demonstrably means "a prompt ran".
 
 **Open residuals, each with a home, none blocking closure:**
 
-- **Does the bounded penalty earn its keep at all?** The post-window promptable veto separation
-  was **−2.9pp** (fired skies marginally *clearer*; pre-window +4.7pp). The signal barely
-  discriminates in either direction — already priced into the demotion, but removal-vs-keep is
-  now answerable any time with one deep windowed pull of this report. A removal would be its own
-  measured change through the current workflow.
-- **The engine changed after the tallies.** These figures were measured under Haiku; since
-  2026-11-02 Batch Near-Term runs Sonnet 5.5 (Far-Term Haiku 4.5), gated by the Sky Eval. The
-  cap's field-constraint treatment (§9's tier rule) was Haiku-measured; a one-pull spot check
-  over `?from=2026-11-02` re-confirms the cap under the new engine whenever wanted.
+- **Does the bounded penalty earn its keep? MEASURED 2026-11-16 — KEEP, question closed.** The
+  deep healed window (2026-08-30 → 2026-11-10: 100,976 verified, 70,656 rated) reads a
+  promptable veto separation of **+3.7pp** (fired 30.0 vs not-fired 26.4 observed, over 8,945
+  promptable firings) — inside the pre-registered 0–5pp "status quo defensible" band. The
+  three-measurement sequence — +4.7pp pre-demotion, −2.9pp on the thin 9-day post window
+  (noise), +3.7pp on the deep window — settles the signal as real and weak: too real to delete,
+  far too weak for the absolute veto it once was, which is the demotion's thesis measured to a
+  close. The penalty's cost, also now measured: fired mean 2.35 vs unfired 2.62, 40% of fired
+  mass at the 3★ cap, four-rate 3.2% (the combiner floor), zero 5★ in 8,806 ratings. One
+  footnote recorded, not acted on: the Nov 2–10 window alone reads −1.8pp against a ~52%
+  observed base (November is cloudy everywhere), so the signal's discrimination is
+  season-variable and weakest in the dark months.
+- **The cap holds under the new engine — spot check passed 2026-11-16.** Tallies were measured
+  under Haiku; since 2026-11-02 Batch Near-Term runs Sonnet 5.5 (Far-Term Haiku 4.5), gated by
+  the Sky Eval. The Nov 2–10 pull reads `vetoFired` at [216, 532, 333, 25, 0] over 1,106
+  ratings — four-rate 2.3%, below the Haiku-era combiner floor, zero 5★.
+- **The ~25pp "baseline offset" was a property of the stand-down-only population.** The healed
+  window's overall `meanGapError` is +11.4pp: the old figure measured the slots nobody prompted.
+  Within-report contrasts were always the rule for exactly this reason; the absolute offset
+  number should simply not be quoted any more.
 - **The triage-corridor lever** (§9: 4,228 above-cut blanket calls, 26%, stood down over an
   observed-open corridor) remains the largest unbuilt opportunity of the program — a
   `WeatherTriageEvaluator` design question needing its own plan.
