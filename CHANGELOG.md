@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.9] - 2026-11-16
+
+### Changed — Today and tomorrow stand down free when the sun side is mostly low cloud
+
+Places for today and tomorrow now stand down without a Claude call when low cloud covers more than 60% of
+the sky toward the sun, instead of 80%, unless that cloud is a thin strip on the horizon, the one case where
+light can still get under it. Days further out keep the 80% line. Measured over 45 days, the extra
+stand-downs would have hidden 8 four-star-or-better ratings out of about 5,400 skipped calls, and they save
+about $9 a month of Claude calls. A region whose places were all stood down by the weather now reads
+"Stand down" rather than "Unrated". A retried slot that the weather rules out is no longer rated.
+
+### Fixed — Region summaries no longer call a sky clear when the ratings saw a cloud canvas
+
+The one-line summary above each region used to read cloud only at the observer's own grid point, so a
+clear sky overhead with a full cloud canvas on the horizons produced prose like "essentially cloudless"
+beside four-star ratings. The summary now reads the low, mid and high cloud about 110 km out on the sun
+side and the canvas on the opposite side, counts a region as clear only when most of its sky locations are
+clear on those horizons, ignores woodland locations when describing the sky, and is told never to explain
+the ratings away. A well-covered region averaging 3.5 stars or more is never called clear.
+
+### Fixed — A clear sky overhead no longer demotes a spot when there is a strong cloud canvas toward the sun
+
+Triage demoted a GO slot to MARGINAL, and flagged it "Clear all layers", whenever the observer point's
+low, mid and high cloud were all under 15%, even when the sun's own horizon, 113 km away, carried a high
+or mid-level canvas that the full evaluation rates highly. A slot is now kept at GO when it has horizon
+data, the cloud toward the sun is low-free (under 15%) and its mid or high layer is 40% or more. Anti-sun
+cloud does not count, a weak (15-39%) sunward canvas stays demoted, and a slot with no horizon data behaves
+as before (`clear-sky-demotion-plan.md`, Phase B). A GO region's summary now reads "Go at N of M locations"
+rather than "Clear at N of M locations", since a GO slot is no longer always a cloudless one. The temporary
+`[CLEAR-ALL-LAYERS]` diagnostic log is removed.
+
+### Fixed — The briefing samples horizon cloud toward the real sunrise and sunset
+
+The briefing's horizon cloud check used to look 113 km due east for sunrise and due west for sunset, up to
+about 45 degrees away from where the sun actually rises and sets in the UK. It now samples toward the real
+solar azimuth, and each event gets its own opposite-side point for the region summaries. Go and Marginal
+verdicts can change where the cloud differs between due west or east and the true direction of the sun.
+
+### Fixed — flaky waitlist step test in RegisterPageBranches
+
+The waitlist test answered the Turnstile widget before its `useEffect` had rendered it, so under CI
+load it answered the unmounted registration widget and the submit button stayed disabled. The test
+helper now waits for the waitlist widget to be rendered before the test touches it. Test-only change.
+
 ## [v2.39.8] - 2026-11-13
 
 ### Fixed — Filters panel no longer scrolls when the map has room; scrollbars match the app's palette
