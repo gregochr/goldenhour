@@ -5,6 +5,60 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.39.10] - 2026-11-16
+
+### Docs — Sun-side change gate replayed and rejected
+
+Replaying the planned gate (keep a near-term rating when the cloud toward the sun has barely moved) on the
+current mix of runs shows it would save about $1.50 a month, under the $2 bar set beforehand, while hiding a
+one-star change on more than a quarter of the looks it skips. It is not built. The plan and the replay query are
+kept as the record: `docs/engineering/sun-side-gate-plan.md`, `docs/engineering/cost-queries/sun-side-gate-replay.sql`.
+
+### Docs — Sun-side change gate measured, and the afternoon's looks at tomorrow checked
+
+The cost ledger records two production measurements. Skipping a re-rating when the weather toward the sun has
+barely moved would save about $3.50–6 a month and hide almost no real two-star moves; it is not decided. The
+afternoon refresh's looks at tomorrow turned out to be a coin flip, but the November changes that leave them to
+the evening refresh had already removed most of that spend. The query is
+`docs/engineering/cost-queries/sun-side-change-gate.sql`.
+
+### Docs — One call per weather cell measured and rejected
+
+Replaying 30 days of stored prompts shows places in the same weather cell almost never send the same prompt:
+one shared call would have saved 1.25% of Sonnet near-term calls ($0.85 a month), or 4.3% with the event time cut
+to the minute, both under the 8% bar the plan set. The fan-out is not built. The query is
+`docs/engineering/cost-queries/shared-call-replay.sql`.
+
+### Docs — Input-equivalent request sharing: plan and Phase 0 replay
+
+A plan for sending one rating request for places whose prompts match after masking the parts that differ
+harmlessly (event time, upwind geometry, approach-trend history), with a read-only replay query to size it.
+Six adversarial reviews plus a refuter left it unbuilt: the replay runs on or after 2026-11-29 against
+pre-registered saving and safety rules, and any build must stop shared neighbours shielding a rogue rating
+in the neighbour guard. Nothing in production changes.
+
+### Added — Map callout says when you arrive before the light
+
+The Leave by line in the Map callout now ends with the arrival time and the buffer, for example
+"Leave by 15:20 · arrive 15:42, 20 min before sunset", so the twenty minutes of setup time is named rather than hidden.
+
+### Added — broken-low cloud Phase A sizing scripts
+
+`scripts/far-cloud-p1/bl_size.py` sizes the broken-low-canvas plan's Phase A from the existing forecast export:
+how often a low deck with a 20-39% solar cone and no mid or high cloud occurs, how often it is forecast 1-2 stars
+(E1) or described as having no canvas (E2), and the plan's gate to Phase B as an explicit decision block
+(proceed, stop on a named criterion, or waiting for protocol ratings). `bl_export_ratings.sql` exports outcome
+ratings with a non-personal `by_admin` flag, and `bl_today.sql` lists today's broken-low and control slots for the
+owner's rating protocol. Read-only scripts, no production code and no spend.
+
+### Added — shadow log of how many places in the same weather cell could share one rating call
+
+Each forecast batch submission now writes one `[BATCH SHARE]` line per bucket (inland or coastal, near or far term) counting how
+many sky requests would have been saved if places whose requests are identical apart from the place name sent one request
+between them, once with the event time exactly as printed and once truncated to the minute. It is measurement only: no request,
+prompt, custom id or stored row changes, and a failure while counting is logged and ignored. The figures decide whether the
+shared-request change in the triage cost-cut plan is worth building.
+
 ## [v2.39.9] - 2026-11-16
 
 ### Changed — Today and tomorrow stand down free when the sun side is mostly low cloud
