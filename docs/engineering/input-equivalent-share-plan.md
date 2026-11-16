@@ -1,145 +1,188 @@
 # Input-equivalent sharing: one rating request for places whose inputs match
 
-**Status:** draft, 2026-11-16. Nothing built. Revives `triage-cost-cut-plan.md` P2 with a different
-equivalence key; P2b's fan-out design is reused as written. Phase 0 is a free read-only query; Phases 1–3
-change the batch path behind a switch that defaults off.
+**Status:** reviewed 2026-11-16 (six adversarial lenses plus a refuter; record in §9). **Verdict: not built.
+Phase 0 (a free, read-only replay) runs on or after 2026-11-29; nothing else proceeds unless it passes.**
+Revives `triage-cost-cut-plan.md` P2 with a masked equivalence key; reuses P2b's fan-out design with the
+changes in §4.
 
 ---
 
-## 1. Why, and what changed since P2 was rejected
+## 1. Why, and what the review changed
 
-P2 ("one request per set of equivalent places in a cell") was rejected on 2026-11-16: comparing the **exact
-prompt minus the name**, one request per group would have saved 1.25% of Sonnet T+0/1 sky calls (4.3% with the
-event time cut to the minute), under P2a's 8% bar (`shared-call-replay.sql`).
+P2 (one request per set of places whose prompts are identical apart from the name) was rejected on
+2026-11-16: 1.25% of Sonnet T+0/1 sky calls ($0.85/30 days), 4.3% with the event time cut to the minute
+(`shared-call-replay.sql`), under P2a's 8% bar.
 
-The owner asked the follow-up the replay did not: what if places in neighbouring cells, or with slightly
-different horizon samples, still get **the same decision inputs**? Measured the same day (production, 30 days,
-24,768 Sonnet T+0/1 rated requests, grouped by run hour, date, event, region and coastal flag):
+The owner asked whether places whose *decision inputs* match could share. A first measurement grouped on
+stored `forecast_evaluation` columns (overhead and sun-side cloud, rain, visibility, plus antisolar, far point
+and `[BUILDING]`, by run hour and region) and found 13.2% of calls (~$8.82/30 days) with 79% of groups already
+on identical stars.
 
-| Key | Calls saved | Share | ~$/30 days | Groups with identical stars | Groups split ≥ 2★ | p90 event-time gap |
-|---|---|---|---|---|---|---|
-| A: overhead low/mid/high, cone low/mid/high, rain, visibility | 3,671 | 14.8% | 9.91 | 79.1% | 4 | 0.1 min |
-| B: A + antisolar mid/high, far low, `[BUILDING]` | 3,268 | **13.2%** | **8.82** | 79.3% | 3 | 0.1 min |
+**That 13% is an upper bound, not evidence for any level we could adopt** (refuter: survives). It ignored
+orientation, the upwind values, the overhead detail lines and the site blocks (inversion, valley mist,
+stability), all of which every adoptable level keeps. The adoptable saving lies between L1's 4.3% and ~13%,
+likely nearer the low end: **realistically ~$3–6/month** on the post-P1 base (~$59–63/30 days).
 
-So decision-level equivalence clears the 8% bar, and the places already agree: the 1★ splits (~21% of
-groups) sit at the model's measured wobble between identical prompts (16–19%, ledger "Cost per call and
-shared cells"), and 2★ splits are 3 groups in 30 days. Sharing would mostly remove noise, and make neighbours
-agree (the complaint that moved Haiku off Far-Term).
-
-**What key B ignores** is what made exact prompts differ: the event time (seconds), the upwind sample's
-geometry, the approach-trend history slots, the mist/visibility trend numbers, and (between different cells)
-the overhead detail lines (humidity, dew point, aerosol, wind, boundary layer). Some of those feed prompt
-rules (the mist rules read the temp-dew gaps; the aerosol rule reads AOD and PM2.5). So the key must be chosen
-on evidence, not by hand. Phase 0 does that.
-
-Base after P1 (the 60% triage line): ~$63/30 days of Sonnet T+0/1, so 13% is roughly **$8/month**.
+Sharing also changes evidence the product relies on: it **correlates** neighbouring ratings. It removes
+visible disagreement between equivalent places; it does not make any place more accurate.
 
 ---
 
-## 2. Phase 0: choose the key from history (read-only, free, owner runs)
+## 2. Phase 0: the replay (read-only, free; the owner runs it on or after 2026-11-29)
 
-`docs/engineering/cost-queries/input-equivalent-share-replay.sql` replays the last 30 days of stored prompts
-(`forecast_evaluation_prompt`) through a **ladder of masks**, each level adding to the one before. Every level
-keeps the date, event, model, system-prompt hash (inland/coastal), the pipeline run and **every bracketed rule
-label** (`[BUILDING]`, `[THIN STRIP]`, `[CLEARING]`, `[AT/NEAR DEW POINT]` …); masks replace numbers or place
-geometry only:
+`docs/engineering/cost-queries/input-equivalent-share-replay.sql`, tested end to end on PostgreSQL 16 with
+synthetic prompts (2026-11-16). It:
 
-| Level | Adds | Why it is a candidate |
-|---|---|---|
-| L0 | name prefix removed | the rejected P2 key (1.25%) |
-| L1 | event time to the minute | P2a's minute key (4.3%) |
-| L2 | event time removed | places in one run differ by seconds |
-| L3 | upwind geometry "(43km along 244° WSW)" removed, values kept | per-place geometry, not weather |
-| L4 | approach-trend history T-3h..T-1h masked, event slot and labels kept | the labels carry the rule |
-| L5 | mist/visibility trend numbers masked, labels kept | the labels carry most of the rule |
-| L6 | overhead detail lines masked | reference only; not adoptable without a new review |
+- **Uses the post-P1 population:** Sonnet 5.5, T+0/1, scheduled cycles (NIGHTLY, INTRADAY, EVENING), retry
+  batches excluded, and only rows P1 still submits (sun-side low cloud ≤ 60% or a thin strip). Run after
+  2026-11-29 so the 30-day window is mostly post-P1.
+- **Groups per forecast batch** (one `submitForecast` call), the only scope production can share within.
+- **Climbs a ladder of masks**, each keeping the date, event, model, system-prompt hash and every bracketed
+  rule label:
 
-The query reports, per level: saveable requests, share, dollars, and inside the groups how many already got
-identical stars, a 1★ split and a 2★+ split.
+  | Level | Adds | Status |
+  |---|---|---|
+  | L0 | name prefix removed | the **control** (identical prompts apart from the name) |
+  | L1 | event time to the minute | adoptable |
+  | L2 | event time removed | adoptable: no rule reads the clock time |
+  | L3 | upwind geometry removed, `current=`/`at-event=` kept | adoptable: rules read only the values (PromptBuilder ~l.291–297) |
+  | L4 | approach-trend T-3h..T-1h masked, event slot and `[BUILDING]`/`[CLEARING]` kept | adoptable: thresholds live in `SolarCloudTrend` (~l.25–34), not in the prompt |
+  | L5 | mist/visibility trend numbers masked | **reference only, never adoptable**: the mist rules read the visibility direction directly (~l.195, 204–205) and the valley-mist block tells Claude to read it (~l.975–976) |
 
-**Decision (fixed before the query is run):**
-1. Adopt the **lowest level ≤ L5** whose saving is **≥ 8%** of requests (P2a's bar, unchanged).
-2. That level's groups must have 2★+ splits in **< 1%** of groups and 1★ splits at or below **25%** of groups
-   (the measured wobble plus margin). A level that saves more but fails this is not adopted.
-3. If no level ≤ L5 passes, stop: record the ladder in `claude-cost-ledger.md` and close the plan.
-4. L6 is never adopted from this phase: it would hide inputs the aerosol and mist rules read.
+  "No rule reads it" is not "no influence": Claude may still react to unlabelled numbers. The gate below is
+  what proves L2–L4 safe in practice.
+- **Measures what sharing does:** each sibling against its group's representative (lowest
+  `md5(location_id|date|event)`, a deterministic rotation Phase 1 must also use). Pairs = calls saved.
+  Per level, cumulative and **marginal** (pairs new at this level):
+  D1 (stars differ by ≥ 1), D2 (≥ 2), X4 (one side ≥ 4★, the "worth going" line), B (mean representative −
+  sibling stars); by the representative's star band; and a day-block bootstrap (1,000 resamples, fixed seed)
+  of the differences from the L0 control.
+- **Checks itself:** mask health (each mask fires; no row loses a label) and concentration (the share of the
+  saving carried by the top 20 place pairs).
 
-Record the ladder and the chosen level here and in the ledger.
+### Decision (fixed now, before the query is run)
 
----
+1. **Candidate:** the lowest level ≤ L4 whose post-P1 saving is **≥ 8%** of requests **and ≥ $5/30 days**.
+2. **Safety:** the candidate passes only if, cumulatively at its level **and** on the marginal pairs of every
+   step up to it (a step with fewer than 200 marginal pairs is judged cumulatively only):
+   - upper 95% bound of (D1 − D1 control) ≤ **+5 pp**;
+   - upper 95% bound of (X4 − X4 control) ≤ **+4 pp**;
+   - D2 ≤ **1%** of pairs, and upper bound of (D2 − D2 control) ≤ **+1 pp**;
+   - the 95% interval of B within **±0.10★**.
+3. **Monotone stop:** if the first level reaching the saving bar fails safety, stop. No higher level may be
+   adopted. A point estimate that passes with a bound that does not is a fail.
+4. **Mask health:** if any mask never fires or any row loses a label, fix the query and re-run before deciding.
+5. **Record** the ladder, the decision and the concentration result in `claude-cost-ledger.md` either way.
 
-## 3. Phase 1: the key and the fan-out, switched off (one PR)
-
-**Key.** A pure function `ShareKey.of(task, builtRequest, level)` in `service/evaluation/`, replacing P2's
-"exact message minus name" with the Phase 0 level's masks, implemented as the same regular expressions the
-query used (one shared constant list, with a test that each mask leaves every bracketed label intact). The key
-also includes, explicitly (P2's list, unchanged): model id, `maxTokens`, thinking and effort settings,
-`cachePrefixKey`, target date and event. Eligibility is P2's: sky lane only; never woodland, bluebell, a forced
-(`-f`) task or a null `evalRowId`.
-
-**Everything else is P2b as written** (`triage-cost-cut-plan.md` §"P2b: the fan-out"), reused without
-redesign:
-- **Persistence:** each place keeps its own PENDING row with **its own stored weather**; new nullable
-  `forecast_evaluation.shared_eval_row_id` (next free migration, indexed) points a sibling at its
-  representative. `custom_id` and `api_call_log` stay one-to-one with requests.
-- **Representative:** the lowest location id in the group; its request is unchanged, name included.
-- **Prompt store and hash:** each sibling stores its own rendered message and the representative's
-  `prompt_hash`.
-- **Fan-out in `BatchResultProcessor`**, abandonment, retry expansion, failure evidence counted once per group,
-  dispositions, `BatchSummaryDeriver` counts, the cost-per-request note: all as P2b specifies.
-- **Name in the summary:** the representative's exact name replaced by the sibling's, literal and
-  case-sensitive with explicit boundaries.
-
-**One addition to P2b for this key:** because siblings' masked numbers can differ from the representative's,
-the sibling's own row keeps its own weather columns (already true) and `ratings-stores.md` gains one line: a
-shared rating is the representative's judgement of inputs equal at the chosen level, not of the sibling's
-exact numbers.
-
-**Switch** `photocast.batch.share-equivalent-requests`: `off` (default), `verify`, `on`, as P2b.
-
-**Shadow log.** Replace the `[BATCH SHARE]` counts (#1840, now redundant for the exact key) with the chosen
-level's counts, so production confirms the Phase 0 figure after P1's triage line.
+If Phase 0 fails, the plan closes here.
 
 ---
 
-## 4. Phase 2: the verify week (owner switches `verify`)
+## 3. If Phase 0 passes: choose the design
 
-`verify` submits every sibling as today and records the shared answer beside each sibling's own; readers see
-only the sibling's own. A new read-only query `cost-queries/share-verify.sql` compares them over at least
-**7 days** spanning settled and unsettled weather.
+- **Static proxy first.** If the top 20 place pairs carry most of the saving (section 3 of the query), prefer
+  a static "rate X as a proxy of Y" setting for those pairs, subject to the same safety evidence per pair,
+  over the general fan-out. It avoids per-batch keys, regex parity, retry expansion and failure-evidence
+  changes. It still needs §4's read-path rules.
+- **General fan-out otherwise**, per §4. It gets its own adversarial plan review before any build.
 
-**Turn `on` only if:** shared vs own stars differ by **2★ or more in < 1%** of sibling pairs, by **1★ in no
-more than the noise floor** (~8.5%, `noise-floor.sql`; the owner may accept up to the identical-prompt wobble of
-16–19% if the saving justifies it, decided before the week starts), and the realised saving is **≥ 8%** of
-SCHEDULED T+0/1 sky requests. Otherwise switch back to `off` and record why.
+---
 
-## 5. Phase 3: `on`, and the re-measure
+## 4. Requirements any build must meet (from the review)
 
-Owner sets `on`. After 14 days re-run `measured-costs.sql` and the share log; record the saving in the ledger.
-Watch neighbour agreement (the reason Haiku left Far-Term): it should improve, never worsen.
+**Read path: one judgement is one vote (blocker).** `NeighbourOutlierGuard` clears a high slot with a single
+supporter within 5 km (`NeighbourOutlierGuard.java` ~l.199–201), so a sibling copying a rogue 4–5★ shields it,
+and it can become the named best bet or an Ask pick. Carry a share-group id (the representative's row id) on
+the served slot (in memory, not personal data):
+- the guard treats a share group as one point: a slot never supports another in its own group, and a group
+  counts once toward `min-neighbours`;
+- `VerdictSampleGate`'s rated count and the `ConfidenceDeriver` spread count one per request;
+- tests: three siblings at 5★ with two independent 3★ neighbours within 5 km are flagged.
+
+**Eligibility (blocker).** Sky lane; T+0/1 only (`ForecastHorizon.daysAhead ≤ 1`); trigger SCHEDULED or RETRY;
+model equal to the active `BATCH_NEAR_TERM` model; never woodland, bluebell, forced (`-f`) or a null
+`evalRowId`; never a message carrying a `VALLEY MIST CONDITIONS`, `Coastal mist:` or `CLOUD INVERSION FORECAST`
+block above L2. Every other path is byte-identical to `off`. Tests for a T+2, region-filtered, Haiku and
+valley-mist task.
+
+**Fan-out seam.** `buildResult` is private (`ForecastResultHandler.java` ~l.554) and only reachable through
+`parseBatchResponse`, which writes `api_call_log`. Add a dedicated entry point that parses once, writes exactly
+one log row, and runs `buildResult` per place with its own location, region, row and tide context, sharing the
+**parsed pre-combine answer** (`SunsetEvaluation`), never the representative's combined rating. A sibling whose
+`buildResult` throws is logged and skipped without touching `errored`.
+
+**Shared fields.** All of `SunsetEvaluation`: rating, fiery, golden, summary, headline, inversion score and
+potential, mist potential. The name swap applies to `summary` **and** `headline`. After the swap, if either
+still contains a distinctive word or a feature word (Bay, Castle, Head, Point, Tarn, Fell, Pier, Lighthouse …)
+from the representative's name absent from the sibling's, the sibling gets null `summary` and `headline`
+(stars and potentials kept; the UI falls back to the region gloss).
+
+**Failure evidence.** Siblings inherit success only. A failed group gives siblings no strike of their own; the
+retry expansion (P2b) gives them fresh requests and their own evidence. The like tally counts a group once.
+Retry's `failureCap` decision stays on failed requests; expansion happens after it.
+
+**Stamping and readers.** `shared_eval_row_id` is stamped beside `stampPromptHashes`, before submission.
+Cost queries that treat a scored row as a request add `AND f.shared_eval_row_id IS NULL` (`triage-headroom.sql`,
+`rerating-waste.sql`, `poor-stays-poor.sql`). `ratings-stores.md`: a sibling's prompt row is the message it
+*would* have sent; the judged message is on its representative's row.
+
+**Switch** `off` / `verify` / `on` (P2b). `verify` is kept: it is the only test of the Java key, the fan-out and
+the name handling in production. Where it stores the shared answer must be specified (a column, or log-only).
+
+---
+
+## 5. Verify and on (only after §3 and §4)
+
+- **Duration:** until **all** of: ≥ 14 days, ≥ 1,000 sibling pairs, ≥ 4 unsettled days (defined before the
+  start).
+- **Concurrent control:** re-submit the representative's exact request for ~40 groups/day (~$1.50 total, an
+  owner spend decision), giving identical-prompt pairs in the same weeks.
+- **Turn on** only if §2's safety rules hold against that control (same bootstrap), the Java grouping equals
+  the SQL grouping on 100% of the period's prompts, the trailing 30-day replay still clears §2.1, and named
+  window picks changed by the guard are zero or explained.
+- **After on:** a permanent ~5% deterministic holdout of sibling slots stays individually submitted; re-run
+  the gate monthly and at each season's first month; a breach sets `off`. Re-run `measured-costs.sql` after
+  14 days and record the saving.
 
 ---
 
 ## 6. Build and review (per CLAUDE.md)
 
-- Phase 0 is this plan plus the query (docs only).
-- Phase 1 gets its own adversarial plan review sized for a cross-cutting batch-path change (P2b's own note),
-  then Sonnet builds it in a worktree with P2b's test list (`triage-cost-cut-plan.md` §"P2b tests"), plus:
-  each mask preserves every bracketed label; two prompts equal at the chosen level but different below it
-  share, one differing in a label does not; the shared key matches the query's on a fixture of real prompts.
-  Gates: the backend build ladder; the migration's Testcontainers test is proven in CI.
-- `docs/engineering/reference/pipeline.md` and `ratings-stores.md` updated in Phase 1's PR.
-
----
+Phase 0 is docs only (this plan and the query). Any build gets its own plan review sized for a cross-cutting
+batch-path change, then Sonnet builds it in a worktree with P2b's test list plus §4's tests. The migration is
+proven in CI.
 
 ## 7. Limits
 
-- **ERA5 is not involved**; "equivalent" means equal at the chosen mask level in the prompt Claude would see.
-- **The replay is the pre-P1 mix** (before the 60% triage line); the shadow log in Phase 1 re-measures it.
-- **Masked numbers can matter at the margin** (a mist gap of 0.6 vs 1.5 °C); the verify week is the guard.
-- **Calibration** counts siblings as separate samples of one judgement; noted in `ratings-stores.md`.
+- ERA5 plays no part; "equivalent" means equal at the chosen mask level in the prompt Claude would see.
+- The replay is the October–November regime; the holdout covers seasons.
+- Calibration counts siblings as separate samples of one judgement unless de-duplicated by
+  `shared_eval_row_id`.
+- The representative's name stays in its own request; Claude may infer a site's elevation or water from it.
 
 ## 8. Out of scope
 
-Far-Term (Haiku 4.5, small and weather-dependent), woodland and bluebell lanes, cross-run reuse (the
-"stability gate", rejected), and any prompt or model change.
+Far-Term, woodland and bluebell lanes, cross-run reuse (the rejected stability gate), and any prompt or model
+change.
+
+---
+
+## 9. Review record (2026-11-16)
+
+Six read-only lenses (SQL and masks, rating safety, statistics, batch pipeline, user-visible effects, is the
+saving real), then a refuter tested eleven claims against the code.
+
+- **Survived:** L2–L4 rule-safe (as "no rule reads it"); the 13% is not evidence for an adoptable level;
+  sharing defeats `NeighbourOutlierGuard` and makes `VerdictSampleGate` and the confidence spread count one
+  call as several votes; eligibility did not exclude Far-Term, admin runs or retries.
+- **Valid but narrowed:** L5 unsafe (event visibility and the valley-mist score stay visible, and the gap
+  labels partly carry direction, but the visibility trend rules have no label); the group-spread metric is
+  biased (the L0 control already existed; the threshold was not anchored to it); the 8.5% verify bar was the
+  wrong null, but `verify` does test the code path; the name leak was a known P2b risk, the headline gap new;
+  duplicate `api_call_log` rows only on a naive reuse of `parseBatchResponse`; inherited failure strikes are
+  a narrow risk, not a general one; the Ask-precompute comparison is weakly evidenced (October figures).
+- **Changes:** the query was rewritten (post-P1 population, per-batch grouping, pair metrics against the L0
+  control, marginal pairs, bootstrap, star bands, mask health, concentration) and tested on PostgreSQL 16;
+  L5 is reference only; the decision rule is pre-registered with a $5 floor and a monotone stop; §4 lists the
+  read-path, eligibility, fan-out, shared-field, failure and stamping requirements; §3 prefers a static proxy
+  when the saving is concentrated.
