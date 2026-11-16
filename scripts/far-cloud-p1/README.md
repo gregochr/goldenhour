@@ -474,7 +474,7 @@ section 1 training cases are excluded from every count. Only ratings on or after
 evidence; without it nothing is, so with criteria 1 and 2 met the outcome is "waiting". The decision uses your own
 (`by_admin`) ratings; other readers are reported beside them. An optional `--locations 1,2,3` restricts the
 population to those location ids (criterion 2 is then "at your usual locations"; without it, it is all sky
-locations, a looser test). Check the 20 example summaries in `out/bl.md` section 3 by eye: they show whether the E2
+locations, a looser test). Every path (the inputs and `--out`) must be inside the directory you run the script from, after symlinks and `..` are resolved, and the inputs must be existing `.csv` files; anything else is refused with exit code 2 before anything is read or written. Check the 20 example summaries in `out/bl.md` section 3 by eye: they show whether the E2
 phrase matcher is reading the summaries the way you would.
 
 **The protocol (A4).** Historic ratings are descriptive only: broken low cloud is mostly noticed when it lights up.

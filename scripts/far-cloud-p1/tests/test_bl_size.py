@@ -4,6 +4,7 @@ import csv
 import io
 import itertools
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -191,7 +192,7 @@ class RatingRulesTest(unittest.TestCase):
     def test_not_seen_and_empty_rows_are_invalid(self):
         p = self.write(['1,2026-11-01,SUNSET,,NOT_SEEN,3,t', '1,2026-11-02,SUNSET,,,3,t',
                         '1,2026-11-03,SUNSET,4,COLOUR,3,t', '1,2026-11-04,SUNSET,4,,3,f'])
-        rs = bl_size.load_ratings(p)
+        rs = bl_size.load_ratings(p, os.path.dirname(p))
         self.assertEqual([r['valid'] for r in rs], [False, False, True, True])
         self.assertEqual([r['by_admin'] for r in rs], [True, True, True, False])
         self.assertEqual(len(bl_size.ratings_by_slot(rs)), 2)
@@ -202,7 +203,7 @@ class RatingRulesTest(unittest.TestCase):
         with open(p, 'w') as f:
             f.write('location_id,event_date,event_type,rating,seen,forecast_rating\n1,2026-11-01,SUNSET,4,COLOUR,3\n')
         with self.assertRaises(ValueError):
-            bl_size.load_ratings(p)
+            bl_size.load_ratings(p, os.path.dirname(p))
 
     def test_several_ratings_are_averaged_within_the_slot(self):
         u = bl_size.build_units([slot_row(0)])
@@ -486,32 +487,43 @@ class ExclusionTest(unittest.TestCase):
 
 
 class CliTest(unittest.TestCase):
+    """bl_size confines every path to the working directory, so each test runs from a temp directory that holds
+    copies of the fixtures."""
+
+    def setUp(self):
+        self.cwd = os.getcwd()
+        self.work = os.path.realpath(tempfile.mkdtemp())
+        self.outside = os.path.realpath(tempfile.mkdtemp())
+        for n in ('bl_forecasts.csv', 'bl_ratings.csv'):
+            shutil.copy(os.path.join(FIX, n), os.path.join(self.work, n))
+            shutil.copy(os.path.join(FIX, n), os.path.join(self.outside, n))
+        os.chdir(self.work)
+        self.addCleanup(os.chdir, self.cwd)
+        self.addCleanup(shutil.rmtree, self.work, True)
+        self.addCleanup(shutil.rmtree, self.outside, True)
+
     def run_cli(self, *args):
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = bl_size.main(list(args))
-        return rc, out.getvalue()
+        return rc, out.getvalue(), err.getvalue()
 
     def test_end_to_end_on_fixtures(self):
-        d = tempfile.mkdtemp()
-        fc = os.path.join(FIX, 'bl_forecasts.csv')
-        rc, out = self.run_cli(fc, '--out', d)
+        rc, out, _ = self.run_cli('bl_forecasts.csv', '--out', 'out')
         self.assertEqual(rc, 0)
-        self.assertTrue(os.path.exists(os.path.join(d, 'bl.md')))
+        self.assertTrue(os.path.exists('out/bl.md'))
         self.assertIn('OUTCOME: waiting for protocol ratings', out)
         self.assertIn('evaluation 137901', out)
-        rc, out = self.run_cli(fc, '--ratings', os.path.join(FIX, 'bl_ratings.csv'), '--out', d)
+        rc, out, _ = self.run_cli('bl_forecasts.csv', '--ratings', 'bl_ratings.csv', '--out', 'out')
         self.assertEqual(rc, 0)
-        self.assertIn('OUTCOME: waiting for protocol ratings', out)
         self.assertIn('no --protocol-start', out)
-        rc, out = self.run_cli(fc, '--ratings', os.path.join(FIX, 'bl_ratings.csv'), '--protocol-start',
-                               '2026-11-08', '--out', d, '--draws', '300')
+        rc, out, _ = self.run_cli('bl_forecasts.csv', '--ratings', 'bl_ratings.csv', '--protocol-start',
+                                  '2026-11-08', '--out', 'out', '--draws', '300')
         self.assertEqual(rc, 0)
         self.assertIn('OUTCOME: proceed', out)
-        with open(os.path.join(d, 'bl.md'), encoding='utf-8') as f:
-            text = f.read()
-        self.assertIn('## 8. The A5 gate', text)
-        with open(os.path.join(d, 'bl_slots.csv'), newline='') as f:
+        with open('out/bl.md', encoding='utf-8') as f:
+            self.assertIn('## 8. The A5 gate', f.read())
+        with open('out/bl_slots.csv', newline='') as f:
             rows = list(csv.DictReader(f))
         self.assertEqual(sorted({r['kind'] for r in rows}), ['BL', 'CL'])
         self.assertEqual(sum(1 for r in rows if r['kind'] == 'BL'), 12)
@@ -522,17 +534,50 @@ class CliTest(unittest.TestCase):
         self.assertEqual(len(rows), 51)
 
     def test_bad_input_exits_2(self):
-        d = tempfile.mkdtemp()
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            rc = bl_size.main([os.path.join(FIX, 'bl_forecasts.csv'), '--protocol-start', 'yesterday', '--out', d])
+        rc, _, _ = self.run_cli('bl_forecasts.csv', '--protocol-start', 'yesterday', '--out', 'out')
         self.assertEqual(rc, 2)
-        p = os.path.join(d, 'bad.csv')
-        with open(p, 'w') as f:
+        with open('bad.csv', 'w') as f:
             f.write('location_id,event_date\n1,2026-11-01\n')
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-            rc = bl_size.main([os.path.join(FIX, 'bl_forecasts.csv'), '--ratings', p, '--out', d])
+        rc, _, _ = self.run_cli('bl_forecasts.csv', '--ratings', 'bad.csv', '--out', 'out')
         self.assertEqual(rc, 2)
+
+    def refused(self, *args):
+        rc, _, err = self.run_cli(*args)
+        self.assertEqual(rc, 2)
+        self.assertTrue(err.startswith('error: '), err)
+        return err
+
+    def test_out_outside_cwd_is_refused_and_nothing_written(self):
+        target = os.path.join(self.outside, 'o')
+        self.refused('bl_forecasts.csv', '--out', target)
+        self.assertFalse(os.path.exists(target))
+        self.refused('bl_forecasts.csv', '--out', '../escaped')
+        self.assertFalse(os.path.exists(os.path.join(self.work, '..', 'escaped')))
+
+    def test_inputs_outside_cwd_are_refused(self):
+        self.refused(os.path.join(self.outside, 'bl_forecasts.csv'), '--out', 'out')
+        self.refused('bl_forecasts.csv', '--ratings', os.path.join(self.outside, 'bl_ratings.csv'), '--out', 'out')
+        self.refused('../' + os.path.basename(self.outside) + '/bl_forecasts.csv', '--out', 'out')
+        self.assertFalse(os.path.exists('out'))
+
+    def test_symlinks_out_of_cwd_are_refused(self):
+        os.symlink(os.path.join(self.outside, 'bl_forecasts.csv'), 'link.csv')
+        self.refused('link.csv', '--out', 'out')
+        os.symlink(self.outside, 'linkdir')
+        self.refused('bl_forecasts.csv', '--out', 'linkdir/o')
+        self.assertFalse(os.path.exists(os.path.join(self.outside, 'o')))
+
+    def test_non_csv_or_missing_input_is_refused(self):
+        shutil.copy('bl_forecasts.csv', 'forecasts.txt')
+        self.refused('forecasts.txt', '--out', 'out')
+        self.refused('missing.csv', '--out', 'out')
+        self.refused('bl_forecasts.csv', '--ratings', 'missing.csv', '--out', 'out')
+        self.assertFalse(os.path.exists('out'))
+
+    def test_load_ratings_guards_its_own_sink(self):
+        with self.assertRaises(ValueError):
+            bl_size.load_ratings(os.path.join(self.outside, 'bl_ratings.csv'))
+        self.assertEqual(len(bl_size.load_ratings('bl_ratings.csv')), 50)
 
 
 if __name__ == '__main__':

@@ -178,9 +178,25 @@ def _truthy(v: Optional[str]) -> bool:
     return (v or '').strip().lower() in ('t', 'true', '1', 'yes', 'y')
 
 
-def load_ratings(path: str) -> List[Dict[str, object]]:
+def safe_path(p: str, base: str, *, must_exist_file: bool = False, suffix: Optional[str] = None) -> str:
+    """Resolve ``p`` (symlinks and ``..`` included) and require it to lie inside ``base``. Optionally require an
+    existing regular file and a case-insensitive suffix. Returns the resolved path; ValueError otherwise."""
+    resolved = os.path.realpath(p)
+    root = os.path.realpath(base)
+    if os.path.commonpath([root, resolved]) != root:
+        raise ValueError('refusing path outside %s: %s' % (root, p))
+    if must_exist_file and not os.path.isfile(resolved):
+        raise ValueError('not an existing file: %s' % p)
+    if suffix and not resolved.lower().endswith(suffix):
+        raise ValueError('expected a %s file: %s' % (suffix, p))
+    return resolved
+
+
+def load_ratings(path: str, base: Optional[str] = None) -> List[Dict[str, object]]:
     """Parse the bl_export_ratings.sql CSV by column name. Every row is kept (NOT_SEEN and empty ratings included;
-    ``valid`` marks the usable ones). A missing required column, including by_admin, is a ValueError."""
+    ``valid`` marks the usable ones). A missing required column, including by_admin, is a ValueError. The path must
+    be an existing .csv inside ``base`` (default: the working directory)."""
+    path = safe_path(path, base or os.getcwd(), must_exist_file=True, suffix='.csv')
     need = ['location_id', 'event_date', 'event_type', 'rating', 'seen', 'forecast_rating', 'by_admin']
     out: List[Dict[str, object]] = []
     with open(path, newline='', encoding='utf-8-sig') as f:
@@ -703,7 +719,8 @@ def parse_locations(text: Optional[str]) -> Optional[Set[int]]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('csv', help='p1_forecasts.csv (export_forecasts.sql)')
+    ap.add_argument('csv', help='p1_forecasts.csv (export_forecasts.sql); every path must be inside the '
+                    'directory the script is run from')
     ap.add_argument('--ratings', help='bl_ratings.csv (bl_export_ratings.sql)')
     ap.add_argument('--protocol-start', help='YYYY-MM-DD: only ratings on or after it are protocol evidence')
     ap.add_argument('--locations', help='comma-separated location ids to restrict to (default: all sky locations)')
@@ -713,18 +730,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         start = date.fromisoformat(args.protocol_start) if args.protocol_start else None
         locations = parse_locations(args.locations)
-        rows = premise.load_rows(args.csv)
-        ratings = load_ratings(args.ratings) if args.ratings else None
+        base = os.path.realpath(os.getcwd())
+        forecasts = safe_path(args.csv, base, must_exist_file=True, suffix='.csv')
+        ratings_path = safe_path(args.ratings, base, must_exist_file=True, suffix='.csv') if args.ratings else None
+        out_dir = safe_path(args.out, base)
+        out_md = safe_path(os.path.join(out_dir, 'bl.md'), base)
+        out_csv = safe_path(os.path.join(out_dir, 'bl_slots.csv'), base)
+        rows = premise.load_rows(forecasts)
+        ratings = load_ratings(ratings_path, base) if ratings_path else None
     except ValueError as e:
         print('error: %s' % e, file=sys.stderr)
         return 2
     a = analyse(rows, ratings, start, args.draws, locations)
     units, g = a['units'], a['gate']
-    os.makedirs(args.out, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
     report = render(units, g, a['by_slot'], start, args.draws, a['protocol'], locations)
-    with open(os.path.join(args.out, 'bl.md'), 'w', encoding='utf-8') as f:
+    with open(out_md, 'w', encoding='utf-8') as f:
         f.write(report)
-    with open(os.path.join(args.out, 'bl_slots.csv'), 'w', newline='', encoding='utf-8') as f:
+    with open(out_csv, 'w', newline='', encoding='utf-8') as f:
         w = csv.writer(f)
         w.writerow(SLOT_HEADER)
         w.writerows(slot_rows(units, a['by_slot'], start))
@@ -734,7 +757,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print()
     print('\n'.join(decision_block(g)))
     print()
-    print('wrote %s and %s' % (os.path.join(args.out, 'bl.md'), os.path.join(args.out, 'bl_slots.csv')))
+    print('wrote %s and %s' % (out_md, out_csv))
     return 0
 
 
