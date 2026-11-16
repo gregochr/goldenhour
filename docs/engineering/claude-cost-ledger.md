@@ -252,6 +252,14 @@ Query: `per-call-and-shared-cells.sql`.
   by place (the location name, orientation, coastal and woodland prompt builders), so only same-lane,
   same-orientation, same-weather places could share, and the shared `summary` would name one place.
   A realistic saving is ~$8–14/30 days. Not designed; owner decision pending.
+- **Replayed from the stored prompts: rejected (2026-11-16).** `shared-call-replay.sql` groups the last 30
+  days of Sonnet T+0/1 sky requests (24,895, $67.94; 98.9% start with the expected `Location: <name>. `) by
+  pipeline run and the exact prompt with the name removed. One request per group would have saved **311 calls
+  (1.25%), $0.85/30 days**; with the event time cut to the minute, **1,068 (4.3%), $2.82**. Both are under
+  P2a's 8% rule (`triage-cost-cut-plan.md`), so P2b is not built and the minute-truncated prompt is not worth a
+  Sky Eval. The 18% above was an upper bound on matching *stored weather*; the prompts themselves rarely match.
+  Inside the 311 strict groups (identical prompts but the name): 252 gave the same stars, 59 (19%) differed by
+  1★, none by 2★ — the same ~16–19% wobble the sun-side gate measured, so sharing would mostly have hidden noise.
 
 ## Sun-side change gate and the afternoon's looks (2026-11-16, production, 30 days)
 

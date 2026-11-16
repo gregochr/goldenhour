@@ -12,7 +12,7 @@ Sonnet 5.5 rating for T+0/1 is ~$77 per 30 days, most of the bill. Two measured 
 | Phase | Saving per 30 days | Harm measured |
 |---|---|---|
 | P1: stand down T+0/1 above 60% sun-side low cloud (not 80%), thin strips exempt | ~$9 | 8 of ~5.4k skipped calls were 4★+ (0.15%); 87 were 3★ |
-| P2: one request per set of equivalent places in a grid cell | up to $14; P2a measures the real figure | identical weather inputs, but the place name is an input too; gated on a comparison week |
+| P2: one request per set of equivalent places in a grid cell | **rejected 2026-11-16**: $0.85 measured (1.25% of calls; 4.3% even with the time cut to the minute) | not built; see P2a's result |
 
 Neither changes the model or the cadence. P1 does not change the prompt; P2 changes it only if P2a shows that
 sharing needs the event time printed to the minute (an owner decision).
@@ -185,6 +185,12 @@ inputs; the name may shift the answer", not "no harm by construction". P2b is ga
   (post-P1 base ~$63/30 days, so ~$5/month). If only the minute key passes, P2b also needs the event time
   printed to the minute in every prompt: a prompt change that must clear the Sky Eval and the prompt regression
   suite first, and an owner decision. Record the result in the ledger either way.
+- **Result (2026-11-16): fails, P2b not built.** Rather than wait a week of logs, the rule was answered from
+  history: `forecast_evaluation_prompt` keeps every batch sky request's user message for 30 days, so
+  `cost-queries/shared-call-replay.sql` replays the strict and minute keys over 24,895 Sonnet T+0/1 requests.
+  Strict sharing would have saved 311 (1.25%, $0.85/30 days), minute 1,068 (4.3%, $2.82). The replay is the
+  pre-P1 mix; P1 shrinks the base to ~$63, which cannot lift 311 calls anywhere near 8%. The `[BATCH SHARE]`
+  log (#1840) is now redundant and can be removed. Ledger: "Cost per call and shared cells".
 
 ### P2b: the fan-out (only if P2a passes, then the comparison week)
 
