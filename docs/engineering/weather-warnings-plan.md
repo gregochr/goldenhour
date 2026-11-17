@@ -144,3 +144,14 @@ Later (out of scope): drive-route warnings, Ask PhotoCast mentions, notification
 **Stale feed (user-visible).** An empty state must not read as an all-clear. `/api/warnings` serves `lastCheckedAt` and `stale` (last successful poll older than a named constant, 30 min). When stale, warning surfaces show "Warnings last checked HH:MM — check the Met Office" and the "none" state is suppressed. Stored warnings stay shown until `valid_to` (a withdrawn warning could therefore linger during an outage; the stale line says so). Flag-on in production is an owner decision after the licence answer and after W5.
 
 **Frontend notes for W2–W4.** The Met Office link is an anchor (`target=_blank`, `rel="noopener noreferrer"`), never a layer that competes with a dialog. The map chip toggles a layer with no history entry (`dialogHistory.js` untouched). Canvas outline, no clustering.
+
+## 10. Met Office reply and DataHub findings (2026-11-17)
+
+The Met Office replied (Brandon Birch, Data Provisioning) with a pointer, not answers: sign up for the NSWWS API key yourself on **Weather DataHub (Warnings Overview)**; read the Style Guide and the FAQs under warning products. From the DataHub FAQ page:
+
+- **Cost and limits:** free within usage limits; **20,000 calls per 24 h (resets 00:00 UTC), burst 200 req/s**. A 5-minute poll is 288 feed calls a day plus detail fetches: comfortably inside. Interval stays at 5 minutes.
+- **Attribution:** applications must include "**Powered by Met Office data**"; warnings must always be called "**Met Office Weather Warnings**" (the W5 acknowledgements and every warning surface's source line use these exact words, replacing the plan's "Source: Met Office").
+- **Licence:** commercial use is permitted subject to the licence terms; non-commercial is not separately addressed. One search result described the NSWWS API as "business use only": **unverified, owner to confirm on the DataHub terms before the flag goes on in production.**
+- **Header name:** the DataHub FAQ says `apikey`; the NSWWS Public API page says `x-api-key`. W1a used `x-api-key`. Make the header name a config value and confirm against the real v1.1 docs once the key exists (W1c).
+- **Not retrievable here:** the v1.1 base URL/paths/field names, the Style Guide's exact level colours and icon permission (the PDF is compressed and no PDF renderer is installed). Owner to read the Style Guide (v1.3) and say whether its icons may be reused; until then the generic triangle and our own glyphs stand, and level colours stay the handoff's placeholders.
+- **W1c (new, small, after the key exists):** configurable header name, base URL and entry-link parsing aligned to the real v1.1 feed; fixtures re-recorded from real responses.
