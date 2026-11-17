@@ -75,6 +75,18 @@ export async function updateUserEnabled(userId, enabled) {
 }
 
 /**
+ * Withdraws a user's marketing-email consent. Requires ADMIN role. Takes no body and can only ever
+ * turn marketing off: opting in is the user's own act.
+ *
+ * @param {number} userId - The user's primary key.
+ * @returns {Promise<{marketingEmailOptIn: boolean}>} The new consent (always false).
+ */
+export async function optOutUserMarketing(userId) {
+  const response = await apiClient.put(`/api/users/${userId}/marketing-opt-out`);
+  return response.data;
+}
+
+/**
  * Permanently deletes a user account. Requires ADMIN role.
  *
  * @param {number} userId - The user's primary key.

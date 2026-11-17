@@ -404,6 +404,49 @@ class UserControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/marketing-opt-out returns 200 with false and calls the service with the id")
+    void marketingOptOut_asAdmin_returns200() throws Exception {
+        mockMvc.perform(put("/api/users/7/marketing-opt-out"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.marketingEmailOptIn").value(false));
+
+        verify(userService).optOutOfMarketing(7L);
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/marketing-opt-out returns 400 when the user does not exist")
+    void marketingOptOut_unknownUser_returns400() throws Exception {
+        doThrow(new IllegalArgumentException("User not found: 99"))
+                .when(userService).optOutOfMarketing(99L);
+
+        mockMvc.perform(put("/api/users/99/marketing-opt-out"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("User not found: 99"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("LITE_USER receives 403 on PUT /api/users/{id}/marketing-opt-out")
+    void marketingOptOut_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(put("/api/users/7/marketing-opt-out"))
+                .andExpect(status().isForbidden());
+
+        verify(userService, never()).optOutOfMarketing(anyLong());
+    }
+
+    @Test
+    @WithMockUser(roles = "PRO_USER")
+    @DisplayName("PRO_USER receives 403 on PUT /api/users/{id}/marketing-opt-out")
+    void marketingOptOut_asProUser_returns403() throws Exception {
+        mockMvc.perform(put("/api/users/7/marketing-opt-out"))
+                .andExpect(status().isForbidden());
+
+        verify(userService, never()).optOutOfMarketing(anyLong());
+    }
+
+    @Test
     @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/users/{id}/enabled returns 400 when user does not exist")
     void setEnabled_userNotFound_returns400() throws Exception {

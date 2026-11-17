@@ -21,6 +21,7 @@ vi.mock('../api/userApi.js', () => ({
   updateUserEmail: vi.fn(),
   updateUserRole: vi.fn(),
   updateUserEnabled: vi.fn(),
+  optOutUserMarketing: vi.fn(),
   deleteUser: vi.fn(),
   resendVerification: vi.fn(),
   getUserSubRegions: vi.fn(),

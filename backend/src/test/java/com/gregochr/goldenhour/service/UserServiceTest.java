@@ -371,6 +371,34 @@ class UserServiceTest {
         }
     }
 
+    // ── optOutOfMarketing ──────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("optOutOfMarketing")
+    class OptOutOfMarketing {
+
+        @Test
+        @DisplayName("writes false through the scoped update and never saves the entity")
+        void writesFalseThroughTheScopedUpdate() {
+            when(userRepository.updateMarketingEmailOptIn(1L, false)).thenReturn(1);
+
+            userService.optOutOfMarketing(1L);
+
+            verify(userRepository).updateMarketingEmailOptIn(1L, false);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("an unknown account throws 'User not found'")
+        void unknownUser_throws() {
+            when(userRepository.updateMarketingEmailOptIn(99L, false)).thenReturn(0);
+
+            assertThatThrownBy(() -> userService.optOutOfMarketing(99L))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("User not found: 99");
+        }
+    }
+
     // ── setRole ────────────────────────────────────────────────────────────────
 
     @Test

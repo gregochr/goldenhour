@@ -167,6 +167,23 @@ public class UserService implements UserDetailsService {
     }
 
     /**
+     * Withdraws a user's marketing-email consent. Idempotent: an already opted-out user is left opted out.
+     *
+     * <p>Only ever writes {@code false}: consent is the user's own act, so an admin can withdraw it, never give
+     * it. The column is {@code updatable = false}, so this is the scoped repository update, never a
+     * {@code setX()} plus {@code save()}.
+     *
+     * @param id the user's primary key
+     * @throws IllegalArgumentException if no user with that id exists
+     */
+    @Transactional
+    public void optOutOfMarketing(Long id) {
+        if (userRepository.updateMarketingEmailOptIn(id, false) != 1) {
+            throw new IllegalArgumentException("User not found: " + id);
+        }
+    }
+
+    /**
      * Resets a user's password to a securely generated temporary password and sets
      * {@code passwordChangeRequired = true} so the user must choose a new password on next login.
      *

@@ -7,8 +7,8 @@ import UserEditAccount from './UserEditAccount.jsx';
 import ErrorBanner from '../shared/ErrorBanner.jsx';
 import useConfirmDialog from '../../hooks/useConfirmDialog.js';
 import {
-  clearUserSubRegionLock, deleteUser, getUserSubRegions, resendVerification, resetUserPassword,
-  updateUserEnabled,
+  clearUserSubRegionLock, deleteUser, getUserSubRegions, optOutUserMarketing, resendVerification,
+  resetUserPassword, updateUserEnabled,
 } from '../../api/userApi.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
 import { formatInstantUk } from '../../utils/conversions.js';
@@ -212,6 +212,26 @@ export default function UserReaderPanel({
           await onUsersChanged();
         } catch (err) {
           setActionError(apiErrorMessage(err, `Failed to disable ${user.username}.`));
+        }
+      },
+    });
+  }
+
+  function handleMarketingOptOut() {
+    openDialog({
+      title: `Stop marketing emails to ${user.username}?`,
+      message: 'Only they can opt back in, from their own Settings.',
+      confirmLabel: 'Opt out',
+      maxWidth: 'sm',
+      onConfirm: async () => {
+        closeDialog();
+        setActionError('');
+        try {
+          await optOutUserMarketing(user.id);
+          await onUsersChanged();
+          onToast(`Opted ${user.username} out of marketing emails.`);
+        } catch (err) {
+          setActionError(apiErrorMessage(err, `Failed to opt ${user.username} out of marketing emails.`));
         }
       },
     });
@@ -429,7 +449,19 @@ export default function UserReaderPanel({
             <Fact term="Home postcode" testId={`home-postcode-${user.id}`}>
               {user.homePostcode || <span className="text-plex-text-muted">Not set</span>}
             </Fact>
-            <Fact term="Marketing" testId={`marketing-emails-${user.id}`}>{user.marketingEmailOptIn ? 'Yes' : 'No'}</Fact>
+            <Fact term="Marketing">
+              <span data-testid={`marketing-emails-${user.id}`}>{user.marketingEmailOptIn ? 'Yes' : 'No'}</span>
+              {user.marketingEmailOptIn && (
+                <button
+                  type="button"
+                  className={`${textButtonClass} ml-3 max-[639px]:min-h-11`}
+                  onClick={handleMarketingOptOut}
+                  data-testid={`marketing-opt-out-${user.id}`}
+                >
+                  Opt out
+                </button>
+              )}
+            </Fact>
             <Fact term="Terms" testId={`terms-accepted-${user.id}`}>
               {termsDate
                 ? `Accepted ${termsDate}${user.termsVersion ? ` · ${user.termsVersion}` : ''}`
