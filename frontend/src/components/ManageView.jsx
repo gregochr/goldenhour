@@ -13,6 +13,7 @@ import SchedulerView from './SchedulerView.jsx';
 import TravelDaysView from './TravelDaysView.jsx';
 import SkyEvalView from './skyeval/SkyEvalView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
+import WarningsAdminPanel from './WarningsAdminPanel.jsx';
 import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
@@ -56,6 +57,7 @@ const GROUPS = [
     tabs: [
       { value: 'skyeval', label: 'Sky Eval' },
       { value: 'hottopics', label: 'Hot Topics' },
+      { value: 'warnings', label: 'Warnings' },
       { value: 'rewind', label: 'Rewind' },
     ],
   },
@@ -458,6 +460,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Hot topic simulation</p>
             <HotTopicSimulation />
+          </div>
+        )}
+
+        {activeTab === 'warnings' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Met Office weather warnings</p>
+            <WarningsAdminPanel />
           </div>
         )}
 

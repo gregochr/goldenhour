@@ -75,6 +75,14 @@ import java.util.List;
  *                      null when the window has none (never an empty list); sits outside the slots
  *                      because the honesty filter empties those on any window Claude did not score,
  *                      see {@link LocationTideFact}
+ * @param warningIds    the ids of the Met Office weather warnings in force at this window's event time that cover
+ *                      at least one enabled place (docs/engineering/weather-warnings-plan.md). A serve-time overlay
+ *                      attached last by {@code ServedBriefingAssembler}, null on every stored payload and omitted
+ *                      from JSON when null. A warning is not a rating: it rides stood-down, unrated and
+ *                      verdict-blanked windows alike and is never read by the verdict, pick or count logic
+ * @param warningPlaceCounts per warning and region, how many of that region's enabled places the warning covers
+ *                      ("N of M places in this area"); null when {@code warningIds} is. Non-personal: it counts the
+ *                      places, never the reader's reach
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record BriefingWindow(
@@ -85,7 +93,20 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide,
-        @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<String> warningIds,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<WarningPlaceCount> warningPlaceCounts) {
+
+    /**
+     * How many of a region's enabled places one warning covers.
+     *
+     * @param warningId  the warning
+     * @param regionName the region, as the briefing names it
+     * @param covered    enabled places in the region inside the warning's area
+     * @param total      all enabled places in the region
+     */
+    public record WarningPlaceCount(String warningId, String regionName, int covered, int total) {
+    }
 
     /**
      * Canonical constructor: takes an immutable copy of {@code badges}, and reads a null list as
@@ -95,6 +116,27 @@ public record BriefingWindow(
     public BriefingWindow {
         badges = badges == null ? List.of() : List.copyOf(badges);
         tideFacts = tideFacts == null ? null : List.copyOf(tideFacts);
+        warningIds = warningIds == null ? null : List.copyOf(warningIds);
+        warningPlaceCounts = warningPlaceCounts == null ? null : List.copyOf(warningPlaceCounts);
+    }
+
+    /**
+     * Eight-component form, carrying no warning overlay: the shape every construction site had before
+     * {@code warningIds} existed.
+     *
+     * @param eventTime     the window's single header time, or null
+     * @param verdict       the window's verdict
+     * @param bestRating    the highest rating in the window, or null
+     * @param confidence    the top region's confidence, or null
+     * @param pick          this window's forecast-wide pick, or null
+     * @param badges        hot topics landing on this window
+     * @param tide          the window's tide rollup, or null
+     * @param tideFacts     per-location tide facts, or null
+     */
+    public BriefingWindow(LocalDateTime eventTime, DisplayVerdict verdict, Integer bestRating,
+            Confidence confidence, Pick pick, List<Badge> badges, BriefingWindowTide tide,
+            List<LocationTideFact> tideFacts) {
+        this(eventTime, verdict, bestRating, confidence, pick, badges, tide, tideFacts, null, null);
     }
 
     /**
@@ -123,7 +165,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTide(BriefingWindowTide newTide) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                newTide, tideFacts);
+                newTide, tideFacts, warningIds, warningPlaceCounts);
     }
 
     /**
@@ -134,7 +176,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withTideFacts(List<LocationTideFact> newTideFacts) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
-                tide, newTideFacts);
+                tide, newTideFacts, warningIds, warningPlaceCounts);
     }
 
     /**
@@ -145,7 +187,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBadges(List<Badge> newBadges) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, newBadges,
-                tide, tideFacts);
+                tide, tideFacts, warningIds, warningPlaceCounts);
     }
 
     /**
@@ -157,7 +199,7 @@ public record BriefingWindow(
      */
     public BriefingWindow withBestRating(Integer newBestRating) {
         return new BriefingWindow(eventTime, verdict, newBestRating, confidence, pick, badges,
-                tide, tideFacts);
+                tide, tideFacts, warningIds, warningPlaceCounts);
     }
 
     /**
@@ -168,7 +210,19 @@ public record BriefingWindow(
      */
     public BriefingWindow withPick(Pick newPick) {
         return new BriefingWindow(eventTime, verdict, bestRating, confidence, newPick, badges,
-                tide, tideFacts);
+                tide, tideFacts, warningIds, warningPlaceCounts);
+    }
+
+    /**
+     * Returns a copy carrying the weather-warning overlay, every other component unchanged.
+     *
+     * @param newWarningIds         the warning ids, or null for none
+     * @param newWarningPlaceCounts the per-region place counts, or null for none
+     * @return the copy
+     */
+    public BriefingWindow withWarnings(List<String> newWarningIds, List<WarningPlaceCount> newWarningPlaceCounts) {
+        return new BriefingWindow(eventTime, verdict, bestRating, confidence, pick, badges,
+                tide, tideFacts, newWarningIds, newWarningPlaceCounts);
     }
 
     /** Which of the forecast's two picks this is. */

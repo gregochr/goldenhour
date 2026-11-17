@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.service.UserSubRegionService;
 import com.gregochr.goldenhour.service.LitePickShaper;
 import com.gregochr.goldenhour.config.SubRegionProperties;
@@ -128,7 +129,8 @@ class ForecastControllerAsOfEventTest {
         return new ForecastController(repository, locationService,
                 scheduledForecastService, dtoMapper, evaluationViewService,
                 progressTracker, Runnable::run, NOW, resolver, solarEventFreshness,
-                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()));
+                new LitePickShaper(mock(UserSubRegionService.class), new SubRegionProperties()),
+                WarningOverlay.disabled());
     }
 
     // ── fixtures ────────────────────────────────────────────────────────────────

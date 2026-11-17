@@ -22,6 +22,7 @@ import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.util.Authorities;
+import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +82,7 @@ public class ForecastController {
     private final AsOfEventResolver asOfEventResolver;
     private final SolarEventFreshness solarEventFreshness;
     private final LitePickShaper litePickShaper;
+    private final WarningOverlay warningOverlay;
 
     /**
      * Constructs a {@code ForecastController}.
@@ -97,6 +99,7 @@ public class ForecastController {
      * @param asOfEventResolver         what the reader had been shown for a passed slot at its event
      * @param solarEventFreshness       each place's own sunrise or sunset, for "has this slot passed"
      * @param litePickShaper            strips ratings outside a Lite reader's sub-region picks
+     * @param warningOverlay            the weather-warning overlay, attached last to every row
      */
     public ForecastController(ForecastEvaluationRepository repository,
             LocationService locationService,
@@ -104,7 +107,8 @@ public class ForecastController {
             ForecastDtoMapper dtoMapper, EvaluationViewService evaluationViewService,
             RunProgressTracker progressTracker, Executor forecastExecutor,
             Clock clock, AsOfEventResolver asOfEventResolver,
-            SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper) {
+            SolarEventFreshness solarEventFreshness, LitePickShaper litePickShaper,
+            WarningOverlay warningOverlay) {
         this.repository = repository;
         this.locationService = locationService;
         this.scheduledForecastService = scheduledForecastService;
@@ -116,6 +120,7 @@ public class ForecastController {
         this.asOfEventResolver = asOfEventResolver;
         this.solarEventFreshness = solarEventFreshness;
         this.litePickShaper = litePickShaper;
+        this.warningOverlay = warningOverlay;
     }
 
     /**
@@ -332,10 +337,11 @@ public class ForecastController {
         // place gets that row gated, past days included; the body is then no-store (it reveals the picks).
         PickScope scope = litePickShaper.scopeFor(auth);
         if (!scope.shaped()) {
-            return dtos;
+            return warningOverlay.overlayRows(dtos, enabled);
         }
         LitePickShaper.markNoStore(scope);
-        return dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList();
+        return warningOverlay.overlayRows(
+                dtos.stream().map(dto -> litePickShaper.shapeListRow(dto, scope)).toList(), enabled);
     }
 
     /** A passed slot and what the reader had been shown for it at its event. */

@@ -51,7 +51,7 @@ const EXPECTED = [
     ['locations', 'Locations'], ['regions', 'Regions'], ['areas', 'Areas'], ['tides', 'Tides'],
   ] },
   { group: 'people', label: 'People', tabs: [['users', 'Users'], ['waitlist', 'Waitlist']] },
-  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['rewind', 'Rewind']] },
+  { group: 'testing', label: 'Testing', tabs: [['skyeval', 'Sky Eval'], ['hottopics', 'Hot Topics'], ['warnings', 'Warnings'], ['rewind', 'Rewind']] },
 ];
 const ALL_TABS = EXPECTED.flatMap((g) => g.tabs.map(([value, label]) => ({ group: g.group, value, label })));
 

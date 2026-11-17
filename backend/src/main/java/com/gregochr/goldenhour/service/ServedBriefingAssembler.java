@@ -13,9 +13,11 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.repository.LocationPoint;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
+import com.gregochr.goldenhour.service.warnings.WarningOverlay;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -74,7 +76,9 @@ class ServedBriefingAssembler {
     private final NeighbourGuardProperties neighbourGuardProperties;
     private final NeighbourGuardLog neighbourGuardLog;
     private final BigSeasBuilder bigSeasBuilder;
+    private final WarningOverlay warningOverlay;
 
+    @Autowired
     ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
             BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
@@ -84,7 +88,8 @@ class ServedBriefingAssembler {
             LocationPointProvider locationPointProvider,
             NeighbourGuardProperties neighbourGuardProperties,
             NeighbourGuardLog neighbourGuardLog,
-            BigSeasBuilder bigSeasBuilder) {
+            BigSeasBuilder bigSeasBuilder,
+            WarningOverlay warningOverlay) {
         this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
@@ -95,6 +100,37 @@ class ServedBriefingAssembler {
         this.neighbourGuardProperties = neighbourGuardProperties;
         this.neighbourGuardLog = neighbourGuardLog;
         this.bigSeasBuilder = bigSeasBuilder;
+        this.warningOverlay = warningOverlay;
+    }
+
+    /**
+     * The constructor every caller used before the weather-warning overlay existed: the overlay is off, so the served
+     * briefing carries no {@code warningIds}.
+     *
+     * @param bestBetFallbackService   the best-bet fallback
+     * @param regionSnapshotService    the region snapshot reader
+     * @param windowTideRollupBuilder  the window tide rollup
+     * @param evaluationViewService    the evaluation view (lazy)
+     * @param clock                    the injected clock
+     * @param scoreEnricher            the enrichment socket
+     * @param locationPointProvider    the neighbour guard's coordinates
+     * @param neighbourGuardProperties the neighbour guard configuration
+     * @param neighbourGuardLog        the neighbour guard log
+     * @param bigSeasBuilder           the big-seas builder
+     */
+    ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
+            BriefingRegionSnapshotService regionSnapshotService,
+            WindowTideRollupBuilder windowTideRollupBuilder,
+            EvaluationViewService evaluationViewService,
+            Clock clock,
+            BriefingScoreEnricher scoreEnricher,
+            LocationPointProvider locationPointProvider,
+            NeighbourGuardProperties neighbourGuardProperties,
+            NeighbourGuardLog neighbourGuardLog,
+            BigSeasBuilder bigSeasBuilder) {
+        this(bestBetFallbackService, regionSnapshotService, windowTideRollupBuilder, evaluationViewService, clock,
+                scoreEnricher, locationPointProvider, neighbourGuardProperties, neighbourGuardLog, bigSeasBuilder,
+                WarningOverlay.disabled());
     }
 
     /**
@@ -202,7 +238,9 @@ class ServedBriefingAssembler {
         // The version is stamped on the finished response, once per assembly (and so once per memoised served
         // briefing): a content hash of the ratings and dispositions it carries, which the reach-verdicts endpoint
         // echoes so a client can tell both were computed from one briefing (reach-scoped-card-plan R2 step 5).
-        return stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas)
+        // The weather-warning overlay is attached after everything that reads or rewrites a window (projector, honesty
+        // filter, sample gate, tide strip), so stood-down, unrated and verdict-blanked windows keep their ids.
+        return warningOverlay.overlay(stripped.withBigSeas(bigSeas == null || bigSeas.isEmpty() ? null : bigSeas))
                 .withBriefingVersion(BriefingVersion.of(stripped.days(), stripped.renderedEvents(),
                         today));
     }
