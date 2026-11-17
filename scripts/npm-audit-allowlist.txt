@@ -1,0 +1,4 @@
+# Temporary, owner-approved npm audit exceptions, read by scripts/npm-audit.sh.
+# Format, one per line:  GHSA-id | expires YYYY-MM-DD | reason
+# An entry past its expiry date is ignored (the gate goes red again). See dev-and-testing.md.
+GHSA-fc5q-39xc-vjpf | expires 2026-12-17 | picomatch ReDoS: no patched release exists, build-time tooling only (workbox-build, rollup, tinyglobby, vite-plugin-pwa); owner-approved 2026-11-17; remove when a patched picomatch ships
