@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.warnings;
 import com.gregochr.goldenhour.entity.WeatherWarningVersionEntity;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -27,6 +28,12 @@ import java.util.Optional;
  * after that receipt. A later area- or time-only version keeps the flag; a later downgrade below the raised level
  * clears it. Downgrades and edits alone never raise it. Simulated rows are ignored altogether unless the caller
  * asks for them.
+ *
+ * <p>Versions are decimals ("3.0") and are compared numerically. Warnings are ordered as the Met Office style guide
+ * requires (plan section 12): level (Red, Amber, Yellow), then impact, then likelihood (both highest first, a
+ * missing value last), then {@code validFrom} (earliest first), then warning id for a stable order. A warning is
+ * "updated" when its version in force is 2.0 or later (an ISSUED warning that has been re-issued), which is separate
+ * from the upgrade flag (a level rise within 24 hours).
  */
 @Component
 public class WarningTimeline {
@@ -35,6 +42,8 @@ public class WarningTimeline {
     static final long UPGRADE_FLAG_HOURS = 24;
 
     private static final Duration UPGRADE_FLAG_WINDOW = Duration.ofHours(UPGRADE_FLAG_HOURS);
+
+    private static final BigDecimal FIRST_UPDATE_VERSION = new BigDecimal("2.0");
 
     private static final int RANK_YELLOW = 1;
     private static final int RANK_AMBER = 2;
@@ -48,6 +57,16 @@ public class WarningTimeline {
      * @param upgradedAt   when the upgrading version was received, else null
      */
     public record ActiveWarning(WeatherWarningVersionEntity version, String upgradedFrom, Instant upgradedAt) {
+
+        /**
+         * Whether the version in force is an update (version 2.0 or later); the style guide requires such a warning
+         * to be labelled updated.
+         *
+         * @return true when the version is at least 2.0
+         */
+        public boolean updated() {
+            return version.getWarningVersion().compareTo(FIRST_UPDATE_VERSION) >= 0;
+        }
     }
 
     private final Clock clock;
@@ -78,11 +97,16 @@ public class WarningTimeline {
         }
         List<ActiveWarning> out = new ArrayList<>();
         for (List<WeatherWarningVersionEntity> history : byId.values()) {
-            history.sort(Comparator.comparingInt(WeatherWarningVersionEntity::getWarningVersion));
+            history.sort(Comparator.comparing(WeatherWarningVersionEntity::getWarningVersion));
             activeOf(history, now).ifPresent(out::add);
         }
         out.sort(Comparator
                 .comparingInt((ActiveWarning a) -> levelRank(a.version().getWarningLevel())).reversed()
+                .thenComparing(Comparator.comparingInt((ActiveWarning a) -> orZero(a.version().getImpact()))
+                        .reversed())
+                .thenComparing(Comparator.comparingInt((ActiveWarning a) -> orZero(a.version().getLikelihood()))
+                        .reversed())
+                .thenComparing(a -> a.version().getValidFrom(), Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(a -> a.version().getWarningId()));
         return out;
     }
@@ -103,6 +127,10 @@ public class WarningTimeline {
             case "red" -> RANK_RED;
             default -> 0;
         };
+    }
+
+    private static int orZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private static Optional<ActiveWarning> activeOf(List<WeatherWarningVersionEntity> history, Instant now) {

@@ -96,7 +96,7 @@ class ForecastControllerWarningOverlayTest {
     private static WeatherWarningVersionEntity active(String id) {
         WeatherWarningVersionEntity w = new WeatherWarningVersionEntity();
         w.setWarningId(id);
-        w.setWarningVersion(1);
+        w.setWarningVersion(java.math.BigDecimal.valueOf(1));
         w.setStatus(WeatherWarningVersionEntity.STATUS_ACTIVE);
         w.setWarningLevel("Amber");
         w.setGeometry(BOX);

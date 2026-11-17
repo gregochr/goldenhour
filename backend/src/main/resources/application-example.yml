@@ -192,13 +192,16 @@ photocast:
   #   meteor:
   #     imo:
   #       base-url: https://www.imo.net/files/meteor-shower/
-  # Met Office weather warnings (docs/engineering/weather-warnings-plan.md, W1a). Off by default. Needs an
-  # NSWWS API key and the Atom feed URL that comes with it. The key is sent only as the x-api-key header and is
-  # never logged or served. Changing the flag needs a backend restart (the scheduler row syncs at startup).
+  # Met Office weather warnings (docs/engineering/weather-warnings-plan.md, W1a/W1c). Off by default. Needs an
+  # NSWWS API key. The key is sent only in the api-key-header header and is never logged or served. Changing the
+  # flag needs a backend restart (the scheduler row syncs at startup).
   #   warnings:
   #     enabled: false              # PHOTOCAST_WARNINGS_ENABLED; false = the poll job is DISABLED_BY_CONFIG
-  #     base-url: ""                # the Atom feed URL supplied with the key (https)
+  #     base-url: https://data.hub.api.metoffice.gov.uk/nswws/v1.1   # the NSWWS v1.1 root (no trailing slash)
   #     api-key: ""                 # PHOTOCAST_WARNINGS_API_KEY
+  #     api-key-header: apikey      # the header name the key is sent in
+  #     public-url: https://www.metoffice.gov.uk/public/weather/warnings/   # the Met Office link on every warning
+  #     attribution: "Met Office Weather Warnings © Crown Copyright 2026"   # served beside warning text
   #     poll-stale-minutes: 30      # GET /api/warnings reports stale when the last good poll is older (min 1)
   # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
   # is shown. Uncomment to change one. A value outside its stated range fails startup.

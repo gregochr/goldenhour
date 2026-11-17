@@ -5,7 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.URI;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,9 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Unit tests for {@link WarningFeedParser} against the hand-written fixtures under {@code src/test/resources/warnings}.
+ * Unit tests for {@link WarningFeedParser} against the real NSWWS v1.1 samples and the synthetic fixtures derived from
+ * them, under {@code src/test/resources/warnings}.
  */
 class WarningFeedParserTest {
+
+    static final String UUID_A = "11111111-1111-4111-8111-111111111111";
+    static final String UUID_B = "22222222-2222-4222-8222-222222222222";
+    static final String REAL_WARNING_ID = "401e8bda-a79f-4da4-aba7-73c323e7ac50";
+    static final String REAL_UPDATE_ID = "2fec6291-2ef4-46b7-8e6b-9f944d9ea9a6";
+    static final String REAL_ISSUED_ID = "e2865408-086c-4d1c-8ad8-45ab2d344099";
 
     private final WarningFeedParser parser = new WarningFeedParser();
 
@@ -30,11 +37,6 @@ class WarningFeedParserTest {
         }
     }
 
-    static WarningFeedParser.FeedEntry entry(String id, int version) {
-        return new WarningFeedParser.FeedEntry(id, version,
-                URI.create("https://example.test/nswws/warnings/" + id + "/" + version));
-    }
-
     private static String atom(String entries) {
         return "<feed xmlns=\"http://www.w3.org/2005/Atom\">" + entries + "</feed>";
     }
@@ -42,297 +44,268 @@ class WarningFeedParserTest {
     // ── Feed ────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("the fixture feed yields seven identified entries and one malformed one")
-    void parsesFixtureFeed() {
-        WarningFeedParser.FeedParse feed = parser.parseFeed(fixture("feed.atom.xml"));
+    @DisplayName("the real feed yields one change-event uuid and the issued snapshot uuid")
+    void parsesRealFeed() {
+        WarningFeedParser.FeedParse feed = parser.parseFeed(fixture("real/feed.xml"));
 
-        assertThat(feed.malformed()).isEqualTo(1);
-        assertThat(feed.entries()).extracting(WarningFeedParser.FeedEntry::warningId)
-                .containsExactly("W-YEL-WIND", "W-UPG", "W-UPG", "W-CAN", "W-SNOW", "W-UNK", "W-HOLE");
-        assertThat(feed.entries()).extracting(WarningFeedParser.FeedEntry::warningVersion)
-                .containsExactly(1, 1, 2, 2, 1, 1, 1);
-        assertThat(feed.entries().get(0).detailUri())
-                .isEqualTo(URI.create("https://example.test/nswws/warnings/W-YEL-WIND/1"));
-    }
-
-    @Test
-    @DisplayName("a json link is preferred over an alternate link, which is preferred over any other")
-    void linkPreference() {
-        String xml = atom("<entry><id>x</id>"
-                + "<link rel=\"self\" href=\"https://e.test/a/SELF/9\"/>"
-                + "<link rel=\"alternate\" href=\"https://e.test/a/ALT/8\"/>"
-                + "<link rel=\"related\" type=\"application/geo+json\" href=\"https://e.test/a/JSON/7\"/>"
-                + "</entry>"
-                + "<entry><id>y</id>"
-                + "<link rel=\"self\" href=\"https://e.test/a/SELF/9\"/>"
-                + "<link rel=\"alternate\" href=\"https://e.test/a/ALT/8\"/>"
-                + "</entry>"
-                + "<entry><id>z</id>"
-                + "<link href=\"https://e.test/a/NOREL/6\"/>"
-                + "</entry>"
-                + "<entry><id>w</id>"
-                + "<link rel=\"self\" href=\"https://e.test/a/ONLY/5\"/>"
-                + "</entry>");
-
-        List<WarningFeedParser.FeedEntry> entries = parser.parseFeed(xml).entries();
-
-        assertThat(entries).extracting(WarningFeedParser.FeedEntry::warningId)
-                .containsExactly("JSON", "ALT", "NOREL", "ONLY");
-    }
-
-    @Test
-    @DisplayName("a blank href is ignored and the next link is used")
-    void blankHrefIgnored() {
-        String xml = atom("<entry><link href=\"\"/><link href=\"https://e.test/a/OK/3\"/></entry>");
-
-        assertThat(parser.parseFeed(xml).entries()).extracting(WarningFeedParser.FeedEntry::warningVersion)
-                .containsExactly(3);
-    }
-
-    @Test
-    @DisplayName("when the link carries no version the entry id is tried; query strings and fragments are ignored")
-    void idFallbackAndQueryStripped() {
-        String xml = atom("<entry><id>https://e.test/ids/FROMID/4</id><link href=\"https://e.test/detail\"/></entry>"
-                + "<entry><link href=\"https://e.test/a/Q/2?x=1#frag\"/></entry>");
-
-        List<WarningFeedParser.FeedEntry> entries = parser.parseFeed(xml).entries();
-
-        assertThat(entries).extracting(WarningFeedParser.FeedEntry::warningId).containsExactly("FROMID", "Q");
-        assertThat(entries).extracting(WarningFeedParser.FeedEntry::warningVersion).containsExactly(4, 2);
-    }
-
-    @Test
-    @DisplayName("entries with no link, no usable id, a non-integer version, one segment, a non-https or "
-            + "unparseable link are skipped and counted")
-    void malformedEntries() {
-        String xml = atom("<entry><id>https://e.test/a/N/1</id></entry>"
-                + "<entry><link href=\"https://e.test/a/N/notanumber\"/></entry>"
-                + "<entry><link href=\"https://e.test/only\"/></entry>"
-                + "<entry><link href=\"http://e.test/a/N/1\"/></entry>"
-                + "<entry><link href=\"https://e.test/a b/N/1\"/></entry>"
-                + "<entry><link href=\"https://e.test/a/N/12345678901\"/></entry>");
-
-        WarningFeedParser.FeedParse feed = parser.parseFeed(xml);
-
-        assertThat(feed.entries()).isEmpty();
-        assertThat(feed.malformed()).isEqualTo(6);
-    }
-
-    @Test
-    @DisplayName("a feed with no entries is an empty read, not a failure")
-    void emptyFeed() {
-        WarningFeedParser.FeedParse feed = parser.parseFeed(atom(""));
-
-        assertThat(feed.entries()).isEmpty();
+        assertThat(feed.updateIds()).containsExactly(REAL_UPDATE_ID);
+        assertThat(feed.issuedId()).isEqualTo(REAL_ISSUED_ID);
         assertThat(feed.malformed()).isZero();
     }
 
     @Test
-    @DisplayName("well-formed XML whose root is not an Atom feed is refused, even if it contains entry elements")
-    void nonAtomRootRefused() {
-        assertThatThrownBy(() -> parser.parseFeed("<error>Service unavailable</error>"))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("not an Atom feed");
-        assertThatThrownBy(() -> parser.parseFeed(
-                "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body>Maintenance</body></html>"))
-                .isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseFeed("<feed><entry/></feed>"))
-                .isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseFeed(
-                "<rss xmlns=\"http://www.w3.org/2005/Atom\"><entry/></rss>"))
-                .isInstanceOf(WarningFeedException.class);
+    @DisplayName("a feed with several entries keeps feed order and counts an entry with no uuid as malformed")
+    void parsesFeedWithBadEntry() {
+        WarningFeedParser.FeedParse feed = parser.parseFeed(fixture("feed-three-entries.xml"));
+
+        assertThat(feed.updateIds()).containsExactly(REAL_UPDATE_ID, "44444444-4444-4444-8444-444444444444");
+        assertThat(feed.malformed()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("text that is not XML, an XML doctype and null all fail the whole feed")
-    void unreadableFeed() {
-        assertThatThrownBy(() -> parser.parseFeed("<feed><entry></feed>")).isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseFeed("<!DOCTYPE feed [<!ENTITY x \"y\">]><feed/>"))
-                .isInstanceOf(WarningFeedException.class);
+    @DisplayName("an entry whose id is not a uuid falls back to its alternate link's last segment")
+    void entryUuidFallsBackToLink() {
+        String xml = atom("<entry><id>tag:example,2026:1</id><link rel=\"alternate\" "
+                + "href=\"https://x.test/objects/updated/" + UUID_A.toUpperCase() + "/\"/></entry>"
+                + "<entry><id>tag:example,2026:2</id><link rel=\"self\" href=\"https://x.test/" + UUID_B + "/\"/>"
+                + "</entry>"
+                + "<entry><id>tag:example,2026:3</id></entry>");
+
+        WarningFeedParser.FeedParse feed = parser.parseFeed(xml);
+
+        assertThat(feed.updateIds()).containsExactly(UUID_A);
+        assertThat(feed.malformed()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a link with no rel counts as alternate")
+    void relLessLinkIsAlternate() {
+        String xml = atom("<entry><id>x</id><link href=\"https://x.test/objects/updated/" + UUID_B + "/\"/></entry>");
+
+        assertThat(parser.parseFeed(xml).updateIds()).containsExactly(UUID_B);
+    }
+
+    @Test
+    @DisplayName("the issued uuid falls back to the feed's own id when there is no related link")
+    void issuedFallsBackToFeedId() {
+        String xml = atom("<id>urn:uuid:" + UUID_A + "</id>");
+
+        WarningFeedParser.FeedParse feed = parser.parseFeed(xml);
+
+        assertThat(feed.issuedId()).isEqualTo(UUID_A);
+        assertThat(feed.updateIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a related link without a uuid is ignored; no id at all leaves the issued uuid null")
+    void issuedNullWhenAbsent() {
+        String xml = atom("<link rel=\"related\" href=\"https://x.test/objects/issued/latest/\"/>");
+
+        assertThat(parser.parseFeed(xml).issuedId()).isNull();
+    }
+
+    @Test
+    @DisplayName("a feed that is not XML, or not Atom, fails the whole read")
+    void badFeed() {
+        assertThatThrownBy(() -> parser.parseFeed("not xml")).isInstanceOf(WarningFeedException.class);
         assertThatThrownBy(() -> parser.parseFeed(null)).isInstanceOf(WarningFeedException.class);
+        assertThatThrownBy(() -> parser.parseFeed("<rss/>")).isInstanceOf(WarningFeedException.class)
+                .hasMessageContaining("not an Atom feed");
+        assertThatThrownBy(() -> parser.parseFeed("<feed xmlns=\"urn:other\"/>"))
+                .isInstanceOf(WarningFeedException.class);
     }
 
-    // ── Detail ──────────────────────────────────────────────────────────────────
+    @Test
+    @DisplayName("a DOCTYPE is refused (no XML external entities)")
+    void doctypeRefused() {
+        String xxe = "<!DOCTYPE feed [<!ENTITY x SYSTEM \"file:///etc/passwd\">]>"
+                + "<feed xmlns=\"http://www.w3.org/2005/Atom\"/>";
+
+        assertThatThrownBy(() -> parser.parseFeed(xxe)).isInstanceOf(WarningFeedException.class);
+    }
+
+    // ── Documents ───────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("a Yellow wind detail maps every property and keeps the geometry")
-    void yellowWind() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-YEL-WIND-1.json"), entry("W-YEL-WIND", 1));
+    @DisplayName("the real EXPIRED snow warning: decimal version, integer likelihood and impact, region codes")
+    void parsesRealExpiredWarning() {
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(fixture("real/updated-1.json"));
 
-        assertThat(row.getWarningId()).isEqualTo("W-YEL-WIND");
-        assertThat(row.getWarningVersion()).isEqualTo(1);
-        assertThat(row.getStatus()).isEqualTo("ACTIVE");
-        assertThat(row.getSourceStatus()).isEqualTo("NEW");
-        assertThat(row.getWarningLevel()).isEqualTo("Yellow");
-        assertThat(row.getWeatherTypes()).isEqualTo("[\"WIND\"]");
-        assertThat(row.getLikelihood()).isEqualTo("Medium");
-        assertThat(row.getImpact()).isEqualTo("Low");
-        assertThat(row.getValidFrom()).isEqualTo(Instant.parse("2026-11-17T12:00:00Z"));
-        assertThat(row.getValidTo()).isEqualTo(Instant.parse("2026-11-18T06:00:00Z"));
-        assertThat(row.getIssuedAt()).isEqualTo(Instant.parse("2026-11-17T08:00:00Z"));
-        assertThat(row.getModifiedAt()).isEqualTo(Instant.parse("2026-11-17T08:00:00Z"));
-        assertThat(row.getHeadline()).isEqualTo("Yellow warning of wind");
-        assertThat(row.getWhatToExpect()).contains("Some travel disruption");
-        assertThat(row.getFurtherDetails()).isEqualTo("Strong winds across the north east.");
-        assertThat(row.getAffectedAreas()).isEqualTo("[\"North East England\"]");
-        assertThat(row.getSourceUrl()).isEqualTo("https://example.test/nswws/warnings/W-YEL-WIND/1");
+        assertThat(parse.malformed()).isZero();
+        assertThat(parse.warnings()).hasSize(1);
+        WeatherWarningVersionEntity row = parse.warnings().get(0);
+        assertThat(row.getWarningId()).isEqualTo(REAL_WARNING_ID);
+        assertThat(row.getWarningVersion()).isEqualByComparingTo(new BigDecimal("3.0"));
+        assertThat(row.getSourceStatus()).isEqualTo("EXPIRED");
+        assertThat(row.getStatus()).isEqualTo(WeatherWarningVersionEntity.STATUS_CANCELLED);
+        assertThat(row.getWarningLevel()).isEqualTo("YELLOW");
+        assertThat(row.getLikelihood()).isEqualTo(3);
+        assertThat(row.getImpact()).isEqualTo(2);
+        assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("SNOW");
+        assertThat(row.getValidFrom()).isEqualTo(Instant.parse("2026-11-17T00:00:00Z"));
+        assertThat(row.getValidTo()).isEqualTo(Instant.parse("2026-11-17T11:00:00Z"));
+        assertThat(row.getIssuedAt()).isEqualTo(Instant.parse("2026-11-15T17:15:42Z"));
+        assertThat(row.getModifiedAt()).isEqualTo(Instant.parse("2026-11-16T09:24:37Z"));
+        assertThat(row.getHeadline()).startsWith("Snow may cause travel disruption");
+        assertThat(WarningFeedParser.stringList(row.getWhatToExpect())).hasSize(2);
+        assertThat(row.getWhatShouldIDo()).startsWith("Snowy, wintry weather");
+        assertThat(row.getFurtherDetails()).contains("A band of rain is expected");
+        assertThat(row.getUpdateDescription()).startsWith("Update to trim southern");
+        assertThat(WarningFeedParser.stringList(row.getAffectedAreas())).hasSize(7).contains("EM", "NE");
         assertThat(row.getGeometry()).contains("MultiPolygon");
-        assertThat(row.getSimplifiedGeometry()).contains("MultiPolygon");
-        assertThat(row.isSimulated()).isFalse();
+        assertThat(row.getSimplifiedGeometry()).isNotBlank();
     }
 
     @Test
-    @DisplayName("an Amber update is a live version at the higher level")
-    void amberUpgrade() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-UPG-2.json"), entry("W-UPG", 2));
+    @DisplayName("the real empty issued snapshot parses to nothing")
+    void parsesEmptyIssued() {
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(fixture("real/issued.json"));
 
-        assertThat(row.getWarningLevel()).isEqualTo("Amber");
-        assertThat(row.getWarningVersion()).isEqualTo(2);
-        assertThat(row.getStatus()).isEqualTo("ACTIVE");
+        assertThat(parse.warnings()).isEmpty();
+        assertThat(parse.malformed()).isZero();
     }
 
     @Test
-    @DisplayName("a cancellation is stored as CANCELLED and needs neither a level nor an end time")
-    void cancelled() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-CAN-2.json"), entry("W-CAN", 2));
+    @DisplayName("an ISSUED warning is live (ACTIVE) and keeps its source word")
+    void issuedIsActive() {
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(fixture("issued-snapshot.json"));
 
-        assertThat(row.getStatus()).isEqualTo("CANCELLED");
+        assertThat(parse.warnings()).hasSize(2);
+        WeatherWarningVersionEntity first = parse.warnings().get(0);
+        assertThat(first.getStatus()).isEqualTo(WeatherWarningVersionEntity.STATUS_ACTIVE);
+        assertThat(first.getSourceStatus()).isEqualTo("ISSUED");
+        assertThat(first.getWarningLevel()).isEqualTo("AMBER");
+        assertThat(first.getUpdateDescription()).isNull();
+        WeatherWarningVersionEntity second = parse.warnings().get(1);
+        assertThat(second.getWarningVersion()).isEqualByComparingTo("2.0");
+        assertThat(WarningFeedParser.stringList(second.getWeatherTypes())).containsExactly("WIND", "RAIN");
+        assertThat(second.getUpdateDescription()).isEqualTo("Extended the area west.");
+    }
+
+    @Test
+    @DisplayName("a CANCELLED warning is ended (CANCELLED) and keeps its source word")
+    void cancelledIsEnded() {
+        WeatherWarningVersionEntity row = parser.parseWarnings(fixture("updated-cancelled.json")).warnings().get(0);
+
+        assertThat(row.getStatus()).isEqualTo(WeatherWarningVersionEntity.STATUS_CANCELLED);
         assertThat(row.getSourceStatus()).isEqualTo("CANCELLED");
-        assertThat(row.getValidTo()).isNull();
-        assertThat(row.getLikelihood()).isNull();
+        assertThat(row.getWarningVersion()).isEqualByComparingTo("3.0");
+    }
+
+    @Test
+    @DisplayName("versions 9.0 and 10.0 are read as numbers, and malformed features are skipped and counted")
+    void multiFeatureDocument() {
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(fixture("updated-multi.json"));
+
+        assertThat(parse.warnings()).hasSize(3);
+        assertThat(parse.malformed()).isEqualTo(3);
+        BigDecimal nine = parse.warnings().get(0).getWarningVersion();
+        BigDecimal ten = parse.warnings().get(1).getWarningVersion();
+        assertThat(ten).isGreaterThan(nine);
+        assertThat(parse.warnings().get(2).getWarningId()).isEqualTo(UUID_B);
+    }
+
+    @Test
+    @DisplayName("a bare Feature (not wrapped in a FeatureCollection) is accepted")
+    void bareFeature() {
+        String feature = "{\"type\":\"Feature\",\"properties\":{\"warningId\":\"W1\",\"warningVersion\":\"1.0\","
+                + "\"warningStatus\":\"ISSUED\",\"warningLevel\":\"red\",\"validToDate\":\"2026-12-02T12:00:00Z\"}}";
+
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(feature);
+
+        assertThat(parse.warnings()).hasSize(1);
+        assertThat(parse.warnings().get(0).getWarningLevel()).isEqualTo("RED");
+        assertThat(parse.warnings().get(0).getGeometry()).isNull();
+        assertThat(parse.warnings().get(0).getLikelihood()).isNull();
+        assertThat(parse.warnings().get(0).getAffectedAreas()).isNull();
+    }
+
+    @Test
+    @DisplayName("a document with neither features nor a feature parses to nothing")
+    void noFeatures() {
+        assertThat(parser.parseWarnings("{\"type\":\"Other\"}").warnings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("numeric JSON values are accepted for the version, likelihood and impact")
+    void numericValues() {
+        String feature = "{\"properties\":{\"warningId\":\"W1\",\"warningVersion\":2.5,\"warningStatus\":\"issued\","
+                + "\"warningLevel\":\"Amber\",\"validToDate\":\"2026-12-02T12:00:00Z\",\"warningLikelihood\":2,"
+                + "\"warningImpact\":\"x\",\"weatherType\":\"WIND\",\"whatToExpect\":null}}";
+
+        WeatherWarningVersionEntity row = parser.parseWarnings(feature).warnings().get(0);
+
+        assertThat(row.getWarningVersion()).isEqualByComparingTo("2.5");
+        assertThat(row.getLikelihood()).isEqualTo(2);
+        assertThat(row.getImpact()).isNull();
+        assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("WIND");
         assertThat(row.getWhatToExpect()).isNull();
     }
 
     @Test
-    @DisplayName("a SNOW and ICE warning keeps both types in order")
-    void snowAndIce() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-SNOW-1.json"), entry("W-SNOW", 1));
+    @DisplayName("features that cannot be identified are skipped: no properties, long id, bad version, bad status")
+    void unidentifiableFeatures() {
+        String longId = "x".repeat(101);
+        String doc = "{\"features\":[{},"
+                + "{\"properties\":{\"warningId\":\"" + longId + "\",\"warningVersion\":\"1.0\"}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.234\",\"warningStatus\":\"ISSUED\"}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\"}}]}";
 
-        assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("SNOW", "ICE");
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(doc);
+
+        assertThat(parse.warnings()).isEmpty();
+        assertThat(parse.malformed()).isEqualTo(4);
     }
 
     @Test
-    @DisplayName("an unknown weather type is kept exactly as received")
-    void unknownTypeKept() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-UNK-1.json"), entry("W-UNK", 1));
+    @DisplayName("a live warning without a level or an end time is skipped; an ended one needs neither")
+    void liveNeedsLevelAndEnd() {
+        String live = "{\"features\":[{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\","
+                + "\"warningStatus\":\"ISSUED\",\"validToDate\":\"2026-12-02T12:00:00Z\"}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\",\"warningStatus\":\"ISSUED\","
+                + "\"warningLevel\":\"RED\"}},"
+                + "{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"2.0\",\"warningStatus\":\"CANCELLED\"}}]}";
 
-        assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("Volcanic Ash");
-        assertThat(WarningFeedParser.isKnownType("Volcanic Ash")).isFalse();
+        WarningFeedParser.WarningParse parse = parser.parseWarnings(live);
+
+        assertThat(parse.warnings()).hasSize(1);
+        assertThat(parse.malformed()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("a polygon with a hole keeps both rings in the stored geometry")
-    void polygonWithHole() {
-        WeatherWarningVersionEntity row = parser.parseDetail(fixture("W-HOLE-1.json"), entry("W-HOLE", 1));
+    @DisplayName("an unreadable date skips the feature")
+    void badDate() {
+        String doc = "{\"features\":[{\"properties\":{\"warningId\":\"W\",\"warningVersion\":\"1.0\","
+                + "\"warningStatus\":\"ISSUED\",\"warningLevel\":\"RED\",\"validToDate\":\"tomorrow\"}}]}";
 
-        var polygons = WarningGeometry.parse(row.getGeometry());
-        assertThat(polygons.get(0)).hasSize(2);
+        assertThat(parser.parseWarnings(doc).malformed()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("a bare Feature (no FeatureCollection) is read, a string version equal to the entry's is accepted, "
-            + "and a lone weather type string becomes a one-element array")
-    void bareFeatureAndLooseTypes() {
-        String detail = "{\"type\":\"Feature\",\"properties\":{\"warningId\":\"B\",\"warningVersion\":\"3\","
-                + "\"warningLevel\":\"Red\",\"weatherType\":\"RAIN\",\"validToDate\":\"2026-11-18T06:00:00+00:00\"}}";
-
-        WeatherWarningVersionEntity row = parser.parseDetail(detail, entry("B", 3));
-
-        assertThat(row.getWeatherTypes()).isEqualTo("[\"RAIN\"]");
-        assertThat(row.getGeometry()).isNull();
-        assertThat(row.getSimplifiedGeometry()).isNull();
-        assertThat(row.getValidTo()).isEqualTo(Instant.parse("2026-11-18T06:00:00Z"));
+    @DisplayName("a document that is not JSON, or not an object, fails the whole read")
+    void badDocument() {
+        assertThatThrownBy(() -> parser.parseWarnings("{not json")).isInstanceOf(WarningFeedException.class);
+        assertThatThrownBy(() -> parser.parseWarnings("[1,2]")).isInstanceOf(WarningFeedException.class);
+        assertThatThrownBy(() -> parser.parseWarnings(null)).isInstanceOf(WarningFeedException.class);
     }
 
-    @Test
-    @DisplayName("a detail with no id or version of its own is accepted for its entry")
-    void detailWithoutOwnIds() {
-        String detail = "{\"features\":[{\"properties\":{\"warningLevel\":\"Yellow\","
-                + "\"validToDate\":\"2026-11-18T06:00:00Z\",\"warningStatus\":\"\",\"warningImpact\":null,"
-                + "\"weatherType\":[null,\"WIND\",{\"x\":1}]}}]}";
-
-        WeatherWarningVersionEntity row = parser.parseDetail(detail, entry("NOID", 1));
-
-        assertThat(row.getWarningId()).isEqualTo("NOID");
-        assertThat(row.getStatus()).isEqualTo("ACTIVE");
-        assertThat(row.getSourceStatus()).isNull();
-        assertThat(row.getImpact()).isNull();
-        assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("WIND");
-    }
+    // ── Types and lists ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("a weather type that is neither an array nor a value is stored as null")
-    void objectWeatherType() {
-        String detail = "{\"properties\":{\"warningLevel\":\"Yellow\",\"validToDate\":\"2026-11-18T06:00:00Z\","
-                + "\"weatherType\":{\"a\":1}}}";
-
-        assertThat(parser.parseDetail(detail, entry("X", 1)).getWeatherTypes()).isNull();
-    }
-
-    @Test
-    @DisplayName("a detail that disagrees with its entry on id or version is refused")
-    void mismatchRefused() {
-        assertThatThrownBy(() -> parser.parseDetail(fixture("W-UPG-2.json"), entry("W-OTHER", 2)))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("id disagrees");
-        assertThatThrownBy(() -> parser.parseDetail(fixture("W-UPG-2.json"), entry("W-UPG", 5)))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("version disagrees");
-    }
-
-    @Test
-    @DisplayName("a detail that is not a JSON object, not JSON, null or without properties is refused")
-    void unreadableDetail() {
-        WarningFeedParser.FeedEntry e = entry("A", 1);
-        assertThatThrownBy(() -> parser.parseDetail("[1,2]", e)).isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseDetail("{oops", e)).isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseDetail(null, e)).isInstanceOf(WarningFeedException.class);
-        assertThatThrownBy(() -> parser.parseDetail("{\"features\":[]}", e))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("no properties");
-    }
-
-    @Test
-    @DisplayName("a live warning with no level, or with no end time, is refused; an unreadable date is refused")
-    void liveWarningNeedsLevelAndEnd() {
-        WarningFeedParser.FeedEntry e = entry("A", 1);
-        assertThatThrownBy(() -> parser.parseDetail(
-                "{\"properties\":{\"validToDate\":\"2026-11-18T06:00:00Z\"}}", e))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("level or an end time");
-        assertThatThrownBy(() -> parser.parseDetail("{\"properties\":{\"warningLevel\":\"Red\"}}", e))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("level or an end time");
-        assertThatThrownBy(() -> parser.parseDetail(
-                "{\"properties\":{\"warningLevel\":\"Red\",\"validToDate\":\"tomorrow\"}}", e))
-                .isInstanceOf(WarningFeedException.class).hasMessageContaining("validToDate");
-    }
-
-    @Test
-    @DisplayName("a very long detail link is truncated to the column width")
-    void longUrlTruncated() {
-        String id = "L";
-        WarningFeedParser.FeedEntry e = new WarningFeedParser.FeedEntry(id, 1,
-                URI.create("https://example.test/" + "a".repeat(600) + "/L/1"));
-
-        WeatherWarningVersionEntity row = parser.parseDetail(
-                "{\"properties\":{\"warningLevel\":\"Red\",\"validToDate\":\"2026-11-18T06:00:00Z\"}}", e);
-
-        assertThat(row.getSourceUrl()).hasSize(500);
-    }
-
-    // ── Types and arrays ────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("known types are recognised whatever their case or punctuation; others, and null, are unknown")
+    @DisplayName("known weather types ignore case and punctuation; anything else is unknown")
     void knownTypes() {
-        assertThat(WarningFeedParser.isKnownType("wind")).isTrue();
-        assertThat(WarningFeedParser.isKnownType("Extreme heat")).isTrue();
-        assertThat(WarningFeedParser.isKnownType(" thunderstorm ")).isTrue();
-        assertThat(WarningFeedParser.isKnownType("Tornado")).isFalse();
+        assertThat(WarningFeedParser.isKnownType("Extreme Heat")).isTrue();
+        assertThat(WarningFeedParser.isKnownType("thunderstorm")).isTrue();
+        assertThat(WarningFeedParser.isKnownType("MYSTERY_WEATHER")).isFalse();
         assertThat(WarningFeedParser.isKnownType(null)).isFalse();
     }
 
     @Test
-    @DisplayName("stringList reads an array, and is empty for null, blank or unreadable text")
+    @DisplayName("stringList reads stored arrays and never throws on garbage")
     void stringList() {
         assertThat(WarningFeedParser.stringList("[\"A\",\"B\"]")).containsExactly("A", "B");
         assertThat(WarningFeedParser.stringList(null)).isEmpty();
-        assertThat(WarningFeedParser.stringList(" ")).isEmpty();
-        assertThat(WarningFeedParser.stringList("[oops")).isEmpty();
+        assertThat(WarningFeedParser.stringList("  ")).isEmpty();
+        assertThat(WarningFeedParser.stringList("[oops")).isEqualTo(List.of());
     }
 }

@@ -14,6 +14,9 @@ import java.util.List;
  * @param lastCheckedAt when the feed was last read successfully, or null if not since startup
  * @param stale         whether the data is too old (or never read) to be trusted as complete
  * @param warnings      the warnings in force that cover at least one enabled location, most severe first
+ * @param metOfficeUrl  the public Met Office warnings page every warning links to (the feed has no per-warning URL)
+ * @param attribution   the attribution line the licence requires beside warning text
  */
-public record WarningsResponse(boolean enabled, Instant lastCheckedAt, boolean stale, List<WarningDto> warnings) {
+public record WarningsResponse(boolean enabled, Instant lastCheckedAt, boolean stale, List<WarningDto> warnings,
+        String metOfficeUrl, String attribution) {
 }

@@ -24,13 +24,19 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 
 import java.io.IOException;
-import java.net.URI;
+import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+import static com.gregochr.goldenhour.service.warnings.WarningFeedParserTest.REAL_ISSUED_ID;
+import static com.gregochr.goldenhour.service.warnings.WarningFeedParserTest.REAL_UPDATE_ID;
+import static com.gregochr.goldenhour.service.warnings.WarningFeedParserTest.UUID_A;
+import static com.gregochr.goldenhour.service.warnings.WarningFeedParserTest.UUID_B;
 import static com.gregochr.goldenhour.service.warnings.WarningFeedParserTest.fixture;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -42,18 +48,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link WarningPollingJob}: recorded fixtures through a mocked client (the live feed is never called).
+ * Unit tests for {@link WarningPollingJob}: the real NSWWS v1.1 samples and fixtures derived from them, through a
+ * mocked client (the live feed is never called).
  */
 @ExtendWith(MockitoExtension.class)
 class WarningPollingJobTest {
 
-    private static final URI FEED = URI.create("https://example.test/feed");
     private static final Instant NOW = Instant.parse("2031-03-10T06:00:00Z");
-
-    private static final List<String[]> FIXTURES = List.of(
-            new String[] {"W-YEL-WIND", "1"}, new String[] {"W-UPG", "1"}, new String[] {"W-UPG", "2"},
-            new String[] {"W-CAN", "2"}, new String[] {"W-SNOW", "1"}, new String[] {"W-UNK", "1"},
-            new String[] {"W-HOLE", "1"});
+    private static final String SECOND_UPDATE_ID = "44444444-4444-4444-8444-444444444444";
 
     @Mock
     private MetOfficeWarningClient client;
@@ -72,24 +74,19 @@ class WarningPollingJobTest {
     @BeforeEach
     void setUp() {
         properties.setEnabled(true);
-        properties.setBaseUrl(FEED.toString());
+        properties.setApiKey("test-key");
         job = new WarningPollingJob(client, new WarningFeedParser(), repository, properties, status, epoch,
                 scheduler, Clock.fixed(NOW, ZoneOffset.UTC), transactionManager);
     }
 
-    private static URI detail(String id, String version) {
-        return URI.create("https://example.test/nswws/warnings/" + id + "/" + version);
-    }
-
-    private void stubFeedAndAllDetails() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        for (String[] f : FIXTURES) {
-            when(client.getWarning(detail(f[0], f[1]))).thenReturn(fixture(f[0] + "-" + f[1] + ".json"));
-        }
-    }
-
     private SchedulerFireOutcome.Report run() {
         return SchedulerFireOutcome.capture(job::poll);
+    }
+
+    /** A recent success with real rows stored: neither a cold start nor a gap, so no snapshot is wanted. */
+    private void warmState() {
+        status.record(new WarningPollStatus.Attempt(NOW.minus(Duration.ofMinutes(5)), true, null, 0, 0, 0, 0, 0));
+        when(repository.existsBySimulatedFalse()).thenReturn(true);
     }
 
     private static HttpClientErrorException clientError(int code) {
@@ -100,6 +97,16 @@ class WarningPollingJobTest {
     private static HttpServerErrorException serverError(int code) {
         return HttpServerErrorException.create(HttpStatusCode.valueOf(code), "x", HttpHeaders.EMPTY, new byte[0],
                 null);
+    }
+
+    private static String twoEntryFeed() {
+        return fixture("feed-three-entries.xml");
+    }
+
+    private List<WeatherWarningVersionEntity> saved(int times) {
+        ArgumentCaptor<WeatherWarningVersionEntity> captor = ArgumentCaptor.forClass(WeatherWarningVersionEntity.class);
+        verify(repository, times(times)).save(captor.capture());
+        return captor.getAllValues();
     }
 
     // ── Registration and gating ─────────────────────────────────────────────────
@@ -130,9 +137,9 @@ class WarningPollingJobTest {
     }
 
     @Test
-    @DisplayName("with no feed URL the poll fails as NOT_CONFIGURED without calling out")
+    @DisplayName("with no API key the poll fails as NOT_CONFIGURED without calling out")
     void notConfigured() {
-        properties.setBaseUrl(" ");
+        properties.setApiKey(" ");
 
         SchedulerFireOutcome.Report report = run();
 
@@ -142,9 +149,9 @@ class WarningPollingJobTest {
     }
 
     @Test
-    @DisplayName("a null feed URL is also NOT_CONFIGURED")
-    void nullFeedUrl() {
-        properties.setBaseUrl(null);
+    @DisplayName("a null API key is also NOT_CONFIGURED")
+    void nullKey() {
+        properties.setApiKey(null);
 
         run();
 
@@ -154,7 +161,7 @@ class WarningPollingJobTest {
     @Test
     @DisplayName("a poll that starts while another is running is skipped, and the first still finishes")
     void overlapGuard() {
-        when(client.getFeed(FEED)).thenAnswer(inv -> {
+        when(client.getFeed()).thenAnswer(inv -> {
             SchedulerFireOutcome.Report inner = run();
             assertThat(inner.status()).isEqualTo(SchedulerFireStatus.SKIPPED);
             assertThat(inner.summary()).contains("Already running");
@@ -164,88 +171,153 @@ class WarningPollingJobTest {
         SchedulerFireOutcome.Report outer = run();
 
         assertThat(outer.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        // and the guard is released afterwards
         assertThat(run().status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
     }
 
     // ── Ingest ──────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("the fixture feed stores all seven identified versions with the poller's clock, never simulated, "
-            + "counts the malformed entry and the unknown type, and bumps the epoch once")
-    void storesFixtureFeed() {
-        stubFeedAndAllDetails();
+    @DisplayName("a cold start loads the issued snapshot and the update, stores every version with the poller's "
+            + "clock, never simulated, and bumps the epoch once")
+    void coldStartLoadsSnapshotAndUpdates() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenReturn(fixture("issued-snapshot.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-issued-v2.json"));
         long before = epoch.current();
 
         SchedulerFireOutcome.Report report = run();
 
-        ArgumentCaptor<WeatherWarningVersionEntity> saved = ArgumentCaptor.forClass(WeatherWarningVersionEntity.class);
-        verify(repository, times(7)).save(saved.capture());
-        assertThat(saved.getAllValues()).extracting(r -> r.getWarningId() + "/" + r.getWarningVersion())
-                .containsExactly("W-YEL-WIND/1", "W-UPG/1", "W-UPG/2", "W-CAN/2", "W-SNOW/1", "W-UNK/1",
-                        "W-HOLE/1");
-        assertThat(saved.getAllValues()).allSatisfy(r -> {
+        assertThat(saved(3)).extracting(r -> r.getWarningId() + "/" + r.getWarningVersion().toPlainString())
+                .containsExactly(UUID_A + "/1.00", UUID_B + "/2.00", UUID_A + "/2.00");
+        assertThat(saved(3)).allSatisfy(r -> {
             assertThat(r.getReceivedAt()).isEqualTo(NOW);
             assertThat(r.isSimulated()).isFalse();
         });
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(report.summary()).contains("7 new warning versions stored").contains("1 unreadable");
-        WarningPollStatus.Attempt attempt = status.lastAttempt();
-        assertThat(attempt.succeeded()).isTrue();
-        assertThat(attempt.at()).isEqualTo(NOW);
-        assertThat(attempt.feedEntries()).isEqualTo(8);
-        assertThat(attempt.stored()).isEqualTo(7);
-        assertThat(attempt.malformedSkipped()).isEqualTo(1);
+        assertThat(report.summary()).contains("3 new warning versions stored");
+        assertThat(status.lastAttempt().feedEntries()).isEqualTo(1);
+        assertThat(status.lastAttempt().stored()).isEqualTo(3);
         assertThat(status.lastSuccessAt()).isEqualTo(NOW);
-        assertThat(status.unknownTypeCounts()).containsExactly(java.util.Map.entry("Volcanic Ash", 1));
         assertThat(epoch.current()).isEqualTo(before + 1);
     }
 
     @Test
-    @DisplayName("re-polling the same feed is a no-op: nothing fetched, nothing stored, epoch unmoved")
-    void idempotentRepoll() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        for (String[] f : FIXTURES) {
-            when(repository.existsByWarningIdAndWarningVersion(f[0], Integer.parseInt(f[1]))).thenReturn(true);
-        }
+    @DisplayName("a repeat poll does nothing: the entry was processed, no snapshot, nothing fetched or stored")
+    void repeatPollIsANoOp() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenReturn(fixture("real/issued.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/updated-1.json"));
+        run();
+        when(repository.existsBySimulatedFalse()).thenReturn(true);
         long before = epoch.current();
 
         SchedulerFireOutcome.Report report = run();
 
-        verify(client, never()).getWarning(detail("W-YEL-WIND", "1"));
-        verify(repository, never()).save(argThat(w -> true));
+        verify(client, times(1)).getUpdated(REAL_UPDATE_ID);
+        verify(client, times(1)).getIssued(REAL_ISSUED_ID);
+        verify(repository, times(1)).save(argThat(w -> true));
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(status.lastAttempt().alreadyStored()).isEqualTo(7);
         assertThat(status.lastAttempt().stored()).isZero();
         assertThat(epoch.current()).isEqualTo(before);
     }
 
     @Test
-    @DisplayName("only the unstored versions are fetched: with v1 held, v2 alone is fetched and stored")
-    void onlyUnstoredFetched() {
-        String feed = "<feed xmlns=\"http://www.w3.org/2005/Atom\">"
-                + "<entry><link href=\"https://example.test/nswws/warnings/W-UPG/1\"/></entry>"
-                + "<entry><link href=\"https://example.test/nswws/warnings/W-UPG/2\"/></entry></feed>";
-        when(client.getFeed(FEED)).thenReturn(feed);
-        when(repository.existsByWarningIdAndWarningVersion("W-UPG", 1)).thenReturn(true);
-        when(client.getWarning(detail("W-UPG", "2"))).thenReturn(fixture("W-UPG-2.json"));
+    @DisplayName("an entry that left the feed is forgotten, so a re-appearance is fetched again")
+    void seenIdsArePrunedToTheFeed() {
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"))
+                .thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")
+                .thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+
+        run();
+        run();
+        run();
+
+        verify(client, times(2)).getUpdated(REAL_UPDATE_ID);
+    }
+
+    @Test
+    @DisplayName("after a gap longer than the feed's 24 hour memory the snapshot is loaded again")
+    void gapLoadsSnapshot() {
+        status.record(new WarningPollStatus.Attempt(NOW.minus(Duration.ofHours(25)), true, null, 0, 0, 0, 0, 0));
+        when(repository.existsBySimulatedFalse()).thenReturn(true);
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenReturn(fixture("real/issued.json"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
 
         run();
 
-        verify(client, never()).getWarning(detail("W-UPG", "1"));
-        ArgumentCaptor<WeatherWarningVersionEntity> saved = ArgumentCaptor.forClass(WeatherWarningVersionEntity.class);
-        verify(repository).save(saved.capture());
-        assertThat(saved.getValue().getWarningVersion()).isEqualTo(2);
-        assertThat(saved.getValue().getWarningLevel()).isEqualTo("Amber");
+        verify(client).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("a recent success with rows stored does not load the snapshot")
+    void noSnapshotWhenWarm() {
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+
+        run();
+
+        verify(client, never()).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("a cold start whose feed names no snapshot skips it and still reads the updates")
+    void noSnapshotLinkSkipsSnapshot() {
+        when(client.getFeed()).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"><entry>"
+                + "<id>urn:uuid:" + REAL_UPDATE_ID + "</id></entry></feed>");
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("real/issued.json"));
+
+        SchedulerFireOutcome.Report report = run();
+
+        assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        verify(client, never()).getIssued(REAL_ISSUED_ID);
+    }
+
+    @Test
+    @DisplayName("a version already stored is counted, not stored again; the check is numeric (3.0 equals 3.00)")
+    void alreadyStored() {
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-cancelled.json"));
+        when(repository.existsByWarningIdAndWarningVersion(UUID_A, new BigDecimal("3.00"))).thenReturn(true);
+        long before = epoch.current();
+
+        run();
+
+        verify(repository, never()).save(argThat(w -> true));
+        assertThat(status.lastAttempt().alreadyStored()).isEqualTo(1);
+        assertThat(epoch.current()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("a multi-warning document stores each feature, skips and counts the unreadable ones, and counts "
+            + "unknown weather types")
+    void multiFeatureDocument() {
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-multi.json"));
+
+        SchedulerFireOutcome.Report report = run();
+
+        assertThat(saved(3)).extracting(r -> r.getWarningVersion().toPlainString())
+                .containsExactly("9.00", "10.00", "1.00");
+        assertThat(report.summary()).contains("3 new warning versions stored").contains("3 unreadable");
+        assertThat(status.lastAttempt().malformedSkipped()).isEqualTo(3);
+        assertThat(status.unknownTypeCounts()).containsExactly(Map.entry("MYSTERY_WEATHER", 1));
     }
 
     @Test
     @DisplayName("a unique-key collision on insert (a racing writer) counts as already stored, not a failure")
     void uniqueViolationIsAlreadyStored() {
-        stubFeedAndAllDetails();
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-multi.json"));
         org.mockito.Mockito.doAnswer(inv -> {
             WeatherWarningVersionEntity row = inv.getArgument(0);
-            if ("W-SNOW".equals(row.getWarningId())) {
+            if (row.getWarningVersion().compareTo(BigDecimal.TEN) == 0) {
                 throw new DataIntegrityViolationException("dup");
             }
             return row;
@@ -254,79 +326,91 @@ class WarningPollingJobTest {
         SchedulerFireOutcome.Report report = run();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(status.lastAttempt().stored()).isEqualTo(6);
+        assertThat(status.lastAttempt().stored()).isEqualTo(2);
         assertThat(status.lastAttempt().alreadyStored()).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("a detail that has expired (404 or 410) is skipped and counted; the poll still succeeds")
-    void goneDetailSkipped() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        when(client.getWarning(detail("W-YEL-WIND", "1"))).thenThrow(clientError(404));
-        when(client.getWarning(detail("W-UPG", "1"))).thenThrow(clientError(410));
-        for (String[] f : FIXTURES.subList(2, FIXTURES.size())) {
-            when(client.getWarning(detail(f[0], f[1]))).thenReturn(fixture(f[0] + "-" + f[1] + ".json"));
-        }
+    @DisplayName("an update that has expired (404 or 410) is skipped, counted and not fetched again")
+    void goneUpdateSkipped() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenThrow(clientError(404));
+        when(client.getUpdated(SECOND_UPDATE_ID)).thenThrow(clientError(410));
 
         SchedulerFireOutcome.Report report = run();
+        run();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(status.lastAttempt().goneSkipped()).isEqualTo(2);
-        assertThat(status.lastAttempt().stored()).isEqualTo(5);
+        assertThat(status.lastAttempt().goneSkipped()).isZero();
+        verify(client, times(1)).getUpdated(REAL_UPDATE_ID);
+        verify(client, times(1)).getUpdated(SECOND_UPDATE_ID);
+        verify(repository, never()).save(argThat(w -> true));
     }
 
     @Test
-    @DisplayName("when nothing at all is stored the epoch does not move")
-    void noEpochBumpWithoutChange() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        for (String[] f : FIXTURES) {
-            when(client.getWarning(detail(f[0], f[1]))).thenThrow(clientError(404));
-        }
+    @DisplayName("gone updates are counted in the attempt and leave the epoch unmoved")
+    void goneCounted() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenThrow(clientError(404));
+        when(client.getUpdated(SECOND_UPDATE_ID)).thenThrow(clientError(410));
         long before = epoch.current();
 
         run();
 
+        assertThat(status.lastAttempt().goneSkipped()).isEqualTo(2);
+        assertThat(status.lastAttempt().malformedSkipped()).isEqualTo(1);
         assertThat(epoch.current()).isEqualTo(before);
-        assertThat(status.lastAttempt().goneSkipped()).isEqualTo(7);
     }
 
     @Test
-    @DisplayName("a malformed detail is skipped and counted, and the rest of the feed is still stored")
-    void malformedDetailSkipped() {
-        stubFeedAndAllDetails();
-        when(client.getWarning(detail("W-UNK", "1"))).thenReturn("{not json");
+    @DisplayName("an unreadable document is skipped, counted and marked processed; the rest still stores")
+    void malformedDocumentSkipped() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn("{not json");
+        when(client.getUpdated(SECOND_UPDATE_ID)).thenReturn(fixture("updated-issued-v2.json"));
 
         SchedulerFireOutcome.Report report = run();
+        run();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
-        assertThat(status.lastAttempt().stored()).isEqualTo(6);
-        assertThat(status.lastAttempt().malformedSkipped()).isEqualTo(2);
-        assertThat(status.unknownTypeCounts()).isEmpty();
+        assertThat(status.lastAttempt().stored()).isZero();
+        verify(client, times(1)).getUpdated(REAL_UPDATE_ID);
+        saved(1);
     }
 
     @Test
-    @DisplayName("a detail that answers 500 fails the poll as HTTP_500 but the other entries are still stored")
-    void detailServerErrorContinues() {
-        stubFeedAndAllDetails();
-        when(client.getWarning(detail("W-UPG", "1"))).thenThrow(serverError(500));
+    @DisplayName("an update that answers 500 fails the poll as HTTP_500, other entries still store, and the failed "
+            + "entry is retried next poll")
+    void updateServerErrorRetried() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenThrow(serverError(500)).thenReturn(fixture("real/issued.json"));
+        when(client.getUpdated(SECOND_UPDATE_ID)).thenReturn(fixture("updated-issued-v2.json"));
         long before = epoch.current();
 
         SchedulerFireOutcome.Report report = run();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
         assertThat(status.lastAttempt().failureReason()).isEqualTo("HTTP_500");
-        assertThat(status.lastAttempt().stored()).isEqualTo(6);
-        assertThat(status.lastSuccessAt()).isNull();
+        assertThat(status.lastAttempt().stored()).isEqualTo(1);
         assertThat(epoch.current()).isEqualTo(before + 1);
+
+        assertThat(run().status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
+        verify(client, times(2)).getUpdated(REAL_UPDATE_ID);
+        verify(client, times(1)).getUpdated(SECOND_UPDATE_ID);
     }
 
     @Test
-    @DisplayName("a detail fetch that cannot connect fails the poll as UNREACHABLE and the first reason stands")
-    void detailUnreachableKeepsFirstReason() {
-        stubFeedAndAllDetails();
-        when(client.getWarning(detail("W-YEL-WIND", "1"))).thenThrow(new ResourceAccessException("down",
+    @DisplayName("an unreachable update fails the poll as UNREACHABLE and the first reason stands")
+    void updateUnreachableKeepsFirstReason() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenThrow(new ResourceAccessException("down",
                 new IOException("refused")));
-        when(client.getWarning(detail("W-UPG", "1"))).thenThrow(serverError(502));
+        when(client.getUpdated(SECOND_UPDATE_ID)).thenThrow(serverError(502));
 
         run();
 
@@ -334,28 +418,42 @@ class WarningPollingJobTest {
     }
 
     @Test
-    @DisplayName("a 429 on a detail stops the poll at once as RATE_LIMITED; later entries are not fetched")
-    void detailRateLimitedStops() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        when(client.getWarning(detail("W-YEL-WIND", "1"))).thenThrow(clientError(429));
+    @DisplayName("a 429 on an update stops the poll at once as RATE_LIMITED; later entries are not fetched")
+    void updateRateLimitedStops() {
+        warmState();
+        when(client.getFeed()).thenReturn(twoEntryFeed());
+        when(client.getUpdated(REAL_UPDATE_ID)).thenThrow(clientError(429));
 
         run();
 
         assertThat(status.lastAttempt().failureReason()).isEqualTo("RATE_LIMITED");
-        verify(client, never()).getWarning(detail("W-UPG", "1"));
+        verify(client, never()).getUpdated(SECOND_UPDATE_ID);
         verify(repository, never()).save(argThat(w -> true));
     }
 
     @Test
-    @DisplayName("a 401 on a detail stops the poll as UNAUTHORISED")
-    void detailUnauthorisedStops() {
-        when(client.getFeed(FEED)).thenReturn(fixture("feed.atom.xml"));
-        when(client.getWarning(detail("W-YEL-WIND", "1"))).thenThrow(clientError(401));
+    @DisplayName("a 401 on the snapshot stops the poll as UNAUTHORISED before any update is fetched")
+    void snapshotUnauthorisedStops() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenThrow(clientError(401));
 
         run();
 
         assertThat(status.lastAttempt().failureReason()).isEqualTo("UNAUTHORISED");
-        verify(client, never()).getWarning(detail("W-UPG", "1"));
+        verify(client, never()).getUpdated(REAL_UPDATE_ID);
+    }
+
+    @Test
+    @DisplayName("a 500 on the snapshot fails the poll but the updates are still read")
+    void snapshotServerErrorStillReadsUpdates() {
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getIssued(REAL_ISSUED_ID)).thenThrow(serverError(500));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-issued-v2.json"));
+
+        run();
+
+        assertThat(status.lastAttempt().failureReason()).isEqualTo("HTTP_500");
+        assertThat(status.lastAttempt().stored()).isEqualTo(1);
     }
 
     // ── Feed failures leave stored warnings untouched ───────────────────────────
@@ -365,7 +463,7 @@ class WarningPollingJobTest {
     void feedHttpFailures() {
         List<String> reasons = new ArrayList<>();
         for (int code : new int[] {401, 403, 429, 503}) {
-            doThrow(code == 503 ? serverError(code) : clientError(code)).when(client).getFeed(FEED);
+            doThrow(code == 503 ? serverError(code) : clientError(code)).when(client).getFeed();
             run();
             reasons.add(status.lastAttempt().failureReason());
         }
@@ -377,7 +475,7 @@ class WarningPollingJobTest {
     @Test
     @DisplayName("an unreachable feed is UNREACHABLE, is reported FAILED, and never records a success")
     void feedUnreachable() {
-        when(client.getFeed(FEED)).thenThrow(new ResourceAccessException("down", new IOException("refused")));
+        when(client.getFeed()).thenThrow(new ResourceAccessException("down", new IOException("refused")));
 
         SchedulerFireOutcome.Report report = run();
 
@@ -391,7 +489,7 @@ class WarningPollingJobTest {
     @Test
     @DisplayName("a feed that is not Atom is MALFORMED_FEED and stores nothing")
     void feedMalformed() {
-        when(client.getFeed(FEED)).thenReturn("<html>maintenance</html");
+        when(client.getFeed()).thenReturn("<html>maintenance</html");
 
         run();
 
@@ -402,7 +500,7 @@ class WarningPollingJobTest {
     @Test
     @DisplayName("a 200 that is well-formed XML but not Atom is MALFORMED_FEED and does not advance lastSuccessAt")
     void nonAtomOkIsFailure() {
-        when(client.getFeed(FEED)).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")
+        when(client.getFeed()).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>")
                 .thenReturn("<error>Service unavailable</error>");
         run();
         assertThat(status.lastSuccessAt()).isEqualTo(NOW);
@@ -411,30 +509,27 @@ class WarningPollingJobTest {
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.FAILED);
         assertThat(status.lastAttempt().failureReason()).isEqualTo("MALFORMED_FEED");
-        assertThat(status.lastAttempt().succeeded()).isFalse();
         assertThat(status.lastSuccessAt()).isEqualTo(NOW);
-        verifyNoInteractions(repository);
     }
 
     @Test
     @DisplayName("an empty feed is a successful poll that stores nothing and cancels nothing")
     void emptyFeedInfersNothing() {
-        when(client.getFeed(FEED)).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>");
+        when(client.getFeed()).thenReturn("<feed xmlns=\"http://www.w3.org/2005/Atom\"/>");
 
         SchedulerFireOutcome.Report report = run();
 
         assertThat(report.status()).isEqualTo(SchedulerFireStatus.SUCCEEDED);
         assertThat(report.summary()).contains("0 new warning versions");
-        verifyNoInteractions(repository);
+        verify(repository, never()).save(argThat(w -> true));
     }
 
     @Test
     @DisplayName("a single stored version is worded in the singular")
     void singularSummary() {
-        String feed = "<feed xmlns=\"http://www.w3.org/2005/Atom\"><entry>"
-                + "<link href=\"https://example.test/nswws/warnings/W-UPG/2\"/></entry></feed>";
-        when(client.getFeed(FEED)).thenReturn(feed);
-        when(client.getWarning(detail("W-UPG", "2"))).thenReturn(fixture("W-UPG-2.json"));
+        warmState();
+        when(client.getFeed()).thenReturn(fixture("real/feed.xml"));
+        when(client.getUpdated(REAL_UPDATE_ID)).thenReturn(fixture("updated-cancelled.json"));
 
         assertThat(run().summary()).startsWith("1 new warning version stored");
     }

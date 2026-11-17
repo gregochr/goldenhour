@@ -70,7 +70,7 @@ class WarningServiceTest {
     private static WeatherWarningVersionEntity row(String id, int version, String level, boolean simulated) {
         WeatherWarningVersionEntity w = new WeatherWarningVersionEntity();
         w.setWarningId(id);
-        w.setWarningVersion(version);
+        w.setWarningVersion(java.math.BigDecimal.valueOf(version));
         w.setStatus(WeatherWarningVersionEntity.STATUS_ACTIVE);
         w.setWarningLevel(level);
         w.setWeatherTypes("[\"WIND\"]");
@@ -110,6 +110,51 @@ class WarningServiceTest {
         assertThat(response.warnings()).isEmpty();
         assertThat(response.lastCheckedAt()).isNull();
         verifyNoInteractions(repository, locations);
+    }
+
+    @Test
+    @DisplayName("the response carries the configured Met Office link and attribution, even when switched off")
+    void carriesLinkAndAttribution() {
+        stubStoreAndLocations();
+        WarningsResponse on = service.served();
+        properties.setEnabled(false);
+        WarningsResponse off = service.served();
+
+        assertThat(on.metOfficeUrl()).isEqualTo("https://www.metoffice.gov.uk/public/weather/warnings/");
+        assertThat(on.attribution()).isEqualTo("Met Office Weather Warnings © Crown Copyright 2026");
+        assertThat(off.metOfficeUrl()).isEqualTo(on.metOfficeUrl());
+        assertThat(off.attribution()).isEqualTo(on.attribution());
+    }
+
+    @Test
+    @DisplayName("the DTO serves the raw integers, the update text, the advice, the updated flag and a decimal version")
+    void servesRealFeedFields() {
+        var v = row("W1", 2, "YELLOW", false);
+        v.setWarningVersion(new java.math.BigDecimal("2.00"));
+        v.setLikelihood(3);
+        v.setImpact(2);
+        v.setUpdateDescription("Trimmed the area.");
+        v.setWhatShouldIDo("Plan your route.");
+        stubStoreAndLocations(v);
+
+        WarningDto dto = service.served().warnings().get(0);
+
+        assertThat(dto.warningVersion()).isEqualTo("2.0");
+        assertThat(dto.likelihood()).isEqualTo(3);
+        assertThat(dto.impact()).isEqualTo(2);
+        assertThat(dto.updateDescription()).isEqualTo("Trimmed the area.");
+        assertThat(dto.whatShouldIDo()).isEqualTo("Plan your route.");
+        assertThat(dto.updated()).isTrue();
+    }
+
+    @Test
+    @DisplayName("version formatting: 3.00 is 3.0, 10.00 is 10.0, 2.25 stays, null stays null")
+    void formatsVersions() {
+        assertThat(WarningService.formatVersion(new java.math.BigDecimal("3.00"))).isEqualTo("3.0");
+        assertThat(WarningService.formatVersion(new java.math.BigDecimal("10.00"))).isEqualTo("10.0");
+        assertThat(WarningService.formatVersion(new java.math.BigDecimal("2.25"))).isEqualTo("2.25");
+        assertThat(WarningService.formatVersion(new java.math.BigDecimal("100"))).isEqualTo("100.0");
+        assertThat(WarningService.formatVersion(null)).isNull();
     }
 
     @Test
@@ -262,10 +307,10 @@ class WarningServiceTest {
         verify(repository).save(saved.capture());
         WeatherWarningVersionEntity row = saved.getValue();
         assertThat(row.getWarningId()).startsWith("SIM-");
-        assertThat(row.getWarningVersion()).isEqualTo(1);
+        assertThat(row.getWarningVersion()).isEqualByComparingTo("1");
         assertThat(row.isSimulated()).isTrue();
         assertThat(row.getSourceStatus()).isEqualTo("SIMULATED");
-        assertThat(row.getWarningLevel()).isEqualTo("Red");
+        assertThat(row.getWarningLevel()).isEqualTo("RED");
         assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("SNOW", "ICE");
         assertThat(row.getHeadline()).isEqualTo("Test snow");
         assertThat(row.getValidFrom()).isEqualTo(NOW);
@@ -290,7 +335,7 @@ class WarningServiceTest {
         ArgumentCaptor<WeatherWarningVersionEntity> saved = ArgumentCaptor.forClass(WeatherWarningVersionEntity.class);
         verify(repository, org.mockito.Mockito.times(2)).save(saved.capture());
         for (WeatherWarningVersionEntity row : saved.getAllValues()) {
-            assertThat(row.getWarningLevel()).isEqualTo("Amber");
+            assertThat(row.getWarningLevel()).isEqualTo("AMBER");
             assertThat(WarningFeedParser.stringList(row.getWeatherTypes())).containsExactly("WIND");
             assertThat(row.getHeadline()).contains("Simulated");
             assertThat(row.getValidTo()).isEqualTo(NOW.plus(Duration.ofHours(6)));

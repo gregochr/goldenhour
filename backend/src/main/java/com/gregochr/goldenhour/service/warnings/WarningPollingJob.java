@@ -17,24 +17,32 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClientResponseException;
 
-import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Polls the Met Office NSWWS Atom feed and stores every warning version it has not seen.
+ * Polls the Met Office NSWWS v1.1 Atom feed and stores every warning version it has not seen.
  *
  * <p>Runs on the {@code weather_warning_poll} scheduler row (fixed delay) and self-gates on
- * {@code photocast.warnings.enabled}. One poll reads the feed, then fetches the detail of only the entries whose
- * (warning id, version) is not stored, and inserts each in its own transaction. The unique key makes a repeat a
- * no-op: an entry already stored is skipped, and a race that loses to the unique key is counted as already stored.
+ * {@code photocast.warnings.enabled}. One poll reads the feed; each entry is a change-event uuid, and the poll
+ * fetches {@code updated/{uuid}} (a GeoJSON FeatureCollection of N warnings) for every entry it has not already
+ * processed, tracking processed entry ids in memory so a repeat poll fetches nothing. When nothing real is stored
+ * yet, when this is the first successful poll since startup, or when the last success is older than the feed's 24 hour
+ * memory, it also loads the {@code issued/{uuid}} snapshot named by the feed's related link, so a cold start or a
+ * long gap still sees every warning currently valid. Each warning (feature) is inserted in its own transaction; the
+ * unique (warning id, version) key makes a repeat a no-op, so re-reading after a restart is harmless.
  *
  * <p>What it never does: delete, update, or infer a cancellation from an entry's absence from the feed (a
- * cancellation is a stored CANCELLED version). A detail that answers 404 or 410 (the Met Office expires updates
- * after about a day) and a detail that cannot be read are each skipped and counted; neither fails the poll. A bad
- * key (401, 403), a rate limit (429), an unreachable feed or a feed that is not Atom fail the poll, are recorded for
- * Operations, and leave every stored warning untouched.
+ * cancellation or expiry is a stored CANCELLED version). A document that answers 404 or 410 (the Met Office expires
+ * updates after about a day) and a document or feature that cannot be read are each skipped and counted; neither
+ * fails the poll. A bad key (401, 403), a rate limit (429), an unreachable feed or a feed that is not Atom fail the
+ * poll, are recorded for Operations, and leave every stored warning untouched. An entry whose fetch failed is not
+ * marked processed, so the next poll retries it.
  *
  * <p>{@link ServedBriefingEpoch#bump()} is called once, after the last insert has committed, and only when a
  * version was stored. The key is never logged.
@@ -54,6 +62,9 @@ public class WarningPollingJob {
     static final String REASON_MALFORMED_FEED = "MALFORMED_FEED";
     static final String REASON_HTTP_PREFIX = "HTTP_";
 
+    /** How long the Met Office feed remembers change events; a longer gap than this needs the issued snapshot. */
+    static final Duration FEED_MEMORY = Duration.ofHours(24);
+
     private static final int HTTP_UNAUTHORISED = 401;
     private static final int HTTP_FORBIDDEN = 403;
     private static final int HTTP_NOT_FOUND = 404;
@@ -69,6 +80,9 @@ public class WarningPollingJob {
     private final DynamicSchedulerService scheduler;
     private final Clock clock;
     private final TransactionTemplate transactions;
+
+    /** Change-event uuids already processed (fetched and stored, or expired); pruned to the ids still in the feed. */
+    private final Set<String> seenEntryIds = ConcurrentHashMap.newKeySet();
 
     /** Guards against overlap: the schedule and Run Now can both call {@link #poll()}. */
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -129,14 +143,14 @@ public class WarningPollingJob {
 
     private void runPoll() {
         Instant started = clock.instant();
-        String feedUrl = properties.getBaseUrl();
-        if (feedUrl == null || feedUrl.isBlank()) {
+        String key = properties.getApiKey();
+        if (key == null || key.isBlank()) {
             fail(started, REASON_NOT_CONFIGURED, new Tally());
             return;
         }
         String feedBody;
         try {
-            feedBody = client.getFeed(URI.create(feedUrl));
+            feedBody = client.getFeed();
         } catch (RestClientResponseException e) {
             fail(started, reasonFor(e.getStatusCode().value()), new Tally());
             return;
@@ -152,21 +166,15 @@ public class WarningPollingJob {
             return;
         }
         Tally tally = new Tally();
-        tally.feedEntries = feed.entries().size() + feed.malformed();
+        tally.feedEntries = feed.updateIds().size() + feed.malformed();
         tally.malformed = feed.malformed();
         String failure = null;
-        for (WarningFeedParser.FeedEntry entry : feed.entries()) {
-            if (repository.existsByWarningIdAndWarningVersion(entry.warningId(), entry.warningVersion())) {
-                tally.alreadyStored++;
-                continue;
-            }
-            String entryFailure = ingest(entry, tally);
-            if (entryFailure != null) {
-                failure = failure == null ? entryFailure : failure;
-                if (isAccessFailure(entryFailure)) {
-                    break;
-                }
-            }
+        if (needsSnapshot(started) && feed.issuedId() != null) {
+            failure = fetchAndIngest(() -> client.getIssued(feed.issuedId()), tally);
+        }
+        if (failure == null || !isAccessFailure(failure)) {
+            String updatesFailure = processUpdates(feed, tally);
+            failure = failure == null ? updatesFailure : failure;
         }
         if (tally.stored > 0) {
             epoch.bump();
@@ -180,11 +188,46 @@ public class WarningPollingJob {
         }
     }
 
-    /** Fetches, parses and stores one entry; returns a failure reason when the poll should count as failed. */
-    private String ingest(WarningFeedParser.FeedEntry entry, Tally tally) {
+    /**
+     * Whether this poll should also load the issued snapshot: nothing real is stored, this is the first successful
+     * poll since startup (the downtime is unknown), or the last success is older than the feed's memory.
+     */
+    private boolean needsSnapshot(Instant now) {
+        Instant lastSuccess = status.lastSuccessAt();
+        return !repository.existsBySimulatedFalse()
+                || lastSuccess == null
+                || lastSuccess.plus(FEED_MEMORY).isBefore(now);
+    }
+
+    /** Fetches every update entry not yet processed; returns the first failure reason, or null. */
+    private String processUpdates(WarningFeedParser.FeedParse feed, Tally tally) {
+        String failure = null;
+        for (String entryId : feed.updateIds()) {
+            if (seenEntryIds.contains(entryId)) {
+                continue;
+            }
+            String entryFailure = fetchAndIngest(() -> client.getUpdated(entryId), tally);
+            if (entryFailure == null) {
+                seenEntryIds.add(entryId);
+                continue;
+            }
+            failure = failure == null ? entryFailure : failure;
+            if (isAccessFailure(entryFailure)) {
+                break;
+            }
+        }
+        seenEntryIds.retainAll(feed.updateIds());
+        return failure;
+    }
+
+    /**
+     * Fetches one document, parses its warnings and stores each new version. Returns a failure reason when the poll
+     * should count as failed, null otherwise (including a 404 or 410 and an unreadable document, which are counted).
+     */
+    private String fetchAndIngest(Supplier<String> fetch, Tally tally) {
         String body;
         try {
-            body = client.getWarning(entry.detailUri());
+            body = fetch.get();
         } catch (RestClientResponseException e) {
             int code = e.getStatusCode().value();
             if (code == HTTP_NOT_FOUND || code == HTTP_GONE) {
@@ -195,14 +238,25 @@ public class WarningPollingJob {
         } catch (RuntimeException e) {
             return REASON_UNREACHABLE;
         }
-        WeatherWarningVersionEntity row;
+        WarningFeedParser.WarningParse parsed;
         try {
-            row = parser.parseDetail(body, entry);
+            parsed = parser.parseWarnings(body);
         } catch (WarningFeedException e) {
-            LOG.warn("Skipping malformed warning detail {} v{}: {}", entry.warningId(), entry.warningVersion(),
-                    e.getMessage());
+            LOG.warn("Skipping unreadable warning document: {}", e.getMessage());
             tally.malformed++;
             return null;
+        }
+        tally.malformed += parsed.malformed();
+        for (WeatherWarningVersionEntity row : parsed.warnings()) {
+            store(row, tally);
+        }
+        return null;
+    }
+
+    private void store(WeatherWarningVersionEntity row, Tally tally) {
+        if (repository.existsByWarningIdAndWarningVersion(row.getWarningId(), row.getWarningVersion())) {
+            tally.alreadyStored++;
+            return;
         }
         row.setSimulated(false);
         row.setReceivedAt(clock.instant());
@@ -210,7 +264,7 @@ public class WarningPollingJob {
             transactions.execute(s -> repository.save(row));
         } catch (DataIntegrityViolationException e) {
             tally.alreadyStored++;
-            return null;
+            return;
         }
         tally.stored++;
         for (String type : WarningFeedParser.stringList(row.getWeatherTypes())) {
@@ -218,7 +272,6 @@ public class WarningPollingJob {
                 status.countUnknownType(type);
             }
         }
-        return null;
     }
 
     private void fail(Instant started, String reason, Tally tally) {

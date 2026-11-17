@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.repository.WeatherWarningVersionRepository;
 import com.gregochr.goldenhour.service.ServedBriefingEpoch;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -40,7 +41,8 @@ public class WarningService {
     static final int DEFAULT_SIMULATED_HOURS = 6;
     static final int MAX_SIMULATED_HOURS = 72;
 
-    private static final String DEFAULT_LEVEL = "Amber";
+    private static final BigDecimal INITIAL_VERSION = new BigDecimal("1.00");
+    private static final String DEFAULT_LEVEL = "AMBER";
     private static final String DEFAULT_TYPE = "WIND";
     private static final String DEFAULT_HEADLINE = "Simulated warning (test only)";
     private static final String SIMULATED_STATUS = "SIMULATED";
@@ -89,7 +91,8 @@ public class WarningService {
      */
     public WarningsResponse served() {
         if (!properties.isEnabled()) {
-            return new WarningsResponse(false, null, true, List.of());
+            return new WarningsResponse(false, null, true, List.of(), properties.getPublicUrl(),
+                    properties.getAttribution());
         }
         List<WarningDto> warnings = new ArrayList<>();
         for (WarningDto dto : activeDtos(false)) {
@@ -98,7 +101,8 @@ public class WarningService {
             }
         }
         Instant lastSuccess = status.lastSuccessAt();
-        return new WarningsResponse(true, lastSuccess, isStale(lastSuccess), warnings);
+        return new WarningsResponse(true, lastSuccess, isStale(lastSuccess), warnings, properties.getPublicUrl(),
+                properties.getAttribution());
     }
 
     /**
@@ -140,7 +144,7 @@ public class WarningService {
         Instant now = clock.instant();
         WeatherWarningVersionEntity row = new WeatherWarningVersionEntity();
         row.setWarningId("SIM-" + UUID.randomUUID().toString().substring(0, SIMULATED_ID_LENGTH));
-        row.setWarningVersion(1);
+        row.setWarningVersion(INITIAL_VERSION);
         row.setStatus(WeatherWarningVersionEntity.STATUS_ACTIVE);
         row.setSourceStatus(SIMULATED_STATUS);
         row.setWarningLevel(level);
@@ -195,21 +199,30 @@ public class WarningService {
             return DEFAULT_LEVEL;
         }
         return switch (level.trim().toLowerCase(Locale.ROOT)) {
-            case "yellow" -> "Yellow";
-            case "amber" -> "Amber";
-            case "red" -> "Red";
+            case "yellow" -> "YELLOW";
+            case "amber" -> "AMBER";
+            case "red" -> "RED";
             default -> throw new IllegalArgumentException("level must be Yellow, Amber or Red");
         };
     }
 
     private static WarningDto toDto(WarningTimeline.ActiveWarning active, Set<Long> locationIds) {
         WeatherWarningVersionEntity v = active.version();
-        return new WarningDto(v.getWarningId(), v.getWarningVersion(), v.getWarningLevel(),
+        return new WarningDto(v.getWarningId(), formatVersion(v.getWarningVersion()), v.getWarningLevel(),
                 WarningFeedParser.stringList(v.getWeatherTypes()), v.getLikelihood(), v.getImpact(),
                 v.getValidFrom(), v.getValidTo(), v.getIssuedAt(), v.getModifiedAt(), v.getHeadline(),
-                WarningFeedParser.stringList(v.getWhatToExpect()), v.getFurtherDetails(),
-                WarningFeedParser.stringList(v.getAffectedAreas()), v.getSourceUrl(),
+                WarningFeedParser.stringList(v.getWhatToExpect()), v.getFurtherDetails(), v.getUpdateDescription(),
+                v.getWhatShouldIDo(), active.updated(), WarningFeedParser.stringList(v.getAffectedAreas()),
                 WarningGeometry.toMap(v.getSimplifiedGeometry()), active.upgradedFrom(), active.upgradedAt(),
                 locationIds, v.isSimulated());
+    }
+
+    /** The version as the feed writes it: "3.0", "10.0", or "2.25" when a second decimal is significant. */
+    static String formatVersion(BigDecimal version) {
+        if (version == null) {
+            return null;
+        }
+        BigDecimal stripped = version.stripTrailingZeros();
+        return (stripped.scale() < 1 ? stripped.setScale(1) : stripped).toPlainString();
     }
 }

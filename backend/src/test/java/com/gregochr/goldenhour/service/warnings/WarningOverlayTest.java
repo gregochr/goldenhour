@@ -86,7 +86,7 @@ class WarningOverlayTest {
             boolean simulated) {
         WeatherWarningVersionEntity w = new WeatherWarningVersionEntity();
         w.setWarningId(id);
-        w.setWarningVersion(1);
+        w.setWarningVersion(java.math.BigDecimal.valueOf(1));
         w.setStatus(WeatherWarningVersionEntity.STATUS_ACTIVE);
         w.setWarningLevel("Amber");
         w.setGeometry(BOX);
@@ -209,7 +209,7 @@ class WarningOverlayTest {
     void cancelledShowsNothing() {
         WeatherWarningVersionEntity v1 = warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false);
         WeatherWarningVersionEntity cancel = warning("W1", "2026-10-11T00:00:00Z", "2026-10-12T00:00:00Z", false);
-        cancel.setWarningVersion(2);
+        cancel.setWarningVersion(java.math.BigDecimal.valueOf(2));
         cancel.setStatus(WeatherWarningVersionEntity.STATUS_CANCELLED);
         stubWarningsOnly(v1, cancel);
         DailyBriefingResponse in = briefing(window(EVENT), "Dales");

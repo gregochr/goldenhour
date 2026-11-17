@@ -36,7 +36,7 @@ class WarningsControllerTest {
     @DisplayName("GET /api/warnings serves exactly what the service assembles")
     void servesServiceResponse() {
         WarningsResponse response = new WarningsResponse(true, Instant.parse("2031-03-10T12:00:00Z"), false,
-                List.of());
+                List.of(), "https://www.metoffice.gov.uk/public/weather/warnings/", "Met Office Weather Warnings");
         when(service.served()).thenReturn(response);
 
         assertThat(new WarningsController(service).getWarnings()).isSameAs(response);
@@ -62,8 +62,8 @@ class WarningsControllerTest {
     @DisplayName("the simulate endpoint passes the body to the service and answers 201")
     void simulate() throws NoSuchMethodException {
         SimulateWarningRequest request = new SimulateWarningRequest("Amber", null, null, 6, 54.5, -1.5);
-        WarningDto stored = new WarningDto("SIM-1", 1, "Amber", List.of("WIND"), null, null, null, null, null, null,
-                null, List.of(), null, List.of(), null, null, null, null, Set.of(), true);
+        WarningDto stored = new WarningDto("SIM-1", "1.0", "AMBER", List.of("WIND"), null, null, null, null, null,
+                null, null, List.of(), null, null, null, false, List.of(), null, null, null, Set.of(), true);
         when(service.simulate(request)).thenReturn(stored);
 
         assertThat(new WarningsAdminController(service).simulate(request)).isSameAs(stored);
