@@ -249,8 +249,9 @@ feature is off and never read a role.
 **Which warnings belong to a window.** Matched against the **polled** `GET /api/warnings` list, never trusted from the stored
 briefing (the briefing refetches only every 10 minutes; the warnings poll is 2). A polled warning belongs to a card when it is in
 force at the card's `eventIso` (the window's `eventTime`, else a slot's `solarEventTime`, bare UTC) and either the server named it
-on the window (`BriefingWindow.warningIds`, W1b) or its `locationIds` include one of the window's own places (`card.placeIds`, from
-`allSpots`). The second door lets a warning that arrived after the briefing reach its window inside the licence's ten minutes;
+on the window (`BriefingWindow.warningIds`, W1b) or its `locationIds` include one of the window's own places (`card.placeIds`: every place the window lists, **before** the origin
+scope, so a page scoped to one region does not make another region's warning come and go between briefing fetches; the server's
+rule is likewise every region the window lists, and `placeCountLines` reads the same served per-region counts either way). The second door lets a warning that arrived after the briefing reach its window inside the licence's ten minutes;
 the polled list alone decides whether the warning still exists, its level and its text, so a withdrawn warning leaves at the next
 poll even though the window still names it. This extends the W2 client door (place against `locationIds`) from one place to a
 window's places; it is display matching over served facts, not a verdict or count. Away (travel) cards are never matched.
@@ -258,15 +259,22 @@ window's places; it is display matching over served facts, not a verdict or coun
 `warningIds` and `placeIds` onto the strip cards.
 
 **The lane.** One lane per warning per run of consecutive live matrix columns where it applies to a window; warnings are placed
-in the style-guide order (level, impact, likelihood, `validFrom`), first fit, so a Red takes the top row before span is
-considered. Text in the official level colour, level word always printed, "Updated" for the served flag, no icon, triangle or
+in the style-guide order (level, impact, likelihood, `validFrom`), first fit **below every more severe lane it shares a column with**
+(a lane's row search starts under the lowest overlapping lane already placed), so a Red takes the top row before span is
+considered and a milder warning is never drawn above a severer one in the same column; DOM and Tab order follow the rows. The
+phone sorts each day's lanes with `compareWarnings`. Text in the official level colour, level word always printed, "Updated" for the served flag, no icon, triangle or
 glyph. A lane is a button opening the first covered window's popup (`onGoToPlanWindow(key)`, no topic emphasis) when the strip can
 open it, else plain text; its name is built from its content. The source line (attribution plus Met Office link) sits under the
 lanes; the stale admission replaces any "none" state (the surfaces never say "no warnings"). On the phone each day's cell gets that
 day's lanes first and the stale line is printed on the first day only.
 
 **The card marker.** The plan's "card triangle" is **text** because the style guide forbids a Met Office icon or triangle without
-agreement: the most severe level word plus "+N" ("Amber warning +1") in its colour, one line, ellipsised, `aria-hidden`. The
+agreement: the most severe warning's level word and **first weather type** ("Amber snow"), a separate never-clipped "+N" count of the other
+warnings, in the level colour, one line (the type ellipsises, the count does not), `aria-hidden`. The marker cannot carry "Updated" or the
+full phrase in a 137px card without changing the card's height, so the **lane above the cards is the first-access place for "Updated" and
+the full "<Level> warning of <types>" phrase**, the title and the card's spoken sentence carry every warning in full, and the popup row
+holds the rest. It is a filled level-colour block in bold 9.5px mono; whether it is as prominent as the verdict word was not measured, and
+it cannot be enlarged without growing the top row, so that is not guaranteed (a Red or Amber lane above the cards is the prominent signal). The
 card's one spoken sentence names every warning in full ("Amber warning of snow, updated"), after the forecast's claims and before
 the pick words. Not drawn on an away cell.
 

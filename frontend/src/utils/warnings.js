@@ -35,6 +35,17 @@ export const WARNING_LEVELS = {
 export const UNKNOWN_LEVEL_CLASSES = 'bg-plex-surface-light text-plex-text border border-plex-border-light';
 
 /**
+ * The Tailwind classes that colour a warning's text surface: the official level colours, or the neutral outline for a
+ * level this client does not know. One place, so the chip, the lane and the card marker cannot drift.
+ *
+ * @param {?string} level the served level
+ * @returns {string}
+ */
+export function levelClasses(level) {
+  return WARNING_LEVELS[String(level).toUpperCase()]?.classes ?? UNKNOWN_LEVEL_CLASSES;
+}
+
+/**
  * The served level as the word the chip prints. An unknown level is printed as the server sent it, sentence case;
  * an absent one is null (no chip).
  *
@@ -289,11 +300,22 @@ export function buildWarningLanes(days, warningsOfCard) {
     runs.forEach((run) => {
       const startCol = run[0] + 1;
       const endCol = run[run.length - 1] + 1;
-      let row = rows.findIndex((taken) => {
-        for (let c = startCol; c <= endCol; c += 1) if (taken.has(c)) return false;
-        return true;
+      // Never above a more severe warning it shares a column with: warnings are placed most severe first, so every
+      // lane already placed that overlaps this run is at least as severe, and the search starts below the lowest of them.
+      let floor = 0;
+      rows.forEach((taken, index) => {
+        for (let c = startCol; c <= endCol; c += 1) if (taken.has(c)) floor = Math.max(floor, index + 1);
       });
-      if (row < 0) { rows.push(new Set()); row = rows.length - 1; }
+      let row = -1;
+      for (let index = floor; index < rows.length && row < 0; index += 1) {
+        let free = true;
+        for (let c = startCol; c <= endCol; c += 1) if (rows[index].has(c)) free = false;
+        if (free) row = index;
+      }
+      if (row < 0) {
+        while (rows.length <= floor) rows.push(new Set());
+        row = floor;
+      }
       for (let c = startCol; c <= endCol; c += 1) rows[row].add(c);
       lanes.push({
         key: `${warning.warningId}@${days[run[0]].date}`,
@@ -385,19 +407,22 @@ export function validityText(warning) {
 }
 
 /**
- * The text marker on a Plan window card: the most severe level word and a count, never a glyph.
+ * The text marker on a Plan window card: the most severe warning's level word and first weather type, and a
+ * count of the others, never a glyph. {@code name} carries every warning's full phrase.
  *
  * @param {object[]} warnings the card's warnings in the style guide's order
- * @returns {?{text: string, name: string, level: string}} text printed, the full accessible phrase, top level
+ * @returns {?{text: string, count: ?string, name: string, level: string}} text printed, the "+N" count, the full phrase, top level
  */
 export function cardMarker(warnings) {
   if (!Array.isArray(warnings) || warnings.length === 0) return null;
   const top = warnings[0];
   const word = levelWord(top.level);
   if (word == null) return null;
+  const type = typeWords(top.weatherTypes)[0];
   const extra = warnings.length - 1;
   return {
-    text: extra > 0 ? `${word} warning +${extra}` : `${word} warning`,
+    text: type ? `${word} ${type}` : `${word} warning`,
+    count: extra > 0 ? `+${extra}` : null,
     name: warnings.map(warningName).filter(Boolean).join('; '),
     level: top.level,
   };

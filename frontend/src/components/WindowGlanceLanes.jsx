@@ -1,6 +1,8 @@
 import PropTypes from 'prop-types';
 import { GLANCE_LABEL } from '../utils/tabLabels.js';
-import { UNKNOWN_LEVEL_CLASSES, WARNING_LEVELS, warningLabel } from '../utils/warnings.js';
+import {
+  compareWarnings, levelClasses, warningLabel,
+} from '../utils/warnings.js';
 import { WarningFooter } from './WarningChip.jsx';
 
 /** `Friday` — long weekday for a spoken form, noon UTC so no zone moves the date. */
@@ -157,7 +159,11 @@ export default function WindowGlanceLanes({
 }) {
   const phone = date !== null;
   const shown = phone ? lanes.filter((lane) => lane.dates.includes(date)) : lanes;
-  const shownWarnings = phone ? warningLanes.filter((lane) => lane.dates.includes(date)) : warningLanes;
+  // A phone day's lanes read most severe first (the style guide's order), whatever grid row the desktop gave them.
+  const shownWarnings = phone
+    ? warningLanes.filter((lane) => lane.dates.includes(date))
+      .sort((a, b) => compareWarnings(a.warning, b.warning))
+    : warningLanes;
   const footer = warningFooter && (warningFooter.showAttribution || warningFooter.stale) ? warningFooter : null;
   if (shown.length === 0 && shownWarnings.length === 0 && footer === null) return null;
   // The warning lanes take the top rows, then their source line, and the topic lanes follow (their model rows start at 1).
@@ -241,8 +247,7 @@ function WarningLane({ lane, phone, date, onTap }) {
   const { warning } = lane;
   const label = warningLabel(warning);
   if (label == null) return null;
-  const level = WARNING_LEVELS[String(warning.level).toUpperCase()];
-  const classes = `wf-wlane ${level ? level.classes : UNKNOWN_LEVEL_CLASSES}`;
+  const classes = `wf-wlane ${levelClasses(warning.level)}`;
   const first = lane.dates[0];
   const last = lane.dates[lane.dates.length - 1];
   const span = phone

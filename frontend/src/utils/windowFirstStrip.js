@@ -178,7 +178,7 @@ export function buildHeatStripCards(
       ...(card ? {
         eventIso: card.eventIso ?? null,
         warningIds: card.warningIds ?? [],
-        placeIds: (card.allSpots ?? []).map((spot) => spot?.locationId).filter((id) => id != null),
+        placeIds: card.placeIds ?? [],
       } : {}),
       // A shaped (Lite) body's two facts about the places outside the picks, folded from the card and present only
       // there (S5b-1): the Best row asks `picksScoped` to tell a pool emptied by the picks from one emptied by the

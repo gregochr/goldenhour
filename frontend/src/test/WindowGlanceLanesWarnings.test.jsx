@@ -160,6 +160,21 @@ describe('warning lanes on the phone', () => {
     expect(within(cell).getByTestId('wf-warning-lane')).toHaveTextContent('Amber warning of snow');
   });
 
+  it('lists a day\'s lanes most severe first whatever row they hold on the grid', () => {
+    render(
+      <WindowGlanceLanes
+        lanes={[]}
+        date="2026-10-24"
+        onTap={() => {}}
+        warningLanes={[
+          wLane({ key: 'y', row: 1, warning: warning({ warningId: 'y', level: 'YELLOW' }) }),
+          wLane({ key: 'r', row: 2, warning: warning({ warningId: 'r', level: 'RED', weatherTypes: ['RAIN'] }) }),
+        ]}
+      />,
+    );
+    expect(screen.getAllByTestId('wf-warning-lane').map((l) => l.dataset.level)).toEqual(['RED', 'YELLOW']);
+  });
+
   it('speaks the day it is on', () => {
     render(<WindowGlanceLanes lanes={[]} date="2026-10-25" onTap={() => {}} warningLanes={[wLane()]} onWarningTap={() => {}} />);
     expect(screen.getByRole('button', { name: /Amber warning of snow, Sunday, opens the At a Glance window/ })).toBeInTheDocument();

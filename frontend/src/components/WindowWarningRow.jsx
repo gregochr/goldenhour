@@ -8,14 +8,17 @@ import WarningMatrix from './WarningMatrix.jsx';
 /** The Met Office's own advice page, the only target the style guide allows for the optional link. */
 export const WHAT_SHOULD_I_DO_URL = 'https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice';
 
-/** A labelled block of Met Office text: shown whole, never truncated. */
-function TextBlock({ title, testId, children }) {
+const BODY = 'whitespace-pre-line text-[12.5px] leading-snug text-plex-text';
+
+/** A labelled block of Met Office text, shown whole and never truncated; nothing when the text is absent. */
+function TextBlock({ title, testId, text = null, children = null }) {
+  if (!text && !children) return null;
   return (
     <div data-testid={testId} className="flex flex-col gap-0.5">
       <h4 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-plex-text-secondary">
         {title}
       </h4>
-      {children}
+      {children ?? <p className={BODY}>{text}</p>}
     </div>
   );
 }
@@ -23,7 +26,8 @@ function TextBlock({ title, testId, children }) {
 TextBlock.propTypes = {
   title: PropTypes.string.isRequired,
   testId: PropTypes.string.isRequired,
-  children: PropTypes.node.isRequired,
+  text: PropTypes.string,
+  children: PropTypes.node,
 };
 
 /** One warning in full: the style guide's required text, status, validity, places and the matrix. */
@@ -31,7 +35,6 @@ function WarningDetail({ warning, counts = null }) {
   const lines = placeCountLines(counts, warning.warningId);
   const expect = Array.isArray(warning.whatToExpect) ? warning.whatToExpect.filter((t) => t && t.trim()) : [];
   const validity = validityText(warning);
-  const body = 'whitespace-pre-line text-[12.5px] leading-snug text-plex-text';
   return (
     <article
       data-testid="window-warning"
@@ -46,11 +49,11 @@ function WarningDetail({ warning, counts = null }) {
             {warning.headline}
           </p>
         )}
-        {warning.updated === true && warning.updateDescription && (
-          <TextBlock title="Update" testId="window-warning-update">
-            <p className={body}>{warning.updateDescription}</p>
-          </TextBlock>
-        )}
+        <TextBlock
+          title="Update"
+          testId="window-warning-update"
+          text={warning.updated === true ? warning.updateDescription : null}
+        />
         {expect.length > 0 && (
           <TextBlock title="What to expect" testId="window-warning-expect">
             <ul className="list-disc pl-4 text-[12.5px] leading-snug text-plex-text">
@@ -58,16 +61,8 @@ function WarningDetail({ warning, counts = null }) {
             </ul>
           </TextBlock>
         )}
-        {warning.whatShouldIDo && (
-          <TextBlock title="What should I do" testId="window-warning-advice">
-            <p className={body}>{warning.whatShouldIDo}</p>
-          </TextBlock>
-        )}
-        {warning.furtherDetails && (
-          <TextBlock title="Further details" testId="window-warning-further">
-            <p className={body}>{warning.furtherDetails}</p>
-          </TextBlock>
-        )}
+        <TextBlock title="What should I do" testId="window-warning-advice" text={warning.whatShouldIDo} />
+        <TextBlock title="Further details" testId="window-warning-further" text={warning.furtherDetails} />
         {validity && (
           <p data-testid="window-warning-validity" className="font-mono text-[11px] text-plex-text-secondary">
             {validity}

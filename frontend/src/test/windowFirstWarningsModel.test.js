@@ -5,6 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
+import { warningsForCard } from '../utils/warnings.js';
+import { warning } from './warningsFixture.js';
 
 const TODAY = '2026-08-04';
 const TOMORROW = '2026-08-05';
@@ -61,5 +63,35 @@ describe('the strip fold', () => {
     const strip = fold([], new Set([TODAY]));
     expect(strip).not.toHaveProperty('eventIso');
     expect(strip).not.toHaveProperty('placeIds');
+  });
+});
+
+describe('an origin-scoped page and the window\'s own places', () => {
+  const twoRegions = [
+    { regionName: 'Coast', confidence: 'high', bestRating: 4, meanRating: 4, slots: [slot(7)] },
+    { regionName: 'Dales', confidence: 'high', bestRating: 4, meanRating: 4, slots: [slot(8)] },
+  ];
+  const scoped = (window = {}) => buildWindowCards(
+    [{ date: TODAY, targetType: 'SUNSET' }],
+    [{ date: TODAY, eventSummaries: [summaryOf({ verdict: 'WORTH_IT', badges: [], ...window }, twoRegions)] }],
+    TODAY, TOMORROW, new Set(), undefined, { origin: { name: 'Coast' } },
+  )[0];
+  // Covers only the Dales place: outside the origin scope, inside the window's own listed places.
+  const dalesOnly = warning({
+    warningId: 'd', locationIds: [8], validFrom: `${TODAY}T00:00:00Z`, validTo: `${TOMORROW}T00:00:00Z`,
+  });
+
+  it('keeps placeIds over every region the window lists while allSpots is scoped to the origin', () => {
+    const card = scoped();
+    expect(card.allSpots.map((s) => s.locationId)).toEqual([7]);
+    expect(card.placeIds.map(Number).sort()).toEqual([7, 8]);
+  });
+
+  it('shows the same warnings before and after the briefing names them (no coming and going)', () => {
+    const served = { enabled: true, warnings: [dalesOnly] };
+    const before = warningsForCard(served, scoped());
+    const after = warningsForCard(served, scoped({ warningIds: ['d'] }));
+    expect(before.map((w) => w.warningId)).toEqual(['d']);
+    expect(after.map((w) => w.warningId)).toEqual(['d']);
   });
 });

@@ -36,6 +36,7 @@ import { ATTRIBUTION, METOFFICE_URL, response, warning } from './warningsFixture
 const TODAY = '2026-10-05';
 const TOMORROW = '2026-10-06';
 
+/** The fewest card fields the strip needs, plus the warning fields the lane and marker read. */
 const card = (date, targetType, over = {}) => ({
   key: `${date}:${targetType}`,
   date,
@@ -46,13 +47,8 @@ const card = (date, targetType, over = {}) => ({
   time: '17:41',
   verdict: 'WORTH_IT',
   verdictLabel: 'Worth it',
-  bestRating: 4,
-  pickKind: null,
   away: false,
-  confidence: 'high',
   pool: [],
-  reachMeasured: true,
-  bestReach: null,
   badges: [],
   eventIso: `${date}T${targetType === 'SUNRISE' ? '06:00' : '17:00'}:00`,
   warningIds: [],
@@ -65,13 +61,8 @@ const CARDS = [
   card(TOMORROW, 'SUNRISE'),
   card(TOMORROW, 'SUNSET', { away: true, placeIds: [] }),
 ];
-const POINTS = new Map(CARDS.filter((c) => !c.away).map((c) => [c.key, [{
-  id: 1, name: 'Whitby', lat: 54.49, lng: -0.61, rid: 'North York Moors & Coast', r: [4],
-}]]));
-const SPOTS = [{
-  id: 1, name: 'Whitby', lat: 54.49, lng: -0.61, regionName: 'North York Moors & Coast',
-  rid: 'North York Moors & Coast', skySubject: true, bortleClass: 3, scores: [4],
-}];
+const SPOTS = [{ id: 1, name: 'Whitby', lat: 54.49, lng: -0.61, regionName: 'Coast', rid: 'Coast', skySubject: true, scores: [4] }];
+const POINTS = new Map(CARDS.filter((c) => !c.away).map((c) => [c.key, [{ id: 1, name: 'Whitby', lat: 54.49, lng: -0.61, rid: 'Coast', r: [4] }]]));
 
 const SNOW = warning({
   warningId: 'snow', level: 'AMBER', weatherTypes: ['SNOW'], locationIds: [1], updated: true,
@@ -173,7 +164,7 @@ describe('the warning lane', () => {
   it('takes a warning the briefing already named on the window', async () => {
     const named = CARDS.map((c) => (c.key === `${TODAY}:SUNSET` ? { ...c, warningIds: ['snow'], placeIds: [] } : c));
     await mount(response([SNOW]), { cards: named });
-    expect(within(cardFor(`${TODAY}:SUNSET`)).getByTestId('wf-heat-warning')).toHaveTextContent('Amber warning');
+    expect(within(cardFor(`${TODAY}:SUNSET`)).getByTestId('wf-heat-warning')).toHaveTextContent('Amber snow');
   });
 
   it('drops the lane and the marker when the poll no longer holds the warning', async () => {
@@ -213,7 +204,7 @@ describe('the card marker', () => {
   it('is text in the level colour on exactly the covered cards, with no icon', async () => {
     await mount(response([WIND]));
     const marker = within(cardFor(`${TOMORROW}:SUNRISE`)).getByTestId('wf-heat-warning');
-    expect(marker).toHaveTextContent('Yellow warning');
+    expect(marker).toHaveTextContent('Yellow wind');
     expect(marker.className).toContain('bg-[#ffe923]');
     expect(marker.querySelector('svg, img')).toBeNull();
     expect(marker).toHaveAttribute('aria-hidden', 'true');
@@ -223,7 +214,8 @@ describe('the card marker', () => {
   it('counts the others and keeps every name in its title', async () => {
     await mount(response([WIND, SNOW]));
     const marker = within(cardFor(`${TOMORROW}:SUNRISE`)).getByTestId('wf-heat-warning');
-    expect(marker).toHaveTextContent('Amber warning +1');
+    expect(marker).toHaveTextContent('Amber snow+1');
+    expect(within(marker).getByText('+1')).toBeInTheDocument();
     expect(marker).toHaveAttribute('title', 'Amber warning of snow, updated; Yellow warning of wind');
   });
 

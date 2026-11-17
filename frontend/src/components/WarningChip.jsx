@@ -1,7 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import {
-  cardMarker, staleLead, UNKNOWN_LEVEL_CLASSES, WARNING_LEVELS, warningLabel,
+  cardMarker, levelClasses, staleLead, warningLabel,
 } from '../utils/warnings.js';
 
 /**
@@ -23,9 +23,8 @@ import {
 export default function WarningChip({ warning, href = null }) {
   const label = warningLabel(warning);
   if (label == null) return null;
-  const level = WARNING_LEVELS[String(warning.level).toUpperCase()];
   const classes = `inline-flex flex-wrap items-baseline gap-x-1.5 rounded px-1.5 py-0.5 font-mono text-[11px] `
-    + `font-semibold leading-tight no-underline ${level ? level.classes : UNKNOWN_LEVEL_CLASSES}`;
+    + `font-semibold leading-tight no-underline ${levelClasses(warning.level)}`;
   const body = (
     <>
       <span>{label}</span>
@@ -178,16 +177,16 @@ WarningFooter.propTypes = {
 export function WarningCardMarker({ warnings }) {
   const marker = cardMarker(warnings);
   if (marker == null) return null;
-  const level = WARNING_LEVELS[String(marker.level).toUpperCase()];
   return (
     <span
       data-testid="wf-heat-warning"
       data-level={marker.level}
       aria-hidden="true"
       title={marker.name}
-      className={`wf-hc-wm ${level ? level.classes : UNKNOWN_LEVEL_CLASSES}`}
+      className={`wf-hc-wm ${levelClasses(marker.level)}`}
     >
-      {marker.text}
+      <span className="wf-hc-wm-t">{marker.text}</span>
+      {marker.count && <span className="wf-hc-wm-n">{marker.count}</span>}
     </span>
   );
 }

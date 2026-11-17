@@ -235,6 +235,12 @@ The owner chose to proceed on sensible defaults rather than wait for the Met Off
 - **Map:** chip only, no geometry (§12).
 - **Attribution and links:** exactly as §12.
 
+### 13.1 W3 note (2026-11-18)
+
+The Plan card marker is text ("Amber snow +1": level word, first type, count of the others). It cannot also carry "Updated" or the
+full phrase without growing the card, so the lane above the cards is the first-access place for "Updated" and the full phrase; the
+popup row has everything. Its prominence relative to the verdict word is not measured or guaranteed.
+
 ## 14. W6: Ask PhotoCast mentions warnings (owner approved, 2026-11-17; after W5)
 
 Owner example: asking Ask about fresh snow at Hadrian's Wall, the answer says an Amber warning of snow is in force so expect a lot of snow.

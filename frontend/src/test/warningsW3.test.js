@@ -131,6 +131,24 @@ describe('buildWarningLanes', () => {
     expect(lanes.map((l) => l.row)).toEqual([1, 2]);
   });
 
+  it('never puts a less severe warning above a more severe one it shares a column with (Red, Amber, Yellow)', () => {
+    const red = W('r', { level: 'RED' });
+    const amber = W('a', { level: 'AMBER' });
+    const yellow = W('y', { level: 'YELLOW' });
+    // Red covers Saturday only, Amber Friday and Saturday, Yellow Friday only: Yellow shares Friday with Amber.
+    const lanes = lanesFor({
+      '2026-08-14:SUNSET': [amber, yellow],
+      '2026-08-15:SUNRISE': [red, amber],
+    });
+    const rowOf = (id) => lanes.filter((l) => l.warning.warningId === id).map((l) => l.row);
+    expect(lanes.map((l) => `${l.warning.warningId}${l.startCol}-${l.endCol}:${l.row}`).sort()).toEqual(
+      ['a1-2:2', 'r2-2:1', 'y1-1:3'].sort(),
+    );
+    expect(rowOf('r')).toEqual([1]);
+    // DOM order follows the rows, so Tab never runs a milder warning before a severer neighbour.
+    expect(lanes.map((l) => l.row)).toEqual([...lanes.map((l) => l.row)].sort((a, b) => a - b));
+  });
+
   it('is empty with no warnings', () => {
     expect(lanesFor({})).toEqual([]);
   });
@@ -216,11 +234,13 @@ describe('text built from served values', () => {
   it('builds the card marker from the most severe warning, with a count and every name', () => {
     const marker = cardMarker([W('r', { level: 'RED', weatherTypes: ['RAIN'], updated: true }), W('y')]);
     expect(marker).toEqual({
-      text: 'Red warning +1',
+      text: 'Red rain',
+      count: '+1',
       name: 'Red warning of rain, updated; Yellow warning of wind',
       level: 'RED',
     });
-    expect(cardMarker([W('y')]).text).toBe('Yellow warning');
+    expect(cardMarker([W('y')])).toMatchObject({ text: 'Yellow wind', count: null });
+    expect(cardMarker([W('t', { weatherTypes: [] })]).text).toBe('Yellow warning');
     expect(cardMarker([])).toBeNull();
     expect(cardMarker(null)).toBeNull();
     expect(cardMarker([W('x', { level: '' })])).toBeNull();

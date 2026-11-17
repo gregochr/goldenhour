@@ -27,119 +27,40 @@ import { response, warning } from './warningsFixture.js';
 const TODAY = '2026-08-20';
 const KEY = `${TODAY}:SUNSET`;
 
-/**
- * Two named locations per region, and the second of each is what separates the region LABEL from the
- * location CHIP under the stub projection.
- *
- * <p>`centroid` is the mean of a region's projected points, so with one spot per region the label
- * and the chip land on the same pixel — the greedy placer's own overlap rule then drops every chip,
- * and a test asserting their absence would be pinning the placer rather than the placement. The
- * extra spots put each centroid 100px below its chip.
- */
-const HEAT_SPOTS = [
-  { id: 1, name: 'Bamburgh Beach', lat: 6, lng: 4, regionName: 'Coast', rid: 'Coast', skySubject: true, scores: [5] },
-  { id: 3, name: 'Craster', lat: 26, lng: 4, regionName: 'Coast', rid: 'Coast', skySubject: true, scores: [3] },
-  { id: 2, name: 'Malham Cove', lat: 6, lng: 24, regionName: 'Dales', rid: 'Dales', skySubject: true, scores: [4] },
-  { id: 4, name: 'Gordale', lat: 26, lng: 24, regionName: 'Dales', rid: 'Dales', skySubject: true, scores: [3] },
-];
-
-function spot(overrides = {}) {
-  return {
-    key: '1',
-    locationId: 1,
-    locationName: 'Bamburgh Beach',
-    regionName: 'Coast',
-    solarEventTime: `${TODAY}T20:41:00`,
-    rating: 5,
-    driveMinutes: 30,
-    distanceMiles: 21,
-    far: false,
-    ...overrides,
-  };
-}
-
-const NEAR = spot();
-const DALES = spot({
-  key: '2', locationId: 2, locationName: 'Malham Cove', regionName: 'Dales', rating: 4, driveMinutes: 55,
-});
-
-const EVENT_SUMMARY = {
+/** The least a window card and field need for the dialog to open: no places, no regions, no map. */
+const card = () => ({
+  key: KEY,
+  date: TODAY,
   targetType: 'SUNSET',
-  regions: [
-    {
-      regionName: 'Coast',
-      displayVerdict: 'WORTH_IT',
-      summary: 'A clean eastern horizon.',
-      meanRating: 4.4,
-      bestRating: 5,
-      meanRatingDelta: 0.5,
-      slots: [{ canopy: false }],
-    },
-    {
-      regionName: 'Dales',
-      displayVerdict: 'MAYBE',
-      summary: 'A thin high veil.',
-      meanRating: 3.1,
-      bestRating: 4,
-      slots: [{ canopy: false }],
-    },
-  ],
-  unregioned: [],
-};
-
-function card(overrides = {}) {
-  const spots = overrides.spots ?? [NEAR, DALES];
-  return {
-    key: KEY,
-    date: TODAY,
-    targetType: 'SUNSET',
-    lead: true,
-    kicker: 'Tonight',
-    when: 'Sunset',
-    time: '20:41',
-    verdict: 'WORTH_IT',
-    verdictLabel: 'Worth it',
-    bestRating: 5,
-    confidence: 'high',
-    movement: { regionName: 'Coast', delta: 0.5 },
-    pick: null,
-    rows: [],
-    allBadges: [],
-    allSpots: spots,
-    // ⚠️ Derived the way `buildWindowCards` derives it — from the ORIGIN SCOPE, not from the drawn
-    // set — so a fixture that empties `spots` to model a lens gate does not accidentally also model
-    // an account with no drive times. Overridable, and the no-postcode cases override it by handing
-    // over an `allSpots` whose every entry is unmeasured.
-    reachMeasured: (overrides.allSpots ?? spots).some((sp) => sp?.driveMinutes != null),
-    pool: spots,
-    bestReach: spots[0] ?? null,
-    reachTotal: spots.length,
-    withinReachCount: spots.length,
-    ...overrides,
-    spots,
-  };
-}
-
-function field(overrides = {}) {
-  return {
-    eventSummary: EVENT_SUMMARY,
-    spots: HEAT_SPOTS,
-    points: [{ id: 1, name: 'Bamburgh Beach', lat: 6, lng: 4, rid: 'Coast', r: [5] }],
-    windows: [{ key: KEY, dow: 'Thu', sunrise: false, label: 'Tonight Sunset', time: '20:41' }],
-    series: new Map(),
-    reachById: new Map(),
-    lens: { limitMinutes: 45, tierLabel: '45 min', minRating: null, ratingLabel: 'Any rating' },
-    onSelectRegion: vi.fn(),
-    selectedRegion: null,
-    singleRegionScope: false,
-    origin: null,
-    // Null by default — no saved postcode, the ordinary account. The field-geography plan §3.1
-    // wiring: converted to `[lng, lat]` and handed to `WindowRowFieldMap` as `homePoint`.
-    homeCoords: null,
-    ...overrides,
-  };
-}
-
+  lead: true,
+  kicker: 'Tonight',
+  when: 'Sunset',
+  time: '20:41',
+  verdict: 'WORTH_IT',
+  verdictLabel: 'Worth it',
+  bestRating: 5,
+  confidence: 'high',
+  rows: [],
+  allBadges: [],
+  spots: [],
+  allSpots: [{ locationId: 1 }],
+  pool: [],
+  reachTotal: 0,
+});
+const field = () => ({
+  eventSummary: { targetType: 'SUNSET', regions: [], unregioned: [] },
+  spots: [],
+  points: [],
+  windows: [],
+  series: new Map(),
+  reachById: new Map(),
+  lens: { limitMinutes: null, tierLabel: 'Any', minRating: null, ratingLabel: 'Any rating' },
+  onSelectRegion: vi.fn(),
+  selectedRegion: null,
+  singleRegionScope: true,
+  origin: null,
+  homeCoords: null,
+});
 
 const AMBER = warning({
   warningId: 'amber-snow', level: 'AMBER', weatherTypes: ['SNOW'], locationIds: [1], likelihood: 3, impact: 3,
