@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -40,11 +41,14 @@ public class WeatherWarningVersionEntity {
     @Column(name = "warning_id", nullable = false, length = 100, updatable = false)
     private String warningId;
 
-    /** The warning's version number. */
-    @Column(name = "warning_version", nullable = false, updatable = false)
-    private int warningVersion;
+    /** The warning's version, a decimal such as 3.0 (NUMERIC(10,2), compared numerically, never as text). */
+    @Column(name = "warning_version", nullable = false, precision = 10, scale = 2, updatable = false)
+    private BigDecimal warningVersion;
 
-    /** {@link #STATUS_ACTIVE} or {@link #STATUS_CANCELLED}, normalised from the feed's word. */
+    /**
+     * {@link #STATUS_ACTIVE} (feed ISSUED) or {@link #STATUS_CANCELLED} (feed CANCELLED or EXPIRED: the warning has
+     * ended), normalised from the feed's word.
+     */
     @Column(name = "status", nullable = false, length = 16, updatable = false)
     private String status;
 
@@ -52,7 +56,7 @@ public class WeatherWarningVersionEntity {
     @Column(name = "source_status", length = 50, updatable = false)
     private String sourceStatus;
 
-    /** The level word as received (Yellow, Amber, Red ...). */
+    /** The level word, upper case (YELLOW, AMBER, RED ...). */
     @Column(name = "warning_level", length = 30, updatable = false)
     private String warningLevel;
 
@@ -60,13 +64,13 @@ public class WeatherWarningVersionEntity {
     @Column(name = "weather_types", columnDefinition = "TEXT", updatable = false)
     private String weatherTypes;
 
-    /** Likelihood as received. */
-    @Column(name = "likelihood", length = 50, updatable = false)
-    private String likelihood;
+    /** Likelihood as the raw feed integer (1 to 4), or null. */
+    @Column(name = "likelihood", updatable = false)
+    private Integer likelihood;
 
-    /** Impact as received. */
-    @Column(name = "impact", length = 50, updatable = false)
-    private String impact;
+    /** Impact as the raw feed integer (1 to 4), or null. */
+    @Column(name = "impact", updatable = false)
+    private Integer impact;
 
     /** Start of validity. */
     @Column(name = "valid_from", updatable = false)
@@ -96,13 +100,17 @@ public class WeatherWarningVersionEntity {
     @Column(name = "further_details", columnDefinition = "TEXT", updatable = false)
     private String furtherDetails;
 
-    /** JSON array text of the affected areas. */
+    /** JSON array text of the affected region codes (the feed's {@code affectedAreas[].regionCode}). */
     @Column(name = "affected_areas", columnDefinition = "TEXT", updatable = false)
     private String affectedAreas;
 
-    /** The feed's detail link, used as the Met Office link. */
-    @Column(name = "source_url", length = 500, updatable = false)
-    private String sourceUrl;
+    /** The feed's {@code warningUpdateDescription}, kept in full. */
+    @Column(name = "update_description", columnDefinition = "TEXT", updatable = false)
+    private String updateDescription;
+
+    /** The feed's {@code whatShouldIDo} advice, kept in full. */
+    @Column(name = "what_should_i_do", columnDefinition = "TEXT", updatable = false)
+    private String whatShouldIDo;
 
     /** The feed's GeoJSON geometry as text. */
     @Column(name = "geometry", columnDefinition = "TEXT", updatable = false)

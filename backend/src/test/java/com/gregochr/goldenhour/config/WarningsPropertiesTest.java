@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -19,14 +18,46 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class WarningsPropertiesTest {
 
+    /** What the loopback server saw. */
+    private record Seen(AtomicReference<String> header, AtomicReference<String> path,
+            AtomicReference<String> accept) {
+    }
+
+    private static HttpServer server(String headerName, Seen seen, String body) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> {
+            seen.header().set(exchange.getRequestHeaders().getFirst(headerName));
+            seen.path().set(exchange.getRequestURI().getPath());
+            seen.accept().set(exchange.getRequestHeaders().getFirst("Accept"));
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private static Seen newSeen() {
+        return new Seen(new AtomicReference<>("unset"), new AtomicReference<>(), new AtomicReference<>());
+    }
+
+    private static String base(HttpServer server) {
+        return "http://127.0.0.1:" + server.getAddress().getPort() + "/nswws/v1.1";
+    }
+
     @Test
-    @DisplayName("defaults: off, no URL, no key, 30 minutes to stale")
+    @DisplayName("defaults: off, the real v1.1 base URL, apikey header, no key, public link, attribution, 30 minutes")
     void defaults() {
         WarningsProperties properties = new WarningsProperties();
 
         assertThat(properties.isEnabled()).isFalse();
-        assertThat(properties.getBaseUrl()).isEmpty();
+        assertThat(properties.getBaseUrl()).isEqualTo("https://data.hub.api.metoffice.gov.uk/nswws/v1.1");
+        assertThat(properties.getApiKeyHeader()).isEqualTo("apikey");
         assertThat(properties.getApiKey()).isEmpty();
+        assertThat(properties.getPublicUrl()).isEqualTo("https://www.metoffice.gov.uk/public/weather/warnings/");
+        assertThat(properties.getAttribution()).isEqualTo("Met Office Weather Warnings © Crown Copyright 2026");
         assertThat(properties.getPollStaleMinutes()).isEqualTo(30);
     }
 
@@ -41,85 +72,98 @@ class WarningsPropertiesTest {
     }
 
     @Test
-    @DisplayName("the client sends the key as x-api-key and reads the body at the given absolute URI")
+    @DisplayName("the client sends the key in the apikey header and reads the feed at /objects/feed/ under the base")
     void clientSendsKeyHeader() throws Exception {
-        AtomicReference<String> seenKey = new AtomicReference<>();
-        AtomicReference<String> seenPath = new AtomicReference<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/", exchange -> {
-            seenKey.set(exchange.getRequestHeaders().getFirst("x-api-key"));
-            seenPath.set(exchange.getRequestURI().getPath());
-            byte[] body = "<feed/>".getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/atom+xml");
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        });
-        server.start();
+        Seen seen = newSeen();
+        HttpServer server = server("apikey", seen, "<feed/>");
         try {
             WarningsProperties properties = new WarningsProperties();
             properties.setApiKey("test-key-123");
+            properties.setBaseUrl(base(server) + "/");
             MetOfficeWarningClient client = new AppConfig().metOfficeWarningClient(properties);
 
-            String body = client.getFeed(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/feed"));
+            String body = client.getFeed();
 
             assertThat(body).isEqualTo("<feed/>");
-            assertThat(seenKey.get()).isEqualTo("test-key-123");
-            assertThat(seenPath.get()).isEqualTo("/feed");
+            assertThat(seen.header().get()).isEqualTo("test-key-123");
+            assertThat(seen.path().get()).isEqualTo("/nswws/v1.1/objects/feed/");
+            assertThat(seen.accept().get()).contains("application/atom+xml");
         } finally {
             server.stop(0);
         }
     }
 
     @Test
-    @DisplayName("with a blank key no x-api-key header is sent, and a detail read also works")
+    @DisplayName("the header name is configurable")
+    void headerNameConfigurable() throws Exception {
+        Seen seen = newSeen();
+        HttpServer server = server("x-api-key", seen, "<feed/>");
+        try {
+            WarningsProperties properties = new WarningsProperties();
+            properties.setApiKey("k2");
+            properties.setApiKeyHeader("x-api-key");
+            properties.setBaseUrl(base(server));
+            MetOfficeWarningClient client = new AppConfig().metOfficeWarningClient(properties);
+
+            client.getFeed();
+
+            assertThat(seen.header().get()).isEqualTo("k2");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("updated and issued documents are read at /objects/updated/{uuid}/ and /objects/issued/{uuid}/")
+    void documentPaths() throws Exception {
+        Seen seen = newSeen();
+        HttpServer server = server("apikey", seen, "{}");
+        try {
+            WarningsProperties properties = new WarningsProperties();
+            properties.setApiKey("k");
+            properties.setBaseUrl(base(server));
+            MetOfficeWarningClient client = new AppConfig().metOfficeWarningClient(properties);
+
+            assertThat(client.getUpdated("aaaa")).isEqualTo("{}");
+            assertThat(seen.path().get()).isEqualTo("/nswws/v1.1/objects/updated/aaaa/");
+            assertThat(seen.accept().get()).contains("application/vnd.geo+json");
+            assertThat(client.getIssued("bbbb")).isEqualTo("{}");
+            assertThat(seen.path().get()).isEqualTo("/nswws/v1.1/objects/issued/bbbb/");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("with a blank or whitespace key no key header is sent")
     void clientOmitsBlankKey() throws Exception {
-        AtomicReference<String> seenKey = new AtomicReference<>("unset");
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/", exchange -> {
-            seenKey.set(exchange.getRequestHeaders().getFirst("x-api-key"));
-            byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/geo+json");
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
-        });
-        server.start();
+        Seen seen = newSeen();
+        HttpServer server = server("apikey", seen, "{}");
         try {
             WarningsProperties properties = new WarningsProperties();
+            properties.setBaseUrl(base(server));
             properties.setApiKey(null);
-            MetOfficeWarningClient client = new AppConfig().metOfficeWarningClient(properties);
+            new AppConfig().metOfficeWarningClient(properties).getUpdated("a");
+            assertThat(seen.header().get()).isNull();
 
-            String body = client.getWarning(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/w/1"));
-
-            assertThat(body).isEqualTo("{}");
-            assertThat(seenKey.get()).isNull();
+            properties.setApiKey("   ");
+            seen.header().set("unset");
+            new AppConfig().metOfficeWarningClient(properties).getUpdated("a");
+            assertThat(seen.header().get()).isNull();
         } finally {
             server.stop(0);
         }
     }
 
     @Test
-    @DisplayName("a whitespace-only key is treated as no key")
-    void clientOmitsWhitespaceKey() throws Exception {
-        AtomicReference<String> seenKey = new AtomicReference<>("unset");
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/", exchange -> {
-            seenKey.set(exchange.getRequestHeaders().getFirst("x-api-key"));
-            exchange.sendResponseHeaders(204, -1);
-            exchange.close();
-        });
-        server.start();
-        try {
-            WarningsProperties properties = new WarningsProperties();
-            properties.setApiKey("   ");
-            MetOfficeWarningClient client = new AppConfig().metOfficeWarningClient(properties);
+    @DisplayName("a blank base URL builds a client without a base (nothing is called here)")
+    void blankBaseUrl() {
+        WarningsProperties properties = new WarningsProperties();
+        properties.setBaseUrl(" ");
 
-            client.getFeed(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/feed"));
+        assertThat(new AppConfig().metOfficeWarningClient(properties)).isNotNull();
 
-            assertThat(seenKey.get()).isNull();
-        } finally {
-            server.stop(0);
-        }
+        properties.setBaseUrl(null);
+        assertThat(new AppConfig().metOfficeWarningClient(properties)).isNotNull();
     }
 }

@@ -165,3 +165,81 @@ The Met Office replied (Brandon Birch, Data Provisioning) with a pointer, not an
 - **Q4 likelihood/impact:** shown only in the window popup row ("medium likelihood · low impact"); chips and lanes stay level plus type.
 - **W0 request:** API key, licence, attribution and icon permission requested from the Met Office on 2026-11-17 (asked for a 30-minute poll in the message; we intend 5, adjust to their reply). Awaiting the reply.
 - **Popup copy:** "N of M places in this area" (replacing "in reach"), approved by the owner 2026-11-17.
+
+## 11. The real v1.1 feed (recorded from the owner's key, 2026-11-17) — W1c
+
+Base `https://data.hub.api.metoffice.gov.uk/nswws/v1.1`; **header `apikey`** (HTTP 200; `x-api-key` untested). Paths end in a slash. Samples were saved to the owner's `~/nswws-sample` (feed, an empty `issued` snapshot, one `updated` document with one EXPIRED snow warning) and copied for the W1c build.
+
+What W1a guessed wrong (the flag is off; nothing live is affected):
+- **Entry ids are change-event uuids**, not warning ids. `warningId` (uuid) and `warningVersion` come from inside the GeoJSON feature properties.
+- **`warningVersion` is a decimal string** ("3.0"), not an integer. Store NUMERIC and order numerically (V225 alters the column).
+- **An `updated/{uuid}` document is a FeatureCollection of N warnings**, not one. Each feature is one version row.
+- **`warningStatus` is ISSUED, CANCELLED or EXPIRED.** ISSUED = live; CANCELLED and EXPIRED both mean ended (store both as the ended status, keep the source word).
+- **`warningLikelihood` and `warningImpact` are integers** (3 and 2 in the sample), not words. Serve them raw; word mapping (the Met Office matrix) waits for the Style Guide, never guessed.
+- `warningLevel` is upper case (`YELLOW`). Extra useful fields: `warningUpdateDescription`, `whatShouldIDo`, `affectedAreas[].regionCode` (NE, NW, YH, ...). There is no per-warning URL in the feed: the "Read it on the Met Office site" link is a configured public warnings page until the owner confirms a better target.
+- The feed's `rel="related"` link is the **issued snapshot** (all currently valid warnings, latest version of each; empty today). Use it on the first poll after a start and after a gap longer than the feed's 24 h memory; otherwise process only unseen update entries.
+- Atom root, namespace, entry `alternate` link and 404-on-expired-update all match W1a's assumptions.
+
+Sequencing: W1c runs after W1b merges (it changes the entity's version type and the timeline's ordering, which W1b reads) and never concurrently with another Maven run.
+
+## 12. Met Office NSWWS style guide v1.4 (Oct 2026): what it changes (owner supplied the PDF, 2026-11-17)
+
+The guide is binding for third parties; items marked "Required by the Licence" are licence terms (the Open Licence (Version 1) - NSWWS itself is a separate document the owner accepts at subscribe; read it for the business-use question in §10). These supersede the handoff design wherever they differ.
+
+**Colours (alternatives need Met Office agreement):** RED `#ca0a37` (white text), AMBER `#ff9900` (black text), YELLOW `#ffe923` (black text). Replace the handoff's placeholder hues (`#E0201B`, `#FFA500`, `#FFD700`). The level word is also stated in text (already planned). Coloured text must match its warning colour or be neutral, never another level's colour.
+
+**Attribution (Required by the Licence):** always "Met Office Weather Warnings" and "Met Office Weather Warnings © Crown Copyright 2026" (year of publication) when redistributing in the UK; the logo may be shown only under Met Office brand guidelines (ask `enquiries@metoffice.gov.uk`; do not use it until agreed). A link to the UK warnings overview, `https://www.metoffice.gov.uk/public/weather/warnings/`, is the Met Office link on every warning (the feed has no per-warning URL). Optional "What should I do" link, strongly encouraged for v1.1, must go to `https://www.metoffice.gov.uk/weather/warnings-and-advice/seasonal-advice`, prefixed "What should I do", suggested text "If you would like further advice and guidance on what to do in severe weather, click here". Also the DataHub FAQ's "Powered by Met Office data" on the acknowledgements page.
+
+**Timeliness (Required by the Licence):** a new or updated warning viewable within 5 min on average and never more than 10 min after the Met Office shows it; expired and cancelled warnings removed within 5 min on average, never more than 10. So: the 5-minute poll is the ceiling (not 30), the served path must not add minutes (no browser max-age on `/api/warnings`; the briefing serve memo is 30 s; the Coming up merge is per request after the day cache; client refresh cadence for any warning surface must be checked in W2/W3), and time-driven expiry is computed at serve time against `valid_to`, which W1a already does. A feed outage beyond ~10 min must show the stale line (§8).
+
+**Text content:** weather type(s), headline, what to expect and (v1.1, guidance) what should I do must be included **in full** wherever warning text is assembled. So the window popup row shows the full headline and the full `whatToExpect` list (not "first line"); `warningFurtherDetails` if shown is headed "Further details"; `warningUpdateDescription` may be shown. Weather type must be stated in text and visible on first access, including for overlapping warnings. Multiple types are listed in the order received (priority Rain, Thunderstorm, Wind, Snow, Lightning, Ice, Extreme Heat, Fog).
+
+**Status:** every warning clearly shows its status (issued, **updated**, cancelled) and severity; an updated warning is `ISSUED` with version >= 2.0 and **must be clearly labelled updated**. This is separate from the handoff's 24 h "↑ upgraded" flag: show "Updated" (with `warningUpdateDescription` in the popup) on any version >= 2.0, and keep "↑" only for a level rise. Cancelled and expired warnings are removed, not shown.
+
+**Ordering:** overlapping warnings sort by level (RED > AMBER > YELLOW), then `warningImpact`, then `warningLikelihood`, then `validFromDate`. W1c changes `WarningTimeline`'s sort (it is level then id today) and the chip order and the card triangle follow it.
+
+**Time:** UK local time, converted by the consuming app (BST/GMT suffix allowed).
+
+**Likelihood/impact:** optional; if shown, only as the Met Office's own matrix with its labels and palette (matrix image on page 9 of the PDF; the numeric-to-label mapping is not in the extractable text). **Decision: do not show likelihood or impact words in v1** (serve the raw numbers only). This replaces owner decision Q4's popup line until the matrix is reproduced from the PDF.
+
+**Map (conflicts with the handoff's W4):** warning geometry is optional, but if drawn it must be **colour-filled** in the level colour, labelled with type and severity when zoomed in, differentiated from non-UK land, and **must not be overlaid with any other information, including meteorological**. A dashed outline over the heat field is therefore not compliant. **Decision (planner default, owner may overrule): W4 ships the map warning chip only; no warning geometry on the map.** The server still stores geometry and does all matching.
+
+**Icons:** weather-type icons are optional and need prior design agreement with the Met Office; text is recommended. Until agreed, no type glyphs and no logo. The handoff's generic triangle in the level colour is also an "icon": text chips in the level colour are the safe form; ask the Met Office whether the triangle on a window card is acceptable and ship text-only until they say yes.
+
+**Inconsistent visual messaging (3.1c):** Red and Amber warnings must not be shown alongside inconsistent visual messaging; Yellow warnings (recommended to show) should avoid it. Whether our own star rating or "Go" style verdict beside an Amber or Red warning counts is **an open question for the Met Office** (the handoff's principle 1 keeps the rating beside the warning, unchanged). Mitigation is a display decision, never a rating change.
+
+**Other:** no forward propagation of warnings or the feed to other organisations (`/api/warnings` stays signed-in only, never public, no third-party sharing); emphasising weather must not imply a warning has been or will be issued; push notifications are out of scope (if ever built, Amber and Red are mandatory); a dedicated warnings page would need a seven-day overview (we have none); developers must follow Met Office changes to the service (3.2f).
+
+**Owner actions from this:** (1) reply to the Met Office with the placement mock and ask: the 3.1c question, whether text chips plus a generic level triangle are acceptable, and logo/brand guidelines; (2) read the Open Licence for non-commercial use; (3) screenshot page 9 of the PDF (the impact matrix) if likelihood/impact words are wanted later.
+
+### 12.1 The impact matrix (owner supplied PDF page 9, 2026-11-17): supersedes the "no likelihood/impact in v1" decision in §12
+
+The Met Office matrix carries **no words**: a 4×4 colour grid, axis labels "Likelihood" (vertical arrow up) and "Impact" (horizontal arrow right), and a tick on the warning's cell. So the Q4 owner decision stands in a compliant form: **show the matrix graphic in the window popup row only**, with the tick at (`warningLikelihood`, `warningImpact`), axis labels exactly "Likelihood" and "Impact", and an accessible text alternative ("Likelihood 3 of 4, impact 2 of 4"). Never invent words like "medium" or "minor". The grid (read from the page image; **verify against the PDF before the W3 build**; likelihood 1 bottom to 4 top, impact 1 left to 4 right), using the level palette plus matrix green `#c4e90c`:
+
+| Likelihood | Impact 1 | Impact 2 | Impact 3 | Impact 4 |
+|---|---|---|---|---|
+| 4 | green | yellow | amber | red |
+| 3 | green | yellow | amber | amber |
+| 2 | green | green | yellow | amber |
+| 1 | green | green | yellow | yellow |
+
+Consistency check against the recorded feed sample: likelihood 3, impact 2 is yellow, matching that warning's `warningLevel` YELLOW. A test asserts that the served level agrees with this grid for the fixtures (never recolour a warning from the grid; the served `warningLevel` always wins, the grid only draws the cell). The same grid orders overlapping warnings by impact then likelihood (§12 ordering). The page image is in the owner's PDF; do not copy Met Office artwork into the repo, draw the grid from these values.
+
+## 13. W0 closed with defaults (owner, 2026-11-17): no further Met Office contact
+
+The owner chose to proceed on sensible defaults rather than wait for the Met Office. Defaults, all reversible:
+- **Marks:** text chips in the official level colours (§12). No triangle, no type glyphs, no Met Office logo (all need their agreement). W2/W3 build the chip as text plus colour only; the accessible name is the full phrase ("Yellow warning of wind").
+- **Ratings beside warnings:** unchanged (principle 1). For Amber and Red the warning is the more prominent element on its row and card; ratings are never altered or hidden. Revisit only if the Met Office objects to clause 3.1c.
+- **Licence:** the owner subscribed on Weather DataHub (accepting its terms). The "business use only" remark stays unverified; the production flag-on remains the owner's decision, taken with the Open Licence in hand.
+- **Likelihood/impact:** the Met Office matrix graphic in the popup row only (§12.1).
+- **Map:** chip only, no geometry (§12).
+- **Attribution and links:** exactly as §12.
+
+## 14. W6: Ask PhotoCast mentions warnings (owner approved, 2026-11-17; after W5)
+
+Owner example: asking Ask about fresh snow at Hadrian's Wall, the answer says an Amber warning of snow is in force so expect a lot of snow.
+
+- **Scoring prompts never see warnings** (Sky Eval, batch evaluations): principle 1; a warning would silently mark down snow and big-sea scenes and invalidate the prompt-regression baselines.
+- **Ask gets the active warnings as read-only facts** in its snapshot (Pro and Admin, behind `photocast.ask.enabled`): level, types, headline, validity and the places or areas covered, from `WarningTimeline`/`WarningCoverage` (simulated excluded). Style guide rules for the prompt and the answer: quote the Met Office's level, type and headline verbatim (never paraphrase or soften a warning); never imply a warning exists, or will, when none is in force (§1.4); carry "Met Office Weather Warnings" attribution and the overview link; a cancelled or expired warning must be gone within the snapshot memo (30 s, inside the 10-minute licence bound); ratings and ranking in the answer are exactly as served.
+- **Tests:** an Ask golden test for the same question with and without a warning (only the warning sentence differs, no served rating changes), a no-warning-implied test (an answer never mentions a warning when none is in force), and an Ask prompt-regression case added only as a NEW case (never edit an existing assertion; the real-API run waits for the owner's approval).
+- **Separate, no model:** the "Fresh snow" hot topic and Coming up cross-reference ("Amber warning of snow covers this area") is deterministic server-side text from W3b.

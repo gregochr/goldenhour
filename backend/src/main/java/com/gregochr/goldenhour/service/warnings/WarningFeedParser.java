@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.WeatherWarningVersionEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -13,37 +15,43 @@ import org.xml.sax.InputSource;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.StringReader;
-import java.net.URI;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
- * The one place that reads the Met Office NSWWS wire formats. If the real API differs from what is assumed below,
- * this is the only class that has to change.
+ * The one place that reads the Met Office NSWWS v1.1 wire formats, recorded from the real feed (see
+ * {@code docs/engineering/weather-warnings-plan.md} section 11; fixtures under {@code test/resources/warnings/real}).
  *
- * <h2>Assumptions about the feed (not verified against the live API; no key was available when this was written)</h2>
+ * <h2>The feed</h2>
  * <ul>
- *   <li>The feed is Atom (RFC 4287): {@code <feed><entry>...</entry></feed>}, any namespace prefix.</li>
- *   <li>Each entry carries a {@code <link href="...">} to the warning's GeoJSON detail. A link whose
- *       {@code type} mentions {@code json} is preferred, then a {@code rel="alternate"} or rel-less link, then
- *       the first link with an href.</li>
- *   <li>The warning id and version are the last two path segments of that link (or, failing that, of the entry's
- *       {@code <id>}): {@code .../{warningId}/{warningVersion}}, the version being an integer.</li>
- *   <li>The detail is a GeoJSON {@code FeatureCollection} (or one bare {@code Feature}) whose first feature has a
- *       {@code MultiPolygon} (or {@code Polygon}) geometry and {@code properties} named {@code warningId},
- *       {@code warningVersion}, {@code warningStatus}, {@code warningLevel}, {@code warningLikelihood},
- *       {@code warningImpact}, {@code weatherType} (array), {@code validFromDate}, {@code validToDate},
- *       {@code issuedDate}, {@code modifiedDate}, {@code warningHeadline}, {@code whatToExpect} (array),
- *       {@code warningFurtherDetails} and {@code affectedAreas} (array). Dates are ISO-8601 with an offset or Z.</li>
- *   <li>Any status containing "cancel" (any case) is a cancellation; every other status (or none) is live.</li>
- *   <li>A live warning needs a level and a {@code validToDate}; a cancellation needs neither.</li>
+ *   <li>Atom (RFC 4287). Each {@code <entry>} is a change event: its {@code <id>} is {@code urn:uuid:<uuid>} (its
+ *       {@code rel="alternate"} link ends in the same uuid), and the uuid names an {@code updated/{uuid}} document.
+ *       The entry id is not a warning id.</li>
+ *   <li>The feed-level {@code rel="related"} link is the {@code issued/{uuid}} snapshot of every currently valid
+ *       warning. Its uuid is the feed's own id.</li>
  * </ul>
- * Weather types and levels are strings, never enums: unknown types are kept and counted ({@link #isKnownType}).
+ *
+ * <h2>The documents ({@code updated} and {@code issued})</h2>
+ * A GeoJSON {@code FeatureCollection} of N warnings (N may be zero). Each feature carries a geometry and
+ * {@code properties}: {@code warningId} (uuid), {@code warningVersion} (a decimal string such as "3.0"),
+ * {@code warningStatus} (ISSUED, CANCELLED or EXPIRED), {@code warningLevel} (upper case), {@code warningLikelihood}
+ * and {@code warningImpact} (integers), {@code weatherType} (array), {@code validFromDate}, {@code validToDate},
+ * {@code issuedDate}, {@code modifiedDate}, {@code warningHeadline}, {@code whatToExpect} (array),
+ * {@code whatShouldIDo}, {@code warningFurtherDetails}, {@code warningUpdateDescription} and {@code affectedAreas}
+ * (objects with a {@code regionCode}). ISSUED is live; CANCELLED and EXPIRED both mean ended (stored as
+ * CANCELLED, the source word kept). A feature that cannot be identified (no id, no version, an unknown status) is
+ * skipped and counted, never guessed at.
+ *
+ * <p>Weather types and levels are strings, never enums: unknown types are kept and counted
+ * ({@link #isKnownType}).
  */
 @Component
 public class WarningFeedParser {
@@ -52,39 +60,49 @@ public class WarningFeedParser {
     static final Set<String> KNOWN_WEATHER_TYPES = Set.of(
             "WIND", "RAIN", "SNOW", "ICE", "THUNDERSTORM", "FOG", "EXTREME_HEAT", "LIGHTNING");
 
-    /** The path segments a link needs to carry a warning id and a version. */
-    private static final int ID_SEGMENTS = 2;
+    private static final Logger LOG = LoggerFactory.getLogger(WarningFeedParser.class);
 
     private static final String ATOM_NAMESPACE = "http://www.w3.org/2005/Atom";
+
+    private static final String STATUS_ISSUED = "ISSUED";
+    private static final String STATUS_CANCELLED = "CANCELLED";
+    private static final String STATUS_EXPIRED = "EXPIRED";
+
+    private static final int VERSION_SCALE = 2;
+    private static final int MAX_ID_LENGTH = 100;
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    private static final int MAX_VERSION_INTEGER_DIGITS = 7;
+    private static final int MAX_SMALL_INT = 99;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
-     * One entry read from the Atom feed.
+     * The result of reading the Atom feed.
      *
-     * @param warningId      the warning id
-     * @param warningVersion the version
-     * @param detailUri      the https link to the GeoJSON detail
+     * @param updateIds the change-event uuids of the entries, in feed order
+     * @param issuedId  the uuid of the issued snapshot named by the feed's related link, or null when absent
+     * @param malformed how many entries had no readable uuid and were skipped
      */
-    public record FeedEntry(String warningId, int warningVersion, URI detailUri) {
+    public record FeedParse(List<String> updateIds, String issuedId, int malformed) {
     }
 
     /**
-     * The result of reading the feed.
+     * The warnings read from one {@code updated} or {@code issued} document.
      *
-     * @param entries   the entries with a usable id, version and link
-     * @param malformed how many entries had none of those and were skipped
+     * @param warnings  the parsed versions, unsaved ({@code receivedAt} and {@code simulated} are left to the caller)
+     * @param malformed how many features could not be read and were skipped
      */
-    public record FeedParse(List<FeedEntry> entries, int malformed) {
+    public record WarningParse(List<WeatherWarningVersionEntity> warnings, int malformed) {
     }
 
     /**
-     * Reads the Atom feed. An entry that cannot be identified is skipped and counted; a document that is not
+     * Reads the Atom feed. An entry without a readable uuid is skipped and counted; a document that is not
      * parseable at all fails the whole read.
      *
      * @param atomXml the raw feed
-     * @return the entries and the skipped count
-     * @throws WarningFeedException when the feed is not well-formed XML
+     * @return the change-event uuids, the issued snapshot uuid and the skipped count
+     * @throws WarningFeedException when the feed is not well-formed Atom XML
      */
     public FeedParse parseFeed(String atomXml) {
         Document document = readXml(atomXml);
@@ -92,75 +110,48 @@ public class WarningFeedParser {
         if (!ATOM_NAMESPACE.equals(root.getNamespaceURI()) || !"feed".equals(root.getLocalName())) {
             throw new WarningFeedException("Document root is not an Atom feed");
         }
-        NodeList nodes = document.getElementsByTagNameNS("*", "entry");
-        List<FeedEntry> entries = new ArrayList<>();
+        List<String> ids = new ArrayList<>();
         int malformed = 0;
+        NodeList nodes = document.getElementsByTagNameNS("*", "entry");
         for (int i = 0; i < nodes.getLength(); i++) {
-            FeedEntry entry = readEntry((Element) nodes.item(i));
-            if (entry == null) {
+            String id = entryUuid((Element) nodes.item(i));
+            if (id == null) {
                 malformed++;
             } else {
-                entries.add(entry);
+                ids.add(id);
             }
         }
-        return new FeedParse(entries, malformed);
+        return new FeedParse(ids, issuedUuid(root), malformed);
     }
 
     /**
-     * Reads one warning's GeoJSON detail into an (unsaved) entity. {@code receivedAt} and {@code simulated} are left
-     * for the caller.
+     * Reads a GeoJSON {@code FeatureCollection} (an {@code updated} or {@code issued} document) into unsaved
+     * entities. A single bare {@code Feature} is accepted too. A feature that cannot be identified is skipped and
+     * counted.
      *
-     * @param geoJson the raw detail
-     * @param entry   the feed entry it was fetched for; the detail's own id and version must agree with it
-     * @return the parsed version
-     * @throws WarningFeedException when the detail is malformed or disagrees with its entry
+     * @param geoJson the raw document
+     * @return the parsed versions and the skipped count
+     * @throws WarningFeedException when the document is not a JSON object
      */
-    public WeatherWarningVersionEntity parseDetail(String geoJson, FeedEntry entry) {
+    public WarningParse parseWarnings(String geoJson) {
         JsonNode root = readJson(geoJson);
-        JsonNode feature = root.has("features") ? root.path("features").path(0) : root;
-        JsonNode properties = feature.path("properties");
-        if (!properties.isObject()) {
-            throw new WarningFeedException("Warning detail has no properties");
+        List<WeatherWarningVersionEntity> rows = new ArrayList<>();
+        int malformed = 0;
+        List<JsonNode> features = new ArrayList<>();
+        if (root.path("features").isArray()) {
+            root.path("features").forEach(features::add);
+        } else if (root.has("properties")) {
+            features.add(root);
         }
-        String id = text(properties, "warningId");
-        if (id != null && !id.equals(entry.warningId())) {
-            throw new WarningFeedException("Warning detail id disagrees with its feed entry");
+        for (JsonNode feature : features) {
+            try {
+                rows.add(parseFeature(feature));
+            } catch (WarningFeedException e) {
+                LOG.warn("Skipping malformed warning feature: {}", e.getMessage());
+                malformed++;
+            }
         }
-        JsonNode version = properties.path("warningVersion");
-        if (version.isValueNode() && !version.isNull()
-                && !version.asText().trim().equals(Integer.toString(entry.warningVersion()))) {
-            throw new WarningFeedException("Warning detail version disagrees with its feed entry");
-        }
-        WeatherWarningVersionEntity row = new WeatherWarningVersionEntity();
-        row.setWarningId(entry.warningId());
-        row.setWarningVersion(entry.warningVersion());
-        String sourceStatus = text(properties, "warningStatus");
-        row.setSourceStatus(sourceStatus);
-        boolean cancelled = sourceStatus != null && sourceStatus.toLowerCase(Locale.ROOT).contains("cancel");
-        row.setStatus(cancelled ? WeatherWarningVersionEntity.STATUS_CANCELLED
-                : WeatherWarningVersionEntity.STATUS_ACTIVE);
-        row.setWarningLevel(text(properties, "warningLevel"));
-        row.setWeatherTypes(jsonArray(properties.path("weatherType")));
-        row.setLikelihood(text(properties, "warningLikelihood"));
-        row.setImpact(text(properties, "warningImpact"));
-        row.setValidFrom(instant(properties, "validFromDate"));
-        row.setValidTo(instant(properties, "validToDate"));
-        row.setIssuedAt(instant(properties, "issuedDate"));
-        row.setModifiedAt(instant(properties, "modifiedDate"));
-        row.setHeadline(text(properties, "warningHeadline"));
-        row.setWhatToExpect(jsonArray(properties.path("whatToExpect")));
-        row.setFurtherDetails(text(properties, "warningFurtherDetails"));
-        row.setAffectedAreas(jsonArray(properties.path("affectedAreas")));
-        row.setSourceUrl(truncate(entry.detailUri().toString()));
-        JsonNode geometry = feature.path("geometry");
-        if (geometry.isObject()) {
-            row.setGeometry(geometry.toString());
-            row.setSimplifiedGeometry(WarningGeometry.simplify(geometry));
-        }
-        if (!cancelled && (row.getWarningLevel() == null || row.getValidTo() == null)) {
-            throw new WarningFeedException("Live warning detail lacks a level or an end time");
-        }
-        return row;
+        return new WarningParse(rows, malformed);
     }
 
     /**
@@ -174,7 +165,7 @@ public class WarningFeedParser {
     }
 
     /**
-     * Reads back stored JSON array text (weather types, what to expect, affected areas).
+     * Reads back stored JSON array text (weather types, what to expect, region codes).
      *
      * @param jsonArrayText a stored array column, possibly null or unreadable
      * @return the strings as received; empty when none can be read
@@ -198,73 +189,143 @@ public class WarningFeedParser {
         return weatherType.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "_");
     }
 
-    private static FeedEntry readEntry(Element entry) {
-        List<Element> links = children(entry, "link");
-        Element link = preferredLink(links);
-        if (link == null) {
-            return null;
+    private static WeatherWarningVersionEntity parseFeature(JsonNode feature) {
+        JsonNode properties = feature.path("properties");
+        if (!properties.isObject()) {
+            throw new WarningFeedException("Warning feature has no properties");
         }
-        String href = link.getAttribute("href").trim();
-        String[] key = idAndVersion(href);
-        if (key == null) {
-            key = idAndVersion(childText(entry, "id"));
+        String id = text(properties, "warningId");
+        if (id == null || id.length() > MAX_ID_LENGTH) {
+            throw new WarningFeedException("Warning feature has no usable warningId");
         }
-        if (key == null) {
-            return null;
+        WeatherWarningVersionEntity row = new WeatherWarningVersionEntity();
+        row.setWarningId(id);
+        row.setWarningVersion(version(text(properties, "warningVersion")));
+        String sourceStatus = upper(text(properties, "warningStatus"));
+        boolean live = STATUS_ISSUED.equals(sourceStatus);
+        if (!live && !STATUS_CANCELLED.equals(sourceStatus) && !STATUS_EXPIRED.equals(sourceStatus)) {
+            throw new WarningFeedException("Warning feature has an unknown status");
         }
+        row.setSourceStatus(sourceStatus);
+        row.setStatus(live ? WeatherWarningVersionEntity.STATUS_ACTIVE
+                : WeatherWarningVersionEntity.STATUS_CANCELLED);
+        row.setWarningLevel(upper(text(properties, "warningLevel")));
+        row.setWeatherTypes(jsonArray(properties.path("weatherType")));
+        row.setLikelihood(smallInt(properties, "warningLikelihood"));
+        row.setImpact(smallInt(properties, "warningImpact"));
+        row.setValidFrom(instant(properties, "validFromDate"));
+        row.setValidTo(instant(properties, "validToDate"));
+        row.setIssuedAt(instant(properties, "issuedDate"));
+        row.setModifiedAt(instant(properties, "modifiedDate"));
+        row.setHeadline(text(properties, "warningHeadline"));
+        row.setWhatToExpect(jsonArray(properties.path("whatToExpect")));
+        row.setWhatShouldIDo(text(properties, "whatShouldIDo"));
+        row.setFurtherDetails(text(properties, "warningFurtherDetails"));
+        row.setUpdateDescription(text(properties, "warningUpdateDescription"));
+        row.setAffectedAreas(regionCodes(properties.path("affectedAreas")));
+        JsonNode geometry = feature.path("geometry");
+        if (geometry.isObject()) {
+            row.setGeometry(geometry.toString());
+            row.setSimplifiedGeometry(WarningGeometry.simplify(geometry));
+        }
+        if (live && (row.getWarningLevel() == null || row.getValidTo() == null)) {
+            throw new WarningFeedException("Live warning lacks a level or an end time");
+        }
+        return row;
+    }
+
+    private static BigDecimal version(String value) {
+        if (value == null) {
+            throw new WarningFeedException("Warning feature has no usable warningVersion");
+        }
+        BigDecimal parsed;
         try {
-            URI uri = URI.create(href);
-            if (!"https".equalsIgnoreCase(uri.getScheme())) {
-                return null;
-            }
-            return new FeedEntry(key[0], Integer.parseInt(key[1]), uri);
-        } catch (IllegalArgumentException e) {
-            return null;
+            parsed = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new WarningFeedException("Warning feature has an unreadable warningVersion", e);
         }
+        if (parsed.signum() < 0 || parsed.scale() < 0 || parsed.scale() > VERSION_SCALE
+                || parsed.precision() - parsed.scale() > MAX_VERSION_INTEGER_DIGITS) {
+            throw new WarningFeedException("Warning feature has an out-of-range warningVersion");
+        }
+        return parsed.setScale(VERSION_SCALE);
     }
 
-    private static Element preferredLink(List<Element> links) {
-        Element rel = null;
-        Element any = null;
-        for (Element link : links) {
-            if (link.getAttribute("href").isBlank()) {
-                continue;
-            }
-            if (link.getAttribute("type").toLowerCase(Locale.ROOT).contains("json")) {
-                return link;
-            }
-            String relation = link.getAttribute("rel");
-            if (rel == null && (relation.isEmpty() || "alternate".equals(relation))) {
-                rel = link;
-            }
-            if (any == null) {
-                any = link;
-            }
-        }
-        return rel != null ? rel : any;
+    private static String upper(String value) {
+        return value == null ? null : value.toUpperCase(Locale.ROOT);
     }
 
-    /** The last two non-empty path segments of a URL or id, the second being an integer; else null. */
-    private static String[] idAndVersion(String value) {
+    private static Integer smallInt(JsonNode properties, String field) {
+        String value = text(properties, field);
         if (value == null) {
             return null;
         }
-        String path = value.split("[?#]", 2)[0];
-        List<String> segments = new ArrayList<>();
-        for (String segment : path.split("/")) {
-            if (!segment.isBlank()) {
-                segments.add(segment);
+        try {
+            int parsed = Integer.parseInt(value);
+            return parsed < 0 || parsed > MAX_SMALL_INT ? null : parsed;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** The region codes of the {@code affectedAreas} objects as JSON array text, without duplicates; null if none. */
+    private static String regionCodes(JsonNode areas) {
+        if (!areas.isArray()) {
+            return null;
+        }
+        Set<String> codes = new LinkedHashSet<>();
+        for (JsonNode area : areas) {
+            String code = text(area, "regionCode");
+            if (code != null) {
+                codes.add(code);
             }
         }
-        if (segments.size() < ID_SEGMENTS) {
+        return MAPPER.valueToTree(new ArrayList<>(codes)).toString();
+    }
+
+    /** The uuid of an entry: from its {@code <id>} ({@code urn:uuid:...}), else its alternate link's last segment. */
+    private static String entryUuid(Element entry) {
+        String fromId = uuidIn(childText(entry, "id"));
+        if (fromId != null) {
+            return fromId;
+        }
+        for (Element link : children(entry, "link")) {
+            String relation = link.getAttribute("rel");
+            if (relation.isEmpty() || "alternate".equals(relation)) {
+                String fromLink = uuidIn(link.getAttribute("href"));
+                if (fromLink != null) {
+                    return fromLink;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The issued snapshot's uuid: the feed-level related link's last segment, else the feed's own id. */
+    private static String issuedUuid(Element feed) {
+        for (Element link : children(feed, "link")) {
+            if ("related".equals(link.getAttribute("rel"))) {
+                String fromLink = uuidIn(link.getAttribute("href"));
+                if (fromLink != null) {
+                    return fromLink;
+                }
+            }
+        }
+        return uuidIn(childText(feed, "id"));
+    }
+
+    /** The last uuid-shaped segment of a URL or URN, lower-cased; null when there is none. */
+    private static String uuidIn(String value) {
+        if (value == null) {
             return null;
         }
-        String version = segments.get(segments.size() - 1);
-        String id = segments.get(segments.size() - ID_SEGMENTS);
-        if (!version.matches("\\d{1,9}")) {
-            return null;
+        String found = null;
+        for (String segment : value.split("[/:?#]")) {
+            if (UUID_PATTERN.matcher(segment).matches()) {
+                found = segment.toLowerCase(Locale.ROOT);
+            }
         }
-        return new String[] {id, version};
+        return found;
     }
 
     private static List<Element> children(Element parent, String localName) {
@@ -301,11 +362,11 @@ public class WarningFeedParser {
         try {
             JsonNode root = MAPPER.readTree(json == null ? "" : json);
             if (root == null || !root.isObject()) {
-                throw new WarningFeedException("Warning detail is not a JSON object");
+                throw new WarningFeedException("Warning document is not a JSON object");
             }
             return root;
         } catch (JsonProcessingException e) {
-            throw new WarningFeedException("Warning detail is not valid JSON", e);
+            throw new WarningFeedException("Warning document is not valid JSON", e);
         }
     }
 
@@ -345,10 +406,5 @@ public class WarningFeedParser {
             return null;
         }
         return MAPPER.valueToTree(values).toString();
-    }
-
-    private static String truncate(String url) {
-        final int max = 500;
-        return url.length() <= max ? url : url.substring(0, max);
     }
 }

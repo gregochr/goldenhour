@@ -28,7 +28,7 @@ class WarningTimelineTest {
             String validTo) {
         WeatherWarningVersionEntity row = new WeatherWarningVersionEntity();
         row.setWarningId(id);
-        row.setWarningVersion(v);
+        row.setWarningVersion(java.math.BigDecimal.valueOf(v));
         row.setStatus(WeatherWarningVersionEntity.STATUS_ACTIVE);
         row.setWarningLevel(level);
         row.setReceivedAt(Instant.parse(receivedAt));
@@ -125,7 +125,7 @@ class WarningTimelineTest {
         ActiveWarning within = at("2031-03-10T09:00:00Z").active(List.of(v1, v2, v3), false).get(0);
         ActiveWarning after = at("2031-03-11T09:00:00Z").active(List.of(v1, v2, v3), false).get(0);
 
-        assertThat(within.version().getWarningVersion()).isEqualTo(3);
+        assertThat(within.version().getWarningVersion()).isEqualByComparingTo("3");
         assertThat(within.upgradedFrom()).isEqualTo("Yellow");
         assertThat(within.upgradedAt()).isEqualTo(Instant.parse("2031-03-10T08:00:00Z"));
         assertThat(after.upgradedFrom()).isNull();
@@ -180,7 +180,7 @@ class WarningTimelineTest {
 
         ActiveWarning a = at("2031-03-10T09:00:00Z").active(List.of(v2, v1), false).get(0);
 
-        assertThat(a.version().getWarningVersion()).isEqualTo(2);
+        assertThat(a.version().getWarningVersion()).isEqualByComparingTo("2");
         assertThat(a.upgradedFrom()).isEqualTo("Yellow");
     }
 
@@ -243,5 +243,61 @@ class WarningTimelineTest {
                 .orElseThrow();
         assertThat(x.upgradedFrom()).isEqualTo("Purple");
         assertThat(w.upgradedFrom()).isNull();
+    }
+
+    private static WeatherWarningVersionEntity decimal(String id, String v, String level, Integer impact,
+            Integer likelihood, String validFrom) {
+        WeatherWarningVersionEntity row = version(id, 1, level, "2031-03-10T06:00:00Z", "2031-03-14T00:00:00Z");
+        row.setWarningVersion(new java.math.BigDecimal(v));
+        row.setImpact(impact);
+        row.setLikelihood(likelihood);
+        row.setValidFrom(validFrom == null ? null : Instant.parse(validFrom));
+        return row;
+    }
+
+    @Test
+    @DisplayName("versions are compared numerically: 10.0 is later than 9.0 (a text sort would pick 9.0)")
+    void versionsCompareNumerically() {
+        var nine = decimal("W", "9.0", "YELLOW", 2, 2, null);
+        var ten = decimal("W", "10.0", "YELLOW", 2, 2, null);
+
+        ActiveWarning a = at("2031-03-10T09:00:00Z").active(List.of(ten, nine), false).get(0);
+
+        assertThat(a.version().getWarningVersion()).isEqualByComparingTo("10");
+    }
+
+    @Test
+    @DisplayName("updated is true from version 2.0 on, and false for 1.0 and for 1.5")
+    void updatedFlag() {
+        var first = decimal("A", "1.0", "YELLOW", 1, 1, null);
+        var middle = decimal("B", "1.5", "YELLOW", 1, 1, null);
+        var second = decimal("C", "2.0", "YELLOW", 1, 1, null);
+        var tenth = decimal("D", "10.0", "YELLOW", 1, 1, null);
+
+        List<ActiveWarning> active = at("2031-03-10T09:00:00Z").active(List.of(first, middle, second, tenth), false);
+
+        assertThat(active).extracting(a -> a.version().getWarningId() + a.updated())
+                .containsExactlyInAnyOrder("Afalse", "Bfalse", "Ctrue", "Dtrue");
+    }
+
+    @Test
+    @DisplayName("ordering: level, then impact, then likelihood, then earliest validFrom, then id; gaps rank last")
+    void styleGuideOrdering() {
+        var redLow = decimal("A", "1.0", "RED", 1, 1, null);
+        var amberHighImpact = decimal("B", "1.0", "AMBER", 4, 1, null);
+        var amberLowImpactHighLikelihood = decimal("C", "1.0", "AMBER", 2, 4, null);
+        var amberLowImpactLowLikelihood = decimal("D", "1.0", "AMBER", 2, 1, null);
+        var yellowEarly = decimal("E", "1.0", "YELLOW", 2, 2, "2031-03-10T07:00:00Z");
+        var yellowLate = decimal("F", "1.0", "YELLOW", 2, 2, "2031-03-11T07:00:00Z");
+        var yellowNoStart = decimal("G", "1.0", "YELLOW", 2, 2, null);
+        var yellowNoStartToo = decimal("H", "1.0", "YELLOW", 2, 2, null);
+        var yellowNoMatrix = decimal("I", "1.0", "YELLOW", null, null, null);
+
+        List<ActiveWarning> active = at("2031-03-10T09:00:00Z").active(List.of(yellowNoMatrix, yellowNoStartToo,
+                yellowNoStart, yellowLate, yellowEarly, amberLowImpactLowLikelihood, amberLowImpactHighLikelihood,
+                amberHighImpact, redLow), false);
+
+        assertThat(active).extracting(a -> a.version().getWarningId())
+                .containsExactly("A", "B", "C", "D", "E", "F", "G", "H", "I");
     }
 }

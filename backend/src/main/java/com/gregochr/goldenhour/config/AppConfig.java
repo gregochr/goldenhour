@@ -301,7 +301,9 @@ public class AppConfig {
     /**
      * Proxy for the Met Office NSWWS warnings API backed by {@link RestClient}, built from
      * {@link #restClientBuilder()} so it carries the shared timeouts. The API key rides only in the
-     * {@code x-api-key} default header and is read once at startup. No Resilience4j retry: the next poll is the retry.
+     * configured header ({@code photocast.warnings.api-key-header}, default {@code apikey}), sent only when a key
+     * exists, and is read once at startup. The base URL is the configured NSWWS v1.1 root. No Resilience4j retry:
+     * the next poll is the retry.
      *
      * @param properties the warnings configuration (supplies the API key)
      * @return a typed proxy implementing {@link MetOfficeWarningClient}
@@ -309,9 +311,13 @@ public class AppConfig {
     @Bean
     MetOfficeWarningClient metOfficeWarningClient(WarningsProperties properties) {
         RestClient.Builder builder = restClientBuilder();
+        String baseUrl = properties.getBaseUrl();
+        if (baseUrl != null && !baseUrl.isBlank()) {
+            builder.baseUrl(baseUrl.trim().replaceAll("/+$", ""));
+        }
         String key = properties.getApiKey();
         if (key != null && !key.isBlank()) {
-            builder.defaultHeader("x-api-key", key);
+            builder.defaultHeader(properties.getApiKeyHeader(), key);
         }
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(builder.build()))
                 .build().createClient(MetOfficeWarningClient.class);

@@ -112,7 +112,7 @@ class ServedBriefingAssemblerWarningGoldenTest {
     private static WeatherWarningVersionEntity version(String id, int v, String status, boolean simulated) {
         WeatherWarningVersionEntity w = new WeatherWarningVersionEntity();
         w.setWarningId(id);
-        w.setWarningVersion(v);
+        w.setWarningVersion(java.math.BigDecimal.valueOf(v));
         w.setStatus(status);
         w.setWarningLevel("Amber");
         w.setGeometry(BOX);

@@ -1,11 +1,15 @@
-# Met Office weather warnings (backend, W1a)
+# Met Office weather warnings (backend, W1a to W1c)
 
-Behaviour as built in phases W1a and W1b of `docs/engineering/weather-warnings-plan.md` (the plan and its §8 review
+Behaviour as built in phases W1a, W1b and W1c of `docs/engineering/weather-warnings-plan.md` (the plan and its §8 review
 amendments remain the product and design record). W1a is **backend only**: ingest, storage, the active-at-T rule,
 location coverage and three endpoints. W1b adds the serve-time `warningIds` overlay (briefing windows and
 `/api/forecast` location rows) and the Operations panel. Nothing here touches a rating, verdict, Best pick, count,
 heat field or Claude prompt (no Claude calls at all). **No user-facing warning UI exists yet** (W2 onward): the ids are
 served and unused by any reader screen.
+
+W1c (this revision) rewrote the feed handling to the **real NSWWS v1.1 shape** recorded in plan section 11 and applied
+the style-guide rules of section 12 (ordering, the Updated flag, the configured Met Office link and attribution).
+The W1a "assumed feed shape" section is gone: the shape is now recorded, with real samples as fixtures.
 
 Everything is behind `photocast.warnings.enabled` (default **false**); the flag stays off in production until the
 guides ship (W5) and the owner has answered the licence question.
@@ -14,12 +18,13 @@ guides ship (W5) and the owner has answered the licence question.
 
 | Piece | Role |
 |---|---|
+| `V225__weather_warning_real_feed_shape.sql` | W1c: `warning_version` becomes `NUMERIC(10,2)` (the unique key and the `(warning_id, warning_version DESC)` index follow), `likelihood` and `impact` become `INTEGER`, adds `update_description` and `what_should_i_do`, drops `source_url`. `status` stays `ACTIVE` or `CANCELLED` (see "Status mapping"). |
 | `V224__weather_warning_version.sql` | Insert-only table `weather_warning_version`, unique `(warning_id, warning_version)`, plus the `weather_warning_poll` scheduler row (seeded `DISABLED_BY_CONFIG`, FIXED_DELAY 300000 ms, `Europe/London`). |
 | `entity/WeatherWarningVersionEntity` | Every column `updatable = false`. No `@Enumerated` column, so no `LocalH2EnumWidener` line. |
 | `repository/WeatherWarningVersionRepository` | Extends the bare `Repository` (not `JpaRepository`): `save`, `existsBy...`, a read query, `count`. A test pins that nothing else (no delete, update, saveAll) is declared. |
 | `config/WarningsProperties` | `photocast.warnings.*`. `toString()` omits the key. |
-| `client/MetOfficeWarningClient` | `@HttpExchange`; both calls take an absolute `URI`. Bean in `AppConfig` built from `restClientBuilder()` (shared 10 s / 30 s timeouts) with default header `x-api-key` when a key is set. No Resilience4j retry: the next poll is the retry. |
-| `WarningFeedParser` | **The only class that reads the feed or detail wire format** (see "Assumed feed shape"). |
+| `client/MetOfficeWarningClient` | `@HttpExchange`: `getFeed()` (`/objects/feed/`), `getUpdated(uuid)` (`/objects/updated/{uuid}/`), `getIssued(uuid)` (`/objects/issued/{uuid}/`); every path ends in a slash. Bean in `AppConfig` built from `restClientBuilder()` (shared 10 s / 30 s timeouts) with `photocast.warnings.base-url` as the base and the key header (`photocast.warnings.api-key-header`, default `apikey`) sent only when a key is set. No Resilience4j retry: the next poll is the retry. |
+| `WarningFeedParser` | **The only class that reads the feed or document wire format** (see "The feed shape"). |
 | `WarningPollingJob` | The scheduler target (`registerJobTarget("weather_warning_poll", ...)`). |
 | `WarningPollStatus` | In-memory record of the last attempt, last success, counts, failure reason, unknown-type tallies. Resets on restart. |
 | `WarningTimeline` | Pure, `Clock`-injected active-at-T rule and the upgrade flag. |
@@ -31,18 +36,27 @@ guides ship (W5) and the owner has answered the licence question.
 ## The poll
 
 `WarningPollingJob.poll()` self-gates on the flag, refuses an overlapping run (an `AtomicBoolean`; Run Now plus the
-schedule can collide) and reports a `SchedulerFireOutcome`. One poll: read the Atom feed; for each entry whose
-`(warning_id, version)` is **not stored**, fetch its detail and insert it in **its own transaction** (a
-`TransactionTemplate`). No watermark; idempotency comes only from the unique key. A collision with a racing writer
-(`DataIntegrityViolationException`) counts as already stored. `received_at` is the poller's real clock.
+schedule can collide) and reports a `SchedulerFireOutcome`. One poll: read the Atom feed (`/objects/feed/`); each entry
+is a **change-event uuid**, and for every entry not yet processed fetch `updated/{uuid}` (a GeoJSON FeatureCollection of
+N warnings) and insert each feature as one version row **in its own transaction** (a `TransactionTemplate`).
+Processed entry ids are tracked **in memory** (`seenEntryIds`, pruned to the ids still in the feed), so a repeat poll
+fetches nothing; an entry whose fetch failed is not marked processed and is retried. Idempotency across restarts comes
+from the unique key (`existsBy...` first, then a `DataIntegrityViolationException` from a racing writer counts as
+already stored). `received_at` is the poller's real clock.
 
+- **Issued snapshot.** The poll also loads `issued/{uuid}` (the snapshot of every currently valid warning, the uuid from
+  the feed's `rel="related"` link, else the feed id) when no real (non-simulated) row is stored, on the **first
+  successful poll since startup** (downtime unknown), and after a gap longer than the feed's 24 h memory
+  (`WarningPollingJob.FEED_MEMORY`). A restart therefore re-reads the snapshot once; harmless, as the unique key makes
+  it a no-op. A feed without a related link or id skips the snapshot.
+- The poll needs an **API key** (`NOT_CONFIGURED` otherwise); the base URL has a default.
 - **Never deletes. Never infers a cancellation from absence** in the feed: a cancellation is a stored `CANCELLED`
   version. A stored cancellation with no earlier versions shows nothing.
-- A detail that answers **404 or 410** (the Met Office expires an update after about a day) is skipped and counted,
-  not a failure. A **malformed** entry or detail is skipped and counted, never fails the poll.
+- An update that answers **404 or 410** (the Met Office expires an update after about a day) is skipped, counted and
+  marked processed, not a failure. A **malformed** entry, document or feature is skipped and counted, never fails the poll.
 - A failure ends the poll as FAILED with a reason kept for Operations: `NOT_CONFIGURED`, `UNAUTHORISED` (401 or
-  403), `RATE_LIMITED` (429), `UNREACHABLE`, `MALFORMED_FEED`, `HTTP_n`. On 401/403/429 during details the loop stops
-  at once; any other detail failure lets the remaining entries be stored and the first reason stands. A failed poll
+  403), `RATE_LIMITED` (429), `UNREACHABLE`, `MALFORMED_FEED`, `HTTP_n`. On 401/403/429 during the snapshot or updates the loop stops
+  at once; any other fetch failure lets the remaining entries be stored and the first reason stands. A failed poll
   never records a success and **never blanks stored warnings**.
 - `ServedBriefingEpoch.bump()` is called **once, after the last insert has committed, and only when a version was
   stored** (no transaction is open at that point, so the bump is immediate). The ETag is body-hashed and follows by
@@ -68,8 +82,13 @@ than the version before it, it carries `upgradedFrom` (the previous level) and `
 `received_at`) for 24 h after `received_at`, against the injected clock. The flag belongs to the **latest raising
 version**: a later area- or time-only version keeps it until the 24 h end, a later downgrade below the raised level
 clears it, and downgrades and edits alone never raise it. `stale` also uses the injected clock, so a rewound admin
-normally sees `stale: true` (known and accepted). Simulated rows are excluded entirely unless the caller asks (admin). Results are ordered most severe
-first, then by warning id. Levels and weather types are strings, never enums.
+normally sees `stale: true` (known and accepted). Simulated rows are excluded entirely unless the caller asks (admin). Levels and weather types are strings, never enums.
+
+**Versions are decimals** (`BigDecimal`, "3.0"), compared numerically everywhere (10.0 is later than 9.0). **Order**
+(style guide, plan section 12): level (Red, Amber, Yellow), then `impact`, then `likelihood` (highest first, a missing
+value last), then `valid_from` (earliest first, missing last), then warning id. **Updated flag:** `ActiveWarning.updated()`
+is true when the version in force is 2.0 or later (an ISSUED warning that has been re-issued); it is served as
+`updated` and is separate from the 24 h upgrade flag above (a level rise), which is unchanged.
 
 ## Coverage (`WarningCoverage`)
 
@@ -88,6 +107,14 @@ last one is older than `photocast.warnings.poll-stale-minutes` (30; exactly 30 m
 feature is off: an empty list must never read as an all-clear. When stale, surfaces must show "Warnings last
 checked HH:MM, check the Met Office" and suppress the "none" state (frontend, W2+). Stored warnings stay shown until
 `valid_to`, so a withdrawn warning can linger during an outage.
+
+**Served fields (W1c).** `WarningDto`: `warningVersion` (a string such as "3.0"), `level` (upper case), `likelihood` and
+`impact` (the **raw feed integers**, never words), `headline`, `whatToExpect` (every line, in full), `whatShouldIDo`,
+`furtherDetails`, `updateDescription`, `updated`, `affectedAreas` (region codes such as NE, NW, YH), `geometry`,
+`upgradedFrom`, `upgradedAt`, `locationIds`. There is no per-warning URL in the feed, so the response carries
+`metOfficeUrl` (`photocast.warnings.public-url`, default the Met Office public warnings page) and `attribution`
+(`photocast.warnings.attribution`, default "Met Office Weather Warnings \u00a9 Crown Copyright 2026"), both present even
+when the feature is off. `/api/warnings` is revalidated (ETag), never given a browser max-age, for the licence timeliness rule.
 
 Simulation (`POST /api/admin/warnings/simulate`) inserts a clearly simulated row (`simulated = true`, id `SIM-xxxxxxxx`,
 `source_status = SIMULATED`, a square of 0.5 degrees around the given point) and bumps the epoch. It is visible only
@@ -142,37 +169,37 @@ force with its simulated and upgraded flags and how many enabled places it cover
 posting to `POST /api/admin/warnings/simulate`. Not a dialog; Tailwind only; reads the real clock only to format
 instants. The endpoint 403s a non-admin, and the tab sits in the admin-only Operations area.
 
-## Assumed feed shape (UNVERIFIED against the live API)
+## The feed shape (recorded from the real v1.1 feed, plan section 11)
 
-No NSWWS key was available when W1a was written, and the public documentation page does not state the wire
-format. Everything below is an assumption confined to `WarningFeedParser`; a mismatch with the real API is a
-one-class fix (and a fixture update under `backend/src/test/resources/warnings/`, which are hand-written to this shape,
-not recordings).
+Base `https://data.hub.api.metoffice.gov.uk/nswws/v1.1`, header `apikey` (both configurable), paths end in a slash.
+Everything below lives in `WarningFeedParser`.
 
-- The feed is Atom; entries are `<entry>` in any namespace. The feed URL is `photocast.warnings.base-url`
-  (supplied with the key); detail links are taken from the entries (https only).
-- Each entry has a `<link href>` to the GeoJSON detail; a link with a `type` containing `json` wins, then
-  `rel="alternate"` or rel-less, then the first with an href.
-- **The warning id and version are the last two path segments of that link** (`.../{warningId}/{warningVersion}`,
-  version an integer of at most 9 digits), falling back to the entry `<id>`. This is the weakest assumption: if the
-  real link does not carry them the prefilter finds nothing identifiable (every entry counts as malformed, visibly).
-- The detail is a GeoJSON `FeatureCollection` (or one bare `Feature`); the first feature's `geometry` is a
-  `MultiPolygon` (or `Polygon`) and its `properties` are `warningId`, `warningVersion`, `warningStatus`,
-  `warningLevel`, `warningLikelihood`, `warningImpact`, `weatherType` (array; a lone string is accepted),
-  `validFromDate`, `validToDate`, `issuedDate`, `modifiedDate` (ISO-8601 with an offset or Z), `warningHeadline`,
-  `whatToExpect` (array), `warningFurtherDetails`, `affectedAreas` (array).
-- A detail whose own `warningId` or `warningVersion` disagrees with its entry is refused (counted malformed).
-- Any `warningStatus` containing "cancel" (any case) is a cancellation; everything else is live. A live warning
-  needs a level and a `validToDate`; a cancellation needs neither.
-- The known weather types (glyph set), kept in `WarningFeedParser.KNOWN_WEATHER_TYPES`: WIND, RAIN, SNOW, ICE,
-  THUNDERSTORM, FOG, EXTREME_HEAT, LIGHTNING (case and punctuation ignored). The handoff's weather-type table was not
-  available to the builder; reconcile this constant against it.
-- The `Accept` headers sent are `application/atom+xml` (feed) and `application/geo+json, application/json` (detail).
-- XML is parsed with DOCTYPEs refused (no XXE).
+- **Feed:** Atom. Each `<entry>` is a change event: its `<id>` is `urn:uuid:<uuid>` (its alternate link ends in the
+  same uuid) and names an `updated/{uuid}` document. An entry with no readable uuid counts as malformed. The feed-level
+  `rel="related"` link is the `issued/{uuid}` snapshot.
+- **Documents (`updated` and `issued`):** a GeoJSON `FeatureCollection` of N warnings (N may be 0), one version row per
+  feature. Feature `properties`: `warningId` (uuid), `warningVersion` (decimal **string**, "3.0"), `warningStatus`
+  (ISSUED, CANCELLED, EXPIRED), `warningLevel` (upper case), `warningLikelihood` and `warningImpact` (integers),
+  `weatherType` (array), `validFromDate`, `validToDate`, `issuedDate`, `modifiedDate`, `warningHeadline`,
+  `whatToExpect` (array, kept in full), `whatShouldIDo`, `warningFurtherDetails`, `warningUpdateDescription`,
+  `affectedAreas` (objects; the `regionCode`s are stored). The feature's `geometry` is a MultiPolygon.
+- **Status mapping:** ISSUED is live (`ACTIVE`); CANCELLED and EXPIRED both mean ended and are stored as `CANCELLED`, with
+  `source_status` keeping the feed's own word (so EXPIRED stays distinguishable and the CHECK constraint is
+  unchanged; no `LocalH2EnumWidener` line is needed). A feature with an unknown or missing status, no usable
+  `warningId`, or a non-numeric version is skipped and counted malformed, never guessed at. A live warning needs a
+  level and a `validToDate`.
+- An expired `updated/{uuid}` answers 404 or 410 (counted, not a failure).
+- The known weather types (glyph set), in `WarningFeedParser.KNOWN_WEATHER_TYPES`: WIND, RAIN, SNOW, ICE,
+  THUNDERSTORM, FOG, EXTREME_HEAT, LIGHTNING (case and punctuation ignored); others are kept and counted.
+- `Accept` headers: `application/atom+xml` (feed) and `application/vnd.geo+json, application/geo+json,
+  application/json` (documents). XML is parsed with DOCTYPEs refused (no XXE).
 
 ## Tests
 
-Fixtures under `backend/src/test/resources/warnings/` (Yellow wind, an Amber upgrade pair, a cancellation, SNOW+ICE, an
-unknown type, a polygon with a hole, a malformed entry). The live feed is never called; the client is mocked, and its
-header wiring is proven against a loopback server. The migration is proven only in CI
-(`WeatherWarningVersionMigrationTest`, Testcontainers; no Docker locally).
+Fixtures under `backend/src/test/resources/warnings/`: `real/` holds the **real recorded samples** (`feed.xml`, an empty
+`issued.json`, `updated-1.json` with one EXPIRED snow warning); the rest are synthetic, derived from them
+(`issued-snapshot.json`, `updated-issued-v2.json`, `updated-cancelled.json`, `updated-multi.json` with versions 9.0 and
+10.0 and three unreadable features, `feed-three-entries.xml`). The live feed is never called; the client is mocked, and
+its URL and header wiring are proven against a loopback server. The migrations are proven only in CI
+(`WeatherWarningVersionMigrationTest` for V224 and `WeatherWarningRealFeedShapeMigrationTest` for V225, Testcontainers;
+no Docker locally).

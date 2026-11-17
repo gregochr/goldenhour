@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -29,10 +30,18 @@ public interface WeatherWarningVersionRepository extends Repository<WeatherWarni
      * Whether a version is already stored.
      *
      * @param warningId      the warning id
-     * @param warningVersion the version
+     * @param warningVersion the version, compared numerically ({@code 3.0} equals {@code 3.00})
      * @return true when stored
      */
-    boolean existsByWarningIdAndWarningVersion(String warningId, int warningVersion);
+    boolean existsByWarningIdAndWarningVersion(String warningId, BigDecimal warningVersion);
+
+    /**
+     * Whether any real (non-simulated) warning version is stored; false on a database that has never ingested the
+     * feed, which is when the poller loads the issued snapshot.
+     *
+     * @return true when at least one real version is stored
+     */
+    boolean existsBySimulatedFalse();
 
     /**
      * Every stored version of every warning that has at least one version still valid after {@code instant}, so the
